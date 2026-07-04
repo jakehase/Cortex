@@ -15,12 +15,14 @@ const PERSISTED_SCHEMA_VERSION = 1;
 const MAX_ANALYTICS_HISTORY = 25;
 const MAX_COMMAND_LEDGER_HISTORY = 40;
 const MAX_CLIENT_WORKFLOW_ACKS = 20;
+const MAX_PERSISTED_CLIENT_RECEIPTS = 30;
 const MIN_SCHEDULE_INTERVAL_MS = 60 * 1000;
 const MAX_SCHEDULE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SOURCE_CLOCK_SKEW_MS = 2 * 60 * 1000;
 const DEFAULT_VOLATILE_CLAIM_TTL_MS = 5 * 60 * 1000;
 const MAX_VOLATILE_CLAIMS = 20;
 const TERMINAL_COMMAND_STATUSES = new Set(["completed", "acked", "applied", "skipped", "cancelled"]);
+const CLIENT_WORKFLOW_RECEIPT_STATUSES = new Set(["pending", "delivered", "acknowledged", "accepted", "rejected", "expired"]);
 const PROVIDER_ACK_STATUSES = new Set(["missing", "pending", "accepted", "committed", "rejected", "expired"]);
 const CLIENT_RUNTIME_TARGETS = new Set(["web", "desktop", "mobile", "cli", "agent", "api"]);
 const CLIENT_WORKFLOW_MODES = new Set(["auto", "manual", "defer", "observe"]);
@@ -209,6 +211,162 @@ function normalizeLifecycleCommand(value) {
   }
 
   return LIFECYCLE_COMMAND_ALIASES.get(normalized) || (LIFECYCLE_COMMANDS.has(normalized) ? normalized : null);
+}
+
+function normalizeEpisodicLogAdoption(input, generatedAt) {
+  const request = input.request && typeof input.request === "object" ? input.request : {};
+  const clientState = input.clientState && typeof input.clientState === "object" ? input.clientState : {};
+  const memoryWorkflow = input.memoryWorkflow && typeof input.memoryWorkflow === "object" ? input.memoryWorkflow : {};
+  const source =
+    (input.freshnessGateAdoption && typeof input.freshnessGateAdoption === "object" && input.freshnessGateAdoption) ||
+    (input.episodicLog?.freshnessGateAdoption && typeof input.episodicLog.freshnessGateAdoption === "object" && input.episodicLog.freshnessGateAdoption) ||
+    (request.freshnessGateAdoption && typeof request.freshnessGateAdoption === "object" && request.freshnessGateAdoption) ||
+    (clientState.freshnessGateAdoption && typeof clientState.freshnessGateAdoption === "object" && clientState.freshnessGateAdoption) ||
+    (memoryWorkflow.episodicLogAdoption && typeof memoryWorkflow.episodicLogAdoption === "object" && memoryWorkflow.episodicLogAdoption) ||
+    null;
+
+  if (!source) {
+    return null;
+  }
+
+  const generatedMs = Date.parse(generatedAt);
+  const acceptedAt = toIsoTimestamp(source.acceptedAt || source.memoryAcceptance?.acceptedAt, null);
+  const acceptedMs = acceptedAt ? Date.parse(acceptedAt) : NaN;
+  const requiredStepIds = normalizeStringList(
+    source.requiredStepIds || source.memoryWorkflow?.requiredAckStepIds || source.requiredClientState?.requiredStepIds
+  );
+  const acceptedStepIds = normalizeStringList(
+    source.acceptedStepIds || source.memoryAcceptance?.acceptedStepIds || source.memoryWorkflow?.acceptedStepIds
+  );
+  const acceptedValidationCodes = normalizeStringList(
+    source.acceptedValidationCodes || source.memoryAcceptance?.acceptedValidationCodes
+  );
+  const blockedBy = normalizeStringList(source.blockedBy || source.blockers);
+  const warnings = normalizeStringList(source.warnings);
+  const state = normalizeString(source.state || source.status)?.toLowerCase().replace(/_/g, "-") || "preview-ready";
+  const accepted = normalizeBoolean(source.accepted ?? source.memoryAcceptance?.accepted, false);
+  const route = normalizeString(source.route || source.targetRoute || source.memoryWorkflow?.route);
+  const acknowledgementRoute = normalizeString(source.acknowledgementRoute || source.ackRoute || source.memoryWorkflow?.acknowledgementRoute);
+  const receiptId = normalizeString(source.receiptId || source.memoryAcceptance?.receiptId || source.acknowledgement?.receiptId);
+  const previewId = normalizeString(source.previewId || source.memoryAcceptance?.previewId || source.proofToken);
+  const validation = [];
+
+  if (source.contract && source.contract !== "episodic-log.freshness-gate-adoption.v1") {
+    validation.push({
+      code: "EPISODIC_LOG_ADOPTION_CONTRACT_UNSUPPORTED",
+      severity: "degraded",
+      message: "Episodic log adoption packet used an unsupported contract version.",
+      route: "memory-manager/freshness-gate/client-workflow",
+      value: source.contract,
+      retryable: true
+    });
+  }
+  if (!route) {
+    validation.push({
+      code: "EPISODIC_LOG_ADOPTION_ROUTE_MISSING",
+      severity: accepted ? "fatal" : "degraded",
+      message: "Episodic log adoption did not include a client route.",
+      route: "memory-manager/freshness-gate/client-workflow",
+      retryable: true
+    });
+  }
+  if ((accepted || state === "accepted") && !receiptId) {
+    validation.push({
+      code: "EPISODIC_LOG_ADOPTION_RECEIPT_MISSING",
+      severity: "fatal",
+      message: "Accepted episodic log adoption requires a receipt id before memory freshness can commit.",
+      route: "memory-manager/freshness-gate/client-workflow",
+      retryable: true
+    });
+  }
+  if (acceptedAt && Number.isFinite(acceptedMs) && acceptedMs > generatedMs + MAX_SOURCE_CLOCK_SKEW_MS) {
+    validation.push({
+      code: "EPISODIC_LOG_ADOPTION_FROM_FUTURE",
+      severity: "fatal",
+      message: "Episodic log adoption acceptance time is beyond the hosted-kernel clock-skew allowance.",
+      route: "memory-manager/freshness-gate/client-workflow",
+      value: acceptedAt,
+      retryable: false
+    });
+  }
+  if (blockedBy.length > 0) {
+    validation.push({
+      code: "EPISODIC_LOG_ADOPTION_BLOCKED",
+      severity: accepted ? "fatal" : "degraded",
+      message: "Episodic log adoption reported unresolved blockers.",
+      route: route || "memory-manager/freshness-gate/client-workflow",
+      value: blockedBy,
+      retryable: true
+    });
+  }
+
+  const missingAcceptedStepIds = accepted
+    ? requiredStepIds.filter((stepId) => !acceptedStepIds.includes(stepId))
+    : requiredStepIds;
+  if (accepted && missingAcceptedStepIds.length > 0) {
+    validation.push({
+      code: "EPISODIC_LOG_ADOPTION_STEP_COVERAGE_INCOMPLETE",
+      severity: "degraded",
+      message: "Accepted episodic log adoption did not acknowledge all required handoff steps.",
+      route: route || "memory-manager/freshness-gate/client-workflow",
+      value: missingAcceptedStepIds,
+      retryable: true
+    });
+  }
+
+  return {
+    schemaVersion: PERSISTED_SCHEMA_VERSION,
+    contract: "memory-freshness-gate.episodic-log-adoption-input.v1",
+    sourceContract: normalizeString(source.contract),
+    adoptionId: normalizeString(source.adoptionId || source.id),
+    sourceSurface: normalizeString(source.sourceSurface) || "episodic-log-adapter",
+    generatedAt: toIsoTimestamp(source.generatedAt, null),
+    observedAt: generatedAt,
+    requestId: normalizeString(source.requestId),
+    sessionId: normalizeString(source.sessionId),
+    correlationId: normalizeString(source.correlationId),
+    continuationKey: normalizeString(source.continuationKey),
+    state,
+    accepted,
+    acceptedAt,
+    receiptId,
+    previewId,
+    handoffId: normalizeString(source.handoffId),
+    channel: normalizeString(source.channel),
+    route,
+    acknowledgementRoute,
+    commitIntent: normalizeString(source.commitIntent),
+    commitReadiness: normalizeString(source.commitReadiness),
+    acceptanceRequired: normalizeBoolean(source.acceptanceRequired, requiredStepIds.length > 0),
+    actorId: normalizeString(source.actorId),
+    requiredStepIds,
+    acceptedStepIds,
+    missingAcceptedStepIds,
+    acceptedValidationCodes,
+    providerSyncBatchId: normalizeString(source.providerSyncBatchId),
+    providerNextCursor: normalizeString(source.providerNextCursor),
+    expectedRevision: Number.isFinite(Number(source.expectedRevision)) ? Number(source.expectedRevision) : null,
+    nextRevision: Number.isFinite(Number(source.nextRevision)) ? Number(source.nextRevision) : null,
+    memoryWorkflow: source.memoryWorkflow && typeof source.memoryWorkflow === "object" ? source.memoryWorkflow : {},
+    memoryAcceptance: source.memoryAcceptance && typeof source.memoryAcceptance === "object" ? source.memoryAcceptance : {},
+    memoryWorkflowAcks: Array.isArray(source.memoryWorkflowAcks) ? source.memoryWorkflowAcks : [],
+    statePatch: source.statePatch && typeof source.statePatch === "object" ? source.statePatch : null,
+    blockedBy,
+    warnings,
+    validation,
+    validationSummary: {
+      valid: validation.every((item) => item.severity !== "fatal"),
+      fatalCount: validation.filter((item) => item.severity === "fatal").length,
+      degradedCount: validation.filter((item) => item.severity === "degraded").length
+    },
+    proofToken: normalizeString(source.proofToken),
+    auditDisposition:
+      validation.some((item) => item.severity === "fatal")
+        ? "episodic-log-adoption-rejected"
+        : accepted
+          ? "episodic-log-adoption-accepted"
+          : "episodic-log-adoption-observed"
+  };
 }
 
 function firstString(...values) {
@@ -691,7 +849,176 @@ function normalizePersistedCommandLedger(input, generatedAt) {
   };
 }
 
-function evaluateRecoveredFreshnessState(state, recovered, commandLedger, boundary, generatedAt) {
+function normalizeClientWorkflowReceiptStatus(value) {
+  const normalized = normalizeString(value)?.toLowerCase() || "pending";
+  if (normalized === "acked" || normalized === "committed" || normalized === "completed") {
+    return "acknowledged";
+  }
+  if (normalized === "declined" || normalized === "denied") {
+    return "rejected";
+  }
+  return CLIENT_WORKFLOW_RECEIPT_STATUSES.has(normalized) ? normalized : "pending";
+}
+
+function clientWorkflowReceiptRank(receipt) {
+  if (receipt.fromFuture) {
+    return -1000 + receipt.sequence;
+  }
+  if (receipt.status === "acknowledged" || receipt.status === "accepted") {
+    return 100000 + receipt.sequence;
+  }
+  if (receipt.status === "rejected") {
+    return 80000 + receipt.sequence;
+  }
+  if (receipt.status === "expired") {
+    return 50000 + receipt.sequence;
+  }
+  if (receipt.status === "delivered") {
+    return 25000 + receipt.sequence;
+  }
+  return receipt.sequence;
+}
+
+function clientWorkflowReceiptRecoveryState(receipt) {
+  if (receipt.fromFuture) {
+    return "quarantine-clock-skew";
+  }
+  if (receipt.boundaryMismatch) {
+    return "manual-review-boundary-mismatch";
+  }
+  if (receipt.status === "acknowledged" || receipt.status === "accepted") {
+    return "acknowledged";
+  }
+  if (receipt.status === "rejected") {
+    return "client-rejected";
+  }
+  if (receipt.expired || receipt.status === "expired") {
+    return "refresh-client-handoff";
+  }
+  if (receipt.required) {
+    return "await-client-ack";
+  }
+  return "delivery-observed";
+}
+
+function normalizePersistedClientWorkflowReceipts(input, state, generatedAt) {
+  const persisted =
+    (input.persistedState && typeof input.persistedState === "object" && input.persistedState) ||
+    (input.recoveredState && typeof input.recoveredState === "object" && input.recoveredState) ||
+    {};
+  const clientState = input.clientState && typeof input.clientState === "object" ? input.clientState : {};
+  const workflowState = persisted.memoryFreshnessWorkflow && typeof persisted.memoryFreshnessWorkflow === "object"
+    ? persisted.memoryFreshnessWorkflow
+    : {};
+  const receiptState =
+    (persisted.memoryFreshnessClientReceipts && typeof persisted.memoryFreshnessClientReceipts === "object" && persisted.memoryFreshnessClientReceipts) ||
+    (persisted.clientWorkflowReceipts && typeof persisted.clientWorkflowReceipts === "object" && persisted.clientWorkflowReceipts) ||
+    (workflowState.acknowledgements && typeof workflowState.acknowledgements === "object" && workflowState.acknowledgements) ||
+    (clientState.memoryFreshnessClientReceipts && typeof clientState.memoryFreshnessClientReceipts === "object" && clientState.memoryFreshnessClientReceipts) ||
+    {};
+  const rawReceipts = Array.isArray(receiptState.entries)
+    ? receiptState.entries
+    : Array.isArray(receiptState.items)
+      ? receiptState.items
+      : Array.isArray(receiptState.receipts)
+        ? receiptState.receipts
+        : [];
+  const generatedMs = Date.parse(generatedAt);
+  const receipts = rawReceipts
+    .filter((receipt) => receipt && typeof receipt === "object")
+    .map((receipt, index) => {
+      const acknowledgedAt = toIsoTimestamp(
+        receipt.acknowledgedAt || receipt.acceptedAt || receipt.ackedAt || receipt.completedAt,
+        null
+      );
+      const deliveredAt = toIsoTimestamp(receipt.deliveredAt || receipt.createdAt || receipt.generatedAt, null);
+      const expiresAt = toIsoTimestamp(receipt.expiresAt || receipt.deadlineAt || receipt.validUntil, null);
+      const acknowledgedMs = acknowledgedAt ? Date.parse(acknowledgedAt) : NaN;
+      const deliveredMs = deliveredAt ? Date.parse(deliveredAt) : NaN;
+      const expiresMs = expiresAt ? Date.parse(expiresAt) : NaN;
+      const receiptTenantId = normalizeString(receipt.tenantId || receipt.boundary?.tenantId);
+      const receiptWorkspaceId = normalizeString(receipt.workspaceId || receipt.boundary?.workspaceId);
+      const status = normalizeClientWorkflowReceiptStatus(receipt.status || receipt.decision);
+      const fromFuture =
+        (Number.isFinite(acknowledgedMs) && acknowledgedMs > generatedMs + MAX_SOURCE_CLOCK_SKEW_MS) ||
+        (Number.isFinite(deliveredMs) && deliveredMs > generatedMs + MAX_SOURCE_CLOCK_SKEW_MS);
+      const expired = Number.isFinite(expiresMs) && expiresMs <= generatedMs && !["acknowledged", "accepted"].includes(status);
+      const boundaryMismatch =
+        Boolean(receiptTenantId && state.tenantId && receiptTenantId !== state.tenantId) ||
+        Boolean(receiptWorkspaceId && state.workspaceId && receiptWorkspaceId !== state.workspaceId);
+
+      return {
+        sequence: normalizeInteger(receipt.sequence || index + 1, index + 1, 1, Number.MAX_SAFE_INTEGER),
+        receiptId: normalizeString(receipt.receiptId || receipt.id || receipt.token) || `client-receipt-${index + 1}`,
+        handoffId: normalizeString(receipt.handoffId || receipt.workflowId || receipt.stepId),
+        commandId: normalizeString(receipt.commandId),
+        idempotencyKey: normalizeString(receipt.idempotencyKey || receipt.key),
+        status: expired ? "expired" : status,
+        required: normalizeBoolean(receipt.required ?? receipt.ackRequired, true),
+        route: normalizeString(receipt.route || receipt.acknowledgementRoute || receipt.ackRoute),
+        channel: normalizeString(receipt.channel),
+        actorId: normalizeString(receipt.actorId || receipt.subjectId),
+        acknowledgedAt,
+        deliveredAt,
+        expiresAt,
+        tenantId: receiptTenantId,
+        workspaceId: receiptWorkspaceId,
+        fromFuture,
+        expired,
+        boundaryMismatch,
+        reason: normalizeString(receipt.reason || receipt.error || receipt.note)
+      };
+    })
+    .filter((receipt) => receipt.receiptId);
+  const byReceiptId = receipts.reduce((index, receipt) => {
+    const current = index[receipt.receiptId];
+    if (!current || clientWorkflowReceiptRank(receipt) >= clientWorkflowReceiptRank(current)) {
+      index[receipt.receiptId] = receipt;
+    }
+    return index;
+  }, {});
+  const dedupedReceipts = Object.values(byReceiptId)
+    .sort((left, right) => left.sequence - right.sequence)
+    .map((receipt) => ({
+      ...receipt,
+      recoveryState: clientWorkflowReceiptRecoveryState(receipt),
+      restartSafe:
+        !receipt.fromFuture &&
+        !receipt.boundaryMismatch &&
+        ["acknowledged", "accepted", "delivery-observed"].includes(clientWorkflowReceiptRecoveryState(receipt)),
+      supersededDuplicateCount: receipts.filter((candidate) => (
+        candidate.receiptId === receipt.receiptId &&
+        (candidate.sequence !== receipt.sequence || candidate.status !== receipt.status)
+      )).length
+    }));
+  const retainedReceipts = dedupedReceipts.slice(-MAX_PERSISTED_CLIENT_RECEIPTS);
+  const byRetainedReceiptId = retainedReceipts.reduce((index, receipt) => {
+    index[receipt.receiptId] = receipt;
+    return index;
+  }, {});
+
+  return {
+    schemaVersion: PERSISTED_SCHEMA_VERSION,
+    contract: "memory-freshness-gate.client-workflow-receipt-ledger.v1",
+    generatedAt,
+    retainedReceipts: retainedReceipts.length,
+    maxReceipts: MAX_PERSISTED_CLIENT_RECEIPTS,
+    duplicateReceiptsCollapsed: Math.max(0, receipts.length - dedupedReceipts.length),
+    truncatedReceipts: Math.max(0, dedupedReceipts.length - retainedReceipts.length),
+    restartRecovery: {
+      acknowledgedReceipts: retainedReceipts.filter((receipt) => receipt.recoveryState === "acknowledged").length,
+      pendingReceipts: retainedReceipts.filter((receipt) => receipt.recoveryState === "await-client-ack").length,
+      refreshRequiredReceipts: retainedReceipts.filter((receipt) => receipt.recoveryState === "refresh-client-handoff").length,
+      rejectedReceipts: retainedReceipts.filter((receipt) => receipt.recoveryState === "client-rejected").length,
+      boundaryReviewReceipts: retainedReceipts.filter((receipt) => receipt.recoveryState === "manual-review-boundary-mismatch").length,
+      quarantinedReceipts: retainedReceipts.filter((receipt) => receipt.recoveryState === "quarantine-clock-skew").length
+    },
+    receipts: retainedReceipts,
+    byReceiptId: byRetainedReceiptId
+  };
+}
+
+function evaluateRecoveredFreshnessState(state, recovered, commandLedger, boundary, generatedAt, clientReceipts = null) {
   const violations = [];
   const generatedMs = Date.parse(generatedAt);
   const checkedMs = recovered.checkedAt ? Date.parse(recovered.checkedAt) : NaN;
@@ -713,6 +1040,12 @@ function evaluateRecoveredFreshnessState(state, recovered, commandLedger, bounda
   }
   if (commandLedger.entries.some((entry) => entry.fromFuture)) {
     violations.push("persisted-command-ledger-from-future");
+  }
+  if (clientReceipts?.receipts?.some((receipt) => receipt.fromFuture)) {
+    violations.push("persisted-client-receipt-from-future");
+  }
+  if (clientReceipts?.receipts?.some((receipt) => receipt.boundaryMismatch)) {
+    violations.push("persisted-client-receipt-boundary-mismatch");
   }
 
   const accepted = boundary.allowed && recovered.restartSafe && violations.length === 0;
@@ -751,7 +1084,24 @@ function evaluateRecoveredFreshnessState(state, recovered, commandLedger, bounda
       restartRecovery: commandLedger.restartRecovery,
       terminalEntries: commandLedger.entries.filter((entry) => entry.terminal).length,
       pendingEntries: commandLedger.entries.filter((entry) => !entry.terminal).length
-    }
+    },
+    clientReceipts: clientReceipts
+      ? {
+          retainedReceipts: clientReceipts.retainedReceipts,
+          duplicateReceiptsCollapsed: clientReceipts.duplicateReceiptsCollapsed,
+          truncatedReceipts: clientReceipts.truncatedReceipts,
+          restartRecovery: clientReceipts.restartRecovery,
+          pendingReceipts: clientReceipts.receipts.filter((receipt) => receipt.recoveryState === "await-client-ack").length,
+          unsafeReceipts: clientReceipts.receipts.filter((receipt) => !receipt.restartSafe).length
+        }
+      : {
+          retainedReceipts: 0,
+          duplicateReceiptsCollapsed: 0,
+          truncatedReceipts: 0,
+          restartRecovery: null,
+          pendingReceipts: 0,
+          unsafeReceipts: 0
+        }
   };
 }
 
@@ -966,6 +1316,119 @@ function buildLifecycleTransition(command, previous, desiredEnabled, desiredMode
   };
 }
 
+function buildLifecycleScheduleDiagnostic({
+  command,
+  desiredEnabled,
+  scheduleEnabled,
+  intervalMs,
+  rawIntervalMs,
+  pauseUntil,
+  pauseUntilMs,
+  rawPauseUntil,
+  explicitNextRunAt,
+  nextRunMs,
+  rawNextRunAt,
+  nextRunAt,
+  generatedMs
+}) {
+  const explicitNextRunProvided = Boolean(rawNextRunAt);
+  const explicitPauseProvided = Boolean(rawPauseUntil);
+  const intervalProvided = rawIntervalMs !== undefined;
+  const horizonAt = new Date(generatedMs + MAX_SCHEDULE_INTERVAL_MS).toISOString();
+  const violations = [];
+  const warnings = [];
+
+  if (command === "pause" && pauseUntil && Number.isFinite(pauseUntilMs) && pauseUntilMs <= generatedMs) {
+    violations.push({
+      code: "PAUSE_UNTIL_MUST_BE_FUTURE",
+      value: pauseUntil,
+      generatedAt: new Date(generatedMs).toISOString()
+    });
+  }
+  if (pauseUntil && Number.isFinite(pauseUntilMs) && pauseUntilMs > generatedMs + MAX_SCHEDULE_INTERVAL_MS) {
+    violations.push({
+      code: "PAUSE_UNTIL_EXCEEDS_MAX_SCHEDULE_HORIZON",
+      value: pauseUntil,
+      maxAllowedAt: horizonAt
+    });
+  }
+  if (
+    explicitNextRunAt &&
+    Number.isFinite(nextRunMs) &&
+    nextRunMs > generatedMs + MAX_SCHEDULE_INTERVAL_MS
+  ) {
+    violations.push({
+      code: "NEXT_RUN_EXCEEDS_MAX_SCHEDULE_HORIZON",
+      value: explicitNextRunAt,
+      maxAllowedAt: horizonAt
+    });
+  }
+  if (
+    explicitNextRunAt &&
+    pauseUntil &&
+    Number.isFinite(nextRunMs) &&
+    Number.isFinite(pauseUntilMs) &&
+    nextRunMs < pauseUntilMs
+  ) {
+    warnings.push({
+      code: "NEXT_RUN_DEFERRED_BY_PAUSE_WINDOW",
+      requestedNextRunAt: explicitNextRunAt,
+      effectiveNextRunAt: nextRunAt
+    });
+  }
+  if (intervalProvided && Number(rawIntervalMs) > MAX_SCHEDULE_INTERVAL_MS) {
+    warnings.push({
+      code: "SCHEDULE_INTERVAL_ABOVE_MAX_HORIZON",
+      requestedMs: Number(rawIntervalMs),
+      effectiveMs: intervalMs
+    });
+  }
+
+  const origin =
+    command === "schedule-now"
+      ? "manual-immediate"
+      : pauseUntil && Number.isFinite(pauseUntilMs) && pauseUntilMs > generatedMs
+        ? "pause-window"
+        : explicitNextRunAt && Number.isFinite(nextRunMs) && nextRunMs > generatedMs
+          ? "explicit-next-run"
+          : "interval-derived";
+  const status =
+    violations.length > 0
+      ? "rejected"
+      : !desiredEnabled
+        ? "disabled"
+        : !scheduleEnabled
+          ? "unscheduled"
+          : command === "schedule-now"
+            ? "immediate"
+            : pauseUntil && Number.isFinite(pauseUntilMs) && pauseUntilMs > generatedMs
+              ? "paused"
+              : "scheduled";
+
+  return {
+    contract: "memory-freshness-gate.lifecycle-schedule-diagnostic.v1",
+    status,
+    origin,
+    horizonMs: MAX_SCHEDULE_INTERVAL_MS,
+    maxAllowedAt: horizonAt,
+    requested: {
+      intervalProvided,
+      intervalMs: intervalProvided && Number.isFinite(Number(rawIntervalMs)) ? Math.round(Number(rawIntervalMs)) : null,
+      pauseUntil: explicitPauseProvided ? pauseUntil : null,
+      nextRunAt: explicitNextRunProvided ? explicitNextRunAt : null
+    },
+    effective: {
+      enabled: desiredEnabled && scheduleEnabled,
+      intervalMs,
+      pauseUntil,
+      nextRunAt: desiredEnabled && scheduleEnabled ? nextRunAt : null
+    },
+    validationCodes: violations.map((item) => item.code),
+    warnings,
+    violations
+  };
+}
+
 function normalizeLifecycleSettings(input, principal, generatedAt) {
   const request = input.request && typeof input.request === "object" ? input.request : {};
   const requestedMemory = request.memory && typeof request.memory === "object" ? request.memory : {};
@@ -1019,6 +1482,21 @@ function normalizeLifecycleSettings(input, principal, generatedAt) {
           ? explicitNextRunAt
           : new Date(generatedMs + intervalMs).toISOString();
   const validation = [];
+  const scheduleDiagnostic = buildLifecycleScheduleDiagnostic({
+    command,
+    desiredEnabled,
+    scheduleEnabled,
+    intervalMs,
+    rawIntervalMs,
+    pauseUntil,
+    pauseUntilMs,
+    rawPauseUntil,
+    explicitNextRunAt,
+    nextRunMs,
+    rawNextRunAt,
+    nextRunAt,
+    generatedMs
+  });
   const transition = buildLifecycleTransition(
     command,
     previous,
@@ -1048,6 +1526,7 @@ function normalizeLifecycleSettings(input, principal, generatedAt) {
       effectiveMs: intervalMs
     });
   }
+  validation.push(...scheduleDiagnostic.violations);
   if (command === "pause" && !pauseUntil) {
     validation.push({ code: "PAUSE_REQUIRES_PAUSE_UNTIL", command });
   }
@@ -1196,7 +1675,18 @@ function normalizeLifecycleSettings(input, principal, generatedAt) {
       pauseUntil: effectivePaused ? pauseUntil : null,
       nextRunAt: accepted && scheduleEnabled && effectiveEnabled ? nextRunAt : null,
       immediateRunRequested: accepted && command === "schedule-now",
-      scheduleMutation: accepted && effectiveTransition.requiresSchedulerWrite
+      scheduleMutation: accepted && effectiveTransition.requiresSchedulerWrite,
+      diagnostic: {
+        ...scheduleDiagnostic,
+        status: accepted ? scheduleDiagnostic.status : "rejected",
+        effective: {
+          ...scheduleDiagnostic.effective,
+          enabled: accepted && effectiveEnabled && scheduleEnabled,
+          pauseUntil: effectivePaused ? pauseUntil : null,
+          nextRunAt: accepted && scheduleEnabled && effectiveEnabled ? nextRunAt : null
+        },
+        validationCodes: validation.map((item) => item.code)
+      }
     },
     settingsPatch: {
       schemaVersion: PERSISTED_SCHEMA_VERSION,
@@ -1229,6 +1719,9 @@ function normalizeLifecycleSettings(input, principal, generatedAt) {
       transitionType: effectiveTransition.type,
       transitionChanged: effectiveTransition.stateChanged,
       validationCodes: validation.map((item) => item.code),
+      scheduleStatus: accepted ? scheduleDiagnostic.status : "rejected",
+      scheduleOrigin: scheduleDiagnostic.origin,
+      scheduleWarnings: scheduleDiagnostic.warnings.map((item) => item.code),
       scheduleChanged: Boolean(
         effectiveTransition.requiresSchedulerWrite ||
           rawIntervalMs !== undefined ||
@@ -2732,7 +3225,10 @@ function normalizeAnalyticsHistory(input) {
         degradedModeActive: item.degradedModeActive === true,
         degradedModeReason: normalizeString(item.degradedModeReason),
         staleBudgetRemainingMs: normalizeAnalyticsDuration(item.staleBudgetRemainingMs),
-        failureCodes: normalizeStringList(item.failureCodes)
+        failureCodes: normalizeStringList(item.failureCodes),
+        operationalRoute: normalizeString(item.operationalRoute),
+        operationalIncidentId: normalizeString(item.operationalIncidentId),
+        operationalResolution: normalizeString(item.operationalResolution)
       }))
       .filter((item) => item.checkedAt)
       .slice(-MAX_ANALYTICS_HISTORY)
@@ -2791,6 +3287,21 @@ function buildAnalyticsReportingState(history, counters, generatedAt) {
   const dominantStatus = Object.entries(statusCounts).sort((left, right) => right[1] - left[1])[0]?.[0] || "unknown";
   const dominantFailureCode =
     Object.entries(failureCodeCounts).sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+  const latestActionableSnapshot = [...history].reverse().find((snapshot) => (
+    snapshot.operationalRoute || snapshot.retryable || snapshot.failureCodes.length > 0
+  )) || null;
+  const exportWatermark = [
+    generatedAt,
+    totalSnapshots,
+    dominantStatus,
+    dominantFailureCode || "none"
+  ].join(":");
+  const healthDebtScore = Math.min(100, Math.round((
+    staleSnapshots * 2 +
+    retryableSnapshots * 3 +
+    degradedSnapshots * 4 +
+    unhealthySnapshots * 5
+  ) / Math.max(1, totalSnapshots)));
 
   return {
     schemaVersion: PERSISTED_SCHEMA_VERSION,
@@ -2822,12 +3333,50 @@ function buildAnalyticsReportingState(history, counters, generatedAt) {
       latestFailureAt,
       latestStaleAt,
       totalDecisions: counters.totalDecisions,
+      healthDebtScore,
       freshnessDebt:
         staleSnapshots + failedSnapshots + blockedSnapshots > freshSnapshots
           ? "accumulating"
           : staleSnapshots > 0 || failedSnapshots > 0 || blockedSnapshots > 0
             ? "intermittent"
             : "clear"
+    },
+    actionability: {
+      latestRoute: latestActionableSnapshot?.operationalRoute || null,
+      latestIncidentId: latestActionableSnapshot?.operationalIncidentId || null,
+      latestResolution: latestActionableSnapshot?.operationalResolution || null,
+      retryableSnapshotCount: retryableSnapshots,
+      degradedSnapshotCount: degradedSnapshots,
+      failureCodeCounts,
+      nextReportAction: unhealthySnapshots > 0
+        ? "route-operational-recovery"
+        : staleSnapshots > 0
+          ? "refresh-stale-memory"
+          : retryableSnapshots > 0
+            ? "wait-for-retry-window"
+            : "continue"
+    },
+    exportManifest: {
+      schema: "memory-freshness-gate.analytics-export-manifest.v1",
+      generatedAt,
+      watermark: exportWatermark,
+      rowCount: history.length,
+      columns: [
+        "checkedAt",
+        "requestId",
+        "route",
+        "status",
+        "reason",
+        "ageMs",
+        "ttlMs",
+        "retryable",
+        "degradedModeActive",
+        "failureCodes",
+        "operationalRoute",
+        "operationalIncidentId"
+      ],
+      ready: totalSnapshots > 0,
+      partitionHint: `${String(generatedAt).slice(0, 10)}/${dominantStatus}`
     },
     exportRows: history.map((snapshot) => ({
       checkedAt: snapshot.checkedAt,
@@ -3191,7 +3740,7 @@ function normalizeClientRuntime(input, state) {
   };
 }
 
-function buildClientRuntimeContract(input, state, freshness, boundary, health, handoff, sourceProof) {
+function buildClientRuntimeContract(input, state, freshness, boundary, health, handoff, sourceProof, episodicAdoption = null) {
   const runtime = normalizeClientRuntime(input, state);
   const currentStateClaimHandoff = buildCurrentStateClaimClientHandoff(
     freshness.currentStateClaimGate.exposure,
@@ -3241,12 +3790,18 @@ function buildClientRuntimeContract(input, state, freshness, boundary, health, h
   const nextRoute =
     currentStateClaimHandoff.blocking
       ? currentStateClaimHandoff.route
-      : runtime.preferredRoute && !mustBlock
+      : episodicAdoption?.route && !mustBlock
+        ? episodicAdoption.route
+        : runtime.preferredRoute && !mustBlock
         ? runtime.preferredRoute
         : handoff.nextRoute;
   const notificationMessage =
     currentStateClaimHandoff.blocking
       ? "A current-state memory claim is hidden until fresh proof is collected."
+      : episodicAdoption?.state === "blocked"
+        ? "Episodic memory handoff is waiting on adoption blockers."
+        : episodicAdoption?.state === "awaiting-client-ack"
+          ? "Episodic memory handoff is waiting for client acknowledgement."
       : currentStateClaimHandoff.status === "warning"
         ? "Some current-state memory claims are available with stale-proof warnings."
         : handoff.userVisibleStatus;
@@ -3272,6 +3827,18 @@ function buildClientRuntimeContract(input, state, freshness, boundary, health, h
     sourceProofDisposition: sourceProof.auditDisposition,
     expiresAt: freshness.expiresAt,
     retryAfter: health.retryable ? health.retry.nextRetryAt : null,
+    episodicLogAdoption: episodicAdoption
+      ? {
+          adoptionId: episodicAdoption.adoptionId,
+          state: episodicAdoption.state,
+          accepted: episodicAdoption.accepted,
+          route: episodicAdoption.route,
+          receiptId: episodicAdoption.receiptId,
+          requiredStepIds: episodicAdoption.requiredStepIds,
+          blockedBy: episodicAdoption.blockedBy,
+          auditDisposition: episodicAdoption.auditDisposition
+        }
+      : null,
     currentStateClaimHandoff,
     backgroundRefresh: canBackgroundRefresh
       ? {
@@ -3312,7 +3879,7 @@ function buildClientRuntimeContract(input, state, freshness, boundary, health, h
   };
 }
 
-function buildClientReadinessContract(state, freshness, boundary, health, analytics, handoff, sourceProof) {
+function buildClientReadinessContract(state, freshness, boundary, health, analytics, handoff, sourceProof, episodicAdoption = null) {
   const lifecycleValidation = state.lifecycle.validation.map((item) => ({
     source: "lifecycle",
     code: item.code,
@@ -3384,7 +3951,8 @@ function buildClientReadinessContract(state, freshness, boundary, health, analyt
     ...sourceProofValidation,
     ...currentStateClaimValidation,
     ...healthValidation,
-    ...operationalValidation
+    ...operationalValidation,
+    ...(episodicAdoption?.validation || [])
   ];
   const fatalCount = validationItems.filter((item) => item.severity === "fatal").length;
   const degradedCount = validationItems.filter((item) => item.severity === "degraded").length;
@@ -3448,6 +4016,23 @@ function buildClientReadinessContract(state, freshness, boundary, health, analyt
 
   for (const step of currentStateClaimSteps) {
     nextSteps.push(step);
+  }
+
+  if (episodicAdoption && !episodicAdoption.accepted) {
+    nextSteps.push({
+      id: "adopt-episodic-log-handoff",
+      label: "Adopt episodic log handoff",
+      route: episodicAdoption.route || "memory-manager/freshness-gate/client-workflow",
+      reason: episodicAdoption.state === "awaiting-client-ack"
+        ? "Episodic log handoff is waiting for client acknowledgement."
+        : episodicAdoption.state === "blocked"
+          ? "Episodic log handoff reported unresolved blockers."
+          : "Episodic log handoff is available as a memory freshness workflow source.",
+      required: episodicAdoption.acceptanceRequired || episodicAdoption.validationSummary.fatalCount > 0,
+      blockedBy: episodicAdoption.blockedBy,
+      receiptId: episodicAdoption.receiptId,
+      acknowledgementRoute: episodicAdoption.acknowledgementRoute
+    });
   }
 
   if (health.status === "failed") {
@@ -3521,6 +4106,18 @@ function buildClientReadinessContract(state, freshness, boundary, health, analyt
         sourceProofDisposition: sourceProof.auditDisposition
       }
     },
+    episodicLogAdoption: episodicAdoption
+      ? {
+          adoptionId: episodicAdoption.adoptionId,
+          state: episodicAdoption.state,
+          accepted: episodicAdoption.accepted,
+          receiptId: episodicAdoption.receiptId,
+          route: episodicAdoption.route,
+          acknowledgementRoute: episodicAdoption.acknowledgementRoute,
+          validationSummary: episodicAdoption.validationSummary,
+          auditDisposition: episodicAdoption.auditDisposition
+        }
+      : null,
     acceptance: {
       accepted,
       disposition: accepted ? "client-contract-accepted" : "client-contract-requires-action",
@@ -3970,7 +4567,8 @@ function buildPersistedState(
   clientReadiness = null,
   clientAcceptance = null,
   clientRuntime = null,
-  providerSync = null
+  providerSync = null,
+  clientReceipts = null
 ) {
   const persistenceKey = buildPersistenceKey(state);
   const status = !boundary.allowed ? "blocked" : freshness.fresh ? "fresh" : "stale";
@@ -4050,6 +4648,23 @@ function buildPersistedState(
       maxEntries: commandLedger.maxEntries,
       entries: commandLedger.entries
     },
+    memoryFreshnessClientReceipts: clientReceipts
+      ? {
+          schemaVersion: PERSISTED_SCHEMA_VERSION,
+          contract: clientReceipts.contract,
+          generatedAt: state.generatedAt,
+          maxReceipts: clientReceipts.maxReceipts,
+          restartRecovery: clientReceipts.restartRecovery,
+          entries: clientReceipts.receipts
+        }
+      : {
+          schemaVersion: PERSISTED_SCHEMA_VERSION,
+          contract: "memory-freshness-gate.client-workflow-receipt-ledger.v1",
+          generatedAt: state.generatedAt,
+          maxReceipts: MAX_PERSISTED_CLIENT_RECEIPTS,
+          restartRecovery: null,
+          entries: []
+        },
     memoryFreshnessClient: clientReadiness,
     memoryFreshnessClientAcceptance: clientAcceptance,
     memoryFreshnessRuntime: clientRuntime,
@@ -4071,7 +4686,8 @@ function buildRecoveryPlan(
   clientReadiness = null,
   clientAcceptance = null,
   clientRuntime = null,
-  providerSync = null
+  providerSync = null,
+  clientReceipts = null
 ) {
   const persistenceKey = persistedState.persistenceKey;
   const commandBase = {
@@ -4166,6 +4782,30 @@ function buildRecoveryPlan(
         validationSummary: clientAcceptance.validationSummary,
         nextStep: clientAcceptance.nextStep,
         auditDisposition: clientAcceptance.auditDisposition
+      }
+    });
+  }
+
+  if (clientReceipts && clientReceipts.receipts.length > 0) {
+    commands.push({
+      id: `client-receipts:${persistenceKey}:${analytics.currentSnapshot.sequence}`,
+      type: "memory.freshness.client-workflow.receipts",
+      idempotencyKey: `${persistenceKey}:client-receipts:${clientReceipts.retainedReceipts}:${state.generatedAt}`,
+      payload: {
+        ...commandBase,
+        route: "memory-manager/freshness-gate/client-workflow/receipts",
+        retainedReceipts: clientReceipts.retainedReceipts,
+        duplicateReceiptsCollapsed: clientReceipts.duplicateReceiptsCollapsed,
+        truncatedReceipts: clientReceipts.truncatedReceipts,
+        restartRecovery: clientReceipts.restartRecovery,
+        receipts: clientReceipts.receipts,
+        auditDisposition:
+          clientReceipts.restartRecovery.quarantinedReceipts > 0 ||
+          clientReceipts.restartRecovery.boundaryReviewReceipts > 0
+            ? "client-workflow-receipts-recovery-required"
+            : clientReceipts.restartRecovery.pendingReceipts > 0
+              ? "client-workflow-receipts-pending"
+              : "client-workflow-receipts-restart-safe"
       }
     });
   }
@@ -4460,7 +5100,16 @@ function buildRecoveryPlan(
       alreadyAppliedCommands: shapedCommands.filter((command) => command.replay.state === "already-applied").length,
       retryFailedCommands: shapedCommands.filter((command) => command.replay.state === "retry-failed-command").length,
       manualRecoveryCommands: shapedCommands.filter((command) => command.replay.state === "manual-recovery-required").length,
-      quarantinedCommands: shapedCommands.filter((command) => command.replay.state === "quarantined-recovered-command").length
+      quarantinedCommands: shapedCommands.filter((command) => command.replay.state === "quarantined-recovered-command").length,
+      clientReceipts: clientReceipts
+        ? {
+            retainedReceipts: clientReceipts.retainedReceipts,
+            duplicateReceiptsCollapsed: clientReceipts.duplicateReceiptsCollapsed,
+            truncatedReceipts: clientReceipts.truncatedReceipts,
+            restartRecovery: clientReceipts.restartRecovery,
+            unsafeReceipts: clientReceipts.receipts.filter((receipt) => !receipt.restartSafe).length
+          }
+        : null
     },
     nextCommandLedger: {
       schemaVersion: PERSISTED_SCHEMA_VERSION,
@@ -4696,15 +5345,18 @@ function normalizeClientWorkflowAcks(input, generatedAt) {
 function normalizeClientWorkflowPreference(input, generatedAt) {
   const request = input.request && typeof input.request === "object" ? input.request : {};
   const clientState = input.clientState && typeof input.clientState === "object" ? input.clientState : {};
+  const episodicAdoption = normalizeEpisodicLogAdoption(input, generatedAt);
   const workflow =
     (request.memoryWorkflow && typeof request.memoryWorkflow === "object" && request.memoryWorkflow) ||
     (clientState.memoryWorkflow && typeof clientState.memoryWorkflow === "object" && clientState.memoryWorkflow) ||
+    (episodicAdoption?.memoryWorkflow && typeof episodicAdoption.memoryWorkflow === "object" && episodicAdoption.memoryWorkflow) ||
     (input.memoryWorkflow && typeof input.memoryWorkflow === "object" && input.memoryWorkflow) ||
     {};
   const rawMode = normalizeString(
     workflow.mode ||
       workflow.intent ||
       workflow.commitMode ||
+      episodicAdoption?.clientWorkflowMode ||
       request.memoryWorkflowMode ||
       clientState.memoryWorkflowMode ||
       input.memoryWorkflowMode
@@ -4735,11 +5387,19 @@ function normalizeClientWorkflowPreference(input, generatedAt) {
     0,
     25
   );
-  const targetRoute = normalizeString(workflow.route || workflow.nextRoute || workflow.commitRoute);
-  const requestedStepIds = normalizeStringList(workflow.requestedStepIds || workflow.steps || workflow.stepIds);
-  const requiredAckStepIds = normalizeStringList(
-    workflow.requiredAckStepIds || workflow.requiredSteps || workflow.requiredAcknowledgements
-  );
+  const targetRoute = normalizeString(workflow.route || workflow.nextRoute || workflow.commitRoute || episodicAdoption?.route);
+  const requestedStepIds = [
+    ...new Set([
+      ...normalizeStringList(workflow.requestedStepIds || workflow.steps || workflow.stepIds),
+      ...(episodicAdoption?.requiredStepIds || [])
+    ])
+  ];
+  const requiredAckStepIds = [
+    ...new Set([
+      ...normalizeStringList(workflow.requiredAckStepIds || workflow.requiredSteps || workflow.requiredAcknowledgements),
+      ...(episodicAdoption?.requiredStepIds || [])
+    ])
+  ];
   const violations = [];
 
   if (rawMode && !supportedMode) {
@@ -4766,6 +5426,17 @@ function normalizeClientWorkflowPreference(input, generatedAt) {
     targetRoute,
     requestedStepIds,
     requiredAckStepIds,
+    episodicLogAdoption: episodicAdoption
+      ? {
+          adoptionId: episodicAdoption.adoptionId,
+          state: episodicAdoption.state,
+          accepted: episodicAdoption.accepted,
+          route: episodicAdoption.route,
+          receiptId: episodicAdoption.receiptId,
+          auditDisposition: episodicAdoption.auditDisposition,
+          validationSummary: episodicAdoption.validationSummary
+        }
+      : null,
     deferral: {
       requested: mode === "defer" || Boolean(deferUntil),
       deferUntil,
@@ -4798,37 +5469,60 @@ function normalizeClientWorkflowPreference(input, generatedAt) {
 function normalizeClientAcceptance(input, generatedAt) {
   const request = input.request && typeof input.request === "object" ? input.request : {};
   const clientState = input.clientState && typeof input.clientState === "object" ? input.clientState : {};
+  const episodicAdoption = normalizeEpisodicLogAdoption(input, generatedAt);
   const workflow =
     (request.memoryWorkflow && typeof request.memoryWorkflow === "object" && request.memoryWorkflow) ||
     (clientState.memoryWorkflow && typeof clientState.memoryWorkflow === "object" && clientState.memoryWorkflow) ||
+    (episodicAdoption?.memoryWorkflow && typeof episodicAdoption.memoryWorkflow === "object" && episodicAdoption.memoryWorkflow) ||
     (input.memoryWorkflow && typeof input.memoryWorkflow === "object" && input.memoryWorkflow) ||
     {};
   const acceptance =
     (request.memoryAcceptance && typeof request.memoryAcceptance === "object" && request.memoryAcceptance) ||
     (clientState.memoryAcceptance && typeof clientState.memoryAcceptance === "object" && clientState.memoryAcceptance) ||
     (workflow.acceptance && typeof workflow.acceptance === "object" && workflow.acceptance) ||
+    (episodicAdoption?.memoryAcceptance && typeof episodicAdoption.memoryAcceptance === "object" && episodicAdoption.memoryAcceptance) ||
     (input.memoryAcceptance && typeof input.memoryAcceptance === "object" && input.memoryAcceptance) ||
     {};
-  const acceptedAt = toIsoTimestamp(acceptance.acceptedAt || acceptance.acknowledgedAt || acceptance.committedAt, null);
+  const acceptedAt = toIsoTimestamp(
+    acceptance.acceptedAt || acceptance.acknowledgedAt || acceptance.committedAt || episodicAdoption?.acceptedAt,
+    null
+  );
   const acceptedMs = acceptedAt ? Date.parse(acceptedAt) : NaN;
   const generatedMs = Date.parse(generatedAt);
-  const rawAccepted = acceptance.accepted ?? acceptance.previewAccepted ?? acceptance.confirmed ?? acceptance.commit;
+  const rawAccepted = acceptance.accepted ?? acceptance.previewAccepted ?? acceptance.confirmed ?? acceptance.commit ?? episodicAdoption?.accepted;
 
   return {
     schemaVersion: PERSISTED_SCHEMA_VERSION,
     contract: "memory-freshness-gate.client-acceptance-input.v1",
-    receiptId: normalizeString(acceptance.receiptId || acceptance.id || acceptance.token),
-    previewId: normalizeString(acceptance.previewId || acceptance.previewRef || acceptance.readinessId),
+    receiptId: normalizeString(acceptance.receiptId || acceptance.id || acceptance.token || episodicAdoption?.receiptId),
+    previewId: normalizeString(acceptance.previewId || acceptance.previewRef || acceptance.readinessId || episodicAdoption?.previewId),
     accepted: normalizeBoolean(rawAccepted, null),
     decision: normalizeString(acceptance.decision || acceptance.action || acceptance.status),
     acceptedAt,
-    actorId: normalizeString(acceptance.actorId || acceptance.subjectId || acceptance.userId),
-    channel: normalizeString(acceptance.channel || workflow.channel),
-    acceptedStepIds: normalizeStringList(acceptance.acceptedStepIds || acceptance.stepIds || acceptance.steps),
-    acceptedValidationCodes: normalizeStringList(
-      acceptance.acceptedValidationCodes || acceptance.validationCodes || acceptance.codes
-    ),
+    actorId: normalizeString(acceptance.actorId || acceptance.subjectId || acceptance.userId || episodicAdoption?.actorId),
+    channel: normalizeString(acceptance.channel || workflow.channel || episodicAdoption?.channel),
+    acceptedStepIds: [
+      ...new Set([
+        ...normalizeStringList(acceptance.acceptedStepIds || acceptance.stepIds || acceptance.steps),
+        ...(episodicAdoption?.acceptedStepIds || [])
+      ])
+    ],
+    acceptedValidationCodes: [
+      ...new Set([
+        ...normalizeStringList(acceptance.acceptedValidationCodes || acceptance.validationCodes || acceptance.codes),
+        ...(episodicAdoption?.acceptedValidationCodes || [])
+      ])
+    ],
     note: normalizeString(acceptance.note || acceptance.reason || acceptance.message),
+    episodicLogAdoption: episodicAdoption
+      ? {
+          adoptionId: episodicAdoption.adoptionId,
+          state: episodicAdoption.state,
+          accepted: episodicAdoption.accepted,
+          receiptId: episodicAdoption.receiptId,
+          auditDisposition: episodicAdoption.auditDisposition
+        }
+      : null,
     fromFuture: Number.isFinite(acceptedMs) && acceptedMs > generatedMs + MAX_SOURCE_CLOCK_SKEW_MS
   };
 }
@@ -5193,13 +5887,15 @@ function buildClientWorkflowHandoff(input, state, handoff, clientRuntime, client
 
 export function describeFreshnessGateSurface(input = {}) {
   const now = toIsoTimestamp(input.now, new Date().toISOString());
+  const episodicLogAdoption = normalizeEpisodicLogAdoption(input, now);
   const evidence = normalizeEvidence(input.evidence);
   const recovered = normalizePersistedFreshness(input, now);
   const commandLedger = normalizePersistedCommandLedger(input, now);
   const requestState = normalizeRequest(input, now);
+  const clientReceiptLedger = normalizePersistedClientWorkflowReceipts(input, requestState, now);
   const scopeProof = evaluateTenantWorkspaceScope(input, requestState, recovered, now);
   const boundary = evaluateBoundary(requestState, recovered, scopeProof);
-  const recoveryStatus = evaluateRecoveredFreshnessState(requestState, recovered, commandLedger, boundary, now);
+  const recoveryStatus = evaluateRecoveredFreshnessState(requestState, recovered, commandLedger, boundary, now, clientReceiptLedger);
   const sourceProof = evaluateSourceProof(input, requestState, evidence, now);
   const currentStateClaims = collectCurrentStateClaims(input, requestState, now);
   const operationalPolicy = normalizeOperationalPolicy(input, now);
@@ -5231,7 +5927,8 @@ export function describeFreshnessGateSurface(input = {}) {
     boundary,
     operationalHealth,
     workflowHandoff,
-    sourceProof
+    sourceProof,
+    episodicLogAdoption
   );
   const clientReadiness = buildClientReadinessContract(
     requestState,
@@ -5240,7 +5937,8 @@ export function describeFreshnessGateSurface(input = {}) {
     operationalHealth,
     analytics,
     workflowHandoff,
-    sourceProof
+    sourceProof,
+    episodicLogAdoption
   );
   const clientAcceptance = buildClientAcceptanceContract(input, requestState, clientRuntime, clientReadiness);
   const providerSync = buildProviderSyncContract(input, requestState, freshness, boundary, operationalHealth, sourceProof);
@@ -5255,6 +5953,7 @@ export function describeFreshnessGateSurface(input = {}) {
       memoryFreshnessClient: clientReadiness,
       memoryFreshnessClientAcceptance: clientAcceptance,
       memoryFreshnessRuntime: clientRuntime.statePatch,
+      memoryFreshnessEpisodicLogAdoption: episodicLogAdoption?.statePatch || episodicLogAdoption,
       memoryFreshnessProvider: providerSync,
       memoryFreshnessRecovery: recoveryStatus
     }
@@ -5272,7 +5971,8 @@ export function describeFreshnessGateSurface(input = {}) {
     clientReadiness,
     clientAcceptance,
     clientRuntime,
-    providerSync
+    providerSync,
+    clientReceiptLedger
   );
   const recovery = buildRecoveryPlan(
     requestState,
@@ -5288,9 +5988,15 @@ export function describeFreshnessGateSurface(input = {}) {
     clientReadiness,
     clientAcceptance,
     clientRuntime,
-    providerSync
+    providerSync,
+    clientReceiptLedger
   );
   persistedState.memoryFreshnessCommandLedger = recovery.nextCommandLedger;
+  persistedState.memoryFreshnessClientReceipts = {
+    ...persistedState.memoryFreshnessClientReceipts,
+    restartRecovery: clientReceiptLedger.restartRecovery,
+    entries: clientReceiptLedger.receipts
+  };
   const kernelDispatch = buildHostedKernelDispatch(
     requestState,
     scopeProof,
@@ -5338,7 +6044,9 @@ export function describeFreshnessGateSurface(input = {}) {
     clientReadiness,
     clientAcceptance,
     clientRuntime,
+    episodicLogAdoption,
     clientWorkflow,
+    clientReceiptLedger,
     providerSync,
     handoff,
     persistedState,
@@ -5397,6 +6105,10 @@ export function describeFreshnessGateSurface(input = {}) {
         recoveredStateReason: recoveryStatus.reason,
         recoveredStateViolations: recoveryStatus.violations,
         commandReplay: recovery.commandReplay,
+        clientReceiptReplay: recovery.commandReplay.clientReceipts,
+        persistedClientReceipts: clientReceiptLedger.retainedReceipts,
+        persistedClientReceiptPending: clientReceiptLedger.restartRecovery.pendingReceipts,
+        persistedClientReceiptUnsafe: clientReceiptLedger.receipts.filter((receipt) => !receipt.restartSafe).length,
         nextCommandLedgerEntries: recovery.nextCommandLedger.retainedEntries,
         commandCount: recovery.commands.length,
         kernelDispatchDisposition: kernelDispatch.auditDisposition,
@@ -5411,6 +6123,11 @@ export function describeFreshnessGateSurface(input = {}) {
         analyticsRetainedSnapshots: analytics.reporting.window.retainedSnapshots,
         clientRuntimeDisposition: clientRuntime.auditDisposition,
         clientRuntimeCacheDirective: clientRuntime.cacheDirective,
+        episodicLogAdoptionDisposition: episodicLogAdoption?.auditDisposition || null,
+        episodicLogAdoptionState: episodicLogAdoption?.state || null,
+        episodicLogAdoptionAccepted: episodicLogAdoption?.accepted ?? null,
+        episodicLogAdoptionReceiptId: episodicLogAdoption?.receiptId || null,
+        episodicLogAdoptionValidationFatalCount: episodicLogAdoption?.validationSummary.fatalCount || 0,
         clientAcceptanceDisposition: clientAcceptance.auditDisposition,
         clientAcceptanceRequired: clientAcceptance.acceptanceRequired,
         clientAcceptanceState: clientAcceptance.state,

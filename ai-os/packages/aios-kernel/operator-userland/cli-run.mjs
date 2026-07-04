@@ -30,12 +30,14 @@ const JOB_RUN_ADMISSION_CONTRACT = 'aios.cli-run.job-run-admission.v1';
 const AIOS_PROCESS_CREATION_CONTRACT = 'aios.process-creation.request.v1';
 const JOB_RUN_ACCEPTANCE_PREVIEW_CONTRACT = 'aios.cli-run.job-run-acceptance-preview.v1';
 const JOB_RUN_CLIENT_HANDOFF_CONTRACT = 'aios.cli-run.job-run-client-handoff.v1';
+const JOB_RUN_MAILCHIMP_HANDOFF_CONTRACT = 'aios.cli-run.mailchimp-campaign-handoff.v1';
 const JOB_RUN_PROCESS_COMMAND = 'aios:job-run';
 const JOB_RUN_DESCRIPTOR_CONTRACT = 'aios.job-run.descriptor.v1';
 const JOB_DESCRIPTOR_BOUNDARY_CONTRACT = 'aios.cli-run.job-descriptor-boundary.v1';
 const PERSISTED_STATE_CONTRACT = 'aios.cli-run.persisted-state.v2';
 const COMMAND_LEASE_CONTRACT = 'aios.cli-run.command-lease.v1';
 const RESTART_RECOVERY_PLAN_CONTRACT = 'aios.cli-run.restart-recovery-plan.v1';
+const CLIENT_STATUS_BRIDGE_CONTRACT = 'aios.cli-run.client-status-bridge.v1';
 const WORKSPACE_PATH_ENV_CONTRACT = 'aios.cli-run.workspace-path-environment.v1';
 const DEFAULT_EXECUTION_POLICY = {
   timeoutMs: 10 * 60 * 1000,
@@ -64,9 +66,34 @@ const ROLE_PERMISSIONS = {
 };
 const ADMIN_COMMANDS = new Set(['tenant:grant', 'tenant:revoke', 'workspace:mount', 'workspace:unmount']);
 const UNBOUNDED_SCOPE_MARKERS = new Set(['*', 'all']);
+const MAILCHIMP_PROVIDER_STATES = new Set(['connected', 'degraded', 'rate-limited', 'offline', 'unauthorized', 'unknown']);
+const MAILCHIMP_CAMPAIGN_STATUSES = new Set(['draft', 'scheduled', 'sending', 'sent', 'paused', 'failed', 'cancelled']);
+const MAILCHIMP_PROOF_ELIGIBLE_STATUSES = new Set(['draft', 'scheduled', 'paused']);
 
 function normalizeIdentifier(value, fallback) {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function stableJson(value) {
+  if (value === undefined) return 'null';
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function digestPayload(value) {
+  const text = stableJson(value);
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 function normalizeScopeList(value) {
@@ -754,6 +781,89 @@ function normalizeJobCommand(job) {
   return { command, args };
 }
 
+function normalizeMailchimpStatus(value, knownStatuses, fallback) {
+  const normalized = normalizeIdentifier(value, fallback).toLowerCase();
+  return knownStatuses.has(normalized) ? normalized : fallback;
+}
+
+function mailchimpDescriptorInput(input, job) {
+  const integrations = job.integrations && typeof job.integrations === 'object' ? job.integrations : {};
+  return firstObject(
+    input.mailchimpCampaign,
+    input.mailchimp,
+    job.mailchimpCampaign,
+    job.mailchimp,
+    integrations.mailchimpCampaign,
+    integrations.mailchimp
+  );
+}
+
+function normalizeMailchimpCampaignDescriptor(input, job, now) {
+  const source = mailchimpDescriptorInput(input, job);
+  const present = source.enabled === true
+    || source.present === true
+    || normalizeIdentifier(source.provider, '').toLowerCase() === 'mailchimp'
+    || Boolean(source.campaignId || source.audienceId || source.listId);
+  const providerState = normalizeMailchimpStatus(source.providerState || source.state, MAILCHIMP_PROVIDER_STATES, present ? 'unknown' : 'offline');
+  const campaignStatus = normalizeMailchimpStatus(source.campaignStatus || source.status, MAILCHIMP_CAMPAIGN_STATUSES, 'draft');
+  const scheduledAt = normalizeScheduleTime(source.scheduledAt || source.sendAt || source.notBefore);
+  const retryAfterMs = source.retryAfterMs === null || source.retryAfterMs === undefined
+    ? null
+    : normalizePositiveInteger(source.retryAfterMs, 0, { min: 0, max: 300000 });
+  const generatedAt = normalizeIdentifier(source.generatedAt || source.lastSyncAt, now);
+  const validation = [
+    present && !source.campaignId ? 'mailchimp-campaign-id-required' : null,
+    present && !(source.audienceId || source.listId) ? 'mailchimp-audience-id-required' : null,
+    present && providerState === 'unauthorized' ? 'mailchimp-provider-unauthorized' : null,
+    present && providerState === 'offline' ? 'mailchimp-provider-offline' : null,
+    present && campaignStatus === 'failed' ? 'mailchimp-campaign-failed' : null,
+    present && campaignStatus === 'cancelled' ? 'mailchimp-campaign-cancelled' : null,
+    present && !scheduledAt.valid ? 'mailchimp-scheduled-at-invalid' : null
+  ].filter(Boolean);
+  const proofEligible = present
+    && validation.length === 0
+    && providerState === 'connected'
+    && MAILCHIMP_PROOF_ELIGIBLE_STATUSES.has(campaignStatus);
+  const state = !present
+    ? 'not-present'
+    : validation.length > 0
+      ? 'blocked'
+      : providerState === 'rate-limited'
+        ? 'rate-limited'
+        : providerState === 'degraded'
+          ? 'degraded'
+          : proofEligible
+            ? 'ready'
+            : 'review-required';
+
+  return {
+    contract: JOB_RUN_MAILCHIMP_HANDOFF_CONTRACT,
+    present,
+    state,
+    provider: 'mailchimp',
+    campaignId: normalizeIdentifier(source.campaignId, null),
+    audienceId: normalizeIdentifier(source.audienceId || source.listId, null),
+    providerState,
+    campaignStatus,
+    generatedAt,
+    scheduledAt: scheduledAt.value,
+    syncCursor: normalizeIdentifier(source.syncCursor || source.cursor, null),
+    retry: {
+      retryable: providerState === 'rate-limited' || providerState === 'degraded',
+      retryAfterMs,
+      nextRetryAt: retryAfterMs !== null ? new Date(parseTime(now, Date.now()) + retryAfterMs).toISOString() : null
+    },
+    validation,
+    deliveryReadiness: {
+      canAttachLogProof: proofEligible,
+      canContinueInDegradedMode: providerState === 'rate-limited' || providerState === 'degraded',
+      reason: !present
+        ? 'No Mailchimp campaign was declared for this job run.'
+        : validation[0] || (proofEligible ? 'Mailchimp campaign is ready for log proof handoff.' : `Mailchimp campaign is ${campaignStatus} with provider ${providerState}.`)
+    }
+  };
+}
+
 function normalizeJobRunAdmission(input, now) {
   const job = jobDescriptorInput(input);
   const sourcePath = jobSourcePathInput(input, job);
@@ -787,6 +897,7 @@ function normalizeJobRunAdmission(input, now) {
     actor: firstObject(job.actor),
     environment: firstObject(job.env, job.environment),
     stdin: typeof job.stdin === 'string' ? job.stdin : null,
+    mailchimpCampaign: normalizeMailchimpCampaignDescriptor(input, job, now),
     writePaths,
     mutatesWorkspace: normalizeBoolean(job.mutatesWorkspace, writePaths.length > 0),
     process: {
@@ -808,6 +919,18 @@ function normalizeJobRunAdmission(input, now) {
         || (jobId && sourcePath ? `job:${sourcePath}:${jobId}` : null)
     )
   };
+}
+
+function validateMailchimpJobCampaign(jobAdmission) {
+  if (!jobAdmission.mailchimpCampaign?.present) return [];
+  return jobAdmission.mailchimpCampaign.validation.map((code) => ({
+    code,
+    message: `cli-run Mailchimp job handoff is blocked: ${code}`,
+    campaignId: jobAdmission.mailchimpCampaign.campaignId,
+    audienceId: jobAdmission.mailchimpCampaign.audienceId,
+    providerState: jobAdmission.mailchimpCampaign.providerState,
+    campaignStatus: jobAdmission.mailchimpCampaign.campaignStatus
+  }));
 }
 
 function validateJobRunAdmission(jobAdmission) {
@@ -1260,7 +1383,7 @@ function projectJobRunClientHandoff(clientRequest, jobAdmission, processCreation
   };
 }
 
-function projectClientContinuation(clientRequest, envelope, externalHandoff, nextAction, violations, accepted, idempotentReplay, now, leaseMs, jobAdmission = null, processCreation = null) {
+function projectClientContinuation(clientRequest, envelope, externalHandoff, nextAction, violations, accepted, idempotentReplay, now, leaseMs, jobAdmission = null, processCreation = null, mailchimpCampaignHandoff = null) {
   const leaseExpiresAt = new Date(parseTime(now, Date.now()) + leaseMs).toISOString();
   const providerAck = externalHandoff.sync.expectedAck;
   const continuationAck = providerAck || `cli-run:rejected:${envelope.commandId}:${clientRequest.requestId}`;
@@ -1306,6 +1429,16 @@ function projectClientContinuation(clientRequest, envelope, externalHandoff, nex
       expectedAck: jobRunHandoff.ack.processExpected,
       action: 'resume-aios-process-status'
     });
+  } else if (mailchimpCampaignHandoff?.accepted) {
+    workflowSteps.push({
+      type: 'mailchimp-campaign-proof-handoff',
+      status: 'ready',
+      contract: mailchimpCampaignHandoff.contract,
+      campaignId: mailchimpCampaignHandoff.campaignId,
+      audienceId: mailchimpCampaignHandoff.audienceId,
+      payloadRef: mailchimpCampaignHandoff.handoff.payloadRef,
+      action: 'attach-mailchimp-log-proof'
+    });
   } else if (externalHandoff.state === 'ready-for-handoff') {
     workflowSteps.push({
       type: 'provider-handoff',
@@ -1320,6 +1453,18 @@ function projectClientContinuation(clientRequest, envelope, externalHandoff, nex
       status: 'ready',
       providerId: externalHandoff.providerId,
       action: 'record-proof-without-provider-execution'
+    });
+  }
+
+  if (mailchimpCampaignHandoff?.accepted && !workflowSteps.some((step) => step.type === 'mailchimp-campaign-proof-handoff')) {
+    workflowSteps.push({
+      type: 'mailchimp-campaign-proof-handoff',
+      status: 'ready',
+      contract: mailchimpCampaignHandoff.contract,
+      campaignId: mailchimpCampaignHandoff.campaignId,
+      audienceId: mailchimpCampaignHandoff.audienceId,
+      payloadRef: mailchimpCampaignHandoff.handoff.payloadRef,
+      action: 'attach-mailchimp-log-proof'
     });
   }
 
@@ -1364,6 +1509,7 @@ function projectClientContinuation(clientRequest, envelope, externalHandoff, nex
     returnChannel: clientRequest.returnChannel,
     nextAction,
     jobRunHandoff,
+    mailchimpCampaignHandoff,
     workflowSteps,
     blockedBy
   };
@@ -1449,6 +1595,7 @@ function projectProviderHandoff(provider, envelope, accepted, violations, now, e
 }
 
 function classifyProcessAdmissionViolation(code) {
+  if (code.startsWith('mailchimp-')) return 'mailchimp-campaign';
   if (code.startsWith('job-run-descriptor-') || code === 'job-run-source-argument-required') return 'descriptor-boundary';
   if (code.startsWith('job-run-')) return 'job-run-admission';
   if (code.startsWith('provider-')) return 'provider-health';
@@ -1475,6 +1622,12 @@ function actionForProcessAdmissionViolation(code) {
   if (code === 'insufficient-permissions') return 'grant-required-cli-permissions-or-use-authorized-actor';
   if (code.includes('isolation')) return 'adjust-actor-tenant-workspace-scope';
   if (code.startsWith('execution-plan-')) return 'repair-hosted-kernel-execution-plan';
+  if (code === 'mailchimp-campaign-id-required') return 'select-mailchimp-campaign';
+  if (code === 'mailchimp-audience-id-required') return 'select-mailchimp-audience';
+  if (code === 'mailchimp-provider-unauthorized') return 'reconnect-mailchimp-provider';
+  if (code === 'mailchimp-provider-offline') return 'restore-mailchimp-provider';
+  if (code.startsWith('mailchimp-campaign-')) return 'repair-mailchimp-campaign-state';
+  if (code === 'mailchimp-scheduled-at-invalid') return 'repair-mailchimp-schedule';
   return 'correct-command-envelope-and-resubmit';
 }
 
@@ -1501,6 +1654,7 @@ function summarizeValidationForJobRun(violations) {
     'job-run-admission',
     'descriptor-boundary',
     'execution-plan',
+    'mailchimp-campaign',
     'provider-health',
     'lifecycle'
   ].map((category) => groups[category] || {
@@ -1518,6 +1672,7 @@ function projectJobRunAcceptancePreview(jobAdmission, jobDescriptorBoundary, exe
   const descriptorReady = !fileBackedJobRun || Boolean(jobDescriptorBoundary?.safeForProcessCreation);
   const providerReady = provider.contract.enabled && provider.contract.handoffMode !== 'audit-only';
   const executionReady = !blockedBy.some((code) => code.startsWith('execution-plan-'));
+  const mailchimpReady = !jobAdmission.mailchimpCampaign.present || jobAdmission.mailchimpCampaign.deliveryReadiness.canAttachLogProof;
   const acceptanceRequired = jobAdmission.present && Boolean(jobAdmission.process?.create);
   const acceptanceState = blockedBy.length
     ? 'blocked'
@@ -1529,6 +1684,11 @@ function projectJobRunAcceptancePreview(jobAdmission, jobDescriptorBoundary, exe
   const readiness = {
     descriptor: descriptorReady ? 'ready' : 'blocked',
     executionPlan: executionReady ? 'ready' : 'blocked',
+    mailchimpCampaign: !jobAdmission.mailchimpCampaign.present
+      ? 'not-present'
+      : mailchimpReady
+        ? 'ready'
+        : jobAdmission.mailchimpCampaign.state,
     provider: providerReady ? 'ready' : provider.contract.handoffMode === 'audit-only' ? 'audit-only' : 'blocked',
     acceptance: acceptanceState
   };
@@ -1589,6 +1749,14 @@ function projectJobRunAcceptancePreview(jobAdmission, jobDescriptorBoundary, exe
         handoffMode: provider.contract.handoffMode,
         requiredCapabilities: executionPlan.providerRequirements,
         negotiatedCapabilities: provider.contract.capabilities
+      },
+      mailchimpCampaign: {
+        present: jobAdmission.mailchimpCampaign.present,
+        state: jobAdmission.mailchimpCampaign.state,
+        campaignId: jobAdmission.mailchimpCampaign.campaignId,
+        audienceId: jobAdmission.mailchimpCampaign.audienceId,
+        canAttachLogProof: jobAdmission.mailchimpCampaign.deliveryReadiness.canAttachLogProof,
+        reason: jobAdmission.mailchimpCampaign.deliveryReadiness.reason
       }
     },
     validationSummary,
@@ -1697,6 +1865,7 @@ function projectAiosProcessCreation(jobAdmission, envelope, executionPlan, provi
       jobRunId: jobAdmission.requestedRunId,
       sourcePath: jobAdmission.sourcePath,
       descriptorBoundary: jobDescriptorBoundary,
+      mailchimpCampaign: jobAdmission.mailchimpCampaign,
       labels: jobAdmission.labels
     },
     runtime: {
@@ -1729,6 +1898,92 @@ function projectAiosProcessCreation(jobAdmission, envelope, executionPlan, provi
       expectedInitialStatus: envelope.requestedStatus || 'queued'
     },
     blockedBy
+  };
+}
+
+function projectMailchimpJobRunHandoff(jobAdmission, envelope, processCreation, clientRequest, accepted, violations, now) {
+  const campaign = jobAdmission.mailchimpCampaign;
+  if (!campaign?.present) {
+    return {
+      contract: JOB_RUN_MAILCHIMP_HANDOFF_CONTRACT,
+      present: false,
+      accepted: false,
+      state: 'not-present',
+      generatedAt: now,
+      reason: 'No Mailchimp campaign was declared for this job run.'
+    };
+  }
+
+  const blockedBy = violations
+    .filter((violation) => violation.code.startsWith('mailchimp-'))
+    .map((violation) => violation.code);
+  const processReady = processCreation.state === 'ready-for-create' || processCreation.state === 'ready-with-degraded-provider';
+  const acceptedForProof = accepted
+    && blockedBy.length === 0
+    && processReady
+    && campaign.deliveryReadiness.canAttachLogProof;
+  const state = blockedBy.length
+    ? 'blocked'
+    : acceptedForProof
+      ? 'ready'
+      : campaign.state === 'rate-limited' || campaign.state === 'degraded'
+        ? campaign.state
+        : processReady
+          ? 'awaiting-log-proof'
+          : 'awaiting-process-admission';
+
+  return {
+    contract: JOB_RUN_MAILCHIMP_HANDOFF_CONTRACT,
+    present: true,
+    accepted: acceptedForProof,
+    state,
+    generatedAt: now,
+    tenantId: envelope.tenantId,
+    workspaceId: envelope.workspaceId,
+    commandId: envelope.commandId,
+    requestId: clientRequest.requestId,
+    processId: processCreation.processId,
+    provider: 'mailchimp',
+    campaignId: campaign.campaignId,
+    audienceId: campaign.audienceId,
+    providerState: campaign.providerState,
+    campaignStatus: campaign.campaignStatus,
+    validation: blockedBy,
+    freshness: {
+      syncCursor: campaign.syncCursor,
+      lastSyncAt: campaign.generatedAt,
+      stale: false
+    },
+    retry: campaign.retry,
+    deliveryReadiness: {
+      canAttachLogProof: acceptedForProof,
+      canContinueInDegradedMode: campaign.deliveryReadiness.canContinueInDegradedMode,
+      disabledCommands: acceptedForProof ? [] : ['mailchimp-proof-attach'],
+      reason: acceptedForProof
+        ? 'Mailchimp campaign log proof handoff is ready.'
+        : blockedBy[0] || campaign.deliveryReadiness.reason
+    },
+    handoff: {
+      route: `/operator-userland/cli-run/mailchimp/${encodeURIComponent(envelope.commandId)}/proof`,
+      payloadRef: `cli-run:mailchimp:${envelope.commandId}:${campaign.campaignId}`,
+      proofDigest: digestPayload({
+        tenantId: envelope.tenantId,
+        workspaceId: envelope.workspaceId,
+        commandId: envelope.commandId,
+        requestId: clientRequest.requestId,
+        processId: processCreation.processId,
+        campaignId: campaign.campaignId,
+        audienceId: campaign.audienceId,
+        state
+      })
+    },
+    actionableErrors: blockedBy.map((code) => ({
+      id: `mailchimp:${code}`,
+      code,
+      severity: code === 'mailchimp-provider-unauthorized' ? 'error' : 'warning',
+      message: `Mailchimp campaign handoff requires repair: ${code}`,
+      retryable: campaign.retry.retryable
+    }))
   };
 }
 
@@ -2334,6 +2589,185 @@ function projectRestartRecoveryPlan(state, restartSafe, now, nowMs, leaseMs) {
   };
 }
 
+function projectClientStatusBridge({
+  state,
+  envelope,
+  clientRequest,
+  lifecycleState,
+  restartSafe,
+  restartRecoveryPlan,
+  operationalHealth,
+  nextAction,
+  accepted,
+  idempotentReplay,
+  replayedCommandId,
+  requestIdempotencyKey,
+  violations,
+  now
+}) {
+  const persistedCommandId = replayedCommandId || envelope.commandId;
+  const commandRecord = state.commandsById[persistedCommandId] || null;
+  const recoveryRecord = restartRecoveryPlan.records.find((record) => record.commandId === persistedCommandId) || null;
+  const leaseRow = restartSafe.leases.find((lease) => lease.commandId === persistedCommandId) || null;
+  const validationState = violations.length ? 'blocked' : accepted || idempotentReplay ? 'accepted' : 'pending';
+  const recoveryState = restartRecoveryPlan.status === 'clear'
+    ? 'clear'
+    : restartRecoveryPlan.status === 'operator-recovery-required'
+      ? 'operator-action-required'
+      : 'sync-required';
+  const readinessState = violations.length
+    ? 'blocked'
+    : restartSafe.staleCommandIds.includes(persistedCommandId)
+      ? 'recovery-required'
+      : lifecycleState.readiness === 'blocked'
+        ? 'blocked'
+        : operationalHealth.status === 'degraded'
+          ? 'degraded'
+          : 'ready';
+  const terminal = commandRecord ? TERMINAL_STATUSES.has(commandRecord.status) : false;
+  const active = commandRecord ? ACTIVE_STATUSES.has(commandRecord.status) : false;
+  const safeResume = Boolean(
+    commandRecord
+      && !violations.length
+      && (active || terminal || idempotentReplay)
+      && lifecycleState.readiness !== 'blocked'
+      && !restartSafe.leaseExpiredCommandIds.includes(persistedCommandId)
+  );
+  const safeRetry = Boolean(
+    !violations.length
+      && commandRecord
+      && !terminal
+      && (
+        restartSafe.staleCommandIds.includes(persistedCommandId)
+        || recoveryRecord?.action === 'recover-expired-command-lease'
+        || operationalHealth.retryQueue.some((item) => item.commandId === persistedCommandId)
+      )
+  );
+  const safeHandoff = Boolean(
+    !violations.length
+      && commandRecord
+      && (restartRecoveryPlan.status !== 'clear' || operationalHealth.status !== 'healthy')
+  );
+  const bridgeProof = {
+    contract: CLIENT_STATUS_BRIDGE_CONTRACT,
+    commandId: envelope.commandId,
+    persistedCommandId,
+    tenantId: envelope.tenantId,
+    workspaceId: envelope.workspaceId,
+    requestId: clientRequest.requestId,
+    idempotencyKey: requestIdempotencyKey,
+    validationState,
+    readinessState,
+    recoveryState,
+    commandStatus: commandRecord?.status || 'not-persisted',
+    restartSafeStatus: leaseRow?.recoveryState || recoveryRecord?.restartSafeStatus || 'unknown',
+    recoveryAction: recoveryRecord?.action || null,
+    accepted,
+    idempotentReplay,
+    generatedAt: now
+  };
+  const routeBase = `/operator-userland/cli-run/tenants/${encodeURIComponent(envelope.tenantId || 'unknown')}/workspaces/${encodeURIComponent(envelope.workspaceId || 'unknown')}`;
+  const recoveryRoutes = restartRecoveryPlan.records
+    .filter((record) => record.tenantId === envelope.tenantId && record.workspaceId === envelope.workspaceId)
+    .slice(0, 8)
+    .map((record) => ({
+      rel: record.commandId === persistedCommandId ? 'current-command-recovery' : 'workspace-command-recovery',
+      commandId: record.commandId,
+      action: record.action,
+      enabled: record.idempotency.replaySafe,
+      route: `${routeBase}/commands/${encodeURIComponent(record.commandId)}/recovery`,
+      expectedAck: record.process.expectedAck,
+      resumeToken: record.process.resumeToken,
+      nextPollAfter: record.nextPollAfter
+    }));
+
+  return {
+    contract: CLIENT_STATUS_BRIDGE_CONTRACT,
+    generatedAt: now,
+    tenantId: envelope.tenantId,
+    workspaceId: envelope.workspaceId,
+    commandId: envelope.commandId,
+    persistedCommandId,
+    requestId: clientRequest.requestId,
+    sessionId: clientRequest.sessionId,
+    idempotencyKey: requestIdempotencyKey,
+    accepted,
+    idempotentReplay,
+    validation: {
+      state: validationState,
+      ok: violations.length === 0,
+      violationCodes: violations.map((violation) => violation.code),
+      firstViolation: violations[0]?.message || null
+    },
+    readiness: {
+      state: readinessState,
+      lifecycle: lifecycleState.readiness,
+      operationalHealth: operationalHealth.status,
+      restartRecovery: restartRecoveryPlan.status,
+      ready: readinessState === 'ready',
+      safeResume,
+      safeRetry,
+      safeHandoff
+    },
+    persistedCommand: commandRecord
+      ? {
+        status: commandRecord.status,
+        attempts: commandRecord.attempts,
+        createdAt: commandRecord.createdAt,
+        lastTransitionAt: commandRecord.lastTransitionAt,
+        resultPresent: commandRecord.result !== null,
+        errorPresent: commandRecord.error !== null,
+        processId: commandRecord.processCreation?.processId || null,
+        clientContinuationState: commandRecord.clientContinuation?.state || null
+      }
+      : null,
+    lease: leaseRow
+      ? {
+        ownerRequestId: leaseRow.ownerRequestId,
+        expiresAt: leaseRow.expiresAt,
+        expired: leaseRow.expired,
+        generation: leaseRow.generation,
+        restartSafeStatus: leaseRow.recoveryState
+      }
+      : null,
+    recovery: {
+      state: recoveryState,
+      action: recoveryRecord?.action || null,
+      staleCommandIds: restartRecoveryPlan.staleCommandIds,
+      leaseExpiredCommandIds: restartRecoveryPlan.leaseExpiredCommandIds,
+      actionCounts: restartRecoveryPlan.actionCounts,
+      idempotentReplayKeys: restartRecoveryPlan.idempotentReplay.acceptedKeys,
+      routes: recoveryRoutes
+    },
+    nextStep: {
+      action: safeRetry
+        ? 'recover-command'
+        : safeResume
+          ? 'resume-command'
+          : safeHandoff
+            ? 'prepare-dashboard-handoff'
+            : nextAction.action,
+      reason: violations[0]?.message || recoveryRecord?.action || nextAction.reason,
+      route: safeRetry || recoveryRecord
+        ? `${routeBase}/commands/${encodeURIComponent(persistedCommandId)}/recovery`
+        : `${routeBase}/commands/${encodeURIComponent(persistedCommandId)}`,
+      pollAfter: recoveryRecord?.nextPollAfter || null
+    },
+    clientStatePatch: {
+      cliRunStatusContract: CLIENT_STATUS_BRIDGE_CONTRACT,
+      commandId: persistedCommandId,
+      commandStatus: commandRecord?.status || 'not-persisted',
+      readinessState,
+      recoveryState,
+      restartSafeStatus: leaseRow?.recoveryState || recoveryRecord?.restartSafeStatus || 'unknown',
+      idempotentReplay,
+      idempotencyKey: requestIdempotencyKey,
+      nextAction: safeRetry ? 'recover-command' : safeResume ? 'resume-command' : nextAction.action
+    },
+    proof: bridgeProof
+  };
+}
+
 function classifyFailure(record, staleCommandIds) {
   if (staleCommandIds.has(record.commandId)) {
     return {
@@ -2440,6 +2874,149 @@ function projectOperationalHealth(state, restartSafe, nowMs, retryPolicy, valida
     retryQueue,
     failures,
     actionableErrors
+  };
+}
+
+function projectRecoveryHealthHandoff({ state, restartSafe, restartRecoveryPlan, operationalHealth, lifecycleState, retryPolicy, now }) {
+  const retryableCommandIds = new Set(operationalHealth.retryQueue.map((item) => item.commandId));
+  const staleCommandIds = new Set(restartSafe.staleCommandIds);
+  const expiredLeaseCommandIds = new Set(restartSafe.leaseExpiredCommandIds);
+  const activeRecoveryRows = restartRecoveryPlan.records
+    .filter((record) => record.status === 'recovering' || staleCommandIds.has(record.commandId) || expiredLeaseCommandIds.has(record.commandId))
+    .map((record) => {
+      const retry = operationalHealth.retryQueue.find((item) => item.commandId === record.commandId)?.retry || null;
+      const commandRecord = state.commandsById[record.commandId] || null;
+      const routeBase = `/operator-userland/cli-run/tenants/${encodeURIComponent(record.tenantId)}/workspaces/${encodeURIComponent(record.workspaceId)}/commands/${encodeURIComponent(record.commandId)}`;
+      const retryReady = Boolean(retryableCommandIds.has(record.commandId) && retry?.retryAfter && Date.parse(retry.retryAfter) <= Date.parse(now));
+      const action =
+        expiredLeaseCommandIds.has(record.commandId)
+          ? 'renew-command-lease'
+          : retryReady
+            ? 'retry-command-now'
+            : record.action;
+
+      return {
+        commandId: record.commandId,
+        tenantId: record.tenantId,
+        workspaceId: record.workspaceId,
+        status: record.status,
+        restartSafeStatus: record.restartSafeStatus,
+        action,
+        route: `${routeBase}/recovery`,
+        retryRoute: retryableCommandIds.has(record.commandId) ? `${routeBase}/retry` : null,
+        resumeRoute: record.process.resumeToken ? `${routeBase}/resume?token=${encodeURIComponent(record.process.resumeToken)}` : `${routeBase}/resume`,
+        leaseExpired: expiredLeaseCommandIds.has(record.commandId),
+        stale: staleCommandIds.has(record.commandId),
+        retryable: retryableCommandIds.has(record.commandId),
+        retryAfter: retry?.retryAfter || null,
+        attempts: commandRecord?.attempts || 0,
+        maxAttempts: retryPolicy.maxAttempts,
+        idempotencyKeyCount: record.idempotency.keys.length,
+        expectedAck: record.process.expectedAck,
+        processId: record.process.processId
+      };
+    });
+  const retryRows = operationalHealth.retryQueue.map((item) => ({
+    commandId: item.commandId,
+    tenantId: item.tenantId,
+    workspaceId: item.workspaceId,
+    attempts: item.retry.attempts,
+    maxAttempts: item.retry.maxAttempts,
+    retryAfter: item.retry.retryAfter,
+    delayMs: item.retry.delayMs,
+    reason: item.failure.code,
+    route: `/operator-userland/cli-run/tenants/${encodeURIComponent(item.tenantId)}/workspaces/${encodeURIComponent(item.workspaceId)}/commands/${encodeURIComponent(item.commandId)}/retry`
+  }));
+  const blockedBy = [
+    ...(lifecycleState.commandAdmission.open ? [] : [lifecycleState.commandAdmission.reason || lifecycleState.commandAdmission.state]),
+    ...(restartSafe.status === 'needs-recovery' ? ['restart-safe-recovery-required'] : []),
+    ...(operationalHealth.actionableErrors.some((error) => error.severity === 'error') ? ['actionable-errors-present'] : []),
+  ].filter(Boolean);
+  const stateValue =
+    blockedBy.length
+      ? 'blocked'
+      : activeRecoveryRows.length
+        ? 'recovering'
+        : retryRows.length
+          ? 'retry-wait'
+          : operationalHealth.status === 'degraded'
+            ? 'degraded'
+            : 'healthy';
+  const nextAttemptAt = retryRows
+    .map((row) => row.retryAfter)
+    .filter(Boolean)
+    .sort()[0] || null;
+  const handoffSubject = {
+    surfaceId,
+    generatedAt: now,
+    state: stateValue,
+    restartSafeStatus: restartSafe.status,
+    lifecycleReadiness: lifecycleState.readiness,
+    recoveryCommandIds: activeRecoveryRows.map((row) => row.commandId),
+    retryCommandIds: retryRows.map((row) => row.commandId),
+    blockedBy,
+  };
+
+  return {
+    contract: 'aios.cli-run.recovery-health-handoff.v1',
+    generatedAt: now,
+    state: stateValue,
+    restartSafeStatus: restartSafe.status,
+    lifecycleReadiness: lifecycleState.readiness,
+    commandAdmissionOpen: lifecycleState.commandAdmission.open,
+    degradedModeActive: operationalHealth.degraded,
+    blockedBy,
+    counters: {
+      activeCommands: restartSafe.activeCommandIds.length,
+      staleCommands: restartSafe.staleCommandIds.length,
+      expiredLeases: restartSafe.leaseExpiredCommandIds.length,
+      recoveredCommands: state.recoveredCommandIds.length,
+      recoveryRows: activeRecoveryRows.length,
+      retryRows: retryRows.length,
+      actionableErrors: operationalHealth.actionableErrors.length
+    },
+    retryWindow: {
+      policy: retryPolicy,
+      nextAttemptAt,
+      readyNow: retryRows.filter((row) => Date.parse(row.retryAfter) <= Date.parse(now)).map((row) => row.commandId)
+    },
+    recoveryRows: activeRecoveryRows,
+    retryRows,
+    operatorActions: [
+      activeRecoveryRows.length ? {
+        id: 'recover-cli-run-commands',
+        action: activeRecoveryRows.some((row) => row.leaseExpired) ? 'renew-expired-leases' : 'sync-recovered-commands',
+        route: '/operator-userland/cli-run/recovery',
+        commandIds: activeRecoveryRows.map((row) => row.commandId)
+      } : null,
+      retryRows.length ? {
+        id: 'retry-cli-run-failures',
+        action: 'retry-ready-commands-after-backoff',
+        route: '/operator-userland/cli-run/retry',
+        nextAttemptAt,
+        commandIds: retryRows.map((row) => row.commandId)
+      } : null
+    ].filter(Boolean),
+    exportableSummary: {
+      rowKey: `${state.runId}:${state.epoch}:recovery-health`,
+      state: stateValue,
+      restartSafeStatus: restartSafe.status,
+      lifecycleReadiness: lifecycleState.readiness,
+      staleCommands: restartSafe.staleCommandIds.length,
+      expiredLeases: restartSafe.leaseExpiredCommandIds.length,
+      retryableCommands: retryRows.length,
+      actionableErrors: operationalHealth.actionableErrors.length,
+      nextAttemptAt
+    },
+    proof: {
+      digest: stableCommandId({
+        command: stateValue,
+        tenantId: 'system',
+        workspaceId: restartSafe.status,
+        args: [JSON.stringify(handoffSubject)]
+      }),
+      subject: handoffSubject
+    }
   };
 }
 
@@ -2940,6 +3517,100 @@ function projectExportSummary(state, analytics, operationalHealth, timeline, rep
   };
 }
 
+function projectDashboardExportHandoff(exportSummary, reportingState, historySnapshots, timeline, lifecycleState, envelope, now) {
+  const exportRows = [
+    ...exportSummary.statusRows.map((row) => ({ dataset: 'statusRows', key: row.status, count: row.count })),
+    ...exportSummary.tenantWorkspaceRows.map((row) => ({ dataset: 'tenantWorkspaceRows', key: `${row.tenantId}:${row.workspaceId}`, count: row.total })),
+    ...exportSummary.providerRows.map((row) => ({ dataset: 'providerRows', key: row.providerId, count: row.total })),
+    ...exportSummary.transportRows.map((row) => ({ dataset: 'transportRows', key: row.transport, count: row.total }))
+  ];
+  const latestSnapshot = historySnapshots[historySnapshots.length - 1] || null;
+  const previousSnapshot = historySnapshots.length > 1 ? historySnapshots[historySnapshots.length - 2] : null;
+  const latestTimelineAt = timeline.reduce((latest, entry) => {
+    const entryMs = parseTime(entry.at, 0);
+    return entryMs > latest ? entryMs : latest;
+  }, 0);
+  const generatedMs = parseTime(now, Date.now());
+  const latestTimelineAgeMs = latestTimelineAt ? Math.max(0, generatedMs - latestTimelineAt) : null;
+  const blockedReasons = [
+    lifecycleState.commandAdmission.open ? null : lifecycleState.commandAdmission.reason || lifecycleState.readiness,
+    reportingState.status === 'attention-required' ? reportingState.warningCodes[0] || 'reporting-attention-required' : null,
+    exportSummary.healthStatus === 'blocked' ? 'operational-health-blocked' : null
+  ].filter(Boolean);
+  const rowSetChecksums = {
+    statusRows: digestPayload(exportSummary.statusRows).slice(0, 16),
+    tenantWorkspaceRows: digestPayload(exportSummary.tenantWorkspaceRows).slice(0, 16),
+    providerRows: digestPayload(exportSummary.providerRows).slice(0, 16),
+    transportRows: digestPayload(exportSummary.transportRows).slice(0, 16),
+    timeline: digestPayload(exportSummary.latestTimeline).slice(0, 16)
+  };
+  const exportToken = digestPayload({
+    contract: 'aios.cli-run.dashboard-export-handoff.v1',
+    tenantId: envelope.tenantId,
+    workspaceId: envelope.workspaceId,
+    actorId: envelope.actor.actorId,
+    runId: exportSummary.runId,
+    epoch: exportSummary.epoch,
+    generatedAt: now,
+    rowSetChecksums
+  }).slice(0, 32);
+
+  return {
+    contract: 'aios.cli-run.dashboard-export-handoff.v1',
+    generatedAt: now,
+    state: blockedReasons.length ? 'blocked' : 'ready',
+    ready: blockedReasons.length === 0,
+    tenantId: envelope.tenantId,
+    workspaceId: envelope.workspaceId,
+    actorId: envelope.actor.actorId,
+    actorRole: envelope.actor.role,
+    runId: exportSummary.runId,
+    epoch: exportSummary.epoch,
+    format: exportSummary.format,
+    exportToken: `cli_run_export_${exportToken}`,
+    route: `/operator-userland/cli-run/tenants/${encodeURIComponent(envelope.tenantId)}/workspaces/${encodeURIComponent(envelope.workspaceId)}/exports/${encodeURIComponent(exportSummary.runId)}`,
+    blockedReasons,
+    counters: {
+      totalCommands: exportSummary.counters.totalCommands,
+      activeCommands: exportSummary.counters.activeCommands,
+      terminalCommands: exportSummary.counters.terminalCommands,
+      staleCommands: exportSummary.counters.staleCommands,
+      exportRows: exportRows.length,
+      historySnapshots: historySnapshots.length,
+      timelineEvents: timeline.length,
+      warningCodes: reportingState.warningCodes.length
+    },
+    freshness: {
+      latestSnapshotAt: latestSnapshot?.at || null,
+      previousSnapshotAt: previousSnapshot?.at || null,
+      latestTimelineAt: latestTimelineAt ? new Date(latestTimelineAt).toISOString() : null,
+      latestTimelineAgeMs,
+      trendSampleCount: reportingState.trend.sampleCount,
+      boundedByHistoryLimit: historySnapshots.length >= 20
+    },
+    datasets: reportingState.exportManifest.datasets.map((dataset) => ({
+      dataset,
+      included: true,
+      checksum: rowSetChecksums[dataset] || digestPayload(exportSummary[dataset] || null).slice(0, 16)
+    })),
+    lifecycleGate: {
+      readiness: lifecycleState.readiness,
+      commandAdmissionOpen: lifecycleState.commandAdmission.open,
+      nextAction: lifecycleState.commandAdmission.nextAction,
+      dueAt: lifecycleState.commandAdmission.dueAt
+    },
+    rowSetChecksums,
+    dashboardSummary: {
+      healthStatus: exportSummary.healthStatus,
+      reportingStatus: reportingState.status,
+      warningCodes: reportingState.warningCodes,
+      completionRate: exportSummary.counters.completionRate,
+      failureRate: exportSummary.counters.failureRate,
+      processReadyRate: exportSummary.counters.processReadyRate
+    }
+  };
+}
+
 export function describeCliRunSurface(input = {}) {
   const now = input.now || new Date().toISOString();
   const nowMs = parseTime(now, Date.now());
@@ -2959,6 +3630,7 @@ export function describeCliRunSurface(input = {}) {
   const requestIdempotencyKey = normalizeIdempotencyKey(jobAdmission.idempotencyKey) || commandIdempotencyKey(envelope, clientRequest);
   let violations = validateEnvelope(envelope)
     .concat(validateJobRunAdmission(jobAdmission))
+    .concat(validateMailchimpJobCampaign(jobAdmission))
     .concat(validateJobProcessAdmission(jobAdmission, envelope))
     .concat(validateJobDescriptorBoundary(jobDescriptorBoundary))
     .concat(normalizedLifecycle.violations)
@@ -3266,10 +3938,13 @@ export function describeCliRunSurface(input = {}) {
   const externalHandoff = projectProviderHandoff(provider, envelope, accepted || idempotentReplay, violations, now, state.epoch);
   externalHandoff.executionPlan = executionPlan;
   const processCreation = projectAiosProcessCreation(jobAdmission, envelope, executionPlan, provider, accepted || idempotentReplay, violations, now, state.epoch, jobDescriptorBoundary, retryPolicy);
+  const mailchimpCampaignHandoff = projectMailchimpJobRunHandoff(jobAdmission, envelope, processCreation, clientRequest, accepted || idempotentReplay, violations, now);
   if (accepted && state.commandsById[envelope.commandId]) {
     state.commandsById[envelope.commandId].processCreation = processCreation;
+    state.commandsById[envelope.commandId].mailchimpCampaignHandoff = mailchimpCampaignHandoff;
   } else if (idempotentReplay && replayedCommandId && state.commandsById[replayedCommandId]) {
     state.commandsById[replayedCommandId].processCreation = processCreation;
+    state.commandsById[replayedCommandId].mailchimpCampaignHandoff = mailchimpCampaignHandoff;
     state.commandsById[replayedCommandId].jobDescriptorBoundary = jobAdmission.present ? jobDescriptorBoundary : state.commandsById[replayedCommandId].jobDescriptorBoundary;
   }
 
@@ -3280,9 +3955,19 @@ export function describeCliRunSurface(input = {}) {
   const historySnapshots = projectHistorySnapshots(state, analytics, now);
   const timeline = projectTimeline(Object.values(state.commandsById));
   const lifecycleState = projectLifecycleControlState(lifecycleSettings, restartSafe, envelope.actor, lifecycleControl, violations, nowMs);
+  const recoveryHealthHandoff = projectRecoveryHealthHandoff({
+    state,
+    restartSafe,
+    restartRecoveryPlan,
+    operationalHealth,
+    lifecycleState,
+    retryPolicy,
+    now
+  });
   const nextAction = projectNextAction(lifecycleSettings, restartSafe, operationalHealth, violations, now);
   const reportingState = projectReportingState(analytics, historySnapshots, operationalHealth, nextAction, now);
   const exportSummary = projectExportSummary(state, analytics, operationalHealth, timeline, reportingState, now);
+  const dashboardExportHandoff = projectDashboardExportHandoff(exportSummary, reportingState, historySnapshots, timeline, lifecycleState, envelope, now);
   const clientContinuation = projectClientContinuation(
     clientRequest,
     envelope,
@@ -3294,11 +3979,29 @@ export function describeCliRunSurface(input = {}) {
     now,
     leaseMs,
     jobAdmission,
-    processCreation
+    processCreation,
+    mailchimpCampaignHandoff
   );
+  const clientStatusBridge = projectClientStatusBridge({
+    state,
+    envelope,
+    clientRequest,
+    lifecycleState,
+    restartSafe,
+    restartRecoveryPlan,
+    operationalHealth,
+    nextAction,
+    accepted,
+    idempotentReplay,
+    replayedCommandId,
+    requestIdempotencyKey,
+    violations,
+    now
+  });
   if (accepted && state.commandsById[envelope.commandId]) {
     state.commandsById[envelope.commandId].clientContinuation = clientContinuation;
     state.commandsById[envelope.commandId].processCreation = processCreation;
+    state.commandsById[envelope.commandId].mailchimpCampaignHandoff = mailchimpCampaignHandoff;
     state.commandsById[envelope.commandId].proof = state.commandsById[envelope.commandId].proof.concat({
       type: 'cli-run-client-continuation-projected',
       at: now,
@@ -3307,7 +4010,7 @@ export function describeCliRunSurface(input = {}) {
       sessionId: clientRequest.sessionId,
       state: clientContinuation.state,
       expectedAck: clientContinuation.ack.expected,
-      workflowStepTypes: clientContinuation.workflowSteps.map((step) => step.type)
+    workflowStepTypes: clientContinuation.workflowSteps.map((step) => step.type)
     }, {
       type: 'aios-process-creation-projected',
       at: now,
@@ -3318,10 +4021,21 @@ export function describeCliRunSurface(input = {}) {
       sourceKind: processCreation.source.kind,
       sourcePath: processCreation.source.sourcePath,
       blockedBy: processCreation.blockedBy
+    }, {
+      type: 'cli-run-mailchimp-campaign-handoff-projected',
+      at: now,
+      commandId: envelope.commandId,
+      contract: mailchimpCampaignHandoff.contract,
+      state: mailchimpCampaignHandoff.state,
+      accepted: mailchimpCampaignHandoff.accepted,
+      campaignId: mailchimpCampaignHandoff.campaignId || null,
+      audienceId: mailchimpCampaignHandoff.audienceId || null,
+      proofDigest: mailchimpCampaignHandoff.handoff?.proofDigest || null
     });
   } else if (idempotentReplay && replayedCommandId && state.commandsById[replayedCommandId]) {
     state.commandsById[replayedCommandId].clientContinuation = clientContinuation;
     state.commandsById[replayedCommandId].processCreation = processCreation;
+    state.commandsById[replayedCommandId].mailchimpCampaignHandoff = mailchimpCampaignHandoff;
     state.commandsById[replayedCommandId].jobDescriptorBoundary = jobAdmission.present ? jobDescriptorBoundary : state.commandsById[replayedCommandId].jobDescriptorBoundary;
   }
   const persistedStateProof = {
@@ -3362,6 +4076,21 @@ export function describeCliRunSurface(input = {}) {
     transportRows: exportSummary.transportRows.length,
     trendSampleCount: reportingState.trend.sampleCount,
     reportingStatus: reportingState.status
+  };
+  const dashboardExportHandoffProof = {
+    type: 'cli-run-dashboard-export-handoff-projected',
+    at: now,
+    contract: dashboardExportHandoff.contract,
+    state: dashboardExportHandoff.state,
+    tenantId: dashboardExportHandoff.tenantId,
+    workspaceId: dashboardExportHandoff.workspaceId,
+    runId: dashboardExportHandoff.runId,
+    epoch: dashboardExportHandoff.epoch,
+    exportRows: dashboardExportHandoff.counters.exportRows,
+    historySnapshots: dashboardExportHandoff.counters.historySnapshots,
+    timelineEvents: dashboardExportHandoff.counters.timelineEvents,
+    blockedReasons: dashboardExportHandoff.blockedReasons,
+    exportToken: dashboardExportHandoff.exportToken
   };
   const nextActionProof = {
     type: 'cli-run-next-action-projected',
@@ -3435,9 +4164,27 @@ export function describeCliRunSurface(input = {}) {
     degradedModeActive: processCreation.admissionHealth.degradedMode.active,
     retryMode: processCreation.admissionHealth.retry.mode,
     providerId: processCreation.runtime.providerId,
+    mailchimpCampaignPresent: processCreation.source.mailchimpCampaign.present,
+    mailchimpCampaignState: processCreation.source.mailchimpCampaign.state,
+    mailchimpCampaignCanAttachLogProof: processCreation.source.mailchimpCampaign.deliveryReadiness.canAttachLogProof,
     argvLength: processCreation.runtime.admissionCommand.length,
     launchArgvLength: processCreation.runtime.launchCommand.length,
     blockedBy: processCreation.blockedBy
+  };
+  const mailchimpCampaignHandoffProof = {
+    type: 'cli-run-mailchimp-campaign-handoff-projected',
+    at: now,
+    commandId: envelope.commandId,
+    contract: mailchimpCampaignHandoff.contract,
+    present: mailchimpCampaignHandoff.present,
+    state: mailchimpCampaignHandoff.state,
+    accepted: mailchimpCampaignHandoff.accepted,
+    campaignId: mailchimpCampaignHandoff.campaignId || null,
+    audienceId: mailchimpCampaignHandoff.audienceId || null,
+    providerState: mailchimpCampaignHandoff.providerState || null,
+    campaignStatus: mailchimpCampaignHandoff.campaignStatus || null,
+    validation: mailchimpCampaignHandoff.validation || [],
+    proofDigest: mailchimpCampaignHandoff.handoff?.proofDigest || null
   };
   const clientContinuationProof = {
     type: 'cli-run-client-continuation-projected',
@@ -3454,8 +4201,38 @@ export function describeCliRunSurface(input = {}) {
     jobRunHandoffState: clientContinuation.jobRunHandoff?.state || null,
     jobRunHandoffAction: clientContinuation.jobRunHandoff?.action || null,
     jobRunProcessId: clientContinuation.jobRunHandoff?.processId || null,
+    mailchimpCampaignHandoffState: clientContinuation.mailchimpCampaignHandoff?.state || null,
+    mailchimpCampaignHandoffAccepted: clientContinuation.mailchimpCampaignHandoff?.accepted === true,
     workflowStepTypes: clientContinuation.workflowSteps.map((step) => step.type),
     blockedBy: clientContinuation.blockedBy
+  };
+  const clientStatusBridgeProof = {
+    type: 'cli-run-client-status-bridge-projected',
+    at: now,
+    contract: clientStatusBridge.contract,
+    commandId: clientStatusBridge.commandId,
+    persistedCommandId: clientStatusBridge.persistedCommandId,
+    requestId: clientStatusBridge.requestId,
+    readinessState: clientStatusBridge.readiness.state,
+    recoveryState: clientStatusBridge.recovery.state,
+    safeResume: clientStatusBridge.readiness.safeResume,
+    safeRetry: clientStatusBridge.readiness.safeRetry,
+    safeHandoff: clientStatusBridge.readiness.safeHandoff,
+    nextAction: clientStatusBridge.nextStep.action
+  };
+  const recoveryHealthProof = {
+    type: 'cli-run-recovery-health-handoff-projected',
+    at: now,
+    contract: recoveryHealthHandoff.contract,
+    state: recoveryHealthHandoff.state,
+    restartSafeStatus: recoveryHealthHandoff.restartSafeStatus,
+    lifecycleReadiness: recoveryHealthHandoff.lifecycleReadiness,
+    staleCommands: recoveryHealthHandoff.counters.staleCommands,
+    expiredLeases: recoveryHealthHandoff.counters.expiredLeases,
+    retryRows: recoveryHealthHandoff.counters.retryRows,
+    actionableErrors: recoveryHealthHandoff.counters.actionableErrors,
+    nextAttemptAt: recoveryHealthHandoff.retryWindow.nextAttemptAt,
+    blockedBy: recoveryHealthHandoff.blockedBy
   };
 
   return {
@@ -3488,9 +4265,11 @@ export function describeCliRunSurface(input = {}) {
     },
     clientRequest,
     clientContinuation,
+    clientStatusBridge,
     jobAdmission,
     jobDescriptorBoundary,
     processCreation,
+    mailchimpCampaignHandoff,
     providerContract: {
       contract: provider.contract,
       requiredCapabilities: requiredProviderCapabilities(envelope),
@@ -3533,11 +4312,13 @@ export function describeCliRunSurface(input = {}) {
       recoveryPlan: restartRecoveryPlan
     },
     operationalHealth,
+    recoveryHealthHandoff,
     analytics,
     historySnapshots,
     timeline,
     reportingState,
     exportSummary,
+    dashboardExportHandoff,
     externalHandoff,
     state: {
       schemaVersion: state.schemaVersion,
@@ -3553,15 +4334,19 @@ export function describeCliRunSurface(input = {}) {
       jobAdmission: jobAdmission.present ? jobAdmission : null,
       jobDescriptorBoundary: jobAdmission.present ? jobDescriptorBoundary : null,
       processCreation,
+      mailchimpCampaignHandoff,
       externalHandoff,
       clientRequest,
       clientContinuation,
+      clientStatusBridge,
       restartRecoveryPlan,
+      recoveryHealthHandoff,
       historySnapshots,
-      reportingState
+      reportingState,
+      dashboardExportHandoff
     },
     audit,
-    evidence: evidence.concat(boundaryProof, isolationProof, lifecycleProof, providerProof, executionProof, jobAdmissionProof, jobDescriptorBoundaryProof, processCreationProof, persistedStateProof, restartRecoveryPlanProof, healthProof, analyticsProof, nextActionProof, handoffProof, clientContinuationProof).concat(audit).concat(
+    evidence: evidence.concat(boundaryProof, isolationProof, lifecycleProof, providerProof, executionProof, jobAdmissionProof, jobDescriptorBoundaryProof, processCreationProof, mailchimpCampaignHandoffProof, persistedStateProof, restartRecoveryPlanProof, healthProof, recoveryHealthProof, analyticsProof, dashboardExportHandoffProof, nextActionProof, handoffProof, clientContinuationProof, clientStatusBridgeProof).concat(audit).concat(
       state.recoveredCommandIds.map((commandId) => ({
         type: 'restart-safe-command-recovered',
         at: now,

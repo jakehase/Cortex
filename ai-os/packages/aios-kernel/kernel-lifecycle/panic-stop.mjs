@@ -363,6 +363,55 @@ function normalizeScheduleRequest({ input, now }) {
   };
 }
 
+function normalizeScheduleCancellationRequest({ input, persistedState }) {
+  const scheduledStop = persistedState?.scheduledStop ?? {};
+  const requestedScheduleId = cleanText(
+    input.scheduleId ?? input.cancelScheduleId ?? input.scheduledStopId,
+    null
+  );
+  const activeScheduleId = cleanText(scheduledStop.scheduleId, null);
+  const activeScheduleFor = cleanTimestamp(scheduledStop.scheduledFor);
+  const activeCommandKey = cleanText(scheduledStop.commandKey, null);
+  const activeScheduleRecordPresent = scheduledStop.status === "scheduled" && Boolean(activeScheduleId);
+  const activeSchedule = activeScheduleRecordPresent && Boolean(activeScheduleFor);
+  const scheduleIdRequired = activeSchedule && Boolean(requestedScheduleId);
+  const scheduleIdMatches = !scheduleIdRequired || requestedScheduleId === activeScheduleId;
+  const cancellable = activeSchedule && scheduleIdMatches;
+  const validationCodes = [
+    !activeScheduleRecordPresent ? "no_active_scheduled_panic_stop" : null,
+    activeScheduleRecordPresent && !activeScheduleFor ? "active_schedule_time_invalid" : null,
+    activeSchedule && requestedScheduleId && requestedScheduleId !== activeScheduleId
+      ? "cancel_schedule_id_mismatch"
+      : null
+  ].filter(Boolean);
+
+  return {
+    schema: "aios.kernelLifecycle.panicStop.scheduleCancellation.v1",
+    requested: Boolean(requestedScheduleId),
+    requestedScheduleId,
+    activeScheduleRecordPresent,
+    activeSchedule,
+    activeScheduleId,
+    activeScheduleFor,
+    activeCommandKey,
+    scheduleIdMatches,
+    cancellable,
+    validationCodes,
+    targetScheduleId: cancellable ? activeScheduleId : requestedScheduleId,
+    providerDelete: {
+      required: cancellable,
+      providerName: "scheduler-gate",
+      capability: "schedule.delete",
+      expectedSchema: "aios.provider.schedulerGate.panicStop.scheduleDelete.v1"
+    },
+    nextAction: cancellable
+      ? "delete_active_scheduled_panic_stop"
+      : !activeSchedule
+        ? "show_no_active_schedule_to_cancel"
+        : "refresh_schedule_before_cancel"
+  };
+}
+
 function normalizeClientRuntimeState(input = {}) {
   const source = cleanRecord(input.clientRuntimeState ?? input.clientState ?? input.requestClient);
   const request = cleanRecord(source.request ?? input.requestContext);
@@ -2232,6 +2281,7 @@ function buildProviderDispatchEnvelope({
   lifecycleCommand,
   lifecycleSettings,
   scheduleRequest,
+  scheduleCancellation,
   commandPlan,
   operationalResponse,
   externalHandoffState,
@@ -2327,7 +2377,10 @@ function buildProviderDispatchEnvelope({
           lifecycleCommand: lifecycleCommand.command,
           scheduledFor: lifecycleCommand.command === "schedule" ? scheduleRequest.scheduledFor : null,
           cancelScheduleId: lifecycleCommand.command === "cancel-scheduled"
-            ? persistenceRecoveryState.nextPersistedState.scheduledStop.scheduleId
+            ? scheduleCancellation.targetScheduleId
+            : null,
+          scheduleCancellation: lifecycleCommand.command === "cancel-scheduled"
+            ? scheduleCancellation
             : null,
           settingsDelta: commandPlan.settingsDelta,
           controlsEnabled: lifecycleSettings.controlsEnabled,
@@ -2566,6 +2619,7 @@ function validatePanicStopRequest({
   lifecycleCommand,
   lifecycleSettings,
   scheduleRequest,
+  scheduleCancellation,
   settingsMutation,
   hazardAssessment
 }) {
@@ -2676,6 +2730,33 @@ function validatePanicStopRequest({
         field: "scheduledFor",
         message: "Scheduled panic-stop must be inside the configured hosted-kernel schedule window.",
         action: `Choose a delay between ${MIN_SCHEDULE_DELAY_MS}ms and ${lifecycleSettings.scheduleWindowMs}ms.`
+      });
+    }
+  }
+
+  if (lifecycleCommand.command === "cancel-scheduled") {
+    if (!scheduleCancellation.activeScheduleRecordPresent) {
+      errors.push({
+        code: "no_active_scheduled_panic_stop",
+        field: "scheduleId",
+        message: "Cancel-scheduled requires an active scheduled panic-stop for this hosted-kernel scope.",
+        action: "Refresh panic-stop state or create a schedule before requesting cancellation."
+      });
+    }
+    if (scheduleCancellation.activeScheduleRecordPresent && !scheduleCancellation.activeSchedule) {
+      errors.push({
+        code: "active_schedule_time_invalid",
+        field: "persistedState.scheduledStop.scheduledFor",
+        message: "The active scheduled panic-stop has no valid scheduledFor timestamp to cancel safely.",
+        action: "Refresh the persisted scheduled stop from scheduler-gate before requesting cancellation."
+      });
+    }
+    if (scheduleCancellation.activeSchedule && !scheduleCancellation.scheduleIdMatches) {
+      errors.push({
+        code: "cancel_schedule_id_mismatch",
+        field: "scheduleId",
+        message: "Cancel-scheduled must target the active scheduled panic-stop id for this scope.",
+        action: "Refresh the active schedule and retry with the current scheduleId."
       });
     }
   }
@@ -3265,6 +3346,7 @@ function buildLifecycleCommandPlan({
   hazardAssessment,
   settingsMutation,
   scheduleRequest,
+  scheduleCancellation,
   boundary,
   health,
   failureState,
@@ -3305,6 +3387,29 @@ function buildLifecycleCommandPlan({
       scheduledFor: lifecycleCommand.command === "schedule" ? scheduleRequest.scheduledFor : null,
       delayMs: lifecycleCommand.command === "schedule" ? scheduleRequest.delayMs : 0,
       windowMs: lifecycleSettings.scheduleWindowMs
+    },
+    scheduleCancellation: {
+      schema: scheduleCancellation.schema,
+      requested: lifecycleCommand.command === "cancel-scheduled",
+      activeScheduleRecordPresent: scheduleCancellation.activeScheduleRecordPresent,
+      activeSchedule: scheduleCancellation.activeSchedule,
+      activeScheduleId: scheduleCancellation.activeScheduleId,
+      activeScheduleFor: scheduleCancellation.activeScheduleFor,
+      requestedScheduleId: scheduleCancellation.requestedScheduleId,
+      targetScheduleId: lifecycleCommand.command === "cancel-scheduled"
+        ? scheduleCancellation.targetScheduleId
+        : null,
+      cancellable: lifecycleCommand.command === "cancel-scheduled"
+        ? scheduleCancellation.cancellable
+        : false,
+      validationCodes: lifecycleCommand.command === "cancel-scheduled"
+        ? scheduleCancellation.validationCodes
+        : [],
+      providerDeleteRequired: lifecycleCommand.command === "cancel-scheduled"
+        && scheduleCancellation.providerDelete.required,
+      nextAction: lifecycleCommand.command === "cancel-scheduled"
+        ? scheduleCancellation.nextAction
+        : "no_schedule_cancel_requested"
     },
     runtimeHazards: {
       schema: hazardAssessment.schema,
@@ -4026,6 +4131,165 @@ function buildRuntimeInterruptClientWorkflow({
   };
 }
 
+function buildClientContinuationContract({
+  now,
+  scope,
+  clientRuntimeState,
+  lifecycleCommand,
+  commandPlan,
+  operationalResponse,
+  previewAcceptance,
+  persistenceRecoveryState,
+  providerDispatchEnvelope,
+  runtimeInterruptWorkflow,
+  staleClientState,
+  duplicateReplay,
+  heldForRecovery,
+  blocked
+}) {
+  const previewExpiresAt = addMillisecondsToIso(
+    now,
+    lifecycleCommand.command === "commit" ? HIGH_RISK_ACCEPTANCE_PREVIEW_TTL_MS : DEFAULT_ACCEPTANCE_PREVIEW_TTL_MS
+  );
+  const providerBlocked = providerDispatchEnvelope.blockedProviderCommands.length > 0;
+  const hydrationRequired = staleClientState || heldForRecovery || duplicateReplay;
+  const mode = duplicateReplay
+    ? "read-existing-result"
+    : heldForRecovery
+      ? "resume-recovery"
+      : staleClientState
+        ? "refresh-client-state"
+        : runtimeInterruptWorkflow.routeOverride.handoffState
+          ? "runtime-safety-handoff"
+          : blocked
+            ? "repair-before-acceptance"
+            : previewAcceptance.acceptance.state === "ready_for_operator_acceptance"
+              ? "operator-acceptance"
+              : providerDispatchEnvelope.dispatchable
+                ? "provider-dispatch"
+                : providerBlocked
+                  ? "provider-mitigation"
+                  : "backend-handoff";
+  const nextClientAction = mode === "read-existing-result"
+    ? "hydrate_persisted_result"
+    : mode === "resume-recovery"
+      ? "resume_from_restart_safe_journal"
+    : mode === "refresh-client-state"
+      ? "refresh_before_acceptance"
+      : mode === "runtime-safety-handoff"
+          ? runtimeInterruptWorkflow.routeOverride.primaryAction
+            ?? `switch_to_${runtimeInterruptWorkflow.preferredCommand}`
+          : mode === "repair-before-acceptance"
+            ? "repair_blockers"
+            : mode === "operator-acceptance"
+              ? "submit_preview_acceptance"
+              : mode === "provider-dispatch"
+                ? "dispatch_provider_commands_after_persist"
+                : mode === "provider-mitigation"
+                  ? "run_provider_mitigation"
+                  : "wait_for_backend_handoff";
+  const continuationKey = [
+    clientRuntimeState.requestId || clientRuntimeState.workflow.workflowId || "request:anonymous",
+    scope.boundaryKey,
+    persistenceRecoveryState.commandKey
+  ].join(":");
+  const continuationGeneration = [
+    persistenceRecoveryState.nextPersistedState.writeGeneration,
+    persistenceRecoveryState.statusSemantics.restartSafeStatus,
+    providerDispatchEnvelope.dispatchMode,
+    previewAcceptance.acceptance.state,
+    operationalResponse.status,
+    runtimeInterruptWorkflow.level ?? "interrupt:none"
+  ].join(":");
+  const leaseExpiresAt = operationalResponse.retry.retryAfter
+    ?? previewExpiresAt
+    ?? addMillisecondsToIso(now, DEFAULT_ACCEPTANCE_PREVIEW_TTL_MS);
+  const providerResumeCheckpoints = providerDispatchEnvelope.providerCommands.map((command) => ({
+    providerName: command.providerName,
+    dispatchState: command.dispatchState,
+    idempotencyKey: command.idempotencyKey,
+    externalStateId: command.payload.externalStateId,
+    syncGeneration: command.payload.syncGeneration,
+    ackRequired: command.payload.providerRequiresAck,
+    boundaryVerified: command.payload.serviceHandoffContract.boundary?.boundaryMatches ?? true,
+    resumeMode: command.dispatchState === "ready"
+      ? "dispatch_from_persisted_checkpoint"
+      : command.payload.providerRequiresAck
+        ? "await_provider_ack_before_dispatch"
+        : "hold_until_provider_contract_repairs"
+  }));
+
+  return {
+    schema: "aios.kernelLifecycle.panicStop.clientContinuation.v1",
+    generatedAt: now,
+    continuationKey,
+    continuationGeneration,
+    resumeToken: `${continuationKey}:${continuationGeneration}`,
+    mode,
+    nextClientAction,
+    lease: {
+      schema: "aios.kernelLifecycle.panicStop.clientContinuationLease.v1",
+      expiresAt: leaseExpiresAt,
+      refreshRequiredAfterLease: mode !== "provider-dispatch",
+      previewExpiresAt,
+      retryAfter: operationalResponse.retry.retryAfter,
+      preserveCommandKey: true
+    },
+    dispatchEnvelope: {
+      schema: "aios.kernelLifecycle.panicStop.clientDispatchEnvelope.v1",
+      ready: mode === "provider-dispatch",
+      commandRoute: commandPlan.route,
+      method: "POST",
+      commandKey: persistenceRecoveryState.commandKey,
+      lifecycleCommand: lifecycleCommand.command,
+      expectedWriteGeneration: persistenceRecoveryState.nextPersistedState.writeGeneration,
+      proofId: providerDispatchEnvelope.auditProofOutput.proofId,
+      providerDispatchId: providerDispatchEnvelope.dispatchId,
+      providerCommandCount: providerDispatchEnvelope.providerCommands.length,
+      blockedProviderCommandCount: providerDispatchEnvelope.blockedProviderCommands.length,
+      idempotencyKey: persistenceRecoveryState.commandKey
+    },
+    statePatch: {
+      schema: "aios.kernelLifecycle.panicStop.clientContinuationStatePatch.v1",
+      workflowStep: mode,
+      commandKey: persistenceRecoveryState.commandKey,
+      continuationKey,
+      continuationGeneration,
+      resumeToken: `${continuationKey}:${continuationGeneration}`,
+      hydrationRequired,
+      clearOptimisticCommand: duplicateReplay || staleClientState,
+      optimisticUpdateAllowed: mode === "provider-dispatch" && commandPlan.accepted,
+      authoritativeLifecycleState: persistenceRecoveryState.nextPersistedState.lifecycleState,
+      authoritativeSchedulerAdmission: persistenceRecoveryState.nextPersistedState.schedulerAdmission,
+      authoritativeWriteGeneration: persistenceRecoveryState.nextPersistedState.writeGeneration,
+      authoritativeProofId: providerDispatchEnvelope.auditProofOutput.proofId,
+      runtimeSafetyInterrupt: runtimeInterruptWorkflow.clientStatePatch,
+      retryAfter: operationalResponse.retry.retryAfter,
+      leaseExpiresAt,
+      blockedBy: blocked
+        ? previewAcceptance.acceptance.blockedBy ?? previewAcceptance.validationSummary.firstRepair?.code ?? "preview_acceptance_blocked"
+        : providerBlocked
+          ? "provider_dispatch_blocked"
+          : null
+    },
+    providerResumeCheckpoints,
+    userVisibleStatus: {
+      schema: "aios.kernelLifecycle.panicStop.clientContinuationStatus.v1",
+      state: mode,
+      primaryAction: nextClientAction,
+      message: runtimeInterruptWorkflow.userVisible.banner
+        ?? previewAcceptance.preview.userMessage
+        ?? persistenceRecoveryState.statusSemantics.userVisibleStatus,
+      severity: operationalResponse.severity,
+      hydrationRequired,
+      duplicateReplay,
+      recoveryRequired: heldForRecovery,
+      providerBlocked,
+      leaseExpiresAt
+    }
+  };
+}
+
 function buildClientWorkflowHandoff({
   now,
   actor,
@@ -4080,6 +4344,22 @@ function buildClientWorkflowHandoff({
   const persistedPatch = persistenceRecoveryState.nextPersistedState;
   const workflowId = clientRuntimeState.workflow.workflowId
     ?? `${surfaceId}:${scope.boundaryKey}:${lifecycleCommand.command}`;
+  const continuation = buildClientContinuationContract({
+    now,
+    scope,
+    clientRuntimeState,
+    lifecycleCommand,
+    commandPlan,
+    operationalResponse,
+    previewAcceptance,
+    persistenceRecoveryState,
+    providerDispatchEnvelope,
+    runtimeInterruptWorkflow,
+    staleClientState,
+    duplicateReplay,
+    heldForRecovery,
+    blocked
+  });
 
   return {
     schema: "aios.kernelLifecycle.panicStop.clientWorkflowHandoff.v1",
@@ -4105,6 +4385,9 @@ function buildClientWorkflowHandoff({
       preserveCommandKey: previewAcceptance.nextStep.preserveCommandKey
         || runtimeInterruptWorkflow.clientStatePatch.preserveCommandKey
     },
+    continuation,
+    continuationLease: continuation.lease,
+    dispatchEnvelope: continuation.dispatchEnvelope,
     userVisibleWorkflow: {
       headline: previewAcceptance.preview.headline,
       statusLabel: previewAcceptance.readiness.label,
@@ -4142,6 +4425,7 @@ function buildClientWorkflowHandoff({
       expectedWriteGeneration: persistedPatch.writeGeneration,
       restartSafeStatus: persistenceRecoveryState.statusSemantics.restartSafeStatus,
       proofId,
+      continuation: continuation.statePatch,
       runtimeSafetyInterrupt: runtimeInterruptWorkflow.clientStatePatch,
       consistency: clientStateConsistency.clientStatePatch,
       lastKnownKernel: {
@@ -4161,6 +4445,7 @@ function buildClientWorkflowHandoff({
     },
     runtimeInterruptWorkflow,
     clientStateConsistency,
+    providerResumeCheckpoints: continuation.providerResumeCheckpoints,
     proofHandoff: {
       proofId,
       proofSchema: providerDispatchEnvelope.auditProofOutput.proofSchema,
@@ -5632,6 +5917,7 @@ export function describePanicStopSurface(input = {}) {
   const lifecycleCommand = normalizeLifecycleCommand(input);
   const lifecycleSettings = normalizeLifecycleSettings(input);
   const scheduleRequest = normalizeScheduleRequest({ input, now });
+  const scheduleCancellation = normalizeScheduleCancellationRequest({ input, persistedState });
   const hazardAssessment = normalizeRuntimeHazardAssessment({
     input,
     evidence,
@@ -5655,6 +5941,7 @@ export function describePanicStopSurface(input = {}) {
     lifecycleCommand,
     lifecycleSettings,
     scheduleRequest,
+    scheduleCancellation,
     settingsMutation,
     hazardAssessment
   });
@@ -5697,6 +5984,7 @@ export function describePanicStopSurface(input = {}) {
     hazardAssessment,
     settingsMutation,
     scheduleRequest,
+    scheduleCancellation,
     boundary,
     health,
     failureState,
@@ -5730,6 +6018,7 @@ export function describePanicStopSurface(input = {}) {
     lifecycleCommand,
     lifecycleSettings,
     scheduleRequest,
+    scheduleCancellation,
     commandPlan,
     operationalResponse,
     externalHandoffState,
@@ -5898,6 +6187,7 @@ export function describePanicStopSurface(input = {}) {
     lifecycleSettingsMutation: settingsMutation,
     runtimeHazardAssessment: hazardAssessment,
     scheduleRequest,
+    scheduleCancellation,
     clientRuntimeState,
     clientStateConsistency,
     clientWorkflowHandoff,

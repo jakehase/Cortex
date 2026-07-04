@@ -1144,12 +1144,83 @@ function providerIdForAuth(providerId) {
   return normalizeIdentifier(providerId, "provider:hosted-kernel-local");
 }
 
+function normalizeLifecycleCommandName(value) {
+  const baseCommand = typeof value === "string" ? value.split(":")[0] : value;
+  return normalizeCommandSet([baseCommand], [])[0] || null;
+}
+
+function latestActiveCommandNameFromHistory(history, activeCommandId) {
+  if (!activeCommandId) return null;
+  const matches = normalizeHistory(history)
+    .filter((entry) => entry.commandId === activeCommandId)
+    .map((entry) => ({
+      commandName: normalizeLifecycleCommandName(entry.command),
+      source: "history"
+    }))
+    .filter((entry) => entry.commandName && STATE_CHANGING_COMMANDS.includes(entry.commandName));
+
+  return matches[matches.length - 1] || null;
+}
+
+function latestActiveCommandNameFromLedger(commandLedger, activeCommandId) {
+  if (!activeCommandId) return null;
+  const matches = normalizeCommandLedger(commandLedger)
+    .filter((entry) => entry.commandId === activeCommandId)
+    .map((entry) => ({
+      commandName: normalizeLifecycleCommandName(entry.command),
+      source: "command-ledger"
+    }))
+    .filter((entry) => entry.commandName && STATE_CHANGING_COMMANDS.includes(entry.commandName));
+
+  return matches[matches.length - 1] || null;
+}
+
+function inferCommandNameFromInFlightState(state) {
+  if (!DEGRADED_STATES.has(state)) return null;
+
+  for (const [commandName, transition] of TRANSITIONS.entries()) {
+    if (transition.to === state) {
+      return {
+        commandName,
+        source: "in-flight-state"
+      };
+    }
+  }
+
+  return null;
+}
+
+function shapeActiveCommandContract(stateContract) {
+  const activeCommandId = normalizeIdentifier(stateContract.activeCommandId, null);
+  const currentState = normalizeState(stateContract.state);
+  const resolved =
+    latestActiveCommandNameFromHistory(stateContract.history, activeCommandId) ||
+    latestActiveCommandNameFromLedger(stateContract.commandLedger, activeCommandId) ||
+    inferCommandNameFromInFlightState(currentState);
+  const commandName = resolved?.commandName || null;
+  const transition = commandName ? TRANSITIONS.get(commandName) : null;
+
+  return {
+    schemaVersion: 1,
+    activeCommandId,
+    commandName,
+    commandNameSource: resolved?.source || null,
+    commandNameKnown: Boolean(commandName),
+    currentState,
+    inFlight: DEGRADED_STATES.has(currentState),
+    transitionState: transition?.to || null,
+    terminalState: transition?.terminal || null,
+    transitionStateMatched: !transition || transition.to === currentState
+  };
+}
+
 function normalizeProviderAcknowledgement(inputAck = {}, persistedAck = {}, providerContract = {}, now) {
   const persisted = asObject(persistedAck);
   const input = asObject(inputAck);
   const merged = { ...persisted, ...input };
   const terminalState = normalizeState(merged.terminalState ?? merged.state);
   const commandName = normalizeCommandSet([merged.commandName ?? merged.command], [])[0] || "status";
+  const claim = normalizeProviderAcknowledgementClaim(merged, providerContract, now);
 
   return {
     schemaVersion: 1,
@@ -1163,7 +1234,92 @@ function normalizeProviderAcknowledgement(inputAck = {}, persistedAck = {}, prov
     accepted: merged.accepted === true,
     message: normalizeIdentifier(merged.message, null),
     completedAt: typeof merged.completedAt === "string" ? merged.completedAt : null,
-    observedAt: typeof merged.observedAt === "string" ? merged.observedAt : now
+    observedAt: typeof merged.observedAt === "string" ? merged.observedAt : now,
+    claim
+  };
+}
+
+function normalizeProviderAcknowledgementClaim(ack, providerContract, now) {
+  const rawClaim = asObject(ack.claim || ack.ackClaim || ack.providerAckClaim);
+  const expectedDigest = normalizeIdentifier(
+    rawClaim.expectedDigest ?? ack.expectedDigest ?? ack.ackDigest,
+    null
+  );
+  const receivedDigest = normalizeIdentifier(
+    rawClaim.receivedDigest ?? ack.receivedDigest ?? ack.digest ?? ack.receiptDigest,
+    null
+  );
+  const deadlineAt = normalizeIdentifier(rawClaim.deadlineAt ?? ack.deadlineAt, null);
+  const acknowledgedAt = normalizeIdentifier(
+    rawClaim.acknowledgedAt ?? ack.acknowledgedAt ?? ack.completedAt ?? ack.observedAt,
+    null
+  );
+  const checkpoint = normalizeIdentifier(rawClaim.checkpoint ?? ack.checkpoint, null);
+  const requestId = normalizeIdentifier(rawClaim.requestId ?? ack.requestId, null);
+  const kernelSessionId = normalizeIdentifier(rawClaim.kernelSessionId ?? ack.kernelSessionId, null);
+  const commitToken = normalizeIdentifier(rawClaim.commitToken ?? ack.commitToken, null);
+  const claimProviderId = normalizeIdentifier(rawClaim.providerId ?? ack.providerId, providerContract.providerId);
+  const claimCommandId = normalizeIdentifier(rawClaim.commandId ?? ack.commandId, null);
+  const claimCorrelationId = normalizeIdentifier(rawClaim.correlationId ?? ack.correlationId, null);
+  const present = Boolean(
+    Object.keys(rawClaim).length > 0 ||
+      expectedDigest ||
+      receivedDigest ||
+      deadlineAt ||
+      checkpoint ||
+      requestId ||
+      commitToken
+  );
+  const deadlineMs = parseEpoch(deadlineAt);
+  const acknowledgedMs = parseEpoch(acknowledgedAt);
+  const nowMs = parseEpoch(now);
+  const expired = deadlineMs !== null && nowMs !== null && nowMs > deadlineMs;
+  const acknowledgedLate = deadlineMs !== null && acknowledgedMs !== null && acknowledgedMs > deadlineMs;
+  const digestChecked = Boolean(expectedDigest && receivedDigest);
+  const digestMatches = !digestChecked || expectedDigest === receivedDigest;
+  const providerMatched = !claimProviderId || claimProviderId === providerContract.providerId;
+  const validationErrors = [
+    ...(providerMatched ? [] : ["claim-provider-mismatch"]),
+    ...(acknowledgedLate ? ["claim-acknowledged-after-deadline"] : []),
+    ...(digestMatches ? [] : ["claim-digest-mismatch"])
+  ];
+  const warnings = [
+    ...(present && expired && !acknowledgedAt ? ["claim-expired-before-ack"] : []),
+    ...(present && expectedDigest && !receivedDigest ? ["claim-received-digest-missing"] : []),
+    ...(present && !deadlineAt ? ["claim-deadline-missing"] : []),
+    ...(present && !checkpoint ? ["claim-checkpoint-missing"] : []),
+    ...(present && !requestId ? ["claim-request-id-missing"] : [])
+  ];
+
+  return {
+    schemaVersion: 1,
+    present,
+    claimType: normalizeIdentifier(rawClaim.claimType, present ? "provider-acknowledgement" : null),
+    state: !present
+      ? "not-present"
+      : validationErrors.length > 0 ? "invalid"
+        : expired && !acknowledgedAt ? "expired" : "accepted",
+    providerId: claimProviderId,
+    commandId: claimCommandId,
+    correlationId: claimCorrelationId,
+    checkpoint,
+    requestId,
+    kernelSessionId,
+    commitToken,
+    expectedDigest,
+    receivedDigest,
+    digestChecked,
+    digestMatches,
+    deadlineAt,
+    acknowledgedAt,
+    expired,
+    acknowledgedLate,
+    validation: {
+      accepted: validationErrors.length === 0,
+      errors: validationErrors,
+      warnings
+    },
+    proofDigest: normalizeIdentifier(rawClaim.proof?.digest ?? rawClaim.digest, null)
   };
 }
 
@@ -1221,11 +1377,15 @@ function providerAckGenerationDecision(stateContract, providerAck, providerContr
 }
 
 function providerAckHandoffDecision(stateContract, providerAck, providerContract) {
+  const activeCommand = shapeActiveCommandContract(stateContract);
   const expectedCorrelationId = normalizeIdentifier(providerContract.handoff.correlationId, null);
-  const activeCommandId = normalizeIdentifier(stateContract.activeCommandId, null);
+  const activeCommandId = activeCommand.activeCommandId;
   const ackCorrelationId = normalizeIdentifier(providerAck.correlationId, null);
   const ackCommandId = normalizeIdentifier(providerAck.commandId, null);
+  const ackCommandName = normalizeLifecycleCommandName(providerAck.commandName);
   const commandMatched = Boolean(activeCommandId && ackCommandId === activeCommandId);
+  const commandNameRequired = Boolean(activeCommand.commandName);
+  const commandNameMatched = !commandNameRequired || ackCommandName === activeCommand.commandName;
   const correlationRequired = Boolean(expectedCorrelationId);
   const correlationMatched = !correlationRequired || ackCorrelationId === expectedCorrelationId;
 
@@ -1236,6 +1396,32 @@ function providerAckHandoffDecision(stateContract, providerAck, providerContract
       reason: "Provider acknowledgement does not match the active hosted-kernel command.",
       expectedCommandId: activeCommandId,
       actualCommandId: ackCommandId,
+      commandIdMatched: commandMatched,
+      expectedCommandName: activeCommand.commandName,
+      actualCommandName: ackCommandName,
+      commandNameRequired,
+      commandNameMatched,
+      activeCommand,
+      correlationRequired,
+      expectedCorrelationId,
+      actualCorrelationId: ackCorrelationId,
+      correlationMatched
+    };
+  }
+
+  if (!commandNameMatched) {
+    return {
+      accepted: false,
+      audit: "provider-ack-rejected-command-name",
+      reason: "Provider acknowledgement command name does not match the active hosted-kernel transition.",
+      expectedCommandId: activeCommandId,
+      actualCommandId: ackCommandId,
+      commandIdMatched: commandMatched,
+      expectedCommandName: activeCommand.commandName,
+      actualCommandName: ackCommandName,
+      commandNameRequired,
+      commandNameMatched,
+      activeCommand,
       correlationRequired,
       expectedCorrelationId,
       actualCorrelationId: ackCorrelationId,
@@ -1250,6 +1436,12 @@ function providerAckHandoffDecision(stateContract, providerAck, providerContract
       reason: "Provider acknowledgement correlation id does not match the active hosted-kernel handoff.",
       expectedCommandId: activeCommandId,
       actualCommandId: ackCommandId,
+      commandIdMatched: commandMatched,
+      expectedCommandName: activeCommand.commandName,
+      actualCommandName: ackCommandName,
+      commandNameRequired,
+      commandNameMatched,
+      activeCommand,
       correlationRequired,
       expectedCorrelationId,
       actualCorrelationId: ackCorrelationId,
@@ -1263,6 +1455,12 @@ function providerAckHandoffDecision(stateContract, providerAck, providerContract
     reason: "Provider acknowledgement matches the active hosted-kernel command and handoff correlation.",
     expectedCommandId: activeCommandId,
     actualCommandId: ackCommandId,
+    commandIdMatched: commandMatched,
+    expectedCommandName: activeCommand.commandName,
+    actualCommandName: ackCommandName,
+    commandNameRequired,
+    commandNameMatched,
+    activeCommand,
     correlationRequired,
     expectedCorrelationId,
     actualCorrelationId: ackCorrelationId,
@@ -1276,11 +1474,28 @@ function shapeProviderAcknowledgementValidation(stateContract, providerAck, prov
   const checks = [
     {
       checkId: "handoff-command",
-      accepted: handoff.accepted,
-      audit: handoff.audit,
-      reason: handoff.reason,
+      accepted: handoff.commandIdMatched,
+      audit: handoff.commandIdMatched ? "provider-ack-command-id-accepted" : handoff.audit,
+      reason: handoff.commandIdMatched
+        ? "Provider acknowledgement command id matches the active hosted-kernel command."
+        : handoff.reason,
       expectedCommandId: handoff.expectedCommandId,
       actualCommandId: handoff.actualCommandId
+    },
+    {
+      checkId: "handoff-command-name",
+      accepted: handoff.commandNameMatched,
+      audit: handoff.commandNameMatched ? "provider-ack-command-name-accepted" : handoff.audit,
+      reason: handoff.commandNameRequired
+        ? handoff.reason
+        : "No active command name proof was available for this acknowledgement.",
+      required: handoff.commandNameRequired,
+      expectedCommandName: handoff.expectedCommandName,
+      actualCommandName: handoff.actualCommandName,
+      source: handoff.activeCommand.commandNameSource,
+      transitionState: handoff.activeCommand.transitionState,
+      terminalState: handoff.activeCommand.terminalState,
+      transitionStateMatched: handoff.activeCommand.transitionStateMatched
     },
     {
       checkId: "handoff-correlation",
@@ -1315,6 +1530,7 @@ function shapeProviderAcknowledgementValidation(stateContract, providerAck, prov
     reason: firstRejected?.reason || "Provider acknowledgement passed handoff and generation validation.",
     checks,
     handoff,
+    activeCommand: handoff.activeCommand,
     generation
   };
 }
@@ -2669,6 +2885,155 @@ function shapeClientAcceptanceEnvelope(
   };
 }
 
+function shapeRouteAcceptanceSubmissionReport(
+  clientRuntime,
+  previewAcceptance,
+  routePreview,
+  acceptanceEnvelope,
+  providerDispatch,
+  externalHandoff,
+  result,
+  command,
+  now
+) {
+  const guardRows = acceptanceEnvelope.guards.map((guard) => ({
+    guardId: guard.guardId,
+    state: guard.satisfied ? "satisfied" : "blocked",
+    audit: guard.audit,
+    label: guard.label
+  }));
+  const blockedGuardRows = guardRows.filter((guard) => guard.state === "blocked");
+  const nextStepRows = acceptanceEnvelope.dataContracts.nextStepContract.map((step) => ({
+    sequence: step.sequence,
+    stepId: step.stepId,
+    type: step.type,
+    command: step.command,
+    routeActionId: step.routeActionId,
+    routeEventName: step.routeEventName,
+    enabled: step.enabled,
+    retryAt: step.retryAt,
+    expectedTerminalState: step.expectedTerminalState,
+    correlationId: step.correlationId
+  }));
+  const validation = acceptanceEnvelope.dataContracts.validationContract;
+  const routeContract = acceptanceEnvelope.dataContracts.routeContract;
+  const submissionRows = [
+    {
+      rowType: "acceptance",
+      acceptanceToken: routePreview.acceptance.token,
+      commandId: command.commandId,
+      commandName: command.name,
+      routeId: clientRuntime.routeId,
+      submitMode: acceptanceEnvelope.submitMode,
+      state: acceptanceEnvelope.state,
+      readyToSubmit: acceptanceEnvelope.readyToSubmit,
+      disabledReason: acceptanceEnvelope.disabledReason,
+      targetState: previewAcceptance.preview.after.state,
+      targetGeneration: previewAcceptance.preview.after.generation,
+      generationDelta: previewAcceptance.preview.generationDelta,
+      externalHandoffRequired: externalHandoff.required,
+      providerDispatchState: providerDispatch.state,
+      providerDispatchable: providerDispatch.dispatchable,
+      blockedGuardCount: blockedGuardRows.length,
+      validationBlockerCount: validation.blockerCount,
+      validationWarningCount: validation.warningCount,
+      nextStepCount: nextStepRows.length
+    },
+    ...guardRows.map((guard) => ({
+      rowType: "guard",
+      acceptanceToken: routePreview.acceptance.token,
+      commandId: command.commandId,
+      guardId: guard.guardId,
+      state: guard.state,
+      audit: guard.audit,
+      label: guard.label
+    })),
+    ...nextStepRows.map((step) => ({
+      rowType: "next-step",
+      acceptanceToken: routePreview.acceptance.token,
+      commandId: command.commandId,
+      stepId: step.stepId,
+      sequence: step.sequence,
+      type: step.type,
+      command: step.command,
+      routeActionId: step.routeActionId,
+      routeEventName: step.routeEventName,
+      enabled: step.enabled,
+      retryAt: step.retryAt
+    }))
+  ];
+  const handoffRows = [
+    {
+      handoffId: externalHandoff.handoffId,
+      required: externalHandoff.required,
+      state: externalHandoff.state,
+      correlationId: externalHandoff.correlationId,
+      expectedTerminalState: externalHandoff.expectedTerminalState,
+      providerDispatchId: providerDispatch.dispatchId,
+      providerDispatchState: providerDispatch.state,
+      providerDispatchable: providerDispatch.dispatchable,
+      routeHandoffPlanId: routeContract.routeHandoffPlanId,
+      routeHandoffReady: routeContract.routeHandoffReady,
+      routeHandoffMode: routeContract.routeHandoffMode,
+      routeHandoffActionType: routeContract.routeHandoffActionType,
+      cacheInvalidationRequired: routeContract.cacheInvalidationRequired,
+      cacheKeys: routeContract.cacheKeys
+    }
+  ];
+  const exportReady = acceptanceEnvelope.readyToSubmit && blockedGuardRows.length === 0;
+  const nextAction = exportReady
+    ? acceptanceEnvelope.submitMode === "provider-handoff" ? "submit-provider-handoff" : "submit-preview-acceptance"
+    : blockedGuardRows.length > 0 ? "resolve-acceptance-guards" : "refresh-route-preview";
+
+  return {
+    schemaVersion: 1,
+    contractVersion: "kernel.stateTransition.routeAcceptanceSubmission.v1",
+    generatedAt: now,
+    reportId: `${clientRuntime.requestId}:${command.commandId}:route-acceptance:${previewAcceptance.preview.after.generation}`,
+    state: exportReady ? "export-ready" : result.accepted ? "blocked" : "rejected",
+    exportReady,
+    nextAction,
+    acceptanceToken: routePreview.acceptance.token,
+    submitMode: acceptanceEnvelope.submitMode,
+    routeId: clientRuntime.routeId,
+    requestId: clientRuntime.requestId,
+    commandId: command.commandId,
+    commandName: command.name,
+    targetState: previewAcceptance.preview.after.state,
+    targetGeneration: previewAcceptance.preview.after.generation,
+    readinessState: previewAcceptance.readiness.state,
+    validationState: validation.valid ? "valid" : "blocked",
+    providerDispatchState: providerDispatch.state,
+    externalHandoffState: externalHandoff.state,
+    counts: {
+      guards: guardRows.length,
+      blockedGuards: blockedGuardRows.length,
+      nextSteps: nextStepRows.length,
+      submissionRows: submissionRows.length,
+      handoffRows: handoffRows.length
+    },
+    blockedReasons: [
+      ...blockedGuardRows.map((guard) => guard.audit),
+      ...(providerDispatch.blockedBy || []),
+      ...(routeContract.routeHandoffBlockers || [])
+    ],
+    submissionRows,
+    handoffRows,
+    proof: {
+      digest: [
+        clientRuntime.requestId,
+        command.commandId,
+        routePreview.acceptance.token,
+        acceptanceEnvelope.state,
+        acceptanceEnvelope.submitMode,
+        providerDispatch.state,
+        externalHandoff.state,
+        blockedGuardRows.map((guard) => guard.guardId).join("|") || "no-blocked-guards"
+      ].join("#")
+    }
+  };
+}
+
 function shapeClientRoutePreviewContract(
   clientRuntime,
   previewAcceptance,
@@ -3058,6 +3423,16 @@ function shapeProviderAcknowledgementCandidateState(persistedState, recoveredSta
   const rawState = normalizeState(persisted.state);
   const persistedActiveCommandId = normalizeIdentifier(persisted.activeCommandId, null);
   const ackCommandId = normalizeIdentifier(providerAck.commandId, null);
+  const candidateContract = shapeActiveCommandContract({
+    ...recoveredState,
+    state: rawState,
+    generation: normalizeGeneration(persisted.generation),
+    activeCommandId: persistedActiveCommandId,
+    history: persisted.history,
+    commandLedger: persisted.commandLedger
+  });
+  const ackCommandName = normalizeLifecycleCommandName(providerAck.commandName);
+  const commandNameMatched = !candidateContract.commandName || ackCommandName === candidateContract.commandName;
   const canEvaluateInterruptedTransition =
     DEGRADED_STATES.has(rawState) &&
     Boolean(persistedActiveCommandId) &&
@@ -3082,15 +3457,20 @@ function shapeProviderAcknowledgementCandidateState(persistedState, recoveredSta
       audit: "provider-ack-recovery-deferred",
       required: false,
       applied: false,
-      reason: "Persisted hosted-kernel transition has a matching provider acknowledgement candidate; defer restart recovery until acknowledgement validation completes.",
+      reason: "Persisted hosted-kernel transition has a matching provider acknowledgement candidate for the active command; defer restart recovery until acknowledgement validation completes.",
       restartSafe: false,
       status: "awaiting-provider-ack-validation",
       activeCommandId: persistedActiveCommandId,
+      activeCommandName: candidateContract.commandName,
+      activeCommandNameSource: candidateContract.commandNameSource,
+      candidateCommandNameMatched: commandNameMatched,
       orphanedActiveCommandId: null,
       checkpoint: {
         ...recoveredState.recovery?.checkpoint,
         state: rawState,
         activeCommandId: persistedActiveCommandId,
+        activeCommandName: candidateContract.commandName,
+        candidateCommandNameMatched: commandNameMatched,
         orphanedActiveCommandId: null,
         recoveredAt: null
       }
@@ -3111,7 +3491,10 @@ function shapeProviderAcknowledgementCandidateState(persistedState, recoveredSta
       recoveryCommandId: null,
       recoveredFrom: null,
       orphanedActiveCommandId: null,
-      operatorAction: "Validate the matching provider acknowledgement before applying restart recovery or accepting another state-changing command."
+      activeCommandName: candidateContract.commandName,
+      activeCommandNameSource: candidateContract.commandNameSource,
+      candidateCommandNameMatched: commandNameMatched,
+      operatorAction: "Validate the matching provider acknowledgement against the active command before applying restart recovery or accepting another state-changing command."
     }
   };
 }
@@ -5003,6 +5386,17 @@ export function describeStateTransitionSurface(input = {}) {
     externalHandoff,
     now
   );
+  const routeAcceptanceSubmissionReport = shapeRouteAcceptanceSubmissionReport(
+    clientRuntime,
+    previewAcceptance,
+    routePreview,
+    acceptanceEnvelope,
+    providerDispatch,
+    externalHandoff,
+    result,
+    command,
+    now
+  );
 
   return {
     ok: true,
@@ -5037,7 +5431,8 @@ export function describeStateTransitionSurface(input = {}) {
       timeline,
       timelineState,
       reportState,
-      exports: analyticsExports
+      exports: analyticsExports,
+      routeAcceptanceSubmissionReport
     },
     controls: {
       lifecycleEnabled: settings.lifecycleEnabled,
@@ -5069,6 +5464,7 @@ export function describeStateTransitionSurface(input = {}) {
           state: providerAckStateContract.state,
           generation: providerAckStateContract.generation,
           activeCommandId: providerAckStateContract.activeCommandId,
+          activeCommand: shapeActiveCommandContract(providerAckStateContract),
           restartSafe: providerAckStateContract.restartSafe,
           recoveryAudit: providerAckStateContract.recovery?.audit || null
         },
@@ -5087,7 +5483,8 @@ export function describeStateTransitionSurface(input = {}) {
       ...clientState,
       previewAcceptance,
       routePreview,
-      acceptanceEnvelope
+      acceptanceEnvelope,
+      routeAcceptanceSubmissionReport
     },
     scope: {
       tenantId: shapedState.tenantId,
@@ -5236,6 +5633,10 @@ export function describeStateTransitionSurface(input = {}) {
       providerAcknowledgementValidationAudit: providerAckDecision.validation?.audit || null,
       providerAcknowledgementGenerationAccepted: providerAckDecision.validation?.generation?.accepted ?? null,
       providerAcknowledgementHandoffAccepted: providerAckDecision.validation?.handoff?.accepted ?? null,
+      providerAcknowledgementExpectedCommandName: providerAckDecision.validation?.handoff?.expectedCommandName || null,
+      providerAcknowledgementActualCommandName: providerAckDecision.validation?.handoff?.actualCommandName || null,
+      providerAcknowledgementCommandNameMatched: providerAckDecision.validation?.handoff?.commandNameMatched ?? null,
+      providerAcknowledgementActiveCommandNameSource: providerAckDecision.validation?.activeCommand?.commandNameSource || null,
       providerAcknowledgementExpectedCorrelationId: providerAckDecision.validation?.handoff?.expectedCorrelationId || null,
       providerAcknowledgementActualCorrelationId: providerAckDecision.validation?.handoff?.actualCorrelationId || null,
       persistenceStatus: persistence.status,
@@ -5267,6 +5668,11 @@ export function describeStateTransitionSurface(input = {}) {
       clientAcceptanceEnvelopeReady: acceptanceEnvelope.readyToSubmit,
       clientAcceptanceEnvelopeMode: acceptanceEnvelope.submitMode,
       clientAcceptanceEnvelopeDisabledReason: acceptanceEnvelope.disabledReason,
+      clientRouteAcceptanceReportState: routeAcceptanceSubmissionReport.state,
+      clientRouteAcceptanceReportReady: routeAcceptanceSubmissionReport.exportReady,
+      clientRouteAcceptanceReportNextAction: routeAcceptanceSubmissionReport.nextAction,
+      clientRouteAcceptanceReportRowCount: routeAcceptanceSubmissionReport.counts.submissionRows,
+      clientRouteAcceptanceReportBlockedReasonCount: routeAcceptanceSubmissionReport.blockedReasons.length,
       clientCacheInvalidationRequired: clientState.workflow.cacheInvalidation.required,
       analyticsCurrentStateAgeMs: residencyAnalytics.currentStateAgeMs,
       analyticsUnstableResidencyMs: residencyAnalytics.unstableMs,
@@ -5346,9 +5752,14 @@ export function describeStateTransitionSurface(input = {}) {
       providerAcknowledgementAudit: providerAckDecision.audit,
       providerAcknowledgementApplied: providerAckDecision.applied,
       providerAcknowledgementCommandId: providerAck.commandId,
+      providerAcknowledgementCommandName: providerAck.commandName,
       providerAcknowledgementTerminalState: providerAck.terminalState,
       providerAcknowledgementValidationAudit: providerAckDecision.validation?.audit || null,
       providerAcknowledgementValidationChecks: providerAckDecision.validation?.checks || [],
+      providerAcknowledgementExpectedCommandName: providerAckDecision.validation?.handoff?.expectedCommandName || null,
+      providerAcknowledgementActualCommandName: providerAckDecision.validation?.handoff?.actualCommandName || null,
+      providerAcknowledgementCommandNameMatched: providerAckDecision.validation?.handoff?.commandNameMatched ?? null,
+      providerAcknowledgementActiveCommand: providerAckDecision.validation?.activeCommand || null,
       providerAcknowledgementExpectedGeneration: providerAckDecision.validation?.generation?.expectedMinimumGeneration ?? null,
       providerAcknowledgementMaximumGeneration: providerAckDecision.validation?.generation?.expectedMaximumGeneration ?? null,
       providerAcknowledgementProviderGeneration: providerAckDecision.validation?.generation?.providerGeneration ?? null,
@@ -5385,6 +5796,12 @@ export function describeStateTransitionSurface(input = {}) {
       clientAcceptanceEnvelopeGuardCount: acceptanceEnvelope.guards.length,
       clientAcceptanceEnvelopeBlockedGuardCount: acceptanceEnvelope.guards.filter((guard) => !guard.satisfied).length,
       clientAcceptanceEnvelopeIdempotencyKey: acceptanceEnvelope.nextRequest.idempotencyKey,
+      clientRouteAcceptanceReportState: routeAcceptanceSubmissionReport.state,
+      clientRouteAcceptanceReportReady: routeAcceptanceSubmissionReport.exportReady,
+      clientRouteAcceptanceReportNextAction: routeAcceptanceSubmissionReport.nextAction,
+      clientRouteAcceptanceReportDigest: routeAcceptanceSubmissionReport.proof.digest,
+      clientRouteAcceptanceReportRows: routeAcceptanceSubmissionReport.counts.submissionRows,
+      clientRouteAcceptanceReportBlockedReasonCount: routeAcceptanceSubmissionReport.blockedReasons.length,
       clientHandoffSupported: clientState.workflow.handoff.supported,
       clientCacheInvalidationRequired: clientState.workflow.cacheInvalidation.required,
       clientObservedGeneration: clientRuntime.observedGeneration,

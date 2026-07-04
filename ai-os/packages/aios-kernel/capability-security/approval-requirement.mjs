@@ -38,6 +38,7 @@ const INTENT_PERMISSIONS = {
   handoff: 'approval:handoff',
   monitor: 'approval:review'
 };
+const SCOPE_WILDCARD_TOKENS = new Set(['*', 'all', 'global']);
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -57,6 +58,103 @@ function normalizeStringList(value) {
   return asArray(value)
     .map((item) => String(item || '').trim())
     .filter(Boolean);
+}
+
+function isWildcardScopeToken(value) {
+  return SCOPE_WILDCARD_TOKENS.has(String(value || '').trim().toLowerCase());
+}
+
+function normalizeScopeGrantList(value) {
+  const raw = normalizeStringList(value);
+  return {
+    explicitIds: [...new Set(raw.filter((item) => !isWildcardScopeToken(item)))].sort(),
+    wildcardTokens: [...new Set(raw.filter(isWildcardScopeToken).map((item) => String(item).trim().toLowerCase()))].sort()
+  };
+}
+
+function normalizeScopeId(value, fallback = 'default') {
+  const candidate = String(value || fallback).trim();
+  return isWildcardScopeToken(candidate) ? '*' : candidate;
+}
+
+const DEFAULT_EVIDENCE_REDACTION_FIELDS = [
+  'accessToken',
+  'apiKey',
+  'authorization',
+  'cookie',
+  'password',
+  'secret',
+  'sessionToken'
+];
+
+function normalizeRedactionFieldToken(value) {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+    : '';
+}
+
+function evidenceFieldRequiresRedaction(key, redactionFields) {
+  const normalizedKey = normalizeRedactionFieldToken(key);
+  if (!normalizedKey) return false;
+
+  return redactionFields.some((field) => {
+    const normalizedField = normalizeRedactionFieldToken(field);
+    return normalizedField && (
+      normalizedKey === normalizedField
+        || normalizedKey.endsWith(normalizedField)
+        || normalizedKey.includes(normalizedField)
+    );
+  });
+}
+
+function redactEvidenceValue(value, redactionFields, path = []) {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => redactEvidenceValue(entry, redactionFields, path.concat(String(index))));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [
+    key,
+    evidenceFieldRequiresRedaction(key, redactionFields)
+      ? '[REDACTED]'
+      : redactEvidenceValue(nested, redactionFields, path.concat(key))
+  ]));
+}
+
+function collectEvidenceRedactionPaths(value, redactionFields, path = []) {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => collectEvidenceRedactionPaths(entry, redactionFields, path.concat(String(index))));
+  }
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+
+  return Object.entries(value).flatMap(([key, nested]) => {
+    const nextPath = path.concat(key);
+    if (evidenceFieldRequiresRedaction(key, redactionFields)) {
+      return [nextPath.join('.')];
+    }
+    return collectEvidenceRedactionPaths(nested, redactionFields, nextPath);
+  });
+}
+
+function normalizeEvidenceBundle(evidence, extraRedactionFields) {
+  const entries = asArray(evidence);
+  const redactionFields = uniqueSortedStrings(DEFAULT_EVIDENCE_REDACTION_FIELDS.concat(asArray(extraRedactionFields)));
+  const redactionPaths = collectEvidenceRedactionPaths(entries, redactionFields)
+    .map((path) => `evidence.${path}`);
+
+  return {
+    schema: 'aios.capabilitySecurity.approvalRequirement.evidenceRedaction.v1',
+    supplied: entries.length > 0,
+    entryCount: entries.length,
+    redactionFields,
+    redactionPaths,
+    redactionPathCount: redactionPaths.length,
+    redacted: redactEvidenceValue(entries, redactionFields)
+  };
 }
 
 function uniqueSortedStrings(value) {
@@ -192,6 +290,10 @@ function buildHistorySnapshots(events, now) {
 
 function riskRank(risk) {
   return { low: 1, medium: 2, high: 3, critical: 4 }[risk] || 0;
+}
+
+function priorityRank(priority) {
+  return { low: 1, medium: 2, high: 3, critical: 4 }[priority] || 0;
 }
 
 function normalizeBoolean(value, fallback = true) {
@@ -484,12 +586,12 @@ function normalizeClientRequest(request = {}, now, clientState = {}) {
     .filter(Boolean);
   const roles = normalizeStringList(request.roles || request.actorRoles).map((role) => role.toLowerCase());
   const explicitPermissions = normalizeStringList(request.permissions || request.actorPermissions);
-  const allowedTenantIds = normalizeStringList(
+  const tenantGrantScope = normalizeScopeGrantList(
     request.allowedTenantIds
       || request.tenantScope
       || request.tenantGrants
   );
-  const allowedWorkspaceIds = normalizeStringList(
+  const workspaceGrantScope = normalizeScopeGrantList(
     request.allowedWorkspaceIds
       || request.workspaceScope
       || request.workspaceGrants
@@ -501,14 +603,16 @@ function normalizeClientRequest(request = {}, now, clientState = {}) {
     route: request.route || request.routeMount || clientState.route || clientState.currentRoute || '/capability-security/approval-requirement',
     intent: WORKFLOW_INTENTS.has(intent) ? intent : 'review',
     actor: request.actor || request.userId || request.operator || clientState.actor || 'unknown-operator',
-    tenantId: request.tenantId || request.workspaceId || clientState.tenantId || clientState.workspaceId || 'default',
-    workspaceId: request.workspaceId || request.projectId || clientState.workspaceId || clientState.projectId || 'default',
+    tenantId: normalizeScopeId(request.tenantId || request.workspaceId || clientState.tenantId || clientState.workspaceId, 'default'),
+    workspaceId: normalizeScopeId(request.workspaceId || request.projectId || clientState.workspaceId || clientState.projectId, 'default'),
     selectedApprovalIds: [...new Set(requestedApprovalIds.length ? requestedApprovalIds : stateSelectionIds.map(String).filter(Boolean))],
     selectedCapabilities: [...new Set((clientCapabilities.length ? clientCapabilities : stateCapabilities).map(String).filter(Boolean))].sort(),
     actorRoles: [...new Set(roles)].sort(),
     actorPermissions: [...new Set(explicitPermissions)].sort(),
-    allowedTenantIds: [...new Set(allowedTenantIds)].sort(),
-    allowedWorkspaceIds: [...new Set(allowedWorkspaceIds)].sort(),
+    allowedTenantIds: tenantGrantScope.explicitIds,
+    allowedWorkspaceIds: workspaceGrantScope.explicitIds,
+    requestedTenantGrantWildcards: tenantGrantScope.wildcardTokens,
+    requestedWorkspaceGrantWildcards: workspaceGrantScope.wildcardTokens,
     boundaryMode: String(request.boundaryMode || request.scopeMode || 'tenant').toLowerCase() === 'global' ? 'global' : 'tenant',
     returnTo: request.returnTo || request.returnUrl || clientState.returnTo || clientState.returnRoute || null,
     submittedAt: request.submittedAt || request.at || now,
@@ -815,31 +919,66 @@ function deriveActorPermissions(request) {
 function buildTenantPermissionBoundary(events, request, selection, settings, now) {
   const actorPermissions = deriveActorPermissions(request);
   const intentPermission = INTENT_PERMISSIONS[request.intent] || 'approval:review';
+  const actorHasCrossScope = actorPermissions.has('tenant:cross-scope');
   const eventTenantIds = [...new Set(events.map((event) => event.tenantId))].sort();
   const eventWorkspaceIds = [...new Set(events.map((event) => event.workspaceId))].sort();
   const selectedEvents = events.filter((event) => selection.selectedApprovalIds.includes(event.id));
   const selectedTenantIds = [...new Set(selectedEvents.map((event) => event.tenantId))].sort();
   const selectedWorkspaceIds = [...new Set(selectedEvents.map((event) => event.workspaceId))].sort();
+  const requestTenantWildcard = request.tenantId === '*';
+  const requestWorkspaceWildcard = request.workspaceId === '*';
+  const tenantGrantWildcardRequested = request.requestedTenantGrantWildcards.length > 0;
+  const workspaceGrantWildcardRequested = request.requestedWorkspaceGrantWildcards.length > 0;
+  const wildcardGrantsAllowed = request.boundaryMode === 'global' && actorHasCrossScope;
+  const tenantWildcardGrantAccepted = tenantGrantWildcardRequested && wildcardGrantsAllowed;
+  const workspaceWildcardGrantAccepted = workspaceGrantWildcardRequested && wildcardGrantsAllowed;
   const configuredTenants = request.allowedTenantIds.length
     ? request.allowedTenantIds
     : settings.tenantBoundary.defaultTenantIds;
   const configuredWorkspaces = request.allowedWorkspaceIds.length
     ? request.allowedWorkspaceIds
     : settings.tenantBoundary.defaultWorkspaceIds;
-  const scopeTenants = configuredTenants.length ? configuredTenants : [request.tenantId].filter((tenantId) => tenantId !== '*');
+  const scopeTenants = tenantWildcardGrantAccepted
+    ? eventTenantIds
+    : configuredTenants.length
+      ? configuredTenants
+      : [request.tenantId].filter((tenantId) => tenantId !== '*');
   const scopeWorkspaces = configuredWorkspaces.length
     ? configuredWorkspaces
-    : [request.workspaceId].filter((workspaceId) => workspaceId !== '*');
-  const allowedTenantIds = request.boundaryMode === 'global' && actorPermissions.has('tenant:cross-scope')
+    : workspaceWildcardGrantAccepted
+      ? eventWorkspaceIds
+      : [request.workspaceId].filter((workspaceId) => workspaceId !== '*');
+  const allowedTenantIds = request.boundaryMode === 'global' && actorHasCrossScope
     ? eventTenantIds
     : [...new Set(scopeTenants)].sort();
-  const allowedWorkspaceIds = request.boundaryMode === 'global' && actorPermissions.has('tenant:cross-scope')
+  const allowedWorkspaceIds = request.boundaryMode === 'global' && actorHasCrossScope
     ? eventWorkspaceIds
     : [...new Set(scopeWorkspaces)].sort();
   const allowedTenantSet = new Set(allowedTenantIds);
   const allowedWorkspaceSet = new Set(allowedWorkspaceIds);
   const blockedTenantSet = new Set(settings.tenantBoundary.blockedTenantIds);
   const blockedWorkspaceSet = new Set(settings.tenantBoundary.blockedWorkspaceIds);
+  const crossTenantRequested = requestTenantWildcard || tenantGrantWildcardRequested || selectedTenantIds.length > 1 || request.boundaryMode === 'global';
+  const crossWorkspaceRequested = requestWorkspaceWildcard || workspaceGrantWildcardRequested || selectedWorkspaceIds.length > 1 || request.boundaryMode === 'global';
+  const missingPermission = !actorPermissions.has(intentPermission);
+  const crossTenantBlocked = crossTenantRequested
+    && !settings.tenantBoundary.allowCrossTenantReview
+    && !actorHasCrossScope;
+  const crossWorkspaceBlocked = crossWorkspaceRequested
+    && !settings.tenantBoundary.allowCrossWorkspaceReview
+    && !actorHasCrossScope;
+  const tenantWildcardGrantRejected = tenantGrantWildcardRequested && !tenantWildcardGrantAccepted;
+  const workspaceWildcardGrantRejected = workspaceGrantWildcardRequested && !workspaceWildcardGrantAccepted;
+  const tenantWildcardScopeRejected = requestTenantWildcard && !actorHasCrossScope && !settings.tenantBoundary.allowCrossTenantReview;
+  const workspaceWildcardScopeRejected = requestWorkspaceWildcard && !actorHasCrossScope && !settings.tenantBoundary.allowCrossWorkspaceReview;
+  const scopeDenialReasonForEvent = (event) => {
+    if (tenantWildcardGrantRejected || tenantWildcardScopeRejected) return 'tenant-wildcard-scope-not-authorized';
+    if (workspaceWildcardGrantRejected || workspaceWildcardScopeRejected) return 'workspace-wildcard-scope-not-authorized';
+    if (blockedTenantSet.has(event.tenantId)) return 'tenant-blocked-by-policy';
+    if (blockedWorkspaceSet.has(event.workspaceId)) return 'workspace-blocked-by-policy';
+    if (!allowedTenantSet.has(event.tenantId)) return 'tenant-not-granted-to-actor';
+    return 'workspace-not-granted-to-actor';
+  };
   const selectedOutOfScope = selectedEvents
     .filter((event) => (
       !allowedTenantSet.has(event.tenantId)
@@ -852,23 +991,8 @@ function buildTenantPermissionBoundary(events, request, selection, settings, now
       tenantId: event.tenantId,
       workspaceId: event.workspaceId,
       capability: event.capability,
-      reason: blockedTenantSet.has(event.tenantId)
-        ? 'tenant-blocked-by-policy'
-        : blockedWorkspaceSet.has(event.workspaceId)
-          ? 'workspace-blocked-by-policy'
-          : !allowedTenantSet.has(event.tenantId)
-            ? 'tenant-not-granted-to-actor'
-            : 'workspace-not-granted-to-actor'
+      reason: scopeDenialReasonForEvent(event)
     }));
-  const crossTenantRequested = request.tenantId === '*' || selectedTenantIds.length > 1 || request.boundaryMode === 'global';
-  const crossWorkspaceRequested = request.workspaceId === '*' || selectedWorkspaceIds.length > 1 || request.boundaryMode === 'global';
-  const missingPermission = !actorPermissions.has(intentPermission);
-  const crossTenantBlocked = crossTenantRequested
-    && !settings.tenantBoundary.allowCrossTenantReview
-    && !actorPermissions.has('tenant:cross-scope');
-  const crossWorkspaceBlocked = crossWorkspaceRequested
-    && !settings.tenantBoundary.allowCrossWorkspaceReview
-    && !actorPermissions.has('tenant:cross-scope');
   const explicitGrantMissing = settings.tenantBoundary.requireExplicitTenantGrant
     && allowedTenantIds.length === 0
     && eventTenantIds.length > 0;
@@ -887,6 +1011,10 @@ function buildTenantPermissionBoundary(events, request, selection, settings, now
   });
   const denialReasons = [
     ...(missingPermission ? ['missing-intent-permission'] : []),
+    ...(tenantWildcardGrantRejected ? ['tenant-wildcard-grant-requires-cross-scope'] : []),
+    ...(workspaceWildcardGrantRejected ? ['workspace-wildcard-grant-requires-cross-scope'] : []),
+    ...(tenantWildcardScopeRejected ? ['tenant-wildcard-scope-requires-cross-scope'] : []),
+    ...(workspaceWildcardScopeRejected ? ['workspace-wildcard-scope-requires-cross-scope'] : []),
     ...(crossTenantBlocked ? ['cross-tenant-review-blocked'] : []),
     ...(crossWorkspaceBlocked ? ['cross-workspace-review-blocked'] : []),
     ...(explicitGrantMissing ? ['explicit-tenant-grant-required'] : []),
@@ -906,6 +1034,23 @@ function buildTenantPermissionBoundary(events, request, selection, settings, now
     requestedTenantId: request.tenantId,
     requestedWorkspaceId: request.workspaceId,
     boundaryMode: request.boundaryMode,
+    grantResolution: {
+      schema: 'aios.capabilitySecurity.approvalRequirement.scopeGrantResolution.v1',
+      requestedTenantGrantWildcards: request.requestedTenantGrantWildcards,
+      requestedWorkspaceGrantWildcards: request.requestedWorkspaceGrantWildcards,
+      tenantWildcardGrantAccepted,
+      workspaceWildcardGrantAccepted,
+      tenantWildcardGrantRejected,
+      workspaceWildcardGrantRejected,
+      requestTenantWildcard,
+      requestWorkspaceWildcard,
+      tenantWildcardScopeRejected,
+      workspaceWildcardScopeRejected,
+      actorHasCrossScope,
+      wildcardGrantsAllowed,
+      effectiveTenantScope: allowedTenantIds.length ? 'explicit' : 'none',
+      effectiveWorkspaceScope: allowedWorkspaceIds.length ? 'explicit' : 'none'
+    },
     allowedTenantIds,
     allowedWorkspaceIds,
     blockedTenantIds: settings.tenantBoundary.blockedTenantIds,
@@ -1825,6 +1970,111 @@ function incrementCounter(target, key, amount = 1) {
   target[key] = (target[key] || 0) + amount;
 }
 
+function approvalExportReadinessReason(event, lifecycle, settings) {
+  if (event.exportable === false) return 'event-marked-non-exportable';
+  if (event.state === 'required') return 'open-requirement';
+  if (event.state === 'approved' && !event.approver && settings.requireApproverForRisks.includes(event.risk)) {
+    return 'approver-proof-missing';
+  }
+  if (lifecycle.disabledCapabilities.includes(event.capability)) return 'capability-disabled-by-lifecycle';
+  return 'ready';
+}
+
+function buildApprovalExportRows(events, lifecycle, settings, now) {
+  return events
+    .filter((event) => event.exportable)
+    .map((event) => {
+      const readinessReason = approvalExportReadinessReason(event, lifecycle, settings);
+      const openAgeHours = event.state === 'required' ? ageHoursSince(event.requestedAt, now) : null;
+      const resolutionHours = durationHoursBetween(event.requestedAt, event.resolvedAt);
+      return {
+        id: event.id,
+        tenantId: event.tenantId,
+        workspaceId: event.workspaceId,
+        capability: event.capability,
+        requester: event.requester,
+        state: event.state,
+        risk: event.risk,
+        requestedAt: event.requestedAt,
+        resolvedAt: event.resolvedAt,
+        approver: event.approver,
+        reason: event.reason,
+        openAgeHours,
+        resolutionHours,
+        readiness: readinessReason === 'ready' ? 'ready' : 'attention-required',
+        readinessReason
+      };
+    });
+}
+
+function buildApprovalTenantActionSummaries({ events, lifecycle, settings, now }) {
+  const summaries = new Map();
+  for (const event of events) {
+    const summary = summaries.get(event.tenantId) || {
+      tenantId: event.tenantId,
+      openRequirementCount: 0,
+      criticalOpenCount: 0,
+      missingApproverProofCount: 0,
+      disabledCapabilityOpenCount: 0,
+      oldestOpenRequestedAt: null,
+      nextAction: 'none',
+      actionPriority: 'low',
+      affectedCapabilities: new Set()
+    };
+    const disabledByLifecycle = lifecycle.disabledCapabilities.includes(event.capability);
+    const missingApproverProof = event.state === 'approved'
+      && !event.approver
+      && settings.requireApproverForRisks.includes(event.risk);
+
+    if (event.state === 'required') {
+      summary.openRequirementCount += 1;
+      summary.affectedCapabilities.add(event.capability);
+      if (event.risk === 'critical') summary.criticalOpenCount += 1;
+      if (disabledByLifecycle) summary.disabledCapabilityOpenCount += 1;
+      if (!summary.oldestOpenRequestedAt || String(event.requestedAt).localeCompare(String(summary.oldestOpenRequestedAt)) < 0) {
+        summary.oldestOpenRequestedAt = event.requestedAt;
+      }
+    }
+    if (missingApproverProof) {
+      summary.missingApproverProofCount += 1;
+      summary.affectedCapabilities.add(event.capability);
+    }
+
+    summaries.set(event.tenantId, summary);
+  }
+
+  return [...summaries.values()]
+    .map((summary) => {
+      const oldestOpenAgeHours = summary.oldestOpenRequestedAt
+        ? ageHoursSince(summary.oldestOpenRequestedAt, now)
+        : null;
+      if (summary.disabledCapabilityOpenCount > 0) {
+        summary.nextAction = 'resolve-disabled-capability-approvals';
+        summary.actionPriority = 'critical';
+      } else if (summary.criticalOpenCount > settings.maxPendingCritical) {
+        summary.nextAction = 'review-critical-open-approvals';
+        summary.actionPriority = 'critical';
+      } else if (summary.missingApproverProofCount > 0) {
+        summary.nextAction = 'attach-approver-proof';
+        summary.actionPriority = 'high';
+      } else if (summary.openRequirementCount > 0) {
+        summary.nextAction = 'continue-approval-review';
+        summary.actionPriority = oldestOpenAgeHours !== null && oldestOpenAgeHours > settings.reviewCadenceHours ? 'high' : 'medium';
+      }
+
+      return {
+        ...summary,
+        affectedCapabilities: [...summary.affectedCapabilities].sort(),
+        oldestOpenAgeHours
+      };
+    })
+    .sort((left, right) => (
+      priorityRank(right.actionPriority) - priorityRank(left.actionPriority)
+      || right.openRequirementCount - left.openRequirementCount
+      || left.tenantId.localeCompare(right.tenantId)
+    ));
+}
+
 function buildApprovalAnalyticsReport(events, counters, timeline, exportSummary, settings, lifecycle, now) {
   const byTenant = {};
   const openedByDay = {};
@@ -1832,6 +2082,9 @@ function buildApprovalAnalyticsReport(events, counters, timeline, exportSummary,
   const openAgeBuckets = { under4h: 0, under24h: 0, under72h: 0, over72h: 0, unknown: 0 };
   const resolutionDurations = [];
   const riskReviewQueue = [];
+  const exportRows = buildApprovalExportRows(events, lifecycle, settings, now);
+  const exportAttentionRows = exportRows.filter((row) => row.readiness !== 'ready');
+  const tenantActionSummaries = buildApprovalTenantActionSummaries({ events, lifecycle, settings, now });
 
   for (const event of events) {
     const tenant = byTenant[event.tenantId] || {
@@ -1929,25 +2182,59 @@ function buildApprovalAnalyticsReport(events, counters, timeline, exportSummary,
       redactions: exportSummary.redactions,
       columns: exportSummary.columns,
       readyForExport: exportSummary.rows > 0,
-      summaryFields: Object.keys(exportSummary.totals).sort()
+      summaryFields: Object.keys(exportSummary.totals).sort(),
+      attentionRowCount: exportAttentionRows.length,
+      readyRowCount: exportRows.length - exportAttentionRows.length,
+      readinessReasons: [...new Set(exportAttentionRows.map((row) => row.readinessReason))].sort()
     },
+    exportRows,
+    tenantActionSummaries,
     timelineMarkers
   };
 }
 
 function buildExportSummary(events, counters, now) {
   const exportableEvents = events.filter((event) => event.exportable);
+  const nonExportableEvents = events.filter((event) => !event.exportable);
   return {
     schema: 'aios.capabilitySecurity.approvalRequirement.export.v1',
     generatedAt: now,
     rows: exportableEvents.length,
-    columns: ['id', 'tenantId', 'capability', 'requester', 'state', 'risk', 'requestedAt', 'resolvedAt', 'approver', 'reason'],
+    columns: [
+      'id',
+      'tenantId',
+      'workspaceId',
+      'capability',
+      'requester',
+      'state',
+      'risk',
+      'requestedAt',
+      'resolvedAt',
+      'approver',
+      'reason',
+      'openAgeHours',
+      'resolutionHours',
+      'readiness',
+      'readinessReason'
+    ],
     redactions: events.length - exportableEvents.length,
     totals: {
       approvals: counters.byState.approved || 0,
       denials: counters.byState.denied || 0,
       openRequirements: counters.byState.required || 0,
       bypasses: counters.bypasses
+    },
+    excludedRows: nonExportableEvents.map((event) => ({
+      approvalId: event.id,
+      tenantId: event.tenantId,
+      capability: event.capability,
+      reason: 'event-marked-non-exportable'
+    })),
+    deliveryHints: {
+      recommendedFormat: 'jsonl',
+      includesWorkspaceId: true,
+      includesReadinessReason: true,
+      consumerRoute: '/capability-security/approval-requirement/export'
     }
   };
 }
@@ -2529,6 +2816,7 @@ function buildClientRuntimeTransition(
 
 export function describeApprovalRequirementSurface(input = {}) {
   const now = input.now || new Date().toISOString();
+  const evidenceBundle = normalizeEvidenceBundle(input.evidence, input.evidenceRedactionFields || input.redactionFields);
   const persistedState = normalizePersistedApprovalState(input.persistedState || input.stateSnapshot || {}, now);
   const rawClientRuntimeState = input.clientState || input.clientRuntimeState || input.runtimeState || {};
   const clientRequest = normalizeClientRequest(input.request || input.clientRequest || {}, now, rawClientRuntimeState);
@@ -2733,6 +3021,7 @@ export function describeApprovalRequirementSurface(input = {}) {
         decisionReceiptValidDraftCount: decisionReceiptPlan.validDraftCount,
         tenantBoundaryPermitted: tenantBoundary.permitted,
         tenantBoundaryDenialReasons: tenantBoundary.denialReasons,
+        tenantBoundaryGrantResolution: tenantBoundary.grantResolution,
         selectedOutOfScopeApprovalCount: tenantBoundary.selectedOutOfScope.length,
         restartSafetyStatus: restartSafety.status,
         restartRouteRefreshRequired: restartSafety.routeRefreshRequired,
@@ -2770,6 +3059,9 @@ export function describeApprovalRequirementSurface(input = {}) {
         analyticsOpenOver72hCount: analyticsReport.openAgeBuckets.over72h,
         analyticsExportReady: analyticsReport.exportManifest.readyForExport,
         analyticsExportRows: analyticsReport.exportManifest.rows,
+        analyticsExportReadyRows: analyticsReport.exportManifest.readyRowCount,
+        analyticsExportAttentionRows: analyticsReport.exportManifest.attentionRowCount,
+        analyticsTopTenantAction: analyticsReport.tenantActionSummaries[0]?.nextAction || 'none',
         analyticsResolutionP95Hours: analyticsReport.resolutionSla.p95ResolutionHours,
         analyticsReviewCadenceBreaches: analyticsReport.resolutionSla.breachingReviewCadenceCount,
         analyticsTimelineMarkerCount: analyticsReport.timelineMarkers.length
@@ -2841,6 +3133,7 @@ export function describeApprovalRequirementSurface(input = {}) {
       decisionReceiptRows: decisionReceiptPlan.receiptRows,
       tenantBoundaryPermitted: tenantBoundary.permitted,
       allowedTenantIds: tenantBoundary.allowedTenantIds,
+      scopeGrantResolution: tenantBoundary.grantResolution,
       boundaryDeniedApprovalIds: tenantBoundary.selectedOutOfScope.map((entry) => entry.approvalId),
       restartSafetyStatus: restartSafety.status,
       routeRefreshRequired: restartSafety.routeRefreshRequired,
@@ -2861,6 +3154,11 @@ export function describeApprovalRequirementSurface(input = {}) {
       nextScheduledReviewAt: lifecycle.scheduleState.nextReviewAt,
       exportReady: analyticsReport.exportManifest.readyForExport,
       exportRows: analyticsReport.exportManifest.rows,
+      exportReadyRows: analyticsReport.exportManifest.readyRowCount,
+      exportAttentionRows: analyticsReport.exportManifest.attentionRowCount,
+      exportReadinessReasons: analyticsReport.exportManifest.readinessReasons,
+      exportRowPreview: analyticsReport.exportRows.slice(0, 10),
+      tenantActionSummaries: analyticsReport.tenantActionSummaries.slice(0, 10),
       openAgeBuckets: analyticsReport.openAgeBuckets,
       riskReviewQueueCount: analyticsReport.riskReviewQueue.length,
       userVisibleMessage: workflowHandoff.userVisibleMessage,
@@ -2911,6 +3209,7 @@ export function describeApprovalRequirementSurface(input = {}) {
       selectedApprovalCount: requestSelection.selectedCount,
       tenantBoundaryPermitted: tenantBoundary.permitted,
       tenantBoundaryDenialReasons: tenantBoundary.denialReasons,
+      tenantBoundaryGrantResolution: tenantBoundary.grantResolution,
       tenantBoundaryAuditHandoff: tenantBoundary.auditHandoff,
       providerId: providerNegotiation.providerId,
       providerContractVersion: providerNegotiation.contractVersion,
@@ -2953,9 +3252,15 @@ export function describeApprovalRequirementSurface(input = {}) {
       analyticsOpenOver72hCount: analyticsReport.openAgeBuckets.over72h,
       analyticsRiskQueueCount: analyticsReport.riskReviewQueue.length,
       analyticsP95ResolutionHours: analyticsReport.resolutionSla.p95ResolutionHours,
-      evidenceCount: asArray(input.evidence).length
+      evidenceCount: evidenceBundle.entryCount,
+      evidenceRedaction: {
+        schema: evidenceBundle.schema,
+        redactionPathCount: evidenceBundle.redactionPathCount,
+        redactionPaths: evidenceBundle.redactionPaths
+      }
     },
-    evidence: asArray(input.evidence)
+    evidence: evidenceBundle.redacted,
+    evidenceRedaction: evidenceBundle
   };
 }
 

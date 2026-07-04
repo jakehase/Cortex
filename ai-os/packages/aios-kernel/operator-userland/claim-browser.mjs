@@ -8,6 +8,7 @@ const LIFECYCLE_COMMAND_RECEIPT_LIMIT = 50;
 const COMMAND_AUDIT_LIMIT = 120;
 const HOSTED_KERNEL_OUTBOX_LIMIT = 80;
 const PROVIDER_DELIVERY_RECEIPT_LIMIT = 80;
+const MAILCHIMP_SYNC_RECEIPT_LIMIT = 40;
 const RECOVERY_JOURNAL_LIMIT = 80;
 const RECOVERY_INTENT_LIMIT = 40;
 const HEALTH_COMMAND_RETRY_LIMIT = 40;
@@ -30,6 +31,7 @@ const PROVIDER_OPTIONAL_CAPABILITIES = Object.freeze(['claim-command-batch', 'cl
 const PROVIDER_HANDOFF_STATES = Object.freeze(['ready', 'awaiting-provider', 'acknowledged', 'failed', 'blocked']);
 const PROVIDER_DELIVERY_STATES = Object.freeze(['sent', 'acknowledged', 'failed']);
 const PREVIEW_VALIDATION_SEVERITIES = Object.freeze(['info', 'warning', 'blocking']);
+const MAILCHIMP_CAMPAIGN_STATUSES = Object.freeze(['draft', 'scheduled', 'sending', 'sent', 'paused', 'archived', 'unknown']);
 const RETRYABLE_HEALTH_DENIAL_CODES = new Set([
   'hosted-kernel-unreachable',
   'proof-writer-unavailable',
@@ -154,6 +156,10 @@ function normalizeStringList(value) {
   return (Array.isArray(value) ? value : [])
     .map((item) => stableText(item, null))
     .filter(Boolean);
+}
+
+function firstRecord(...values) {
+  return values.find((value) => value && typeof value === 'object' && !Array.isArray(value)) || {};
 }
 
 function uniqueKnownProviderCapabilities(...lists) {
@@ -678,6 +684,64 @@ function normalizeOperationalHealth(input, now, workspacePolicy, lifecycleSettin
     },
     actionableErrors,
     escalationRoute
+  };
+}
+
+function buildOperationalHealthDecision(operationalHealth, workspacePolicy, now) {
+  const retryableErrors = operationalHealth.actionableErrors.filter((error) => error.retryable);
+  const blockingErrors = operationalHealth.actionableErrors.filter((error) => !error.retryable);
+  const retryAt = operationalHealth.retryPolicy.nextRetryAt;
+  const canRetryNow = retryAt ? Date.parse(retryAt) <= Date.parse(now) : false;
+  const readOnlyReason = workspacePolicy.readOnly
+    ? 'workspace-policy-read-only'
+    : !operationalHealth.commandWritesEnabled
+      ? 'operational-health-read-only'
+      : null;
+  const state = operationalHealth.commandWritesEnabled && !workspacePolicy.readOnly
+    ? operationalHealth.degraded
+      ? 'degraded-writable'
+      : 'writable'
+    : blockingErrors.length > 0
+      ? 'blocked'
+      : retryableErrors.length > 0
+        ? 'retryable-read-only'
+        : 'read-only';
+
+  return {
+    contract: 'claim-browser.operational-health-decision.v1',
+    state,
+    writable: state === 'writable' || state === 'degraded-writable',
+    readOnly: Boolean(readOnlyReason) || state === 'read-only' || state === 'retryable-read-only',
+    degraded: operationalHealth.degraded,
+    retryable: retryableErrors.length > 0,
+    canRetryNow,
+    retryAt,
+    retryAfterMs: operationalHealth.retryPolicy.retryAfterMs,
+    readOnlyReason,
+    primaryErrorCode: operationalHealth.actionableErrors[0]?.code || null,
+    retryableErrorCodes: retryableErrors.map((error) => error.code),
+    blockingErrorCodes: blockingErrors.map((error) => error.code),
+    escalationRoute: operationalHealth.escalationRoute,
+    nextRecoveryAction: state === 'blocked'
+      ? 'follow-escalation-route'
+      : retryableErrors.length > 0
+        ? canRetryNow
+          ? 'retry-command-now'
+          : 'wait-for-health-retry-window'
+        : operationalHealth.degraded
+          ? 'continue-with-degraded-health-warning'
+          : workspacePolicy.readOnly
+            ? 'request-workspace-write-policy'
+            : 'continue-normal-claim-review',
+    operatorSummary: state === 'writable'
+      ? 'Claim browser writes are available.'
+      : state === 'degraded-writable'
+        ? 'Claim browser writes are available with degraded health warnings.'
+        : state === 'retryable-read-only'
+          ? 'Claim browser is read-only until retryable health conditions recover.'
+          : state === 'blocked'
+            ? 'Claim browser command writes are blocked by non-retryable health state.'
+            : 'Claim browser is in read-only mode.'
   };
 }
 
@@ -1658,6 +1722,196 @@ function providerReceiptHandoffState(receipt) {
   return 'awaiting-provider';
 }
 
+function normalizeMailchimpProviderSyncReceipt(rawReceipt, now) {
+  const receipt = asRecord(rawReceipt);
+  const receiptId = stableText(receipt.receiptId, stableText(receipt.id, null));
+  const campaignId = stableText(receipt.campaignId, stableText(asRecord(receipt.campaign).id, null));
+  const audienceId = stableText(
+    receipt.audienceId,
+    stableText(receipt.listId, stableText(asRecord(receipt.audience).id, stableText(asRecord(receipt.audience).listId, null)))
+  );
+  if (!receiptId && !campaignId && !audienceId) return null;
+  const rawStatus = stableText(
+    receipt.campaignStatus,
+    stableText(asRecord(receipt.campaign).status, stableText(receipt.status, 'unknown'))
+  ).toLowerCase();
+  const campaignStatus = MAILCHIMP_CAMPAIGN_STATUSES.includes(rawStatus) ? rawStatus : 'unknown';
+  const syncedAt = normalizeIsoTimestamp(receipt.syncedAt || receipt.receivedAt || receipt.updatedAt) || now;
+  const revision = Math.max(0, toFiniteNumber(receipt.revision, toFiniteNumber(receipt.providerRevision, 0)));
+  return {
+    kind: stableText(receipt.kind, 'claim-browser.mailchimp-sync-receipt.v1'),
+    receiptId: receiptId || `mailchimp-sync:${campaignId || 'campaign'}:${audienceId || 'audience'}:${syncedAt}`,
+    providerId: stableText(receipt.providerId, 'mailchimp'),
+    campaignId,
+    audienceId,
+    campaignStatus,
+    revision,
+    cursor: stableText(receipt.cursor, stableText(receipt.syncCursor, null)),
+    externalStateId: stableText(receipt.externalStateId, stableText(receipt.stateId, null)),
+    handoffState: stableText(receipt.handoffState, stableText(receipt.externalStateStatus, null)),
+    proofRefs: normalizeProofRefs(receipt.proofRefs || receipt.providerProofRefs),
+    syncedAt
+  };
+}
+
+function normalizeMailchimpProviderSyncReceipts(contract, now) {
+  const rawReceipts = [
+    ...(Array.isArray(contract.mailchimpSyncReceipts) ? contract.mailchimpSyncReceipts : []),
+    ...(Array.isArray(asRecord(contract.mailchimp).syncReceipts) ? asRecord(contract.mailchimp).syncReceipts : []),
+    ...(Array.isArray(contract.marketingSyncReceipts) ? contract.marketingSyncReceipts : [])
+  ];
+  const latestByKey = new Map();
+  for (const rawReceipt of rawReceipts) {
+    const receipt = normalizeMailchimpProviderSyncReceipt(rawReceipt, now);
+    if (!receipt) continue;
+    const key = `${receipt.campaignId || '*'}:${receipt.audienceId || '*'}:${receipt.receiptId}`;
+    const current = latestByKey.get(key);
+    if (!current || receipt.syncedAt.localeCompare(current.syncedAt) >= 0) {
+      latestByKey.set(key, receipt);
+    }
+  }
+  return [...latestByKey.values()]
+    .sort((left, right) => left.syncedAt.localeCompare(right.syncedAt))
+    .slice(-MAILCHIMP_SYNC_RECEIPT_LIMIT);
+}
+
+function mailchimpReceiptMatchesClaim(receipt, claim) {
+  if (!claim || !claim.mailchimp || !claim.mailchimp.enabled) return false;
+  const campaignMatches = !claim.mailchimp.campaignId || receipt.campaignId === claim.mailchimp.campaignId;
+  const audienceMatches = !claim.mailchimp.audienceId || receipt.audienceId === claim.mailchimp.audienceId;
+  return campaignMatches && audienceMatches;
+}
+
+function buildClaimMailchimpProviderReadiness(claim, mailchimpSyncReceipts, providerExternallyWritable, now) {
+  const gate = buildMailchimpLifecycleGate(claim, null);
+  if (!claim || !claim.mailchimp.enabled) {
+    return null;
+  }
+  const matchingReceipts = mailchimpSyncReceipts.filter((receipt) => mailchimpReceiptMatchesClaim(receipt, claim));
+  const latestReceipt = matchingReceipts.at(-1) || null;
+  const receiptCampaignStatus = latestReceipt ? latestReceipt.campaignStatus : claim.mailchimp.campaignStatus;
+  const terminalReceipt = ['sent', 'archived'].includes(receiptCampaignStatus);
+  const receiptCompatible = Boolean(latestReceipt)
+    && (!claim.mailchimp.campaignId || latestReceipt.campaignId === claim.mailchimp.campaignId)
+    && (!claim.mailchimp.audienceId || latestReceipt.audienceId === claim.mailchimp.audienceId)
+    && !terminalReceipt;
+  const ready = gate.ready && receiptCompatible && providerExternallyWritable;
+  const reasonCodes = [
+    ...gate.reasonCodes.filter((code) => code !== 'mailchimp-lifecycle-ready'),
+    ...(latestReceipt ? [] : ['mailchimp-sync-receipt-missing']),
+    ...(receiptCompatible ? [] : ['mailchimp-sync-receipt-incompatible']),
+    ...(terminalReceipt ? ['mailchimp-campaign-terminal'] : []),
+    ...(providerExternallyWritable ? [] : ['provider-command-write-unavailable']),
+    ...(ready ? ['mailchimp-provider-handoff-ready'] : [])
+  ];
+  return {
+    contract: 'claim-browser.mailchimp-provider-readiness.v1',
+    claimId: claim.id,
+    ready,
+    state: ready
+      ? 'ready'
+      : terminalReceipt || !providerExternallyWritable
+        ? 'blocked'
+        : 'awaiting-sync',
+    campaignId: claim.mailchimp.campaignId,
+    audienceId: claim.mailchimp.audienceId,
+    campaignStatus: receiptCampaignStatus,
+    latestReceipt,
+    receiptCount: matchingReceipts.length,
+    reasonCodes,
+    nextProviderAction: ready
+      ? 'publish-mailchimp-claim-command'
+      : !latestReceipt
+        ? 'refresh-mailchimp-sync-receipt'
+        : terminalReceipt
+          ? 'duplicate-or-reopen-mailchimp-campaign'
+          : !providerExternallyWritable
+            ? 'repair-provider-command-contract'
+            : gate.nextProviderAction,
+    evaluatedAt: now
+  };
+}
+
+function buildMailchimpPublishBarrier(claim, readiness, providerService, now) {
+  if (!claim || !claim.mailchimp.enabled) return null;
+  const reasonCodes = [
+    ...(readiness ? readiness.reasonCodes : ['mailchimp-readiness-unavailable']),
+    ...(!providerService.scopeMatched ? ['provider-scope-mismatch'] : []),
+    ...(providerService.missingRequiredCapabilities.length ? ['provider-capability-missing'] : []),
+    ...(providerService.externallyWritable ? [] : ['provider-command-write-unavailable'])
+  ];
+  const blockingCodes = reasonCodes.filter((code) => ![
+    'mailchimp-provider-handoff-ready',
+    'mailchimp-lifecycle-ready'
+  ].includes(code));
+  const terminalCampaign = ['sent', 'archived'].includes(claim.mailchimp.campaignStatus)
+    || ['sent', 'archived'].includes(readiness?.campaignStatus);
+  const providerSyncBlocked = blockingCodes.some((code) => [
+    'mailchimp-sync-receipt-missing',
+    'mailchimp-sync-receipt-incompatible',
+    'mailchimp-campaign-terminal',
+    'provider-command-write-unavailable',
+    'provider-scope-mismatch',
+    'provider-capability-missing'
+  ].includes(code));
+  const ready = Boolean(readiness && readiness.ready && blockingCodes.length === 0);
+  const nextProviderAction = ready
+    ? 'publish-mailchimp-claim-command'
+    : terminalCampaign
+      ? 'duplicate-or-reopen-mailchimp-campaign'
+      : blockingCodes.includes('mailchimp-sync-receipt-missing') ||
+          blockingCodes.includes('mailchimp-sync-receipt-incompatible')
+        ? 'refresh-mailchimp-sync-receipt'
+        : blockingCodes.includes('provider-command-write-unavailable')
+          ? 'repair-provider-command-contract'
+          : readiness?.nextProviderAction || 'repair-mailchimp-provider-readiness';
+  const operatorCommand = ready
+    ? `accept --claim=${claim.id} --mailchimp-campaign=${claim.mailchimp.campaignId}`
+    : nextProviderAction === 'refresh-mailchimp-sync-receipt'
+      ? `status --claim=${claim.id} --mailchimp-sync --retry`
+      : nextProviderAction === 'duplicate-or-reopen-mailchimp-campaign'
+        ? `reopen --claim=${claim.id} --mailchimp-campaign-draft`
+        : nextProviderAction === 'repair-provider-command-contract'
+          ? `status --claim=${claim.id} --provider-contract`
+          : readiness?.nextProviderAction === 'select-mailchimp-campaign'
+            ? `update-settings --claim=${claim.id} --mailchimp-campaign <campaign-id>`
+            : readiness?.nextProviderAction === 'select-mailchimp-audience'
+              ? `update-settings --claim=${claim.id} --mailchimp-audience <audience-id>`
+              : `status --claim=${claim.id} --mailchimp`;
+
+  return {
+    contract: 'claim-browser.mailchimp-publish-barrier.v1',
+    claimId: claim.id,
+    ready,
+    state: ready
+      ? 'clear'
+      : terminalCampaign || providerSyncBlocked
+        ? 'blocked'
+        : 'waiting',
+    campaignId: claim.mailchimp.campaignId,
+    audienceId: claim.mailchimp.audienceId,
+    campaignStatus: readiness?.campaignStatus || claim.mailchimp.campaignStatus,
+    latestReceiptId: readiness?.latestReceipt?.receiptId || null,
+    latestReceiptAt: readiness?.latestReceipt?.syncedAt || null,
+    providerId: providerService.providerId,
+    serviceId: providerService.serviceId,
+    syncCursor: providerService.syncMetadata.cursor,
+    reasonCodes: [...new Set(reasonCodes)],
+    blockingCodes: [...new Set(blockingCodes)],
+    nextProviderAction,
+    operatorCommand,
+    publishRoute: `claim-browser://${claim.tenantId}/${claim.workspaceId}/claims/${claim.id}/mailchimp/publish`,
+    retryable: !ready && !terminalCampaign && (
+      nextProviderAction === 'refresh-mailchimp-sync-receipt' ||
+      nextProviderAction === 'repair-provider-command-contract'
+    ),
+    retryAfterMs: providerService.syncMetadata.nextSyncAt
+      ? millisecondsUntil(now, providerService.syncMetadata.nextSyncAt)
+      : null,
+    evaluatedAt: now
+  };
+}
+
 function normalizeProviderServiceContract(input, state, now) {
   const persisted = asRecord(input.persistedState);
   const persistedContract = asRecord(persisted.providerServiceContract);
@@ -1678,12 +1932,15 @@ function normalizeProviderServiceContract(input, state, now) {
   const negotiatedCapabilities = supportedCapabilities.filter((capability) => !disabledCapabilities.includes(capability));
   const missingRequiredCapabilities = PROVIDER_REQUIRED_CAPABILITIES.filter((capability) => !negotiatedCapabilities.includes(capability));
   const deliveryReceipts = normalizeProviderDeliveryReceipts(contract, now);
+  const mailchimpSyncReceipts = normalizeMailchimpProviderSyncReceipts(contract, now);
   const receiptByCommandId = new Map(deliveryReceipts.map((receipt) => [receipt.commandId, receipt]));
   const endpoint = stableText(contract.endpoint, stableText(contract.url, 'hosted-kernel://claim-browser/commands'));
   const protocol = stableText(contract.protocol, 'hosted-kernel-command-bus');
   const externallyWritable = scopeMatched && state.operationalHealth.commandWritesEnabled && missingRequiredCapabilities.length === 0;
   const outbox = state.hostedKernelOutbox.map((envelope) => {
     const providerReceipt = receiptByCommandId.get(envelope.commandId) || null;
+    const claim = state.claims.find((candidate) => candidate.id === envelope.claimId) || null;
+    const mailchimpReadiness = buildClaimMailchimpProviderReadiness(claim, mailchimpSyncReceipts, externallyWritable, now);
     const providerHandoffState = providerReceiptHandoffState(providerReceipt);
     const acknowledged = providerHandoffState === 'acknowledged' || envelope.deliveryState === 'acked';
     const failed = providerHandoffState === 'failed' || envelope.deliveryState === 'failed';
@@ -1717,6 +1974,7 @@ function normalizeProviderServiceContract(input, state, now) {
       providerErrorMessage: providerReceipt ? providerReceipt.errorMessage : null,
       providerRetryable: providerReceipt ? providerReceipt.retryable : false,
       providerStatusCode: providerReceipt ? providerReceipt.statusCode : null,
+      mailchimp: mailchimpReadiness,
       blockedReason: handoffState === 'blocked'
         ? !scopeMatched
           ? 'provider-scope-mismatch'
@@ -1731,6 +1989,12 @@ function normalizeProviderServiceContract(input, state, now) {
   const failedHandoffs = outbox.filter((entry) => entry.handoffState === 'failed');
   const acknowledgedHandoffs = outbox.filter((entry) => entry.handoffState === 'acknowledged');
   const orphanDeliveryReceipts = deliveryReceipts.filter((receipt) => !state.hostedKernelOutbox.some((envelope) => envelope.commandId === receipt.commandId));
+  const mailchimpClaims = state.claims.filter((claim) => claim.mailchimp && claim.mailchimp.enabled);
+  const mailchimpReadinessByClaim = mailchimpClaims.map((claim) => (
+    buildClaimMailchimpProviderReadiness(claim, mailchimpSyncReceipts, externallyWritable, now)
+  )).filter(Boolean);
+  const mailchimpBlockedClaims = mailchimpReadinessByClaim.filter((entry) => entry.state === 'blocked');
+  const mailchimpAwaitingSyncClaims = mailchimpReadinessByClaim.filter((entry) => entry.state === 'awaiting-sync');
   const lastSyncedAt = normalizeIsoTimestamp(contract.lastSyncedAt);
   const requestedSyncState = stableText(contract.syncState, null);
   const syncState = blockedHandoffs.length || !scopeMatched || missingRequiredCapabilities.length
@@ -1747,6 +2011,25 @@ function normalizeProviderServiceContract(input, state, now) {
     : null;
   const latestReceipt = deliveryReceipts.at(-1) || null;
   const syncCursor = stableText(contract.cursor, stableText(contract.syncCursor, latestReceipt ? latestReceipt.cursor : null));
+  const providerServiceView = {
+    providerId: stableText(contract.providerId, 'hosted-kernel'),
+    serviceId: stableText(contract.serviceId, 'hosted-kernel.claim-browser.commands'),
+    scopeMatched,
+    externallyWritable,
+    missingRequiredCapabilities,
+    syncMetadata: {
+      cursor: syncCursor,
+      nextSyncAt
+    }
+  };
+  const mailchimpPublishBarriers = mailchimpClaims
+    .map((claim) => buildMailchimpPublishBarrier(
+      claim,
+      mailchimpReadinessByClaim.find((entry) => entry.claimId === claim.id) || null,
+      providerServiceView,
+      now
+    ))
+    .filter(Boolean);
   return {
     providerId: stableText(contract.providerId, 'hosted-kernel'),
     serviceId: stableText(contract.serviceId, 'hosted-kernel.claim-browser.commands'),
@@ -1775,15 +2058,49 @@ function normalizeProviderServiceContract(input, state, now) {
       outboxCount: outbox.length,
       deliveryReceiptCount: deliveryReceipts.length,
       orphanDeliveryReceiptCount: orphanDeliveryReceipts.length,
-      latestProviderReceiptAt: latestReceipt ? latestReceipt.receivedAt : null
+      latestProviderReceiptAt: latestReceipt ? latestReceipt.receivedAt : null,
+      mailchimpSyncReceiptCount: mailchimpSyncReceipts.length,
+      mailchimpReadyCount: mailchimpReadinessByClaim.filter((entry) => entry.ready).length,
+      mailchimpBlockedCount: mailchimpBlockedClaims.length,
+      mailchimpAwaitingSyncCount: mailchimpAwaitingSyncClaims.length,
+      mailchimpPublishBlockedCount: mailchimpPublishBarriers.filter((barrier) => barrier.state === 'blocked').length,
+      mailchimpPublishWaitingCount: mailchimpPublishBarriers.filter((barrier) => barrier.state === 'waiting').length
     },
     deliveryReceipts,
     orphanDeliveryReceipts,
+    mailchimpSync: {
+      contract: 'claim-browser.mailchimp-provider-sync.v1',
+      state: mailchimpBlockedClaims.length
+        ? 'blocked'
+        : mailchimpAwaitingSyncClaims.length
+          ? 'awaiting-sync'
+          : mailchimpReadinessByClaim.length
+            ? 'ready'
+            : 'not-configured',
+      receiptLimit: MAILCHIMP_SYNC_RECEIPT_LIMIT,
+      receipts: mailchimpSyncReceipts,
+      readinessByClaim: mailchimpReadinessByClaim,
+      publishBarriers: mailchimpPublishBarriers,
+      blockedClaimIds: mailchimpBlockedClaims.map((entry) => entry.claimId),
+      awaitingSyncClaimIds: mailchimpAwaitingSyncClaims.map((entry) => entry.claimId),
+      publishBlockedClaimIds: mailchimpPublishBarriers
+        .filter((barrier) => barrier.state === 'blocked')
+        .map((barrier) => barrier.claimId),
+      nextProviderAction: mailchimpBlockedClaims[0]?.nextProviderAction
+        || mailchimpAwaitingSyncClaims[0]?.nextProviderAction
+        || mailchimpPublishBarriers.find((barrier) => !barrier.ready)?.nextProviderAction
+        || (mailchimpReadinessByClaim.length ? 'publish-mailchimp-claim-command' : 'ignore-mailchimp-provider-sync')
+    },
     externalHandoff: outbox,
     warnings: [
       ...(scopeMatched ? [] : ['provider service contract scope does not match active workspace']),
       ...missingRequiredCapabilities.map((capability) => `provider missing required capability ${capability}`),
-      ...orphanDeliveryReceipts.map((receipt) => `provider delivery receipt for unknown command ${receipt.commandId}`)
+      ...orphanDeliveryReceipts.map((receipt) => `provider delivery receipt for unknown command ${receipt.commandId}`),
+      ...mailchimpBlockedClaims.map((entry) => `mailchimp provider handoff blocked for claim ${entry.claimId}: ${entry.reasonCodes.join(',')}`),
+      ...mailchimpAwaitingSyncClaims.map((entry) => `mailchimp provider sync receipt missing or stale for claim ${entry.claimId}`),
+      ...mailchimpPublishBarriers
+        .filter((barrier) => !barrier.ready)
+        .map((barrier) => `mailchimp publish barrier for claim ${barrier.claimId}: ${barrier.blockingCodes.join(',')}`)
     ]
   };
 }
@@ -1855,9 +2172,130 @@ function normalizeClaim(rawClaim, index, now, scope) {
     requestedBy: stableText(claim.requestedBy, null),
     workflowRef: stableText(claim.workflowRef, stableText(claim.workflowId, null)),
     clientTraceId: stableText(claim.clientTraceId, null),
+    mailchimp: normalizeClaimMailchimpContext(claim),
     permissionGrants: permissionGrants.grants,
     permissionWarnings: permissionGrants.warnings,
     permissionBoundaryEvents: permissionGrants.boundaryEvents
+  };
+}
+
+function normalizeClaimMailchimpContext(claim) {
+  const metadata = firstRecord(claim.mailchimp, claim.marketing, claim.providerContext, claim.integration);
+  const campaign = firstRecord(metadata.campaign, claim.campaign);
+  const audience = firstRecord(metadata.audience, claim.audience);
+  const rawStatus = stableText(
+    metadata.campaignStatus,
+    stableText(campaign.status, stableText(claim.campaignStatus, 'unknown'))
+  ).toLowerCase();
+  const campaignStatus = MAILCHIMP_CAMPAIGN_STATUSES.includes(rawStatus) ? rawStatus : 'unknown';
+  const campaignId = stableText(
+    metadata.campaignId,
+    stableText(campaign.campaignId, stableText(campaign.id, stableText(claim.campaignId, null)))
+  );
+  const audienceId = stableText(
+    metadata.audienceId,
+    stableText(metadata.listId, stableText(audience.audienceId, stableText(audience.listId, stableText(audience.id, null))))
+  );
+  const segmentIds = [...new Set([
+    ...normalizeStringList(metadata.segmentIds),
+    ...normalizeStringList(metadata.segments),
+    ...normalizeStringList(campaign.segmentIds),
+    ...normalizeStringList(audience.segmentIds)
+  ])];
+  const enabled = Boolean(campaignId || audienceId || segmentIds.length || stableText(metadata.provider, null) === 'mailchimp');
+
+  return {
+    contract: 'claim-browser.mailchimp-claim-context.v1',
+    enabled,
+    campaignId,
+    audienceId,
+    campaignStatus,
+    templateId: stableText(metadata.templateId, stableText(campaign.templateId, null)),
+    previewUrl: stableText(metadata.previewUrl, stableText(campaign.previewUrl, stableText(campaign.archiveUrl, null))),
+    segmentIds,
+    mergeTags: [...new Set([
+      ...normalizeStringList(metadata.mergeTags),
+      ...normalizeStringList(campaign.mergeTags),
+      ...normalizeStringList(audience.mergeTags)
+    ])],
+    exportLabels: [
+      campaignId ? `campaign:${campaignId}` : null,
+      audienceId ? `audience:${audienceId}` : null,
+      ...segmentIds.map((segmentId) => `segment:${segmentId}`)
+    ].filter(Boolean),
+    readyForExport: Boolean(campaignId && audienceId)
+  };
+}
+
+function buildMailchimpLifecycleGate(claim, operationalHealth = null) {
+  const mailchimp = claim && claim.mailchimp ? claim.mailchimp : null;
+  const lifecycle = operationalHealth ? operationalHealth.lifecycle : null;
+  const healthReason = healthDenialReason(operationalHealth);
+  const enabled = Boolean(mailchimp && mailchimp.enabled);
+  const missingCampaign = enabled && !mailchimp.campaignId;
+  const missingAudience = enabled && !mailchimp.audienceId;
+  const terminalCampaign = enabled && ['sent', 'archived'].includes(mailchimp.campaignStatus);
+  const lifecycleBlocked = enabled && Boolean(healthReason);
+  const ready = enabled
+    && mailchimp.readyForExport
+    && !terminalCampaign
+    && !lifecycleBlocked;
+  const reasonCodes = [
+    ...(enabled ? [] : ['mailchimp-not-configured']),
+    ...(missingCampaign ? ['mailchimp-campaign-missing'] : []),
+    ...(missingAudience ? ['mailchimp-audience-missing'] : []),
+    ...(terminalCampaign ? ['mailchimp-campaign-terminal'] : []),
+    ...(lifecycleBlocked ? [healthReason] : []),
+    ...(ready ? ['mailchimp-lifecycle-ready'] : [])
+  ];
+  const nextCommand = ready
+    ? `accept --claim=${claim.id} --mailchimp-campaign=${mailchimp.campaignId}`
+    : !enabled
+      ? null
+      : missingCampaign
+        ? `update-settings --claim=${claim.id} --mailchimp-campaign <campaign-id>`
+        : missingAudience
+          ? `update-settings --claim=${claim.id} --mailchimp-audience <audience-id>`
+          : terminalCampaign
+            ? `reopen --claim=${claim.id} --mailchimp-campaign-draft`
+            : lifecycle && lifecycle.schedule.nextEnableAt
+              ? `status --until=${lifecycle.schedule.nextEnableAt}`
+              : 'enable';
+
+  return {
+    contract: 'claim-browser.mailchimp-lifecycle-gate.v1',
+    enabled,
+    ready,
+    state: !enabled
+      ? 'not-configured'
+      : ready
+        ? 'ready'
+        : terminalCampaign || lifecycleBlocked
+          ? 'blocked'
+          : 'needs-context',
+    claimId: claim ? claim.id : null,
+    campaignId: enabled ? mailchimp.campaignId : null,
+    audienceId: enabled ? mailchimp.audienceId : null,
+    campaignStatus: enabled ? mailchimp.campaignStatus : null,
+    readyForExport: enabled ? mailchimp.readyForExport : false,
+    lifecycleMode: lifecycle ? lifecycle.effectiveMode : null,
+    scheduleState: lifecycle ? lifecycle.scheduleState : null,
+    commandWritesAllowed: operationalHealth ? operationalHealth.commandWritesEnabled : false,
+    nextEnableAt: lifecycle ? lifecycle.schedule.nextEnableAt : null,
+    reasonCodes,
+    nextProviderAction: ready
+      ? 'export-mailchimp-claim'
+      : !enabled
+        ? 'ignore-mailchimp-gate'
+        : missingCampaign
+          ? 'select-mailchimp-campaign'
+          : missingAudience
+            ? 'select-mailchimp-audience'
+            : terminalCampaign
+              ? 'duplicate-or-reopen-mailchimp-campaign'
+              : 'wait-for-claim-browser-lifecycle',
+    nextOperatorCommand: nextCommand,
+    exportLabels: enabled ? mailchimp.exportLabels : []
   };
 }
 
@@ -1951,10 +2389,13 @@ function nextActionBlockedReason(claim, principal, policy, operationalHealth) {
 function buildNextActionState(claim, principal, policy, operationalHealth) {
   const availableActions = nextClaimActions(claim, principal, policy, operationalHealth);
   const lifecycle = operationalHealth ? operationalHealth.lifecycle : null;
+  const mailchimpGate = buildMailchimpLifecycleGate(claim, operationalHealth);
   return {
     canMutate: availableActions.length > 0,
     availableActions,
     blockedReason: availableActions.length ? null : nextActionBlockedReason(claim, principal, policy, operationalHealth),
+    mailchimpLifecycleGate: mailchimpGate.enabled ? mailchimpGate : null,
+    mailchimpExportReady: mailchimpGate.enabled ? mailchimpGate.ready : null,
     lifecycleMode: lifecycle ? lifecycle.effectiveMode : null,
     scheduleState: lifecycle ? lifecycle.scheduleState : null,
     nextEnableAt: lifecycle ? lifecycle.schedule.nextEnableAt : null,
@@ -2043,6 +2484,20 @@ function buildPreviewValidationSummary(claim, action, principal, policy, operati
       acceptedEvidenceKinds: policy.terminalEvidenceKinds
     }));
   }
+  const mailchimpGate = buildMailchimpLifecycleGate(claim, operationalHealth);
+  if (mailchimpGate.enabled && action === 'accept' && !mailchimpGate.ready) {
+    findings.push(previewFinding(
+      mailchimpGate.state === 'needs-context' ? 'warning' : 'blocking',
+      mailchimpGate.reasonCodes.find((code) => code !== 'mailchimp-not-configured') || 'mailchimp-lifecycle-not-ready',
+      'Mailchimp campaign handoff is not ready for this claim.',
+      route,
+      {
+        gate: mailchimpGate,
+        nextProviderAction: mailchimpGate.nextProviderAction,
+        nextOperatorCommand: mailchimpGate.nextOperatorCommand
+      }
+    ));
+  }
   if (nextActionState && !nextActionState.availableActions.includes(action)) {
     findings.push(previewFinding('blocking', nextActionState.blockedReason || 'action-not-available', 'This action is not available from the current claim state.', route, {
       availableActions: nextActionState.availableActions,
@@ -2117,6 +2572,7 @@ function buildClaimPreviewAcceptance(claim, principal, policy, operationalHealth
       principalInScope: claim ? principalHasScope(principal, claim.tenantId, claim.workspaceId) : false,
       workspaceWritable: policy ? policy.scopeMatched && !policy.readOnly : false,
       hasAvailableAction: nextActionState.availableActions.length > 0,
+      mailchimpLifecycleGate: claim ? buildMailchimpLifecycleGate(claim, operationalHealth) : null,
       blockedReason: readyPreviews.length ? null : nextActionState.blockedReason
     },
     validationSummary: summarizePreviewFindings(actionPreviews.flatMap((preview) => preview.validationSummary.findings)),
@@ -2212,6 +2668,17 @@ function buildClientRuntime(state, clientRequest, principal, now) {
         proofRefCount: claim.proofRefs.length,
         recoverySource: stableText(claim.recoverySource, null),
         hostedKernelDeliveryState: stableText(claim.hostedKernelDeliveryState, null),
+        mailchimp: claim.mailchimp.enabled
+          ? {
+              campaignId: claim.mailchimp.campaignId,
+              audienceId: claim.mailchimp.audienceId,
+              campaignStatus: claim.mailchimp.campaignStatus,
+              segmentCount: claim.mailchimp.segmentIds.length,
+              readyForExport: claim.mailchimp.readyForExport,
+              exportLabels: claim.mailchimp.exportLabels,
+              lifecycleGate: nextActionState.mailchimpLifecycleGate
+            }
+          : null,
         permissionGrantCount: claim.permissionGrants.length,
         permissionDenialReason: claimPermissionDenialReason(claim, principal),
         workflowRef: claim.workflowRef,
@@ -2227,6 +2694,7 @@ function buildClientRuntime(state, clientRequest, principal, now) {
           restartSafeStatus: selectedClaim.restartSafeStatus,
           recoverySource: stableText(selectedClaim.recoverySource, null),
           hostedKernelDeliveryState: stableText(selectedClaim.hostedKernelDeliveryState, null),
+          mailchimp: selectedClaim.mailchimp,
           proofRefs: selectedClaim.proofRefs,
           policyDenialReason: claimPolicyDenialReason(selectedClaim, state.workspacePolicy),
           permissionGrantCount: selectedClaim.permissionGrants.length,
@@ -2272,6 +2740,7 @@ function buildClaimProofOutputs(state, clientRuntime, evidence, commandResult) {
         recoverySource: stableText(claim.recoverySource, null),
         lastRecoveredCommandId: stableText(claim.lastRecoveredCommandId, null),
         hostedKernelDeliveryState: stableText(claim.hostedKernelDeliveryState, null),
+        mailchimp: claim.mailchimp.enabled ? claim.mailchimp : null,
         proofRefs: claim.proofRefs,
         permissionGrantCount: claim.permissionGrants.length,
         evidence: claim.proofRefs
@@ -2289,6 +2758,8 @@ function handoffPriority(kind, reason = null) {
   if (kind === 'selected-claim-blocked') return 10;
   if (kind === 'provider-command-failed') return 20;
   if (kind === 'health-command-retry-ready') return 30;
+  if (kind === 'mailchimp-publish-blocked') return 35;
+  if (kind === 'mailchimp-publish-waiting') return 36;
   if (kind === 'provider-command-blocked') return 40;
   if (kind === 'terminal-proof-backlog') return 50;
   if (kind === 'selected-command-ready') return 60;
@@ -2361,6 +2832,29 @@ function buildWorkflowHandoffQueue(state, clientRuntime, providerServiceContract
     });
   }
 
+  for (const barrier of providerServiceContract.mailchimpSync.publishBarriers.filter((entry) => !entry.ready)) {
+    entries.push({
+      kind: barrier.state === 'blocked' ? 'mailchimp-publish-blocked' : 'mailchimp-publish-waiting',
+      claimId: barrier.claimId,
+      reason: barrier.blockingCodes[0] || barrier.state,
+      title: barrier.state === 'blocked'
+        ? 'Mailchimp publish is blocked for this claim.'
+        : 'Mailchimp publish is waiting on provider state.',
+      route: barrier.publishRoute,
+      campaignId: barrier.campaignId,
+      audienceId: barrier.audienceId,
+      campaignStatus: barrier.campaignStatus,
+      latestReceiptAt: barrier.latestReceiptAt,
+      syncCursor: barrier.syncCursor,
+      retryable: barrier.retryable,
+      retryAfterMs: barrier.retryAfterMs,
+      nextProviderAction: barrier.nextProviderAction,
+      operatorCommand: barrier.operatorCommand,
+      blockingCodes: barrier.blockingCodes,
+      generatedAt: now
+    });
+  }
+
   for (const retry of state.healthRetryQueue.filter((entry) => entry.retryable)) {
     const retryDue = retry.nextRetryAt ? Date.parse(retry.nextRetryAt) <= Date.parse(now) : false;
     entries.push({
@@ -2411,6 +2905,7 @@ function buildWorkflowHandoffQueue(state, clientRuntime, providerServiceContract
       total: sortedEntries.length,
       requiresOperatorAction: sortedEntries.some((entry) => entry.priority <= 60),
       providerAttentionCount: sortedEntries.filter((entry) => entry.kind.startsWith('provider-command-')).length,
+      mailchimpPublishAttentionCount: sortedEntries.filter((entry) => entry.kind.startsWith('mailchimp-publish-')).length,
       retryReadyCount: sortedEntries.filter((entry) => entry.kind === 'health-command-retry-ready').length,
       proofBacklogCount: sortedEntries.filter((entry) => entry.kind === 'terminal-proof-backlog').length,
       selectedBlockedReason: selectedPreview.ready
@@ -2448,6 +2943,15 @@ function normalizeAnalyticsSnapshot(rawSnapshot) {
     proofBacklogCount: Math.max(0, toFiniteNumber(snapshot.proofBacklogCount, 0)),
     hostedKernelPendingCount: Math.max(0, toFiniteNumber(snapshot.hostedKernelPendingCount, 0)),
     healthRetryQueueCount: Math.max(0, toFiniteNumber(snapshot.healthRetryQueueCount, 0)),
+    mailchimpClaimCount: Math.max(0, toFiniteNumber(snapshot.mailchimpClaimCount, 0)),
+    mailchimpExportReadyCount: Math.max(0, toFiniteNumber(snapshot.mailchimpExportReadyCount, 0)),
+    mailchimpCampaignCount: Math.max(0, toFiniteNumber(snapshot.mailchimpCampaignCount, 0)),
+    mailchimpAudienceCount: Math.max(0, toFiniteNumber(snapshot.mailchimpAudienceCount, 0)),
+    mailchimpLifecycleReadyCount: Math.max(0, toFiniteNumber(snapshot.mailchimpLifecycleReadyCount, 0)),
+    mailchimpLifecycleBlockedCount: Math.max(0, toFiniteNumber(snapshot.mailchimpLifecycleBlockedCount, 0)),
+    mailchimpExportLedgerRecordCount: Math.max(0, toFiniteNumber(snapshot.mailchimpExportLedgerRecordCount, 0)),
+    mailchimpExportLedgerAcceptedCount: Math.max(0, toFiniteNumber(snapshot.mailchimpExportLedgerAcceptedCount, 0)),
+    mailchimpExportLedgerBlockingCount: Math.max(0, toFiniteNumber(snapshot.mailchimpExportLedgerBlockingCount, 0)),
     healthStatus: stableText(snapshot.healthStatus, null),
     restartSafe: snapshot.restartSafe === true
   };
@@ -2468,6 +2972,91 @@ function normalizeAnalyticsHistory(persisted) {
   return history
     .sort((left, right) => left.generatedAt.localeCompare(right.generatedAt))
     .slice(-ANALYTICS_HISTORY_LIMIT);
+}
+
+function normalizeMailchimpExportLedgerRecord(rawRecord, index, scope) {
+  const record = asRecord(rawRecord);
+  const generatedAt = normalizeIsoTimestamp(record.generatedAt || record.at || record.timestamp);
+  if (!generatedAt) return null;
+  const tenantId = stableText(record.tenantId, stableText(asRecord(record.scope).tenantId, scope.tenantId));
+  const workspaceId = stableText(record.workspaceId, stableText(asRecord(record.scope).workspaceId, scope.workspaceId));
+  const campaign = asRecord(record.campaign);
+  const audience = asRecord(record.audience);
+  const campaignId = stableText(record.campaignId, stableText(campaign.campaignId, null));
+  const audienceId = stableText(record.audienceId, stableText(audience.audienceId, null));
+  const idempotencyKey = stableText(record.idempotencyKey, stableText(record.persistenceKey, null));
+  const ledgerId = stableText(
+    record.ledgerId,
+    stableText(record.exportId, `mailchimp-export:${campaignId || 'campaign'}:${audienceId || 'audience'}:${index + 1}`)
+  );
+  const campaignStatus = stableText(record.campaignStatus, stableText(campaign.status, 'unknown')).toLowerCase();
+
+  return {
+    contract: 'claim-browser.mailchimp-export-ledger-record.v1',
+    sourceContract: stableText(record.contract, 'operator-userland.cli-claim.mailchimp-export-ledger-record.v1'),
+    ledgerId,
+    exportId: stableText(record.exportId, ledgerId),
+    generatedAt,
+    tenantId,
+    workspaceId,
+    principalId: stableText(record.principalId, null),
+    campaignId,
+    audienceId,
+    campaignStatus: MAILCHIMP_CAMPAIGN_STATUSES.includes(campaignStatus) ? campaignStatus : 'unknown',
+    ready: record.ready === true || record.exportReady === true,
+    accepted: record.accepted === true || record.acceptanceRecorded === true,
+    restartSafe: record.restartSafe === true,
+    blockingCodes: normalizeStringList(record.blockingCodes || record.reasonCodes),
+    idempotencyKey,
+    providerCursor: stableText(record.providerCursor, stableText(record.syncCursor, stableText(record.cursor, null))),
+    providerRevision: stableText(record.providerRevision, null),
+    nextProviderAction: stableText(record.nextProviderAction, null),
+    selectedOutputFormat: stableText(record.selectedOutputFormat, stableText(record.outputFormat, null)),
+    persistedStorageKey: stableText(record.persistedStorageKey, stableText(record.storageKey, null))
+  };
+}
+
+function normalizeMailchimpExportLedger(persisted, scope) {
+  const analytics = asRecord(persisted.analytics);
+  const exportSummary = asRecord(persisted.exportSummary);
+  const summaryLedger = asRecord(exportSummary.mailchimpExportLedger);
+  const analyticsLedger = asRecord(analytics.mailchimpExportLedger);
+  const rawRecords = [
+    ...(Array.isArray(persisted.mailchimpExportLedger) ? persisted.mailchimpExportLedger : []),
+    ...(Array.isArray(persisted.mailchimpExportHistory) ? persisted.mailchimpExportHistory : []),
+    ...(Array.isArray(analyticsLedger.records) ? analyticsLedger.records : []),
+    ...(Array.isArray(summaryLedger.records) ? summaryLedger.records : []),
+    ...(asRecord(analyticsLedger.currentRecord).generatedAt ? [analyticsLedger.currentRecord] : []),
+    ...(asRecord(summaryLedger.currentRecord).generatedAt ? [summaryLedger.currentRecord] : [])
+  ];
+  const seen = new Set();
+  const records = [];
+  const rejected = [];
+  for (const [index, rawRecord] of rawRecords.entries()) {
+    const record = normalizeMailchimpExportLedgerRecord(rawRecord, index, scope);
+    if (!record) continue;
+    const key = `${record.tenantId}:${record.workspaceId}:${record.ledgerId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (record.tenantId !== scope.tenantId || record.workspaceId !== scope.workspaceId) {
+      rejected.push({
+        ledgerId: record.ledgerId,
+        tenantId: record.tenantId,
+        workspaceId: record.workspaceId,
+        expectedTenantId: scope.tenantId,
+        expectedWorkspaceId: scope.workspaceId
+      });
+      continue;
+    }
+    records.push(record);
+  }
+
+  return {
+    records: records
+      .sort((left, right) => left.generatedAt.localeCompare(right.generatedAt))
+      .slice(-ANALYTICS_HISTORY_LIMIT),
+    rejected
+  };
 }
 
 function buildReportTimeline(state, commandResult, now) {
@@ -2530,6 +3119,58 @@ function buildReportTimeline(state, commandResult, now) {
     .slice(0, REPORT_TIMELINE_LIMIT);
 }
 
+function buildMailchimpAnalyticsSummary(claims, visibleRows, operationalHealth = null) {
+  const mailchimpClaims = claims.filter((claim) => claim.mailchimp && claim.mailchimp.enabled);
+  const visibleClaimIds = new Set(visibleRows.map((row) => row.id));
+  const visibleMailchimpClaims = mailchimpClaims.filter((claim) => visibleClaimIds.has(claim.id));
+  const campaigns = countBy(mailchimpClaims.filter((claim) => claim.mailchimp.campaignId), (claim) => claim.mailchimp.campaignId);
+  const audiences = countBy(mailchimpClaims.filter((claim) => claim.mailchimp.audienceId), (claim) => claim.mailchimp.audienceId);
+  const campaignStatuses = countBy(mailchimpClaims, (claim) => claim.mailchimp.campaignStatus);
+  const exportReadyClaims = mailchimpClaims.filter((claim) => claim.mailchimp.readyForExport);
+  const attentionClaims = mailchimpClaims.filter((claim) => !claim.mailchimp.readyForExport);
+  const lifecycleGates = mailchimpClaims.map((claim) => buildMailchimpLifecycleGate(claim, operationalHealth));
+  const lifecycleReadyGates = lifecycleGates.filter((gate) => gate.ready);
+  const lifecycleBlockedGates = lifecycleGates.filter((gate) => gate.state === 'blocked');
+  const lifecycleGateStates = countBy(lifecycleGates, (gate) => gate.state);
+  const lifecycleGateReasons = countBy(lifecycleGates.flatMap((gate) => gate.reasonCodes), (code) => code);
+  const segmentIds = [...new Set(mailchimpClaims.flatMap((claim) => claim.mailchimp.segmentIds))].sort();
+  const exportLabels = [...new Set(mailchimpClaims.flatMap((claim) => claim.mailchimp.exportLabels))].sort();
+
+  return {
+    contract: 'claim-browser.mailchimp-analytics-summary.v1',
+    enabled: mailchimpClaims.length > 0,
+    claimCount: mailchimpClaims.length,
+    visibleClaimCount: visibleMailchimpClaims.length,
+    exportReadyCount: exportReadyClaims.length,
+    lifecycleReadyCount: lifecycleReadyGates.length,
+    lifecycleBlockedCount: lifecycleBlockedGates.length,
+    attentionCount: attentionClaims.length,
+    campaignCount: Object.keys(campaigns).length,
+    audienceCount: Object.keys(audiences).length,
+    segmentCount: segmentIds.length,
+    campaigns,
+    audiences,
+    campaignStatuses,
+    lifecycleGateStates,
+    lifecycleGateReasons,
+    segmentIds,
+    exportLabels,
+    lifecycleGates,
+    exportReadyClaimIds: exportReadyClaims.map((claim) => claim.id),
+    lifecycleReadyClaimIds: lifecycleReadyGates.map((gate) => gate.claimId),
+    lifecycleBlockedClaimIds: lifecycleBlockedGates.map((gate) => gate.claimId),
+    attentionClaimIds: attentionClaims.map((claim) => claim.id),
+    visibleClaimIds: visibleMailchimpClaims.map((claim) => claim.id),
+    nextAction: lifecycleBlockedGates.length
+      ? lifecycleBlockedGates[0].nextProviderAction
+      : attentionClaims.length
+      ? 'complete-mailchimp-campaign-audience-context'
+      : mailchimpClaims.length
+        ? 'export-mailchimp-claim-summary'
+        : 'no-mailchimp-claims'
+  };
+}
+
 function buildAnalyticsReporting(state, clientRuntime, commandResult, now, persisted) {
   const commandReceipts = state.commandReceipts;
   const acceptedReceipts = commandReceipts.filter((receipt) => receipt.accepted);
@@ -2539,6 +3180,58 @@ function buildAnalyticsReporting(state, clientRuntime, commandResult, now, persi
   const proofBacklogClaims = state.claims.filter((claim) => TERMINAL_STATUS.has(claim.status) && claim.proofRefs.length === 0);
   const pendingOutbox = state.hostedKernelOutbox.filter((entry) => entry.deliveryState === 'pending' || entry.deliveryState === 'failed');
   const activeHealthRetries = state.healthRetryQueue.filter((entry) => entry.retryable);
+  const mailchimpSummary = buildMailchimpAnalyticsSummary(state.claims, clientRuntime.rows, state.operationalHealth);
+  const mailchimpExportLedger = normalizeMailchimpExportLedger(persisted, {
+    tenantId: state.tenantId,
+    workspaceId: state.workspaceId
+  });
+  const latestMailchimpExportRecord = mailchimpExportLedger.records.at(-1) || null;
+  const currentCampaignIds = new Set(Object.keys(mailchimpSummary.campaigns));
+  const currentAudienceIds = new Set(Object.keys(mailchimpSummary.audiences));
+  const ledgerCampaignIds = new Set(mailchimpExportLedger.records.map((record) => record.campaignId).filter(Boolean));
+  const ledgerAudienceIds = new Set(mailchimpExportLedger.records.map((record) => record.audienceId).filter(Boolean));
+  const orphanLedgerRecords = mailchimpExportLedger.records.filter((record) => (
+    (record.campaignId && !currentCampaignIds.has(record.campaignId))
+      || (record.audienceId && !currentAudienceIds.has(record.audienceId))
+  ));
+  const blockingLedgerRecords = mailchimpExportLedger.records.filter((record) => record.blockingCodes.length > 0);
+  const restartUnsafeLedgerRecords = mailchimpExportLedger.records.filter((record) => !record.restartSafe);
+  const mailchimpLedgerSummary = {
+    contract: 'claim-browser.mailchimp-export-ledger-summary.v1',
+    source: 'persistedState.mailchimpExportLedger',
+    retainedRecordCount: mailchimpExportLedger.records.length,
+    rejectedOutOfScopeCount: mailchimpExportLedger.rejected.length,
+    readyRecordCount: mailchimpExportLedger.records.filter((record) => record.ready).length,
+    acceptedRecordCount: mailchimpExportLedger.records.filter((record) => record.accepted).length,
+    blockingRecordCount: blockingLedgerRecords.length,
+    restartUnsafeRecordCount: restartUnsafeLedgerRecords.length,
+    orphanRecordCount: orphanLedgerRecords.length,
+    campaignCount: ledgerCampaignIds.size,
+    audienceCount: ledgerAudienceIds.size,
+    latestRecord: latestMailchimpExportRecord,
+    rejectedRecords: mailchimpExportLedger.rejected,
+    blockingLedgerIds: blockingLedgerRecords.map((record) => record.ledgerId),
+    orphanLedgerIds: orphanLedgerRecords.map((record) => record.ledgerId),
+    restartUnsafeLedgerIds: restartUnsafeLedgerRecords.map((record) => record.ledgerId),
+    recoveryState: mailchimpExportLedger.rejected.length
+      ? 'scope-repair-required'
+      : restartUnsafeLedgerRecords.length
+        ? 'restart-confirmation-required'
+        : orphanLedgerRecords.length
+          ? 'stale-export-context'
+          : latestMailchimpExportRecord
+            ? 'recovered'
+            : 'empty',
+    nextRecoveryAction: mailchimpExportLedger.rejected.length
+      ? 'drop-out-of-scope-mailchimp-export-records'
+      : restartUnsafeLedgerRecords.length
+        ? 'replay-mailchimp-export-ledger-after-restart'
+        : orphanLedgerRecords.length
+          ? 'refresh-mailchimp-campaign-audience-context'
+          : latestMailchimpExportRecord
+            ? 'reuse-latest-mailchimp-export-record'
+            : 'emit-mailchimp-export-ledger-from-cli-claim'
+  };
   const snapshot = {
     kind: 'claim-browser-analytics-snapshot.v1',
     surfaceId,
@@ -2553,8 +3246,18 @@ function buildAnalyticsReporting(state, clientRuntime, commandResult, now, persi
     proofBacklogCount: proofBacklogClaims.length,
     hostedKernelPendingCount: pendingOutbox.length,
     healthRetryQueueCount: activeHealthRetries.length,
+    mailchimpClaimCount: mailchimpSummary.claimCount,
+    mailchimpExportReadyCount: mailchimpSummary.exportReadyCount,
+    mailchimpCampaignCount: mailchimpSummary.campaignCount,
+    mailchimpAudienceCount: mailchimpSummary.audienceCount,
+    mailchimpLifecycleReadyCount: mailchimpSummary.lifecycleReadyCount,
+    mailchimpLifecycleBlockedCount: mailchimpSummary.lifecycleBlockedCount,
+    mailchimpExportLedgerRecordCount: mailchimpLedgerSummary.retainedRecordCount,
+    mailchimpExportLedgerAcceptedCount: mailchimpLedgerSummary.acceptedRecordCount,
+    mailchimpExportLedgerBlockingCount: mailchimpLedgerSummary.blockingRecordCount,
     healthStatus: state.operationalHealth.status,
     restartSafe: !state.claims.some((claim) => claim.status === 'running' || claim.status === 'new')
+      && mailchimpLedgerSummary.restartUnsafeRecordCount === 0
   };
   const priorHistory = normalizeAnalyticsHistory(persisted);
   const analyticsHistory = [...priorHistory, snapshot]
@@ -2567,7 +3270,15 @@ function buildAnalyticsReporting(state, clientRuntime, commandResult, now, persi
     denialsByReason: countBy(deniedReceipts, (receipt) => receipt.reason),
     outboxByDeliveryState: countBy(state.hostedKernelOutbox, (entry) => entry.deliveryState),
     healthRetriesByReason: countBy(activeHealthRetries, (entry) => entry.reason),
-    boundaryEventsByKind: countBy(state.boundaryEvents, (event) => event.kind)
+    boundaryEventsByKind: countBy(state.boundaryEvents, (event) => event.kind),
+    mailchimpCampaigns: mailchimpSummary.campaigns,
+    mailchimpAudiences: mailchimpSummary.audiences,
+    mailchimpCampaignStatuses: mailchimpSummary.campaignStatuses,
+    mailchimpLifecycleGateStates: mailchimpSummary.lifecycleGateStates,
+    mailchimpLifecycleGateReasons: mailchimpSummary.lifecycleGateReasons,
+    mailchimpExportLedgerByCampaign: countBy(mailchimpExportLedger.records.filter((record) => record.campaignId), (record) => record.campaignId),
+    mailchimpExportLedgerByAudience: countBy(mailchimpExportLedger.records.filter((record) => record.audienceId), (record) => record.audienceId),
+    mailchimpExportLedgerByStatus: countBy(mailchimpExportLedger.records, (record) => record.ready ? 'ready' : 'blocked')
   };
   const exportSummary = {
     kind: 'claim-browser-export-summary.v1',
@@ -2581,6 +3292,7 @@ function buildAnalyticsReporting(state, clientRuntime, commandResult, now, persi
     totalMatchingClaimCount: clientRuntime.pageInfo.totalMatching,
     snapshot,
     counters,
+    mailchimp: mailchimpSummary,
     proofBacklogClaimIds: proofBacklogClaims.map((claim) => claim.id),
     unresolvedClaimIds: unresolvedClaims.map((claim) => claim.id),
     pendingHostedKernelCommandIds: pendingOutbox.map((entry) => entry.commandId),
@@ -2590,6 +3302,10 @@ function buildAnalyticsReporting(state, clientRuntime, commandResult, now, persi
       .filter(Boolean)
       .sort()[0] || null,
     latestCommandReceipt: commandReceipts.at(-1) || null,
+    mailchimpExportLedger: {
+      ...mailchimpLedgerSummary,
+      records: mailchimpExportLedger.records
+    },
     timelineLimit: REPORT_TIMELINE_LIMIT
   };
   return {
@@ -3105,6 +3821,7 @@ export function describeClaimBrowserSurface(input = {}) {
   const analyticsReporting = buildAnalyticsReporting(state, clientRuntime, commandResult, now, persisted);
   const providerServiceContract = normalizeProviderServiceContract(input, state, now);
   const workflowHandoffQueue = buildWorkflowHandoffQueue(state, clientRuntime, providerServiceContract, now);
+  const operationalHealthDecision = buildOperationalHealthDecision(state.operationalHealth, state.workspacePolicy, now);
   const persistedState = {
     ...state,
     providerServiceContract,
@@ -3117,6 +3834,7 @@ export function describeClaimBrowserSurface(input = {}) {
     analyticsHistory: analyticsReporting.history,
     reportTimeline: analyticsReporting.timeline,
     exportSummary: analyticsReporting.exportSummary,
+    operationalHealthDecision,
     previewAcceptance: clientRuntime.previewAcceptance,
     workflowHandoffQueue
   };
@@ -3131,6 +3849,8 @@ export function describeClaimBrowserSurface(input = {}) {
     return counts;
   }, {});
   const unresolvedClaims = state.claims.filter((claim) => !TERMINAL_STATUS.has(claim.status));
+  const mailchimpClaims = state.claims.filter((claim) => claim.mailchimp.enabled);
+  const mailchimpExportReadyClaims = mailchimpClaims.filter((claim) => claim.mailchimp.readyForExport);
   const permissionBoundedClaims = state.claims.filter((claim) => claim.permissionGrants.length > 0);
   const recoveredClaims = state.claims.filter((claim) => stableText(claim.recoverySource, null));
   const proof = {
@@ -3141,6 +3861,10 @@ export function describeClaimBrowserSurface(input = {}) {
     healthStatus: state.operationalHealth.status,
     degradedMode: state.operationalHealth.degraded,
     commandWritesEnabled: state.operationalHealth.commandWritesEnabled,
+    operationalHealthDecisionState: operationalHealthDecision.state,
+    operationalHealthNextRecoveryAction: operationalHealthDecision.nextRecoveryAction,
+    operationalHealthCanRetryNow: operationalHealthDecision.canRetryNow,
+    operationalHealthPrimaryErrorCode: operationalHealthDecision.primaryErrorCode,
     lifecycleMode: state.lifecycleSettings.effectiveMode,
     lifecycleScheduleState: state.lifecycleSettings.scheduleState,
     lifecycleNextReviewAt: state.lifecycleSettings.nextReviewAt,
@@ -3180,6 +3904,10 @@ export function describeClaimBrowserSurface(input = {}) {
     proofBacklogCount: analyticsReporting.snapshot.proofBacklogCount,
     hostedKernelPendingCount: analyticsReporting.snapshot.hostedKernelPendingCount,
     healthRetryCommandCount: analyticsReporting.snapshot.healthRetryQueueCount,
+    mailchimpClaimCount: analyticsReporting.snapshot.mailchimpClaimCount,
+    mailchimpExportReadyCount: analyticsReporting.snapshot.mailchimpExportReadyCount,
+    mailchimpCampaignCount: analyticsReporting.snapshot.mailchimpCampaignCount,
+    mailchimpAudienceCount: analyticsReporting.snapshot.mailchimpAudienceCount,
     lastCommandReason: lastCommandReceipt ? lastCommandReceipt.reason : null,
     visibleClaimCount: clientRuntime.pageInfo.returned,
     selectedClaimId: clientRuntime.selection ? clientRuntime.selection.claimId : null,
@@ -3208,6 +3936,7 @@ export function describeClaimBrowserSurface(input = {}) {
     policyEscalationRoute: state.workspacePolicy.escalationRoute,
     healthEscalationRoute: state.operationalHealth.escalationRoute,
     healthActionableErrors: state.operationalHealth.actionableErrors,
+    operationalHealthDecision,
     retryPolicy: state.operationalHealth.retryPolicy,
     healthRetryQueue: state.healthRetryQueue,
     nextHealthRetry,
@@ -3536,6 +4265,7 @@ export function describeClaimBrowserSurface(input = {}) {
         'proofRefCount',
         'recoverySource',
         'hostedKernelDeliveryState',
+        'mailchimp',
         'permissionGrantCount',
         'permissionDenialReason',
         'workflowRef',
@@ -3780,7 +4510,10 @@ export function describeClaimBrowserSurface(input = {}) {
           'commandsByAction',
           'denialsByReason',
           'outboxByDeliveryState',
-          'boundaryEventsByKind'
+          'boundaryEventsByKind',
+          'mailchimpCampaigns',
+          'mailchimpAudiences',
+          'mailchimpCampaignStatuses'
         ],
         snapshotFields: [
           'kind',
@@ -3796,6 +4529,13 @@ export function describeClaimBrowserSurface(input = {}) {
           'proofBacklogCount',
           'hostedKernelPendingCount',
           'healthRetryQueueCount',
+          'mailchimpClaimCount',
+          'mailchimpExportReadyCount',
+          'mailchimpCampaignCount',
+          'mailchimpAudienceCount',
+          'mailchimpExportLedgerRecordCount',
+          'mailchimpExportLedgerAcceptedCount',
+          'mailchimpExportLedgerBlockingCount',
           'healthStatus',
           'restartSafe'
         ],
@@ -3811,6 +4551,8 @@ export function describeClaimBrowserSurface(input = {}) {
           'totalMatchingClaimCount',
           'snapshot',
           'counters',
+          'mailchimp',
+          'mailchimpExportLedger',
           'proofBacklogClaimIds',
           'unresolvedClaimIds',
           'pendingHostedKernelCommandIds',
@@ -3829,6 +4571,37 @@ export function describeClaimBrowserSurface(input = {}) {
           'boundary-event'
         ]
       },
+      mailchimpMarketing: {
+        claimContextKind: 'claim-browser.mailchimp-claim-context.v1',
+        analyticsSummaryKind: 'claim-browser.mailchimp-analytics-summary.v1',
+        exportLedgerKind: 'claim-browser.mailchimp-export-ledger-summary.v1',
+        acceptedInputs: [
+          'claims[].mailchimp',
+          'claims[].marketing',
+          'claims[].providerContext',
+          'claims[].integration',
+          'claims[].campaign',
+          'claims[].audience',
+          'persistedState.mailchimpExportLedger',
+          'persistedState.mailchimpExportHistory',
+          'persistedState.analytics.mailchimpExportLedger',
+          'persistedState.exportSummary.mailchimpExportLedger'
+        ],
+        claimFields: [
+          'enabled',
+          'campaignId',
+          'audienceId',
+          'campaignStatus',
+          'templateId',
+          'previewUrl',
+          'segmentIds',
+          'mergeTags',
+          'exportLabels',
+          'readyForExport'
+        ],
+        campaignStatuses: MAILCHIMP_CAMPAIGN_STATUSES,
+        exportReadiness: 'ready when both campaignId and audienceId are present for a Mailchimp claim'
+      },
       proofOutputFields: [
         'kind',
         'surfaceId',
@@ -3842,6 +4615,7 @@ export function describeClaimBrowserSurface(input = {}) {
         'recoverySource',
         'lastRecoveredCommandId',
         'hostedKernelDeliveryState',
+        'mailchimp',
         'proofRefs',
         'permissionGrantCount',
         'evidence',
@@ -3868,6 +4642,10 @@ export function describeClaimBrowserSurface(input = {}) {
       providerServiceContract,
       statusCounts,
       activeClaimIds: unresolvedClaims.map((claim) => claim.id),
+      mailchimp: analyticsReporting.exportSummary.mailchimp,
+      mailchimpExportLedger: analyticsReporting.exportSummary.mailchimpExportLedger,
+      mailchimpClaimIds: mailchimpClaims.map((claim) => claim.id),
+      mailchimpExportReadyClaimIds: mailchimpExportReadyClaims.map((claim) => claim.id),
       permissionBoundedClaimIds: permissionBoundedClaims.map((claim) => claim.id),
       recoveredClaimIds: recoveredClaims.map((claim) => claim.id),
       selectedClaimId: workflowHandoff.selectedClaimId,

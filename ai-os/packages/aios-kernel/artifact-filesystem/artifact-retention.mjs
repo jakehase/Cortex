@@ -300,6 +300,7 @@ function buildLifecycleSettingsControlState({
   input,
   lifecycleControls,
   summary,
+  boundaryContext,
   requestState,
   nowDate
 }) {
@@ -358,6 +359,45 @@ function buildLifecycleSettingsControlState({
   const dryRun = normalizeBoolean(execution.dryRun ?? raw.dryRun, lifecycleControls.dryRun);
   const validationErrors = [];
   const warnings = [];
+  const requiredPermissions = uniqueTokens([
+    action !== 'noop' ? 'artifact:retention:manage-lifecycle' : null,
+    action === 'disable' || deleteEnabled !== lifecycleControls.execution.deleteEnabled
+      ? 'artifact:retention:delete'
+      : null,
+    archiveEnabled !== lifecycleControls.execution.archiveEnabled
+      ? 'artifact:retention:archive'
+      : null,
+    dryRun !== lifecycleControls.dryRun || action === 'reschedule' || action === 'pause' || action === 'resume'
+      ? 'artifact:retention:schedule'
+      : null,
+    action === 'disable' || (lifecycleControls.execution.deleteEnabled === false && deleteEnabled === true)
+      ? 'artifact:retention:audit-handoff'
+      : null
+  ].filter(Boolean));
+  const permissionChecks = requiredPermissions.map(permission => ({
+    permission,
+    granted: boundaryContext ? hasPermission(boundaryContext, permission) : false,
+    workspaceId: boundaryContext?.workspaceId || null
+  }));
+  const missingPermissions = permissionChecks
+    .filter(check => !check.granted)
+    .map(check => check.permission);
+  const auditHandoff = {
+    contract: 'artifact-retention.lifecycle-settings-audit-handoff.v1',
+    required: action === 'disable'
+      || deleteEnabled !== lifecycleControls.execution.deleteEnabled
+      || dryRun !== lifecycleControls.dryRun,
+    ready: false,
+    route: requestState.clientRuntime.routeHints.proofRoute,
+    actorId: boundaryContext?.actorId || null,
+    tenantId: boundaryContext?.tenantId || null,
+    workspaceId: boundaryContext?.workspaceId || null,
+    reason: coerceToken(raw.reason, action === 'noop' ? 'no_settings_command' : ''),
+    proofSubject: 'artifact_retention_lifecycle_settings_change'
+  };
+
+  auditHandoff.ready = !auditHandoff.required
+    || (auditHandoff.reason.length > 0 && !missingPermissions.includes('artifact:retention:audit-handoff'));
 
   if (action === 'pause' && pauseUntil && new Date(pauseUntil).getTime() <= nowDate.getTime()) {
     validationErrors.push({
@@ -377,6 +417,24 @@ function buildLifecycleSettingsControlState({
     warnings.push({
       code: 'settings_interval_clamped',
       message: 'Requested lifecycle schedule interval was raised to the minimum supported value of 5 minutes.'
+    });
+  }
+
+  if (missingPermissions.length > 0) {
+    validationErrors.push({
+      code: 'lifecycle_settings_permission_denied',
+      actorId: boundaryContext?.actorId || null,
+      missingPermissions,
+      message: 'Actor lacks scoped permission to apply the requested retention lifecycle settings change.'
+    });
+  }
+
+  if (auditHandoff.required && !auditHandoff.ready) {
+    validationErrors.push({
+      code: 'lifecycle_settings_audit_handoff_required',
+      actorId: boundaryContext?.actorId || null,
+      requiredPermission: 'artifact:retention:audit-handoff',
+      message: 'Destructive retention lifecycle settings changes require an audit handoff permission and operator reason.'
     });
   }
 
@@ -455,6 +513,19 @@ function buildLifecycleSettingsControlState({
     },
     currentSettings: lifecycleControls,
     proposedSettings,
+    authorization: {
+      contract: 'artifact-retention.lifecycle-settings-authorization.v1',
+      actorId: boundaryContext?.actorId || null,
+      roles: boundaryContext?.roles || [],
+      tenantId: boundaryContext?.tenantId || null,
+      workspaceId: boundaryContext?.workspaceId || null,
+      requiredPermissions,
+      missingPermissions,
+      permissionChecks,
+      allowed: missingPermissions.length === 0,
+      scopeToken: boundaryContext?.scopeToken || null
+    },
+    auditHandoff,
     applyAllowed,
     status: action === 'noop'
       ? 'idle'
@@ -737,6 +808,9 @@ function normalizeBoundaryContext(input, requestState) {
   if (effectiveRoles.some(role => ['system', 'admin', 'owner', 'maintainer'].includes(role))) {
     impliedPermissions.add('artifact:retention:archive');
     impliedPermissions.add('artifact:retention:delete');
+    impliedPermissions.add('artifact:retention:manage-lifecycle');
+    impliedPermissions.add('artifact:retention:schedule');
+    impliedPermissions.add('artifact:retention:audit-handoff');
   }
 
   if (effectiveRoles.includes('editor')) {
@@ -777,6 +851,9 @@ function normalizeBoundaryContext(input, requestState) {
       if (grantRoles.some(role => ['system', 'admin', 'owner', 'maintainer'].includes(role))) {
         effectiveGrantPermissions.add('artifact:retention:archive');
         effectiveGrantPermissions.add('artifact:retention:delete');
+        effectiveGrantPermissions.add('artifact:retention:manage-lifecycle');
+        effectiveGrantPermissions.add('artifact:retention:schedule');
+        effectiveGrantPermissions.add('artifact:retention:audit-handoff');
       }
 
       if (grantRoles.includes('editor')) {
@@ -1545,7 +1622,67 @@ function classifyRecoveryLease({ persistedState, requestState, nowDate }) {
   };
 }
 
-function buildRestartReplayIntents({ persistedState, commands, pendingArtifactIds, leaseState, nowDate }) {
+function compareJournalTimestamps(left, right) {
+  return coerceDate(left.completedAt || left.dispatchedAt, '1970-01-01T00:00:00.000Z').getTime()
+    - coerceDate(right.completedAt || right.dispatchedAt, '1970-01-01T00:00:00.000Z').getTime();
+}
+
+function buildCommandReplayClaimIndex({ commandJournal = [], pendingArtifactIds = [] }) {
+  const pending = new Set(pendingArtifactIds);
+  const completedClaims = new Map();
+  const activeClaims = new Map();
+  const claimKey = (action, artifactId) => buildStableToken([action, artifactId]);
+
+  for (const entry of [...commandJournal].sort(compareJournalTimestamps)) {
+    if (!['archive', 'delete'].includes(entry.action)) {
+      continue;
+    }
+
+    for (const artifactId of entry.artifactIds.filter(id => pending.has(id))) {
+      const key = claimKey(entry.action, artifactId);
+
+      if (entry.succeeded) {
+        completedClaims.set(key, {
+          artifactId,
+          action: entry.action,
+          commandId: entry.commandId,
+          status: entry.status,
+          completedAt: entry.completedAt || entry.dispatchedAt || null
+        });
+        activeClaims.delete(key);
+        continue;
+      }
+
+      if (entry.terminal || !entry.replayable) {
+        activeClaims.delete(key);
+        continue;
+      }
+
+      activeClaims.set(key, {
+        artifactId,
+        action: entry.action,
+        commandId: entry.commandId,
+        status: entry.status,
+        observedAt: entry.dispatchedAt || entry.completedAt || null
+      });
+    }
+  }
+
+  return {
+    contract: 'artifact-retention.command-replay-claims.v1',
+    completedClaims: [...completedClaims.values()],
+    activeClaims: [...activeClaims.values()],
+    suppressions: [],
+    hasCompletedClaim(action, artifactId) {
+      return completedClaims.has(claimKey(action, artifactId));
+    },
+    activeClaimFor(action, artifactId) {
+      return activeClaims.get(claimKey(action, artifactId)) || null;
+    }
+  };
+}
+
+function buildRestartReplayIntents({ persistedState, commands, pendingArtifactIds, leaseState, replayClaims, nowDate }) {
   if (!persistedState.compatibleWithRequest) {
     return [];
   }
@@ -1554,7 +1691,35 @@ function buildRestartReplayIntents({ persistedState, commands, pendingArtifactId
   return persistedState.commandJournal
     .filter(entry => entry.replayable && !entry.succeeded)
     .map(entry => {
-      const artifactIds = entry.artifactIds.filter(artifactId => pending.has(artifactId));
+      const suppressions = [];
+      const artifactIds = entry.artifactIds.filter(artifactId => {
+        if (!pending.has(artifactId)) {
+          return false;
+        }
+
+        if (replayClaims.hasCompletedClaim(entry.action, artifactId)) {
+          suppressions.push({
+            artifactId,
+            reason: 'newer_terminal_success',
+            action: entry.action
+          });
+          return false;
+        }
+
+        const activeClaim = replayClaims.activeClaimFor(entry.action, artifactId);
+        if (activeClaim && activeClaim.commandId !== entry.commandId) {
+          suppressions.push({
+            artifactId,
+            reason: 'newer_active_command_claim',
+            action: entry.action,
+            blockingCommandId: activeClaim.commandId,
+            blockingStatus: activeClaim.status
+          });
+          return false;
+        }
+
+        return true;
+      });
       const replayStatus = entry.failed || entry.status === 'timeout'
         ? 'retry_ready'
         : leaseState.takeoverAllowed
@@ -1582,7 +1747,11 @@ function buildRestartReplayIntents({ persistedState, commands, pendingArtifactId
         dispatchAllowed,
         artifactIds,
         artifactCount: artifactIds.length,
-        suppressedArtifactIds: entry.artifactIds.filter(artifactId => !pending.has(artifactId)),
+        suppressedArtifactIds: uniqueTokens([
+          ...entry.artifactIds.filter(artifactId => !pending.has(artifactId)),
+          ...suppressions.map(suppression => suppression.artifactId)
+        ]),
+        suppressions,
         leaseFencingToken: leaseState.fencingToken,
         retryCommandId: replayStatus === 'retry_ready' ? commands.retry.commandId : null,
         observedAt: nowDate.toISOString()
@@ -1685,12 +1854,23 @@ function buildRecoveryState({ readiness, previewItems, requestState, persistedSt
     commands,
     pendingArtifactIds,
     leaseState,
+    replayClaims: buildCommandReplayClaimIndex({
+      commandJournal: persistedState.compatibleWithRequest ? persistedState.commandJournal : [],
+      pendingArtifactIds
+    }),
     nowDate
   });
   const dispatchableReplayIntents = replayIntents.filter(intent => intent.dispatchAllowed);
   const suppressedReplayArtifactIds = uniqueTokens(
     replayIntents.flatMap(intent => intent.suppressedArtifactIds)
   );
+  const replaySuppressions = replayIntents.flatMap(intent => (
+    intent.suppressions.map(suppression => ({
+      ...suppression,
+      intentId: intent.intentId,
+      commandId: intent.commandId
+    }))
+  ));
   const recoveryCommand = {
     contract: 'artifact-retention.restart-recovery-command.v1',
     commandId: buildStableToken([
@@ -1739,6 +1919,12 @@ function buildRecoveryState({ readiness, previewItems, requestState, persistedSt
     resumeCommandIds,
     replayableCommandIds: commands.replay.replayableCommandIds,
     replayIntents,
+    replaySuppression: {
+      contract: 'artifact-retention.replay-suppression.v1',
+      suppressedArtifactIds: suppressedReplayArtifactIds,
+      suppressionCount: replaySuppressions.length,
+      suppressions: replaySuppressions
+    },
     recoveryCommand,
     checkpointToPersist: {
       contract: 'artifact-retention.next-persisted-state.v1',
@@ -1757,10 +1943,242 @@ function buildRecoveryState({ readiness, previewItems, requestState, persistedSt
         replayIntentIds: replayIntents.map(intent => intent.intentId),
         recoveryCommandId: recoveryCommand.commandId,
         recoveryCommandStatus: recoveryCommand.status,
-        suppressedReplayArtifactIds
+        suppressedReplayArtifactIds,
+        replaySuppressions
       },
       pendingArtifactIds,
       resumeCommandIds
+    }
+  };
+}
+
+function buildRuntimeRestartHandoff({
+  requestState,
+  recoveryState,
+  hostedKernelDispatch,
+  workflowHandoff,
+  clientRouteContracts,
+  nowDate
+}) {
+  const dispatchableReplayIntents = recoveryState.replayIntents.filter(intent => intent.dispatchAllowed);
+  const waitingReplayIntents = recoveryState.replayIntents.filter(intent => !intent.dispatchAllowed);
+  const blockedGateIds = hostedKernelDispatch.gates
+    .filter(gate => gate.blocking)
+    .map(gate => gate.id);
+  const pendingReplayCommands = dispatchableReplayIntents.map((intent, index) => ({
+    contract: 'artifact-retention.runtime-replay-command.v1',
+    replayOrder: index + 1,
+    intentId: intent.intentId,
+    commandId: intent.commandId,
+    idempotencyKey: intent.idempotencyKey,
+    action: intent.action,
+    artifactIds: intent.artifactIds,
+    leaseFencingToken: intent.leaseFencingToken,
+    dispatchRoute: clientRouteContracts.routes.dispatch,
+    dispatchAllowed: true
+  }));
+  const restartBlockedReasons = uniqueTokens([
+    ...blockedGateIds.map(id => `dispatch-gate:${id}`),
+    ...waitingReplayIntents.map(intent => `replay-waiting:${intent.replayStatus}`),
+    ...(recoveryState.leaseState.active && !recoveryState.leaseState.takeoverAllowed
+      ? [`lease-active:${recoveryState.leaseState.owner || 'unknown-owner'}`]
+      : []),
+    ...(recoveryState.compatibleCheckpoint ? [] : ['checkpoint-incompatible'])
+  ]);
+  const restartReady = recoveryState.recoveryCommand.enabled
+    && dispatchableReplayIntents.length > 0
+    && hostedKernelDispatch.dispatchable;
+  const continuityRows = [
+    ...dispatchableReplayIntents.map(intent => ({ intent, state: 'dispatchable' })),
+    ...waitingReplayIntents.map(intent => ({ intent, state: 'waiting' }))
+  ].map(({ intent, state }, index) => {
+    const blockedReasons = state === 'dispatchable'
+      ? []
+      : uniqueTokens([
+          `replay-status:${intent.replayStatus}`,
+          ...(intent.suppressedArtifactIds.length > 0 ? ['artifact-suppressions-present'] : []),
+          ...(recoveryState.leaseState.active
+            ? [`lease-active:${recoveryState.leaseState.owner || 'unknown-owner'}`]
+            : [])
+        ]);
+
+    return {
+      contract: 'artifact-retention.client-continuity-row.v1',
+      ordinal: index + 1,
+      intentId: intent.intentId,
+      commandId: intent.commandId,
+      idempotencyKey: intent.idempotencyKey,
+      action: intent.action,
+      state,
+      artifactIds: intent.artifactIds,
+      artifactCount: intent.artifactCount,
+      suppressedArtifactIds: intent.suppressedArtifactIds,
+      dispatchRoute: state === 'dispatchable' ? clientRouteContracts.routes.dispatch : null,
+      resumeRoute: clientRouteContracts.routes.resume,
+      proofRoute: clientRouteContracts.routes.proof,
+      blockedReasons,
+      clientInstruction: state === 'dispatchable'
+        ? 'dispatch-with-idempotency-key'
+        : blockedReasons.includes('artifact-suppressions-present')
+          ? 'review-replay-suppressions'
+          : 'wait-for-replay-lease',
+      checkpointExpectation: {
+        leaseFencingToken: intent.leaseFencingToken,
+        expectedCommandStatus: state === 'dispatchable' ? 'queued' : 'held',
+        suppressCompletedArtifacts: true
+      }
+    };
+  });
+  const dispatchableContinuityRows = continuityRows.filter(row => row.state === 'dispatchable');
+  const blockedContinuityRows = continuityRows.filter(row => row.blockedReasons.length > 0);
+  const clientContinuity = {
+    contract: 'artifact-retention.client-continuity.v1',
+    continuityId: buildStableToken([
+      'retention-continuity',
+      requestState.workflowId,
+      recoveryState.recoveryCommand.commandId,
+      recoveryState.leaseState.fencingToken,
+      continuityRows.map(row => [row.intentId, row.state, row.blockedReasons])
+    ]),
+    requestId: requestState.requestId,
+    workflowId: requestState.workflowId,
+    sessionId: requestState.sessionId,
+    status: dispatchableContinuityRows.length > 0
+      ? 'resume-ready'
+      : blockedContinuityRows.length > 0
+        ? 'resume-blocked'
+        : recoveryState.pendingArtifactIds.length > 0
+          ? 'preview-resumable'
+          : 'clean',
+    restartSafeStatus: recoveryState.restartSafeStatus,
+    replayIntentCount: continuityRows.length,
+    dispatchableReplayIntentCount: dispatchableContinuityRows.length,
+    blockedReplayIntentCount: blockedContinuityRows.length,
+    nextRoute: dispatchableContinuityRows.length > 0
+      ? clientRouteContracts.routes.dispatch
+      : blockedContinuityRows.length > 0
+        ? clientRouteContracts.routes.proof || clientRouteContracts.routes.resume
+        : clientRouteContracts.routes.resume,
+    clientStatePatch: {
+      contract: 'artifact-retention.client-continuity-state-patch.v1',
+      continuityId: buildStableToken([
+        requestState.sessionId,
+        recoveryState.recoveryCommand.commandId,
+        continuityRows.map(row => [row.intentId, row.state])
+      ]),
+      requestId: requestState.requestId,
+      workflowId: requestState.workflowId,
+      route: dispatchableContinuityRows.length > 0
+        ? clientRouteContracts.routes.dispatch
+        : clientRouteContracts.routes.resume,
+      status: dispatchableContinuityRows.length > 0
+        ? 'resume-retention-replay'
+        : blockedContinuityRows.length > 0
+          ? 'review-retention-continuity'
+          : 'observe-retention-preview',
+      dispatchableReplayIntentIds: dispatchableContinuityRows.map(row => row.intentId),
+      blockedReplayIntentIds: blockedContinuityRows.map(row => row.intentId),
+      pendingArtifactIds: recoveryState.pendingArtifactIds,
+      leaseFencingToken: recoveryState.leaseState.fencingToken,
+      updatedAt: nowDate.toISOString()
+    },
+    rows: continuityRows,
+    actionableErrors: blockedContinuityRows.map(row => ({
+      contract: 'artifact-retention.client-continuity-error.v1',
+      intentId: row.intentId,
+      commandId: row.commandId,
+      code: row.blockedReasons[0] || 'retention-continuity-blocked',
+      message: `Retention replay ${row.commandId} is not dispatchable because ${row.blockedReasons[0] || 'the restart handoff is blocked'}.`,
+      route: row.proofRoute || row.resumeRoute,
+      nextAction: row.clientInstruction
+    }))
+  };
+  const handoffInstruction = recoveryState.restartSafeStatus === 'terminal_checkpoint'
+    ? 'render-terminal-checkpoint'
+    : restartReady
+      ? 'dispatch-restart-replay'
+      : recoveryState.recoveryCommand.enabled
+        ? 'hold-restart-replay'
+        : recoveryState.pendingArtifactIds.length > 0
+          ? 'resume-preview-workflow'
+          : 'observe-runtime-state';
+  const statePatch = {
+    contract: 'artifact-retention.runtime-restart-state-patch.v1',
+    requestId: requestState.requestId,
+    workflowId: requestState.workflowId,
+    clientId: requestState.clientId,
+    sessionId: requestState.sessionId,
+    status: handoffInstruction,
+    restartSafeStatus: recoveryState.restartSafeStatus,
+    nextRuntimeStatus: recoveryState.nextRuntimeStatus,
+    recoveryCommandId: recoveryState.recoveryCommand.commandId,
+    recoveryCommandStatus: recoveryState.recoveryCommand.status,
+    leaseFencingToken: recoveryState.leaseState.fencingToken,
+    pendingArtifactIds: recoveryState.pendingArtifactIds,
+    replayIntentIds: recoveryState.replayIntents.map(intent => intent.intentId),
+    dispatchableReplayIntentIds: dispatchableReplayIntents.map(intent => intent.intentId),
+    blockedReasons: restartBlockedReasons,
+    clientContinuity: clientContinuity.clientStatePatch,
+    updatedAt: nowDate.toISOString()
+  };
+
+  return {
+    contract: 'artifact-retention.runtime-restart-handoff.v1',
+    generatedAt: nowDate.toISOString(),
+    requestId: requestState.requestId,
+    workflowId: requestState.workflowId,
+    state: restartReady
+      ? 'ready'
+      : recoveryState.recoveryCommand.enabled
+        ? 'blocked'
+        : recoveryState.pendingArtifactIds.length > 0
+          ? 'resumable'
+          : 'idle',
+    instruction: handoffInstruction,
+    restartReady,
+    dispatchRoute: clientRouteContracts.routes.dispatch,
+    resumeRoute: clientRouteContracts.routes.resume,
+    proofRoute: clientRouteContracts.routes.proof,
+    recoveryCommand: recoveryState.recoveryCommand,
+    clientContinuity,
+    pendingReplayCommands,
+    waitingReplayIntents: waitingReplayIntents.map(intent => ({
+      intentId: intent.intentId,
+      commandId: intent.commandId,
+      action: intent.action,
+      replayStatus: intent.replayStatus,
+      suppressedArtifactIds: intent.suppressedArtifactIds,
+      suppressions: intent.suppressions
+    })),
+    blockedReasons: restartBlockedReasons,
+    clientStatePatch: statePatch,
+    persistedCheckpointPatch: {
+      contract: 'artifact-retention.runtime-restart-checkpoint-patch.v1',
+      requestId: requestState.requestId,
+      workflowId: requestState.workflowId,
+      restartSafeStatus: recoveryState.restartSafeStatus,
+      recoveryCommandId: recoveryState.recoveryCommand.commandId,
+      replayIntentIds: recoveryState.replayIntents.map(intent => intent.intentId),
+      checkpointStatus: recoveryState.checkpointToPersist.status,
+      leaseFencingToken: recoveryState.leaseState.fencingToken,
+      idempotencyScope: recoveryState.idempotencyScope
+    },
+    userVisibleHandoff: {
+      mode: restartReady
+        ? 'restart_replay_ready'
+        : recoveryState.recoveryCommand.enabled
+          ? 'restart_replay_blocked'
+          : 'restart_observe',
+      message: restartReady
+        ? `${dispatchableReplayIntents.length} retention replay command${dispatchableReplayIntents.length === 1 ? '' : 's'} can be dispatched safely.`
+        : restartBlockedReasons.length > 0
+          ? `Retention replay is waiting on ${restartBlockedReasons[0]}.`
+          : 'Retention restart state is current.',
+      nextActionId: restartReady
+        ? 'dispatch-retention-restart-replay'
+        : recoveryState.recoveryCommand.enabled
+          ? 'review-retention-restart-blockers'
+          : workflowHandoff.nextAction?.id || 'observe-retention-runtime'
     }
   };
 }
@@ -1962,6 +2380,20 @@ function buildOperationalHealth({ readiness, validationSummary, persistedState, 
       nextRetryAt: plan.nextRetryAt
     }))
   ];
+  const operationalRunbook = buildOperationalHealthRunbook({
+    healthStatus,
+    executionAllowed,
+    validationBlocked,
+    permanentFailures,
+    waitingRetries,
+    dueRetries,
+    commandFailures,
+    recoveryBlockedByLease,
+    recoveryState,
+    commands,
+    incidentItems,
+    nowDate
+  });
 
   return {
     contract: 'artifact-retention.operational-health.v1',
@@ -2017,8 +2449,187 @@ function buildOperationalHealth({ readiness, validationSummary, persistedState, 
       permanentlyFailedArtifactIds,
       items: retryPlans
     },
+    operationalRunbook,
     commandFailureCount: commandFailures.length,
     actionableErrors
+  };
+}
+
+function buildOperationalHealthRunbook({
+  healthStatus,
+  executionAllowed,
+  validationBlocked,
+  permanentFailures,
+  waitingRetries,
+  dueRetries,
+  commandFailures,
+  recoveryBlockedByLease,
+  recoveryState,
+  commands,
+  incidentItems,
+  nowDate
+}) {
+  const nextRetryAtCandidates = [
+    ...waitingRetries.map(plan => plan.nextRetryAt),
+    ...dueRetries.map(plan => plan.nextRetryAt),
+    recoveryBlockedByLease ? recoveryState.leaseState.expiresAt : null
+  ].filter(Boolean).sort();
+  const incidentByCategory = incidentItems.reduce((counts, item) => ({
+    ...counts,
+    [item.category]: (counts[item.category] || 0) + 1
+  }), {});
+  const failureClasses = uniqueTokens([
+    validationBlocked ? 'validation' : null,
+    permanentFailures.length > 0 ? 'operator_review' : null,
+    waitingRetries.length > 0 ? 'retry_backoff' : null,
+    dueRetries.length > 0 ? 'retry_ready' : null,
+    commandFailures.length > 0 ? 'command_failure' : null,
+    recoveryBlockedByLease ? 'restart_lease' : null
+  ].filter(Boolean));
+  const primary = validationBlocked
+    ? {
+        action: 'resolve-validation-errors',
+        commandId: null,
+        route: '/artifact-filesystem/retention/preview',
+        owner: 'requester',
+        dueAt: nowDate.toISOString(),
+        reason: 'validation_failed',
+        message: 'Repair retention preview validation errors before dispatching archive or delete commands.'
+      }
+    : permanentFailures.length > 0
+      ? {
+          action: 'operator-review-permanent-failures',
+          commandId: null,
+          route: '/artifact-filesystem/retention/incidents',
+          owner: 'retention_operator',
+          dueAt: nowDate.toISOString(),
+          reason: 'permanent_failure_requires_review',
+          artifactIds: permanentFailures.map(plan => plan.artifactId),
+          message: 'Review permanently failed retention artifacts before continuing automated execution.'
+        }
+      : recoveryBlockedByLease
+        ? {
+            action: 'wait-for-retention-lease',
+            commandId: recoveryState.recoveryCommand.commandId,
+            route: '/artifact-filesystem/retention/recovery',
+            owner: 'hosted_kernel',
+            dueAt: recoveryState.leaseState.expiresAt || nowDate.toISOString(),
+            reason: 'active_recovery_lease',
+            leaseOwner: recoveryState.leaseState.owner,
+            message: 'Restart recovery is safe but must wait for the active retention lease to expire.'
+          }
+        : dueRetries.length > 0
+          ? {
+              action: 'dispatch-retention-retry',
+              commandId: commands.retry.commandId,
+              route: '/artifact-filesystem/retention/retry',
+              owner: 'hosted_kernel',
+              dueAt: nowDate.toISOString(),
+              reason: 'retry_window_elapsed',
+              artifactIds: dueRetries.map(plan => plan.artifactId),
+              message: 'Dispatch the retention retry command for artifacts whose backoff window has elapsed.'
+            }
+          : waitingRetries.length > 0
+            ? {
+                action: 'wait-for-retry-window',
+                commandId: commands.retry.commandId,
+                route: '/artifact-filesystem/retention/retry',
+                owner: 'hosted_kernel',
+                dueAt: nextRetryAtCandidates[0] || nowDate.toISOString(),
+                reason: 'retry_backoff_active',
+                artifactIds: waitingRetries.map(plan => plan.artifactId),
+                message: 'Retryable retention failures are waiting for their configured backoff window.'
+              }
+            : commandFailures.length > 0
+              ? {
+                  action: 'inspect-command-journal-failures',
+                  commandId: commandFailures[0].commandId || null,
+                  route: '/artifact-filesystem/retention/recovery',
+                  owner: 'retention_operator',
+                  dueAt: nowDate.toISOString(),
+                  reason: 'command_journal_failure',
+                  message: 'Inspect failed retention command journal entries before replaying hosted-kernel work.'
+                }
+              : {
+                  action: executionAllowed ? 'continue-retention-execution' : 'observe-retention-readiness',
+                  commandId: executionAllowed
+                    ? buildStableToken([commands.archive.commandId, commands.delete.commandId])
+                    : null,
+                  route: '/artifact-filesystem/retention/dispatch',
+                  owner: 'hosted_kernel',
+                  dueAt: executionAllowed ? nowDate.toISOString() : null,
+                  reason: executionAllowed ? 'retention_ready' : healthStatus,
+                  message: executionAllowed
+                    ? 'Retention preview is healthy and dispatch can proceed.'
+                    : 'Retention preview is pending readiness; keep observing before dispatch.'
+                };
+  const safeOperations = uniqueTokens([
+    'preview',
+    'audit',
+    healthStatus !== 'blocked' ? 'export-summary' : null,
+    executionAllowed ? 'dispatch-retention-commands' : null,
+    dueRetries.length > 0 && !validationBlocked && permanentFailures.length === 0 ? 'dispatch-retry' : null,
+    recoveryState.replayIntents.some(intent => intent.dispatchAllowed) ? 'dispatch-restart-replay' : null
+  ].filter(Boolean));
+  const blockedOperations = uniqueTokens([
+    validationBlocked || permanentFailures.length > 0 || waitingRetries.length > 0 || recoveryBlockedByLease
+      ? 'dispatch-retention-commands'
+      : null,
+    validationBlocked || permanentFailures.length > 0
+      ? 'dispatch-retry'
+      : null,
+    recoveryBlockedByLease
+      ? 'dispatch-restart-replay'
+      : null
+  ].filter(Boolean));
+  const retryWindow = {
+    nextRetryAt: nextRetryAtCandidates[0] || null,
+    retryDueNow: dueRetries.length > 0,
+    waitingArtifactIds: waitingRetries.map(plan => plan.artifactId),
+    dispatchableArtifactIds: dueRetries.map(plan => plan.artifactId),
+    leaseExpiresAt: recoveryBlockedByLease ? recoveryState.leaseState.expiresAt : null
+  };
+  const exportSummary = {
+    status: healthStatus,
+    primaryAction: primary.action,
+    primaryRoute: primary.route,
+    failureClasses,
+    incidentCount: incidentItems.length,
+    incidentByCategory,
+    retryWindow,
+    safeOperations,
+    blockedOperations
+  };
+
+  return {
+    contract: 'artifact-retention.operational-health-runbook.v1',
+    generatedAt: nowDate.toISOString(),
+    status: healthStatus,
+    executionAllowed,
+    primary,
+    failureClasses,
+    retryWindow,
+    degradedMode: {
+      active: healthStatus === 'degraded',
+      reason: recoveryBlockedByLease
+        ? 'active_recovery_lease'
+        : waitingRetries.length > 0
+          ? 'retry_backoff_active'
+          : null,
+      safeOperations,
+      blockedOperations
+    },
+    incidentByCategory,
+    exportSummary,
+    proof: buildStableToken([
+      'retention-health-runbook',
+      healthStatus,
+      primary.action,
+      primary.commandId,
+      failureClasses,
+      incidentItems.length,
+      retryWindow.nextRetryAt || 'no-retry'
+    ])
   };
 }
 
@@ -2270,6 +2881,25 @@ function buildAnalyticsReportingState({
     .filter(Boolean)
     .sort((left, right) => left.at.localeCompare(right.at))
     .slice(-40);
+  const recoveryExportCursor = buildRetentionRecoveryExportCursor({
+    currentSnapshot,
+    previousSnapshot,
+    deltaFromPrevious,
+    exportDigest,
+    exportRows,
+    exportWarnings,
+    timeline,
+    commandCounters,
+    requestState,
+    boundaryContext,
+    persistedState,
+    recoveryState,
+    operationalHealth,
+    validationSummary,
+    acceptance,
+    commands,
+    nowDate
+  });
 
   return {
     contract: 'artifact-retention.analytics-reporting.v1',
@@ -2309,7 +2939,8 @@ function buildAnalyticsReportingState({
       snapshots: history,
       currentSnapshot,
       previousSnapshot,
-      deltaFromPrevious
+      deltaFromPrevious,
+      recoveryExportCursor
     },
     exportSummary: {
       exportId: buildStableToken(['export', requestState.workflowId, requestState.trace.correlationId]),
@@ -2324,6 +2955,7 @@ function buildAnalyticsReportingState({
       rowCount: exportRows.length,
       warningCount: exportWarnings.length,
       warnings: exportWarnings,
+      recoveryExportCursor,
       columns: [
         'artifactId',
         'path',
@@ -2356,6 +2988,7 @@ function buildAnalyticsReportingState({
       exportable,
       latestTimelineEventId: timeline.length > 0 ? timeline[timeline.length - 1].eventId : null,
       persistableHistoryAppend: currentSnapshot,
+      persistableRecoveryExportCursor: recoveryExportCursor.persistableCursor,
       persistableReportCursor: buildStableToken([
         'report',
         requestState.workflowId,
@@ -2373,11 +3006,727 @@ function buildAnalyticsReportingState({
         validationErrorCount: validationSummary.errors.length,
         commandFailureCount: commandCounters.failedCommandCount,
         exportWarningCount: exportWarnings.length,
+        recoveryCursorStatus: recoveryExportCursor.status,
+        recoveryCursorBlockedReasonCount: recoveryExportCursor.blockers.length,
+        recoveryCursorResumeCommandCount: recoveryExportCursor.resume.commandIds.length,
         lifecycleSettingsStatus: lifecycleSettingsControls.status,
         lifecycleSettingsAction: lifecycleSettingsControls.command.action,
         lifecycleSettingsApplyAllowed: lifecycleSettingsControls.applyAllowed
       }
     }
+  };
+}
+
+function normalizeMailchimpExportSettings(input = {}) {
+  const source = input.mailchimpExport
+    || input.mailchimp
+    || input.integration?.mailchimp
+    || input.analyticsExport?.mailchimp
+    || {};
+  const audienceId = coerceToken(source.audienceId || source.listId || source.audience, '');
+  const campaignId = coerceToken(source.campaignId || source.campaign, '');
+  const accountId = coerceToken(source.accountId || source.providerAccountId || source.mailchimpAccountId, '');
+  const dataCenter = coerceToken(source.dataCenter || source.dc || source.serverPrefix, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
+    .slice(0, 24);
+  const segmentId = coerceToken(source.segmentId || source.segment || source.staticSegmentId, '');
+  const syncCursor = coerceToken(source.syncCursor || source.cursor || source.lastWebhookCursor, '');
+  const exportMode = coerceToken(source.mode || source.exportMode, 'audience-cleanup').toLowerCase();
+  const includeReviewItems = normalizeBoolean(source.includeReviewItems, false);
+  const includeRetainedItems = normalizeBoolean(source.includeRetainedItems, false);
+  const requireDestructiveAcceptance = normalizeBoolean(source.requireDestructiveAcceptance, true);
+  const requireLifecycleOpen = normalizeBoolean(source.requireLifecycleOpen, true);
+  const allowPartialDispatch = normalizeBoolean(source.allowPartialDispatch, false);
+  const requireAcknowledgement = normalizeBoolean(source.requireAcknowledgement ?? source.requireAck, true);
+  const tagPrefix = coerceToken(source.tagPrefix || source.mergeTagPrefix, 'AIOS_RETENTION')
+    .replace(/[^A-Za-z0-9_:-]/g, '_')
+    .slice(0, 40);
+
+  return {
+    contract: 'artifact-retention.mailchimp-export-settings.v1',
+    enabled: normalizeBoolean(source.enabled, Boolean(audienceId || campaignId)),
+    accountId: accountId || null,
+    dataCenter: dataCenter || null,
+    audienceId: audienceId || null,
+    campaignId: campaignId || null,
+    segmentId: segmentId || null,
+    syncCursor: syncCursor || null,
+    exportMode: ['audience-cleanup', 'campaign-audit', 'suppression-sync'].includes(exportMode)
+      ? exportMode
+      : 'audience-cleanup',
+    includeReviewItems,
+    includeRetainedItems,
+    requireDestructiveAcceptance,
+    requireLifecycleOpen,
+    allowPartialDispatch,
+    requireAcknowledgement,
+    tagPrefix,
+    webhookRoute: source.webhookRoute || source.callbackRoute || null
+  };
+}
+
+function buildMailchimpTargetScope({ settings, requestState, boundaryContext, rows, nowDate }) {
+  const targetKind = settings.exportMode === 'campaign-audit' ? 'campaign' : 'audience';
+  const targetId = targetKind === 'campaign' ? settings.campaignId : settings.audienceId;
+  const workspaceKey = buildStableToken([
+    boundaryContext.tenantId,
+    boundaryContext.workspaceId
+  ]);
+  const targetKey = buildStableToken([
+    'mailchimp',
+    settings.accountId || 'account-unbound',
+    settings.dataCenter || 'dc-unbound',
+    targetKind,
+    targetId || 'target-unbound',
+    settings.segmentId || 'segment-none'
+  ]);
+  const exportableRowCount = rows.filter(row => row.exportable).length;
+  const missingBindings = uniqueTokens([
+    !settings.accountId ? 'mailchimp_account_id_missing' : null,
+    !settings.dataCenter ? 'mailchimp_data_center_missing' : null,
+    !targetId ? `mailchimp_${targetKind}_id_missing` : null
+  ].filter(Boolean));
+  const scopeProof = buildStableToken([
+    'mailchimp-target-scope',
+    workspaceKey,
+    targetKey,
+    requestState.trace.correlationId,
+    exportableRowCount,
+    nowDate.toISOString()
+  ]);
+
+  return {
+    contract: 'artifact-retention.mailchimp-target-scope.v1',
+    provider: 'mailchimp',
+    workspaceKey,
+    tenantId: boundaryContext.tenantId,
+    workspaceId: boundaryContext.workspaceId,
+    accountId: settings.accountId,
+    dataCenter: settings.dataCenter,
+    targetKind,
+    targetId,
+    audienceId: settings.audienceId,
+    campaignId: settings.campaignId,
+    segmentId: settings.segmentId,
+    targetKey,
+    syncCursor: settings.syncCursor,
+    exportableRowCount,
+    missingBindings,
+    bound: missingBindings.length === 0,
+    proof: scopeProof
+  };
+}
+
+function buildMailchimpLifecycleGate({ settings, lifecycleControls, lifecycleSettingsControls, rows, nowDate }) {
+  const destructiveRows = rows.filter(row => row.destructive);
+  const scheduleDue = lifecycleControls.scheduler.due;
+  const settingsPatchPending = lifecycleSettingsControls.status === 'ready_to_apply';
+  const lifecycleBlockedReasons = uniqueTokens([
+    settings.requireLifecycleOpen && !lifecycleControls.enabled ? 'retention_lifecycle_disabled' : null,
+    settings.requireLifecycleOpen && lifecycleControls.mode === 'manual' ? 'retention_lifecycle_manual' : null,
+    settings.requireLifecycleOpen && lifecycleControls.scheduler.paused ? 'retention_lifecycle_paused' : null,
+    settings.requireLifecycleOpen && lifecycleControls.scheduler.enabled && !scheduleDue ? 'retention_lifecycle_not_due' : null,
+    settings.requireLifecycleOpen && settingsPatchPending ? 'retention_lifecycle_settings_patch_pending' : null,
+    destructiveRows.length > 0 && !lifecycleControls.execution.deleteEnabled ? 'destructive_execution_disabled' : null,
+    rows.some(row => row.action === 'archive') && !lifecycleControls.execution.archiveEnabled ? 'archive_execution_disabled' : null,
+    lifecycleSettingsControls.validation.errors.length > 0 ? 'retention_lifecycle_settings_invalid' : null
+  ].filter(Boolean));
+  const nextAction = lifecycleBlockedReasons.includes('retention_lifecycle_settings_patch_pending')
+    ? lifecycleSettingsControls.nextAction
+    : lifecycleBlockedReasons.includes('retention_lifecycle_disabled')
+      ? {
+          id: 'enable-retention-lifecycle-before-mailchimp-export',
+          status: 'blocked',
+          reason: 'retention_lifecycle_disabled',
+          commandId: lifecycleSettingsControls.command.commandId
+        }
+      : lifecycleBlockedReasons.includes('retention_lifecycle_not_due')
+        ? {
+            id: 'wait-for-retention-lifecycle-schedule',
+            status: 'scheduled',
+            reason: lifecycleControls.scheduler.nextRunAt,
+            commandId: lifecycleSettingsControls.command.commandId
+          }
+        : lifecycleBlockedReasons.length > 0
+          ? {
+              id: 'repair-retention-lifecycle-before-mailchimp-export',
+              status: 'blocked',
+              reason: lifecycleBlockedReasons[0],
+              commandId: lifecycleSettingsControls.command.commandId
+            }
+          : {
+              id: 'dispatch-mailchimp-retention-export',
+              status: 'ready',
+              reason: scheduleDue ? 'scheduled_retention_cycle_due' : 'retention_lifecycle_open',
+              commandId: lifecycleSettingsControls.command.commandId
+            };
+
+  return {
+    contract: 'artifact-retention.mailchimp-lifecycle-gate.v1',
+    evaluatedAt: nowDate.toISOString(),
+    required: settings.requireLifecycleOpen,
+    open: lifecycleBlockedReasons.length === 0,
+    blockedReasons: lifecycleBlockedReasons,
+    lifecycle: {
+      enabled: lifecycleControls.enabled,
+      mode: lifecycleControls.mode,
+      dryRun: lifecycleControls.dryRun,
+      schedulerEnabled: lifecycleControls.scheduler.enabled,
+      scheduleDue,
+      paused: lifecycleControls.scheduler.paused,
+      nextRunAt: lifecycleControls.scheduler.nextRunAt,
+      pauseUntil: lifecycleControls.scheduler.pauseUntil,
+      archiveExecutionEnabled: lifecycleControls.execution.archiveEnabled,
+      deleteExecutionEnabled: lifecycleControls.execution.deleteEnabled
+    },
+    settingsCommand: {
+      status: lifecycleSettingsControls.status,
+      action: lifecycleSettingsControls.command.action,
+      applyAllowed: lifecycleSettingsControls.applyAllowed,
+      commandId: lifecycleSettingsControls.command.commandId,
+      validationOk: lifecycleSettingsControls.validation.ok,
+      errorCodes: lifecycleSettingsControls.validation.errors.map(error => error.code)
+    },
+    nextAction
+  };
+}
+
+function buildMailchimpExportAcceptanceContract({
+  settings,
+  rows,
+  readinessBlockers,
+  status,
+  acceptance,
+  requestState,
+  boundaryContext,
+  targetScope,
+  commands,
+  lifecycleGate,
+  payloadDigest,
+  nowDate
+}) {
+  const destructiveRows = rows.filter(row => row.destructive);
+  const exportableRows = rows.filter(row => row.exportable);
+  const blockedRows = rows.filter(row => !row.exportable);
+  const acceptanceRequired = settings.requireDestructiveAcceptance && destructiveRows.length > 0;
+  const acceptanceSatisfied = !acceptanceRequired || acceptance.accepted;
+  const canSubmit = ['ready', 'partial'].includes(status) && acceptanceSatisfied;
+  const blockedReason = !acceptanceSatisfied
+    ? 'destructive_acceptance_required'
+    : readinessBlockers[0] || null;
+  const commandId = buildStableToken([
+    commands.idempotencyScope,
+    'mailchimp-export-acceptance',
+    targetScope.targetKey,
+    payloadDigest
+  ]);
+  const acceptanceToken = buildStableToken([
+    'mailchimp-export-acceptance',
+    requestState.workflowId,
+    boundaryContext.scopeToken,
+    targetScope.proof,
+    payloadDigest,
+    acceptanceSatisfied ? 'accepted' : 'pending'
+  ]);
+  const rowValidation = rows.map(row => ({
+    contract: 'artifact-retention.mailchimp-row-validation.v1',
+    rowId: row.rowId,
+    artifactId: row.artifactId,
+    action: row.action,
+    exportable: row.exportable,
+    destructive: row.destructive,
+    blockedReasons: row.blockedReasons,
+    nextAction: row.exportable
+      ? 'include-mailchimp-export-row'
+      : row.blockedReasons.includes('destructive_acceptance_required')
+        ? 'accept-destructive-retention-export'
+        : row.blockedReasons.includes('proof_ref_required_for_destructive_export')
+          ? 'attach-retention-proof-ref'
+          : row.blockedReasons.includes('manual_review_required')
+            ? 'complete-manual-retention-review'
+            : 'repair-mailchimp-export-row'
+  }));
+  const validationSummary = {
+    contract: 'artifact-retention.mailchimp-export-validation-summary.v1',
+    ok: canSubmit,
+    status,
+    blockedReasons: readinessBlockers,
+    rowCount: rows.length,
+    exportableRowCount: exportableRows.length,
+    blockedRowCount: blockedRows.length,
+    destructiveRowCount: destructiveRows.length,
+    acceptanceRequired,
+    acceptanceSatisfied,
+    lifecycleGateOpen: lifecycleGate.open,
+    targetScopeBound: targetScope.bound,
+    firstBlockedRowId: blockedRows[0]?.rowId || null,
+    firstBlockedArtifactId: blockedRows[0]?.artifactId || null
+  };
+  const nextStep = canSubmit
+    ? {
+        id: 'submit-mailchimp-retention-export',
+        status: 'ready',
+        reason: status,
+        commandId,
+        route: '/artifact-filesystem/retention/handoff/mailchimp'
+      }
+    : !acceptanceSatisfied
+      ? {
+          id: 'accept-mailchimp-destructive-export',
+          status: 'required',
+          reason: 'destructive_acceptance_required',
+          commandId,
+          destructiveArtifactIds: destructiveRows.map(row => row.artifactId),
+          route: requestState.clientRuntime.routeHints.resumeRoute
+        }
+      : lifecycleGate.nextAction?.id
+        ? {
+            ...lifecycleGate.nextAction,
+            contract: 'artifact-retention.mailchimp-export-next-step.v1'
+          }
+        : {
+            id: 'repair-mailchimp-retention-export',
+            status: 'blocked',
+            reason: blockedReason || 'mailchimp_export_blocked',
+            commandId,
+            route: requestState.clientRuntime.routeHints.proofRoute
+          };
+
+  return {
+    contract: 'artifact-retention.mailchimp-export-acceptance.v1',
+    generatedAt: nowDate.toISOString(),
+    commandId,
+    idempotencyKey: buildStableToken([commands.idempotencyScope, 'mailchimp-export-acceptance', payloadDigest]),
+    acceptanceToken,
+    state: canSubmit
+      ? 'accepted_for_handoff'
+      : !acceptanceSatisfied
+        ? 'needs_acceptance'
+        : 'blocked',
+    accepted: canSubmit,
+    acceptedBy: acceptance.acceptedBy,
+    acceptedAt: acceptance.acceptedAt ? coerceDate(acceptance.acceptedAt, nowDate).toISOString() : null,
+    blockedReason,
+    tenantId: boundaryContext.tenantId,
+    workspaceId: boundaryContext.workspaceId,
+    scopeToken: boundaryContext.scopeToken,
+    targetScopeProof: targetScope.proof,
+    payloadDigest,
+    validationSummary,
+    rowValidation,
+    nextStep,
+    handoff: {
+      route: '/artifact-filesystem/retention/handoff/mailchimp',
+      method: 'POST',
+      payloadContract: 'artifact-retention.mailchimp-export-payload.v1',
+      dispatchable: canSubmit,
+      degradedDispatchable: status === 'partial' && canSubmit,
+      acknowledgementRequired: settings.requireAcknowledgement,
+      resumeToken: buildStableToken([
+        commands.idempotencyScope,
+        'mailchimp-export-accepted',
+        targetScope.targetKey,
+        payloadDigest
+      ])
+    }
+  };
+}
+
+function buildMailchimpRetentionExportState({
+  input,
+  previewItems,
+  summary,
+  validationSummary,
+  acceptance,
+  requestState,
+  boundaryContext,
+  analyticsReporting,
+  commands,
+  lifecycleControls,
+  lifecycleSettingsControls,
+  nowDate
+}) {
+  const settings = normalizeMailchimpExportSettings(input);
+  const candidateActions = new Set([
+    'archive',
+    'delete',
+    settings.includeReviewItems ? 'review' : null,
+    settings.includeRetainedItems ? 'retain' : null
+  ].filter(Boolean));
+  const rows = previewItems
+    .filter(item => candidateActions.has(item.action))
+    .map(item => {
+      const destructiveAcceptanceSatisfied = !item.destructive
+        || !settings.requireDestructiveAcceptance
+        || acceptance.accepted;
+      const blockedReasons = [
+        item.blockedReason,
+        !item.artifact.scope.inBoundary ? 'artifact_outside_mailchimp_export_scope' : null,
+        item.destructive && !destructiveAcceptanceSatisfied ? 'destructive_acceptance_required' : null,
+        item.action === 'review' ? 'manual_review_required' : null,
+        item.artifact.proofRefs.length === 0 && item.destructive ? 'proof_ref_required_for_destructive_export' : null
+      ].filter(Boolean);
+      const actionTag = `${settings.tagPrefix}:${item.action}`.toUpperCase();
+      const reasonTag = `${settings.tagPrefix}:REASON:${item.reason}`.toUpperCase();
+
+      return {
+        rowId: buildStableToken([
+          'mailchimp-retention-row',
+          requestState.workflowId,
+          item.artifact.id,
+          item.action,
+          item.reason,
+          blockedReasons
+        ]),
+        artifactId: item.artifact.id,
+        path: item.artifact.path,
+        action: item.action,
+        reason: item.reason,
+        classification: item.artifact.classification,
+        sizeBytes: item.artifact.sizeBytes,
+        tenantId: item.artifact.tenantId,
+        workspaceId: item.artifact.workspaceId,
+        destructive: item.destructive,
+        exportable: blockedReasons.length === 0,
+        blockedReasons,
+        proofRefs: item.artifact.proofRefs,
+        mergeFields: {
+          AIOS_ARTIFACT_ID: item.artifact.id,
+          AIOS_ACTION: item.action,
+          AIOS_REASON: item.reason,
+          AIOS_WORKSPACE: item.artifact.workspaceId,
+          AIOS_TRACE: requestState.trace.correlationId
+        },
+        tags: uniqueTokens([actionTag, reasonTag, item.destructive ? `${settings.tagPrefix}:DESTRUCTIVE` : null].filter(Boolean))
+      };
+    });
+  const exportableRows = rows.filter(row => row.exportable);
+  const blockedRows = rows.filter(row => !row.exportable);
+  const lifecycleGate = buildMailchimpLifecycleGate({
+    settings,
+    lifecycleControls,
+    lifecycleSettingsControls,
+    rows,
+    nowDate
+  });
+  const targetScope = buildMailchimpTargetScope({
+    settings,
+    requestState,
+    boundaryContext,
+    rows,
+    nowDate
+  });
+  const blockedByReason = {};
+  const bytesByAction = {};
+
+  for (const row of rows) {
+    incrementBytes(bytesByAction, row.action, row.sizeBytes);
+    for (const reason of row.blockedReasons) incrementCounter(blockedByReason, reason);
+  }
+
+  const readinessBlockers = [
+    !settings.enabled ? 'mailchimp_export_disabled' : null,
+    !settings.audienceId && settings.exportMode !== 'campaign-audit' ? 'mailchimp_audience_id_required' : null,
+    !settings.campaignId && settings.exportMode === 'campaign-audit' ? 'mailchimp_campaign_id_required' : null,
+    !targetScope.bound ? 'mailchimp_target_scope_unbound' : null,
+    !validationSummary.ok ? 'retention_validation_failed' : null,
+    !lifecycleGate.open ? 'mailchimp_lifecycle_gate_blocked' : null,
+    blockedRows.length > 0 ? 'mailchimp_rows_blocked' : null,
+    rows.length === 0 ? 'mailchimp_export_empty' : null
+  ].filter(Boolean);
+  const status = readinessBlockers.length === 0
+    ? 'ready'
+    : settings.enabled && settings.allowPartialDispatch && exportableRows.length > 0 && validationSummary.ok && lifecycleGate.open
+      ? 'partial'
+      : 'blocked';
+  const exportId = buildStableToken([
+    'mailchimp-retention-export',
+    requestState.workflowId,
+    requestState.trace.correlationId,
+    settings.audienceId || settings.campaignId || 'unconfigured'
+  ]);
+  const payloadDigest = buildExportDigestToken(rows.map(row => ({
+    artifactId: row.artifactId,
+    action: row.action,
+    reason: row.reason,
+    sizeBytes: row.sizeBytes,
+    blockedReason: row.blockedReasons.join(',') || null,
+    proofRefCount: row.proofRefs.length
+  })));
+  const acceptanceContract = buildMailchimpExportAcceptanceContract({
+    settings,
+    rows,
+    readinessBlockers,
+    status,
+    acceptance,
+    requestState,
+    boundaryContext,
+    targetScope,
+    commands,
+    lifecycleGate,
+    payloadDigest,
+    nowDate
+  });
+
+  return {
+    contract: 'artifact-retention.mailchimp-export-readiness.v1',
+    generatedAt: nowDate.toISOString(),
+    exportId,
+    settings,
+    status,
+    ready: status === 'ready',
+    partial: status === 'partial',
+    readinessBlockers,
+    acceptanceContract,
+    lifecycleGate,
+    target: {
+      provider: 'mailchimp',
+      accountId: settings.accountId,
+      dataCenter: settings.dataCenter,
+      audienceId: settings.audienceId,
+      campaignId: settings.campaignId,
+      segmentId: settings.segmentId,
+      scopeKey: targetScope.targetKey,
+      webhookRoute: settings.webhookRoute
+    },
+    targetScope,
+    counters: {
+      candidateRows: rows.length,
+      exportableRows: exportableRows.length,
+      blockedRows: blockedRows.length,
+      destructiveRows: rows.filter(row => row.destructive).length,
+      totalPreviewItems: summary.totalItems,
+      analyticsExportWarnings: analyticsReporting.exportSummary.warningCount,
+      validationErrorCount: validationSummary.errors.length,
+      lifecycleBlockerCount: lifecycleGate.blockedReasons.length,
+      blockedByReason,
+      bytesByAction
+    },
+    handoff: {
+      contract: 'artifact-retention.mailchimp-handoff.v1',
+      dispatchable: acceptanceContract.handoff.dispatchable && status === 'ready',
+      degradedDispatchable: acceptanceContract.handoff.degradedDispatchable && settings.allowPartialDispatch,
+      commandId: acceptanceContract.commandId,
+      idempotencyKey: acceptanceContract.idempotencyKey,
+      payloadContract: 'artifact-retention.mailchimp-export-payload.v1',
+      payloadDigest,
+      targetScopeProof: targetScope.proof,
+      resumeToken: buildStableToken([
+        commands.idempotencyScope,
+        'mailchimp-resume',
+        targetScope.targetKey,
+        settings.syncCursor || 'cursor-new',
+        payloadDigest
+      ]),
+      acknowledgement: {
+        required: settings.requireAcknowledgement,
+        expectedState: settings.requireAcknowledgement ? 'mailchimp-webhook-acknowledged' : 'not-required',
+        webhookRoute: settings.webhookRoute,
+        syncCursor: settings.syncCursor,
+        targetScopeProof: targetScope.proof
+      },
+      nextAction: acceptanceContract.nextStep,
+      rowCount: rows.length,
+      exportableRowIds: exportableRows.map(row => row.rowId),
+      blockedRowIds: blockedRows.map(row => row.rowId)
+    },
+    timelineEvent: buildTimelineEvent({
+      at: nowDate.toISOString(),
+      type: 'mailchimp_export',
+      status,
+      label: 'Mailchimp retention export readiness evaluated',
+      artifactIds: rows.map(row => row.artifactId),
+      metadata: {
+        exportId,
+        accountId: settings.accountId,
+        dataCenter: settings.dataCenter,
+        audienceId: settings.audienceId,
+        campaignId: settings.campaignId,
+        segmentId: settings.segmentId,
+        targetScopeProof: targetScope.proof,
+        exportableRows: exportableRows.length,
+        blockedRows: blockedRows.length,
+        lifecycleGateOpen: lifecycleGate.open,
+        lifecycleBlockers: lifecycleGate.blockedReasons
+      }
+    }),
+    rows,
+    previewRows: rows.slice(0, 25),
+    audit: {
+      tenantId: boundaryContext.tenantId,
+      workspaceId: boundaryContext.workspaceId,
+      actorId: boundaryContext.actorId,
+      workflowId: requestState.workflowId,
+      analyticsExportId: analyticsReporting.exportSummary.exportId,
+      analyticsDigest: analyticsReporting.exportSummary.digest,
+      payloadDigest,
+      lifecycleGateProof: buildStableToken([
+        'mailchimp-lifecycle-gate',
+        lifecycleGate.open ? 'open' : 'blocked',
+        lifecycleGate.blockedReasons,
+        lifecycleGate.settingsCommand.commandId
+      ])
+    }
+  };
+}
+
+function buildRetentionRecoveryExportCursor({
+  currentSnapshot,
+  previousSnapshot,
+  deltaFromPrevious,
+  exportDigest,
+  exportRows,
+  exportWarnings,
+  timeline,
+  commandCounters,
+  requestState,
+  boundaryContext,
+  persistedState,
+  recoveryState,
+  operationalHealth,
+  validationSummary,
+  acceptance,
+  commands,
+  nowDate
+}) {
+  const replayableJournal = persistedState.commandJournal
+    .filter(entry => entry.replayable && !entry.succeeded)
+    .map(entry => ({
+      commandId: entry.commandId,
+      idempotencyKey: entry.idempotencyKey,
+      action: entry.action,
+      status: entry.status,
+      artifactIds: entry.artifactIds,
+      dispatchedAt: entry.dispatchedAt,
+      completedAt: entry.completedAt,
+      retryAfterMinutes: retryBackoffMinutes[Math.min(
+        Math.max(entry.artifactIds.length - 1, 0),
+        retryBackoffMinutes.length - 1
+      )]
+    }));
+  const retryPlan = operationalHealth.retryPlan || {};
+  const blockers = uniqueTokens([
+    !persistedState.compatibleWithRequest ? 'persisted_state_request_mismatch' : null,
+    recoveryState.leaseState.active && !recoveryState.leaseState.takeoverAllowed
+      ? 'active_retention_lease'
+      : null,
+    !validationSummary.ok ? 'validation_errors_present' : null,
+    acceptance.required && !acceptance.accepted ? 'destructive_acceptance_required' : null,
+    retryPlan.permanentlyFailedArtifactIds?.length > 0 ? 'permanent_retention_failures' : null,
+    recoveryState.recoveryCommand.enabled === false && recoveryState.pendingArtifactIds.length > 0
+      ? 'recovery_command_disabled'
+      : null
+  ].filter(Boolean));
+  const status = blockers.length > 0
+    ? 'blocked'
+    : recoveryState.pendingArtifactIds.length > 0 || replayableJournal.length > 0
+      ? 'resume-ready'
+      : 'checkpoint-clean';
+  const cursorToken = buildStableToken([
+    'retention-recovery-export',
+    requestState.workflowId,
+    boundaryContext.scopeToken,
+    exportDigest,
+    currentSnapshot.snapshotId,
+    recoveryState.leaseState.fencingToken || 'no-lease'
+  ]);
+  const latestTimeline = timeline.length > 0 ? timeline[timeline.length - 1] : null;
+  const retryAfterMinutes = retryPlan.retryDueArtifactIds?.length > 0
+    ? 0
+    : retryPlan.waitingArtifactIds?.length > 0
+      ? retryBackoffMinutes[0]
+      : null;
+  const persistableCursor = {
+    contract: 'artifact-retention.persisted-recovery-export-cursor.v1',
+    cursorToken,
+    workflowId: requestState.workflowId,
+    requestId: requestState.requestId,
+    tenantId: boundaryContext.tenantId,
+    workspaceId: boundaryContext.workspaceId,
+    status,
+    observedAt: nowDate.toISOString(),
+    snapshotId: currentSnapshot.snapshotId,
+    exportDigest,
+    idempotencyScope: commands.idempotencyScope,
+    leaseFencingToken: recoveryState.leaseState.fencingToken,
+    resumeCommandIds: recoveryState.resumeCommandIds,
+    pendingArtifactIds: recoveryState.pendingArtifactIds,
+    replayableCommandIds: recoveryState.replayableCommandIds,
+    blockerCodes: blockers,
+    retryAfterMinutes
+  };
+  const cursorProof = buildStableToken([
+    'proof',
+    cursorToken,
+    status,
+    blockers,
+    recoveryState.pendingArtifactIds,
+    recoveryState.replayableCommandIds,
+    exportDigest
+  ]);
+
+  return {
+    contract: 'artifact-retention.recovery-export-cursor.v1',
+    cursorToken,
+    generatedAt: nowDate.toISOString(),
+    status,
+    restartSafe: status !== 'blocked',
+    blockers,
+    exportDigest,
+    snapshot: {
+      current: currentSnapshot,
+      previous: previousSnapshot,
+      deltaFromPrevious
+    },
+    resume: {
+      commandId: recoveryState.recoveryCommand.commandId,
+      commandStatus: recoveryState.recoveryCommand.status,
+      commandEnabled: recoveryState.recoveryCommand.enabled,
+      commandIds: recoveryState.resumeCommandIds,
+      pendingArtifactIds: recoveryState.pendingArtifactIds,
+      replayableCommandIds: recoveryState.replayableCommandIds,
+      replayableJournal,
+      dispatchableReplayIntentIds: recoveryState.replayIntents
+        .filter(intent => intent.dispatchAllowed)
+        .map(intent => intent.intentId),
+      waitingReplayIntentIds: recoveryState.replayIntents
+        .filter(intent => !intent.dispatchAllowed)
+        .map(intent => intent.intentId)
+    },
+    lease: {
+      status: recoveryState.leaseState.status,
+      owner: recoveryState.leaseState.owner,
+      expiresAt: recoveryState.leaseState.expiresAt,
+      takeoverAllowed: recoveryState.leaseState.takeoverAllowed,
+      fencingToken: recoveryState.leaseState.fencingToken
+    },
+    retry: {
+      retryDueArtifactIds: retryPlan.retryDueArtifactIds || [],
+      waitingArtifactIds: retryPlan.waitingArtifactIds || [],
+      permanentlyFailedArtifactIds: retryPlan.permanentlyFailedArtifactIds || [],
+      retryAfterMinutes
+    },
+    exportWindow: {
+      rowCount: exportRows.length,
+      warningCount: exportWarnings.length,
+      firstArtifactId: exportRows[0]?.artifactId || null,
+      lastArtifactId: exportRows[exportRows.length - 1]?.artifactId || null,
+      latestTimelineEventId: latestTimeline?.eventId || null,
+      latestTimelineAt: latestTimeline?.at || null
+    },
+    counters: {
+      failedCommandCount: commandCounters.failedCommandCount,
+      replayableCommandCount: recoveryState.replayableCommandIds.length,
+      pendingArtifactCount: recoveryState.pendingArtifactIds.length,
+      validationErrorCount: validationSummary.errors.length,
+      validationWarningCount: validationSummary.warnings.length
+    },
+    persistableCursor: {
+      ...persistableCursor,
+      proof: cursorProof
+    },
+    proof: cursorProof
   };
 }
 
@@ -3666,6 +5015,14 @@ function buildClientRuntimeStateEnvelope({
   const resumable = recoveryState.pendingArtifactIds.length > 0
     || operationalHealth.retryPlan.retryDueArtifactIds.length > 0
     || hostedKernelDispatch.status === 'blocked';
+  const runtimeRestartHandoff = buildRuntimeRestartHandoff({
+    requestState,
+    recoveryState,
+    hostedKernelDispatch,
+    workflowHandoff,
+    clientRouteContracts,
+    nowDate
+  });
   const clientStatePatch = {
     contract: 'artifact-retention.client-state-patch.v1',
     requestId: requestState.requestId,
@@ -3683,6 +5040,7 @@ function buildClientRuntimeStateEnvelope({
     auditProofId: proofOutputs.auditProofId,
     dispatchReceiptId: proofOutputs.dispatchReceiptId,
     analyticsExportId: analyticsReporting.exportSummary.exportId,
+    runtimeRestartState: runtimeRestartHandoff.clientStatePatch,
     updatedAt: nowDate.toISOString()
   };
 
@@ -3742,7 +5100,8 @@ function buildClientRuntimeStateEnvelope({
       replayIntentCount: recoveryState.replayIntents.length,
       idempotencyScope: recoveryState.idempotencyScope,
       scopeToken: boundaryContext.scopeToken
-    }
+    },
+    runtimeRestartHandoff
   };
 }
 
@@ -4025,6 +5384,7 @@ export function describeArtifactRetentionSurface(input = {}) {
     input,
     lifecycleControls,
     summary,
+    boundaryContext,
     requestState,
     nowDate
   });
@@ -4148,6 +5508,20 @@ export function describeArtifactRetentionSurface(input = {}) {
     commands,
     nowDate
   });
+  const mailchimpExportState = buildMailchimpRetentionExportState({
+    input,
+    previewItems,
+    summary,
+    validationSummary,
+    acceptance,
+    requestState,
+    boundaryContext,
+    analyticsReporting,
+    commands,
+    lifecycleControls,
+    lifecycleSettingsControls,
+    nowDate
+  });
   const hostedKernelDispatch = buildHostedKernelDispatchPlan({
     readiness,
     acceptance,
@@ -4216,6 +5590,7 @@ export function describeArtifactRetentionSurface(input = {}) {
     hostedKernelDispatch,
     operationalHealth,
     analyticsReporting,
+    mailchimpExportState,
     commands,
     validationSummary,
     acceptance,
@@ -4272,6 +5647,15 @@ export function describeArtifactRetentionSurface(input = {}) {
         analyticsExportId: analyticsReporting.exportSummary.exportId,
         analyticsTimelineEventCount: analyticsReporting.timeline.length,
         analyticsHistorySnapshotCount: analyticsReporting.history.snapshots.length,
+        mailchimpExportId: mailchimpExportState.exportId,
+        mailchimpExportStatus: mailchimpExportState.status,
+        mailchimpExportReady: mailchimpExportState.ready,
+        mailchimpExportRowCount: mailchimpExportState.counters.candidateRows,
+        mailchimpExportableRowCount: mailchimpExportState.counters.exportableRows,
+        mailchimpBlockedRowCount: mailchimpExportState.counters.blockedRows,
+        mailchimpAudienceId: mailchimpExportState.target.audienceId,
+        mailchimpCampaignId: mailchimpExportState.target.campaignId,
+        mailchimpPayloadDigest: mailchimpExportState.handoff.payloadDigest,
         lifecycleEnabled: lifecycleControls.enabled,
         lifecycleMode: lifecycleControls.mode,
         lifecycleStatus: lifecycleAction.status,
@@ -4319,6 +5703,9 @@ export function describeArtifactRetentionSurface(input = {}) {
         clientRuntimeStateResumable: clientRuntimeState.resumable,
         clientRuntimeStatePrimaryActionId: clientRuntimeState.activeAction.actionId,
         clientRuntimeStateHandoffTarget: clientRuntimeState.handoffTarget,
+        clientRuntimeContinuityStatus: clientRuntimeState.runtimeRestartHandoff.clientContinuity.status,
+        clientRuntimeContinuityReplayIntentCount: clientRuntimeState.runtimeRestartHandoff.clientContinuity.replayIntentCount,
+        clientRuntimeContinuityBlockedReplayIntentCount: clientRuntimeState.runtimeRestartHandoff.clientContinuity.blockedReplayIntentCount,
         clientRuntimeStatePatchContract: clientRuntimeState.clientStatePatch.contract,
         clientRuntimeStateProofEnabled: clientRuntimeState.proofState.enabledInClient,
         clientRuntimeStateProofRoute: clientRuntimeState.proofState.route,

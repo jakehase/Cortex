@@ -28,6 +28,8 @@ const SCOPE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const HEALTH_STATES = new Set(["healthy", "degraded", "failed"]);
 const FAILURE_SEVERITIES = new Set(["info", "warning", "error", "fatal"]);
 const RETRY_MODES = new Set(["automatic", "manual", "disabled"]);
+const REPLAY_PROOF_DIGEST_PATTERN = /^(?:[a-z0-9][a-z0-9+.-]{1,31}:)?[a-f0-9]{32,128}$/i;
+const REPLAY_PROOF_SCOPES = new Set(["record", "payload", "audit", "artifact", "handoff"]);
 const SCHEDULE_HOLD_REASONS = new Set([
   "operator-hold",
   "maintenance-window",
@@ -2183,6 +2185,158 @@ function buildOperationalHealth(now, input, settings, providers, serviceContract
   };
 }
 
+function normalizeMailchimpReplaySettings(input, settings, accessBoundary) {
+  const analytics = asObject(input.analytics);
+  const source = asObject(
+    input.mailchimp
+    || input.mailchimpExport
+    || input.marketingExport
+    || analytics.mailchimp
+  );
+  const enabled = source.enabled === true || source.requested === true || source.syncRequested === true;
+  const audienceId = normalizeScopeId(source.audienceId || source.listId || source.audienceRef);
+  const segmentId = normalizeScopeId(source.segmentId || source.segmentRef);
+  const route = typeof source.route === "string" && source.route.trim()
+    ? source.route.trim()
+    : "/integrations/mailchimp/replay-index/export";
+  const tagPrefix = typeof source.tagPrefix === "string" && source.tagPrefix.trim()
+    ? source.tagPrefix.trim().slice(0, 24)
+    : "aios-replay";
+  const includeDiagnostics = source.includeDiagnostics !== false;
+
+  return {
+    enabled,
+    audienceId,
+    segmentId,
+    listRef: audienceId ? `mailchimp:${audienceId}` : null,
+    route,
+    tagPrefix,
+    includeDiagnostics,
+    workspaceTag: `${tagPrefix}:workspace:${accessBoundary.workspaceId || "workspace"}`.slice(0, 96),
+    routeTag: `${tagPrefix}:route:${settings.routeName}`.slice(0, 96)
+  };
+}
+
+function buildMailchimpReplayIndexHandoff({
+  now,
+  input,
+  settings,
+  lifecycle,
+  scheduleControls,
+  nextAction,
+  serviceContract,
+  sync,
+  accessBoundary,
+  handoff,
+  replayIndex,
+  operationalHealth,
+  readiness,
+  validationSummary,
+  acceptance,
+  exportRows,
+  metricSeries,
+  reportChannels
+}) {
+  const settingsContract = normalizeMailchimpReplaySettings(input, settings, accessBoundary);
+  const blockedReasonCodes = [
+    ...(!settingsContract.enabled ? ["mailchimp_export_not_requested"] : []),
+    ...(settingsContract.enabled && !settingsContract.audienceId ? ["mailchimp_audience_missing"] : []),
+    ...(acceptance.accepted ? [] : ["replay_index_acceptance_not_ready"]),
+    ...(validationSummary.errorCount > 0 ? ["validation_errors_present"] : []),
+    ...(readiness.publishable ? [] : ["route_not_publishable"]),
+    ...(serviceContract.blockedOperations.length ? ["service_operations_blocked"] : []),
+    ...(handoff.state === "blocked" ? ["handoff_blocked"] : []),
+    ...(operationalHealth.state === "failed" ? ["operational_health_failed"] : []),
+    ...(replayIndex.state === "invalid" ? ["replay_index_invalid"] : [])
+  ];
+  const audienceRows = exportRows.map((row, index) => {
+    const rowWarnings = [
+      ...(row.errorCount > 0 ? ["row_validation_errors"] : []),
+      ...(row.handoffState === "blocked" ? ["row_handoff_blocked"] : []),
+      ...(row.healthState === "failed" ? ["row_health_failed"] : []),
+      ...(row.replayIndexState === "invalid" ? ["row_replay_invalid"] : [])
+    ];
+    const ready = blockedReasonCodes.length === 0 && rowWarnings.length === 0;
+    const tags = [
+      settingsContract.workspaceTag,
+      settingsContract.routeTag,
+      `${settingsContract.tagPrefix}:status:${row.status}`.slice(0, 96),
+      `${settingsContract.tagPrefix}:command:${row.command}`.slice(0, 96),
+      `${settingsContract.tagPrefix}:schedule:${scheduleControls.state}`.slice(0, 96),
+      ...(settingsContract.includeDiagnostics ? rowWarnings.map((code) => `${settingsContract.tagPrefix}:warn:${code}`.slice(0, 96)) : [])
+    ];
+
+    return {
+      rowId: `${settings.routeName}:mailchimp:${index + 1}`,
+      analyticsRowId: row.rowId,
+      externalId: stableDigest({
+        tenantId: accessBoundary.tenantId,
+        workspaceId: accessBoundary.workspaceId,
+        routeName: settings.routeName,
+        capturedAt: row.capturedAt,
+        digest: row.digest
+      }),
+      status: ready ? "ready" : "blocked",
+      blockedReasonCodes: ready ? [] : [...new Set([...blockedReasonCodes, ...rowWarnings])],
+      tags: [...new Set(tags)],
+      mergeFields: {
+        ROUTE: settings.routeName.slice(0, 64),
+        STATUS: String(row.status || "unknown").slice(0, 32),
+        COMMAND: String(row.command || "none").slice(0, 32),
+        READY: readiness.score,
+        ENTRIES: row.entryCount,
+        ERRORS: row.errorCount,
+        WARNINGS: row.warningCount,
+        SUBJECTS: row.subjectCoverageReadyRatio ?? null
+      },
+      capturedAt: row.capturedAt,
+      digest: row.digest
+    };
+  });
+  const readyRows = audienceRows.filter((row) => row.status === "ready");
+  const state = !settingsContract.enabled
+    ? "not-requested"
+    : blockedReasonCodes.length
+      ? "blocked"
+      : readyRows.length === audienceRows.length
+        ? "ready"
+        : "attention";
+  const exportDigest = stableDigest({
+    state,
+    routeName: settings.routeName,
+    blockedReasonCodes,
+    audienceRows,
+    metricSeries,
+    reportChannels: reportChannels.map((channel) => ({
+      id: channel.id,
+      ready: channel.ready,
+      digest: channel.digest
+    })),
+    replayIndexDigest: replayIndex.manifestDigest,
+    syncCursor: sync.cursor,
+    nextAction: nextAction.type,
+    lifecycleStatus: lifecycle.status
+  });
+
+  return {
+    format: "hosted-kernel.replay-index.mailchimp-handoff.v1",
+    generatedAt: now,
+    state,
+    enabled: settingsContract.enabled,
+    route: settingsContract.route,
+    listRef: settingsContract.listRef,
+    audienceId: settingsContract.audienceId,
+    segmentId: settingsContract.segmentId,
+    rowCount: audienceRows.length,
+    readyRowCount: readyRows.length,
+    blockedRowCount: audienceRows.length - readyRows.length,
+    blockedReasonCodes: [...new Set(blockedReasonCodes)],
+    cursor: `${settings.routeName}:${sync.cursor.sequence}:${replayIndex.manifestDigest}`,
+    exportDigest,
+    rows: audienceRows
+  };
+}
+
 function buildAnalytics(
   now,
   input,
@@ -2389,6 +2543,26 @@ function buildAnalytics(
       })
     }
   ];
+  const mailchimpHandoff = buildMailchimpReplayIndexHandoff({
+    now,
+    input,
+    settings,
+    lifecycle,
+    scheduleControls,
+    nextAction,
+    serviceContract,
+    sync,
+    accessBoundary,
+    handoff,
+    replayIndex,
+    operationalHealth,
+    readiness,
+    validationSummary,
+    acceptance,
+    exportRows,
+    metricSeries,
+    reportChannels
+  });
   const trend = previous
     ? {
         readinessDelta: readiness.score - previous.readinessScore,
@@ -2475,6 +2649,9 @@ function buildAnalytics(
     analyticsTimelineEvents: timeline.length,
     analyticsReportChannels: reportChannels.length,
     analyticsReadyReportChannels: reportChannels.filter((channel) => channel.ready).length,
+    mailchimpRows: mailchimpHandoff.rowCount,
+    mailchimpReadyRows: mailchimpHandoff.readyRowCount,
+    mailchimpBlockedRows: mailchimpHandoff.blockedRowCount,
     analyticsEvidenceRows: auditEvidence.length,
     evidence: evidence.length,
     syncSequence: sync.cursor.sequence,
@@ -2545,6 +2722,14 @@ function buildAnalytics(
       ready: channel.ready,
       digest: channel.digest
     })),
+    mailchimp: {
+      state: mailchimpHandoff.state,
+      listRef: mailchimpHandoff.listRef,
+      rowCount: mailchimpHandoff.rowCount,
+      readyRowCount: mailchimpHandoff.readyRowCount,
+      blockedReasonCodes: mailchimpHandoff.blockedReasonCodes,
+      exportDigest: mailchimpHandoff.exportDigest
+    },
     counterDigest: stableDigest(counters),
     timelineDigest: stableDigest(timeline),
     exportDigest: stableDigest({
@@ -2565,6 +2750,7 @@ function buildAnalytics(
     metricSeries,
     retentionWindow,
     reportChannels,
+    mailchimpHandoff,
     auditEvidence,
     exportSummary,
     reportState: {
@@ -2944,6 +3130,100 @@ function normalizeReplayBundleRef(value, kind, id, settings, recordId) {
     present: inputBound,
     source: inputBound ? "input" : "derived-default",
     canonicalKey: stableDigest({ kind, id, ref, digest: digestValue, recordId })
+  };
+}
+
+function replayRefBoundaryIssues(kind, ref, settings) {
+  const issues = [];
+  if (typeof ref !== "string" || !ref.trim()) {
+    issues.push(`${kind}-ref-missing`);
+    return issues;
+  }
+  const normalizedRef = ref.trim();
+  if (normalizedRef.includes("..") || normalizedRef.startsWith("/") || normalizedRef.startsWith("~")) {
+    issues.push(`${kind}-outside-workspace`);
+  }
+  if (normalizedRef.includes("\\") || normalizedRef.includes("//")) {
+    issues.push(`${kind}-not-canonical`);
+  }
+  if (normalizedRef !== settings.replayRoot && !normalizedRef.startsWith(`${settings.replayRoot}/`)) {
+    issues.push(`${kind}-outside-replay-root`);
+  }
+  return issues;
+}
+
+function buildReplayRecordIntegrity(record, settings) {
+  const sourceRefIssues = replayRefBoundaryIssues("source-path", record.sourcePath, settings);
+  const bundleRefIssues = record.bundles.flatMap((bundle) => (
+    replayRefBoundaryIssues(`${bundle.kind}-bundle`, bundle.ref, settings).map((issue) => ({
+      bundleId: bundle.id,
+      kind: bundle.kind,
+      issue
+    }))
+  ));
+  const duplicateSubjectKeys = [];
+  const subjectSeen = new Set();
+  for (const subject of record.subjects) {
+    const key = replaySubjectKey(subject);
+    if (subjectSeen.has(key)) duplicateSubjectKeys.push(key);
+    subjectSeen.add(key);
+  }
+  const bundleKinds = new Set(record.bundles.map((bundle) => bundle.kind));
+  const missingBundleKinds = ["audit", "artifact"].filter((kind) => !bundleKinds.has(kind));
+  const missingReadyBundleKinds = ["audit", "artifact"].filter((kind) => (
+    !record.bundles.some((bundle) => bundle.kind === kind && bundle.ready)
+  ));
+  const cursorBound = Boolean(record.checkpoint || record.watermark);
+  const blockingReasons = [
+    ...sourceRefIssues,
+    ...bundleRefIssues.map((row) => row.issue),
+    ...missingBundleKinds.map((kind) => `${kind}-bundle-missing`),
+    ...missingReadyBundleKinds.map((kind) => `${kind}-bundle-not-ready`),
+    ...(cursorBound ? [] : ["cursor-missing"]),
+    ...(record.subjects.length > 0 ? [] : ["subject-mapping-missing"])
+  ];
+  const warningReasons = [
+    ...duplicateSubjectKeys.map((key) => `duplicate-subject:${key}`),
+    ...record.bundles
+      .filter((bundle) => bundle.source === "derived-default")
+      .map((bundle) => `${bundle.kind}-bundle-derived-default-ref`),
+    ...record.bundles
+      .filter((bundle) => bundle.present && !bundle.digest)
+      .map((bundle) => `${bundle.kind}-bundle-digest-missing`)
+  ];
+  return {
+    format: "hosted-kernel.replay-index.row-integrity.v1",
+    replayRecordId: record.id,
+    state: blockingReasons.length > 0
+      ? "blocked"
+      : warningReasons.length > 0
+        ? "attention"
+        : "ready",
+    cursorBound,
+    requiredBundleKinds: ["audit", "artifact"],
+    presentBundleKinds: [...bundleKinds].sort(),
+    missingBundleKinds,
+    missingReadyBundleKinds,
+    sourceRefIssues,
+    bundleRefIssues,
+    duplicateSubjectKeys: [...new Set(duplicateSubjectKeys)].sort(),
+    blockingReasons: [...new Set(blockingReasons)].sort(),
+    warningReasons: [...new Set(warningReasons)].sort(),
+    digest: stableDigest({
+      replayRecordId: record.id,
+      sourcePath: record.sourcePath,
+      cursorBound,
+      subjects: record.subjects.map((subject) => replaySubjectKey(subject)).sort(),
+      bundles: record.bundles.map((bundle) => ({
+        kind: bundle.kind,
+        ref: bundle.ref,
+        ready: bundle.ready,
+        source: bundle.source,
+        digest: bundle.digest
+      })),
+      blockingReasons,
+      warningReasons
+    })
   };
 }
 
@@ -3676,6 +3956,170 @@ function normalizeReplayRecordScope(record, id, scopeContext, now) {
   };
 }
 
+function normalizeReplayProofDigest(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return {
+      value: null,
+      algorithm: null,
+      valid: false,
+      format: "missing"
+    };
+  }
+
+  const raw = value.trim().toLowerCase();
+  const separatorIndex = raw.indexOf(":");
+  const algorithm = separatorIndex > 0 ? raw.slice(0, separatorIndex) : "sha256";
+  const digest = separatorIndex > 0 ? raw.slice(separatorIndex + 1) : raw;
+
+  return {
+    value: separatorIndex > 0 ? `${algorithm}:${digest}` : digest,
+    algorithm,
+    valid: REPLAY_PROOF_DIGEST_PATTERN.test(raw),
+    format: separatorIndex > 0 ? "algorithm-prefixed-hex" : "sha256-hex"
+  };
+}
+
+function replayProofInputRows(record, payloadDigest, rowDigest) {
+  const rows = [];
+  const explicitProofs = Array.isArray(record.proofs)
+    ? record.proofs
+    : Array.isArray(record.evidence)
+      ? record.evidence
+      : [];
+
+  for (const [index, proof] of explicitProofs.entries()) {
+    const source = typeof proof === "string" ? { digest: proof } : asObject(proof);
+    const scopeValue = typeof source.scope === "string" && source.scope.trim()
+      ? source.scope.trim().toLowerCase()
+      : typeof source.kind === "string" && source.kind.trim()
+        ? source.kind.trim().toLowerCase()
+        : "record";
+    rows.push({
+      id: typeof source.id === "string" && source.id.trim() ? source.id.trim() : `proof-${index + 1}`,
+      scope: REPLAY_PROOF_SCOPES.has(scopeValue) ? scopeValue : "record",
+      digest: source.digest || source.sha256 || source.proofDigest || null,
+      source: "explicit",
+      required: source.required === true
+    });
+  }
+
+  if (record.proofDigest || record.auditDigest || record.artifactDigest) {
+    if (record.proofDigest) {
+      rows.push({
+        id: "record-proof",
+        scope: "record",
+        digest: record.proofDigest,
+        source: "record.proofDigest",
+        required: true
+      });
+    }
+    if (record.auditDigest) {
+      rows.push({
+        id: "audit-proof",
+        scope: "audit",
+        digest: record.auditDigest,
+        source: "record.auditDigest",
+        required: false
+      });
+    }
+    if (record.artifactDigest) {
+      rows.push({
+        id: "artifact-proof",
+        scope: "artifact",
+        digest: record.artifactDigest,
+        source: "record.artifactDigest",
+        required: false
+      });
+    }
+  }
+
+  rows.push({
+    id: "derived-payload-proof",
+    scope: "payload",
+    digest: payloadDigest,
+    source: "derived-payload-digest",
+    required: false
+  });
+  rows.push({
+    id: "derived-row-proof",
+    scope: "record",
+    digest: rowDigest,
+    source: "derived-row-digest",
+    required: false
+  });
+
+  return rows;
+}
+
+function buildReplayProofBinding(record, settings, payloadDigest, rowDigest) {
+  const proofRows = replayProofInputRows(record, payloadDigest, rowDigest).map((proof, index) => {
+    const digest = normalizeReplayProofDigest(proof.digest);
+    const missingRequiredDigest = proof.required && !digest.value;
+    const invalidDigest = digest.value && !digest.valid;
+
+    return {
+      ordinal: index + 1,
+      id: proof.id,
+      scope: proof.scope,
+      source: proof.source,
+      digest: digest.value,
+      digestAlgorithm: digest.algorithm,
+      digestValid: digest.value ? digest.valid : null,
+      required: proof.required,
+      weakReasons: [
+        ...(missingRequiredDigest ? ["required-proof-digest-missing"] : []),
+        ...(invalidDigest ? ["proof-digest-invalid"] : []),
+        ...(proof.scope === "record" && proof.source !== "derived-row-digest" && digest.value !== rowDigest ? ["record-proof-digest-mismatch"] : [])
+      ]
+    };
+  });
+  const explicitRows = proofRows.filter((row) => row.source !== "derived-payload-digest" && row.source !== "derived-row-digest");
+  const requiredRows = proofRows.filter((row) => row.required);
+  const invalidRows = proofRows.filter((row) => row.weakReasons.includes("proof-digest-invalid"));
+  const missingRequiredRows = proofRows.filter((row) => row.weakReasons.includes("required-proof-digest-missing"));
+  const mismatchedRows = proofRows.filter((row) => row.weakReasons.includes("record-proof-digest-mismatch"));
+  const strictMissingExplicitProof = settings.proofMode === "strict" && explicitRows.length === 0;
+  const blockingReasons = [
+    ...invalidRows.map((row) => `proof:${row.id}:invalid-digest`),
+    ...missingRequiredRows.map((row) => `proof:${row.id}:missing-required-digest`),
+    ...mismatchedRows.map((row) => `proof:${row.id}:record-digest-mismatch`),
+    ...(strictMissingExplicitProof ? ["proof:strict-mode-explicit-proof-missing"] : [])
+  ];
+  const warningReasons = [
+    ...(settings.proofMode === "summary" && explicitRows.length === 0 ? ["proof:explicit-proof-missing"] : []),
+    ...(requiredRows.length === 0 ? ["proof:no-required-proof-marked"] : [])
+  ];
+
+  return {
+    format: "hosted-kernel.replay-index.proof-binding.v1",
+    mode: settings.proofMode,
+    status: blockingReasons.length
+      ? "blocked"
+      : warningReasons.length
+        ? "attention"
+        : "ready",
+    ready: blockingReasons.length === 0,
+    explicitProofCount: explicitRows.length,
+    derivedProofCount: proofRows.length - explicitRows.length,
+    requiredProofCount: requiredRows.length,
+    validDigestCount: proofRows.filter((row) => row.digest && row.digestValid === true).length,
+    blockingReasons,
+    warningReasons,
+    rows: proofRows,
+    digest: stableDigest({
+      mode: settings.proofMode,
+      payloadDigest,
+      rowDigest,
+      rows: proofRows.map((row) => ({
+        id: row.id,
+        scope: row.scope,
+        digest: row.digest,
+        weakReasons: row.weakReasons
+      }))
+    })
+  };
+}
+
 function buildReplayScopeIsolation(records, scopeContext, settings) {
   const scopedRows = records.map((record) => ({
     replayRecordId: record.id,
@@ -3748,6 +4192,19 @@ function normalizeReplayRecord(rawRecord, index, now, settings, scopeContext) {
   const subjects = replayRecordSubjectRefs(record);
   const bundles = replayRecordBundleRefs(record, id, settings);
   const scope = normalizeReplayRecordScope(record, id, scopeContext, now);
+  const baseRecord = {
+    id,
+    sourcePath,
+    operation,
+    capturedAt,
+    checkpoint,
+    watermark,
+    sequence,
+    scope,
+    subjects,
+    bundles
+  };
+  const integrity = buildReplayRecordIntegrity(baseRecord, settings);
   const payloadDigest = typeof record.payloadDigest === "string" && record.payloadDigest.trim()
     ? record.payloadDigest.trim()
     : stableDigest({
@@ -3764,14 +4221,7 @@ function normalizeReplayRecord(rawRecord, index, now, settings, scopeContext) {
         payload: record.payload || record.body || null
       });
   const invalidReasons = [];
-  if (sourcePath.includes("..") || sourcePath.startsWith("/") || sourcePath.startsWith("~")) {
-    invalidReasons.push("source-path-outside-workspace");
-  }
-  if (sourcePath !== settings.replayRoot && !sourcePath.startsWith(`${settings.replayRoot}/`)) {
-    invalidReasons.push("source-path-outside-replay-root");
-  }
-  if (!checkpoint && !watermark) invalidReasons.push("cursor-missing");
-  if (subjects.length === 0) invalidReasons.push("subject-mapping-missing");
+  for (const reason of integrity.blockingReasons) invalidReasons.push(reason);
   for (const issue of scope.scopeIdIssues) invalidReasons.push(issue);
   if (scopeContext.strictIsolation) {
     for (const violation of scope.violations) invalidReasons.push(`record-scope-violation:${violation}`);
@@ -3781,11 +4231,9 @@ function normalizeReplayRecord(rawRecord, index, now, settings, scopeContext) {
     if (issue) invalidReasons.push(issue);
   }
   for (const bundle of bundles) {
-    if (bundle.ref.includes("..") || bundle.ref.startsWith("/") || bundle.ref.startsWith("~")) {
-      invalidReasons.push(`${bundle.kind}-bundle-outside-workspace`);
-    }
     if (!bundle.ready) invalidReasons.push(`${bundle.kind}-bundle-not-ready`);
   }
+  const normalizedInvalidReasons = [...new Set(invalidReasons)].sort();
   return {
     id,
     sourcePath,
@@ -3797,6 +4245,7 @@ function normalizeReplayRecord(rawRecord, index, now, settings, scopeContext) {
     scope,
     subjects,
     bundles,
+    integrity,
     payloadDigest,
     rowDigest: stableDigest({
       id,
@@ -3811,8 +4260,8 @@ function normalizeReplayRecord(rawRecord, index, now, settings, scopeContext) {
       bundles,
       payloadDigest
     }),
-    valid: invalidReasons.length === 0,
-    invalidReasons
+    valid: normalizedInvalidReasons.length === 0,
+    invalidReasons: normalizedInvalidReasons
   };
 }
 
@@ -3879,6 +4328,51 @@ function buildReplayIndexManifest(now, input, settings, lifecycle, persistedStat
     .filter((row) => !row.complete)
     .map((row) => row.lookupKey);
   const derivedBundleRows = bundleRows.filter((bundle) => bundle.source === "derived-default");
+  const rowIntegrityRows = retained.map((record) => record.integrity);
+  const rowIntegrity = {
+    format: "hosted-kernel.replay-index.row-integrity-summary.v1",
+    exportRef: `${settings.replayRoot}/audit/row-integrity.json`,
+    state: rowIntegrityRows.some((row) => row.state === "blocked")
+      ? "blocked"
+      : rowIntegrityRows.some((row) => row.state === "attention")
+        ? "attention"
+        : "ready",
+    counts: {
+      retainedRows: rowIntegrityRows.length,
+      readyRows: rowIntegrityRows.filter((row) => row.state === "ready").length,
+      attentionRows: rowIntegrityRows.filter((row) => row.state === "attention").length,
+      blockedRows: rowIntegrityRows.filter((row) => row.state === "blocked").length,
+      cursorBoundRows: rowIntegrityRows.filter((row) => row.cursorBound).length,
+      derivedDefaultBundleRows: derivedBundleRows.length
+    },
+    blockedRows: rowIntegrityRows
+      .filter((row) => row.state === "blocked")
+      .map((row) => ({
+        replayRecordId: row.replayRecordId,
+        blockingReasons: row.blockingReasons,
+        missingBundleKinds: row.missingBundleKinds,
+        missingReadyBundleKinds: row.missingReadyBundleKinds
+      })),
+    attentionRows: rowIntegrityRows
+      .filter((row) => row.state === "attention")
+      .map((row) => ({
+        replayRecordId: row.replayRecordId,
+        warningReasons: row.warningReasons,
+        duplicateSubjectKeys: row.duplicateSubjectKeys
+      })),
+    rows: rowIntegrityRows,
+    digest: stableDigest({
+      routeName: settings.routeName,
+      replayRoot: settings.replayRoot,
+      rows: rowIntegrityRows.map((row) => ({
+        replayRecordId: row.replayRecordId,
+        state: row.state,
+        blockingReasons: row.blockingReasons,
+        warningReasons: row.warningReasons,
+        digest: row.digest
+      }))
+    })
+  };
   return {
     format: "hosted-kernel.replay-index.manifest.v1",
     generatedAt: now,
@@ -3901,6 +4395,7 @@ function buildReplayIndexManifest(now, input, settings, lifecycle, persistedStat
     lookupRecordCount: lookupRecords.length,
     lookupRowsByKind,
     scopeIsolation,
+    rowIntegrity,
     subjectCoverage,
     subjectBundlePreview,
     persistenceBinding,
@@ -3959,6 +4454,7 @@ function buildReplayIndexManifest(now, input, settings, lifecycle, persistedStat
       subjects: record.subjects,
       bundles: record.bundles,
       payloadDigest: record.payloadDigest,
+      integrity: record.integrity,
       rowDigest: record.rowDigest
     })),
     artifactIdentities,
@@ -3970,6 +4466,14 @@ function buildReplayIndexManifest(now, input, settings, lifecycle, persistedStat
     repairPlan: {
       required: invalidRows.length > 0 || duplicateKeys.size > 0 || conflictRows.length > 0 || scopeIsolation.state === "blocked",
       actions: [
+        ...rowIntegrity.blockedRows.map((row) => ({
+          id: `repair-row-integrity:${row.replayRecordId}`,
+          kind: "repair-row-integrity",
+          replayRecordId: row.replayRecordId,
+          reasons: row.blockingReasons,
+          missingBundleKinds: row.missingBundleKinds,
+          missingReadyBundleKinds: row.missingReadyBundleKinds
+        })),
         ...scopeIsolation.scopeIdIssues.map((issue) => ({
           id: `repair-replay-scope:${issue}`,
           kind: "repair-replay-scope",
@@ -4012,6 +4516,7 @@ function buildReplayIndexManifest(now, input, settings, lifecycle, persistedStat
       artifactIdentities,
       conflictRows,
       scopeIsolation,
+      rowIntegrity,
       entityIndex,
       lookupRecords,
       subjectCoverage,
@@ -4027,6 +4532,7 @@ function buildReplayIndexManifest(now, input, settings, lifecycle, persistedStat
       duplicateKeys: [...duplicateKeys],
       conflictRows,
       scopeIsolation,
+      rowIntegrity,
       invalidRows: invalidRows.map((record) => record.rowDigest),
       artifactIdentities,
       entityIndex,

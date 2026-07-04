@@ -171,6 +171,11 @@ function addMinutesIso(anchor, minutes) {
   return new Date(anchorMs + (Math.max(0, Math.floor(minutes)) * 60000)).toISOString();
 }
 
+function clampIntegerRange(value, fallback, min, max) {
+  const integer = Number.isFinite(value) ? Math.floor(value) : fallback;
+  return Math.min(max, Math.max(min, integer));
+}
+
 function normalizeTokenList(values, allowedValues = null) {
   const allowed = allowedValues instanceof Set ? allowedValues : null;
   return [...new Set((Array.isArray(values) ? values : [])
@@ -602,18 +607,38 @@ function normalizeLifecycleSettings(input, incident, health) {
     ? requestedAllowedCommands
     : [...LIFECYCLE_COMMANDS].sort();
   const effectiveCommands = allowedCommands.filter((command) => !disabledCommands.includes(command)).sort();
-  const minCadenceMinutes = Number.isFinite(commandPolicy.minCadenceMinutes)
-    ? Math.max(1, Math.floor(commandPolicy.minCadenceMinutes))
-    : 1;
-  const maxCadenceMinutes = Number.isFinite(commandPolicy.maxCadenceMinutes)
-    ? Math.min(1440, Math.floor(commandPolicy.maxCadenceMinutes))
-    : 1440;
-  const minRetryWindowMinutes = Number.isFinite(commandPolicy.minRetryWindowMinutes)
-    ? Math.max(5, Math.floor(commandPolicy.minRetryWindowMinutes))
-    : 5;
-  const maxRetryWindowMinutes = Number.isFinite(commandPolicy.maxRetryWindowMinutes)
-    ? Math.min(10080, Math.floor(commandPolicy.maxRetryWindowMinutes))
-    : 10080;
+  const requestedCadenceBounds = {
+    minMinutes: Number.isFinite(commandPolicy.minCadenceMinutes) ? Math.floor(commandPolicy.minCadenceMinutes) : null,
+    maxMinutes: Number.isFinite(commandPolicy.maxCadenceMinutes) ? Math.floor(commandPolicy.maxCadenceMinutes) : null
+  };
+  const requestedRetryWindowBounds = {
+    minMinutes: Number.isFinite(commandPolicy.minRetryWindowMinutes) ? Math.floor(commandPolicy.minRetryWindowMinutes) : null,
+    maxMinutes: Number.isFinite(commandPolicy.maxRetryWindowMinutes) ? Math.floor(commandPolicy.maxRetryWindowMinutes) : null
+  };
+  const normalizedCadenceBounds = {
+    minMinutes: clampIntegerRange(requestedCadenceBounds.minMinutes, 1, 1, 1440),
+    maxMinutes: clampIntegerRange(requestedCadenceBounds.maxMinutes, 1440, 1, 1440)
+  };
+  const normalizedRetryWindowBounds = {
+    minMinutes: clampIntegerRange(requestedRetryWindowBounds.minMinutes, 5, 5, 10080),
+    maxMinutes: clampIntegerRange(requestedRetryWindowBounds.maxMinutes, 10080, 5, 10080)
+  };
+  const cadenceBoundsInverted = normalizedCadenceBounds.minMinutes > normalizedCadenceBounds.maxMinutes;
+  const retryWindowBoundsInverted = normalizedRetryWindowBounds.minMinutes > normalizedRetryWindowBounds.maxMinutes;
+  const cadenceBounds = {
+    minMinutes: Math.min(normalizedCadenceBounds.minMinutes, normalizedCadenceBounds.maxMinutes),
+    maxMinutes: Math.max(normalizedCadenceBounds.minMinutes, normalizedCadenceBounds.maxMinutes),
+    normalizedFromInvertedInput: cadenceBoundsInverted,
+    requestedMinMinutes: requestedCadenceBounds.minMinutes,
+    requestedMaxMinutes: requestedCadenceBounds.maxMinutes
+  };
+  const retryWindowBounds = {
+    minMinutes: Math.min(normalizedRetryWindowBounds.minMinutes, normalizedRetryWindowBounds.maxMinutes),
+    maxMinutes: Math.max(normalizedRetryWindowBounds.minMinutes, normalizedRetryWindowBounds.maxMinutes),
+    normalizedFromInvertedInput: retryWindowBoundsInverted,
+    requestedMinMinutes: requestedRetryWindowBounds.minMinutes,
+    requestedMaxMinutes: requestedRetryWindowBounds.maxMinutes
+  };
 
   return {
     command: LIFECYCLE_COMMANDS.has(rawCommand) ? rawCommand : 'inspect',
@@ -639,14 +664,8 @@ function normalizeLifecycleSettings(input, incident, health) {
       allowRetryWhilePaused: commandPolicy.allowRetryWhilePaused !== false,
       allowAutoEnableOnRetry: commandPolicy.allowAutoEnableOnRetry === true,
       requireProofsForMutation: commandPolicy.requireProofsForMutation !== false,
-      cadenceBounds: {
-        minMinutes: Math.min(minCadenceMinutes, maxCadenceMinutes),
-        maxMinutes: Math.max(minCadenceMinutes, maxCadenceMinutes)
-      },
-      retryWindowBounds: {
-        minMinutes: Math.min(minRetryWindowMinutes, maxRetryWindowMinutes),
-        maxMinutes: Math.max(minRetryWindowMinutes, maxRetryWindowMinutes)
-      }
+      cadenceBounds,
+      retryWindowBounds
     },
     schedule: {
       cadenceMinutes,
@@ -671,9 +690,17 @@ function validateLifecycleSettings(now, lifecycle, principal, incident, validati
   const nowMs = parseTimestampMs(now);
   const nextInspectionMs = parseTimestampMs(lifecycle.schedule.nextInspectionAt);
   const pauseUntilMs = parseTimestampMs(lifecycle.schedule.pauseUntil);
+  const cadenceBounds = lifecycle.commandPolicy.cadenceBounds;
+  const retryWindowBounds = lifecycle.commandPolicy.retryWindowBounds;
 
   if (!LIFECYCLE_COMMANDS.has(lifecycle.requestedCommand)) warnings.push('unknown_lifecycle_command_defaulted_to_inspect');
   if (!LIFECYCLE_MODES.has(lifecycle.requestedMode)) warnings.push('unknown_lifecycle_mode_defaulted_to_active');
+  if (cadenceBounds.normalizedFromInvertedInput) errors.push('cadence_policy_bounds_inverted');
+  if (retryWindowBounds.normalizedFromInvertedInput) errors.push('retry_window_policy_bounds_inverted');
+  if (cadenceBounds.requestedMinMinutes !== null && cadenceBounds.requestedMinMinutes < 1) warnings.push('cadence_policy_min_clamped_to_floor');
+  if (cadenceBounds.requestedMaxMinutes !== null && cadenceBounds.requestedMaxMinutes > 1440) warnings.push('cadence_policy_max_clamped_to_ceiling');
+  if (retryWindowBounds.requestedMinMinutes !== null && retryWindowBounds.requestedMinMinutes < 5) warnings.push('retry_window_policy_min_clamped_to_floor');
+  if (retryWindowBounds.requestedMaxMinutes !== null && retryWindowBounds.requestedMaxMinutes > 10080) warnings.push('retry_window_policy_max_clamped_to_ceiling');
   if (!lifecycle.commandPolicy.allowedCommands.includes(lifecycle.command)) errors.push('lifecycle_command_not_allowed_by_policy');
   if (lifecycle.commandPolicy.disabledCommands.includes(lifecycle.command)) errors.push('lifecycle_command_disabled_by_policy');
   if (lifecycle.commandPolicy.effectiveCommands.length === 0) errors.push('lifecycle_command_policy_has_no_effective_commands');
@@ -695,9 +722,20 @@ function validateLifecycleSettings(now, lifecycle, principal, incident, validati
   if (lifecycle.schedule.nextInspectionAt && nextInspectionMs === null) errors.push('next_inspection_at_unparseable');
   if (lifecycle.schedule.pauseUntil && pauseUntilMs === null) errors.push('pause_until_unparseable');
   if (lifecycle.schedule.nextInspectionAt && nextInspectionMs !== null && nowMs !== null && nextInspectionMs < nowMs) warnings.push('next_inspection_at_in_past');
+  if (
+    lifecycle.schedule.nextInspectionAt
+    && lifecycle.schedule.pauseUntil
+    && nextInspectionMs !== null
+    && pauseUntilMs !== null
+    && nextInspectionMs < pauseUntilMs
+    && lifecycle.command !== 'pause'
+  ) {
+    errors.push('next_inspection_before_pause_window_closes');
+  }
   if (lifecycle.command === 'pause' && !lifecycle.schedule.pauseUntil) warnings.push('pause_without_until_uses_retry_window');
   if (lifecycle.command === 'pause' && lifecycle.commandPolicy.requirePauseUntil && !lifecycle.schedule.pauseUntil) errors.push('pause_until_required_by_policy');
   if (lifecycle.command === 'pause' && pauseUntilMs !== null && nowMs !== null && pauseUntilMs <= nowMs) errors.push('pause_until_must_be_future');
+  if (lifecycle.command === 'resume' && pauseUntilMs !== null && nowMs !== null && pauseUntilMs > nowMs) warnings.push('resume_before_pause_window_elapsed');
   if (lifecycle.command === 'enable' && !boundary.permissions.canRecover) errors.push('enable_requires_recovery_permission');
   if (lifecycle.command === 'disable' && !boundary.permissions.canRecover) errors.push('disable_requires_recovery_permission');
   if (lifecycle.command === 'disable' && lifecycle.commandPolicy.requireDisableReason && !lifecycle.schedule.disabledReason) errors.push('disable_requires_reason');
@@ -1676,6 +1714,83 @@ function normalizeAnalyticsExportRequest(input, principal, incident) {
       workspaceId: incident.workspaceId,
       incidentId: incident.id
     }
+  };
+}
+
+function normalizeEventReplayExportDependency(input, incident) {
+  const rawReplay = input.eventReplay && typeof input.eventReplay === 'object'
+    ? input.eventReplay
+    : input.replayExport && typeof input.replayExport === 'object'
+      ? input.replayExport
+      : {};
+  const rawSummary = rawReplay.exportHandoffSummary && typeof rawReplay.exportHandoffSummary === 'object'
+    ? rawReplay.exportHandoffSummary
+    : rawReplay.exportSummary && typeof rawReplay.exportSummary === 'object'
+      ? rawReplay.exportSummary
+      : rawReplay.reporting && typeof rawReplay.reporting === 'object' && rawReplay.reporting.exportSummary && typeof rawReplay.reporting.exportSummary === 'object'
+        ? rawReplay.reporting.exportSummary
+        : {};
+  const rawConsumer = rawSummary.consumerSummary && typeof rawSummary.consumerSummary === 'object'
+    ? rawSummary.consumerSummary
+    : rawSummary.summary && typeof rawSummary.summary === 'object'
+      ? rawSummary.summary
+      : {};
+  const present = Object.keys(rawSummary).length > 0 || Object.keys(rawReplay).length > 0;
+  const ready = rawSummary.ready === true || rawConsumer.exportReady === true;
+  const blockingReasons = [
+    ...normalizeTokenList(rawSummary.blockingReasons),
+    ...normalizeTokenList(rawSummary.blockers)
+  ];
+  const tenantId = cleanToken(rawSummary.boundary?.tenantId || rawConsumer.tenantId, incident.tenantId);
+  const workspaceId = cleanToken(rawSummary.boundary?.workspaceId || rawConsumer.workspaceId, incident.workspaceId);
+  const selectedEvents = Number.isInteger(rawConsumer.selectedEvents)
+    ? rawConsumer.selectedEvents
+    : Number.isInteger(rawSummary.selectedEvents)
+      ? rawSummary.selectedEvents
+      : 0;
+  const dispatchableOperations = Number.isInteger(rawConsumer.dispatchableOperations)
+    ? rawConsumer.dispatchableOperations
+    : Number.isInteger(rawSummary.dispatchableOperations)
+      ? rawSummary.dispatchableOperations
+      : 0;
+  const validationErrors = Number.isInteger(rawConsumer.validationErrors) ? rawConsumer.validationErrors : 0;
+  const replayPlanIntegrityErrors = Number.isInteger(rawConsumer.replayPlanIntegrityErrors)
+    ? rawConsumer.replayPlanIntegrityErrors
+    : 0;
+  const scopeMatches = tenantId === incident.tenantId && workspaceId === incident.workspaceId;
+  const required = input.requireEventReplayExport === true
+    || rawReplay.required === true
+    || rawSummary.required === true
+    || present && (selectedEvents > 0 || dispatchableOperations > 0);
+  const errors = [
+    required && !present ? 'event_replay_export_missing' : null,
+    present && !scopeMatches ? 'event_replay_export_scope_mismatch' : null,
+    required && present && !ready ? 'event_replay_export_not_ready' : null,
+    validationErrors > 0 ? 'event_replay_export_validation_errors' : null,
+    replayPlanIntegrityErrors > 0 ? 'event_replay_export_integrity_errors' : null,
+    ...blockingReasons
+  ].filter(Boolean);
+
+  return {
+    schema: 'aios.panic-inspector.event-replay-export-dependency.v1',
+    present,
+    required,
+    ready: !required || present && ready && errors.length === 0,
+    exportId: cleanToken(rawSummary.exportId || rawSummary.id, null),
+    batchId: cleanToken(rawConsumer.batchId || rawSummary.batchId, null),
+    commandKey: cleanToken(rawConsumer.commandKey || rawSummary.commandKey, null),
+    state: cleanToken(rawSummary.state || rawConsumer.readinessState, present ? ready ? 'ready' : 'blocked' : 'not_attached'),
+    route: cleanToken(rawSummary.routeContract?.route || rawSummary.route, null),
+    tenantId,
+    workspaceId,
+    scopeMatches,
+    selectedEvents,
+    dispatchableOperations,
+    validationErrors,
+    replayPlanIntegrityErrors,
+    healthGateState: cleanToken(rawConsumer.healthGateState, null),
+    blockingReasons: [...new Set(errors)].sort(),
+    summary: rawConsumer
   };
 }
 
@@ -2719,7 +2834,7 @@ function buildPreviewRouteContract(now, incident, principal, acceptanceInput, re
   };
 }
 
-function buildPreviewAcceptanceReadiness(now, input, principal, incident, validation, boundary, operationalHealth, lifecycleControls, providerNegotiation, handoff, proofs, reporting) {
+function buildPreviewAcceptanceReadiness(now, input, principal, incident, validation, boundary, operationalHealth, lifecycleControls, providerNegotiation, handoff, proofs, reporting, eventReplayExportDependency) {
   const acceptanceInput = normalizePreviewAcceptance(input, principal);
   const proofIndex = proofs.reduce((index, proof) => {
     index[proof.type] = proof.id;
@@ -2732,7 +2847,8 @@ function buildPreviewAcceptanceReadiness(now, input, principal, incident, valida
     ...validation.errors,
     ...lifecycleControls.validation.errors,
     ...providerNegotiation.errors,
-    ...operationalHealth.actionableErrors
+    ...operationalHealth.actionableErrors,
+    ...eventReplayExportDependency.blockingReasons
   ];
   const uniqueBlockers = [...new Set(blockers)].sort();
   const warnings = [...new Set([
@@ -2757,6 +2873,7 @@ function buildPreviewAcceptanceReadiness(now, input, principal, incident, valida
     buildGate('lifecycle', 'Lifecycle command validation', lifecycleControls.validation.valid, lifecycleControls.validation.errors, 'audit-recovery/panic-inspector/lifecycle-settings'),
     buildGate('provider', 'Hosted provider contract', providerNegotiation.valid, providerNegotiation.errors, providerNegotiation.sync.route),
     buildGate('operational_health', 'Operational readiness', operationalHealth.status === 'healthy', operationalHealth.actionableErrors, 'audit-recovery/panic-inspector/health'),
+    buildGate('event_replay_export', 'Event replay export', eventReplayExportDependency.ready, eventReplayExportDependency.blockingReasons, eventReplayExportDependency.route || 'audit-recovery/event-replay'),
     buildGate('operator_acceptance', 'Preview acceptance', acceptanceState !== 'required' && acceptanceState !== 'rejected', acceptanceState === 'rejected' ? ['preview_rejected'] : acceptanceState === 'required' ? ['preview_acceptance_required'] : [], 'audit-recovery/panic-inspector/preview/accept')
   ];
   const passedGateCount = gates.filter((gate) => gate.passed).length;
@@ -2829,6 +2946,16 @@ function buildPreviewAcceptanceReadiness(now, input, principal, incident, valida
       state: validation.valid ? 'validated' : 'needs_review',
       value: `${validation.trustedEvidenceCount}/${validation.evidenceCount} trusted evidence records`,
       route: 'audit-recovery/panic-inspector/evidence'
+    },
+    {
+      id: 'event_replay_export',
+      title: 'Event replay export',
+      severity: eventReplayExportDependency.ready ? 'info' : eventReplayExportDependency.required ? 'high' : 'info',
+      state: eventReplayExportDependency.present ? eventReplayExportDependency.state : 'not_attached',
+      value: eventReplayExportDependency.present
+        ? `${eventReplayExportDependency.dispatchableOperations}/${eventReplayExportDependency.selectedEvents} replay operations exportable`
+        : 'No replay export attached',
+      route: eventReplayExportDependency.route || 'audit-recovery/event-replay'
     }
   ];
 
@@ -2890,9 +3017,11 @@ function buildPreviewAcceptanceReadiness(now, input, principal, incident, valida
         lifecycleErrors: lifecycleControls.validation.errors.length,
         providerErrors: providerNegotiation.errors.length,
         providerWarnings: providerWarnings.length,
+        eventReplayExportBlockers: eventReplayExportDependency.blockingReasons.length,
         proofFailures: proofs.filter((proof) => !proof.passed).length
       }
     },
+    eventReplayExportDependency,
     nextSteps: [
       {
         id: 'repair_blockers',
@@ -2917,6 +3046,14 @@ function buildPreviewAcceptanceReadiness(now, input, principal, incident, valida
         enabled: uniqueBlockers.length === 0 && acceptanceState !== 'required' && acceptanceState !== 'rejected',
         reason: lifecycleControls.nextAction.state,
         proofId: proofIndex.provider_contract || proofIndex.provider_sync || null
+      },
+      {
+        id: 'attach_event_replay_export',
+        label: 'Attach event replay export',
+        route: eventReplayExportDependency.route || 'audit-recovery/event-replay',
+        enabled: eventReplayExportDependency.required && !eventReplayExportDependency.ready,
+        reason: eventReplayExportDependency.blockingReasons[0] || null,
+        proofId: proofIndex.analytics_export || null
       }
     ]
   };
@@ -3241,6 +3378,7 @@ export function describePanicInspectorSurface(input = {}) {
     providerNegotiation,
     exportRequest
   );
+  const eventReplayExportDependency = normalizeEventReplayExportDependency(input, incident);
   proofs.push({
     id: proofId('analytics_export_proof', {
       incidentId: incident.id,
@@ -3252,6 +3390,15 @@ export function describePanicInspectorSurface(input = {}) {
       && reporting.exportSummary.request.subject.incidentId === incident.id
       && reporting.exportSummary.manifest.recordCounts.snapshots <= reporting.history.snapshots.length,
     route: reporting.exportSummary.route
+  });
+  proofs.push({
+    id: proofId('event_replay_export_dependency_proof', {
+      incidentId: incident.id,
+      eventReplayExportDependency
+    }),
+    type: 'event_replay_export_dependency',
+    passed: eventReplayExportDependency.ready,
+    route: eventReplayExportDependency.route || 'audit-recovery/event-replay'
   });
   const previewContract = buildPreviewAcceptanceReadiness(
     now,
@@ -3265,7 +3412,8 @@ export function describePanicInspectorSurface(input = {}) {
     providerNegotiation,
     handoff,
     proofs,
-    reporting
+    reporting,
+    eventReplayExportDependency
   );
   const clientProofAcknowledgement = buildClientProofAcknowledgementContract(
     now,
@@ -3334,6 +3482,7 @@ export function describePanicInspectorSurface(input = {}) {
     history: reporting.history,
     timeline: reporting.timeline,
     exportSummary: reporting.exportSummary,
+    eventReplayExportDependency,
     preview: previewContract.preview,
     acceptance: previewContract.acceptance,
     readiness: previewContract.readiness,

@@ -28,6 +28,43 @@ const SUPPORTED_CAPABILITY_RATE_CLASSES = Object.freeze([
   "external-system",
   "operator-interrupt"
 ]);
+const EXTERNAL_PROVIDER_PROFILES = Object.freeze({
+  mailchimp: Object.freeze({
+    providerKeys: ["mailchimp", "mailchimp-marketing", "mailchimp-transactional"],
+    serviceHints: ["mailchimp", "campaign", "audience", "list", "member", "segment", "template", "journey"],
+    requiredCapabilities: ["rate-limit.snapshot.v1", "rate-limit.audit.v1", "rate-limit.external-handoff.v1"],
+    preferredCapabilityRateClass: "external-system",
+    retryHeaderNames: ["retry-after", "x-ratelimit-reset", "x-request-id"],
+    remoteIdempotencyHeaders: ["X-Request-Id", "X-Idempotency-Key"],
+    remoteQuotaPolicy: Object.freeze({
+      requiredOperationKinds: ["campaign", "audience", "automation"],
+      capability: "rate-limit.external-handoff.v1",
+      acceptanceRequired: true,
+      snapshotMaxAgeMs: 2 * 60 * 1000,
+      acceptanceMaxAgeMs: 5 * 60 * 1000,
+      minRemainingForDispatch: 1,
+      retryHeaderNames: ["retry-after", "x-ratelimit-reset", "x-request-id"],
+      resetHeaderNames: ["x-ratelimit-reset"],
+      nextActionWhenMissing: "sync.rate-limit.mailchimp-remote-quota"
+    }),
+    defaultEndpointPath: "/provider/mailchimp/rate-limit/handoff",
+    remoteReplayWindowMs: 10 * 60 * 1000,
+    acceptanceRequiredKinds: ["campaign", "audience", "automation"],
+    checkpointRequiredKinds: ["campaign", "audience", "automation"],
+    dispatchRiskByKind: Object.freeze({
+      campaign: "high",
+      audience: "critical",
+      automation: "high",
+      template: "medium"
+    }),
+    operationKinds: Object.freeze({
+      campaign: ["campaign", "campaigns", "send", "schedule", "unschedule", "email"],
+      audience: ["audience", "audiences", "list", "lists", "member", "members", "subscriber"],
+      automation: ["journey", "automation", "automations", "customer-journey"],
+      template: ["template", "templates"]
+    })
+  })
+});
 const CAPABILITY_RATE_CLASS_ALIASES = Object.freeze({
   model: "model-call",
   llm: "model-call",
@@ -89,6 +126,10 @@ function asPositiveInteger(value, fallback) {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null);
+}
+
 function asIdentifier(value, fallback) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
@@ -97,6 +138,482 @@ function asIdentifierList(value) {
   return Array.isArray(value)
     ? [...new Set(value.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim()))]
     : [];
+}
+
+function normalizeProviderProfileToken(value) {
+  return typeof value === "string" && value.trim()
+    ? value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+    : "";
+}
+
+function resolveExternalProviderProfile(input = {}, providerContract = {}, serviceContract = {}, requestState = {}) {
+  const source = asObject(input.externalProviderProfile || input.providerProfile || input.integrationProfile);
+  const explicitProfile = normalizeProviderProfileToken(
+    source.profile || source.kind || source.provider || source.name || input.providerProfileName
+  );
+  const candidateText = [
+    explicitProfile,
+    providerContract.providerId,
+    providerContract.endpoint,
+    serviceContract.serviceId,
+    serviceContract.capabilityId,
+    requestState.routeId,
+    requestState.workflowId
+  ]
+    .filter((entry) => typeof entry === "string")
+    .join(" ")
+    .toLowerCase();
+  const matchedProfileName = Object.entries(EXTERNAL_PROVIDER_PROFILES).find(([, profile]) => (
+    profile.providerKeys.some((key) => candidateText.includes(key))
+      || profile.serviceHints.some((hint) => candidateText.includes(hint))
+  ))?.[0] || "";
+  const profileName = EXTERNAL_PROVIDER_PROFILES[explicitProfile] ? explicitProfile : matchedProfileName;
+  const profile = EXTERNAL_PROVIDER_PROFILES[profileName] || null;
+  const declaredRemoteHeaders = asIdentifierList(source.remoteIdempotencyHeaders || source.idempotencyHeaders);
+  const declaredRetryHeaders = asIdentifierList(source.retryHeaderNames || source.retryHeaders);
+  return {
+    schema: "rate-limit.external-provider-profile.v1",
+    providerProfile: profileName || "generic",
+    matched: Boolean(profile),
+    preferredCapabilityRateClass: profile?.preferredCapabilityRateClass || null,
+    requiredCapabilities: profile?.requiredCapabilities || ["rate-limit.snapshot.v1", "rate-limit.audit.v1"],
+    remoteIdempotencyHeaders: declaredRemoteHeaders.length
+      ? declaredRemoteHeaders
+      : profile?.remoteIdempotencyHeaders || [],
+    retryHeaderNames: declaredRetryHeaders.length
+      ? declaredRetryHeaders
+      : profile?.retryHeaderNames || [],
+    remoteQuotaPolicy: {
+      ...(profile?.remoteQuotaPolicy || {}),
+      ...(asObject(source.remoteQuotaPolicy || source.quotaPolicy))
+    },
+    defaultEndpointPath: asIdentifier(source.defaultEndpointPath, profile?.defaultEndpointPath || ""),
+    remoteReplayWindowMs: asPositiveInteger(source.remoteReplayWindowMs, profile?.remoteReplayWindowMs || 5 * 60 * 1000),
+    acceptanceRequiredKinds: asIdentifierList(source.acceptanceRequiredKinds).length
+      ? asIdentifierList(source.acceptanceRequiredKinds)
+      : profile?.acceptanceRequiredKinds || [],
+    checkpointRequiredKinds: asIdentifierList(source.checkpointRequiredKinds).length
+      ? asIdentifierList(source.checkpointRequiredKinds)
+      : profile?.checkpointRequiredKinds || [],
+    dispatchRiskByKind: profile?.dispatchRiskByKind || {},
+    operationKinds: profile?.operationKinds || {},
+    source: explicitProfile ? "explicit" : profile ? "inferred" : "generic"
+  };
+}
+
+function inferExternalProviderOperationKind(providerProfile, requestState, serviceContract) {
+  const operationText = [
+    requestState.routeId,
+    requestState.workflowId,
+    serviceContract.capabilityId,
+    serviceContract.serviceId
+  ]
+    .filter((entry) => typeof entry === "string")
+    .join(" ")
+    .toLowerCase();
+  const matched = Object.entries(providerProfile.operationKinds || {}).find(([, hints]) => (
+    hints.some((hint) => operationText.includes(hint))
+  ));
+  return matched?.[0] || (providerProfile.matched ? "provider-operation" : "generic");
+}
+
+function normalizeExternalProviderQuotaTelemetry({
+  providerProfile,
+  operationKind,
+  serviceContract,
+  syncMetadata,
+  requestState,
+  source = {}
+}) {
+  const policy = asObject(providerProfile.remoteQuotaPolicy);
+  const quota = asObject(
+    source.remoteQuota ??
+      source.providerQuota ??
+      source.rateLimitHandoff?.remoteQuota ??
+      source.rateLimitQuota
+  );
+  const handoff = asObject(source.rateLimitHandoff ?? source.quotaHandoff ?? source.externalHandoff);
+  const requiredOperationKinds = asIdentifierList(policy.requiredOperationKinds);
+  const required = Boolean(
+    providerProfile.matched &&
+      policy.capability &&
+      (requiredOperationKinds.length === 0 || requiredOperationKinds.includes(operationKind))
+  );
+  const nowMs = asTimestampMs(syncMetadata.generatedAt) || Date.now();
+  const observedAt = asIdentifier(quota.observedAt || quota.recordedAt || handoff.recordedAt, null);
+  const observedAtMs = asTimestampMs(observedAt);
+  const snapshotMaxAgeMs = asPositiveInteger(policy.snapshotMaxAgeMs, 2 * 60 * 1000);
+  const snapshotAgeMs = observedAtMs ? Math.max(0, nowMs - observedAtMs) : null;
+  const snapshotStale = Boolean(required && (!observedAtMs || snapshotAgeMs > snapshotMaxAgeMs));
+  const snapshotId = asIdentifier(
+    quota.snapshotId || quota.quotaSnapshotId || handoff.quotaSnapshotId,
+    required ? `${syncMetadata.syncKey}:remote-quota:${requestState.requestId}` : null
+  );
+  const providerCursor = asIdentifier(
+    quota.providerCursor || quota.cursor || handoff.providerCursor,
+    null
+  );
+  const expectedCursor = syncMetadata.cursor;
+  const acceptedAt = asIdentifier(handoff.acceptedAt || quota.acceptedAt, null);
+  const acceptedAtMs = asTimestampMs(acceptedAt);
+  const acceptedBy = asIdentifier(handoff.acceptedBy || handoff.actorId || quota.acceptedBy, null);
+  const expectedAcceptanceKey = [
+    providerProfile.providerProfile || "generic",
+    serviceContract.tenantId,
+    serviceContract.workspaceId,
+    operationKind,
+    requestState.requestId
+  ].join(":");
+  const acceptanceKey = asIdentifier(handoff.acceptanceKey || quota.acceptanceKey, null);
+  const acceptanceRequired = required && policy.acceptanceRequired !== false;
+  const acceptanceMaxAgeMs = asPositiveInteger(policy.acceptanceMaxAgeMs, 5 * 60 * 1000);
+  const acceptanceAgeMs = acceptedAtMs ? Math.max(0, nowMs - acceptedAtMs) : null;
+  const acceptanceStale = Boolean(
+    acceptanceRequired &&
+      acceptedAtMs &&
+      acceptanceAgeMs > acceptanceMaxAgeMs
+  );
+  const accepted = !acceptanceRequired || (
+    !acceptanceStale &&
+      (handoff.accepted === true || Boolean(acceptedAt && acceptedBy && acceptanceKey === expectedAcceptanceKey))
+  );
+  const limit = Number.isInteger(quota.limit) && quota.limit >= 0 ? quota.limit : null;
+  const remaining = Number.isInteger(quota.remaining) && quota.remaining >= 0 ? quota.remaining : null;
+  const resetAt = asIdentifier(quota.resetAt || quota.remoteResetAt, null);
+  const retryAfterMs = asNonNegativeInteger(quota.retryAfterMs || quota.retryAfter, 0);
+  const minRemaining = asNonNegativeInteger(policy.minRemainingForDispatch, 1);
+  const exhausted = required && remaining !== null && remaining < minRemaining;
+  const cursorReady = !required || Boolean(providerCursor || snapshotId);
+  const snapshotReady = !required || Boolean(snapshotId) && !snapshotStale;
+  const violationCodes = [
+    acceptanceRequired && !accepted ? "remote-quota.acceptance-required" : null,
+    acceptanceStale ? "remote-quota.acceptance-stale" : null,
+    required && !snapshotId ? "remote-quota.snapshot-required" : null,
+    snapshotStale ? "remote-quota.snapshot-stale" : null,
+    required && !cursorReady ? "remote-quota.provider-cursor-required" : null,
+    exhausted ? "remote-quota.exhausted" : null
+  ].filter(Boolean);
+  const ready = !required || violationCodes.length === 0;
+  const nextActionId = ready
+    ? "dispatch.rate-limit.external-provider-handoff"
+    : exhausted
+      ? "wait.rate-limit.remote-quota-reset"
+      : acceptanceStale
+        ? "refresh.rate-limit.external-provider-acceptance"
+      : !accepted
+        ? "accept.rate-limit.external-provider-preview"
+        : asIdentifier(policy.nextActionWhenMissing, "sync.rate-limit.remote-quota");
+
+  return {
+    schema: "rate-limit.external-provider-quota-telemetry.v1",
+    providerProfile: providerProfile.providerProfile || "generic",
+    operationKind,
+    required,
+    ready,
+    state: !required ? "not-required" : ready ? "ready" : exhausted ? "exhausted" : "blocked",
+    capability: asIdentifier(policy.capability, ""),
+    requiredOperationKinds,
+    snapshot: {
+      snapshotId,
+      observedAt,
+      ageMs: snapshotAgeMs,
+      maxAgeMs: snapshotMaxAgeMs,
+      stale: snapshotStale,
+      providerCursor,
+      expectedCursor
+    },
+    acceptance: {
+      required: acceptanceRequired,
+      accepted,
+      expectedAcceptanceKey,
+      acceptanceKey,
+      acceptedAt,
+      acceptedBy,
+      maxAgeMs: acceptanceMaxAgeMs,
+      ageMs: acceptanceAgeMs,
+      stale: acceptanceStale
+    },
+    quota: {
+      limit,
+      remaining,
+      minRemainingForDispatch: minRemaining,
+      resetAt,
+      retryAfterMs,
+      retryHeaderNames: asIdentifierList(policy.retryHeaderNames),
+      resetHeaderNames: asIdentifierList(policy.resetHeaderNames)
+    },
+    nextAction: {
+      actionId: nextActionId,
+      owner: nextActionId.startsWith("accept.") || nextActionId.startsWith("refresh.") ? "operator" : "kernel",
+      retryAfterMs: exhausted ? retryAfterMs : acceptanceStale ? acceptanceMaxAgeMs : 0,
+      reasonCodes: violationCodes
+    },
+    violationCodes
+  };
+}
+
+function buildExternalProviderSafetyEnvelope({
+  providerProfile,
+  operationKind,
+  providerContract,
+  serviceContract,
+  syncMetadata,
+  requestState,
+  accessBoundary,
+  runtimeDecision = null,
+  source = {}
+}) {
+  const quotaTelemetry = normalizeExternalProviderQuotaTelemetry({
+    providerProfile,
+    operationKind,
+    serviceContract,
+    syncMetadata,
+    requestState,
+    source
+  });
+  const acceptance = asObject(source.acceptance || source.operatorAcceptance || source.previewAcceptance);
+  const checkpoint = asObject(source.checkpoint || source.providerCheckpoint || source.handoffCheckpoint);
+  const acceptedAt = asIdentifier(acceptance.acceptedAt || acceptance.recordedAt, null);
+  const acceptedBy = asIdentifier(acceptance.acceptedBy || acceptance.actorId || acceptance.principalId, null);
+  const expectedAcceptanceKey = `${serviceContract.subjectKey}:${requestState.requestId}:${operationKind}`;
+  const acceptanceKey = asIdentifier(acceptance.acceptanceKey || acceptance.key, null);
+  const checkpointId = asIdentifier(
+    checkpoint.checkpointId || checkpoint.id,
+    `${syncMetadata.syncKey}:external-checkpoint:${requestState.requestId}`
+  );
+  const checkpointCursor = asIdentifier(checkpoint.cursor || checkpoint.providerCursor, null);
+  const acceptanceRequired = providerProfile.acceptanceRequiredKinds.includes(operationKind);
+  const checkpointRequired = providerProfile.checkpointRequiredKinds.includes(operationKind);
+  const acceptanceMatches = Boolean(
+    !acceptanceRequired ||
+    acceptance.accepted === true ||
+    (acceptedAt && acceptedBy && acceptanceKey === expectedAcceptanceKey)
+  );
+  const checkpointMatches = Boolean(
+    !checkpointRequired ||
+    (checkpointId && (!checkpointCursor || checkpointCursor === syncMetadata.cursor))
+  );
+  const boundarySatisfied = accessBoundary.state === "satisfied";
+  const providerWritable = syncMetadata.providerSyncLease.writeAllowed === true;
+  const runtimeAllowed = runtimeDecision ? runtimeDecision.allowed === true : true;
+  const remoteReplayWindowMs = providerProfile.remoteReplayWindowMs;
+  const remoteReplayFenceKey = [
+    providerProfile.providerProfile || "generic",
+    serviceContract.tenantId,
+    serviceContract.workspaceId,
+    serviceContract.capabilityId,
+    requestState.requestId
+  ].join(":");
+  const risk = providerProfile.dispatchRiskByKind?.[operationKind] || (
+    acceptanceRequired ? "high" : checkpointRequired ? "medium" : "low"
+  );
+  const violationCodes = [
+    !boundarySatisfied ? "provider-safety.boundary-not-satisfied" : null,
+    !providerWritable ? "provider-safety.sync-lease-not-writable" : null,
+    !runtimeAllowed ? "provider-safety.runtime-not-allowed" : null,
+    acceptanceRequired && !acceptanceMatches ? "provider-safety.acceptance-required" : null,
+    checkpointRequired && !checkpointMatches ? "provider-safety.checkpoint-required" : null,
+    ...quotaTelemetry.violationCodes.map((code) => `provider-safety.${code}`)
+  ].filter(Boolean);
+  const dispatchState = violationCodes.length
+    ? "hold"
+    : risk === "critical"
+      ? "dispatch-with-audit-lock"
+      : "dispatchable";
+  const nextActionId = !boundarySatisfied
+    ? "repair.rate-limit.boundary-grants"
+    : !providerWritable
+      ? "acquire.rate-limit.provider-sync-lease"
+      : !runtimeAllowed
+        ? "wait.rate-limit.admission"
+        : acceptanceRequired && !acceptanceMatches
+        ? "accept.rate-limit.external-provider-preview"
+        : quotaTelemetry.required && !quotaTelemetry.ready
+          ? quotaTelemetry.nextAction.actionId
+          : checkpointRequired && !checkpointMatches
+            ? "checkpoint.rate-limit.external-provider-handoff"
+            : "dispatch.rate-limit.external-provider-handoff";
+
+  return {
+    schema: "rate-limit.external-provider-safety-envelope.v1",
+    state: dispatchState,
+    providerProfile: providerProfile.providerProfile || "generic",
+    operationKind,
+    risk,
+    required: acceptanceRequired || checkpointRequired,
+    safeToDispatch: violationCodes.length === 0,
+    acceptance: {
+      required: acceptanceRequired,
+      accepted: acceptanceMatches,
+      expectedAcceptanceKey,
+      acceptanceKey,
+      acceptedAt,
+      acceptedBy
+    },
+    checkpoint: {
+      required: checkpointRequired,
+      ready: checkpointMatches,
+      checkpointId,
+      cursor: checkpointCursor,
+      expectedCursor: syncMetadata.cursor
+    },
+    remoteQuota: quotaTelemetry,
+    replayFence: {
+      key: remoteReplayFenceKey,
+      windowMs: remoteReplayWindowMs,
+      duplicatePolicy: "block-and-audit",
+      idempotencyScope: `${serviceContract.subjectKey}:${requestState.requestId}`
+    },
+    dispatch: {
+      nextActionId,
+      canDispatch: violationCodes.length === 0,
+      reasonCodes: violationCodes,
+      auditLockRequired: risk === "critical",
+      providerWritable,
+      boundarySatisfied,
+      runtimeAllowed,
+      remoteQuotaReady: quotaTelemetry.ready
+    }
+  };
+}
+
+function buildExternalProviderWorkflowContract({
+  providerProfile,
+  operationKind,
+  serviceContract,
+  syncMetadata,
+  requestState,
+  safetyEnvelope,
+  providerContract = null,
+  runtimeDecision = null
+}) {
+  const remoteIdempotencyKey = [
+    providerProfile.providerProfile || "generic",
+    serviceContract.subjectKey,
+    requestState.requestId,
+    operationKind
+  ].join(":");
+  const remoteHeaders = Object.fromEntries(
+    (providerProfile.remoteIdempotencyHeaders || []).map((header) => [header, remoteIdempotencyKey])
+  );
+  const requiredCapabilities = providerProfile.requiredCapabilities || [];
+  const blocking = safetyEnvelope.safeToDispatch !== true;
+  const acceptanceBlocking = safetyEnvelope.acceptance.required && !safetyEnvelope.acceptance.accepted;
+  const checkpointBlocking = safetyEnvelope.checkpoint.required && !safetyEnvelope.checkpoint.ready;
+  const quotaBlocking = safetyEnvelope.remoteQuota.required && !safetyEnvelope.remoteQuota.ready;
+  const syncLeaseBlocking = safetyEnvelope.dispatch.providerWritable !== true;
+  const dispatchActionId = blocking
+    ? acceptanceBlocking
+      ? "accept.rate-limit.external-provider-preview"
+      : quotaBlocking
+        ? safetyEnvelope.remoteQuota.nextAction.actionId
+        : checkpointBlocking
+        ? "checkpoint.rate-limit.external-provider-handoff"
+        : syncLeaseBlocking
+          ? "lease.rate-limit.provider-sync"
+          : safetyEnvelope.dispatch.nextActionId
+    : "dispatch.rate-limit.external-provider-handoff";
+  const clientState = !providerProfile.matched
+    ? "generic-provider"
+    : blocking
+      ? acceptanceBlocking
+      ? "awaiting-operator-acceptance"
+        : quotaBlocking
+          ? safetyEnvelope.remoteQuota.state === "exhausted"
+            ? "awaiting-remote-quota-reset"
+            : "awaiting-remote-quota-sync"
+        : checkpointBlocking
+          ? "awaiting-provider-checkpoint"
+          : syncLeaseBlocking
+            ? "awaiting-provider-sync-lease"
+            : "blocked"
+      : safetyEnvelope.risk === "critical"
+        ? "ready-with-audit-lock"
+        : "ready";
+  const handoffRequired = safetyEnvelope.required
+    || safetyEnvelope.remoteQuota.required
+    || requiredCapabilities.includes("rate-limit.external-handoff.v1");
+  const reasonCodes = [
+    handoffRequired ? "workflow.external-provider-handoff-required" : "workflow.external-provider-handoff-optional",
+    providerProfile.providerProfile !== "generic" ? `workflow.profile.${providerProfile.providerProfile}` : null,
+    `workflow.operation-kind.${operationKind}`,
+    safetyEnvelope.risk === "critical" ? "workflow.audit-lock-required" : null,
+    acceptanceBlocking ? "workflow.operator-acceptance-required" : null,
+    quotaBlocking ? "workflow.remote-quota-required" : null,
+    checkpointBlocking ? "workflow.provider-checkpoint-required" : null,
+    syncLeaseBlocking ? "workflow.provider-sync-lease-required" : null,
+    ...safetyEnvelope.dispatch.reasonCodes
+  ].filter(Boolean);
+
+  return {
+    schema: "rate-limit.external-provider-workflow-contract.v1",
+    providerProfile: providerProfile.providerProfile || "generic",
+    operationKind,
+    serviceId: serviceContract.serviceId,
+    subjectKey: serviceContract.subjectKey,
+    requestId: requestState.requestId,
+    routeId: requestState.routeId,
+    workflowId: requestState.workflowId,
+    providerId: providerContract?.providerId || "",
+    state: clientState,
+    required: handoffRequired,
+    blocking,
+    dispatchActionId,
+    owner: acceptanceBlocking ? "operator" : syncLeaseBlocking || checkpointBlocking || quotaBlocking ? "kernel" : "client",
+    retryAfterMs: quotaBlocking
+      ? safetyEnvelope.remoteQuota.nextAction.retryAfterMs
+      : syncLeaseBlocking
+        ? syncMetadata.nextRefreshAfterMs
+        : 0,
+    checkpointPolicy: checkpointBlocking
+      ? "persist-provider-checkpoint-before-dispatch"
+      : quotaBlocking
+        ? "persist-remote-quota-before-dispatch"
+      : handoffRequired
+        ? "persist-handoff-delivery"
+        : "local-proof-only",
+    acceptance: {
+      required: safetyEnvelope.acceptance.required,
+      accepted: safetyEnvelope.acceptance.accepted,
+      expectedAcceptanceKey: safetyEnvelope.acceptance.expectedAcceptanceKey,
+      acceptanceKey: safetyEnvelope.acceptance.acceptanceKey,
+      acceptedAt: safetyEnvelope.acceptance.acceptedAt,
+      acceptedBy: safetyEnvelope.acceptance.acceptedBy
+    },
+    checkpoint: {
+      required: safetyEnvelope.checkpoint.required,
+      ready: safetyEnvelope.checkpoint.ready,
+      checkpointId: safetyEnvelope.checkpoint.checkpointId,
+      cursor: safetyEnvelope.checkpoint.cursor,
+      expectedCursor: safetyEnvelope.checkpoint.expectedCursor
+    },
+    remoteQuota: safetyEnvelope.remoteQuota,
+    remoteIdempotency: {
+      key: remoteIdempotencyKey,
+      headers: remoteHeaders,
+      headerNames: Object.keys(remoteHeaders).sort(),
+      replayFenceKey: safetyEnvelope.replayFence.key,
+      replayWindowMs: safetyEnvelope.replayFence.windowMs,
+      duplicatePolicy: safetyEnvelope.replayFence.duplicatePolicy,
+      restartSafeDeliveryKey: `${syncMetadata.syncKey}:external-provider:${remoteIdempotencyKey}`
+    },
+    safety: {
+      state: safetyEnvelope.state,
+      risk: safetyEnvelope.risk,
+      safeToDispatch: safetyEnvelope.safeToDispatch,
+      auditLockRequired: safetyEnvelope.dispatch.auditLockRequired,
+      violationCodes: safetyEnvelope.dispatch.reasonCodes
+    },
+    runtime: runtimeDecision
+      ? {
+          decision: runtimeDecision.decision,
+          allowed: runtimeDecision.allowed,
+          reservationRequired: runtimeDecision.reservationRequired,
+          capabilityRateClass: runtimeDecision.request.capabilityRateClass
+        }
+      : null,
+    reasonCodes
+  };
 }
 
 function normalizeCapabilityRateClassToken(value) {
@@ -120,6 +637,11 @@ function asBoolean(value, fallback = false) {
 
 function asNonNegativeInteger(value, fallback) {
   return Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+function readNonNegativeInteger(source, keys, fallback) {
+  const value = firstDefined(...keys.map((key) => source[key]));
+  return asNonNegativeInteger(value, fallback);
 }
 
 function asTimestampMs(value) {
@@ -220,11 +742,11 @@ function normalizeCapabilityClassLedgerEntry(entry) {
   }
 
   const source = asObject(entry);
-  const windowUsed = asNonNegativeInteger(source.windowUsed || source.usedRequests || source.used, 0);
-  const reserved = asNonNegativeInteger(source.reserved || source.reservedRequests, 0);
-  const localPending = asNonNegativeInteger(source.localPending || source.pendingRequests || source.pending, 0);
+  const windowUsed = readNonNegativeInteger(source, ["windowUsed", "usedRequests", "used"], 0);
+  const reserved = readNonNegativeInteger(source, ["reserved", "reservedRequests"], 0);
+  const localPending = readNonNegativeInteger(source, ["localPending", "pendingRequests", "pending"], 0);
   const accountedRequests = asNonNegativeInteger(
-    source.accountedRequests || source.totalRequests,
+    firstDefined(source.accountedRequests, source.totalRequests),
     windowUsed + reserved + localPending
   );
 
@@ -256,6 +778,51 @@ function normalizeCapabilityClassLedger(rawLedger) {
   });
 
   return classLedger;
+}
+
+function buildLedgerReconciliation(observedTotals, durableTotals, capabilityClassLedger) {
+  const observedAccountedRequests = observedTotals.windowUsed + observedTotals.reserved + observedTotals.localPending;
+  const durableAccountedRequests = durableTotals.windowUsed + durableTotals.reserved + durableTotals.localPending;
+  const classAccountedRequests = Object.values(capabilityClassLedger).reduce((total, entry) => (
+    total + entry.accountedRequests
+  ), 0);
+  const deltas = {
+    windowUsed: durableTotals.windowUsed - observedTotals.windowUsed,
+    reserved: durableTotals.reserved - observedTotals.reserved,
+    localPending: durableTotals.localPending - observedTotals.localPending,
+    accountedRequests: durableAccountedRequests - observedAccountedRequests,
+    capabilityClassAccountedRequests: classAccountedRequests - durableAccountedRequests
+  };
+  const driftReasons = [
+    deltas.windowUsed !== 0 ? "ledger.window-used-drift" : null,
+    deltas.reserved !== 0 ? "ledger.reserved-drift" : null,
+    deltas.localPending !== 0 ? "ledger.local-pending-drift" : null,
+    deltas.capabilityClassAccountedRequests !== 0 ? "ledger.capability-class-total-drift" : null
+  ].filter(Boolean);
+  const replayDirection = durableAccountedRequests > observedAccountedRequests
+    ? "replay-durable-forward"
+    : durableAccountedRequests < observedAccountedRequests
+      ? "refresh-durable-from-snapshot"
+      : classAccountedRequests !== durableAccountedRequests
+        ? "rebuild-capability-class-ledger"
+        : "none";
+
+  return {
+    schema: "rate-limit.ledger-reconciliation.v1",
+    state: driftReasons.length ? "drift-detected" : "aligned",
+    observed: {
+      ...observedTotals,
+      accountedRequests: observedAccountedRequests
+    },
+    durable: {
+      ...durableTotals,
+      accountedRequests: durableAccountedRequests
+    },
+    capabilityClassAccountedRequests: classAccountedRequests,
+    deltas,
+    replayDirection,
+    driftReasons
+  };
 }
 
 function capabilityRatePolicy(capabilityRateClass) {
@@ -760,9 +1327,9 @@ function normalizeRequestState(input = {}, serviceContract) {
 
 function normalizeClientQuotaState(input = {}, serviceContract) {
   const state = asObject(input.clientState || input.quotaState || input.runtimeState);
-  const windowUsed = Math.max(0, asPositiveInteger(state.windowUsed || state.usedRequests, 0));
-  const reserved = Math.max(0, asPositiveInteger(state.reserved || state.reservedRequests, 0));
-  const localPending = Math.max(0, asPositiveInteger(state.localPending || state.pendingRequests, 0));
+  const windowUsed = readNonNegativeInteger(state, ["windowUsed", "usedRequests"], 0);
+  const reserved = readNonNegativeInteger(state, ["reserved", "reservedRequests"], 0);
+  const localPending = readNonNegativeInteger(state, ["localPending", "pendingRequests"], 0);
   const observedMax = asPositiveInteger(state.observedMaxRequests, serviceContract.policy.maxRequests);
   const effectiveMax = Math.min(serviceContract.policy.maxRequests, observedMax);
   const resetAt = asIdentifier(state.resetAt, null);
@@ -836,6 +1403,20 @@ function normalizePersistedRateLimitState(input = {}, serviceContract, quotaStat
   ]
     .filter((key) => typeof key === "string" && key.trim())
     .map((key) => key.trim());
+  const durableTotals = {
+    windowUsed: readNonNegativeInteger(ledger, ["windowUsed", "usedRequests", "used"], quotaState.windowUsed),
+    reserved: readNonNegativeInteger(ledger, ["reserved", "reservedRequests"], quotaState.reserved),
+    localPending: readNonNegativeInteger(ledger, ["localPending", "pendingRequests", "pending"], quotaState.localPending)
+  };
+  const ledgerReconciliation = buildLedgerReconciliation(
+    {
+      windowUsed: quotaState.windowUsed,
+      reserved: quotaState.reserved,
+      localPending: quotaState.localPending
+    },
+    durableTotals,
+    quotaState.capabilityClassLedger
+  );
 
   return {
     schema: "rate-limit.persisted-state.v1",
@@ -847,11 +1428,8 @@ function normalizePersistedRateLimitState(input = {}, serviceContract, quotaStat
     commandSequence,
     restartCount,
     recoveredAt: asIdentifier(persisted.recoveredAt || input.now, null),
-    durableTotals: {
-      windowUsed: Math.max(0, asPositiveInteger(ledger.windowUsed, quotaState.windowUsed)),
-      reserved: Math.max(0, asPositiveInteger(ledger.reserved, quotaState.reserved)),
-      localPending: Math.max(0, asPositiveInteger(ledger.localPending, quotaState.localPending))
-    },
+    durableTotals,
+    ledgerReconciliation,
     reservations: normalizedReservations,
     pendingReservationCount: pendingReservations.length,
     pendingReservedUnits: pendingReservations.reduce((total, reservation) => total + reservation.units, 0),
@@ -868,6 +1446,7 @@ function buildRecoveryPlan(now, serviceContract, syncMetadata, quotaState, persi
   const needsSubjectReset = !persistedState.isSubjectMatch;
   const needsSnapshotRefresh = persistedState.lastSnapshotId !== quotaState.snapshotId;
   const needsReservationReplay = persistedState.pendingReservationCount > 0;
+  const needsLedgerReconciliation = persistedState.ledgerReconciliation.state === "drift-detected";
   const recoveryActions = [];
 
   if (needsSubjectReset) {
@@ -900,6 +1479,20 @@ function buildRecoveryPlan(now, serviceContract, syncMetadata, quotaState, persi
     });
   }
 
+  if (needsLedgerReconciliation) {
+    recoveryActions.push({
+      actionId: "recover.rate-limit.ledger-reconcile",
+      priority: persistedState.ledgerReconciliation.replayDirection === "rebuild-capability-class-ledger"
+        ? "recommended"
+        : "required",
+      idempotencyKey: `${persistedState.stateKey}:ledger:${persistedState.cursor}`,
+      reasonCode: "persisted.ledger-drift",
+      replayDirection: persistedState.ledgerReconciliation.replayDirection,
+      driftReasons: persistedState.ledgerReconciliation.driftReasons,
+      deltas: persistedState.ledgerReconciliation.deltas
+    });
+  }
+
   return {
     schema: "rate-limit.recovery-plan.v1",
     generatedAt: now,
@@ -908,6 +1501,7 @@ function buildRecoveryPlan(now, serviceContract, syncMetadata, quotaState, persi
     syncKey: syncMetadata.syncKey,
     cursor: persistedState.cursor,
     durableCursor: `${serviceContract.subjectKey}#${persistedState.commandSequence}`,
+    ledgerReconciliation: persistedState.ledgerReconciliation,
     actions: recoveryActions
   };
 }
@@ -1115,7 +1709,7 @@ function buildHealthAdmissionPolicy(operationalHealth, requestState, lifecycleCo
   };
 }
 
-function normalizeServiceContract(inputService = {}, providerContract) {
+function normalizeServiceContract(inputService = {}, providerContract, input = {}) {
   const service = asObject(inputService);
   const serviceId = asIdentifier(service.serviceId || service.id, "hosted-kernel-service");
   const tenantId = asIdentifier(service.tenantId, "default-tenant");
@@ -1125,18 +1719,36 @@ function normalizeServiceContract(inputService = {}, providerContract) {
   const requestedMax = asPositiveInteger(service.maxRequests, DEFAULT_RATE_LIMIT_CONTRACT.maxRequests);
   const requestedBurst = asPositiveInteger(service.burstRequests, DEFAULT_RATE_LIMIT_CONTRACT.burstRequests);
   const providerCanReserve = providerContract.capabilities.includes("rate-limit.reserve.v1");
+  const externalProviderProfile = resolveExternalProviderProfile(input, providerContract, {
+    serviceId,
+    tenantId,
+    workspaceId,
+    capabilityId
+  });
+  const providerRequiredCapabilities = externalProviderProfile.requiredCapabilities.filter((capability) => (
+    SUPPORTED_PROVIDER_CAPABILITIES.includes(capability)
+  ));
+  const missingProviderCapabilities = providerRequiredCapabilities.filter((capability) => (
+    !providerContract.capabilities.includes(capability)
+  ));
+  const profileRequiresExternalHandoff = providerRequiredCapabilities.includes("rate-limit.external-handoff.v1");
 
   return {
     serviceId,
     tenantId,
     workspaceId,
     capabilityId,
+    externalProviderProfile,
     policy: {
       ...DEFAULT_RATE_LIMIT_CONTRACT,
       windowMs: Math.max(1_000, requestedWindowMs),
       maxRequests: Math.max(1, requestedMax),
       burstRequests: Math.min(Math.max(0, requestedBurst), requestedMax),
-      reservationMode: providerCanReserve ? "provider-reservation" : "snapshot-only"
+      reservationMode: providerCanReserve ? "provider-reservation" : "snapshot-only",
+      externalProviderProfile: externalProviderProfile.providerProfile,
+      externalHandoffRequired: profileRequiresExternalHandoff,
+      externalProviderRequiredCapabilities: providerRequiredCapabilities,
+      externalProviderMissingCapabilities: missingProviderCapabilities
     },
     subjectKey: `${tenantId}:${workspaceId}:${capabilityId}:${serviceId}`
   };
@@ -1546,6 +2158,130 @@ function readLifecycleCommandOverrides(command) {
   };
 }
 
+function lifecycleBooleanOverrideIssue(command, field, value) {
+  if (value === undefined || value === null || typeof value === "boolean") {
+    return null;
+  }
+
+  return {
+    field,
+    commandId: asIdentifier(command.commandId || command.id, null),
+    reasonCode: `lifecycle.command.${field}-must-be-boolean`,
+    suppliedType: typeof value
+  };
+}
+
+function normalizeLifecycleSettingsPatch(command, serviceContract, baseSettings) {
+  const source = asObject(command.settings || command.effect || command.patch || command.controls);
+  const issues = [
+    lifecycleBooleanOverrideIssue(command, "enabled", source.enabled),
+    lifecycleBooleanOverrideIssue(command, "enforcementEnabled", source.enforcementEnabled),
+    lifecycleBooleanOverrideIssue(command, "reservationsEnabled", source.reservationsEnabled),
+    lifecycleBooleanOverrideIssue(command, "auditEnabled", source.auditEnabled),
+    lifecycleBooleanOverrideIssue(command, "resetWindow", source.resetWindow)
+  ].filter(Boolean);
+  const patch = {
+    enabled: typeof source.enabled === "boolean" ? source.enabled : null,
+    enforcementEnabled: typeof source.enforcementEnabled === "boolean" ? source.enforcementEnabled : null,
+    reservationsEnabled: typeof source.reservationsEnabled === "boolean" ? source.reservationsEnabled : null,
+    auditEnabled: typeof source.auditEnabled === "boolean" ? source.auditEnabled : null,
+    resetWindow: source.resetWindow === true
+  };
+  const effective = {
+    enabled: patch.enabled ?? baseSettings.enabled,
+    enforcementEnabled: patch.enforcementEnabled ?? baseSettings.enforcementEnabled,
+    reservationsEnabled: patch.reservationsEnabled ?? baseSettings.reservationsEnabled,
+    auditEnabled: patch.auditEnabled ?? baseSettings.auditEnabled,
+    resetWindow: baseSettings.resetWindow === true || patch.resetWindow
+  };
+  const coerced = {
+    enabled: effective.enabled,
+    enforcementEnabled: effective.enabled && effective.enforcementEnabled,
+    reservationsEnabled: effective.enabled
+      && effective.enforcementEnabled
+      && effective.reservationsEnabled
+      && serviceContract.policy.reservationMode === "provider-reservation",
+    auditEnabled: effective.auditEnabled,
+    resetWindow: effective.resetWindow
+  };
+  const changedFields = [
+    typeof source.enabled === "boolean" ? "enabled" : null,
+    typeof source.enforcementEnabled === "boolean" ? "enforcementEnabled" : null,
+    typeof source.reservationsEnabled === "boolean" ? "reservationsEnabled" : null,
+    typeof source.auditEnabled === "boolean" ? "auditEnabled" : null,
+    typeof source.resetWindow === "boolean" ? "resetWindow" : null
+  ].filter(Boolean);
+  const policyIssues = [
+    coerced.enforcementEnabled && !coerced.auditEnabled ? "lifecycle.command.enforcement-audit-required" : null,
+    effective.reservationsEnabled && serviceContract.policy.reservationMode !== "provider-reservation"
+      ? "lifecycle.command.reservation-mode-unavailable"
+      : null,
+    effective.reservationsEnabled && !coerced.enforcementEnabled
+      ? "lifecycle.command.reservation-without-enforcement"
+      : null,
+    effective.enforcementEnabled && !effective.enabled ? "lifecycle.command.enforcement-without-enable" : null
+  ].filter(Boolean);
+
+  return {
+    schema: "rate-limit.lifecycle-settings-patch.v1",
+    present: changedFields.length > 0,
+    changedFields,
+    patch,
+    effective,
+    coerced,
+    providerReservationAvailable: serviceContract.policy.reservationMode === "provider-reservation",
+    validationIssues: [
+      ...issues.map((issue) => issue.reasonCode),
+      ...policyIssues
+    ],
+    issueDetails: issues
+  };
+}
+
+function buildLifecycleCommandClientState({ command, statePatch, persistence, now, syncMetadata }) {
+  const blocking = command.state === "rejected" || command.state === "duplicate";
+  const replay = command.state === "replay";
+  const alreadyApplied = command.state === "already-applied";
+  const ready = command.state === "ready" || command.state === "pending" || replay;
+  const scheduled = command.state === "scheduled";
+  const actionId = alreadyApplied
+    ? "skip.rate-limit.lifecycle-command"
+    : blocking
+      ? "review.rate-limit.lifecycle-command"
+      : replay
+        ? "replay.rate-limit.lifecycle-command"
+        : scheduled
+          ? "wait.rate-limit.lifecycle-command"
+          : ready
+            ? `apply.rate-limit.lifecycle.${command.type}`
+            : "observe.rate-limit.lifecycle-command";
+  const dueAt = scheduled || ready ? command.timing.dueAt : now;
+
+  return {
+    schema: "rate-limit.lifecycle-command-client-state.v1",
+    commandId: command.commandId,
+    idempotencyKey: command.idempotencyKey,
+    state: command.state,
+    actionId,
+    dueAt,
+    retryAfterMs: scheduled ? command.timing.delayMs : 0,
+    restartAction: persistence.restartAction,
+    restartSafe: alreadyApplied || scheduled || ready || replay,
+    blocking,
+    replayRequired: replay,
+    clientPatch: {
+      subjectKey: command.target.subjectKey,
+      syncKey: syncMetadata.syncKey,
+      commandId: command.commandId,
+      idempotencyKey: command.idempotencyKey,
+      settings: statePatch.coerced,
+      changedFields: statePatch.changedFields,
+      validationIssues: statePatch.validationIssues,
+      persistenceState: command.state
+    }
+  };
+}
+
 function buildLifecycleCommandEffect(command, type, baseEffect, settings, serviceContract) {
   const overrides = readLifecycleCommandOverrides(command);
   const enabled = overrides.hasEnabled ? overrides.enabled : baseEffect.enabled;
@@ -1592,6 +2328,7 @@ function buildSyncMetadata(now, input, serviceContract, providerContract, negoti
   const providerSyncLease = buildProviderSyncLease(input, now, serviceContract, providerContract, negotiation, syncKey, cursor);
 
   return {
+    generatedAt: now,
     syncKey,
     cursor,
     providerId: providerContract.providerId,
@@ -1936,7 +2673,17 @@ function buildLifecycleControls(now, input = {}, serviceContract, syncMetadata, 
         reservationsEnabled,
         auditEnabled
       }, serviceContract);
-      const effectViolations = commandEffect.validationIssues;
+      const settingsPatch = normalizeLifecycleSettingsPatch(command, serviceContract, {
+        enabled: commandEffect.enabled,
+        enforcementEnabled: commandEffect.enforcementEnabled,
+        reservationsEnabled: commandEffect.reservationsEnabled,
+        auditEnabled: commandEffect.auditEnabled,
+        resetWindow: commandEffect.resetWindow
+      });
+      const effectViolations = [
+        ...commandEffect.validationIssues,
+        ...settingsPatch.validationIssues
+      ];
       const commandBlocked = Boolean(blockedUntilMs && type !== "resume") || Boolean(commandAt && !commandAtMs);
       const commandReady = accepted && !scopeViolations.length && !effectViolations.length && !commandBlocked
         && (!commandAtMs || commandAtMs <= nowMs);
@@ -1975,18 +2722,20 @@ function buildLifecycleControls(now, input = {}, serviceContract, syncMetadata, 
           blockedUntilMs
         },
         effect: {
-          enabled: commandEffect.enabled,
-          enforcementEnabled: commandEffect.enforcementEnabled,
-          reservationsEnabled: commandEffect.reservationsEnabled,
-          auditEnabled: commandEffect.auditEnabled,
-          resetWindow: commandEffect.resetWindow
+          enabled: settingsPatch.coerced.enabled,
+          enforcementEnabled: settingsPatch.coerced.enforcementEnabled,
+          reservationsEnabled: settingsPatch.coerced.reservationsEnabled,
+          auditEnabled: settingsPatch.coerced.auditEnabled,
+          resetWindow: settingsPatch.coerced.resetWindow
         },
         settingsOverride: {
-          present: commandEffect.overrideFields.length > 0,
-          fields: commandEffect.overrideFields,
-          providerReservationAvailable: commandEffect.providerReservationAvailable,
-          validationIssues: effectViolations
-        }
+          present: commandEffect.overrideFields.length > 0 || settingsPatch.present,
+          fields: [...new Set([...commandEffect.overrideFields, ...settingsPatch.changedFields])],
+          providerReservationAvailable: settingsPatch.providerReservationAvailable,
+          validationIssues: effectViolations,
+          issueDetails: settingsPatch.issueDetails
+        },
+        effectiveSettings: settingsPatch
       };
     });
   const persistenceIndex = reconcileLifecycleCommandsWithPersistence(
@@ -1997,6 +2746,13 @@ function buildLifecycleControls(now, input = {}, serviceContract, syncMetadata, 
     }
   );
   const persistedLifecycleCommands = persistenceIndex.commands;
+  const commandClientStates = persistedLifecycleCommands.map((command) => buildLifecycleCommandClientState({
+    command,
+    statePatch: command.effectiveSettings,
+    persistence: command.persistence,
+    now,
+    syncMetadata
+  }));
   const rejectedCommands = persistedLifecycleCommands.filter((command) => (
     command.state === "rejected" || command.state === "duplicate"
   ));
@@ -2039,6 +2795,9 @@ function buildLifecycleControls(now, input = {}, serviceContract, syncMetadata, 
     rejectedCommands.length ? "lifecycle.command.rejected" : null,
     persistenceIndex.duplicateCount ? "lifecycle.command.duplicate-idempotency-key" : null,
     persistenceIndex.replayCount ? "lifecycle.command.replay-required" : null,
+    commandClientStates.some((entry) => entry.clientPatch.validationIssues.length)
+      ? "lifecycle.command.effective-settings-invalid"
+      : null,
     ...lifecycleTransitionPlan.blockingIssues
   ].filter(Boolean);
   const blockingIssues = validationIssues.filter((issue) => !["lifecycle.audit-disabled"].includes(issue));
@@ -2100,6 +2859,7 @@ function buildLifecycleControls(now, input = {}, serviceContract, syncMetadata, 
       refreshDue
     },
     commands: persistedLifecycleCommands,
+    commandClientStates,
     commandPersistence: persistenceIndex,
     transitionPlan: lifecycleTransitionPlan,
     commandSummary: {
@@ -2118,6 +2878,12 @@ function buildLifecycleControls(now, input = {}, serviceContract, syncMetadata, 
       rejectedOverrideIssues: rejectedCommands
         .flatMap((command) => command.settingsOverride.validationIssues)
         .filter(Boolean),
+      effectiveSettingsIssues: commandClientStates
+        .flatMap((entry) => entry.clientPatch.validationIssues)
+        .filter(Boolean),
+      nextCommandClientState: commandClientStates.find((entry) => (
+        entry.commandId === (readyCommands[0]?.commandId || scheduledCommands[0]?.commandId)
+      )) || null,
       transitionState: lifecycleTransitionPlan.state,
       projectedEnabled: lifecycleTransitionPlan.projectedSettings.enabled,
       projectedEnforcementEnabled: lifecycleTransitionPlan.projectedSettings.enforcementEnabled,
@@ -2131,6 +2897,9 @@ function buildLifecycleControls(now, input = {}, serviceContract, syncMetadata, 
       syncKey: syncMetadata.syncKey,
       dueAt: nextActionDelayMs > 0 ? new Date(nowMs + nextActionDelayMs).toISOString() : now,
       commandId: readyCommands[0]?.commandId || scheduledCommands[0]?.commandId || null,
+      commandClientState: commandClientStates.find((entry) => (
+        entry.commandId === (readyCommands[0]?.commandId || scheduledCommands[0]?.commandId)
+      )) || null,
       scheduleMode,
       autoScheduleActive,
       reasonCodes: [
@@ -2669,17 +3438,74 @@ function buildRuntimeDecision(now, serviceContract, providerContract, negotiatio
 
 function buildExternalHandoff(input, providerContract, serviceContract, syncMetadata, negotiation, runtimeDecision, accessBoundary) {
   const handoff = asObject(input.externalHandoff);
+  const providerProfile = resolveExternalProviderProfile(input, providerContract, serviceContract, runtimeDecision.request);
+  const operationKind = inferExternalProviderOperationKind(providerProfile, runtimeDecision.request, serviceContract);
+  const safetyEnvelope = buildExternalProviderSafetyEnvelope({
+    providerProfile,
+    operationKind,
+    providerContract,
+    serviceContract,
+    syncMetadata,
+    requestState: runtimeDecision.request,
+    accessBoundary,
+    runtimeDecision,
+    source: handoff
+  });
+  const workflowContract = buildExternalProviderWorkflowContract({
+    providerProfile,
+    operationKind,
+    providerContract,
+    serviceContract,
+    syncMetadata,
+    requestState: runtimeDecision.request,
+    runtimeDecision,
+    safetyEnvelope
+  });
+  const profileCapabilitiesMissing = providerProfile.requiredCapabilities.filter((capability) => (
+    !providerContract.capabilities.includes(capability)
+  ));
+  const profileNegotiationMissing = providerProfile.requiredCapabilities.filter((capability) => (
+    !negotiation.accepted.includes(capability)
+  ));
   const requested = handoff.enabled !== false
     && negotiation.accepted.includes("rate-limit.external-handoff.v1")
-    && accessBoundary.state === "satisfied";
+    && accessBoundary.state === "satisfied"
+    && profileNegotiationMissing.length === 0;
 
   return {
-    enabled: requested,
-    state: requested ? "ready" : accessBoundary.state === "satisfied" ? "disabled" : "blocked-by-boundary",
+    enabled: requested && safetyEnvelope.safeToDispatch,
+    state: requested
+      ? safetyEnvelope.safeToDispatch
+        ? "ready"
+        : "blocked-by-provider-safety"
+      : accessBoundary.state !== "satisfied"
+        ? "blocked-by-boundary"
+        : profileNegotiationMissing.length
+          ? "blocked-by-provider-profile"
+          : "disabled",
     destination: requested
-      ? asIdentifier(handoff.destination, providerContract.endpoint)
+      ? asIdentifier(
+          handoff.destination,
+          providerProfile.defaultEndpointPath
+            ? `${providerContract.endpoint}${providerProfile.defaultEndpointPath}`
+            : providerContract.endpoint
+        )
       : null,
     handoffKey: requested ? `${syncMetadata.syncKey}:external` : null,
+    providerProfile: {
+      schema: providerProfile.schema,
+      providerProfile: providerProfile.providerProfile,
+      source: providerProfile.source,
+      operationKind,
+      preferredCapabilityRateClass: providerProfile.preferredCapabilityRateClass,
+      requiredCapabilities: providerProfile.requiredCapabilities,
+      missingCapabilities: profileCapabilitiesMissing,
+      missingNegotiatedCapabilities: profileNegotiationMissing,
+      remoteIdempotencyHeaders: providerProfile.remoteIdempotencyHeaders,
+      retryHeaderNames: providerProfile.retryHeaderNames
+    },
+    workflowContract,
+    providerSafety: safetyEnvelope,
     payloadContract: requested
       ? {
           surfaceId,
@@ -2687,6 +3513,15 @@ function buildExternalHandoff(input, providerContract, serviceContract, syncMeta
           serviceId: serviceContract.serviceId,
           subjectKey: serviceContract.subjectKey,
           policy: serviceContract.policy,
+          externalProviderProfile: {
+            providerProfile: providerProfile.providerProfile,
+            operationKind,
+            requiredCapabilities: providerProfile.requiredCapabilities,
+            remoteIdempotencyHeaders: providerProfile.remoteIdempotencyHeaders,
+            retryHeaderNames: providerProfile.retryHeaderNames
+          },
+          workflowContract,
+          providerSafety: safetyEnvelope,
           cursor: syncMetadata.cursor,
           runtimeDecision: runtimeDecision
             ? {
@@ -2729,6 +3564,27 @@ function buildProviderServiceBridge(input, providerContract, serviceContract, sy
   const bridge = asObject(input.providerServiceBridge || input.serviceProviderBridge || input.externalProviderState);
   const delivery = asObject(bridge.delivery || bridge.handoffDelivery);
   const acknowledgement = asObject(bridge.acknowledgement || bridge.ack || bridge.providerAck);
+  const providerProfile = externalHandoff.providerProfile || resolveExternalProviderProfile(
+    input,
+    providerContract,
+    serviceContract,
+    runtimeDecision.request
+  );
+  const providerSafety = externalHandoff.providerSafety || buildExternalProviderSafetyEnvelope({
+    providerProfile,
+    operationKind: providerProfile.operationKind || inferExternalProviderOperationKind(
+      providerProfile,
+      runtimeDecision.request,
+      serviceContract
+    ),
+    providerContract,
+    serviceContract,
+    syncMetadata,
+    requestState: runtimeDecision.request,
+    accessBoundary,
+    runtimeDecision,
+    source: bridge
+  });
   const supportedProtocolVersions = Array.isArray(bridge.protocolVersions)
     ? bridge.protocolVersions.filter((version) => Number.isInteger(version) && version > 0)
     : [1];
@@ -2747,11 +3603,30 @@ function buildProviderServiceBridge(input, providerContract, serviceContract, sy
     delivery.deliveryId || bridge.deliveryId,
     `${syncMetadata.syncKey}:handoff:${runtimeDecision.request.requestId}`
   );
+  const remoteIdempotencyKey = asIdentifier(
+    delivery.remoteIdempotencyKey || bridge.remoteIdempotencyKey || bridge.idempotencyKey,
+    `${serviceContract.subjectKey}:${runtimeDecision.request.requestId}:${runtimeDecision.accounting.requestedCost}`
+  );
   const handoffPossible = externalHandoff.enabled
     && accessBoundary.state === "satisfied"
     && negotiation.accepted.includes("rate-limit.external-handoff.v1")
     && syncMetadata.providerSyncLease.writeAllowed
-    && operationalHealth.state !== "unhealthy";
+    && operationalHealth.state !== "unhealthy"
+    && providerSafety.safeToDispatch;
+  const workflowContract = externalHandoff.workflowContract || buildExternalProviderWorkflowContract({
+    providerProfile,
+    operationKind: providerProfile.operationKind || inferExternalProviderOperationKind(
+      providerProfile,
+      runtimeDecision.request,
+      serviceContract
+    ),
+    providerContract,
+    serviceContract,
+    syncMetadata,
+    requestState: runtimeDecision.request,
+    runtimeDecision,
+    safetyEnvelope: providerSafety
+  });
   const dispatchAllowed = runtimeDecision.allowed
     && !runtimeDecision.reservationRequired
     && handoffPossible;
@@ -2785,7 +3660,13 @@ function buildProviderServiceBridge(input, providerContract, serviceContract, sy
       endpoint: destination,
       requiredCapabilities: ["rate-limit.snapshot.v1", "rate-limit.audit.v1", "rate-limit.external-handoff.v1"],
       negotiatedCapabilities: negotiation.accepted,
-      unsupportedCapabilities: negotiation.missingRequired
+      unsupportedCapabilities: negotiation.missingRequired,
+      providerProfile: providerProfile.providerProfile || "generic",
+      providerOperationKind: providerProfile.operationKind || inferExternalProviderOperationKind(
+        providerProfile,
+        runtimeDecision.request,
+        serviceContract
+      )
     },
     delivery: {
       deliveryId: requestedDeliveryId,
@@ -2793,6 +3674,8 @@ function buildProviderServiceBridge(input, providerContract, serviceContract, sy
       dispatchAllowed,
       reasonCode: !syncMetadata.providerSyncLease.writeAllowed
         ? "bridge.sync-lease-not-writable"
+        : !providerSafety.safeToDispatch
+          ? providerSafety.dispatch.reasonCodes[0] || "bridge.provider-safety-hold"
         : !handoffPossible
           ? "bridge.handoff-not-available"
         : !runtimeDecision.allowed
@@ -2804,8 +3687,14 @@ function buildProviderServiceBridge(input, providerContract, serviceContract, sy
               : "bridge.ready",
       attempt: Math.max(0, asNonNegativeInteger(delivery.attempt, 0)),
       nextAttemptAfterMs: operationalHealth.retryAfterMs,
-      cursor: syncMetadata.cursor
+      cursor: syncMetadata.cursor,
+      remoteIdempotencyKey,
+      remoteIdempotencyHeaders: Object.fromEntries(
+        (providerProfile.remoteIdempotencyHeaders || []).map((header) => [header, remoteIdempotencyKey])
+      ),
+      retryHeaderNames: providerProfile.retryHeaderNames || []
     },
+    providerSafety,
     syncLease: {
       state: syncMetadata.providerSyncLease.lease.state,
       handoffState: syncMetadata.providerSyncLease.handoffState,
@@ -2842,7 +3731,25 @@ function buildProviderServiceBridge(input, providerContract, serviceContract, sy
       windowMs: serviceContract.policy.windowMs,
       maxRequests: serviceContract.policy.maxRequests,
       cursor: syncMetadata.cursor
-    }
+    },
+    providerProfile: {
+      schema: "rate-limit.provider-service-bridge-profile.v1",
+      providerProfile: providerProfile.providerProfile || "generic",
+      operationKind: providerProfile.operationKind || inferExternalProviderOperationKind(
+        providerProfile,
+        runtimeDecision.request,
+        serviceContract
+      ),
+      requiredCapabilities: providerProfile.requiredCapabilities || [],
+      remoteIdempotencyKey,
+      remoteIdempotencyHeaders: providerProfile.remoteIdempotencyHeaders || [],
+      retryHeaderNames: providerProfile.retryHeaderNames || [],
+      restartSafeDeliveryKey: `${requestedDeliveryId}:remote:${remoteIdempotencyKey}`,
+      safetyEnvelopeState: providerSafety.state,
+      safetyNextActionId: providerSafety.dispatch.nextActionId,
+      replayFenceKey: providerSafety.replayFence.key
+    },
+    workflowContract
   };
 }
 
@@ -2964,6 +3871,17 @@ function buildProviderOperationContract(input, providerContract, serviceContract
   const source = asObject(input.providerOperationContract || input.operationContract || input.providerOperations);
   const declaredOperations = asObject(source.operations || source);
   const defaults = asObject(source.defaults);
+  const providerProfile = providerServiceBridge.providerProfile || externalHandoff.providerProfile || resolveExternalProviderProfile(
+    input,
+    providerContract,
+    serviceContract,
+    runtimeDecision.request
+  );
+  const providerOperationKind = providerProfile.operationKind || inferExternalProviderOperationKind(
+    providerProfile,
+    runtimeDecision.request,
+    serviceContract
+  );
   const defaultTtlMs = Math.max(1_000, asPositiveInteger(
     defaults.ttlMs || source.ttlMs,
     Math.min(serviceContract.policy.windowMs, 30_000)
@@ -3033,6 +3951,10 @@ function buildProviderOperationContract(input, providerContract, serviceContract
       declared.idempotencyKey,
       `${syncMetadata.syncKey}:${spec.operation}:${runtimeDecision.request.requestId}`
     );
+    const remoteIdempotencyKey = asIdentifier(
+      declared.remoteIdempotencyKey,
+      providerServiceBridge.delivery.remoteIdempotencyKey || idempotencyKey
+    );
     const supportsDryRun = asBoolean(declared.supportsDryRun, !spec.mutatesLedger);
     const consistency = spec.mutatesLedger
       ? syncMetadata.providerSyncLease.writeAllowed ? "sync-lease-required" : "blocked-by-sync-lease"
@@ -3065,10 +3987,23 @@ function buildProviderOperationContract(input, providerContract, serviceContract
       idempotency: {
         required: idempotencyRequired,
         key: idempotencyRequired ? idempotencyKey : null,
-        scope: `${serviceContract.subjectKey}:${spec.operation}`
+        scope: `${serviceContract.subjectKey}:${spec.operation}`,
+        remoteKey: idempotencyRequired ? remoteIdempotencyKey : null,
+        remoteHeaders: idempotencyRequired
+          ? Object.fromEntries((providerProfile.remoteIdempotencyHeaders || []).map((header) => [
+              header,
+              remoteIdempotencyKey
+            ]))
+          : {}
       },
       consistency,
       supportsDryRun,
+      externalProvider: {
+        providerProfile: providerProfile.providerProfile || "generic",
+        operationKind: providerOperationKind,
+        retryHeaderNames: providerProfile.retryHeaderNames || [],
+        restartSafeDeliveryKey: providerServiceBridge.providerProfile?.restartSafeDeliveryKey || ""
+      },
       missingCapabilities,
       violationCodes: optionalBlocked
         ? violationCodes.filter((code) => code !== "operation.sync-lease-not-writable")
@@ -3093,6 +4028,14 @@ function buildProviderOperationContract(input, providerContract, serviceContract
     subjectKey: serviceContract.subjectKey,
     syncKey: syncMetadata.syncKey,
     bridgeDeliveryId: providerServiceBridge.delivery.deliveryId,
+    externalProvider: {
+      providerProfile: providerProfile.providerProfile || "generic",
+      operationKind: providerOperationKind,
+      remoteIdempotencyKey: providerServiceBridge.delivery.remoteIdempotencyKey,
+      requiredCapabilities: providerProfile.requiredCapabilities || [],
+      retryHeaderNames: providerProfile.retryHeaderNames || [],
+      restartSafeDeliveryKey: providerServiceBridge.providerProfile?.restartSafeDeliveryKey || ""
+    },
     defaults: {
       ttlMs: defaultTtlMs,
       timeoutMs: defaultTimeoutMs,
@@ -3145,13 +4088,20 @@ function buildWorkflowHandoffQueue(now, input, serviceContract, syncMetadata, ru
   const requiresProviderAck = providerServiceBridge.acknowledgement.required
     && providerServiceBridge.acknowledgement.state !== "acknowledged";
   const capabilityHandoffWorkflow = runtimeDecision.admissionGuard.externalHandoffWorkflow;
+  const externalProviderWorkflow = providerServiceBridge.workflowContract || null;
   const requiresCapabilityHandoff = capabilityHandoffWorkflow.blocking === true;
+  const requiresExternalProviderWorkflow = Boolean(
+    externalProviderWorkflow &&
+    externalProviderWorkflow.required &&
+    externalProviderWorkflow.blocking
+  );
   const requiresCommandReplay = pendingCommands.some((command) => command.type !== "rate-limit.audit.v1");
   const reservationSatisfied = !runtimeDecision.reservationRequired
     || reservationExecutionPlan.state === "already-committed";
   const canDispatchNow = runtimeDecision.allowed
     && reservationSatisfied
     && !requiresCapabilityHandoff
+    && !requiresExternalProviderWorkflow
     && lifecycleControls.state === "enabled"
     && !requiresProviderAck
     && !requiresCommandReplay;
@@ -3163,6 +4113,8 @@ function buildWorkflowHandoffQueue(now, input, serviceContract, syncMetadata, ru
         ? "awaiting-reservation"
         : requiresCapabilityHandoff
           ? "awaiting-capability-handoff"
+          : requiresExternalProviderWorkflow
+            ? "awaiting-external-provider-workflow"
         : requiresCommandReplay
           ? "awaiting-command-replay"
           : requiresProviderAck
@@ -3188,6 +4140,8 @@ function buildWorkflowHandoffQueue(now, input, serviceContract, syncMetadata, ru
       ? reservationExecutionPlan.nextAction.actionId
       : queueState === "awaiting-capability-handoff"
         ? capabilityHandoffWorkflow.nextActionId
+      : queueState === "awaiting-external-provider-workflow"
+        ? externalProviderWorkflow.dispatchActionId
       : queueState === "held-by-lifecycle"
         ? lifecycleControls.nextAction.actionId
         : runtimeDecision.workflowHandoff.nextActionId;
@@ -3230,7 +4184,10 @@ function buildWorkflowHandoffQueue(now, input, serviceContract, syncMetadata, ru
       reservationState: reservationExecutionPlan.state,
       capabilityHandoffState: capabilityHandoffWorkflow.state,
       capabilityHandoffActionId: capabilityHandoffWorkflow.nextActionId,
-      capabilityHandoffOwner: capabilityHandoffWorkflow.owner
+      capabilityHandoffOwner: capabilityHandoffWorkflow.owner,
+      externalProviderWorkflowState: externalProviderWorkflow?.state || "not-required",
+      externalProviderWorkflowActionId: externalProviderWorkflow?.dispatchActionId || "",
+      externalProviderWorkflowOwner: externalProviderWorkflow?.owner || ""
     },
     reservationPlan: {
       schema: reservationExecutionPlan.schema,
@@ -3260,6 +4217,41 @@ function buildWorkflowHandoffQueue(now, input, serviceContract, syncMetadata, ru
       checkpointPolicy: capabilityHandoffWorkflow.checkpointPolicy,
       reasonCodes: capabilityHandoffWorkflow.reasonCodes
     },
+    externalProviderWorkflow: externalProviderWorkflow
+      ? {
+          schema: externalProviderWorkflow.schema,
+          providerProfile: externalProviderWorkflow.providerProfile,
+          operationKind: externalProviderWorkflow.operationKind,
+          state: externalProviderWorkflow.state,
+          required: externalProviderWorkflow.required,
+          blocking: externalProviderWorkflow.blocking,
+          dispatchActionId: externalProviderWorkflow.dispatchActionId,
+          owner: externalProviderWorkflow.owner,
+          retryAfterMs: externalProviderWorkflow.retryAfterMs,
+          checkpointPolicy: externalProviderWorkflow.checkpointPolicy,
+          remoteIdempotency: externalProviderWorkflow.remoteIdempotency,
+          acceptance: externalProviderWorkflow.acceptance,
+          checkpoint: externalProviderWorkflow.checkpoint,
+          safety: externalProviderWorkflow.safety,
+          reasonCodes: externalProviderWorkflow.reasonCodes
+        }
+      : {
+          schema: "rate-limit.external-provider-workflow-contract.v1",
+          providerProfile: "generic",
+          operationKind: "generic",
+          state: "not-required",
+          required: false,
+          blocking: false,
+          dispatchActionId: "",
+          owner: "",
+          retryAfterMs: 0,
+          checkpointPolicy: "local-proof-only",
+          remoteIdempotency: null,
+          acceptance: null,
+          checkpoint: null,
+          safety: null,
+          reasonCodes: []
+        },
     proof: {
       auditReady: Boolean(auditCommand) && auditCommand.state !== "held",
       idempotencyKey: `${handoffId}:proof:${syncMetadata.cursor}`,
@@ -3267,6 +4259,7 @@ function buildWorkflowHandoffQueue(now, input, serviceContract, syncMetadata, ru
         !runtimeDecision.allowed ? `runtime.${runtimeDecision.decision}` : null,
         !reservationSatisfied ? `workflow.reservation-${reservationExecutionPlan.state}` : null,
         requiresCapabilityHandoff ? "workflow.capability-handoff-required" : null,
+        requiresExternalProviderWorkflow ? "workflow.external-provider-workflow-required" : null,
         requiresCommandReplay ? "workflow.command-replay-required" : null,
         requiresProviderAck ? "workflow.provider-ack-required" : null,
         lifecycleControls.state !== "enabled" ? `workflow.lifecycle-${lifecycleControls.state}` : null,
@@ -3282,6 +4275,14 @@ function buildIdempotentCommands(now, serviceContract, syncMetadata, runtimeDeci
   const hasAppliedCommand = (idempotencyKey) => persistedState.appliedCommandKeys.includes(idempotencyKey);
   const reserveIdempotencyKey = `${baseKey}:reserve:${runtimeDecision.accounting.requestedCost}`;
   const auditIdempotencyKey = `${baseKey}:audit:${syncMetadata.cursor}`;
+  const externalProviderProfile = serviceContract.externalProviderProfile || {
+    providerProfile: "generic",
+    requiredCapabilities: [],
+    remoteIdempotencyHeaders: []
+  };
+  const externalHandoffRequired = runtimeDecision.accounting.externalHandoffContract?.required === true
+    || serviceContract.policy.externalHandoffRequired === true;
+  const externalHandoffKey = `${baseKey}:external-handoff:${externalProviderProfile.providerProfile}:${runtimeDecision.request.routeId}`;
   const reserveCommand = runtimeDecision.reservationRequired
     ? {
         commandId: `${baseKey}:reserve`,
@@ -3311,8 +4312,29 @@ function buildIdempotentCommands(now, serviceContract, syncMetadata, runtimeDeci
     subjectKey: serviceContract.subjectKey,
     requestId: runtimeDecision.request.requestId,
     decision: runtimeDecision.decision,
-    generatedAt: now
+      generatedAt: now
   };
+  const externalHandoffCommand = externalHandoffRequired
+    ? {
+        commandId: `${baseKey}:external-handoff`,
+        type: "rate-limit.external-handoff.v1",
+        idempotencyKey: externalHandoffKey,
+        state: hasAppliedCommand(externalHandoffKey)
+          ? "already-applied"
+          : runtimeDecision.accounting.externalHandoffContract?.ready
+            ? "ready"
+            : "pending",
+        subjectKey: serviceContract.subjectKey,
+        requestId: runtimeDecision.request.requestId,
+        providerProfile: externalProviderProfile.providerProfile,
+        remoteIdempotencyHeaders: Object.fromEntries(
+          (externalProviderProfile.remoteIdempotencyHeaders || []).map((header) => [header, externalHandoffKey])
+        ),
+        requiredCapabilities: externalProviderProfile.requiredCapabilities || [],
+        sequence: persistedState.commandSequence + (reserveCommand ? 2 : 1),
+        generatedAt: now
+      }
+    : null;
   const recoveryCommands = recoveryPlan.actions.map((action, index) => ({
     commandId: `${persistedState.stateKey}:recovery:${index + 1}`,
     type: "rate-limit.recovery.v1",
@@ -3340,7 +4362,13 @@ function buildIdempotentCommands(now, serviceContract, syncMetadata, runtimeDeci
     schema: "rate-limit.idempotent-commands.v1",
     replayPolicy: "dedupe-by-idempotency-key",
     alreadyApplied,
-    commands: [reserveCommand, auditCommand, ...recoveryCommands, ...lifecycleCommands].filter(Boolean)
+    externalProvider: {
+      providerProfile: externalProviderProfile.providerProfile,
+      externalHandoffRequired,
+      externalHandoffKey,
+      remoteIdempotencyHeaders: externalProviderProfile.remoteIdempotencyHeaders || []
+    },
+    commands: [reserveCommand, externalHandoffCommand, auditCommand, ...recoveryCommands, ...lifecycleCommands].filter(Boolean)
   };
 }
 
@@ -3657,6 +4685,10 @@ function buildDurableStateProjection(now, serviceContract, syncMetadata, runtime
     unapprovedOverflowUnits > 0 ? "projection.exceeds-policy-window" : null,
     unapprovedClassOverflowUnits > 0 ? "projection.capability-class-exceeds-limit" : null,
     !persistedState.isSubjectMatch ? "projection.subject-mismatch" : null,
+    persistedState.ledgerReconciliation.state === "drift-detected"
+      && persistedState.ledgerReconciliation.replayDirection !== "rebuild-capability-class-ledger"
+      ? "projection.ledger-reconciliation-required"
+      : null,
     recoveryPlan.state === "recovery-required" ? "projection.recovery-required" : null,
     commandRecoveryIndex.state === "invalid" ? "projection.command-recovery-invalid" : null,
     pendingCommands.some((command) => !command.idempotencyKey) ? "projection.command-missing-idempotency-key" : null
@@ -3687,7 +4719,8 @@ function buildDurableStateProjection(now, serviceContract, syncMetadata, runtime
       shouldAccountRequest,
       shouldReserveRequest,
       emergencyOverflowAllowance,
-      unapprovedOverflowUnits
+      unapprovedOverflowUnits,
+      ledgerReplayDirection: persistedState.ledgerReconciliation.replayDirection
     },
     projectedLedger: {
       windowUsed: projectedWindowUsed,
@@ -3725,6 +4758,7 @@ function buildDurableStateProjection(now, serviceContract, syncMetadata, runtime
       duplicateKeys: commandRecoveryIndex.duplicateKeys,
       staleJournalEntryCount: commandRecoveryIndex.staleJournalEntries.length
     },
+    ledgerReconciliation: persistedState.ledgerReconciliation,
     pendingCommandCount: pendingCommands.length,
     invariantViolations,
     restartContract: {
@@ -3763,6 +4797,13 @@ function buildRestartSafeStatus(readiness, runtimeDecision, persistedState, reco
       appliedRequestIdsRetained: persistedState.appliedRequestIds.length,
       appliedCommandKeysRetained: persistedState.appliedCommandKeys.length
     },
+    ledgerReconciliation: {
+      schema: persistedState.ledgerReconciliation.schema,
+      state: persistedState.ledgerReconciliation.state,
+      replayDirection: persistedState.ledgerReconciliation.replayDirection,
+      driftReasons: persistedState.ledgerReconciliation.driftReasons,
+      deltas: persistedState.ledgerReconciliation.deltas
+    },
     commandRecovery: {
       schema: commandRecoveryIndex.schema,
       state: commandRecoveryIndex.state,
@@ -3788,7 +4829,8 @@ function buildRestartSafeStatus(readiness, runtimeDecision, persistedState, reco
         totalProjectedAccountedRequests: durableProjection.projectedLedger.capabilityClasses.totalProjectedAccountedRequests
       },
       pendingCommandCount: durableProjection.pendingCommandCount,
-      invariantViolations: durableProjection.invariantViolations
+      invariantViolations: durableProjection.invariantViolations,
+      ledgerReconciliation: durableProjection.ledgerReconciliation
     },
     semantics: {
       reserve: runtimeDecision.reservationRequired ? "must-commit-before-dispatch" : "not-required",
@@ -3844,6 +4886,7 @@ function buildAuditProof(now, providerContract, serviceContract, negotiation, sy
       restartState: restartStatus.state,
       recoveryState: recoveryPlan.state,
       pendingReservationCount: persistedState.pendingReservationCount,
+      ledgerReconciliation: persistedState.ledgerReconciliation,
       durableProjection: {
         schema: durableProjection.schema,
         state: durableProjection.state,
@@ -3905,7 +4948,8 @@ function buildAuditProof(now, providerContract, serviceContract, negotiation, sy
       protocol: providerServiceBridge.protocol,
       delivery: providerServiceBridge.delivery,
       syncLease: providerServiceBridge.syncLease,
-      acknowledgement: providerServiceBridge.acknowledgement
+      acknowledgement: providerServiceBridge.acknowledgement,
+      workflowContract: providerServiceBridge.workflowContract
     },
     providerHandoffReceipt: {
       schema: providerHandoffReceipt.schema,
@@ -3944,6 +4988,7 @@ function buildAuditProof(now, providerContract, serviceContract, negotiation, sy
       owner: workflowHandoffQueue.owner,
       clientCheckpoint: workflowHandoffQueue.clientCheckpoint,
       dispatch: workflowHandoffQueue.dispatch,
+      externalProviderWorkflow: workflowHandoffQueue.externalProviderWorkflow,
       commandBacklog: workflowHandoffQueue.commandBacklog,
       proof: workflowHandoffQueue.proof
     },
@@ -3970,6 +5015,7 @@ function buildAuditProof(now, providerContract, serviceContract, negotiation, sy
       "lifecycle settings can disable, pause, or schedule enforcement before dispatch",
       "lifecycle commands are normalized with idempotency keys for safe application",
       "provider/service bridge envelopes carry request, policy, cursor, and acknowledgement state",
+      "external provider workflow contracts expose Mailchimp-style operator acceptance, checkpoint, remote idempotency, replay fence, and next-action handoff data",
       "provider handoff receipts validate delivery id, cursor, stale acknowledgement, and durable replay token state",
       "provider operation contracts validate endpoint, TTL, idempotency, sync-lease, and capability requirements per operation",
       "reservation execution plans reconcile provider reserve readiness, durable command replay, and pending reservation state before dispatch",
@@ -4090,6 +5136,25 @@ function buildValidationSummary(providerContract, serviceContract, negotiation, 
           ? "pass"
           : "warn",
       severity: "advisory"
+    },
+    {
+      code: "provider.external-workflow",
+      label: "External provider workflow exposes acceptance, checkpoint, remote idempotency, and replay-fence state",
+      status: !providerServiceBridge.workflowContract?.required
+        ? "skip"
+        : providerServiceBridge.workflowContract.blocking
+          ? providerServiceBridge.workflowContract.dispatchActionId
+            && providerServiceBridge.workflowContract.remoteIdempotency?.replayFenceKey
+            ? "warn"
+            : "fail"
+          : providerServiceBridge.workflowContract.remoteIdempotency?.headerNames?.length
+            ? "pass"
+            : "warn",
+      severity: providerServiceBridge.workflowContract?.required
+        && providerServiceBridge.workflowContract.blocking
+        && !providerServiceBridge.workflowContract.dispatchActionId
+        ? "blocking"
+        : "advisory"
     },
     {
       code: "provider.handoff-receipt",
@@ -4325,6 +5390,18 @@ function buildValidationSummary(providerContract, serviceContract, negotiation, 
       severity: "blocking"
     },
     {
+      code: "persistence.ledger-reconciliation",
+      label: "Persisted ledger totals reconcile with the observed client quota snapshot",
+      status: persistedState.ledgerReconciliation.state === "aligned"
+        ? "pass"
+        : persistedState.ledgerReconciliation.replayDirection === "rebuild-capability-class-ledger"
+          ? "warn"
+          : "fail",
+      severity: persistedState.ledgerReconciliation.replayDirection === "rebuild-capability-class-ledger"
+        ? "advisory"
+        : "blocking"
+    },
+    {
       code: "persistence.recovery",
       label: "Restart recovery has a deterministic replay plan",
       status: recoveryPlan.actions.every((action) => action.idempotencyKey) ? "pass" : "fail",
@@ -4419,13 +5496,18 @@ function buildReadiness(providerContract, serviceContract, negotiation, validati
     providerBridgeAckState: providerServiceBridge.acknowledgement.state,
     providerOperationState: providerOperationContract.state,
     providerReserveOperationState: providerOperationContract.reserveState,
-    providerHandoffOperationState: providerOperationContract.externalHandoffState
+    providerHandoffOperationState: providerOperationContract.externalHandoffState,
+    externalProviderWorkflowState: providerServiceBridge.workflowContract?.state || "not-required",
+    externalProviderWorkflowActionId: providerServiceBridge.workflowContract?.dispatchActionId || "",
+    externalProviderWorkflowBlocking: providerServiceBridge.workflowContract?.blocking || false,
+    externalProviderWorkflowReasonCodes: providerServiceBridge.workflowContract?.reasonCodes || []
   };
 }
 
-function buildUserPreview(now, serviceContract, providerContract, negotiation, readiness, validationSummary, runtimeDecision, operationalHealth, lifecycleControls) {
+function buildUserPreview(now, serviceContract, providerContract, negotiation, readiness, validationSummary, runtimeDecision, operationalHealth, lifecycleControls, providerServiceBridge = null) {
   const windowSeconds = Math.round(serviceContract.policy.windowMs / 1_000);
   const remainingAfterBurst = Math.max(0, serviceContract.policy.maxRequests - serviceContract.policy.burstRequests);
+  const providerSafety = providerServiceBridge?.providerSafety || null;
 
   return {
     title: "Rate limit preview",
@@ -4459,6 +5541,25 @@ function buildUserPreview(now, serviceContract, providerContract, negotiation, r
       operationContractState: readiness.providerOperationState,
       reserveOperationState: readiness.providerReserveOperationState,
       handoffOperationState: readiness.providerHandoffOperationState,
+      safetyEnvelopeState: providerSafety?.state || "not-evaluated",
+      safetyNextActionId: providerSafety?.dispatch?.nextActionId || "",
+      safetyCanDispatch: providerSafety?.dispatch?.canDispatch ?? false,
+      safetyRisk: providerSafety?.risk || "unknown",
+      safetyReasonCodes: providerSafety?.dispatch?.reasonCodes || [],
+      externalProviderWorkflow: providerServiceBridge?.workflowContract
+        ? {
+            state: providerServiceBridge.workflowContract.state,
+            required: providerServiceBridge.workflowContract.required,
+            blocking: providerServiceBridge.workflowContract.blocking,
+            dispatchActionId: providerServiceBridge.workflowContract.dispatchActionId,
+            owner: providerServiceBridge.workflowContract.owner,
+            checkpointPolicy: providerServiceBridge.workflowContract.checkpointPolicy,
+            remoteIdempotency: providerServiceBridge.workflowContract.remoteIdempotency,
+            acceptance: providerServiceBridge.workflowContract.acceptance,
+            checkpoint: providerServiceBridge.workflowContract.checkpoint,
+            reasonCodes: providerServiceBridge.workflowContract.reasonCodes
+          }
+        : null,
       signals: operationalHealth.signals
     },
     lifecyclePreview: {
@@ -4511,6 +5612,7 @@ function buildUserPreview(now, serviceContract, providerContract, negotiation, r
       externalHandoffReady: runtimeDecision.admissionGuard.externalHandoffReady,
       externalHandoffContract: runtimeDecision.admissionGuard.externalHandoffContract,
       externalHandoffWorkflow: runtimeDecision.admissionGuard.externalHandoffWorkflow,
+      providerSafety,
       admissionPath: runtimeDecision.accounting.capabilityAdmissionPacket.path,
       admissionAction: runtimeDecision.accounting.capabilityAdmissionPacket.action,
       admissionGuardReasons: runtimeDecision.admissionGuard.reasonCodes,
@@ -4690,6 +5792,25 @@ function buildActionableErrors(validationSummary, readiness, operationalHealth, 
         acknowledgementState: providerServiceBridge.acknowledgement.state
       },
       evidenceRefs: ["providerServiceBridge.delivery"]
+    });
+  }
+
+  if (providerServiceBridge.workflowContract?.blocking) {
+    pushError({
+      code: providerServiceBridge.workflowContract.reasonCodes[0] || "external-provider-workflow.blocked",
+      source: "external-provider-workflow",
+      severity: providerServiceBridge.workflowContract.owner === "operator" ? "warning" : "retryable",
+      message: "External provider workflow requires acceptance, checkpoint, sync lease, or replay-fence remediation before dispatch",
+      actionId: providerServiceBridge.workflowContract.dispatchActionId,
+      retryAfterMs: providerServiceBridge.workflowContract.retryAfterMs,
+      target: {
+        providerProfile: providerServiceBridge.workflowContract.providerProfile,
+        operationKind: providerServiceBridge.workflowContract.operationKind,
+        state: providerServiceBridge.workflowContract.state,
+        owner: providerServiceBridge.workflowContract.owner,
+        replayFenceKey: providerServiceBridge.workflowContract.remoteIdempotency?.replayFenceKey || ""
+      },
+      evidenceRefs: ["providerServiceBridge.workflowContract"]
     });
   }
 
@@ -5004,6 +6125,22 @@ function buildNextSteps(validationSummary, readiness, externalHandoff, syncMetad
     proofId: providerOperationContract.proof.proofId
   });
 
+  if (providerServiceBridge.providerSafety.remoteQuota.acceptance.stale) {
+    operationalSteps.push({
+      actionId: "refresh.rate-limit.external-provider-acceptance",
+      priority: "required",
+      label: "Refresh the external provider quota acceptance before dispatch",
+      reasonCode: "remote-quota.acceptance-stale",
+      providerProfile: providerServiceBridge.providerSafety.providerProfile,
+      operationKind: providerServiceBridge.providerSafety.operationKind,
+      acceptedAt: providerServiceBridge.providerSafety.remoteQuota.acceptance.acceptedAt,
+      ageMs: providerServiceBridge.providerSafety.remoteQuota.acceptance.ageMs,
+      maxAgeMs: providerServiceBridge.providerSafety.remoteQuota.acceptance.maxAgeMs,
+      expectedAcceptanceKey: providerServiceBridge.providerSafety.remoteQuota.acceptance.expectedAcceptanceKey,
+      retryAfterMs: providerServiceBridge.providerSafety.remoteQuota.nextAction.retryAfterMs
+    });
+  }
+
   if (reservationExecutionPlan.required) {
     operationalSteps.push({
       actionId: reservationExecutionPlan.nextAction.actionId,
@@ -5257,6 +6394,24 @@ function buildClientReviewContract(now, preview, acceptance, readiness, validati
         }
       },
       {
+        cardId: "provider-safety",
+        title: "Provider safety",
+        state: providerServiceBridge.providerSafety.state,
+        value: providerServiceBridge.providerSafety.dispatch.nextActionId,
+        detail: {
+          providerProfile: providerServiceBridge.providerSafety.providerProfile,
+          operationKind: providerServiceBridge.providerSafety.operationKind,
+          risk: providerServiceBridge.providerSafety.risk,
+          safeToDispatch: providerServiceBridge.providerSafety.safeToDispatch,
+          acceptanceRequired: providerServiceBridge.providerSafety.acceptance.required,
+          acceptanceAccepted: providerServiceBridge.providerSafety.acceptance.accepted,
+          checkpointRequired: providerServiceBridge.providerSafety.checkpoint.required,
+          checkpointReady: providerServiceBridge.providerSafety.checkpoint.ready,
+          replayFenceKey: providerServiceBridge.providerSafety.replayFence.key,
+          reasonCodes: providerServiceBridge.providerSafety.dispatch.reasonCodes
+        }
+      },
+      {
         cardId: "provider-receipt",
         title: "Receipt",
         state: providerHandoffReceipt.state,
@@ -5380,6 +6535,28 @@ function buildClientReviewContract(now, preview, acceptance, readiness, validati
       reservationRequired: reservationExecutionPlan.required,
       capabilityHandoff: workflowHandoffQueue.capabilityHandoff,
       reasonCodes: workflowHandoffQueue.proof.reasonCodes
+    },
+    providerSafety: {
+      schema: providerServiceBridge.providerSafety.schema,
+      state: providerServiceBridge.providerSafety.state,
+      providerProfile: providerServiceBridge.providerSafety.providerProfile,
+      operationKind: providerServiceBridge.providerSafety.operationKind,
+      risk: providerServiceBridge.providerSafety.risk,
+      safeToDispatch: providerServiceBridge.providerSafety.safeToDispatch,
+      nextActionId: providerServiceBridge.providerSafety.dispatch.nextActionId,
+      reasonCodes: providerServiceBridge.providerSafety.dispatch.reasonCodes,
+      acceptance: providerServiceBridge.providerSafety.acceptance,
+      remoteQuotaAcceptance: {
+        required: providerServiceBridge.providerSafety.remoteQuota.acceptance.required,
+        accepted: providerServiceBridge.providerSafety.remoteQuota.acceptance.accepted,
+        stale: providerServiceBridge.providerSafety.remoteQuota.acceptance.stale,
+        ageMs: providerServiceBridge.providerSafety.remoteQuota.acceptance.ageMs,
+        maxAgeMs: providerServiceBridge.providerSafety.remoteQuota.acceptance.maxAgeMs,
+        acceptedAt: providerServiceBridge.providerSafety.remoteQuota.acceptance.acceptedAt,
+        expectedAcceptanceKey: providerServiceBridge.providerSafety.remoteQuota.acceptance.expectedAcceptanceKey
+      },
+      checkpoint: providerServiceBridge.providerSafety.checkpoint,
+      replayFence: providerServiceBridge.providerSafety.replayFence
     },
     providerHandoffReceipt: {
       schema: providerHandoffReceipt.schema,
@@ -5654,16 +6831,16 @@ function normalizeAnalyticsSnapshots(input = {}, serviceContract, providerContra
       ? analytics.snapshots
       : Array.isArray(input.rateLimitSnapshots)
         ? input.rateLimitSnapshots
-        : [];
+      : [];
 
   return rawSnapshots
     .filter((snapshot) => snapshot && typeof snapshot === "object")
     .slice(-11)
     .map((snapshot, index) => {
       const maxRequests = asPositiveInteger(snapshot.maxRequests, serviceContract.policy.maxRequests);
-      const windowUsed = asNonNegativeInteger(snapshot.windowUsed || snapshot.usedRequests, 0);
-      const reserved = asNonNegativeInteger(snapshot.reserved || snapshot.reservedRequests, 0);
-      const localPending = asNonNegativeInteger(snapshot.localPending || snapshot.pendingRequests, 0);
+      const windowUsed = readNonNegativeInteger(snapshot, ["windowUsed", "usedRequests"], 0);
+      const reserved = readNonNegativeInteger(snapshot, ["reserved", "reservedRequests"], 0);
+      const localPending = readNonNegativeInteger(snapshot, ["localPending", "pendingRequests"], 0);
       const accountedRequests = asNonNegativeInteger(
         snapshot.accountedRequests,
         windowUsed + reserved + localPending
@@ -5866,7 +7043,137 @@ function buildCapabilityClassAnalyticsReport(serviceContract, runtimeDecision, c
   };
 }
 
-function buildAnalyticsExports(now, input, serviceContract, providerContract, syncMetadata, runtimeDecision, quotaState, persistedState, recoveryPlan, accessBoundary, operationalHealth, validationSummary, readiness, workflowHandoffQueue) {
+function buildMailchimpProviderAnalyticsReport({
+  now,
+  serviceContract,
+  providerContract,
+  syncMetadata,
+  runtimeDecision,
+  persistedState,
+  recoveryPlan,
+  workflowHandoffQueue,
+  readiness,
+  validationSummary,
+  exportRows,
+  events
+}) {
+  const profile = serviceContract.externalProviderProfile || {};
+  const matched = profile.providerProfile === "mailchimp";
+  const workflow = runtimeDecision.accounting.externalHandoffWorkflow || {};
+  const contract = runtimeDecision.accounting.externalHandoffContract || {};
+  const remote = contract.workflow?.remoteIdempotency || workflow.remoteIdempotency || {};
+  const operationKind = inferExternalProviderOperationKind(profile, runtimeDecision.request, serviceContract);
+  const commandJournal = persistedState.commandJournal.filter((entry) => (
+    asIdentifier(entry.type, "").includes("external-handoff") ||
+    asIdentifier(entry.idempotencyKey, "").includes("mailchimp")
+  ));
+  const recoveryActions = recoveryPlan.actions.filter((action) => (
+    asIdentifier(action.idempotencyKey, "").includes("mailchimp") ||
+    asIdentifier(action.reasonCode, "").startsWith("persisted.")
+  ));
+  const mailchimpEvents = events.filter((event) => (
+    matched ||
+    event.routeId.toLowerCase().includes("mailchimp") ||
+    event.workflowId?.toLowerCase?.().includes("mailchimp")
+  ));
+  const blockingCodes = [
+    matched && validationSummary.blockingFailureCount ? "mailchimp.validation-blocked" : null,
+    matched && readiness.state === "blocked" ? "mailchimp.readiness-blocked" : null,
+    matched && contract.required && !contract.ready ? "mailchimp.external-handoff-not-ready" : null,
+    matched && workflowHandoffQueue.commandBacklog.requiresCommandReplay ? "mailchimp.command-replay-required" : null,
+    matched && recoveryPlan.actions.some((action) => action.priority === "required") ? "mailchimp.recovery-required" : null,
+    matched && !(remote.headerNames || []).length ? "mailchimp.remote-idempotency-header-missing" : null
+  ].filter(Boolean);
+  const exportReady = matched
+    && blockingCodes.length === 0
+    && readiness.state !== "blocked"
+    && validationSummary.blockingFailureCount === 0;
+  const status = !matched
+    ? "not-mailchimp"
+    : exportReady && runtimeDecision.allowed
+      ? "dispatch-ready"
+      : exportReady
+        ? "export-ready"
+        : "attention";
+  const nextActionId = blockingCodes.length
+    ? workflowHandoffQueue.dispatch.nextActionId || workflow.nextActionId || "repair.rate-limit.mailchimp-handoff"
+    : runtimeDecision.allowed
+      ? "dispatch.rate-limit.mailchimp-provider"
+      : runtimeDecision.workflowHandoff.nextActionId;
+  const rows = exportRows
+    .filter((row) => matched || row.routeId.toLowerCase().includes("mailchimp"))
+    .map((row) => ({
+      ...row,
+      mailchimpMatched: matched,
+      mailchimpStatus: status,
+      mailchimpOperationKind: operationKind,
+      mailchimpProviderId: providerContract.providerId,
+      mailchimpSyncKey: syncMetadata.syncKey,
+      mailchimpCursor: syncMetadata.cursor,
+      mailchimpRemoteIdempotencyKey: remote.key || "",
+      mailchimpRemoteHeaderNames: (remote.headerNames || []).join("|"),
+      mailchimpRestartSafeDeliveryKey: remote.restartSafeDeliveryKey || "",
+      mailchimpWorkflowState: workflow.state || "not-required",
+      mailchimpWorkflowBlocking: workflow.blocking === true,
+      mailchimpNextActionId: nextActionId,
+      mailchimpExportReady: exportReady,
+      mailchimpBlockingCodes: blockingCodes.join("|")
+    }));
+
+  return {
+    schema: "rate-limit.mailchimp-provider-analytics.v1",
+    generatedAt: now,
+    matched,
+    status,
+    exportReady,
+    providerId: providerContract.providerId,
+    subjectKey: serviceContract.subjectKey,
+    operationKind,
+    capabilityRateClass: runtimeDecision.request.capabilityRateClass,
+    requiredCapabilities: profile.requiredCapabilities || [],
+    missingCapabilities: serviceContract.policy.externalProviderMissingCapabilities || [],
+    workflow: {
+      state: workflow.state || "not-required",
+      required: workflow.required === true,
+      blocking: workflow.blocking === true,
+      nextActionId,
+      owner: workflow.owner || "",
+      retryAfterMs: asNonNegativeInteger(workflow.retryAfterMs, 0),
+      checkpointPolicy: workflow.checkpointPolicy || "",
+      reasonCodes: workflow.reasonCodes || []
+    },
+    remoteIdempotency: {
+      key: remote.key || "",
+      headerNames: remote.headerNames || [],
+      replayFenceKey: remote.replayFenceKey || "",
+      replayWindowMs: asNonNegativeInteger(remote.replayWindowMs, 0),
+      restartSafeDeliveryKey: remote.restartSafeDeliveryKey || ""
+    },
+    persistence: {
+      stateKey: persistedState.stateKey,
+      pendingCommandCount: commandJournal.filter((entry) => entry.state === "pending").length,
+      failedCommandCount: commandJournal.filter((entry) => entry.state === "failed").length,
+      appliedCommandCount: persistedState.appliedCommandKeys.filter((key) => key.includes("mailchimp")).length,
+      recoveryActionCount: recoveryActions.length,
+      restartSafe: recoveryActions.every((action) => action.priority !== "required")
+    },
+    counters: {
+      eventCount: mailchimpEvents.length,
+      allowedCount: mailchimpEvents.filter((event) => event.allowed).length,
+      throttledCount: mailchimpEvents.filter((event) => event.type === "throttle" || event.type === "throttle-burst").length,
+      heldWorkflowCount: workflowHandoffQueue.dispatch.canDispatch ? 0 : 1,
+      exportRowCount: rows.length,
+      blockingCodeCount: blockingCodes.length
+    },
+    blockingCodes,
+    rows,
+    summaryKey: matched
+      ? `${syncMetadata.syncKey}:mailchimp:${runtimeDecision.request.requestId}:${operationKind}`
+      : ""
+  };
+}
+
+function buildAnalyticsExports(now, input, serviceContract, providerContract, syncMetadata, runtimeDecision, quotaState, persistedState, recoveryPlan, accessBoundary, operationalHealth, validationSummary, readiness, workflowHandoffQueue, idempotentCommands) {
   const events = normalizeAnalyticsHistory(input, now, serviceContract, runtimeDecision, accessBoundary, operationalHealth);
   const currentWindowSnapshot = {
     schema: "rate-limit.history-snapshot.v1",
@@ -6049,6 +7356,23 @@ function buildAnalyticsExports(now, input, serviceContract, providerContract, sy
     emergencyAdmissionState: runtimeDecision.accounting.emergencyAdmission.state,
     emergencyUnitsGranted: runtimeDecision.accounting.emergencyUnitsGranted
   }));
+  const mailchimpProviderReport = buildMailchimpProviderAnalyticsReport({
+    now,
+    serviceContract,
+    providerContract,
+    syncMetadata,
+    runtimeDecision,
+    persistedState,
+    recoveryPlan,
+    workflowHandoffQueue,
+    readiness,
+    validationSummary,
+    exportRows,
+    events
+  });
+  const enrichedExportRows = mailchimpProviderReport.rows.length
+    ? mailchimpProviderReport.rows
+    : exportRows;
   const reportTimeline = historySnapshots.map((snapshot) => ({
     at: snapshot.capturedAt,
     snapshotId: snapshot.snapshotId,
@@ -6069,6 +7393,68 @@ function buildAnalyticsExports(now, input, serviceContract, providerContract, sy
       : snapshotDelta.state === "pressure-rising" && currentWindowSnapshot.pressureRatio >= 0.8
         ? "pressure-rising"
         : "nominal";
+  const commandStateCounters = idempotentCommands.commands.reduce((totals, command) => {
+    incrementCounter(totals.byState, command.state);
+    incrementCounter(totals.byType, command.type);
+    if (command.state === "pending") totals.pending += 1;
+    if (command.state === "held") totals.held += 1;
+    if (command.state === "failed") totals.failed += 1;
+    if (command.state === "already-applied") totals.alreadyApplied += 1;
+    return totals;
+  }, {
+    pending: 0,
+    held: 0,
+    failed: 0,
+    alreadyApplied: 0,
+    byState: {},
+    byType: {}
+  });
+  const recoveryCommandCounters = recoveryPlan.actions.reduce((totals, action) => {
+    incrementCounter(totals.byPriority, action.priority);
+    incrementCounter(totals.byReasonCode, action.reasonCode);
+    if (action.priority === "required") totals.required += 1;
+    if (action.priority === "recommended") totals.recommended += 1;
+    return totals;
+  }, {
+    required: 0,
+    recommended: 0,
+    byPriority: {},
+    byReasonCode: {}
+  });
+  const exportHealthCodes = [
+    !exportRows.length ? "export.no-rows" : null,
+    validationSummary.blockingFailureCount ? "export.validation-blocked" : null,
+    readiness.state === "blocked" ? "export.readiness-blocked" : null,
+    workflowHandoffQueue.commandBacklog.pendingCount ? "export.pending-command-backlog" : null,
+    recoveryPlan.actions.some((action) => action.priority === "required") ? "export.recovery-required" : null,
+    timelineState !== "nominal" ? `export.timeline-${timelineState}` : null,
+    capabilityClassReport.counters.overLimitClassCount ? "export.capability-class-over-limit" : null,
+    mailchimpProviderReport.matched && !mailchimpProviderReport.exportReady ? "export.mailchimp-attention" : null,
+    ...mailchimpProviderReport.blockingCodes.map((code) => `export.${code}`)
+  ].filter(Boolean);
+  const exportHealth = {
+    schema: "rate-limit.export-health.v1",
+    state: exportHealthCodes.some((code) => code.includes("blocked") || code.includes("over-limit"))
+      ? "blocked"
+      : exportHealthCodes.length
+        ? "attention"
+        : "ready",
+    generatedAt: now,
+    exportReady: exportRows.length > 0 && validationSummary.blockingFailureCount === 0,
+    rowCount: exportRows.length,
+    healthCodes: exportHealthCodes,
+    commandStateCounters,
+    recoveryCommandCounters,
+    queue: {
+      state: workflowHandoffQueue.state,
+      canDispatch: workflowHandoffQueue.dispatch.canDispatch,
+      pendingCommandCount: workflowHandoffQueue.commandBacklog.pendingCount,
+      requiresCommandReplay: workflowHandoffQueue.commandBacklog.requiresCommandReplay,
+      reservationState: workflowHandoffQueue.reservationPlan.state,
+      capabilityHandoffState: workflowHandoffQueue.capabilityHandoff.state
+    },
+    digest: `${serviceContract.subjectKey}:${quotaState.snapshotId}:${runtimeDecision.request.requestId}:${exportHealthCodes.join("|") || "ready"}`
+  };
 
   return {
     schema: "rate-limit.analytics-exports.v1",
@@ -6096,17 +7482,32 @@ function buildAnalyticsExports(now, input, serviceContract, providerContract, sy
       activeClassAccountedRequests: capabilityClassReport.counters.activeClassAccountedRequests,
       topPressureCapabilityClass: capabilityClassReport.topPressureClass?.capabilityRateClass || null,
       validationWarnings: validationSummary.warningCount,
-      validationFailures: validationSummary.blockingFailureCount
+      validationFailures: validationSummary.blockingFailureCount,
+      pendingCommandCount: commandStateCounters.pending,
+      heldCommandCount: commandStateCounters.held,
+      failedCommandCount: commandStateCounters.failed,
+      alreadyAppliedCommandCount: commandStateCounters.alreadyApplied,
+      requiredRecoveryActionCount: recoveryCommandCounters.required,
+      recommendedRecoveryActionCount: recoveryCommandCounters.recommended,
+      exportHealthCodeCount: exportHealth.healthCodes.length,
+      mailchimpMatched: mailchimpProviderReport.matched ? 1 : 0,
+      mailchimpExportReady: mailchimpProviderReport.exportReady ? 1 : 0,
+      mailchimpEventCount: mailchimpProviderReport.counters.eventCount,
+      mailchimpHeldWorkflowCount: mailchimpProviderReport.counters.heldWorkflowCount,
+      mailchimpBlockingCodeCount: mailchimpProviderReport.counters.blockingCodeCount
     },
+    commandStateCounters,
+    recoveryCommandCounters,
     historySnapshots,
     snapshotTrend: snapshotDelta,
     capabilityClassReport,
+    mailchimpProviderReport,
     timeline,
     exportSummary: {
       schema: "rate-limit.export-summary.v1",
       exportId: `${syncMetadata.syncKey}:analytics:${runtimeDecision.request.requestId}`,
       format: "jsonl-ready",
-      rowCount: exportRows.length,
+      rowCount: enrichedExportRows.length,
       partitionKeys: {
         subjectKey: serviceContract.subjectKey,
         providerId: providerContract.providerId,
@@ -6133,7 +7534,21 @@ function buildAnalyticsExports(now, input, serviceContract, providerContract, sy
         "capabilityLaneState",
         "capabilityLaneDeficit",
         "emergencyAdmissionState",
-        "emergencyUnitsGranted"
+        "emergencyUnitsGranted",
+        "mailchimpMatched",
+        "mailchimpStatus",
+        "mailchimpOperationKind",
+        "mailchimpProviderId",
+        "mailchimpSyncKey",
+        "mailchimpCursor",
+        "mailchimpRemoteIdempotencyKey",
+        "mailchimpRemoteHeaderNames",
+        "mailchimpRestartSafeDeliveryKey",
+        "mailchimpWorkflowState",
+        "mailchimpWorkflowBlocking",
+        "mailchimpNextActionId",
+        "mailchimpExportReady",
+        "mailchimpBlockingCodes"
       ],
       aggregates: {
         byDecision: counters.byDecision,
@@ -6152,8 +7567,11 @@ function buildAnalyticsExports(now, input, serviceContract, providerContract, sy
           }
         ])))
       },
-      rows: exportRows,
-      capabilityClassRows: capabilityClassReport.exportRows
+      health: exportHealth,
+      rows: enrichedExportRows,
+      capabilityClassRows: capabilityClassReport.exportRows,
+      mailchimpRows: mailchimpProviderReport.rows,
+      mailchimpProviderReport
     },
     reportTimeline: {
       schema: "rate-limit.report-timeline.v1",
@@ -6185,18 +7603,26 @@ function buildAnalyticsExports(now, input, serviceContract, providerContract, sy
       nextRefreshAfterMs: readiness.refreshAfterMs,
       auditReady: validationSummary.blockingFailureCount === 0,
       exportReady: exportRows.length > 0,
+      exportHealthState: exportHealth.state,
+      exportHealthCodes: exportHealth.healthCodes,
       timelineState,
       pressureTrend: snapshotDelta.state,
       snapshotCount: historySnapshots.length,
-      exportRowCount: exportRows.length
-    }
+      exportRowCount: enrichedExportRows.length,
+      mailchimpStatus: mailchimpProviderReport.status,
+      mailchimpExportReady: mailchimpProviderReport.exportReady,
+      mailchimpSummaryKey: mailchimpProviderReport.summaryKey,
+      mailchimpNextActionId: mailchimpProviderReport.workflow.nextActionId,
+      mailchimpBlockingCodes: mailchimpProviderReport.blockingCodes
+    },
+    exportHealth
   };
 }
 
 export function describeRateLimitSurface(input = {}) {
   const now = input.now || new Date().toISOString();
   const providerContract = normalizeProviderContract(input.provider || input.providerContract);
-  const serviceContract = normalizeServiceContract(input.service || input.serviceContract, providerContract);
+  const serviceContract = normalizeServiceContract(input.service || input.serviceContract, providerContract, input);
   const negotiation = buildNegotiation(providerContract, serviceContract);
   const syncMetadata = buildSyncMetadata(now, input, serviceContract, providerContract, negotiation);
   const requestState = normalizeRequestState(input, serviceContract);
@@ -6222,13 +7648,13 @@ export function describeRateLimitSurface(input = {}) {
   const acceptance = buildAcceptance(validationSummary, providerContract, serviceContract, negotiation, externalHandoff, providerServiceBridge, providerOperationContract);
   const readiness = buildReadiness(providerContract, serviceContract, negotiation, validationSummary, externalHandoff, recoveryPlan, operationalHealth, providerServiceBridge, providerOperationContract);
   const restartStatus = buildRestartSafeStatus(readiness, runtimeDecision, persistedState, recoveryPlan, idempotentCommands, durableProjection, commandRecoveryIndex);
-  const preview = buildUserPreview(now, serviceContract, providerContract, negotiation, readiness, validationSummary, runtimeDecision, operationalHealth, lifecycleControls);
+  const preview = buildUserPreview(now, serviceContract, providerContract, negotiation, readiness, validationSummary, runtimeDecision, operationalHealth, lifecycleControls, providerServiceBridge);
   const actionableErrors = buildActionableErrors(validationSummary, readiness, operationalHealth, runtimeDecision, recoveryPlan, lifecycleControls, providerServiceBridge, providerHandoffReceipt, providerOperationContract, workflowHandoffQueue, syncMetadata);
   const operationalRecovery = buildOperationalRecoveryEnvelope(now, readiness, operationalHealth, actionableErrors, runtimeDecision, lifecycleControls, providerServiceBridge, workflowHandoffQueue);
   const nextSteps = buildNextSteps(validationSummary, readiness, externalHandoff, syncMetadata, runtimeDecision, recoveryPlan, idempotentCommands, operationalHealth, lifecycleControls, providerServiceBridge, providerHandoffReceipt, providerOperationContract, workflowHandoffQueue, commandRecoveryIndex, reservationExecutionPlan);
   const clientReview = buildClientReviewContract(now, preview, acceptance, readiness, validationSummary, nextSteps, actionableErrors, runtimeDecision, providerServiceBridge, providerHandoffReceipt, providerOperationContract, workflowHandoffQueue, reservationExecutionPlan, operationalRecovery);
   const routeClientResponse = buildRouteClientResponseContract(now, serviceContract, acceptance, readiness, validationSummary, runtimeDecision, workflowHandoffQueue, reservationExecutionPlan, operationalRecovery, nextSteps);
-  const analytics = buildAnalyticsExports(now, input, serviceContract, providerContract, syncMetadata, runtimeDecision, quotaState, persistedState, recoveryPlan, accessBoundary, operationalHealth, validationSummary, readiness, workflowHandoffQueue);
+  const analytics = buildAnalyticsExports(now, input, serviceContract, providerContract, syncMetadata, runtimeDecision, quotaState, persistedState, recoveryPlan, accessBoundary, operationalHealth, validationSummary, readiness, workflowHandoffQueue, idempotentCommands);
 
   return {
     ok: true,

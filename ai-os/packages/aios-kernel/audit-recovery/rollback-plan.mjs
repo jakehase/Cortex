@@ -268,6 +268,10 @@ function normalizeIdempotencyLedgerEntry(entry, index, now, defaults = {}) {
   const command = VALID_COMMANDS.has(raw.command) ? raw.command : asNonEmptyString(raw.command, defaults.command || "shape");
   const commandId = asNonEmptyString(raw.commandId || raw.id, defaults.commandId || `${command}:${index + 1}`);
   const semanticKey = asNonEmptyString(raw.semanticKey, defaults.semanticKey || commandId);
+  const operationFingerprint = asNonEmptyString(
+    raw.operationFingerprint || raw.commandPayloadFingerprint,
+    defaults.operationFingerprint || null
+  );
   const generation = Number.isInteger(raw.generation) && raw.generation >= 0
     ? raw.generation
     : defaults.generation || 0;
@@ -276,6 +280,7 @@ function normalizeIdempotencyLedgerEntry(entry, index, now, defaults = {}) {
     ledgerEntryId: asNonEmptyString(raw.ledgerEntryId || raw.entryId, `${commandId}:${generation}`),
     commandId,
     semanticKey,
+    operationFingerprint,
     command,
     acceptedAt: asIsoTimestamp(raw.acceptedAt || raw.appliedAt, defaults.acceptedAt || now),
     generation,
@@ -334,6 +339,7 @@ function normalizePersistedState(input = {}, now) {
           commandId: entry.commandId,
           command: asNonEmptyString(entry.command, "unknown"),
           semanticKey: asNonEmptyString(entry.semanticKey, null),
+          operationFingerprint: asNonEmptyString(entry.operationFingerprint || entry.commandPayloadFingerprint, null),
           appliedAt: asIsoTimestamp(entry.appliedAt, now),
           generation: Number.isInteger(entry.generation) ? entry.generation : generation,
           statusAfter: KNOWN_STATUSES.has(entry.statusAfter) ? entry.statusAfter : null,
@@ -1953,6 +1959,8 @@ function deriveReportDatasetCatalog({
   const commandRows = state.commandLog.map((entry) => ({
     commandId: entry.commandId,
     command: entry.command,
+    semanticKey: entry.semanticKey,
+    operationFingerprint: entry.operationFingerprint,
     generation: entry.generation,
     statusAfter: entry.statusAfter,
     appliedAt: entry.appliedAt,
@@ -2166,6 +2174,7 @@ function deriveAnalyticsCounters({ state, commandResult, operationalHealth, chec
     recoveryLastStableGeneration: state.recoveryJournal.lastStableGeneration,
     idempotencyLedgerEntries: idempotencyLedger.length,
     idempotencyPendingEntries: idempotencyLedger.filter((entry) => entry.completed !== true || entry.recoveryPending === true).length,
+    idempotencyFingerprintedEntries: idempotencyLedger.filter((entry) => entry.operationFingerprint).length,
     idempotencyReplayCount: idempotencyLedger.reduce((total, entry) => total + entry.replayCount, 0),
     idempotencyConflicts: commandResult.rejectionKind === "idempotency_conflict" ? 1 : 0,
     commandTransitionsTotal: commandTransitionReport.transitionCount,
@@ -2412,6 +2421,88 @@ function deriveExportSummary({
       runnableInDegradedMode: providerReadiness.runnableInDegradedMode,
       action: providerReadiness.action
     }
+  };
+}
+
+function deriveOperatorReportPacket({ exportSummary, analytics, historyTrendReport, timelineReportState, commandTransitionReport, operationalHealth, providerReadiness, checkpointSafety, workflowHandoff, restartSafeStatus, now }) {
+  const readinessBlocked = exportSummary.exportReadiness.blockedSections.length > 0
+    || exportSummary.exportReadiness.blockedDatasetIds.length > 0;
+  const recoveryBlocked = restartSafeStatus.status === "needs_recovery"
+    || operationalHealth.failureState.state === "escalated"
+    || providerReadiness.state === "blocked"
+    || checkpointSafety.eligible !== true;
+  const primaryBlocker = checkpointSafety.eligible !== true
+    ? checkpointSafety.blockingReasons[0] || "checkpoint_not_eligible"
+    : providerReadiness.state === "blocked"
+      ? providerReadiness.blockingServices[0] || "provider_readiness_blocked"
+      : operationalHealth.failureState.escalationReasons[0]
+        || exportSummary.exportReadiness.blockedSections[0]
+        || exportSummary.exportReadiness.blockedDatasetIds[0]
+        || null;
+  const nextAction = recoveryBlocked
+    ? operationalHealth.failureState.nextCommand || workflowHandoff.targetCommand || "recover"
+    : readinessBlocked
+      ? "repair-report-datasets"
+      : workflowHandoff.claim.claimable
+        ? "claim-workflow-handoff"
+        : "export-rollback-report";
+
+  return {
+    contractType: "rollback-plan.operator-report-packet.v1",
+    generatedAt: now,
+    state: recoveryBlocked
+      ? "recovery-blocked"
+      : readinessBlocked
+        ? "report-blocked"
+        : "export-ready",
+    nextAction,
+    primaryBlocker,
+    exportReady: exportSummary.exportReadiness.ready,
+    exportBlockedSections: exportSummary.exportReadiness.blockedSections,
+    exportBlockedDatasetIds: exportSummary.exportReadiness.blockedDatasetIds,
+    counters: {
+      activeErrors: analytics.activeErrors,
+      activeWarnings: analytics.activeWarnings,
+      retryableFindings: analytics.retryableFindings,
+      commandTransitions: commandTransitionReport.transitionCount,
+      historySnapshots: historyTrendReport.snapshotCount,
+      timelineEvents: timelineReportState.eventCount
+    },
+    recovery: {
+      restartStatus: restartSafeStatus.status,
+      restartAction: restartSafeStatus.recoveryAction,
+      failureState: operationalHealth.failureState.state,
+      escalationReasons: operationalHealth.failureState.escalationReasons,
+      retryAfterAt: operationalHealth.failureState.retryAfterAt,
+      nextCommand: operationalHealth.failureState.nextCommand
+    },
+    checkpointSafety: {
+      eligible: checkpointSafety.eligible,
+      selectedCheckpointId: checkpointSafety.selectedCheckpointId,
+      blockingReasons: checkpointSafety.blockingReasons,
+      eligibleCheckpointIds: checkpointSafety.eligibleCheckpointIds,
+      expiredCheckpointIds: checkpointSafety.expiredCheckpointIds
+    },
+    provider: {
+      readinessState: providerReadiness.state,
+      blockingServices: providerReadiness.blockingServices,
+      degradedServices: providerReadiness.degradedServices,
+      action: providerReadiness.action,
+      runnableInDegradedMode: providerReadiness.runnableInDegradedMode
+    },
+    workflowHandoff: {
+      state: workflowHandoff.state,
+      targetCommand: workflowHandoff.targetCommand,
+      targetRouteId: workflowHandoff.targetRouteId,
+      claimable: workflowHandoff.claim.claimable,
+      blockedReasons: workflowHandoff.claim.blockedReasons
+    },
+    proofSubjects: [
+      `export:${exportSummary.exportType}`,
+      `restart:${restartSafeStatus.status}`,
+      `provider:${providerReadiness.state}`,
+      `next-action:${nextAction}`
+    ]
   };
 }
 
@@ -2969,6 +3060,146 @@ function deriveClientPreviewRouteContract({
   };
 }
 
+function derivePreviewAcceptanceGate({
+  state,
+  actor,
+  clientRuntime,
+  clientPreview,
+  clientPreviewRouteContract,
+  workflowHandoff,
+  lifecycleControls,
+  operationalHealth,
+  checkpointSafety,
+  providerReadiness,
+  now
+}) {
+  const routeActions = clientPreviewRouteContract.actions || [];
+  const acceptAction = routeActions.find((action) => action.actionId === "accept-preview") || null;
+  const submitAction = routeActions.find((action) => action.actionId === "submit-next-step") || null;
+  const acceptance = clientPreview.acceptance;
+  const readiness = clientPreview.readiness;
+  const validationSummary = clientPreview.validationSummary;
+  const blockingReasons = [
+    ...readiness.routeBlockedReasons,
+    ...workflowHandoff.claim.blockedReasons,
+    ...(clientPreviewRouteContract.blockedReasonCodes || []),
+    ...(checkpointSafety.eligible !== true ? checkpointSafety.blockingReasons : []),
+    ...(providerReadiness.state === "blocked" ? providerReadiness.blockingServices.map((service) => `provider:${service}`) : []),
+    ...(operationalHealth.errors.length > 0 ? operationalHealth.errors.map((error) => error.code) : []),
+    ...(clientRuntime.stale ? ["client_generation_stale"] : []),
+    ...(acceptance.accepted && acceptance.generationMatches !== true ? ["accepted_generation_mismatch"] : [])
+  ];
+  const uniqueBlockers = [...new Set(blockingReasons)];
+  const requiredAcknowledgementIds = [
+    ...workflowHandoff.clientIntent.requiredAcknowledgementIds,
+    ...clientPreviewRouteContract.acceptancePayload.acknowledgementIds,
+    ...(operationalHealth.degraded ? ["operational-health-degraded"] : []),
+    ...(providerReadiness.state === "degraded" ? providerReadiness.degradedServices.map((service) => `provider:${service}`) : [])
+  ];
+  const acknowledgedSet = new Set([
+    ...acceptance.acknowledgementIds,
+    ...workflowHandoff.clientIntent.acknowledgedRiskCodes
+  ]);
+  const missingAcknowledgementIds = [...new Set(requiredAcknowledgementIds)]
+    .filter((id) => !acknowledgedSet.has(id));
+  const acceptanceRequired = readiness.acceptanceRequired || missingAcknowledgementIds.length > 0;
+  const accepted = acceptance.accepted === true && acceptance.generationMatches === true;
+  const acceptPreviewReady = acceptAction?.enabled === true
+    || (acceptanceRequired && !accepted && validationSummary.status !== "blocked" && !clientRuntime.stale);
+  const submitReady = readiness.ready
+    && submitAction?.enabled === true
+    && uniqueBlockers.length === 0
+    && (!acceptanceRequired || accepted)
+    && missingAcknowledgementIds.length === 0;
+  const gateState = submitReady
+    ? "ready"
+    : clientRuntime.stale
+      ? "stale"
+      : uniqueBlockers.length > 0 || validationSummary.status === "blocked"
+        ? "blocked"
+        : acceptanceRequired && !accepted
+          ? "awaiting_acceptance"
+          : missingAcknowledgementIds.length > 0
+            ? "awaiting_acknowledgement"
+            : "review";
+  const nextAction = submitReady
+    ? submitAction.command
+    : gateState === "stale"
+      ? "shape"
+      : gateState === "awaiting_acceptance"
+        ? "accept_preview"
+        : gateState === "awaiting_acknowledgement"
+          ? "acknowledge_preview_gates"
+          : acceptPreviewReady
+            ? "accept_preview"
+            : lifecycleControls.nextCommand || "shape";
+  const gateFingerprint = fingerprintReportValue({
+    contractType: "rollback-plan.preview-acceptance-gate.v1",
+    planId: state.planId,
+    generation: state.generation,
+    requestId: clientRuntime.requestId,
+    actorId: actor.actorId,
+    gateState,
+    targetCommand: workflowHandoff.targetCommand,
+    acceptanceRequired,
+    accepted,
+    missingAcknowledgementIds,
+    uniqueBlockers,
+    nextAction
+  });
+
+  return {
+    contractType: "rollback-plan.preview-acceptance-gate.v1",
+    generatedAt: now,
+    gateId: `${clientPreview.previewId}:acceptance-gate`,
+    fingerprint: gateFingerprint,
+    planId: state.planId,
+    generation: state.generation,
+    actorId: actor.actorId,
+    actorRole: actor.role,
+    routeId: clientRuntime.routeId,
+    targetRouteId: workflowHandoff.targetRouteId,
+    targetCommand: workflowHandoff.targetCommand,
+    state: gateState,
+    ready: submitReady,
+    canAcceptPreview: acceptPreviewReady,
+    canSubmitTargetCommand: submitReady,
+    acceptanceRequired,
+    accepted,
+    acceptanceId: acceptance.acceptanceId,
+    acceptedAt: acceptance.acceptedAt,
+    acceptedBy: acceptance.acceptedBy,
+    acceptedGeneration: acceptance.acceptedGeneration,
+    currentGeneration: state.generation,
+    generationMatches: acceptance.generationMatches,
+    requiredAcknowledgementIds: [...new Set(requiredAcknowledgementIds)],
+    acknowledgedIds: [...acknowledgedSet],
+    missingAcknowledgementIds,
+    blockedReasons: uniqueBlockers,
+    nextAction,
+    routeActions: {
+      acceptPreviewEnabled: acceptAction?.enabled === true,
+      submitNextStepEnabled: submitAction?.enabled === true,
+      refreshPreviewEnabled: routeActions.some((action) => action.actionId === "refresh-preview" && action.enabled)
+    },
+    operatorMessage: submitReady
+      ? "Preview acceptance is complete and the target rollback command can be submitted."
+      : gateState === "awaiting_acceptance"
+        ? "Accept the rollback preview before submitting the target command."
+        : gateState === "awaiting_acknowledgement"
+          ? "Acknowledge the required preview gates before submitting the target command."
+          : gateState === "stale"
+            ? "Refresh the preview because the client generation is stale."
+            : "Resolve the blocking preview gates before submitting the target command.",
+    proofSubjects: [
+      `preview:${clientPreview.previewId}`,
+      `acceptance:${acceptance.acceptanceId}`,
+      `target-command:${workflowHandoff.targetCommand}`,
+      `next-action:${nextAction}`
+    ]
+  };
+}
+
 function makeAuditEntry(type, now, details = {}) {
   return {
     type,
@@ -3022,6 +3253,66 @@ function commandSemanticKey(command, commandInput = {}, state = {}) {
   return `${command}:${state.planId}:${state.generation}`;
 }
 
+function canonicalizeOperationInput(value) {
+  if (Array.isArray(value)) return value.map((entry) => canonicalizeOperationInput(entry));
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => ![
+        "actor",
+        "actorId",
+        "allowedTenantIds",
+        "allowedWorkspaceIds",
+        "auditHandoff",
+        "auditTarget",
+        "boundaryMode",
+        "clientId",
+        "clientState",
+        "commandId",
+        "correlationId",
+        "evidence",
+        "externalHandoff",
+        "failurePolicy",
+        "idempotencyKey",
+        "integrationHealth",
+        "integrationProviders",
+        "now",
+        "operationKey",
+        "permissions",
+        "persistedState",
+        "previewAcceptance",
+        "providerContracts",
+        "request",
+        "requestId",
+        "retryAttempts",
+        "retryPolicy",
+        "role",
+        "scope",
+        "sessionId"
+      ].includes(key))
+      .map(([key, entry]) => [key, canonicalizeOperationInput(entry)])
+  );
+}
+
+function deriveCommandOperationFingerprint(command, commandInput = {}, state = {}, boundary = {}) {
+  const selectedCheckpoint = state.rollbackCursor >= 0 ? state.checkpoints[state.rollbackCursor] : null;
+  return fingerprintReportValue({
+    contractType: "rollback-plan.command-operation-fingerprint.v1",
+    command,
+    planId: state.planId,
+    tenantId: boundary.tenantId || state.tenantId,
+    workspaceId: boundary.workspaceId || state.workspaceId,
+    selectedCheckpointId: selectedCheckpoint?.checkpointId || null,
+    selectedCheckpointStateRef: selectedCheckpoint?.stateRef || null,
+    input: canonicalizeOperationInput(commandInput)
+  });
+}
+
+function operationFingerprintConflict(storedFingerprint, operationFingerprint) {
+  return Boolean(storedFingerprint && operationFingerprint && storedFingerprint !== operationFingerprint);
+}
+
 function commandAlreadyApplied(state, commandId, semanticKey) {
   return state.commandLog.find((entry) => (
     Boolean(commandId && entry.commandId === commandId)
@@ -3029,15 +3320,25 @@ function commandAlreadyApplied(state, commandId, semanticKey) {
   )) || null;
 }
 
-function deriveIdempotencyDecision(state, command, commandId, semanticKey, now) {
+function deriveIdempotencyDecision(state, command, commandId, semanticKey, operationFingerprint, now) {
   const ledger = Array.isArray(state.idempotencyLedger) ? state.idempotencyLedger : [];
   const commandIdMatch = ledger.find((entry) => commandId && entry.commandId === commandId) || null;
   const semanticKeyMatch = ledger.find((entry) => semanticKey && entry.semanticKey === semanticKey) || null;
-  const matchedEntry = commandIdMatch || semanticKeyMatch || commandAlreadyApplied(state, commandId, semanticKey);
+  const commandLogMatch = commandAlreadyApplied(state, commandId, semanticKey);
+  const matchedEntry = commandIdMatch || semanticKeyMatch || commandLogMatch;
   const conflictReasons = [];
 
   if (commandIdMatch && commandIdMatch.command !== command) conflictReasons.push("command_id_reused_for_different_command");
   if (semanticKeyMatch && semanticKeyMatch.command !== command) conflictReasons.push("semantic_key_reused_for_different_command");
+  if (commandIdMatch && operationFingerprintConflict(commandIdMatch.operationFingerprint, operationFingerprint)) {
+    conflictReasons.push("command_id_reused_for_different_payload");
+  }
+  if (semanticKeyMatch && operationFingerprintConflict(semanticKeyMatch.operationFingerprint, operationFingerprint)) {
+    conflictReasons.push("semantic_key_reused_for_different_payload");
+  }
+  if (commandLogMatch && operationFingerprintConflict(commandLogMatch.operationFingerprint, operationFingerprint)) {
+    conflictReasons.push("command_log_key_reused_for_different_payload");
+  }
   if (commandIdMatch && semanticKeyMatch && commandIdMatch.commandId !== semanticKeyMatch.commandId) {
     conflictReasons.push("command_id_and_semantic_key_match_different_operations");
   }
@@ -3054,10 +3355,12 @@ function deriveIdempotencyDecision(state, command, commandId, semanticKey, now) 
       command,
       commandId,
       semanticKey,
-      matchedCommandId: commandIdMatch?.commandId || semanticKeyMatch?.commandId || null,
-      matchedSemanticKey: commandIdMatch?.semanticKey || semanticKeyMatch?.semanticKey || null,
-      matchedGeneration: commandIdMatch?.generation ?? semanticKeyMatch?.generation ?? null,
-      matchedStatusAfter: commandIdMatch?.statusAfter || semanticKeyMatch?.statusAfter || null,
+      operationFingerprint,
+      matchedCommandId: commandIdMatch?.commandId || semanticKeyMatch?.commandId || commandLogMatch?.commandId || null,
+      matchedSemanticKey: commandIdMatch?.semanticKey || semanticKeyMatch?.semanticKey || commandLogMatch?.semanticKey || null,
+      matchedOperationFingerprint: commandIdMatch?.operationFingerprint || semanticKeyMatch?.operationFingerprint || commandLogMatch?.operationFingerprint || null,
+      matchedGeneration: commandIdMatch?.generation ?? semanticKeyMatch?.generation ?? commandLogMatch?.generation ?? null,
+      matchedStatusAfter: commandIdMatch?.statusAfter || semanticKeyMatch?.statusAfter || commandLogMatch?.statusAfter || null,
       conflictReasons: [...new Set(conflictReasons)],
       evaluatedAt: now
     };
@@ -3072,8 +3375,10 @@ function deriveIdempotencyDecision(state, command, commandId, semanticKey, now) 
       command,
       commandId,
       semanticKey,
+      operationFingerprint,
       matchedCommandId: matchedEntry.commandId,
       matchedSemanticKey: matchedEntry.semanticKey,
+      matchedOperationFingerprint: matchedEntry.operationFingerprint || null,
       matchedGeneration: matchedEntry.generation,
       matchedStatusAfter: matchedEntry.statusAfter,
       conflictReasons: [],
@@ -3089,8 +3394,10 @@ function deriveIdempotencyDecision(state, command, commandId, semanticKey, now) 
     command,
     commandId,
     semanticKey,
+    operationFingerprint,
     matchedCommandId: null,
     matchedSemanticKey: null,
+    matchedOperationFingerprint: null,
     matchedGeneration: null,
     matchedStatusAfter: null,
     conflictReasons: [],
@@ -3098,7 +3405,7 @@ function deriveIdempotencyDecision(state, command, commandId, semanticKey, now) 
   };
 }
 
-function recordIdempotencyLedgerEntry(next, { command, commandId, semanticKey, now, actor, boundary }) {
+function recordIdempotencyLedgerEntry(next, { command, commandId, semanticKey, operationFingerprint, now, actor, boundary }) {
   const previous = Array.isArray(next.idempotencyLedger) ? next.idempotencyLedger : [];
   const withoutDuplicate = previous.filter((entry) => entry.commandId !== commandId && entry.semanticKey !== semanticKey);
   next.idempotencyLedger = [
@@ -3107,6 +3414,7 @@ function recordIdempotencyLedgerEntry(next, { command, commandId, semanticKey, n
       ledgerEntryId: `${commandId}:${next.generation}`,
       commandId,
       semanticKey,
+      operationFingerprint,
       command,
       acceptedAt: now,
       generation: next.generation,
@@ -3142,6 +3450,7 @@ function deriveIdempotencyLedgerReport(state, commandResult, now) {
   const ledger = Array.isArray(state.idempotencyLedger) ? state.idempotencyLedger : [];
   const pendingEntries = ledger.filter((entry) => entry.completed !== true || entry.recoveryPending === true);
   const replayedEntries = ledger.filter((entry) => entry.replayCount > 0);
+  const fingerprintedEntries = ledger.filter((entry) => entry.operationFingerprint);
 
   return {
     contractType: "rollback-plan.idempotency-ledger-report.v1",
@@ -3150,13 +3459,16 @@ function deriveIdempotencyLedgerReport(state, commandResult, now) {
     latestEntryId: ledger[ledger.length - 1]?.ledgerEntryId || null,
     pendingEntryCount: pendingEntries.length,
     replayedEntryCount: replayedEntries.length,
+    fingerprintedEntryCount: fingerprintedEntries.length,
     commandIdReuseGuarded: true,
     semanticKeyReuseGuarded: true,
+    operationPayloadReuseGuarded: true,
     currentDecision: commandResult.idempotencyDecision || null,
     pendingEntries: pendingEntries.map((entry) => ({
       ledgerEntryId: entry.ledgerEntryId,
       commandId: entry.commandId,
       semanticKey: entry.semanticKey,
+      operationFingerprint: entry.operationFingerprint,
       command: entry.command,
       generation: entry.generation,
       statusAfter: entry.statusAfter,
@@ -3167,6 +3479,7 @@ function deriveIdempotencyLedgerReport(state, commandResult, now) {
       ledgerEntryId: entry.ledgerEntryId,
       commandId: entry.commandId,
       semanticKey: entry.semanticKey,
+      operationFingerprint: entry.operationFingerprint,
       command: entry.command,
       replayCount: entry.replayCount,
       lastReplayAt: entry.lastReplayAt
@@ -3307,12 +3620,15 @@ function applyCommand(state, commandInput, now, boundaryContext) {
   const actor = boundaryContext.actor;
   const scope = boundaryContext.scope;
   const boundary = validateCommandBoundary(state, command, actor, scope);
+  const operationFingerprint = deriveCommandOperationFingerprint(command, commandInput, state, boundary);
 
   if (!boundary.accepted) {
     return {
       state,
       command,
       commandId,
+      semanticKey,
+      operationFingerprint,
       idempotent: false,
       rejected: true,
       boundary,
@@ -3322,6 +3638,7 @@ function applyCommand(state, commandInput, now, boundaryContext) {
           command,
           commandId,
           semanticKey,
+          operationFingerprint,
           actorId: actor.actorId,
           actorRole: actor.role,
           tenantId: boundary.tenantId,
@@ -3338,6 +3655,8 @@ function applyCommand(state, commandInput, now, boundaryContext) {
       state,
       command,
       commandId,
+      semanticKey,
+      operationFingerprint,
       idempotent: false,
       rejected: true,
       rejectionKind: "payload_scope",
@@ -3348,6 +3667,7 @@ function applyCommand(state, commandInput, now, boundaryContext) {
           command,
           commandId,
           semanticKey,
+          operationFingerprint,
           actorId: actor.actorId,
           actorRole: actor.role,
           tenantId: payloadScope.tenantId,
@@ -3360,7 +3680,7 @@ function applyCommand(state, commandInput, now, boundaryContext) {
     };
   }
 
-  const idempotencyDecision = deriveIdempotencyDecision(state, command, commandId, semanticKey, now);
+  const idempotencyDecision = deriveIdempotencyDecision(state, command, commandId, semanticKey, operationFingerprint, now);
   if (idempotencyDecision.state === "conflict") {
     return {
       state,
@@ -3368,6 +3688,7 @@ function applyCommand(state, commandInput, now, boundaryContext) {
       commandId,
       idempotent: false,
       semanticKey,
+      operationFingerprint,
       rejected: true,
       rejectionKind: "idempotency_conflict",
       boundary,
@@ -3378,8 +3699,10 @@ function applyCommand(state, commandInput, now, boundaryContext) {
           command,
           commandId,
           semanticKey,
+          operationFingerprint,
           matchedCommandId: idempotencyDecision.matchedCommandId,
           matchedSemanticKey: idempotencyDecision.matchedSemanticKey,
+          matchedOperationFingerprint: idempotencyDecision.matchedOperationFingerprint,
           matchedGeneration: idempotencyDecision.matchedGeneration,
           conflictReasons: idempotencyDecision.conflictReasons
         })
@@ -3400,6 +3723,7 @@ function applyCommand(state, commandInput, now, boundaryContext) {
       originalGeneration: idempotencyDecision.matchedGeneration,
       originalCommandId: idempotencyDecision.matchedCommandId,
       semanticKey,
+      operationFingerprint,
       rejected: false,
       boundary,
       payloadScope,
@@ -3408,7 +3732,9 @@ function applyCommand(state, commandInput, now, boundaryContext) {
         command,
         commandId,
         semanticKey,
+        operationFingerprint,
         originalCommandId: idempotencyDecision.matchedCommandId,
+        originalOperationFingerprint: idempotencyDecision.matchedOperationFingerprint,
         originalGeneration: idempotencyDecision.matchedGeneration,
         originalStatusAfter: idempotencyDecision.matchedStatusAfter
       })]
@@ -3422,6 +3748,8 @@ function applyCommand(state, commandInput, now, boundaryContext) {
       command,
       commandId,
       idempotent: false,
+      semanticKey,
+      operationFingerprint,
       rejected: true,
       rejectionKind: "lifecycle",
       boundary,
@@ -3433,6 +3761,7 @@ function applyCommand(state, commandInput, now, boundaryContext) {
           command,
           commandId,
           semanticKey,
+          operationFingerprint,
           violations: lifecycleValidation.violations,
           settingsVersion: lifecycleValidation.settingsVersion
         })
@@ -3533,12 +3862,13 @@ function applyCommand(state, commandInput, now, boundaryContext) {
   }
 
   applyRecoveryJournalForCommand(next, command, commandId, semanticKey, now);
-  recordIdempotencyLedgerEntry(next, { command, commandId, semanticKey, now, actor, boundary });
+  recordIdempotencyLedgerEntry(next, { command, commandId, semanticKey, operationFingerprint, now, actor, boundary });
 
   next.commandLog.push({
     commandId,
     command,
     semanticKey,
+    operationFingerprint,
     appliedAt: now,
     generation: next.generation,
     statusAfter: next.status,
@@ -3555,6 +3885,7 @@ function applyCommand(state, commandInput, now, boundaryContext) {
     commandId,
     idempotent: false,
     semanticKey,
+    operationFingerprint,
     rejected: false,
     boundary,
     payloadScope,
@@ -3638,6 +3969,19 @@ export function describeRollbackPlanSurface(input = {}) {
     providerReadiness,
     now
   });
+  const previewAcceptanceGate = derivePreviewAcceptanceGate({
+    state: commandResult.state,
+    actor,
+    clientRuntime,
+    clientPreview,
+    clientPreviewRouteContract,
+    workflowHandoff,
+    lifecycleControls,
+    operationalHealth,
+    checkpointSafety,
+    providerReadiness,
+    now
+  });
   const audit = [
     ...commandResult.audit,
     makeAuditEntry("rollback_plan.actor_permission_evaluated", now, {
@@ -3675,10 +4019,12 @@ export function describeRollbackPlanSurface(input = {}) {
       command: commandResult.command,
       commandId: commandResult.commandId,
       semanticKey: commandResult.semanticKey || null,
+      operationFingerprint: commandResult.operationFingerprint || null,
       decision: commandResult.idempotencyDecision?.state || "not_evaluated",
       replay: commandResult.idempotent === true,
       conflict: commandResult.rejectionKind === "idempotency_conflict",
       matchedCommandId: commandResult.idempotencyDecision?.matchedCommandId || null,
+      matchedOperationFingerprint: commandResult.idempotencyDecision?.matchedOperationFingerprint || null,
       matchedGeneration: commandResult.idempotencyDecision?.matchedGeneration ?? null,
       conflictReasons: commandResult.idempotencyDecision?.conflictReasons || []
     }),
@@ -3798,6 +4144,21 @@ export function describeRollbackPlanSurface(input = {}) {
       submitPayloadFingerprint: clientPreviewRouteContract.fingerprints.submitPayload,
       acceptancePayloadFingerprint: clientPreviewRouteContract.fingerprints.acceptancePayload
     }),
+    makeAuditEntry("rollback_plan.preview_acceptance_gate_evaluated", now, {
+      gateId: previewAcceptanceGate.gateId,
+      state: previewAcceptanceGate.state,
+      ready: previewAcceptanceGate.ready,
+      canAcceptPreview: previewAcceptanceGate.canAcceptPreview,
+      canSubmitTargetCommand: previewAcceptanceGate.canSubmitTargetCommand,
+      targetCommand: previewAcceptanceGate.targetCommand,
+      acceptanceRequired: previewAcceptanceGate.acceptanceRequired,
+      accepted: previewAcceptanceGate.accepted,
+      acceptedGeneration: previewAcceptanceGate.acceptedGeneration,
+      missingAcknowledgementIds: previewAcceptanceGate.missingAcknowledgementIds,
+      blockedReasons: previewAcceptanceGate.blockedReasons,
+      nextAction: previewAcceptanceGate.nextAction,
+      fingerprint: previewAcceptanceGate.fingerprint
+    }),
     makeAuditEntry("rollback_plan.recovery_journal_evaluated", now, {
       lastStableGeneration: commandResult.state.recoveryJournal.lastStableGeneration,
       lastStableStatus: commandResult.state.recoveryJournal.lastStableStatus,
@@ -3898,6 +4259,9 @@ export function describeRollbackPlanSurface(input = {}) {
       ready: clientPreview.readiness.ready,
       acceptanceRequired: clientPreview.readiness.acceptanceRequired,
       acceptanceSatisfied: clientPreview.readiness.acceptanceSatisfied,
+      acceptanceGateState: previewAcceptanceGate.state,
+      acceptanceGateReady: previewAcceptanceGate.ready,
+      acceptanceGateNextAction: previewAcceptanceGate.nextAction,
       validationStatus: clientPreview.validationSummary.status,
       blockingReasonCodes: clientPreview.validationSummary.blockingReasonCodes,
       nextStepCommand: clientPreview.nextStep.command,
@@ -3909,16 +4273,32 @@ export function describeRollbackPlanSurface(input = {}) {
           .filter((action) => action.enabled)
           .map((action) => action.actionId),
         blockedReasonCodes: clientPreviewRouteContract.blockedReasonCodes,
-        previewFingerprint: clientPreviewRouteContract.fingerprints.preview
+        previewFingerprint: clientPreviewRouteContract.fingerprints.preview,
+        acceptanceGateFingerprint: previewAcceptanceGate.fingerprint
       }
     },
     idempotency: {
       ledgerSize: idempotencyLedgerReport.ledgerSize,
       pendingEntryCount: idempotencyLedgerReport.pendingEntryCount,
       replayedEntryCount: idempotencyLedgerReport.replayedEntryCount,
+      fingerprintedEntryCount: idempotencyLedgerReport.fingerprintedEntryCount,
+      operationPayloadReuseGuarded: idempotencyLedgerReport.operationPayloadReuseGuarded,
       currentDecision: idempotencyLedgerReport.currentDecision
     }
   };
+  const operatorReportPacket = deriveOperatorReportPacket({
+    exportSummary,
+    analytics,
+    historyTrendReport,
+    timelineReportState,
+    commandTransitionReport,
+    operationalHealth,
+    providerReadiness,
+    checkpointSafety,
+    workflowHandoff,
+    restartSafeStatus,
+    now
+  });
 
   return {
     ok: true,
@@ -3956,6 +4336,7 @@ export function describeRollbackPlanSurface(input = {}) {
       exportSummary: "rollback-plan.analytics-export.v1",
       reportDatasetCatalog: "rollback-plan.report-dataset-catalog.v1",
       reportingRetentionState: "rollback-plan.reporting-retention-state.v1",
+      operatorReportPacket: "rollback-plan.operator-report-packet.v1",
       providerContracts: "rollback-plan.provider-contracts.v1",
       externalHandoffState: "rollback-plan.external-handoff-state.v1",
       capabilityNegotiation: "rollback-plan.capability-negotiation.v1",
@@ -3964,6 +4345,7 @@ export function describeRollbackPlanSurface(input = {}) {
       workflowHandoff: "rollback-plan.workflow-handoff.v1",
       clientHandoffIntent: "rollback-plan.client-handoff-intent.v1",
       clientPreview: "rollback-plan.client-preview.v1",
+      previewAcceptanceGate: "rollback-plan.preview-acceptance-gate.v1",
       clientReadiness: "rollback-plan.client-readiness.v1",
       clientPreviewRouteContract: "rollback-plan.client-preview-route-contract.v1",
       routeSubmitPayload: "rollback-plan.route-submit-payload.v1",
@@ -3971,6 +4353,7 @@ export function describeRollbackPlanSurface(input = {}) {
       previewAcceptance: "rollback-plan.preview-acceptance.v1",
       validationSummary: "rollback-plan.validation-summary.v1",
       explainableNextStep: "rollback-plan.explainable-next-step.v1",
+      commandOperationFingerprint: "rollback-plan.command-operation-fingerprint.v1",
       idempotencyLedger: "rollback-plan.idempotency-ledger.v1",
       idempotencyDecision: "rollback-plan.idempotency-decision.v1",
       idempotencyLedgerReport: "rollback-plan.idempotency-ledger-report.v1"
@@ -3979,6 +4362,7 @@ export function describeRollbackPlanSurface(input = {}) {
       commandId: commandResult.commandId,
       name: commandResult.command,
       semanticKey: commandResult.semanticKey || null,
+      operationFingerprint: commandResult.operationFingerprint || null,
       idempotent: commandResult.idempotent,
       idempotencyDecision: commandResult.idempotencyDecision || null,
       originalCommandId: commandResult.originalCommandId || null,
@@ -4030,7 +4414,8 @@ export function describeRollbackPlanSurface(input = {}) {
     clientRuntime,
     preview: {
       ...clientPreview,
-      routeContract: clientPreviewRouteContract
+      routeContract: clientPreviewRouteContract,
+      acceptanceGate: previewAcceptanceGate
     },
     reporting: {
       analytics,
@@ -4042,7 +4427,8 @@ export function describeRollbackPlanSurface(input = {}) {
       idempotencyLedgerReport,
       reportDatasetCatalog,
       reportingRetentionState,
-      exportSummary
+      exportSummary,
+      operatorReportPacket
     },
     proof: {
       surfaceId,
@@ -4093,6 +4479,10 @@ export function describeRollbackPlanSurface(input = {}) {
       exportReady: exportSummary.exportReadiness.ready,
       exportBlockedSections: exportSummary.exportReadiness.blockedSections,
       exportBlockedDatasetIds: exportSummary.exportReadiness.blockedDatasetIds,
+      operatorReportPacketState: operatorReportPacket.state,
+      operatorReportPacketNextAction: operatorReportPacket.nextAction,
+      operatorReportPacketPrimaryBlocker: operatorReportPacket.primaryBlocker,
+      operatorReportPacketExportReady: operatorReportPacket.exportReady,
       reportDatasetCount: reportDatasetCatalog.datasetCount,
       reportReadyDatasetCount: reportDatasetCatalog.readyDatasetCount,
       reportCatalogFingerprint: reportDatasetCatalog.catalogFingerprint,
@@ -4135,6 +4525,12 @@ export function describeRollbackPlanSurface(input = {}) {
       clientPreviewRouteFingerprint: clientPreviewRouteContract.fingerprints.preview,
       clientPreviewSubmitPayloadFingerprint: clientPreviewRouteContract.fingerprints.submitPayload,
       clientPreviewAcceptancePayloadFingerprint: clientPreviewRouteContract.fingerprints.acceptancePayload,
+      previewAcceptanceGateState: previewAcceptanceGate.state,
+      previewAcceptanceGateReady: previewAcceptanceGate.ready,
+      previewAcceptanceGateNextAction: previewAcceptanceGate.nextAction,
+      previewAcceptanceGateBlockedReasons: previewAcceptanceGate.blockedReasons,
+      previewAcceptanceGateMissingAcknowledgementIds: previewAcceptanceGate.missingAcknowledgementIds,
+      previewAcceptanceGateFingerprint: previewAcceptanceGate.fingerprint,
       clientRuntimeStale: clientRuntime.stale,
       clientRequestId: clientRuntime.requestId,
       actorPermissionSource: commandResult.boundary.permissionDecision.source,
@@ -4154,8 +4550,11 @@ export function describeRollbackPlanSurface(input = {}) {
       idempotencyLedgerEntries: idempotencyLedgerReport.ledgerSize,
       idempotencyPendingEntries: idempotencyLedgerReport.pendingEntryCount,
       idempotencyReplayedEntries: idempotencyLedgerReport.replayedEntryCount,
+      idempotencyFingerprintedEntries: idempotencyLedgerReport.fingerprintedEntryCount,
+      idempotencyOperationPayloadReuseGuarded: idempotencyLedgerReport.operationPayloadReuseGuarded,
       idempotencyDecision: commandResult.idempotencyDecision?.state || null,
       idempotencyConflictReasons: commandResult.idempotencyDecision?.conflictReasons || [],
+      commandOperationFingerprint: commandResult.operationFingerprint || null,
       restartCheckpointId: restartSafeStatus.checkpointId,
       syncDirty: providerNegotiation.syncDirty,
       idempotent: commandResult.idempotent,

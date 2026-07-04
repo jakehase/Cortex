@@ -98,6 +98,8 @@ const ROLE_PERMISSIONS = {
   "kernel-operator": ["kernel-change:apply", "kernel-change:audit", "kernel-change:schedule"],
   "audit-writer": ["kernel-change:audit"]
 };
+const MAX_PERMISSION_CLAIMS = 64;
+const MAX_PERMISSION_GRANTS = 128;
 
 function isoNow(input) {
   return typeof input?.now === "string" && input.now ? input.now : new Date().toISOString();
@@ -145,6 +147,43 @@ function uniqueStrings(values) {
   return Array.from(new Set((Array.isArray(values) ? values : []).filter((value) => typeof value === "string" && value)));
 }
 
+function isValidPermissionClaim(value) {
+  return typeof value === "string" && /^[a-z][a-z0-9-]{0,63}:[a-z][a-z0-9-]{0,63}$/.test(value);
+}
+
+function normalizePermissionClaims(values, source = "principal-permission") {
+  const raw = Array.isArray(values) ? values : [];
+  const accepted = [];
+  const rejectedClaims = [];
+  const seen = new Set();
+
+  raw.slice(0, MAX_PERMISSION_CLAIMS).forEach((value, index) => {
+    if (!isValidPermissionClaim(value)) {
+      rejectedClaims.push({
+        source,
+        index,
+        reason: "invalid-permission-claim",
+        valueType: typeof value
+      });
+      return;
+    }
+    if (seen.has(value)) return;
+    seen.add(value);
+    accepted.push(value);
+  });
+
+  if (raw.length > MAX_PERMISSION_CLAIMS) {
+    rejectedClaims.push({
+      source,
+      index: MAX_PERMISSION_CLAIMS,
+      reason: "permission-claim-limit-exceeded",
+      droppedCount: raw.length - MAX_PERMISSION_CLAIMS
+    });
+  }
+
+  return { permissions: accepted.sort(), rejectedClaims };
+}
+
 function safeLabel(value, fallback, maxLength = 120) {
   return typeof value === "string" && value ? value.slice(0, maxLength) : fallback;
 }
@@ -170,7 +209,8 @@ function boundaryFromCommand(command) {
 function normalizePrincipal(value = {}, fallbackId = "unknown-principal") {
   const record = asRecord(value);
   const roles = uniqueStrings(record.roles);
-  const explicitPermissions = uniqueStrings(record.permissions);
+  const directPermissionClaims = normalizePermissionClaims(record.permissions, "principal-permission");
+  const explicitPermissions = directPermissionClaims.permissions;
   const rolePermissions = roles.flatMap((role) => ROLE_PERMISSIONS[role] || []);
   const tenantId = isSafeBoundarySegment(record.tenantId) ? record.tenantId : null;
   const workspaceIds = uniqueStrings(record.workspaceIds).filter(isSafeBoundarySegment);
@@ -193,14 +233,32 @@ function normalizePrincipal(value = {}, fallbackId = "unknown-principal") {
       ? workspaceIds.map((workspaceId) => ({ ...grant, workspaceId }))
       : [grant]
   ));
-  const delegatedGrants = normalizePermissionGrants(record.permissionGrants || record.boundaryGrants);
+  const delegatedGrantClaims = analyzePermissionGrants(record.permissionGrants || record.boundaryGrants);
+  const delegatedGrants = delegatedGrantClaims.grants;
+  const invalidWorkspaceClaimCount = uniqueStrings(record.workspaceIds).length - workspaceIds.length;
+  const rejectedClaims = [
+    ...directPermissionClaims.rejectedClaims,
+    ...delegatedGrantClaims.rejectedClaims,
+    ...(invalidWorkspaceClaimCount > 0
+      ? [{
+          source: "principal-workspace",
+          reason: "invalid-workspace-boundary-claim",
+          droppedCount: invalidWorkspaceClaimCount
+        }]
+      : [])
+  ];
   return {
     principalId: typeof record.principalId === "string" && record.principalId ? record.principalId : fallbackId,
     tenantId,
     workspaceIds,
     roles,
     permissions: Array.from(new Set([...explicitPermissions, ...rolePermissions, ...delegatedGrants.map((grant) => grant.permission)])).sort(),
-    permissionGrants: dedupePermissionGrants([...workspaceGrants, ...delegatedGrants])
+    permissionGrants: dedupePermissionGrants([...workspaceGrants, ...delegatedGrants]),
+    claimValidation: {
+      valid: rejectedClaims.length === 0,
+      rejectedClaimCount: rejectedClaims.length,
+      rejectedClaims
+    }
   };
 }
 
@@ -210,22 +268,70 @@ function commandPrincipal(command) {
 }
 
 function normalizePermissionGrants(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((entry) => entry && typeof entry === "object")
-    .map((entry) => {
-      const grant = asRecord(entry);
-      const tenantId = grant.tenantId === "*" ? "*" : isSafeBoundarySegment(grant.tenantId) ? grant.tenantId : null;
-      const workspaceId = grant.workspaceId === "*" ? "*" : isSafeBoundarySegment(grant.workspaceId) ? grant.workspaceId : null;
-      return {
-        permission: typeof grant.permission === "string" && grant.permission ? grant.permission : null,
-        tenantId,
-        workspaceId,
-        source: typeof grant.source === "string" && grant.source ? grant.source.slice(0, 80) : "delegated-grant",
-        expiresAt: typeof grant.expiresAt === "string" && grant.expiresAt ? grant.expiresAt : null
-      };
-    })
-    .filter((grant) => grant.permission);
+  return analyzePermissionGrants(value).grants;
+}
+
+function analyzePermissionGrants(value) {
+  if (!Array.isArray(value)) return { grants: [], rejectedClaims: [] };
+  const grants = [];
+  const rejectedClaims = [];
+
+  value.slice(0, MAX_PERMISSION_GRANTS).forEach((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      rejectedClaims.push({
+        source: "permission-grant",
+        index,
+        reason: "invalid-grant-record"
+      });
+      return;
+    }
+
+    const grant = asRecord(entry);
+    const tenantId = grant.tenantId === "*" ? "*" : isSafeBoundarySegment(grant.tenantId) ? grant.tenantId : null;
+    const workspaceId = grant.workspaceId === "*" ? "*" : isSafeBoundarySegment(grant.workspaceId) ? grant.workspaceId : null;
+    const expiresAt = typeof grant.expiresAt === "string" && grant.expiresAt ? grant.expiresAt : null;
+    const errors = [];
+
+    if (!isValidPermissionClaim(grant.permission)) errors.push("invalid-permission-claim");
+    if (grant.tenantId !== undefined && grant.tenantId !== "*" && !isSafeBoundarySegment(grant.tenantId)) {
+      errors.push("invalid-tenant-boundary-claim");
+    }
+    if (grant.workspaceId !== undefined && grant.workspaceId !== "*" && !isSafeBoundarySegment(grant.workspaceId)) {
+      errors.push("invalid-workspace-boundary-claim");
+    }
+    if (expiresAt && !isValidTimestamp(expiresAt)) errors.push("invalid-grant-expiry");
+
+    if (errors.length) {
+      rejectedClaims.push({
+        source: typeof grant.source === "string" && grant.source ? grant.source.slice(0, 80) : "permission-grant",
+        index,
+        reasons: errors
+      });
+      return;
+    }
+
+    grants.push({
+      permission: grant.permission,
+      tenantId,
+      workspaceId,
+      source: typeof grant.source === "string" && grant.source ? grant.source.slice(0, 80) : "delegated-grant",
+      expiresAt
+    });
+  });
+
+  if (value.length > MAX_PERMISSION_GRANTS) {
+    rejectedClaims.push({
+      source: "permission-grant",
+      index: MAX_PERMISSION_GRANTS,
+      reason: "permission-grant-limit-exceeded",
+      droppedCount: value.length - MAX_PERMISSION_GRANTS
+    });
+  }
+
+  return {
+    grants,
+    rejectedClaims
+  };
 }
 
 function dedupePermissionGrants(grants) {
@@ -252,6 +358,7 @@ function grantCoversBoundary(grant, requiredPermission, boundary, now) {
 
 function buildAccessDecision(principal, requiredPermission, boundary, now) {
   const coveringGrants = principal.permissionGrants.filter((grant) => grantCoversBoundary(grant, requiredPermission, boundary, now));
+  const claimValidation = principal.claimValidation || { valid: true, rejectedClaimCount: 0, rejectedClaims: [] };
   const hasExplicitBoundaryScope = coveringGrants.some((grant) => (
     grant.tenantId === "*" || grant.tenantId === boundary.tenantId || grant.workspaceId === "*" || grant.workspaceId === boundary.workspaceId
   ));
@@ -264,8 +371,9 @@ function buildAccessDecision(principal, requiredPermission, boundary, now) {
     tenantId: boundary.tenantId,
     workspaceId: boundary.workspaceId,
     scopeKey: boundary.scopeKey,
-    authorized: coveringGrants.length > 0 && !scopeRequired,
+    authorized: coveringGrants.length > 0 && !scopeRequired && claimValidation.valid,
     scopeRequired,
+    claimValidation,
     matchedGrantCount: coveringGrants.length,
     matchedGrants: coveringGrants.map((grant) => ({
       permission: grant.permission,
@@ -278,6 +386,7 @@ function buildAccessDecision(principal, requiredPermission, boundary, now) {
       principalId: principal.principalId,
       requiredPermission,
       boundary,
+      claimValidation,
       grants: coveringGrants.map((grant) => [grant.permission, grant.tenantId, grant.workspaceId, grant.source, grant.expiresAt])
     })
   };
@@ -291,6 +400,7 @@ function validateBoundaryAccess(command, current, now) {
   const accessDecision = buildAccessDecision(principal, requiredPermission, boundary, now);
 
   if (!principal.permissions.includes(requiredPermission) || !accessDecision.matchedGrantCount) errors.push("principal-missing-permission");
+  if (!principal.claimValidation.valid) errors.push("principal-invalid-permission-claims");
   if (accessDecision.scopeRequired) errors.push("principal-boundary-scope-required");
   if (principal.tenantId && principal.tenantId !== boundary.tenantId) errors.push("principal-tenant-boundary-mismatch");
   if (principal.workspaceIds.length && !principal.workspaceIds.includes(boundary.workspaceId)) {
@@ -2035,12 +2145,15 @@ function deriveAccessDecisionSummary(state, audit) {
   ));
   const missingScope = scopedDecisions.filter((decision) => decision.scopeRequired);
   const denied = scopedDecisions.filter((decision) => !decision.authorized);
+  const invalidClaimDecisions = scopedDecisions.filter((decision) => decision.claimValidation?.valid === false);
   return {
     schema: "privileged-kernel-change.access-decision-summary.v1",
     decisionCount: scopedDecisions.length,
     authorizedCount: scopedDecisions.filter((decision) => decision.authorized).length,
     deniedCount: denied.length,
     boundaryScopeRequiredCount: missingScope.length,
+    invalidClaimDecisionCount: invalidClaimDecisions.length,
+    rejectedClaimCount: invalidClaimDecisions.reduce((total, decision) => total + (decision.claimValidation?.rejectedClaimCount || 0), 0),
     decisions: scopedDecisions.map((decision) => ({
       principalId: decision.principalId,
       requiredPermission: decision.requiredPermission,
@@ -2048,6 +2161,7 @@ function deriveAccessDecisionSummary(state, audit) {
       authorized: decision.authorized,
       matchedGrantCount: decision.matchedGrantCount,
       scopeRequired: decision.scopeRequired,
+      claimValidation: decision.claimValidation || { valid: true, rejectedClaimCount: 0, rejectedClaims: [] },
       matchedGrantSources: decision.matchedGrants.map((grant) => grant.source).sort(),
       digest: decision.digest
     })),

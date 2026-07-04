@@ -38,6 +38,7 @@ const DEFAULT_MAX_TARGETS = 64;
 const MAX_TARGETS_PER_REQUEST = 256;
 const MAX_HISTORY_SNAPSHOTS = 25;
 const CANCEL_ACTIVE_WHEN_DISABLED_DEFAULT = true;
+const MAX_PERSISTED_RECOVERY_AGE_MS = 24 * 60 * 60 * 1000;
 const KILL_QUARANTINE_EXPORT_COLUMNS = [
   { key: 'generatedAt', type: 'datetime' },
   { key: 'kernelId', type: 'string' },
@@ -131,6 +132,45 @@ function uniqueNormalizedPids(values) {
     }
   }
   return pids;
+}
+
+function normalizeRequestedPidClaims(values) {
+  const rawValues = Array.isArray(values) ? values : [];
+  const seen = new Set();
+  const requestedPids = [];
+  const duplicatePids = [];
+  const invalidPidClaims = [];
+
+  rawValues.forEach((value, index) => {
+    const pid = normalizePid(value);
+    if (!pid) {
+      invalidPidClaims.push({
+        index,
+        type: Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value,
+        value: value === undefined ? null : value
+      });
+      return;
+    }
+    if (seen.has(pid)) {
+      duplicatePids.push(pid);
+      return;
+    }
+    seen.add(pid);
+    requestedPids.push(pid);
+  });
+
+  return {
+    contract: 'hosted-kernel.kill-quarantine.requested-pids.v1',
+    explicit: Array.isArray(values),
+    rawCount: rawValues.length,
+    normalizedCount: requestedPids.length,
+    requestedPids,
+    duplicatePids,
+    invalidPidClaims,
+    duplicateCount: duplicatePids.length,
+    invalidCount: invalidPidClaims.length,
+    normalized: duplicatePids.length > 0 || invalidPidClaims.length > 0
+  };
 }
 
 function samePidSet(left, right) {
@@ -1049,6 +1089,110 @@ function normalizePersistedIdempotency(rawState) {
   };
 }
 
+function evaluatePersistedKillQuarantineTruth({
+  rawState,
+  normalizedState,
+  persistedKernelId,
+  kernelId,
+  persistedTargetPids,
+  persistedTimestamps,
+  persistedIdempotency,
+  now
+}) {
+  const nowMs = parseTimeMs(now) ?? Date.now();
+  const updatedAtMs = parseTimeMs(persistedTimestamps.updatedAt);
+  const completedAtMs = parseTimeMs(persistedTimestamps.completedAt);
+  const acknowledgedAtMs = parseTimeMs(persistedTimestamps.acknowledgedAt);
+  const dispatchedAtMs = parseTimeMs(persistedTimestamps.dispatchedAt);
+  const present = Boolean(
+    Object.keys(rawState).length > 0 ||
+      normalizedState.rawState ||
+      persistedTargetPids.length > 0 ||
+      persistedIdempotency.previousIdempotencyKey
+  );
+  const kernelMatches = persistedKernelId === kernelId;
+  const stateKnown = normalizedState.valid && Boolean(normalizedState.state);
+  const timestampParseable = persistedTimestamps.invalidFields.length === 0;
+  const updatedAtPresent = Boolean(persistedTimestamps.updatedAt);
+  const updatedAtParseable = updatedAtMs !== null;
+  const ageMs = updatedAtParseable ? Math.max(0, nowMs - updatedAtMs) : null;
+  const futureUpdatedAt = updatedAtParseable && updatedAtMs > nowMs + 60_000;
+  const staleActiveState = Boolean(
+    ACTIVE_QUARANTINE_STATES.has(normalizedState.state) &&
+      ageMs !== null &&
+      ageMs > MAX_PERSISTED_RECOVERY_AGE_MS
+  );
+  const completedBeforeDispatch = completedAtMs !== null && dispatchedAtMs !== null && completedAtMs < dispatchedAtMs;
+  const dispatchedBeforeAck = dispatchedAtMs !== null && acknowledgedAtMs !== null && dispatchedAtMs < acknowledgedAtMs;
+  const targetProofRequired = ACTIVE_QUARANTINE_STATES.has(normalizedState.state);
+  const targetProofPresent = !targetProofRequired || persistedTargetPids.length > 0;
+  const restartTokenPresent = Boolean(
+    persistedIdempotency.restartToken ||
+      persistedIdempotency.previousIdempotencyKey ||
+      !ACTIVE_QUARANTINE_STATES.has(normalizedState.state)
+  );
+  const failures = normalizeStringList([
+    !present ? 'persisted_state_absent' : '',
+    present && !kernelMatches ? 'persisted_kernel_mismatch' : '',
+    present && !stateKnown ? 'persisted_state_not_replayable' : '',
+    present && !timestampParseable ? 'persisted_timestamp_invalid' : '',
+    present && !updatedAtPresent ? 'persisted_updated_at_missing' : '',
+    present && updatedAtPresent && !updatedAtParseable ? 'persisted_updated_at_invalid' : '',
+    present && futureUpdatedAt ? 'persisted_updated_at_in_future' : '',
+    present && staleActiveState ? 'persisted_active_state_stale' : '',
+    present && !targetProofPresent ? 'persisted_active_targets_missing' : '',
+    present && !restartTokenPresent ? 'persisted_restart_token_missing' : '',
+    present && completedBeforeDispatch ? 'persisted_completed_before_dispatch' : '',
+    present && dispatchedBeforeAck ? 'persisted_dispatched_before_ack' : ''
+  ]);
+  const blockingFailures = failures.filter((failure) => failure !== 'persisted_state_absent');
+  const trustedForReplay = present && blockingFailures.length === 0;
+  const trustLevel = !present
+    ? 'absent'
+    : trustedForReplay
+      ? normalizedState.migrated || persistedIdempotency.source !== 'restartToken'
+        ? 'trusted-after-compatibility-recovery'
+        : 'trusted'
+      : kernelMatches
+        ? 'untrusted-same-kernel'
+        : 'foreign-state';
+
+  return {
+    contract: 'hosted-kernel.kill-quarantine.persisted-state-truth.v1',
+    present,
+    kernelMatches,
+    stateKnown,
+    timestampParseable,
+    updatedAtPresent,
+    updatedAtParseable,
+    ageMs,
+    maxReplayAgeMs: MAX_PERSISTED_RECOVERY_AGE_MS,
+    futureUpdatedAt,
+    staleActiveState,
+    targetProofPresent,
+    restartTokenPresent,
+    timelineOrderValid: !completedBeforeDispatch && !dispatchedBeforeAck,
+    trustedForReplay,
+    trustLevel,
+    failures,
+    blockingFailures,
+    replayDisposition: !present
+      ? 'cold-start'
+      : trustedForReplay
+        ? 'replay-authoritative-state'
+        : kernelMatches
+          ? 'quarantine-and-repair-persisted-state-before-replay'
+          : 'ignore-foreign-persisted-state',
+    repairAction: trustedForReplay
+      ? 'retain-persisted-state'
+      : !kernelMatches
+        ? 'ignore-state-for-requested-kernel'
+        : staleActiveState
+          ? 'expire-or-reconcile-stale-active-quarantine'
+          : 'repair-persisted-kill-quarantine-state'
+  };
+}
+
 function classifyProcessBoundary(process, boundary) {
   const tenantRequired = Boolean(boundary.tenantId);
   const workspaceRequired = Boolean(boundary.workspaceId);
@@ -1206,8 +1350,19 @@ function normalizePersistedKillQuarantineState(input, { now, kernelId }) {
   const updatedAt = persistedTimestamps.updatedAt;
   const requestId = asString(rawState.requestId, '');
   const restartToken = persistedIdempotency.restartToken;
-  const active = persistedKernelId === kernelId && ACTIVE_QUARANTINE_STATES.has(state);
-  const final = persistedKernelId === kernelId && FINAL_QUARANTINE_STATES.has(state);
+  const recoveryTruth = evaluatePersistedKillQuarantineTruth({
+    rawState,
+    normalizedState,
+    persistedKernelId,
+    kernelId,
+    persistedTargetPids,
+    persistedTimestamps,
+    persistedIdempotency,
+    now
+  });
+  const stateBelongsToKernel = persistedKernelId === kernelId && recoveryTruth.trustedForReplay;
+  const active = stateBelongsToKernel && ACTIVE_QUARANTINE_STATES.has(state);
+  const final = stateBelongsToKernel && FINAL_QUARANTINE_STATES.has(state);
   const previousControls = asRecord(rawState.controls);
   const previousOperatorAck = asRecord(rawState.operatorAck);
   const shapeIssues = normalizeStringList([
@@ -1226,6 +1381,16 @@ function normalizePersistedKillQuarantineState(input, { now, kernelId }) {
     stateValid: normalizedState.valid,
     stateMigrated: normalizedState.migrated,
     stateIssues: normalizedState.issues,
+    recoveryTruth,
+    trustedForReplay: recoveryTruth.trustedForReplay,
+    trustLevel: recoveryTruth.trustLevel,
+    replayDisposition: recoveryTruth.replayDisposition,
+    activeSuppressedByRecoveryTrust: Boolean(
+      recoveryTruth.present &&
+        persistedKernelId === kernelId &&
+        ACTIVE_QUARANTINE_STATES.has(state) &&
+        !recoveryTruth.trustedForReplay
+    ),
     shapeIssues,
     shapeRecovered: Boolean(
       normalizedState.migrated
@@ -1545,10 +1710,10 @@ function buildPersistedKillQuarantineState({ now, kernelId, requestId, reason, o
 
 function normalizeKillIntent(input, processes, boundary) {
   const killRequest = asRecord(input.killRequest);
-  const requestedPids = Array.isArray(killRequest.pids)
-    ? killRequest.pids.map(normalizePid).filter(Boolean)
-    : [];
-  const targetAll = killRequest.scope === 'kernel' || requestedPids.length === 0;
+  const pidClaims = normalizeRequestedPidClaims(killRequest.pids);
+  const requestedPids = pidClaims.requestedPids;
+  const explicitProcessSelection = pidClaims.explicit || killRequest.scope === 'processes';
+  const targetAll = killRequest.scope === 'kernel' || (!explicitProcessSelection && requestedPids.length === 0);
   const processByPid = new Map(processes.map((process) => [process.pid, process]));
   const scopedProcesses = processes.filter((process) => processWithinBoundary(process, boundary));
   const targets = targetAll
@@ -1565,6 +1730,10 @@ function normalizeKillIntent(input, processes, boundary) {
   return {
     scope: targetAll ? 'kernel' : 'processes',
     requestedPids,
+    requestedPidClaims: pidClaims,
+    requestedRawCount: pidClaims.rawCount,
+    duplicateRequestedPids: pidClaims.duplicatePids,
+    invalidPidClaims: pidClaims.invalidPidClaims,
     boundary,
     targetPids: targets.map((process) => process.pid),
     missingPids: targetAll ? [] : requestedPids.filter((pid) => !processByPid.has(pid)),
@@ -1681,6 +1850,33 @@ function buildValidationReport({ kernelId, requestedReason, boundary, boundaryAc
       targetCount: intent.targetPids.length
     });
   }
+  if (intent.requestedPidClaims.explicit && intent.requestedRawCount > 0 && intent.requestedPids.length === 0) {
+    issues.push({
+      code: 'requested_pids_empty_after_normalization',
+      field: 'killRequest.pids',
+      severity: 'error',
+      message: 'Explicit kill-quarantine process ids did not contain any usable pid values.',
+      invalidPidClaims: intent.invalidPidClaims
+    });
+  }
+  if (intent.invalidPidClaims.length > 0) {
+    issues.push({
+      code: 'requested_pids_invalid',
+      field: 'killRequest.pids',
+      severity: intent.requestedPids.length > 0 ? 'warning' : 'error',
+      message: 'Some requested process id entries were ignored because they were blank or not pid-like values.',
+      invalidPidClaims: intent.invalidPidClaims
+    });
+  }
+  if (intent.duplicateRequestedPids.length > 0) {
+    issues.push({
+      code: 'requested_pids_deduplicated',
+      field: 'killRequest.pids',
+      severity: 'warning',
+      message: 'Duplicate requested process ids were collapsed before kill-quarantine targeting.',
+      duplicatePids: intent.duplicateRequestedPids
+    });
+  }
   if (intent.missingPids.length > 0) {
     issues.push({
       code: 'requested_pids_missing',
@@ -1763,6 +1959,18 @@ function buildValidationReport({ kernelId, requestedReason, boundary, boundaryAc
       targetSource: persisted.targetSource,
       timestampSources: persisted.timestampSources,
       invalidTimestampFields: persisted.invalidTimestampFields
+    });
+  }
+  if (persisted.present && persisted.kernelId === kernelId && !persisted.trustedForReplay) {
+    issues.push({
+      code: 'persisted_state_untrusted_for_replay',
+      field: 'persistence.killQuarantine',
+      severity: 'error',
+      message: 'Persisted kill-quarantine state failed recovery truth checks and will not be replayed as an active quarantine.',
+      trustLevel: persisted.trustLevel,
+      replayDisposition: persisted.replayDisposition,
+      recoveryFailures: persisted.recoveryTruth.blockingFailures,
+      repairAction: persisted.recoveryTruth.repairAction
     });
   }
   if (operatorAck.present && !provider.capabilities.includes(KILL_QUARANTINE_DISPATCH_CAPABILITY)) {
@@ -1984,6 +2192,9 @@ function actionForValidationIssue(issue) {
   if (issue.code === 'target_limit_zero') return 'raise lifecycle maxTargets before retrying kill quarantine';
   if (issue.code === 'invalid_quarantine_schedule') return 'retry with a valid scheduleAt timestamp or remove scheduling';
   if (issue.code === 'target_limit_exceeded') return `reduce targets to ${issue.limit} or raise the lifecycle target limit`;
+  if (issue.code === 'requested_pids_empty_after_normalization') return 'submit at least one non-empty process id or use scope=kernel intentionally';
+  if (issue.code === 'requested_pids_invalid') return 'remove blank or non-pid entries from killRequest.pids';
+  if (issue.code === 'requested_pids_deduplicated') return 'persist the normalized unique process id list before retrying';
   if (issue.code === 'requested_pids_out_of_scope') return 'remove out-of-scope process ids or switch to the owning boundary';
   if (issue.code === 'provider_capabilities_missing') {
     return `configure provider capabilities: ${issue.missingCapabilities.join(', ')}`;
@@ -2017,6 +2228,9 @@ function actionForValidationIssue(issue) {
   }
   if (issue.code === 'persisted_state_shape_invalid') {
     return 'repair invalid persisted kill-quarantine timestamps before replaying the command';
+  }
+  if (issue.code === 'persisted_state_untrusted_for_replay') {
+    return issue.repairAction ?? 'repair persisted kill-quarantine state before replaying the command';
   }
   if (issue.code === 'stale_quarantine_ack_timeout') {
     return 'expire the stale quarantine and submit a fresh kill-quarantine request';
@@ -2878,10 +3092,13 @@ function buildRoutePreviewModel({
       boundaryId: intent.boundary.boundaryId,
       scope: intent.scope,
       requestedCount: intent.requestedPids.length,
+      requestedRawCount: intent.requestedRawCount,
       acceptedCount: intent.targetPids.length,
       skippedCount: intent.skippedPids.length,
       missingCount: intent.missingPids.length,
-      outOfScopeCount: intent.outOfScopePids.length
+      outOfScopeCount: intent.outOfScopePids.length,
+      duplicateRequestedCount: intent.duplicateRequestedPids.length,
+      invalidRequestedCount: intent.invalidPidClaims.length
     },
     provider: {
       handoffState: providerService.handoff.state,
@@ -2969,7 +3186,10 @@ function buildKillQuarantinePreviewContract({
       boundary: intent.boundary,
       boundaryAccess,
       requestedCount: intent.requestedPids.length,
+      requestedRawCount: intent.requestedRawCount,
       acceptedCount: intent.targetPids.length,
+      duplicateRequestedPids: intent.duplicateRequestedPids,
+      invalidPidClaims: intent.invalidPidClaims,
       missingPids: intent.missingPids,
       outOfScopePids: intent.outOfScopePids,
       skippedPids: intent.skippedPids,
@@ -3588,10 +3808,13 @@ function buildKillQuarantineAnalytics({
     warnings: validation.warningCount,
     errors: validation.errorCount,
     'targets.requested': intent.requestedPids.length,
+    'targets.requestedRaw': intent.requestedRawCount,
     'targets.accepted': intent.targetPids.length,
     'targets.skipped': intent.skippedPids.length,
     'targets.missing': intent.missingPids.length,
     'targets.outOfScope': intent.outOfScopePids.length,
+    'targets.duplicates': intent.duplicateRequestedPids.length,
+    'targets.invalidClaims': intent.invalidPidClaims.length,
     'ack.required': requiresOperatorAck ? 1 : 0,
     'ack.present': operatorAck.present ? 1 : 0,
     'timer.pending': pendingTimerAt ? 1 : 0,
@@ -3628,6 +3851,7 @@ function buildKillQuarantineAnalytics({
     reason,
     targetCount: intent.targetPids.length,
     requestedCount: intent.requestedPids.length,
+    requestedRawCount: intent.requestedRawCount,
     skippedCount: intent.skippedPids.length,
     missingCount: intent.missingPids.length,
     outOfScopeCount: intent.outOfScopePids.length,
@@ -3662,10 +3886,13 @@ function buildKillQuarantineAnalytics({
     },
     targets: {
       requested: intent.requestedPids.length,
+      requestedRaw: intent.requestedRawCount,
       accepted: intent.targetPids.length,
       skipped: intent.skippedPids.length,
       missing: intent.missingPids.length,
-      outOfScope: intent.outOfScopePids.length
+      outOfScope: intent.outOfScopePids.length,
+      duplicateRequested: intent.duplicateRequestedPids.length,
+      invalidClaims: intent.invalidPidClaims.length
     },
     ack: {
       present: operatorAck.present,
@@ -4224,7 +4451,8 @@ export function describeKillQuarantineSurface(input = {}) {
       },
       boundaryAccess,
       scope: intent.scope,
-      requestedPids: intent.requestedPids
+      requestedPids: intent.requestedPids,
+      requestedPidClaims: intent.requestedPidClaims
     },
     runtime: {
       quarantineRequired: accepted,
@@ -4262,6 +4490,9 @@ export function describeKillQuarantineSurface(input = {}) {
       restartSafeStatus: recoveryCommand.restartSafeStatus,
       recoveredFromPersistedState: Boolean(persisted.active),
       targetProcesses: processes.filter((process) => intent.targetPids.includes(process.pid)),
+      requestedPidClaims: intent.requestedPidClaims,
+      duplicateRequestedPids: intent.duplicateRequestedPids,
+      invalidPidClaims: intent.invalidPidClaims,
       missingPids: intent.missingPids,
       outOfScopePids: intent.outOfScopePids,
       skippedPids: intent.skippedPids

@@ -119,6 +119,24 @@ const PROVIDER_SHARED_SCOPE_CAPABILITY = {
   'proof-store': 'audit-partition',
   'external-handoff': 'handoff-state'
 };
+const COMMAND_OPERATION_ALIASES = {
+  'apply-lifecycle': ['apply-lifecycle', 'apply-notifier-record-lifecycle', 'notifier-record-lifecycle', 'lifecycle'],
+  'persist-state': ['persist-state', 'persist-notifier-record-state', 'notifier-record-state', 'save-draft', 'restore-draft'],
+  dispatch: ['dispatch', 'dispatch-notifier-record', 'notifier-record-dispatch', 'notification-dispatch'],
+  'persist-proof': ['persist-proof', 'persist-notifier-record-proof', 'notifier-record-proof', 'proof-persist', 'persist-audit-proof']
+};
+const COMMAND_OPERATION_ROUTES = {
+  'apply-lifecycle': '/kernel/audit-recovery/notifier-record/lifecycle',
+  'persist-state': '/kernel/audit-recovery/notifier-record/state',
+  dispatch: '/kernel/audit-recovery/notifier-record/dispatch',
+  'persist-proof': '/kernel/audit-recovery/notifier-record/proof'
+};
+const COMMAND_OPERATION_PAYLOAD_CONTRACTS = {
+  'apply-lifecycle': 'NotifierRecordLifecycleCommandRequestV1',
+  'persist-state': 'NotifierRecordPersistStateRequestV1',
+  dispatch: 'NotifierRecordDispatchRequestV1',
+  'persist-proof': 'NotifierRecordProofPersistRequestV1'
+};
 
 function asIsoTimestamp(value, fallback) {
   if (typeof value !== 'string' || value.trim() === '') return fallback;
@@ -183,6 +201,40 @@ function normalizeLifecycleCommandName(value) {
   const requested = asNonEmptyString(value);
   if (!requested) return null;
   return LIFECYCLE_COMMAND_ALIASES[requested] || null;
+}
+
+function normalizeCommandOperation(command) {
+  const commandId = firstNonEmptyString(command.commandId, command.id);
+  const action = firstNonEmptyString(command.action, command.command, command.name);
+  const route = asNonEmptyString(command.route);
+  const payloadContract = firstNonEmptyString(command.payloadContract, command.contract);
+  const candidates = uniqueStrings([command.operation, command.kind, action, commandId])
+    .map((value) => value.toLowerCase());
+
+  for (const [operation, aliases] of Object.entries(COMMAND_OPERATION_ALIASES)) {
+    if (candidates.some((candidate) => candidate === operation || candidate.endsWith(`:${operation}`) || aliases.includes(candidate))) {
+      return operation;
+    }
+  }
+
+  for (const [operation, operationRoute] of Object.entries(COMMAND_OPERATION_ROUTES)) {
+    if (route === operationRoute || (route && route.endsWith(operationRoute))) {
+      return operation;
+    }
+  }
+
+  for (const [operation, contract] of Object.entries(COMMAND_OPERATION_PAYLOAD_CONTRACTS)) {
+    if (payloadContract === contract) {
+      return operation;
+    }
+  }
+
+  return null;
+}
+
+function commandLedgerHasOperation(persistedState, operation) {
+  return persistedState.completedCommandOperations.includes(operation)
+    || persistedState.completedCommandIds.some((commandId) => commandId.endsWith(`:${operation}`));
 }
 
 function normalizeOperationalStatus(value, fallback = 'available') {
@@ -403,24 +455,30 @@ function normalizePersistedState(input, generatedAt) {
   const commandLedger = recordedCommands.map(({ command, index }) => {
     const commandId = firstNonEmptyString(command.commandId, command.id);
     const idempotencyKey = asNonEmptyString(command.idempotencyKey);
-    const status = firstNonEmptyString(command.status, command.result) || 'observed';
+    const status = (firstNonEmptyString(command.status, command.result) || 'observed').toLowerCase();
     const action = firstNonEmptyString(command.action, command.command, command.name);
+    const operation = normalizeCommandOperation(command);
     const completed = ['completed', 'succeeded', 'success', 'recorded', 'persisted'].includes(status);
+    const replayKey = idempotencyKey || (operation && commandId ? `${operation}:${commandId}` : null);
 
     return {
       contract: 'NotifierRecordRecoveredCommandLedgerEntryV1',
       sequence: asNonNegativeInteger(command.sequence ?? command.index, index + 1),
       commandId,
       idempotencyKey,
+      replayKey,
       action,
+      operation,
       status,
       completed,
-      replaySafe: Boolean(idempotencyKey),
+      replaySafe: Boolean(replayKey),
       capturedAt: asIsoTimestamp(command.capturedAt || command.completedAt || command.generatedAt || command.at, null)
     };
   });
   const completedCommandIds = uniqueStrings(commandLedger.filter((entry) => entry.completed).map((entry) => entry.commandId));
   const completedIdempotencyKeys = uniqueStrings(commandLedger.filter((entry) => entry.completed).map((entry) => entry.idempotencyKey));
+  const completedCommandOperations = uniqueStrings(commandLedger.filter((entry) => entry.completed).map((entry) => entry.operation));
+  const completedOperationReplayKeys = uniqueStrings(commandLedger.filter((entry) => entry.completed).map((entry) => entry.replayKey));
   const status = firstNonEmptyString(persisted.status, snapshot.status, persisted.lastKnownStatus)
     || (hasPersistedInput ? 'draft-restored' : 'not-persisted');
   const version = firstNonEmptyString(persisted.version, snapshot.version) || 'notifier-record-persisted-state-v1';
@@ -445,6 +503,8 @@ function normalizePersistedState(input, generatedAt) {
     commandLedger,
     completedCommandIds,
     completedIdempotencyKeys,
+    completedCommandOperations,
+    completedOperationReplayKeys,
     terminal: TERMINAL_PERSISTED_STATUSES.includes(status),
     commandCount: commandLog.length
   };
@@ -1160,6 +1220,336 @@ function normalizeRecipients(input) {
     .filter(Boolean);
 }
 
+function normalizeMailchimpDispatchContext(input, persistedState, generatedAt) {
+  const request = asPlainObject(input.request);
+  const product = asPlainObject(input.product);
+  const source = {
+    ...asPlainObject(product.mailchimp),
+    ...asPlainObject(request.mailchimp),
+    ...asPlainObject(input.mailchimp)
+  };
+  const campaign = asPlainObject(source.campaign);
+  const audience = asPlainObject(source.audience);
+  const persistedSnapshot = asPlainObject(persistedState.raw?.snapshot);
+  const campaignId = firstNonEmptyString(
+    source.campaignId,
+    campaign.campaignId,
+    campaign.id,
+    persistedSnapshot.mailchimpCampaignId
+  );
+  const audienceId = firstNonEmptyString(
+    source.audienceId,
+    source.listId,
+    audience.audienceId,
+    audience.listId,
+    audience.id,
+    persistedSnapshot.mailchimpAudienceId
+  );
+  const templateId = firstNonEmptyString(source.templateId, asPlainObject(source.template).templateId, persistedSnapshot.mailchimpTemplateId);
+  const sendAt = asIsoTimestamp(source.sendAt || source.scheduledAt || campaign.sendAt || campaign.scheduledAt, null);
+  const archiveUrl = firstNonEmptyString(source.archiveUrl, campaign.archiveUrl, persistedSnapshot.mailchimpArchiveUrl);
+  const generatedMs = new Date(generatedAt).getTime();
+  const sendAtMs = sendAt ? new Date(sendAt).getTime() : null;
+  const dispatchHold = Number.isFinite(sendAtMs) && sendAtMs > generatedMs;
+  const present = Boolean(source.enabled === true || campaignId || audienceId || templateId || sendAt || archiveUrl);
+  const validationIssues = [];
+
+  if (present && !campaignId) validationIssues.push({ code: 'mailchimp_campaign_id_missing', field: 'mailchimp.campaignId', severity: 'error' });
+  if (present && !audienceId) validationIssues.push({ code: 'mailchimp_audience_id_missing', field: 'mailchimp.audienceId', severity: 'error' });
+  if (source.sendAt || source.scheduledAt || campaign.sendAt || campaign.scheduledAt) {
+    if (!sendAt) validationIssues.push({ code: 'mailchimp_send_at_invalid', field: 'mailchimp.sendAt', severity: 'error' });
+  }
+
+  return {
+    contract: 'NotifierRecordMailchimpDispatchContextV1',
+    present,
+    campaignId,
+    audienceId,
+    templateId,
+    archiveUrl,
+    sendAt,
+    dispatchHold,
+    nextEligibleAt: dispatchHold ? sendAt : null,
+    idempotencyScope: present && campaignId && audienceId
+      ? `mailchimp:${audienceId}:${campaignId}`
+      : null,
+    persistedStatePatch: present ? {
+      mailchimpCampaignId: campaignId,
+      mailchimpAudienceId: audienceId,
+      mailchimpTemplateId: templateId,
+      mailchimpArchiveUrl: archiveUrl,
+      mailchimpSendAt: sendAt
+    } : null,
+    proofRefs: [
+      campaignId ? `mailchimp:campaign:${campaignId}` : null,
+      audienceId ? `mailchimp:audience:${audienceId}` : null,
+      templateId ? `mailchimp:template:${templateId}` : null,
+      archiveUrl
+    ].filter(Boolean),
+    validationIssues
+  };
+}
+
+function buildMailchimpDispatchAnalytics({ mailchimpDispatchContext, readiness, acceptance, generatedAt, historySnapshots }) {
+  if (!mailchimpDispatchContext.present) {
+    return {
+      contract: 'NotifierRecordMailchimpDispatchAnalyticsV1',
+      present: false,
+      status: 'not-applicable',
+      counters: {
+        campaignBound: 0,
+        audienceBound: 0,
+        templateBound: 0,
+        proofRefCount: 0,
+        validationIssueCount: 0,
+        sendWindowHoldActive: 0,
+        acceptedForDispatch: acceptance.acceptedForDispatch ? 1 : 0
+      },
+      historySnapshot: null,
+      exportRowPatch: {},
+      reportingPatch: {},
+      exportBatch: null
+    };
+  }
+
+  const blocked = mailchimpDispatchContext.validationIssues.some((issue) => issue.severity === 'error');
+  const status = blocked
+    ? 'blocked'
+    : mailchimpDispatchContext.dispatchHold
+      ? 'send-window-held'
+      : acceptance.acceptedForDispatch && readiness.canDispatch
+        ? 'dispatch-ready'
+        : acceptance.acceptedForDispatch
+          ? 'accepted'
+          : 'awaiting-acceptance';
+  const priorMailchimpSnapshots = historySnapshots.filter((snapshot) => snapshot.source === 'mailchimp-dispatch-runtime');
+  const historySnapshot = {
+    contract: 'NotifierRecordHistorySnapshotV1',
+    sequence: historySnapshots.reduce((max, snapshot) => Math.max(max, snapshot.sequence), 0) + 2,
+    status,
+    event: 'mailchimp-dispatch-context-computed',
+    capturedAt: generatedAt,
+    actor: null,
+    recordId: mailchimpDispatchContext.idempotencyScope,
+    issueCount: mailchimpDispatchContext.validationIssues.length,
+    blockingIssueCount: mailchimpDispatchContext.validationIssues.filter((issue) => issue.severity === 'error').length,
+    recipientCount: 0,
+    evidenceCount: mailchimpDispatchContext.proofRefs.length,
+    retryCount: 0,
+    source: 'mailchimp-dispatch-runtime',
+    campaignId: mailchimpDispatchContext.campaignId,
+    audienceId: mailchimpDispatchContext.audienceId,
+    nextEligibleAt: mailchimpDispatchContext.nextEligibleAt
+  };
+  const exportRowPatch = {
+    mailchimpPresent: true,
+    mailchimpStatus: status,
+    mailchimpCampaignId: mailchimpDispatchContext.campaignId,
+    mailchimpAudienceId: mailchimpDispatchContext.audienceId,
+    mailchimpTemplateId: mailchimpDispatchContext.templateId,
+    mailchimpSendAt: mailchimpDispatchContext.sendAt,
+    mailchimpArchiveUrl: mailchimpDispatchContext.archiveUrl,
+    mailchimpProofRefCount: mailchimpDispatchContext.proofRefs.length,
+    mailchimpDispatchHold: mailchimpDispatchContext.dispatchHold,
+    mailchimpIdempotencyScope: mailchimpDispatchContext.idempotencyScope
+  };
+
+  return {
+    contract: 'NotifierRecordMailchimpDispatchAnalyticsV1',
+    present: true,
+    status,
+    counters: {
+      campaignBound: mailchimpDispatchContext.campaignId ? 1 : 0,
+      audienceBound: mailchimpDispatchContext.audienceId ? 1 : 0,
+      templateBound: mailchimpDispatchContext.templateId ? 1 : 0,
+      proofRefCount: mailchimpDispatchContext.proofRefs.length,
+      validationIssueCount: mailchimpDispatchContext.validationIssues.length,
+      sendWindowHoldActive: mailchimpDispatchContext.dispatchHold ? 1 : 0,
+      acceptedForDispatch: acceptance.acceptedForDispatch ? 1 : 0,
+      priorRuntimeSnapshotCount: priorMailchimpSnapshots.length
+    },
+    historySnapshot,
+    exportRowPatch,
+    reportingPatch: {
+      mailchimpStatus: status,
+      mailchimpCampaignId: mailchimpDispatchContext.campaignId,
+      mailchimpAudienceId: mailchimpDispatchContext.audienceId,
+      mailchimpDispatchHold: mailchimpDispatchContext.dispatchHold,
+      mailchimpNextEligibleAt: mailchimpDispatchContext.nextEligibleAt
+    },
+    exportBatch: {
+      name: 'notifier-record-mailchimp-dispatch',
+      route: '/kernel/audit-recovery/notifier-record/analytics/mailchimp-dispatch',
+      method: 'PUT',
+      payloadContract: 'NotifierRecordMailchimpDispatchAnalyticsV1',
+      idempotencyKey: `${surfaceId}:${mailchimpDispatchContext.idempotencyScope || 'unbound-mailchimp'}:mailchimp-dispatch:${generatedAt}`,
+      rows: [{
+        generatedAt,
+        status,
+        ...exportRowPatch,
+        proofRefs: mailchimpDispatchContext.proofRefs,
+        persistedStatePatch: mailchimpDispatchContext.persistedStatePatch
+      }]
+    }
+  };
+}
+
+function buildMailchimpDispatchHandoffGate({
+  mailchimpDispatchContext,
+  evidence,
+  boundaryAuthorization,
+  providerContracts,
+  lifecycleControls,
+  clientHandoffState,
+  generatedAt
+}) {
+  if (!mailchimpDispatchContext.present) {
+    return {
+      contract: 'NotifierRecordMailchimpDispatchHandoffGateV1',
+      present: false,
+      status: 'not-applicable',
+      dispatchAllowed: true,
+      proofRefsSatisfied: true,
+      providerHandoffReady: true,
+      blockers: [],
+      nextAction: null,
+      routeContract: null
+    };
+  }
+
+  const evidenceRefs = new Set(evidence.flatMap((item) => [
+    item.id,
+    item.uri,
+    item.label,
+    item.kind === 'audit-artifact' ? item.id : null
+  ].filter(Boolean)));
+  const missingProofRefs = mailchimpDispatchContext.proofRefs
+    .filter((ref) => !evidenceRefs.has(ref));
+  const providerHandoffReady = providerContracts.externalHandoffState.state === 'ready'
+    || providerContracts.externalHandoffState.state === 'client-consumed'
+    || providerContracts.capabilityNegotiation.handoffState === 'remote-ready';
+  const providerSyncBlocked = providerContracts.capabilityNegotiation.syncBarrierRequired;
+  const boundaryBlocked = !boundaryAuthorization.authorizedForDispatch;
+  const lifecycleBlocked = !lifecycleControls.dispatchEnabled || lifecycleControls.scheduleActive;
+  const proofRefsSatisfied = missingProofRefs.length === 0;
+  const blockers = [
+    boundaryBlocked ? {
+      code: 'mailchimp_dispatch_boundary_blocked',
+      severity: 'error',
+      field: 'boundaryAuthorization',
+      reason: boundaryAuthorization.deniedReasons[0] || boundaryAuthorization.decision
+    } : null,
+    lifecycleBlocked ? {
+      code: lifecycleControls.scheduleActive
+        ? 'mailchimp_dispatch_lifecycle_scheduled'
+        : 'mailchimp_dispatch_lifecycle_disabled',
+      severity: lifecycleControls.scheduleActive ? 'warning' : 'error',
+      field: 'lifecycleControls',
+      reason: lifecycleControls.nextEligibleAt || lifecycleControls.commandPolicy
+    } : null,
+    !proofRefsSatisfied ? {
+      code: 'mailchimp_dispatch_proof_refs_missing',
+      severity: 'error',
+      field: 'evidence',
+      missingProofRefs
+    } : null,
+    !providerContracts.ready ? {
+      code: 'mailchimp_dispatch_provider_contract_blocked',
+      severity: 'error',
+      field: 'providerContracts',
+      blockedRoles: providerContracts.blockedRoles
+    } : null,
+    providerSyncBlocked ? {
+      code: 'mailchimp_dispatch_provider_sync_required',
+      severity: 'warning',
+      field: 'providerContracts.capabilityNegotiation',
+      requiredSyncRoles: providerContracts.capabilityNegotiation.requiredSyncRoles
+    } : null,
+    !providerHandoffReady ? {
+      code: 'mailchimp_dispatch_external_handoff_not_ready',
+      severity: 'error',
+      field: 'providerContracts.externalHandoffState',
+      state: providerContracts.externalHandoffState.state,
+      negotiationState: providerContracts.externalHandoffState.negotiationState
+    } : null
+  ].filter(Boolean);
+  const hardBlockers = blockers.filter((blocker) => blocker.severity === 'error');
+  const status = hardBlockers.length
+    ? 'blocked'
+    : mailchimpDispatchContext.dispatchHold
+      ? 'held-for-send-window'
+      : providerSyncBlocked
+        ? 'sync-before-dispatch'
+        : 'ready';
+  const dispatchAllowed = status === 'ready';
+  const nextAction = dispatchAllowed
+    ? {
+        action: 'dispatch-mailchimp-notification',
+        route: '/kernel/audit-recovery/notifier-record/dispatch/mailchimp',
+        method: 'POST',
+        reason: 'Mailchimp dispatch scope, proof refs, provider handoff, and lifecycle gates are ready.'
+      }
+    : status === 'held-for-send-window'
+      ? {
+          action: 'wait-for-mailchimp-send-window',
+          route: '/kernel/audit-recovery/notifier-record/lifecycle',
+          method: 'GET',
+          reason: mailchimpDispatchContext.nextEligibleAt
+        }
+      : providerSyncBlocked
+        ? {
+            action: 'sync-provider-before-mailchimp-dispatch',
+            route: providerContracts.externalHandoffState.route,
+            method: 'PATCH',
+            reason: providerContracts.capabilityNegotiation.requiredSyncRoles.join(',')
+          }
+        : {
+            action: 'repair-mailchimp-dispatch-handoff',
+            route: '/kernel/audit-recovery/notifier-record/preview',
+            method: 'PATCH',
+            reason: hardBlockers[0]?.code || blockers[0]?.code || 'mailchimp_dispatch_blocked'
+          };
+
+  return {
+    contract: 'NotifierRecordMailchimpDispatchHandoffGateV1',
+    present: true,
+    checkedAt: generatedAt,
+    status,
+    dispatchAllowed,
+    proofRefsSatisfied,
+    missingProofRefs,
+    boundaryDecision: boundaryAuthorization.decision,
+    lifecycleMode: lifecycleControls.mode,
+    lifecycleNextEligibleAt: lifecycleControls.nextEligibleAt,
+    providerHandoffReady,
+    providerHandoffState: providerContracts.externalHandoffState.state,
+    providerNegotiationState: providerContracts.capabilityNegotiation.handoffState,
+    providerSyncBlocked,
+    clientResumeToken: clientHandoffState.resumeToken,
+    idempotencyScope: mailchimpDispatchContext.idempotencyScope,
+    proofPartition: boundaryAuthorization.proofPartition.route,
+    blockers,
+    blockerCodes: blockers.map((blocker) => blocker.code),
+    nextAction,
+    routeContract: {
+      route: nextAction.route,
+      method: nextAction.method,
+      enabled: dispatchAllowed,
+      disabledReasons: dispatchAllowed ? [] : blockers.map((blocker) => blocker.code),
+      bodyContract: 'NotifierRecordMailchimpDispatchHandoffRequestV1',
+      body: {
+        campaignId: mailchimpDispatchContext.campaignId,
+        audienceId: mailchimpDispatchContext.audienceId,
+        templateId: mailchimpDispatchContext.templateId,
+        idempotencyScope: mailchimpDispatchContext.idempotencyScope,
+        resumeToken: clientHandoffState.resumeToken,
+        proofRefs: mailchimpDispatchContext.proofRefs,
+        proofPartition: boundaryAuthorization.proofPartition.route
+      }
+    }
+  };
+}
+
 function buildBoundaryAuthorization({ recipients, evidence, requestContext, boundaryContext, persistedState, generatedAt }) {
   const recipientBoundaryViolations = recipients.flatMap((recipient) => {
     const violations = [];
@@ -1235,7 +1625,7 @@ function buildBoundaryAuthorization({ recipients, evidence, requestContext, boun
   };
 }
 
-function summarizeValidation({ recordId, severity, recipients, evidence, recoveryAction, requestContext, boundaryContext, boundaryAuthorization, persistedState, lifecycleControls, clientHandoffState, providerContracts }) {
+function summarizeValidation({ recordId, severity, recipients, evidence, recoveryAction, requestContext, boundaryContext, boundaryAuthorization, persistedState, lifecycleControls, clientHandoffState, providerContracts, mailchimpDispatchContext, mailchimpDispatchGate }) {
   const issues = [];
   if (!recordId) issues.push({ code: 'record_id_missing', field: 'recordId', severity: 'error' });
   if (!severity) issues.push({ code: 'severity_missing', field: 'severity', severity: 'error' });
@@ -1271,6 +1661,28 @@ function summarizeValidation({ recordId, severity, recipients, evidence, recover
   }
   for (const issue of providerContracts.validationIssues) {
     issues.push(issue);
+  }
+  for (const issue of mailchimpDispatchContext?.validationIssues || []) {
+    issues.push(issue);
+  }
+  for (const blocker of mailchimpDispatchGate?.blockers || []) {
+    issues.push({
+      code: blocker.code,
+      field: blocker.field || 'mailchimpDispatchGate',
+      severity: blocker.severity,
+      reason: blocker.reason,
+      missingProofRefs: blocker.missingProofRefs,
+      blockedRoles: blocker.blockedRoles,
+      requiredSyncRoles: blocker.requiredSyncRoles
+    });
+  }
+  if (mailchimpDispatchContext?.dispatchHold) {
+    issues.push({
+      code: 'mailchimp_campaign_send_window_pending',
+      field: 'mailchimp.sendAt',
+      severity: 'warning',
+      nextEligibleAt: mailchimpDispatchContext.nextEligibleAt
+    });
   }
 
   for (const recipient of recipients) {
@@ -1357,7 +1769,7 @@ function buildAcceptance({ accepted, acknowledgements, validation, requestContex
   };
 }
 
-function buildRestartSafeReadiness({ acceptance, validation, generatedAt, persistedState, operationalHealth, lifecycleControls, providerContracts, boundaryAuthorization }) {
+function buildRestartSafeReadiness({ acceptance, validation, generatedAt, persistedState, operationalHealth, lifecycleControls, providerContracts, boundaryAuthorization, mailchimpDispatchContext, mailchimpDispatchGate }) {
   let status = 'needs-revision';
   if (acceptance.acceptedForDispatch) {
     if (persistedState.status === 'proof-persisted') {
@@ -1368,6 +1780,8 @@ function buildRestartSafeReadiness({ acceptance, validation, generatedAt, persis
       status = lifecycleControls.mode === 'paused' ? 'dispatch-paused' : 'dispatch-disabled';
     } else if (lifecycleControls.scheduleActive) {
       status = 'dispatch-scheduled';
+    } else if (mailchimpDispatchContext?.dispatchHold) {
+      status = 'dispatch-scheduled';
     } else if (operationalHealth.circuitOpen) {
       status = 'dispatch-blocked';
     } else if (operationalHealth.retryDelayed) {
@@ -1376,6 +1790,12 @@ function buildRestartSafeReadiness({ acceptance, validation, generatedAt, persis
       status = boundaryAuthorization.decision === 'deny-boundary' ? 'boundary-blocked' : 'permission-blocked';
     } else if (!providerContracts.ready) {
       status = 'provider-contract-blocked';
+    } else if (mailchimpDispatchGate?.present && !mailchimpDispatchGate.dispatchAllowed) {
+      status = mailchimpDispatchGate.status === 'held-for-send-window'
+        ? 'dispatch-scheduled'
+        : mailchimpDispatchGate.status === 'sync-before-dispatch'
+          ? 'provider-contract-blocked'
+          : 'dispatch-blocked';
     } else if (operationalHealth.degradedMode) {
       status = 'degraded-dispatch-ready';
     } else {
@@ -1392,11 +1812,11 @@ function buildRestartSafeReadiness({ acceptance, validation, generatedAt, persis
     recoveredFromState: persistedState.recovered,
     canPreview: true,
     canAccept: validation.valid && !persistedState.terminal,
-    canDispatch: acceptance.acceptedForDispatch && boundaryAuthorization.authorizedForDispatch && lifecycleControls.dispatchEnabled && !lifecycleControls.scheduleActive && !operationalHealth.circuitOpen && !operationalHealth.retryDelayed && providerContracts.ready && persistedState.status !== 'dispatch-recorded' && persistedState.status !== 'proof-persisted',
+    canDispatch: acceptance.acceptedForDispatch && boundaryAuthorization.authorizedForDispatch && lifecycleControls.dispatchEnabled && !lifecycleControls.scheduleActive && !mailchimpDispatchContext?.dispatchHold && (mailchimpDispatchGate?.dispatchAllowed !== false) && !operationalHealth.circuitOpen && !operationalHealth.retryDelayed && providerContracts.ready && persistedState.status !== 'dispatch-recorded' && persistedState.status !== 'proof-persisted',
     lifecycleMode: lifecycleControls.mode,
     dispatchEnabled: lifecycleControls.dispatchEnabled,
-    scheduledDispatch: lifecycleControls.scheduleActive,
-    nextEligibleAt: lifecycleControls.nextEligibleAt,
+    scheduledDispatch: lifecycleControls.scheduleActive || Boolean(mailchimpDispatchContext?.dispatchHold),
+    nextEligibleAt: mailchimpDispatchContext?.nextEligibleAt || lifecycleControls.nextEligibleAt,
     degradedMode: operationalHealth.degradedMode,
     circuitOpen: operationalHealth.circuitOpen,
     retryableFailure: operationalHealth.retryableFailure,
@@ -1409,6 +1829,8 @@ function buildRestartSafeReadiness({ acceptance, validation, generatedAt, persis
     boundaryScopeStatus: boundaryAuthorization.scopeStatus,
     boundaryDeniedReasons: boundaryAuthorization.deniedReasons,
     providerContractsReady: providerContracts.ready,
+    mailchimpDispatchContext,
+    mailchimpDispatchGate,
     blockedProviderRoles: providerContracts.blockedRoles,
     boundaryBlockedProviderRoles: providerContracts.boundaryBlockedRoles,
     unavailableProviderRoles: providerContracts.unavailableRoles,
@@ -1443,13 +1865,23 @@ function buildPersistedStateEnvelope({ recordId, severity, title, summary, recov
     contract: 'NotifierRecordPersistedReplayGuardsV1',
     completedCommandIds: persistedState.completedCommandIds,
     completedIdempotencyKeys: persistedState.completedIdempotencyKeys,
+    completedCommandOperations: persistedState.completedCommandOperations,
+    completedOperationReplayKeys: persistedState.completedOperationReplayKeys,
     lastCommandId: persistedState.lastCommandId,
     lastCommandStatus: persistedState.lastCommandStatus,
     preserveTerminalStatus: terminal,
-    rejectDispatchReplay: terminal || persistedState.completedCommandIds.some((commandId) => commandId.endsWith(':dispatch')),
-    rejectProofReplay: canonicalStatus === 'proof-persisted' || persistedState.completedCommandIds.some((commandId) => commandId.endsWith(':persist-proof')),
+    rejectDispatchReplay: terminal || commandLedgerHasOperation(persistedState, 'dispatch'),
+    rejectProofReplay: canonicalStatus === 'proof-persisted' || commandLedgerHasOperation(persistedState, 'persist-proof'),
     allowDraftOverwrite: !terminal && boundaryAuthorization.authorizedForPersist,
-    allowLifecycleOverwrite: !terminal && boundaryAuthorization.authorizedForPersist
+    allowLifecycleOverwrite: !terminal && boundaryAuthorization.authorizedForPersist,
+    recoveredOperationSemantics: {
+      contract: 'NotifierRecordRecoveredOperationReplaySemanticsV1',
+      recognizedOperations: Object.keys(COMMAND_OPERATION_ALIASES),
+      dispatchCompleted: commandLedgerHasOperation(persistedState, 'dispatch'),
+      proofCompleted: commandLedgerHasOperation(persistedState, 'persist-proof'),
+      statePersisted: commandLedgerHasOperation(persistedState, 'persist-state'),
+      lifecycleApplied: commandLedgerHasOperation(persistedState, 'apply-lifecycle')
+    }
   };
   const recoveryPaths = [
     {
@@ -1561,7 +1993,7 @@ function commandDisabledReason(commandName, { acceptance, readiness, persistedSt
   if (commandName === 'dispatch' && providerContracts.blockedRoles.length > 0) return providerContracts.syncRequiredRoles.length > 0 ? 'provider-sync-barrier-required' : 'provider-contract-blocked';
   if (commandName === 'dispatch' && persistedState.status === 'dispatch-recorded') return 'dispatch-already-recorded';
   if (commandName === 'dispatch' && persistedState.status === 'proof-persisted') return 'proof-already-persisted';
-  if (commandName === 'dispatch' && persistedState.completedCommandIds.some((commandId) => commandId.endsWith(':dispatch'))) return 'dispatch-replay-already-completed';
+  if (commandName === 'dispatch' && commandLedgerHasOperation(persistedState, 'dispatch')) return 'dispatch-replay-already-completed';
   if (commandName === 'persist-proof' && !acceptance.acceptedForDispatch) return 'operator-acceptance-required';
   if (commandName === 'persist-proof' && !boundaryAuthorization.authorizedForProof) return boundaryAuthorization.decision === 'allow-review-only' ? 'dispatch-permission-missing' : 'boundary-authorization-denied';
   if (commandName === 'persist-proof' && !lifecycleControls.proofPersistenceEnabled) return 'proof-persistence-disabled';
@@ -1574,7 +2006,7 @@ function commandDisabledReason(commandName, { acceptance, readiness, persistedSt
   if (commandName === 'persist-proof' && operationalHealth.proofStoreStatus === 'unavailable') return 'proof-store-unavailable';
   if (commandName === 'persist-proof' && operationalHealth.proofStoreStatus === 'disabled') return 'proof-store-disabled';
   if (commandName === 'persist-proof' && persistedState.status === 'proof-persisted') return 'proof-already-persisted';
-  if (commandName === 'persist-proof' && persistedState.completedCommandIds.some((commandId) => commandId.endsWith(':persist-proof'))) return 'proof-replay-already-completed';
+  if (commandName === 'persist-proof' && commandLedgerHasOperation(persistedState, 'persist-proof')) return 'proof-replay-already-completed';
   return null;
 }
 
@@ -2351,6 +2783,8 @@ function buildClientState({ recordId, severity, recipients, evidence, requestCon
       revisionSeed: persistedStateEnvelope.revisionSeed,
       lastCommandId: persistedState.lastCommandId,
       commandCount: persistedState.commandCount,
+      completedCommandOperations: persistedState.completedCommandOperations,
+      completedOperationReplayKeys: persistedState.completedOperationReplayKeys,
       terminal: persistedStateEnvelope.terminal,
       replayGuards: persistedStateEnvelope.replayGuards,
       recoveryPaths: persistedStateEnvelope.recoveryPaths.map((path) => ({
@@ -2458,6 +2892,7 @@ function buildClientState({ recordId, severity, recipients, evidence, requestCon
           exportReady: analyticsExports.reportingState.exportReady,
           stalled: analyticsExports.reportingState.stalled,
           lastHistoryStatus: analyticsExports.reportingState.lastHistoryStatus,
+          mailchimp: analyticsExports.reportingState.mailchimp,
           timeline: analyticsExports.timeline.map((stage) => ({
             key: stage.key,
             state: stage.state
@@ -2737,7 +3172,7 @@ function stageState({ complete, blocked, active }) {
   return active ? 'active' : 'pending';
 }
 
-function buildAnalyticsExports({ recordId, severity, recipients, evidence, requestContext, validation, acceptance, readiness, persistedState, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, generatedAt, idempotentCommands, workflowHandoff, historySnapshots }) {
+function buildAnalyticsExports({ recordId, severity, recipients, evidence, requestContext, validation, acceptance, readiness, persistedState, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, mailchimpDispatchContext, generatedAt, idempotentCommands, workflowHandoff, historySnapshots }) {
   const warningIssueCount = validation.issues.filter((issue) => issue.severity === 'warning').length;
   const enabledCommands = idempotentCommands.filter((command) => command.enabled);
   const disabledCommands = idempotentCommands.filter((command) => !command.enabled);
@@ -2769,7 +3204,18 @@ function buildAnalyticsExports({ recordId, severity, recipients, evidence, reque
     retryCount: operationalHealth.retryCount,
     source: 'runtime-projection'
   };
-  const history = [...historySnapshots, runtimeSnapshot];
+  const mailchimpAnalytics = buildMailchimpDispatchAnalytics({
+    mailchimpDispatchContext,
+    readiness,
+    acceptance,
+    generatedAt,
+    historySnapshots
+  });
+  const history = [
+    ...historySnapshots,
+    runtimeSnapshot,
+    ...(mailchimpAnalytics.historySnapshot ? [mailchimpAnalytics.historySnapshot] : [])
+  ];
   const boundaryBlocked = boundaryAuthorization.decision === 'deny-boundary' || (acceptance.acceptedForDispatch && !boundaryAuthorization.authorizedForDispatch);
   const blocked = validation.blockingIssueCount > 0 || boundaryBlocked || operationalHealth.circuitOpen || operationalHealth.retryDelayed || (!lifecycleControls.dispatchEnabled && acceptance.acceptedForDispatch) || (acceptance.acceptedForDispatch && !providerContracts.ready);
   const exportable = Boolean(recordId && boundaryContext.tenantId && boundaryContext.workspaceId);
@@ -2832,6 +3278,21 @@ function buildAnalyticsExports({ recordId, severity, recipients, evidence, reque
       negotiationState: providerContracts.capabilityNegotiation.handoffState,
       externalHandoffState: providerContracts.externalHandoffState.state,
       at: generatedAt
+    },
+    {
+      key: 'mailchimp',
+      label: 'Mailchimp',
+      state: stageState({
+        complete: mailchimpAnalytics.present && ['dispatch-ready', 'accepted'].includes(mailchimpAnalytics.status),
+        blocked: mailchimpAnalytics.status === 'blocked',
+        active: mailchimpAnalytics.present && mailchimpAnalytics.status === 'send-window-held'
+      }),
+      status: mailchimpAnalytics.status,
+      campaignId: mailchimpDispatchContext?.campaignId || null,
+      audienceId: mailchimpDispatchContext?.audienceId || null,
+      nextEligibleAt: mailchimpDispatchContext?.nextEligibleAt || null,
+      proofRefCount: mailchimpAnalytics.counters.proofRefCount,
+      at: generatedAt
     }
   ];
   const counters = {
@@ -2859,6 +3320,17 @@ function buildAnalyticsExports({ recordId, severity, recipients, evidence, reque
     lifecycleCommandAccepted: lifecycleControls.lifecycleCommand.accepted ? 1 : 0,
     lifecycleCommandBlocked: lifecycleControls.lifecycleCommand.commandBlockers.length > 0 ? 1 : 0,
     scheduledDispatchActive: lifecycleControls.scheduleActive ? 1 : 0,
+    recoveredDispatchCompleted: commandLedgerHasOperation(persistedState, 'dispatch') ? 1 : 0,
+    recoveredProofCompleted: commandLedgerHasOperation(persistedState, 'persist-proof') ? 1 : 0,
+    recoveredStatePersisted: commandLedgerHasOperation(persistedState, 'persist-state') ? 1 : 0,
+    recoveredLifecycleApplied: commandLedgerHasOperation(persistedState, 'apply-lifecycle') ? 1 : 0,
+    mailchimpPresent: mailchimpAnalytics.present ? 1 : 0,
+    mailchimpCampaignBound: mailchimpAnalytics.counters.campaignBound,
+    mailchimpAudienceBound: mailchimpAnalytics.counters.audienceBound,
+    mailchimpTemplateBound: mailchimpAnalytics.counters.templateBound,
+    mailchimpProofRefCount: mailchimpAnalytics.counters.proofRefCount,
+    mailchimpValidationIssueCount: mailchimpAnalytics.counters.validationIssueCount,
+    mailchimpSendWindowHoldActive: mailchimpAnalytics.counters.sendWindowHoldActive,
     providerUnavailableRoleCount: providerContracts.unavailableRoles.length,
     providerBlockedRoleCount: providerContracts.blockedRoles.length,
     providerBoundaryBlockedRoleCount: providerContracts.boundaryBlockedRoles.length,
@@ -2910,6 +3382,7 @@ function buildAnalyticsExports({ recordId, severity, recipients, evidence, reque
       boundaryAuthorizationDecision: boundaryAuthorization.decision,
       boundaryScopeStatus: boundaryAuthorization.scopeStatus,
       providerSyncRequired: providerContracts.syncRequiredRoles.length > 0,
+      mailchimp: mailchimpAnalytics.reportingPatch,
       owner: blocked ? 'tenant-audit-operator' : workflowHandoff.target,
       needsAttention: blocked || lifecycleControls.validationIssues.length > 0 || acceptance.missingAcknowledgements.length > 0 || warningIssueCount > 0,
       exportReady: exportable,
@@ -2959,12 +3432,14 @@ function buildAnalyticsExports({ recordId, severity, recipients, evidence, reque
         boundaryDeniedReasons: boundaryAuthorization.deniedReasons,
         providerUnavailableRoles: providerContracts.unavailableRoles,
         providerSyncRequiredRoles: providerContracts.syncRequiredRoles,
+        ...mailchimpAnalytics.exportRowPatch,
         traceId: requestContext.traceId,
         actor: requestContext.actor,
         generatedAt
       },
       enabledCommandIds: enabledCommands.map((command) => command.commandId),
-      actionableErrorCodes: operationalHealth.actionableErrors.map((error) => error.code)
+      actionableErrorCodes: operationalHealth.actionableErrors.map((error) => error.code),
+      mailchimp: mailchimpAnalytics.present ? mailchimpAnalytics.exportRowPatch : null
     },
     exportBatches: {
       contract: 'NotifierRecordAnalyticsExportBatchesV1',
@@ -3013,8 +3488,326 @@ function buildAnalyticsExports({ recordId, severity, recipients, evidence, reque
             workspaceId: boundaryContext.workspaceId,
             statusBucket
           }))
-        }
+        },
+        ...(mailchimpAnalytics.exportBatch ? [mailchimpAnalytics.exportBatch] : [])
       ]
+    }
+  };
+}
+
+function buildRuntimeAdoptionPacket({
+  recordId,
+  requestContext,
+  validation,
+  acceptance,
+  readiness,
+  boundaryAuthorization,
+  operationalHealth,
+  lifecycleControls,
+  providerContracts,
+  workflowHandoff,
+  clientHandoffState,
+  analyticsExports,
+  nextSteps,
+  idempotentCommands,
+  generatedAt
+}) {
+  const enabledCommands = idempotentCommands.filter((command) => command.enabled);
+  const blockedCommands = idempotentCommands.filter((command) => !command.enabled);
+  const dispatchCommand = enabledCommands.find((command) => command.payloadContract === 'NotifierRecordDispatchRequestV1') || null;
+  const proofCommand = enabledCommands.find((command) => command.payloadContract === 'NotifierRecordProofPersistRequestV1') || null;
+  const primaryStep = nextSteps[0] || null;
+  const exportReady = analyticsExports.exportBatches.ready && analyticsExports.reportingState.exportReady;
+  const providerReadyForHandoff = providerContracts.ready
+    && providerContracts.externalHandoffState.negotiationState === 'remote-ready';
+  const clientCanAdopt = Boolean(
+    requestContext.sessionId
+    && workflowHandoff.resumeToken
+    && clientHandoffState.validationIssues.length === 0
+    && !clientHandoffState.clientConsumed
+  );
+  const blockedReasons = uniqueStrings([
+    ...validation.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.code),
+    ...boundaryAuthorization.deniedReasons.map((reason) => `boundary:${reason}`),
+    ...operationalHealth.actionableErrors.filter((error) => error.severity === 'error').map((error) => error.code),
+    ...blockedCommands.map((command) => command.disabledReason),
+    ...providerContracts.blockedRoles.map((role) => `provider:${role}`),
+    ...providerContracts.boundaryBlockedRoles.map((role) => `provider-boundary:${role}`),
+    ...clientHandoffState.validationIssues.map((issue) => issue.code),
+    lifecycleControls.scheduleActive ? 'dispatch-scheduled' : null,
+    !lifecycleControls.dispatchEnabled && acceptance.acceptedForDispatch ? 'dispatch-disabled' : null
+  ]);
+  const adoptionState = !clientCanAdopt
+    ? 'client-repair-required'
+    : blockedReasons.length > 0
+      ? 'blocked'
+      : acceptance.acceptedForDispatch && readiness.canDispatch && dispatchCommand
+        ? 'dispatch-adoptable'
+        : acceptance.acceptedForDispatch && proofCommand
+          ? 'proof-adoptable'
+          : validation.valid
+            ? 'review-adoptable'
+            : 'draft-adoptable';
+
+  return {
+    contract: 'NotifierRecordRuntimeAdoptionPacketV1',
+    generatedAt,
+    recordKey: recordId ? `${surfaceId}:${recordId}` : `${surfaceId}:pending`,
+    state: adoptionState,
+    canAdopt: clientCanAdopt && blockedReasons.length === 0,
+    sessionId: requestContext.sessionId,
+    traceId: requestContext.traceId,
+    requestedStep: requestContext.requestedStep,
+    handoff: {
+      intent: clientHandoffState.intent,
+      target: workflowHandoff.target,
+      route: workflowHandoff.route,
+      method: workflowHandoff.method,
+      resumeToken: workflowHandoff.resumeToken,
+      previousStatus: clientHandoffState.previousStatus,
+      nextPanel: workflowHandoff.clientWorkflow.nextPanel,
+      primaryAction: workflowHandoff.clientWorkflow.primaryAction,
+      banner: workflowHandoff.clientWorkflow.banner,
+      requestedTarget: clientHandoffState.requestedTarget,
+      requestedTargetMatched: !clientHandoffState.requestedTarget
+        || clientHandoffState.requestedTarget === workflowHandoff.target
+        || clientHandoffState.requestedTarget === workflowHandoff.route,
+      consumed: clientHandoffState.clientConsumed
+    },
+    runtimeState: {
+      readinessStatus: readiness.status,
+      acceptanceReady: acceptance.acceptedForDispatch,
+      validationValid: validation.valid,
+      boundaryDecision: boundaryAuthorization.decision,
+      retryWindowOpen: operationalHealth.retryWindowOpen,
+      lifecycleMode: lifecycleControls.mode,
+      dispatchEnabled: lifecycleControls.dispatchEnabled,
+      scheduleActive: lifecycleControls.scheduleActive,
+      providerReady: providerContracts.ready,
+      providerReadyForHandoff,
+      providerNegotiationState: providerContracts.externalHandoffState.negotiationState,
+      exportReady
+    },
+    exportSummary: {
+      exportKey: analyticsExports.exportSummary.exportKey,
+      dashboardKey: analyticsExports.reportingState.dashboardKey,
+      statusBucket: analyticsExports.reportingState.statusBucket,
+      ready: exportReady,
+      batchCount: analyticsExports.exportBatches.destinations.length,
+      blockedReason: analyticsExports.exportBatches.blockedReason
+    },
+    commandAdoption: {
+      enabledCommandCount: enabledCommands.length,
+      blockedCommandCount: blockedCommands.length,
+      visibleCommandIds: enabledCommands.map((command) => command.commandId),
+      dispatchCommandId: dispatchCommand?.commandId || null,
+      proofCommandId: proofCommand?.commandId || null,
+      disabledReasons: uniqueStrings(blockedCommands.map((command) => command.disabledReason)).slice(0, 10)
+    },
+    nextAction: primaryStep ? {
+      action: primaryStep.action,
+      route: primaryStep.route,
+      method: primaryStep.method,
+      payloadContract: primaryStep.payloadContract,
+      handoffState: primaryStep.handoffState,
+      clientWorkflow: primaryStep.clientWorkflow
+    } : {
+      action: workflowHandoff.clientWorkflow.primaryAction,
+      route: workflowHandoff.route,
+      method: workflowHandoff.method,
+      payloadContract: 'NotifierRecordWorkflowHandoff',
+      handoffState: readiness.status,
+      clientWorkflow: workflowHandoff.clientWorkflow
+    },
+    blockedReasons: blockedReasons.slice(0, 16),
+    routeContract: {
+      route: '/kernel/audit-recovery/notifier-record/runtime/adopt',
+      method: 'PATCH',
+      requestSchema: 'NotifierRecordRuntimeAdoptionRequestV1',
+      responseSchema: 'NotifierRecordRuntimeAdoptionPacketV1',
+      idempotencyKey: `${surfaceId}:${recordId || 'pending-record-id'}:${workflowHandoff.resumeToken}:runtime-adoption`
+    }
+  };
+}
+
+function buildOperatorDispatchDecision({
+  recordId,
+  requestContext,
+  boundaryContext,
+  boundaryAuthorization,
+  preview,
+  uiReview,
+  acceptance,
+  readiness,
+  operationalHealth,
+  lifecycleControls,
+  providerContracts,
+  persistedStateEnvelope,
+  idempotentCommands,
+  workflowHandoff,
+  clientHandoffState,
+  analyticsExports,
+  nextSteps,
+  generatedAt
+}) {
+  const enabledCommands = idempotentCommands.filter((command) => command.enabled);
+  const disabledCommands = idempotentCommands.filter((command) => !command.enabled);
+  const dispatchCommand = idempotentCommands.find((command) => command.payloadContract === 'NotifierRecordDispatchRequestV1') || null;
+  const proofCommand = idempotentCommands.find((command) => command.payloadContract === 'NotifierRecordProofPersistRequestV1') || null;
+  const persistStateCommand = idempotentCommands.find((command) => command.payloadContract === 'NotifierRecordPersistStateRequestV1') || null;
+  const primaryStep = nextSteps[0] || {
+    action: uiReview.nextAction.action,
+    route: uiReview.nextAction.route,
+    method: uiReview.nextAction.method,
+    payloadContract: 'NotifierRecordRouteReviewPacketV1',
+    handoffState: readiness.status
+  };
+  const blockingReasons = uniqueStrings([
+    ...uiReview.blockerCodes,
+    ...disabledCommands.map((command) => command.disabledReason),
+    ...boundaryAuthorization.deniedReasons.map((reason) => `boundary:${reason}`),
+    ...providerContracts.blockedRoles.map((role) => `provider:${role}`),
+    ...providerContracts.boundaryBlockedRoles.map((role) => `provider-boundary:${role}`),
+    ...providerContracts.unavailableRoles.map((role) => `provider-unavailable:${role}`),
+    ...operationalHealth.actionableErrors
+      .filter((error) => error.severity === 'error')
+      .map((error) => error.code)
+  ]);
+  const dispatchReady = Boolean(
+    acceptance.acceptedForDispatch
+    && readiness.canDispatch
+    && dispatchCommand
+    && dispatchCommand.enabled
+    && boundaryAuthorization.authorizedForDispatch
+    && providerContracts.ready
+  );
+  const proofReady = Boolean(
+    acceptance.acceptedForDispatch
+    && proofCommand
+    && proofCommand.enabled
+    && lifecycleControls.proofPersistenceEnabled
+    && boundaryAuthorization.authorizedForProof
+  );
+  const previewAcceptable = Boolean(
+    preview.recipientCount > 0
+    && uiReview.previewReady
+    && uiReview.acceptanceReady
+    && !persistedStateEnvelope.terminal
+  );
+  const retryBlocked = operationalHealth.retryDelayed || operationalHealth.circuitOpen;
+  const decision = dispatchReady
+    ? 'dispatch-ready'
+    : proofReady && readiness.status === 'dispatch-recorded'
+      ? 'proof-ready'
+      : retryBlocked
+        ? 'retry-held'
+        : !acceptance.acceptedForDispatch
+          ? previewAcceptable ? 'awaiting-operator-acceptance' : 'draft-blocked'
+          : !providerContracts.ready
+            ? 'provider-blocked'
+            : !lifecycleControls.dispatchEnabled || lifecycleControls.scheduleActive
+              ? 'lifecycle-held'
+              : boundaryAuthorization.decision === 'deny-boundary'
+                ? 'boundary-blocked'
+                : 'operator-action-required';
+  const selectedCommand = dispatchReady
+    ? dispatchCommand
+    : proofReady
+      ? proofCommand
+      : persistStateCommand;
+
+  return {
+    contract: 'NotifierRecordOperatorDispatchDecisionV1',
+    generatedAt,
+    decision,
+    recordKey: recordId ? `${surfaceId}:${recordId}` : `${surfaceId}:pending`,
+    traceId: requestContext.traceId,
+    tenantId: boundaryContext.tenantId,
+    workspaceId: boundaryContext.workspaceId,
+    route: selectedCommand ? selectedCommand.route : primaryStep.route,
+    method: selectedCommand ? selectedCommand.method : primaryStep.method,
+    payloadContract: selectedCommand ? selectedCommand.payloadContract : primaryStep.payloadContract,
+    commandId: selectedCommand ? selectedCommand.commandId : null,
+    idempotencyKey: selectedCommand ? selectedCommand.idempotencyKey : null,
+    canSubmit: Boolean(selectedCommand && selectedCommand.enabled && ['dispatch-ready', 'proof-ready'].includes(decision)),
+    previewGate: {
+      ready: uiReview.previewReady,
+      acceptable: previewAcceptable,
+      recipientCount: preview.recipientCount,
+      evidenceCount: preview.evidenceCount,
+      missingClientFields: uiReview.routePayloadContracts
+        .filter((contract) => contract.panel === 'preview' || contract.panel === 'acceptance')
+        .flatMap((contract) => contract.missingClientFields)
+    },
+    acceptanceGate: {
+      acceptedForDispatch: acceptance.acceptedForDispatch,
+      acceptedByOperator: acceptance.acceptedByOperator,
+      missingAcknowledgements: acceptance.missingAcknowledgements,
+      blockedReasons: acceptance.blockedReasons
+    },
+    dispatchGate: {
+      readinessStatus: readiness.status,
+      canDispatch: readiness.canDispatch,
+      restartSafe: readiness.restartSafe,
+      retryWindowOpen: operationalHealth.retryWindowOpen,
+      retryAt: operationalHealth.retryAt,
+      nextBackoffMs: operationalHealth.nextBackoffMs,
+      failureState: operationalHealth.failureState.state
+    },
+    lifecycleGate: {
+      mode: lifecycleControls.mode,
+      dispatchEnabled: lifecycleControls.dispatchEnabled,
+      scheduleActive: lifecycleControls.scheduleActive,
+      nextEligibleAt: lifecycleControls.nextEligibleAt,
+      nextOperatorAction: lifecycleControls.nextOperatorAction
+    },
+    providerGate: {
+      ready: providerContracts.ready,
+      negotiationState: providerContracts.capabilityNegotiation.handoffState,
+      blockedRoles: providerContracts.blockedRoles,
+      boundaryBlockedRoles: providerContracts.boundaryBlockedRoles,
+      unavailableRoles: providerContracts.unavailableRoles,
+      syncRequiredRoles: providerContracts.syncRequiredRoles,
+      externalHandoffState: providerContracts.externalHandoffState.state
+    },
+    boundaryGate: {
+      decision: boundaryAuthorization.decision,
+      scopeStatus: boundaryAuthorization.scopeStatus,
+      authorizedForDispatch: boundaryAuthorization.authorizedForDispatch,
+      authorizedForProof: boundaryAuthorization.authorizedForProof,
+      deniedReasons: boundaryAuthorization.deniedReasons
+    },
+    commandPlan: {
+      enabledCommandIds: enabledCommands.map((command) => command.commandId),
+      disabledCommands: disabledCommands.map((command) => ({
+        commandId: command.commandId,
+        action: command.action,
+        disabledReason: command.disabledReason
+      })),
+      recoveredOperationSemantics: persistedStateEnvelope.replayGuards.recoveredOperationSemantics,
+      terminalReadOnly: persistedStateEnvelope.terminal
+    },
+    handoff: {
+      target: workflowHandoff.target,
+      route: workflowHandoff.route,
+      resumeToken: workflowHandoff.resumeToken,
+      intent: clientHandoffState.intent,
+      nextPanel: workflowHandoff.clientWorkflow.nextPanel,
+      primaryAction: workflowHandoff.clientWorkflow.primaryAction
+    },
+    analytics: {
+      statusBucket: analyticsExports.reportingState.statusBucket,
+      needsAttention: analyticsExports.reportingState.needsAttention,
+      exportReady: analyticsExports.reportingState.exportReady,
+      dashboardKey: analyticsExports.reportingState.dashboardKey
+    },
+    blockingReasons,
+    nextStep: {
+      action: primaryStep.action,
+      route: primaryStep.route,
+      method: primaryStep.method,
+      payloadContract: primaryStep.payloadContract,
+      handoffState: primaryStep.handoffState
     }
   };
 }
@@ -3028,25 +3821,85 @@ export function describeNotifierRecordSurface(input = {}) {
   const lifecycleControls = normalizeLifecycleControls(input, generatedAt);
   const clientHandoffState = normalizeClientHandoffState(input, persistedState, generatedAt);
   const providerContracts = normalizeProviderContracts(input, boundaryContext, lifecycleControls, clientHandoffState, generatedAt);
+  const mailchimpDispatchContext = normalizeMailchimpDispatchContext(input, persistedState, generatedAt);
   const recoveredDraft = resolveRecoveredDraft({ input, persistedState });
   const { recordId, severity, title, summary, recoveryAction } = recoveredDraft;
   const evidence = normalizeEvidence(input);
   const recipients = normalizeRecipients(input);
   const boundaryAuthorization = buildBoundaryAuthorization({ recipients, evidence, requestContext, boundaryContext, persistedState, generatedAt });
+  const mailchimpDispatchGate = buildMailchimpDispatchHandoffGate({
+    mailchimpDispatchContext,
+    evidence,
+    boundaryAuthorization,
+    providerContracts,
+    lifecycleControls,
+    clientHandoffState,
+    generatedAt
+  });
   const acknowledgements = recoveredDraft.acknowledgements;
-  const validation = summarizeValidation({ recordId, severity, recipients, evidence, recoveryAction, requestContext, boundaryContext, boundaryAuthorization, persistedState, lifecycleControls, clientHandoffState, providerContracts });
+  const validation = summarizeValidation({ recordId, severity, recipients, evidence, recoveryAction, requestContext, boundaryContext, boundaryAuthorization, persistedState, lifecycleControls, clientHandoffState, providerContracts, mailchimpDispatchContext, mailchimpDispatchGate });
   const operationalHealth = normalizeOperationalHealth(input, persistedState, generatedAt);
   const preview = buildPreview({ recordId, severity, title, summary, recipients, evidence, generatedAt, requestContext, boundaryContext });
   const acceptance = buildAcceptance({ accepted: recoveredDraft.accepted, acknowledgements, validation, requestContext, persistedState });
-  const readiness = buildRestartSafeReadiness({ acceptance, validation, generatedAt, persistedState, operationalHealth, lifecycleControls, providerContracts, boundaryAuthorization });
+  const readiness = buildRestartSafeReadiness({ acceptance, validation, generatedAt, persistedState, operationalHealth, lifecycleControls, providerContracts, boundaryAuthorization, mailchimpDispatchContext, mailchimpDispatchGate });
   const uiReview = buildUiReviewContract({ recordId, severity, preview, acceptance, readiness, validation, requestContext, boundaryContext, boundaryAuthorization, persistedState, operationalHealth, lifecycleControls, providerContracts, clientHandoffState, generatedAt });
   const persistedStateEnvelope = buildPersistedStateEnvelope({ recordId, severity, title, summary, recoveryAction, recipients, evidence, generatedAt, requestContext, persistedState, boundaryContext, boundaryAuthorization, validation, acceptance, readiness, operationalHealth, lifecycleControls, providerContracts, clientHandoffState, uiReview });
   const idempotentCommands = buildIdempotentCommands({ recordId, severity, title, summary, recoveryAction, recipients, evidence, generatedAt, requestContext, acceptance, readiness, persistedState, persistedStateEnvelope, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, validation, preview, uiReview });
   const workflowHandoff = buildWorkflowHandoff({ recordId, recipients, evidence, requestContext, acceptance, readiness, generatedAt, idempotentCommands, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, clientHandoffState });
   const historySnapshots = normalizeHistorySnapshots(input, generatedAt);
-  const analyticsExports = buildAnalyticsExports({ recordId, severity, recipients, evidence, requestContext, validation, acceptance, readiness, persistedState, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, generatedAt, idempotentCommands, workflowHandoff, historySnapshots });
-  const clientState = buildClientState({ recordId, severity, recipients, evidence, requestContext, validation, acceptance, readiness, persistedState, persistedStateEnvelope, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, analyticsExports, workflowHandoff, clientHandoffState, uiReview });
+  const analyticsExports = buildAnalyticsExports({ recordId, severity, recipients, evidence, requestContext, validation, acceptance, readiness, persistedState, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, mailchimpDispatchContext, generatedAt, idempotentCommands, workflowHandoff, historySnapshots });
   const nextSteps = buildNextSteps({ acceptance, validation, recipients, requestContext, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, readiness, workflowHandoff, clientHandoffState });
+  const runtimeAdoptionPacket = buildRuntimeAdoptionPacket({
+    recordId,
+    requestContext,
+    validation,
+    acceptance,
+    readiness,
+    boundaryAuthorization,
+    operationalHealth,
+    lifecycleControls,
+    providerContracts,
+    workflowHandoff,
+    clientHandoffState,
+    analyticsExports,
+    nextSteps,
+    idempotentCommands,
+    generatedAt
+  });
+  const operatorDispatchDecision = buildOperatorDispatchDecision({
+    recordId,
+    requestContext,
+    boundaryContext,
+    boundaryAuthorization,
+    preview,
+    uiReview,
+    acceptance,
+    readiness,
+    operationalHealth,
+    lifecycleControls,
+    providerContracts,
+    persistedStateEnvelope,
+    idempotentCommands,
+    workflowHandoff,
+    clientHandoffState,
+    analyticsExports,
+    nextSteps,
+    generatedAt
+  });
+  const clientState = buildClientState({ recordId, severity, recipients, evidence, requestContext, validation, acceptance, readiness, persistedState, persistedStateEnvelope, boundaryContext, boundaryAuthorization, operationalHealth, lifecycleControls, providerContracts, analyticsExports, workflowHandoff, clientHandoffState, uiReview });
+  clientState.runtimeAdoption = {
+    contract: runtimeAdoptionPacket.contract,
+    state: runtimeAdoptionPacket.state,
+    canAdopt: runtimeAdoptionPacket.canAdopt,
+    route: runtimeAdoptionPacket.routeContract.route,
+    method: runtimeAdoptionPacket.routeContract.method,
+    handoff: runtimeAdoptionPacket.handoff,
+    runtimeState: runtimeAdoptionPacket.runtimeState,
+    exportSummary: runtimeAdoptionPacket.exportSummary,
+    commandAdoption: runtimeAdoptionPacket.commandAdoption,
+    nextAction: runtimeAdoptionPacket.nextAction,
+    blockedReasons: runtimeAdoptionPacket.blockedReasons
+  };
   const operationallyBlocked = operationalHealth.actionableErrors.some((error) => error.severity === 'error');
   const lifecycleBlocked = acceptance.acceptedForDispatch && !lifecycleControls.dispatchEnabled;
   const providerBlocked = acceptance.acceptedForDispatch && !providerContracts.ready;
@@ -3086,7 +3939,7 @@ export function describeNotifierRecordSurface(input = {}) {
       },
       NotifierRecordPersistedState: {
         required: ['version', 'status'],
-        optional: ['snapshot', 'commandLog', 'lastKnownStatus', 'boundary', 'commandLedger', 'completedCommandIds', 'completedIdempotencyKeys'],
+        optional: ['snapshot', 'commandLog', 'lastKnownStatus', 'boundary', 'commandLedger', 'completedCommandIds', 'completedIdempotencyKeys', 'completedCommandOperations', 'completedOperationReplayKeys'],
         restartSemantics: TERMINAL_PERSISTED_STATUSES
       },
       NotifierRecordPersistedStateEnvelope: {
@@ -3096,7 +3949,7 @@ export function describeNotifierRecordSurface(input = {}) {
         consumedBy: ['clientState.recovery', 'idempotentCommands[].payload', 'proof.persistedStateEnvelope']
       },
       NotifierRecordPersistedReplayGuards: {
-        required: ['contract', 'completedCommandIds', 'completedIdempotencyKeys', 'preserveTerminalStatus', 'rejectDispatchReplay', 'rejectProofReplay', 'allowDraftOverwrite', 'allowLifecycleOverwrite'],
+        required: ['contract', 'completedCommandIds', 'completedIdempotencyKeys', 'completedCommandOperations', 'completedOperationReplayKeys', 'preserveTerminalStatus', 'rejectDispatchReplay', 'rejectProofReplay', 'allowDraftOverwrite', 'allowLifecycleOverwrite', 'recoveredOperationSemantics'],
         semantics: ['same-idempotency-key-returns-existing-dispatch', 'terminal-status-is-read-only', 'draft-overwrite-denied-after-proof']
       },
       NotifierRecordRecoveryPath: {
@@ -3105,7 +3958,13 @@ export function describeNotifierRecordSurface(input = {}) {
       },
       NotifierRecordRecoveredCommandLedgerEntry: {
         required: ['contract', 'sequence', 'commandId', 'status', 'completed', 'replaySafe'],
-        optional: ['idempotencyKey', 'action', 'capturedAt']
+        optional: ['idempotencyKey', 'replayKey', 'action', 'operation', 'capturedAt'],
+        operations: Object.keys(COMMAND_OPERATION_ALIASES)
+      },
+      NotifierRecordRecoveredOperationReplaySemantics: {
+        required: ['contract', 'recognizedOperations', 'dispatchCompleted', 'proofCompleted', 'statePersisted', 'lifecycleApplied'],
+        operations: Object.keys(COMMAND_OPERATION_ALIASES),
+        semantics: 'recovered command logs are matched by operation, route, payload contract, action, and command id before replay is allowed'
       },
       NotifierRecordIdempotentCommand: {
         required: ['commandId', 'idempotencyKey', 'action', 'route', 'method', 'payloadContract', 'payload', 'proofManifest', 'auditProjection', 'replayPolicy', 'enabled', 'tenantId', 'workspaceId'],
@@ -3143,6 +4002,11 @@ export function describeNotifierRecordSurface(input = {}) {
         required: ['contract', 'intent', 'resolvedTarget', 'resumeToken', 'nextPanel', 'primaryAction', 'banner', 'route', 'method', 'externalHandoff'],
         optional: ['requestedTarget', 'requestedTargetMatched', 'sourcePanel', 'returnPanel'],
         consumedBy: ['nextSteps[].clientWorkflow', 'clientState.handoff']
+      },
+      NotifierRecordRuntimeAdoptionPacket: {
+        required: ['contract', 'generatedAt', 'recordKey', 'state', 'canAdopt', 'handoff', 'runtimeState', 'exportSummary', 'commandAdoption', 'nextAction', 'blockedReasons', 'routeContract'],
+        states: ['client-repair-required', 'blocked', 'dispatch-adoptable', 'proof-adoptable', 'review-adoptable', 'draft-adoptable'],
+        consumedBy: ['clientState.runtimeAdoption', 'hosted-kernel route loaders', 'external handoff clients']
       },
       NotifierRecordUiPreviewAcceptanceReview: {
         required: ['contract', 'generatedAt', 'recordKey', 'reviewStatus', 'previewReady', 'acceptanceReady', 'proofReady', 'readOnly', 'previewSummary', 'validationSummary', 'acceptanceSummary', 'readinessSummary', 'previewChecklist', 'routePayloadContracts', 'decisionTrace', 'clientPanelStates', 'reviewPacket', 'blockerCodes', 'nextAction'],
@@ -3199,6 +4063,11 @@ export function describeNotifierRecordSurface(input = {}) {
         route: '/kernel/audit-recovery/notifier-record/dispatch',
         semantics: 'same idempotency key is held until retryAt when retryWindowOpen is false'
       },
+      NotifierRecordOperatorDispatchDecision: {
+        required: ['contract', 'generatedAt', 'decision', 'recordKey', 'route', 'method', 'payloadContract', 'canSubmit', 'previewGate', 'acceptanceGate', 'dispatchGate', 'lifecycleGate', 'providerGate', 'boundaryGate', 'commandPlan', 'handoff', 'blockingReasons', 'nextStep'],
+        decisions: ['dispatch-ready', 'proof-ready', 'retry-held', 'awaiting-operator-acceptance', 'draft-blocked', 'provider-blocked', 'lifecycle-held', 'boundary-blocked', 'operator-action-required'],
+        consumedBy: ['clientState.handoff', 'hosted-kernel route loaders', 'operator dispatch console', 'proof envelope']
+      },
       NotifierRecordLifecycleControls: {
         required: ['contract', 'mode', 'dispatchEnabled', 'proofPersistenceEnabled', 'schedulingMode', 'commandPolicy', 'lifecycleCommand', 'nextOperatorAction', 'validationIssues'],
         optional: ['scheduledAt', 'holdUntil', 'expiresAt', 'nextEligibleAt', 'disableReason', 'pausedReason'],
@@ -3211,6 +4080,21 @@ export function describeNotifierRecordSurface(input = {}) {
         required: ['contract', 'requestedCommand', 'command', 'accepted', 'effectiveMode', 'effectiveSchedulingMode', 'commandBlockers', 'nextOperatorAction', 'auditEvent', 'proofIntent'],
         optional: ['previousMode', 'previousSchedulingMode', 'scheduledAt', 'holdUntil', 'expiresAt', 'reason'],
         commandAliases: Object.keys(LIFECYCLE_COMMAND_ALIASES)
+      },
+      NotifierRecordMailchimpDispatchContext: {
+        required: ['contract', 'present', 'campaignId', 'audienceId', 'dispatchHold', 'nextEligibleAt', 'idempotencyScope', 'validationIssues'],
+        optional: ['templateId', 'archiveUrl', 'sendAt', 'persistedStatePatch', 'proofRefs']
+      },
+      NotifierRecordMailchimpDispatchAnalytics: {
+        required: ['contract', 'present', 'status', 'counters', 'exportRowPatch', 'reportingPatch'],
+        optional: ['historySnapshot', 'exportBatch'],
+        statuses: ['not-applicable', 'blocked', 'send-window-held', 'dispatch-ready', 'accepted', 'awaiting-acceptance'],
+        consumedBy: ['analyticsExports.counters', 'analyticsExports.history', 'analyticsExports.exportSummary', 'clientState.reporting']
+      },
+      NotifierRecordMailchimpDispatchHandoffGate: {
+        required: ['contract', 'present', 'status', 'dispatchAllowed', 'proofRefsSatisfied', 'providerHandoffReady', 'blockers', 'nextAction', 'routeContract'],
+        statuses: ['not-applicable', 'blocked', 'held-for-send-window', 'sync-before-dispatch', 'ready'],
+        consumedBy: ['validation.issues', 'readiness.mailchimpDispatchGate', 'proof.mailchimpDispatchGate']
       },
       NotifierRecordProviderContracts: {
         required: ['contract', 'negotiatedAt', 'requiredRoles', 'blockedRoles', 'boundaryBlockedRoles', 'unavailableRoles', 'ready', 'syncRequiredRoles', 'capabilityNegotiation', 'descriptors', 'externalHandoffState', 'validationIssues'],
@@ -3256,14 +4140,14 @@ export function describeNotifierRecordSurface(input = {}) {
       },
       NotifierRecordAnalyticsExportBatches: {
         required: ['contract', 'ready', 'blockedReason', 'destinations'],
-        destinations: ['notifier-record-counters', 'notifier-record-history', 'notifier-record-timeline']
+        destinations: ['notifier-record-counters', 'notifier-record-history', 'notifier-record-timeline', 'notifier-record-mailchimp-dispatch']
       },
       NotifierRecordReportingState: {
         required: ['contract', 'statusBucket', 'dashboardKey', 'readinessStatus', 'owner', 'needsAttention', 'exportReady'],
-        optional: ['historyAgeMs', 'lastHistoryStatus', 'lastHistorySource', 'stalled', 'commandStateCounts']
+        optional: ['historyAgeMs', 'lastHistoryStatus', 'lastHistorySource', 'stalled', 'commandStateCounts', 'mailchimp']
       },
       NotifierRecordProofEnvelope: {
-        required: ['surfaceId', 'recordId', 'generatedAt', 'validation', 'acceptance', 'readiness', 'uiReview', 'boundaryContext', 'boundaryAuthorization', 'clientState', 'workflowHandoff', 'clientHandoffState', 'persistedState', 'persistedStateEnvelope', 'idempotentCommands', 'operationalHealth', 'lifecycleControls', 'providerContracts', 'analyticsCounters', 'exportSummary', 'analyticsExportBatches']
+        required: ['surfaceId', 'recordId', 'generatedAt', 'validation', 'acceptance', 'readiness', 'uiReview', 'operatorDispatchDecision', 'boundaryContext', 'boundaryAuthorization', 'clientState', 'workflowHandoff', 'clientHandoffState', 'persistedState', 'persistedStateEnvelope', 'idempotentCommands', 'operationalHealth', 'lifecycleControls', 'providerContracts', 'analyticsCounters', 'exportSummary', 'analyticsExportBatches']
       }
     },
     requestContext,
@@ -3283,15 +4167,19 @@ export function describeNotifierRecordSurface(input = {}) {
     uiReview,
     acceptance,
     readiness,
+    operatorDispatchDecision,
     operationalHealth,
     lifecycleControls,
     providerContracts,
+    mailchimpDispatchContext,
+    mailchimpDispatchGate,
     clientHandoffState,
     persistedState,
     persistedStateEnvelope,
     idempotentCommands,
     validation,
     analytics: analyticsExports,
+    runtimeAdoptionPacket,
     nextSteps,
     workflowHandoff,
     proof: {
@@ -3324,8 +4212,19 @@ export function describeNotifierRecordSurface(input = {}) {
       lifecycleCommand: lifecycleControls.lifecycleCommand,
       lifecycleNextOperatorAction: lifecycleControls.nextOperatorAction,
       nextEligibleAt: lifecycleControls.nextEligibleAt,
+      mailchimpDispatchContext,
+      mailchimpDispatchGate,
       providerContractStatus: providerContracts.ready ? 'ready' : 'blocked',
       providerNegotiationState: providerContracts.capabilityNegotiation.handoffState,
+      runtimeAdoption: {
+        contract: runtimeAdoptionPacket.contract,
+        state: runtimeAdoptionPacket.state,
+        canAdopt: runtimeAdoptionPacket.canAdopt,
+        route: runtimeAdoptionPacket.routeContract.route,
+        method: runtimeAdoptionPacket.routeContract.method,
+        blockedReasons: runtimeAdoptionPacket.blockedReasons,
+        nextAction: runtimeAdoptionPacket.nextAction.action
+      },
       uiReviewStatus: uiReview.reviewStatus,
       uiNextAction: uiReview.nextAction,
       blockedProviderRoles: providerContracts.blockedRoles,
@@ -3345,6 +4244,7 @@ export function describeNotifierRecordSurface(input = {}) {
       lifecycleControls,
       providerContracts,
       clientHandoffState,
+      operatorDispatchDecision,
       analyticsCounters: analyticsExports.counters,
       uiReview,
       reportingState: analyticsExports.reportingState,
@@ -3354,7 +4254,9 @@ export function describeNotifierRecordSurface(input = {}) {
       enabledCommandIds: idempotentCommands.filter((command) => command.enabled).map((command) => command.commandId),
       handoffTarget: workflowHandoff.target,
       handoffResumeToken: workflowHandoff.resumeToken,
-      handoffPrimaryAction: workflowHandoff.clientWorkflow.primaryAction
+      handoffPrimaryAction: workflowHandoff.clientWorkflow.primaryAction,
+      dispatchDecision: operatorDispatchDecision.decision,
+      dispatchDecisionRoute: operatorDispatchDecision.route
     },
     evidence
   };

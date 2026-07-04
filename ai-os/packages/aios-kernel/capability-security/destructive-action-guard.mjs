@@ -158,6 +158,38 @@ const SENSITIVE_TARGET_HINTS = [
   "token",
   "user"
 ];
+const EXTERNAL_SERVICE_OPERATION_PROFILES = {
+  mailchimp: {
+    routeHints: ["mailchimp", "campaign", "audience", "list", "member", "subscriber", "template", "journey"],
+    destructiveOperations: ["delete", "archive", "remove", "unsubscribe", "clean", "purge"],
+    privilegedOperations: ["send", "schedule", "unschedule", "replicate", "update", "patch", "set"],
+    irreversibleOperations: ["delete", "purge", "send"],
+    checkpointRequiredTargetKinds: ["campaign", "audience", "journey"],
+    highImpactTargetKinds: ["audience", "journey"],
+    previewRequiredOperations: ["delete", "purge", "send", "schedule", "unsubscribe"],
+    remoteQuotaPolicy: {
+      requiredOperations: ["send", "schedule", "unschedule", "unsubscribe", "delete", "purge"],
+      requiredTargetKinds: ["campaign", "audience", "journey"],
+      capability: "rate-limit.external-handoff.v1",
+      rateClass: "external-system",
+      quotaSnapshotRequired: true,
+      acceptanceMaxAgeMs: 5 * 60 * 1000,
+      retryHeaderNames: ["retry-after", "x-ratelimit-reset", "x-request-id"],
+      resetHeaderNames: ["x-ratelimit-reset"],
+      nextActionWhenMissing: "handoff.mailchimp.rate-limit-quota"
+    },
+    remoteReplayWindowMs: 10 * 60 * 1000,
+    targetKinds: {
+      campaign: ["campaign", "campaigns", "email-campaign", "email"],
+      audience: ["audience", "audiences", "list", "lists", "member", "members", "subscriber"],
+      template: ["template", "templates"],
+      journey: ["journey", "customer-journey", "automation", "automations"]
+    },
+    remoteIdempotencyHeaders: ["X-Request-Id", "X-Idempotency-Key"],
+    auditEventType: "mailchimp.marketing.operation",
+    approvalReasonCode: "external_mailchimp_operation_requires_guard"
+  }
+};
 const ROLE_PERMISSION_GRANTS = {
   "platform-admin": ["destructive-action:execute", "platform:admin", "tenant:admin", "workspace:admin"],
   owner: ["destructive-action:execute", "tenant:admin", "workspace:admin"],
@@ -177,6 +209,649 @@ function asString(value, fallback = "") {
 function asStringArray(value) {
   if (!Array.isArray(value)) return [];
   return value.map((item) => asString(item)).filter(Boolean);
+}
+
+function normalizeExternalProfileToken(value) {
+  return asString(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function resolveExternalServiceProfile(input = {}, request = {}) {
+  const source = asRecord(input.externalServiceProfile ?? input.providerProfile ?? request.externalService);
+  const explicitProfile = normalizeExternalProfileToken(
+    source.profile ?? source.provider ?? source.service ?? input.providerProfileName
+  );
+  const routeText = [
+    explicitProfile,
+    request.route,
+    request.operation,
+    request.targetType,
+    request.target,
+    JSON.stringify(request.args ?? {})
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const matchedProfile = Object.entries(EXTERNAL_SERVICE_OPERATION_PROFILES).find(([, profile]) => (
+    profile.routeHints.some((hint) => routeText.includes(hint))
+  ))?.[0] || "";
+  const profileName = EXTERNAL_SERVICE_OPERATION_PROFILES[explicitProfile] ? explicitProfile : matchedProfile;
+  const profile = EXTERNAL_SERVICE_OPERATION_PROFILES[profileName] || null;
+  return {
+    contractVersion: `${CONTRACT_VERSION}.external-service-profile`,
+    profile: profileName || "generic",
+    matched: Boolean(profile),
+    source: explicitProfile ? "explicit" : profile ? "inferred" : "generic",
+    routeHints: profile?.routeHints ?? [],
+    destructiveOperations: profile?.destructiveOperations ?? [],
+    privilegedOperations: profile?.privilegedOperations ?? [],
+    targetKinds: profile?.targetKinds ?? {},
+    irreversibleOperations: profile?.irreversibleOperations ?? [],
+    checkpointRequiredTargetKinds: profile?.checkpointRequiredTargetKinds ?? [],
+    highImpactTargetKinds: profile?.highImpactTargetKinds ?? [],
+    previewRequiredOperations: profile?.previewRequiredOperations ?? [],
+    remoteQuotaPolicy: profile?.remoteQuotaPolicy ?? null,
+    remoteReplayWindowMs: profile?.remoteReplayWindowMs ?? 5 * 60 * 1000,
+    remoteIdempotencyHeaders: asStringArray(source.remoteIdempotencyHeaders).length
+      ? asStringArray(source.remoteIdempotencyHeaders)
+      : profile?.remoteIdempotencyHeaders ?? [],
+    auditEventType: asString(source.auditEventType, profile?.auditEventType ?? "external.service.operation"),
+    approvalReasonCode: profile?.approvalReasonCode ?? "external_service_operation_requires_guard"
+  };
+}
+
+function inferExternalTargetKind(profile, request) {
+  const text = `${request.targetType} ${request.target} ${request.route} ${JSON.stringify(request.args)}`.toLowerCase();
+  const matched = Object.entries(profile.targetKinds || {}).find(([, hints]) => (
+    hints.some((hint) => text.includes(hint))
+  ));
+  return matched?.[0] || (profile.matched ? "service-resource" : "generic");
+}
+
+function buildExternalServiceQuotaHandoff({ profile, operationTokens, targetKind, explicit, request, remoteRequestId, idempotencyKey }) {
+  const policy = asRecord(profile.remoteQuotaPolicy);
+  const quota = asRecord(
+    explicit.rateLimitHandoff ??
+      explicit.remoteQuota ??
+      request.args.rateLimitHandoff ??
+      request.args.remoteQuota
+  );
+  const requiredOperations = asStringArray(policy.requiredOperations);
+  const requiredTargetKinds = asStringArray(policy.requiredTargetKinds);
+  const operationRequiresQuota = requiredOperations.some((operation) => operationTokens.includes(operation));
+  const targetRequiresQuota = requiredTargetKinds.includes(targetKind);
+  const required = Boolean(profile.matched && policy.capability && (operationRequiresQuota || targetRequiresQuota));
+  const acceptedAt = asString(quota.acceptedAt ?? quota.recordedAt, "");
+  const acceptedAtMs = Date.parse(acceptedAt);
+  const nowMs = Date.now();
+  const acceptanceMaxAgeMs = Math.max(
+    60_000,
+    asNonNegativeInteger(policy.acceptanceMaxAgeMs, 5 * 60 * 1000)
+  );
+  const acceptanceAgeMs = Number.isFinite(acceptedAtMs) ? Math.max(0, nowMs - acceptedAtMs) : null;
+  const acceptanceStale = Boolean(
+    required &&
+      acceptedAt &&
+      Number.isFinite(acceptedAtMs) &&
+      acceptanceAgeMs > acceptanceMaxAgeMs
+  );
+  const acceptedBy = asString(quota.acceptedBy ?? quota.actorId ?? quota.principalId, "");
+  const expectedAcceptanceKey = [
+    profile.profile,
+    request.boundary.tenantId,
+    request.boundary.workspaceId,
+    targetKind,
+    remoteRequestId
+  ].join(":");
+  const acceptanceKey = asString(quota.acceptanceKey ?? quota.key, "");
+  const quotaSnapshotId = asString(
+    quota.snapshotId ?? quota.quotaSnapshotId ?? quota.checkpointId,
+    required && policy.quotaSnapshotRequired ? `${CONTRACT_VERSION}:quota:${remoteRequestId}` : ""
+  );
+  const providerCursor = asString(quota.providerCursor ?? quota.cursor, "");
+  const resetAt = asString(quota.resetAt ?? quota.remoteResetAt, "");
+  const retryAfterMs = asNonNegativeInteger(quota.retryAfterMs ?? quota.retryAfter, 0);
+  const remaining = Number.isInteger(quota.remaining) && quota.remaining >= 0 ? quota.remaining : null;
+  const limit = Number.isInteger(quota.limit) && quota.limit >= 0 ? quota.limit : null;
+  const accepted = !required || (
+    !acceptanceStale &&
+      (quota.accepted === true || Boolean(acceptedAt && acceptedBy && acceptanceKey === expectedAcceptanceKey))
+  );
+  const snapshotReady = !required || !policy.quotaSnapshotRequired || Boolean(quotaSnapshotId);
+  const providerCursorReady = !required || Boolean(providerCursor || quotaSnapshotId);
+  const blockedByRemoteQuota = required && remaining === 0;
+  const violationCodes = [
+    required && !accepted ? "external.rate-limit-acceptance-required" : "",
+    acceptanceStale ? "external.rate-limit-acceptance-stale" : "",
+    required && !snapshotReady ? "external.rate-limit-snapshot-required" : "",
+    required && !providerCursorReady ? "external.rate-limit-provider-cursor-required" : "",
+    blockedByRemoteQuota ? "external.rate-limit-remote-quota-exhausted" : ""
+  ].filter(Boolean);
+  const ready = required ? violationCodes.length === 0 : true;
+
+  return {
+    contractVersion: `${CONTRACT_VERSION}.external-service-quota-handoff`,
+    profile: profile.profile,
+    required,
+    ready,
+    state: !required ? "not-required" : ready ? "ready" : "blocked",
+    capability: asString(policy.capability, ""),
+    capabilityRateClass: asString(policy.rateClass, "external-system"),
+    operationRequiresQuota,
+    targetRequiresQuota,
+    quotaSnapshotRequired: Boolean(policy.quotaSnapshotRequired),
+    quotaSnapshotId,
+    providerCursor,
+    expectedAcceptanceKey,
+    acceptanceKey,
+    accepted,
+    acceptedAt,
+    acceptedBy,
+    acceptanceMaxAgeMs,
+    acceptanceAgeMs,
+    acceptanceStale,
+    remoteQuota: {
+      limit,
+      remaining,
+      resetAt,
+      retryAfterMs,
+      retryHeaderNames: asStringArray(policy.retryHeaderNames),
+      resetHeaderNames: asStringArray(policy.resetHeaderNames)
+    },
+    idempotency: {
+      remoteRequestId,
+      idempotencyKey,
+      quotaFenceKey: `${profile.profile}:${targetKind}:${remoteRequestId}:quota`
+    },
+    nextAction: {
+      actionId: ready
+        ? "dispatch.external-service-operation"
+        : acceptanceStale
+          ? "refresh.external-service-rate-limit-acceptance"
+        : asString(policy.nextActionWhenMissing, "handoff.external-service-rate-limit-quota"),
+      owner: ready ? "kernel" : acceptanceStale || !accepted ? "operator" : "kernel",
+      reasonCodes: violationCodes,
+      retryAfterMs: blockedByRemoteQuota ? retryAfterMs : acceptanceStale ? acceptanceMaxAgeMs : 0
+    },
+    violationCodes
+  };
+}
+
+function buildExternalServiceBoundaryProtocol({ profile, operationTokens, targetKind, explicit, request, remoteRequestId, idempotencyKey }) {
+  const irreversibleMatches = operationTokens.filter((token) => profile.irreversibleOperations.includes(token));
+  const previewMatches = operationTokens.filter((token) => profile.previewRequiredOperations.includes(token));
+  const quotaHandoff = buildExternalServiceQuotaHandoff({
+    profile,
+    operationTokens,
+    targetKind,
+    explicit,
+    request,
+    remoteRequestId,
+    idempotencyKey
+  });
+  const checkpointRequired = profile.checkpointRequiredTargetKinds.includes(targetKind)
+    || irreversibleMatches.length > 0
+    || quotaHandoff.required
+    || asString(explicit.checkpointId || explicit.checkpointRef, "") !== "";
+  const highImpactTarget = profile.highImpactTargetKinds.includes(targetKind);
+  const previewRequired = previewMatches.length > 0 || highImpactTarget;
+  const dryRunAccepted = explicit.dryRun === true || explicit.previewAccepted === true;
+  const checkpointId = asString(
+    explicit.checkpointId || explicit.checkpointRef || request.args.checkpointId,
+    checkpointRequired ? `${CONTRACT_VERSION}:external-checkpoint:${remoteRequestId}` : ""
+  );
+  const confirmationPhrase = asString(
+    explicit.confirmationPhrase || explicit.confirmation,
+    ""
+  );
+  const expectedConfirmationPhrase = previewRequired
+    ? buildConfirmationPhrase({
+        ...request,
+        operation: operationTokens[0] || request.operation,
+        target: `${profile.profile}:${targetKind}:${request.target || request.id}`
+      })
+    : "";
+  const confirmationAccepted = !previewRequired
+    || confirmationPhrase === expectedConfirmationPhrase
+    || explicit.confirmed === true;
+  const remoteReplayWindowMs = Math.max(60_000, Number.isInteger(explicit.remoteReplayWindowMs)
+    ? explicit.remoteReplayWindowMs
+    : profile.remoteReplayWindowMs);
+  const replayFenceKey = `${profile.profile}:${request.boundary.tenantId}:${request.boundary.workspaceId}:${targetKind}:${remoteRequestId}`;
+  const violationCodes = [
+    checkpointRequired && !checkpointId ? "external.checkpoint-required" : "",
+    previewRequired && !dryRunAccepted ? "external.preview-required" : "",
+    previewRequired && !confirmationAccepted ? "external.confirmation-required" : "",
+    !idempotencyKey ? "external.idempotency-key-required" : "",
+    ...quotaHandoff.violationCodes
+  ].filter(Boolean);
+  const dispatchMode = violationCodes.length
+    ? "hold-for-operator-acceptance"
+    : checkpointRequired || previewRequired
+      ? "guarded-provider-dispatch"
+      : "direct-provider-dispatch";
+
+  return {
+    contractVersion: `${CONTRACT_VERSION}.external-service-boundary-protocol`,
+    profile: profile.profile,
+    targetKind,
+    highImpactTarget,
+    checkpointRequired,
+    previewRequired,
+    dryRunAccepted,
+    confirmationAccepted,
+    expectedConfirmationPhrase,
+    checkpointId,
+    dispatchMode,
+    safeToDispatch: violationCodes.length === 0,
+    violationCodes,
+    replayFence: {
+      key: replayFenceKey,
+      remoteRequestId,
+      idempotencyKey,
+      windowMs: remoteReplayWindowMs,
+      duplicatePolicy: "block-and-audit"
+    },
+    quotaHandoff,
+    matchedIrreversibleOperations: irreversibleMatches,
+    matchedPreviewOperations: previewMatches,
+    nextAction: violationCodes.length
+      ? {
+          actionId: quotaHandoff.required && !quotaHandoff.ready
+            ? quotaHandoff.nextAction.actionId
+            : "collect.external-service-operator-acceptance",
+          owner: quotaHandoff.required && !quotaHandoff.ready
+            ? quotaHandoff.nextAction.owner
+            : "operator",
+          reasonCodes: violationCodes,
+          checkpointId,
+          previewRequired,
+          confirmationRequired: previewRequired && !confirmationAccepted,
+          retryAfterMs: quotaHandoff.nextAction.retryAfterMs
+        }
+      : {
+          actionId: "dispatch.external-service-operation",
+          owner: "kernel",
+          reasonCodes: [],
+          checkpointId,
+          previewRequired,
+          confirmationRequired: false,
+          retryAfterMs: 0
+        }
+  };
+}
+
+function buildExternalServiceOperation(input, request) {
+  const profile = resolveExternalServiceProfile(input, request);
+  const operationTokens = collectOperationTokens(request);
+  const matchedDestructive = operationTokens.filter((token) => profile.destructiveOperations.includes(token));
+  const matchedPrivileged = operationTokens.filter((token) => profile.privilegedOperations.includes(token));
+  const targetKind = inferExternalTargetKind(profile, request);
+  const explicit = asRecord(input.externalOperation ?? request.args.externalOperation);
+  const remoteRequestId = asString(
+    explicit.remoteRequestId ?? explicit.requestId ?? request.args.remoteRequestId,
+    `${profile.profile}:${request.boundary.tenantId}:${request.boundary.workspaceId}:${request.id}`
+  );
+  const idempotencyKey = asString(
+    explicit.idempotencyKey ?? explicit.remoteIdempotencyKey ?? request.args.idempotencyKey,
+    `${CONTRACT_VERSION}:external:${remoteRequestId}`
+  );
+  const boundaryProtocol = buildExternalServiceBoundaryProtocol({
+    profile,
+    operationTokens,
+    targetKind,
+    explicit,
+    request,
+    remoteRequestId,
+    idempotencyKey
+  });
+  const requiresApproval = profile.matched && (
+    matchedDestructive.length > 0 ||
+    matchedPrivileged.length > 0 ||
+    ["campaign", "audience", "journey"].includes(targetKind) ||
+    boundaryProtocol.previewRequired ||
+    !boundaryProtocol.safeToDispatch
+  );
+  return {
+    contractVersion: `${CONTRACT_VERSION}.external-service-operation`,
+    profile: profile.profile,
+    matched: profile.matched,
+    source: profile.source,
+    auditEventType: profile.auditEventType,
+    targetKind,
+    remoteRequestId,
+    idempotencyKey,
+    remoteIdempotencyHeaders: Object.fromEntries(
+      profile.remoteIdempotencyHeaders.map((header) => [header, idempotencyKey])
+    ),
+    operationTokens,
+    matchedDestructiveOperations: matchedDestructive,
+    matchedPrivilegedOperations: matchedPrivileged,
+    matchedIrreversibleOperations: boundaryProtocol.matchedIrreversibleOperations,
+    requiresApproval,
+    approvalReasonCode: requiresApproval ? profile.approvalReasonCode : "",
+    restartSafeKey: `${profile.profile}:${request.boundary.tenantId}:${request.boundary.workspaceId}:${request.id}:${idempotencyKey}`,
+    boundary: request.boundary,
+    boundaryProtocol
+  };
+}
+
+function buildExternalServiceReportingSlice(externalOperation = {}) {
+  const operation = asRecord(externalOperation);
+  const protocol = asRecord(operation.boundaryProtocol);
+  const replayFence = asRecord(protocol.replayFence);
+  const quotaHandoff = asRecord(protocol.quotaHandoff);
+  const nextAction = asRecord(protocol.nextAction);
+  const dispatchMode = asString(protocol.dispatchMode, "direct-provider-dispatch");
+  const safeToDispatch = asBoolean(protocol.safeToDispatch, false);
+  const violationCodes = asStringArray(protocol.violationCodes);
+  const requiresOperatorAcceptance = operation.requiresApproval === true || violationCodes.length > 0;
+  const remoteHeaders = asRecord(operation.remoteIdempotencyHeaders);
+  const remoteHeaderNames = Object.keys(remoteHeaders).sort();
+  const restartSafeKey = asString(operation.restartSafeKey, "");
+  const replayFenceKey = asString(replayFence.key, "");
+  const checkpointId = asString(protocol.checkpointId, "");
+  const expectedConfirmationPhrase = asString(protocol.expectedConfirmationPhrase, "");
+  const profile = asString(operation.profile, "generic");
+  const targetKind = asString(operation.targetKind, "generic");
+  const matched = asBoolean(operation.matched, false);
+  const safeDispatchReady = matched && safeToDispatch && Boolean(restartSafeKey) && Boolean(replayFenceKey);
+  const reportingState = !matched
+    ? "not-external"
+    : safeDispatchReady
+      ? "dispatch-ready"
+      : requiresOperatorAcceptance
+        ? "acceptance-required"
+        : "missing-replay-proof";
+  const reportingCodes = [
+    matched ? `external.profile.${profile}` : "",
+    matched ? `external.target.${targetKind}` : "",
+    operation.requiresApproval ? "external.requires-approval" : "",
+    protocol.previewRequired ? "external.preview-required" : "",
+    protocol.checkpointRequired ? "external.checkpoint-required" : "",
+    !safeToDispatch && matched ? "external.dispatch-held" : "",
+    matched && !restartSafeKey ? "external.restart-safe-key-missing" : "",
+    matched && !replayFenceKey ? "external.replay-fence-missing" : "",
+    matched && !remoteHeaderNames.length ? "external.remote-idempotency-header-missing" : "",
+    ...violationCodes
+  ].filter(Boolean);
+
+  return {
+    contractVersion: `${CONTRACT_VERSION}.external-service-reporting`,
+    matched,
+    profile,
+    source: asString(operation.source, "generic"),
+    targetKind,
+    auditEventType: asString(operation.auditEventType, ""),
+    remoteRequestId: asString(operation.remoteRequestId, ""),
+    idempotencyKey: asString(operation.idempotencyKey, ""),
+    remoteIdempotencyHeaders: remoteHeaders,
+    remoteIdempotencyHeaderNames: remoteHeaderNames,
+    restartSafeKey,
+    replayFenceKey,
+    replayWindowMs: asNonNegativeInteger(replayFence.windowMs, 0),
+    duplicatePolicy: asString(replayFence.duplicatePolicy, ""),
+    dispatchMode,
+    safeToDispatch,
+    reportingState,
+    reportingCodes,
+    requiresOperatorAcceptance,
+    checkpointRequired: asBoolean(protocol.checkpointRequired, false),
+    checkpointId,
+    previewRequired: asBoolean(protocol.previewRequired, false),
+    confirmationRequired: Boolean(expectedConfirmationPhrase && !protocol.confirmationAccepted),
+    expectedConfirmationPhrase,
+    nextActionId: asString(nextAction.actionId, safeToDispatch ? "dispatch.external-service-operation" : "collect.external-service-operator-acceptance"),
+    nextActionOwner: asString(nextAction.owner, safeToDispatch ? "kernel" : "operator"),
+    nextActionReasonCodes: asStringArray(nextAction.reasonCodes).length
+      ? asStringArray(nextAction.reasonCodes)
+      : violationCodes,
+    quotaHandoff: {
+      required: asBoolean(quotaHandoff.required, false),
+      ready: asBoolean(quotaHandoff.ready, true),
+      state: asString(quotaHandoff.state, "not-required"),
+      capability: asString(quotaHandoff.capability, ""),
+      capabilityRateClass: asString(quotaHandoff.capabilityRateClass, ""),
+      quotaSnapshotId: asString(quotaHandoff.quotaSnapshotId, ""),
+      providerCursor: asString(quotaHandoff.providerCursor, ""),
+      expectedAcceptanceKey: asString(quotaHandoff.expectedAcceptanceKey, ""),
+      acceptanceKey: asString(quotaHandoff.acceptanceKey, ""),
+      accepted: asBoolean(quotaHandoff.accepted, false),
+      acceptedAt: asString(quotaHandoff.acceptedAt, ""),
+      acceptedBy: asString(quotaHandoff.acceptedBy, ""),
+      acceptanceMaxAgeMs: asNonNegativeInteger(quotaHandoff.acceptanceMaxAgeMs, 0),
+      acceptanceAgeMs: quotaHandoff.acceptanceAgeMs === null
+        ? null
+        : asNonNegativeInteger(quotaHandoff.acceptanceAgeMs, 0),
+      acceptanceStale: asBoolean(quotaHandoff.acceptanceStale, false),
+      nextActionId: asString(quotaHandoff.nextAction?.actionId, ""),
+      nextActionOwner: asString(quotaHandoff.nextAction?.owner, ""),
+      retryAfterMs: asNonNegativeInteger(quotaHandoff.nextAction?.retryAfterMs, 0),
+      violationCodes: asStringArray(quotaHandoff.violationCodes),
+      remoteQuota: asRecord(quotaHandoff.remoteQuota)
+    },
+    matchedDestructiveOperations: asStringArray(operation.matchedDestructiveOperations),
+    matchedPrivilegedOperations: asStringArray(operation.matchedPrivilegedOperations),
+    matchedIrreversibleOperations: asStringArray(operation.matchedIrreversibleOperations)
+  };
+}
+
+function buildMailchimpOperationAnalyticsSlice({ request, externalReporting }) {
+  const matched = externalReporting.profile === "mailchimp";
+  const targetKind = externalReporting.targetKind || "generic";
+  const remoteHeaders = externalReporting.remoteIdempotencyHeaders || {};
+  const quotaHandoff = asRecord(externalReporting.quotaHandoff);
+  const operationTokens = matched
+    ? [
+        ...asStringArray(request.externalOperation?.operationTokens),
+        ...externalReporting.matchedDestructiveOperations,
+        ...externalReporting.matchedPrivilegedOperations,
+        ...externalReporting.matchedIrreversibleOperations
+      ]
+    : [];
+  const remoteHeaderNames = Object.keys(remoteHeaders).sort();
+  const irreversible = externalReporting.matchedIrreversibleOperations.length > 0;
+  const audienceMutation = targetKind === "audience" && (
+    operationTokens.includes("delete") ||
+    operationTokens.includes("remove") ||
+    operationTokens.includes("unsubscribe") ||
+    operationTokens.includes("purge") ||
+    operationTokens.includes("clean")
+  );
+  const campaignDispatch = targetKind === "campaign" && (
+    operationTokens.includes("send") ||
+    operationTokens.includes("schedule") ||
+    operationTokens.includes("unschedule")
+  );
+  const journeyMutation = targetKind === "journey" && (
+    operationTokens.includes("send") ||
+    operationTokens.includes("schedule") ||
+    operationTokens.includes("update") ||
+    operationTokens.includes("patch")
+  );
+  const exportTags = [
+    matched ? "mailchimp" : "",
+    targetKind !== "generic" ? `mailchimp.${targetKind}` : "",
+    audienceMutation ? "mailchimp.audience-mutation" : "",
+    campaignDispatch ? "mailchimp.campaign-dispatch" : "",
+    journeyMutation ? "mailchimp.journey-mutation" : "",
+    externalReporting.checkpointRequired ? "mailchimp.checkpoint-required" : "",
+    externalReporting.previewRequired ? "mailchimp.preview-required" : "",
+    externalReporting.requiresOperatorAcceptance ? "mailchimp.acceptance-required" : "",
+    quotaHandoff.required ? "mailchimp.rate-limit-handoff-required" : "",
+    quotaHandoff.ready === false ? "mailchimp.rate-limit-handoff-blocked" : "",
+    quotaHandoff.acceptanceStale ? "mailchimp.rate-limit-acceptance-stale" : "",
+    irreversible ? "mailchimp.irreversible-operation" : "",
+    externalReporting.safeToDispatch ? "mailchimp.dispatch-ready" : "mailchimp.dispatch-held"
+  ].filter(Boolean);
+  const blockingCodes = [
+    matched && !externalReporting.restartSafeKey ? "mailchimp.restart-safe-key-missing" : "",
+    matched && !externalReporting.replayFenceKey ? "mailchimp.replay-fence-missing" : "",
+    matched && !remoteHeaderNames.length ? "mailchimp.remote-idempotency-header-missing" : "",
+    matched && externalReporting.requiresOperatorAcceptance && !externalReporting.checkpointId
+      ? "mailchimp.acceptance-checkpoint-missing"
+      : "",
+    matched && quotaHandoff.required && quotaHandoff.ready === false ? "mailchimp.rate-limit-handoff-not-ready" : "",
+    matched && quotaHandoff.acceptanceStale ? "mailchimp.rate-limit-acceptance-stale" : "",
+    ...asStringArray(quotaHandoff.violationCodes).map((code) => `mailchimp.${code.replace(/^external\./, "")}`),
+    ...externalReporting.nextActionReasonCodes
+      .filter((code) => code.startsWith("external."))
+      .map((code) => `mailchimp.${code.slice("external.".length)}`)
+  ].filter(Boolean);
+  const reportingState = !matched
+    ? "not-mailchimp"
+    : blockingCodes.length
+      ? "blocked"
+      : externalReporting.safeToDispatch
+        ? "export-ready"
+        : "operator-action-required";
+
+  return {
+    contractVersion: `${CONTRACT_VERSION}.mailchimp-operation-analytics`,
+    matched,
+    reportingState,
+    targetKind,
+    route: request.route,
+    operation: request.operation,
+    remoteRequestId: externalReporting.remoteRequestId,
+    idempotencyKey: externalReporting.idempotencyKey,
+    remoteIdempotencyHeaderNames: remoteHeaderNames,
+    remoteIdempotencyHeaders: remoteHeaders,
+    restartSafeKey: externalReporting.restartSafeKey,
+    replayFenceKey: externalReporting.replayFenceKey,
+    replayWindowMs: externalReporting.replayWindowMs,
+    checkpointId: externalReporting.checkpointId,
+    checkpointRequired: externalReporting.checkpointRequired,
+    previewRequired: externalReporting.previewRequired,
+    confirmationRequired: externalReporting.confirmationRequired,
+    requiresOperatorAcceptance: externalReporting.requiresOperatorAcceptance,
+    safeToDispatch: externalReporting.safeToDispatch,
+    dispatchMode: externalReporting.dispatchMode,
+    rateLimitHandoff: {
+      required: asBoolean(quotaHandoff.required, false),
+      ready: asBoolean(quotaHandoff.ready, true),
+      state: asString(quotaHandoff.state, "not-required"),
+      capability: asString(quotaHandoff.capability, ""),
+      capabilityRateClass: asString(quotaHandoff.capabilityRateClass, ""),
+      quotaSnapshotId: asString(quotaHandoff.quotaSnapshotId, ""),
+      providerCursor: asString(quotaHandoff.providerCursor, ""),
+      accepted: asBoolean(quotaHandoff.accepted, false),
+      acceptedAt: asString(quotaHandoff.acceptedAt, ""),
+      acceptedBy: asString(quotaHandoff.acceptedBy, ""),
+      acceptanceMaxAgeMs: asNonNegativeInteger(quotaHandoff.acceptanceMaxAgeMs, 0),
+      acceptanceAgeMs: quotaHandoff.acceptanceAgeMs === null
+        ? null
+        : asNonNegativeInteger(quotaHandoff.acceptanceAgeMs, 0),
+      acceptanceStale: asBoolean(quotaHandoff.acceptanceStale, false),
+      expectedAcceptanceKey: asString(quotaHandoff.expectedAcceptanceKey, ""),
+      nextActionId: asString(quotaHandoff.nextActionId, ""),
+      retryAfterMs: asNonNegativeInteger(quotaHandoff.retryAfterMs, 0),
+      remoteQuota: asRecord(quotaHandoff.remoteQuota),
+      violationCodes: asStringArray(quotaHandoff.violationCodes)
+    },
+    nextActionId: externalReporting.nextActionId,
+    nextActionOwner: externalReporting.nextActionOwner,
+    nextActionReasonCodes: externalReporting.nextActionReasonCodes,
+    operationTokens: uniqueStrings(operationTokens),
+    audienceMutation,
+    campaignDispatch,
+    journeyMutation,
+    irreversible,
+    exportTags,
+    blockingCodes,
+    exportReady: matched && reportingState === "export-ready",
+    summaryKey: matched
+      ? [
+          "mailchimp",
+          request.boundary.tenantId,
+          request.boundary.workspaceId,
+          targetKind,
+          externalReporting.remoteRequestId || request.id
+        ].join(":")
+      : ""
+  };
+}
+
+const DEFAULT_EVIDENCE_REDACTION_FIELDS = [
+  "accessToken",
+  "apiKey",
+  "authorization",
+  "cookie",
+  "password",
+  "secret",
+  "sessionToken"
+];
+
+function normalizeEvidenceRedactionToken(value) {
+  return asString(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function shouldRedactEvidenceField(key, redactionFields) {
+  const normalizedKey = normalizeEvidenceRedactionToken(key);
+  if (!normalizedKey) return false;
+
+  return redactionFields.some((field) => {
+    const normalizedField = normalizeEvidenceRedactionToken(field);
+    return normalizedField && (
+      normalizedKey === normalizedField ||
+      normalizedKey.endsWith(normalizedField) ||
+      normalizedKey.includes(normalizedField)
+    );
+  });
+}
+
+function redactEvidenceValue(value, redactionFields) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactEvidenceValue(entry, redactionFields));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [
+    key,
+    shouldRedactEvidenceField(key, redactionFields)
+      ? "[REDACTED]"
+      : redactEvidenceValue(nested, redactionFields)
+  ]));
+}
+
+function collectEvidenceRedactionPaths(value, redactionFields, path = []) {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => collectEvidenceRedactionPaths(entry, redactionFields, path.concat(String(index))));
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  return Object.entries(value).flatMap(([key, nested]) => {
+    const nextPath = path.concat(key);
+    if (shouldRedactEvidenceField(key, redactionFields)) {
+      return [nextPath.join(".")];
+    }
+    return collectEvidenceRedactionPaths(nested, redactionFields, nextPath);
+  });
+}
+
+function normalizeEvidenceBundle(input = {}) {
+  const evidence = Array.isArray(input.evidence)
+    ? input.evidence.filter((entry) => entry !== undefined)
+    : [];
+  const redactionFields = Array.from(new Set([
+    ...DEFAULT_EVIDENCE_REDACTION_FIELDS,
+    ...asStringArray(input.evidenceRedactionFields ?? input.redactionFields)
+  ])).sort();
+  const redactionPaths = collectEvidenceRedactionPaths(evidence, redactionFields)
+    .map((path) => `evidence.${path}`);
+
+  return {
+    contractVersion: `${CONTRACT_VERSION}.evidence-redaction`,
+    supplied: evidence.length > 0,
+    entryCount: evidence.length,
+    redactionFields,
+    redactionPaths,
+    redactionPathCount: redactionPaths.length,
+    redacted: redactEvidenceValue(evidence, redactionFields)
+  };
 }
 
 function asTimestamp(value, fallback) {
@@ -219,6 +894,7 @@ function normalizeCounterMap(value) {
 
 function normalizeHistorySnapshot(value, now) {
   const snapshot = asRecord(value);
+  const mailchimpOperation = asRecord(snapshot.mailchimpOperation);
   return {
     id: asString(snapshot.id, ""),
     recordedAt: asTimestamp(snapshot.recordedAt ?? snapshot.at, now),
@@ -252,6 +928,54 @@ function normalizeHistorySnapshot(value, now) {
     matchedPrivilegedMutationOperations: asStringArray(snapshot.matchedPrivilegedMutationOperations),
     matchedIrreversibleOperations: asStringArray(snapshot.matchedIrreversibleOperations),
     guardedOperationClassifications: asStringArray(snapshot.guardedOperationClassifications),
+    externalServiceProfile: asString(snapshot.externalServiceProfile, "generic"),
+    externalServiceTargetKind: asString(snapshot.externalServiceTargetKind, "generic"),
+    externalServiceReportingState: asString(snapshot.externalServiceReportingState, "not-external"),
+    externalServiceDispatchMode: asString(snapshot.externalServiceDispatchMode, ""),
+    externalServiceSafeToDispatch: asBoolean(snapshot.externalServiceSafeToDispatch, false),
+    externalServiceRequiresAcceptance: asBoolean(snapshot.externalServiceRequiresAcceptance, false),
+    externalServiceCheckpointRequired: asBoolean(snapshot.externalServiceCheckpointRequired, false),
+    externalServicePreviewRequired: asBoolean(snapshot.externalServicePreviewRequired, false),
+    externalServiceReplayFenceKey: asString(snapshot.externalServiceReplayFenceKey, ""),
+    externalServiceRemoteRequestId: asString(snapshot.externalServiceRemoteRequestId, ""),
+    externalServiceIdempotencyKey: asString(snapshot.externalServiceIdempotencyKey, ""),
+    externalServiceRemoteHeaderNames: asStringArray(snapshot.externalServiceRemoteHeaderNames),
+    externalServiceReportingCodes: asStringArray(snapshot.externalServiceReportingCodes),
+    externalServiceNextActionId: asString(snapshot.externalServiceNextActionId, ""),
+    mailchimpOperation: {
+      contractVersion: asString(mailchimpOperation.contractVersion, `${CONTRACT_VERSION}.mailchimp-operation-analytics`),
+      matched: asBoolean(mailchimpOperation.matched, false),
+      reportingState: asString(mailchimpOperation.reportingState, "not-mailchimp"),
+      targetKind: asString(mailchimpOperation.targetKind, "generic"),
+      route: asString(mailchimpOperation.route, ""),
+      operation: asString(mailchimpOperation.operation, ""),
+      remoteRequestId: asString(mailchimpOperation.remoteRequestId, ""),
+      idempotencyKey: asString(mailchimpOperation.idempotencyKey, ""),
+      remoteIdempotencyHeaderNames: asStringArray(mailchimpOperation.remoteIdempotencyHeaderNames),
+      remoteIdempotencyHeaders: asRecord(mailchimpOperation.remoteIdempotencyHeaders),
+      restartSafeKey: asString(mailchimpOperation.restartSafeKey, ""),
+      replayFenceKey: asString(mailchimpOperation.replayFenceKey, ""),
+      replayWindowMs: asNonNegativeInteger(mailchimpOperation.replayWindowMs, 0),
+      checkpointId: asString(mailchimpOperation.checkpointId, ""),
+      checkpointRequired: asBoolean(mailchimpOperation.checkpointRequired, false),
+      previewRequired: asBoolean(mailchimpOperation.previewRequired, false),
+      confirmationRequired: asBoolean(mailchimpOperation.confirmationRequired, false),
+      requiresOperatorAcceptance: asBoolean(mailchimpOperation.requiresOperatorAcceptance, false),
+      safeToDispatch: asBoolean(mailchimpOperation.safeToDispatch, false),
+      dispatchMode: asString(mailchimpOperation.dispatchMode, ""),
+      nextActionId: asString(mailchimpOperation.nextActionId, ""),
+      nextActionOwner: asString(mailchimpOperation.nextActionOwner, ""),
+      nextActionReasonCodes: asStringArray(mailchimpOperation.nextActionReasonCodes),
+      operationTokens: asStringArray(mailchimpOperation.operationTokens),
+      audienceMutation: asBoolean(mailchimpOperation.audienceMutation, false),
+      campaignDispatch: asBoolean(mailchimpOperation.campaignDispatch, false),
+      journeyMutation: asBoolean(mailchimpOperation.journeyMutation, false),
+      irreversible: asBoolean(mailchimpOperation.irreversible, false),
+      exportTags: asStringArray(mailchimpOperation.exportTags),
+      blockingCodes: asStringArray(mailchimpOperation.blockingCodes),
+      exportReady: asBoolean(mailchimpOperation.exportReady, false),
+      summaryKey: asString(mailchimpOperation.summaryKey, "")
+    },
     dryRun: asBoolean(snapshot.dryRun, false),
     gateMode: asString(snapshot.gateMode, ""),
     executable: asBoolean(snapshot.executable, false),
@@ -672,7 +1396,16 @@ function buildAcceptanceBinding(request) {
     boundary: request.boundary,
     dryRun: request.dryRun,
     guardedOperationClassifications: classification.classifications,
-    matchedOperations: classification.matchedOperations
+    matchedOperations: classification.matchedOperations,
+    externalOperation: {
+      profile: request.externalOperation.profile,
+      matched: request.externalOperation.matched,
+      targetKind: request.externalOperation.targetKind,
+      remoteRequestId: request.externalOperation.remoteRequestId,
+      idempotencyKey: request.externalOperation.idempotencyKey,
+      restartSafeKey: request.externalOperation.restartSafeKey,
+      requiresApproval: request.externalOperation.requiresApproval
+    }
   };
 }
 
@@ -690,8 +1423,49 @@ function buildAcceptanceBindingFingerprint(binding) {
     boundary: binding.boundary,
     dryRun: binding.dryRun,
     guardedOperationClassifications: binding.guardedOperationClassifications,
-    matchedOperations: binding.matchedOperations
+    matchedOperations: binding.matchedOperations,
+    externalOperation: binding.externalOperation
   });
+}
+
+function buildOperationBindingDetails(value) {
+  const raw = asString(value).toLowerCase();
+  const tokens = splitGuardIdentifier(raw).map(canonicalizeOperationToken);
+  const canonicalTokens = uniqueStrings(tokens);
+  return {
+    raw,
+    canonical: canonicalTokens[0] || raw,
+    tokens: canonicalTokens,
+    supplied: Boolean(raw)
+  };
+}
+
+function compareAcceptanceOperationBinding(submittedOperation, expectedBinding) {
+  const submitted = buildOperationBindingDetails(submittedOperation);
+  const expectedTokens = expectedBinding.operationTokens?.length
+    ? uniqueStrings(expectedBinding.operationTokens.map(canonicalizeOperationToken))
+    : buildOperationBindingDetails(expectedBinding.operation).tokens;
+  const expected = {
+    raw: asString(expectedBinding.operation).toLowerCase(),
+    canonical: expectedTokens[0] || asString(expectedBinding.operation).toLowerCase(),
+    tokens: expectedTokens,
+    supplied: Boolean(expectedBinding.operation)
+  };
+  const overlappingTokens = submitted.tokens.filter((token) => expected.tokens.includes(token));
+  const exactRawMatch = submitted.raw && submitted.raw === expected.raw;
+  const canonicalMatch = overlappingTokens.length > 0;
+  return {
+    expected,
+    submitted,
+    exactRawMatch,
+    canonicalMatch,
+    overlappingTokens,
+    equivalent: !submitted.supplied || exactRawMatch || canonicalMatch,
+    mismatchCode:
+      submitted.supplied && !exactRawMatch && !canonicalMatch
+        ? "operation_mismatch"
+        : ""
+  };
 }
 
 function buildAcceptanceBindingCheck(acceptance, expectedBinding) {
@@ -706,6 +1480,7 @@ function buildAcceptanceBindingCheck(acceptance, expectedBinding) {
   const submittedTarget = asString(acceptance.target);
   const submittedTargetType = asString(acceptance.targetType);
   const submittedBoundary = normalizeBoundaryContext({}, acceptance);
+  const operationComparison = compareAcceptanceOperationBinding(submittedOperation, expectedBinding);
   const providedFields = [
     submittedPreviewId ? "previewId" : "",
     submittedRequestId ? "requestId" : "",
@@ -721,7 +1496,7 @@ function buildAcceptanceBindingCheck(acceptance, expectedBinding) {
     submittedRequestId && submittedRequestId !== expectedBinding.requestId ? "request_id_mismatch" : "",
     submittedFingerprint && submittedFingerprint !== expectedFingerprint ? "binding_fingerprint_mismatch" : "",
     submittedRoute && submittedRoute !== expectedBinding.route ? "route_mismatch" : "",
-    submittedOperation && submittedOperation !== expectedBinding.operation ? "operation_mismatch" : "",
+    operationComparison.mismatchCode,
     submittedTarget && submittedTarget !== expectedBinding.target ? "target_mismatch" : "",
     submittedTargetType && submittedTargetType !== expectedBinding.targetType ? "target_type_mismatch" : "",
     providedFields.includes("boundary") && boundaryKey(submittedBoundary) !== boundaryKey(expectedBinding.boundary)
@@ -740,6 +1515,10 @@ function buildAcceptanceBindingCheck(acceptance, expectedBinding) {
     submittedPreviewId,
     submittedRequestId,
     submittedBoundary,
+    submittedOperation,
+    submittedOperationTokens: operationComparison.submitted.tokens,
+    expectedOperationTokens: operationComparison.expected.tokens,
+    operationComparison,
     providedFields,
     requiredFieldCodes,
     mismatchCodes,
@@ -796,6 +1575,7 @@ function buildRequiredAcknowledgementCodes(request, clientState) {
     signals.boundary.crossWorkspaceDenied ? "cross_workspace_boundary" : "",
     signals.boundary.tenantWideDenied ? "tenant_wide_boundary" : "",
     signals.boundary.workspaceScopeAmbiguous ? "explicit_workspace_scope_required" : "",
+    request.externalOperation.requiresApproval ? request.externalOperation.approvalReasonCode : "",
     request.dryRun && signals.guardedOperation ? "dry_run_only" : ""
   ].filter(Boolean);
 }
@@ -936,7 +1716,11 @@ function normalizeRequest(input) {
   const dryRun = Boolean(request.dryRun ?? input.dryRun);
   const id = asString(request.id ?? input.requestId, `${operation || "request"}:${targetType}:${target}`);
   const boundary = normalizeBoundaryContext(input, request);
-  return { id, operation, target, targetType, route, args, dryRun, boundary };
+  const normalized = { id, operation, target, targetType, route, args, dryRun, boundary };
+  return {
+    ...normalized,
+    externalOperation: buildExternalServiceOperation(input, normalized)
+  };
 }
 
 function normalizeApprovalEntry(value, now) {
@@ -2249,6 +3033,9 @@ function buildRiskSignals(request, clientState) {
     privilegedMutation: classification.privilegedMutation,
     irreversibleOperation: classification.irreversibleOperation,
     guardedOperation: classification.guardedOperation,
+    externalServiceOperation: request.externalOperation.matched,
+    externalServiceRequiresApproval: request.externalOperation.requiresApproval,
+    externalOperation: request.externalOperation,
     operationFamily: classification.operationFamily,
     guardedOperationClassifications: classification.classifications,
     sensitiveTarget,
@@ -2263,6 +3050,7 @@ function decideGuardState(request, clientState, nowMs) {
   const signals = buildRiskSignals(request, clientState);
   const riskScore = [
     signals.guardedOperation,
+    signals.externalServiceRequiresApproval,
     signals.deploymentOperation,
     signals.privilegedMutation,
     signals.irreversibleOperation && !signals.destructiveOperation,
@@ -2272,8 +3060,9 @@ function decideGuardState(request, clientState, nowMs) {
     signals.boundary.denied
   ].filter(Boolean).length;
   const approved = hasActiveApproval(request, clientState, nowMs);
-  const requiresApproval = signals.guardedOperation && !request.dryRun && (riskScore > 1 || !approved);
-  const blocked = !request.dryRun && (signals.boundary.denied || (signals.lacksCapability && !approved));
+  const guardedOrExternal = signals.guardedOperation || signals.externalServiceRequiresApproval;
+  const requiresApproval = guardedOrExternal && !request.dryRun && (riskScore > 1 || !approved);
+  const blocked = !request.dryRun && (signals.boundary.denied || (signals.lacksCapability && guardedOrExternal && !approved));
   const status = blocked ? "blocked" : requiresApproval ? "handoff_required" : "allowed";
   return { status, riskScore, approved, requiresApproval, signals };
 }
@@ -2555,7 +3344,17 @@ function shapePersistedState({ now, request, command, persistedState, decision, 
     boundaryKey: boundaryKey(request.boundary),
     boundaryDenialCodes: decision.signals.boundary?.denialCodes ?? [],
     permissionBoundarySource: decision.signals.boundary?.permissionBoundary?.source || "",
-    boundaryAudit: decision.signals.boundary ? buildBoundaryAuditShape(decision.signals.boundary) : null
+    boundaryAudit: decision.signals.boundary ? buildBoundaryAuditShape(decision.signals.boundary) : null,
+    externalOperation: {
+      profile: request.externalOperation.profile,
+      matched: request.externalOperation.matched,
+      targetKind: request.externalOperation.targetKind,
+      auditEventType: request.externalOperation.auditEventType,
+      remoteRequestId: request.externalOperation.remoteRequestId,
+      idempotencyKey: request.externalOperation.idempotencyKey,
+      restartSafeKey: request.externalOperation.restartSafeKey,
+      requiresApproval: request.externalOperation.requiresApproval
+    }
   };
   const nextCommands = {
     ...persistedState.commands,
@@ -2623,6 +3422,16 @@ function shapePersistedState({ now, request, command, persistedState, decision, 
       commandResumeToken: replay?.resumeToken || commandRecoveryResumeToken(request.id, commandId),
       currentCommandState,
       nextAction: lifecycleNextAction,
+      externalOperation: {
+        profile: request.externalOperation.profile,
+        matched: request.externalOperation.matched,
+        targetKind: request.externalOperation.targetKind,
+        remoteRequestId: request.externalOperation.remoteRequestId,
+        idempotencyKey: request.externalOperation.idempotencyKey,
+        remoteIdempotencyHeaders: request.externalOperation.remoteIdempotencyHeaders,
+        restartSafeKey: request.externalOperation.restartSafeKey,
+        requiresApproval: request.externalOperation.requiresApproval
+      },
       boundary: {
         request: request.boundary,
         denialCodes: decision.signals.boundary?.denialCodes ?? [],
@@ -2637,6 +3446,7 @@ function shapePersistedState({ now, request, command, persistedState, decision, 
 
 function buildWorkflowHandoff(request, clientState, decision, lifecycleSettings, acknowledgementState, nowMs) {
   if (decision.status === "allowed") return null;
+  const externalReporting = buildExternalServiceReportingSlice(request.externalOperation);
   const approvalExpiresAt = new Date(nowMs + lifecycleSettings.approvalTtlMs).toISOString();
   const requiredPermissions = ["destructive-action:execute"];
   if (decision.signals.boundary?.tenantScopeDenied) requiredPermissions.push("tenant:grant");
@@ -2675,8 +3485,39 @@ function buildWorkflowHandoff(request, clientState, decision, lifecycleSettings,
       expiresAt: approvalExpiresAt,
       boundary: request.boundary,
       requiredAcknowledgementCodes: acknowledgementState.requiredCodes,
-      bindingFingerprint: buildAcceptanceBindingFingerprint(buildAcceptanceBinding(request))
+      bindingFingerprint: buildAcceptanceBindingFingerprint(buildAcceptanceBinding(request)),
+      externalOperation: {
+        profile: request.externalOperation.profile,
+        targetKind: request.externalOperation.targetKind,
+        remoteRequestId: request.externalOperation.remoteRequestId,
+        idempotencyKey: request.externalOperation.idempotencyKey,
+        restartSafeKey: request.externalOperation.restartSafeKey,
+        reporting: externalReporting
+      }
     },
+    externalServiceHandoff: externalReporting.matched
+      ? {
+          profile: externalReporting.profile,
+          targetKind: externalReporting.targetKind,
+          reportingState: externalReporting.reportingState,
+          dispatchMode: externalReporting.dispatchMode,
+          safeToDispatch: externalReporting.safeToDispatch,
+          requiresOperatorAcceptance: externalReporting.requiresOperatorAcceptance,
+          checkpointRequired: externalReporting.checkpointRequired,
+          checkpointId: externalReporting.checkpointId,
+          previewRequired: externalReporting.previewRequired,
+          confirmationRequired: externalReporting.confirmationRequired,
+          expectedConfirmationPhrase: externalReporting.expectedConfirmationPhrase,
+          remoteRequestId: externalReporting.remoteRequestId,
+          idempotencyKey: externalReporting.idempotencyKey,
+          remoteIdempotencyHeaders: externalReporting.remoteIdempotencyHeaders,
+          replayFenceKey: externalReporting.replayFenceKey,
+          restartSafeKey: externalReporting.restartSafeKey,
+          nextActionId: externalReporting.nextActionId,
+          nextActionOwner: externalReporting.nextActionOwner,
+          reasonCodes: externalReporting.reportingCodes
+        }
+      : null,
     acknowledgementState,
     lifecycle: {
       enabled: lifecycleSettings.enabled,
@@ -3349,6 +4190,31 @@ function buildUserVisiblePreview({
       matchedOperations: finalDecision.signals.matchedOperations,
       classificationSources: finalDecision.signals.classificationSources,
       guardedOperationClassifications: finalDecision.signals.guardedOperationClassifications,
+      externalOperation: {
+        profile: request.externalOperation.profile,
+        matched: request.externalOperation.matched,
+        targetKind: request.externalOperation.targetKind,
+        auditEventType: request.externalOperation.auditEventType,
+        remoteRequestId: request.externalOperation.remoteRequestId,
+        idempotencyKey: request.externalOperation.idempotencyKey,
+        remoteIdempotencyHeaders: request.externalOperation.remoteIdempotencyHeaders,
+        matchedDestructiveOperations: request.externalOperation.matchedDestructiveOperations,
+        matchedPrivilegedOperations: request.externalOperation.matchedPrivilegedOperations,
+        requiresApproval: request.externalOperation.requiresApproval,
+        restartSafeKey: request.externalOperation.restartSafeKey,
+        quotaHandoff: {
+          required: request.externalOperation.boundaryProtocol.quotaHandoff.required,
+          ready: request.externalOperation.boundaryProtocol.quotaHandoff.ready,
+          state: request.externalOperation.boundaryProtocol.quotaHandoff.state,
+          accepted: request.externalOperation.boundaryProtocol.quotaHandoff.accepted,
+          acceptedAt: request.externalOperation.boundaryProtocol.quotaHandoff.acceptedAt,
+          acceptanceAgeMs: request.externalOperation.boundaryProtocol.quotaHandoff.acceptanceAgeMs,
+          acceptanceMaxAgeMs: request.externalOperation.boundaryProtocol.quotaHandoff.acceptanceMaxAgeMs,
+          acceptanceStale: request.externalOperation.boundaryProtocol.quotaHandoff.acceptanceStale,
+          nextActionId: request.externalOperation.boundaryProtocol.quotaHandoff.nextAction.actionId,
+          violationCodes: request.externalOperation.boundaryProtocol.quotaHandoff.violationCodes
+        }
+      },
       sensitiveTarget: finalDecision.signals.sensitiveTarget,
       broadScope: finalDecision.signals.broadScope
     },
@@ -3370,6 +4236,10 @@ function buildUserVisiblePreview({
       expectedBinding: previewAcceptance.binding.expectedBinding,
       expectedBindingFingerprint: previewAcceptance.expectedBindingFingerprint,
       submittedBindingFingerprint: previewAcceptance.bindingFingerprint,
+      operationComparison: previewAcceptance.binding.operationComparison,
+      expectedOperationTokens: previewAcceptance.binding.expectedOperationTokens,
+      submittedOperation: previewAcceptance.binding.submittedOperation,
+      submittedOperationTokens: previewAcceptance.binding.submittedOperationTokens,
       bindingRequiredFields: previewAcceptance.binding.requiredFieldCodes,
       bindingMismatchCodes: previewAcceptance.binding.mismatchCodes,
       bindingMatches: previewAcceptance.bindingMatches,
@@ -3600,6 +4470,16 @@ function buildAuditProof({ now, request, clientState, decision, evidence }) {
       requiresApproval: decision.requiresApproval,
       signals: decision.signals
     },
+    externalOperation: {
+      profile: request.externalOperation.profile,
+      matched: request.externalOperation.matched,
+      targetKind: request.externalOperation.targetKind,
+      auditEventType: request.externalOperation.auditEventType,
+      remoteRequestId: request.externalOperation.remoteRequestId,
+      idempotencyKey: request.externalOperation.idempotencyKey,
+      restartSafeKey: request.externalOperation.restartSafeKey,
+      requiresApproval: request.externalOperation.requiresApproval
+    },
     evidence
   };
 }
@@ -3723,6 +4603,14 @@ function buildHostedKernelExecutionGate({
     operationFamily: finalDecision.signals.operationFamily,
     operationTokens: finalDecision.signals.operationTokens,
     matchedOperations: finalDecision.signals.matchedOperations,
+    externalOperation: {
+      profile: request.externalOperation.profile,
+      targetKind: request.externalOperation.targetKind,
+      remoteRequestId: request.externalOperation.remoteRequestId,
+      idempotencyKey: request.externalOperation.idempotencyKey,
+      restartSafeKey: request.externalOperation.restartSafeKey,
+      requiresApproval: request.externalOperation.requiresApproval
+    },
     classificationSources: finalDecision.signals.classificationSources,
     guardedOperationClassifications: finalDecision.signals.guardedOperationClassifications,
     leaseExpiresAt,
@@ -3741,6 +4629,17 @@ function buildHostedKernelExecutionGate({
     operationFamily: finalDecision.signals.operationFamily,
     operationTokens: finalDecision.signals.operationTokens,
     matchedOperations: finalDecision.signals.matchedOperations,
+    externalOperation: {
+      profile: request.externalOperation.profile,
+      matched: request.externalOperation.matched,
+      targetKind: request.externalOperation.targetKind,
+      auditEventType: request.externalOperation.auditEventType,
+      remoteRequestId: request.externalOperation.remoteRequestId,
+      idempotencyKey: request.externalOperation.idempotencyKey,
+      remoteIdempotencyHeaders: request.externalOperation.remoteIdempotencyHeaders,
+      restartSafeKey: request.externalOperation.restartSafeKey,
+      requiresApproval: request.externalOperation.requiresApproval
+    },
     classificationSources: finalDecision.signals.classificationSources,
     guardedOperationClassifications: finalDecision.signals.guardedOperationClassifications,
     dryRun: request.dryRun,
@@ -3762,6 +4661,13 @@ function buildHostedKernelExecutionGate({
           operationTokens: finalDecision.signals.operationTokens,
           matchedOperations: finalDecision.signals.matchedOperations,
           guardedOperationClassifications: finalDecision.signals.guardedOperationClassifications,
+          externalOperation: {
+            profile: request.externalOperation.profile,
+            targetKind: request.externalOperation.targetKind,
+            remoteRequestId: request.externalOperation.remoteRequestId,
+            idempotencyKey: request.externalOperation.idempotencyKey,
+            restartSafeKey: request.externalOperation.restartSafeKey
+          },
           target: request.target,
           targetType: request.targetType
         }
@@ -3786,6 +4692,8 @@ function buildAnalyticsSnapshot({
   lifecycleSettings
 }) {
   const commandId = buildCommandId(request, command);
+  const externalReporting = buildExternalServiceReportingSlice(request.externalOperation);
+  const mailchimpOperation = buildMailchimpOperationAnalyticsSlice({ request, externalReporting });
   const blockerCodes = executionGate.blockers.map((blocker) => blocker.code);
   const validationCodes = [
     ...validationSummary.blockingCodes,
@@ -3808,6 +4716,12 @@ function buildAnalyticsSnapshot({
   const exportHealthCodes = [
     blockerCodes.length ? "blocked_export_row" : "",
     validationCodes.length ? "validation_signals_present" : "",
+    externalReporting.matched && externalReporting.reportingState !== "dispatch-ready"
+      ? `external_service_${externalReporting.reportingState}` : "",
+    externalReporting.matched && !externalReporting.remoteIdempotencyHeaderNames.length
+      ? "external_service_idempotency_header_missing" : "",
+    mailchimpOperation.matched && mailchimpOperation.blockingCodes.length
+      ? "mailchimp_export_blocked" : "",
     finalDecision.requiresApproval && !approvalSlaDueAt ? "approval_sla_due_at_missing" : "",
     leaseExpiresSoon ? "execution_lease_expires_soon" : ""
   ].filter(Boolean);
@@ -3844,6 +4758,21 @@ function buildAnalyticsSnapshot({
     matchedPrivilegedMutationOperations: finalDecision.signals.matchedOperations?.privilegedMutation ?? [],
     matchedIrreversibleOperations: finalDecision.signals.matchedOperations?.irreversible ?? [],
     guardedOperationClassifications: finalDecision.signals.guardedOperationClassifications,
+    externalServiceProfile: externalReporting.profile,
+    externalServiceTargetKind: externalReporting.targetKind,
+    externalServiceReportingState: externalReporting.reportingState,
+    externalServiceDispatchMode: externalReporting.dispatchMode,
+    externalServiceSafeToDispatch: externalReporting.safeToDispatch,
+    externalServiceRequiresAcceptance: externalReporting.requiresOperatorAcceptance,
+    externalServiceCheckpointRequired: externalReporting.checkpointRequired,
+    externalServicePreviewRequired: externalReporting.previewRequired,
+    externalServiceReplayFenceKey: externalReporting.replayFenceKey,
+    externalServiceRemoteRequestId: externalReporting.remoteRequestId,
+    externalServiceIdempotencyKey: externalReporting.idempotencyKey,
+    externalServiceRemoteHeaderNames: externalReporting.remoteIdempotencyHeaderNames,
+    externalServiceReportingCodes: externalReporting.reportingCodes,
+    externalServiceNextActionId: externalReporting.nextActionId,
+    mailchimpOperation,
     dryRun: request.dryRun,
     gateMode: executionGate.mode,
     executable: executionGate.executable,
@@ -3883,6 +4812,27 @@ function buildAnalyticsCounters({ persistedAnalytics, snapshot, command, replay,
   if (snapshot.blockerCodes.length) counters = incrementCounter(counters, "blockedByPolicyOrReadiness");
   if (snapshot.validationCodes.length) counters = incrementCounter(counters, "decisionsWithValidationSignals");
   if (snapshot.exportHealthCodes.length) counters = incrementCounter(counters, "decisionsWithExportHealthSignals");
+  if (snapshot.externalServiceProfile !== "generic" || snapshot.externalServiceReportingState !== "not-external") {
+    counters = incrementCounter(counters, "externalServiceDecisions");
+    counters = incrementCounter(counters, `externalServiceProfile.${snapshot.externalServiceProfile}`);
+    counters = incrementCounter(counters, `externalServiceTargetKind.${snapshot.externalServiceTargetKind}`);
+    counters = incrementCounter(counters, `externalServiceState.${snapshot.externalServiceReportingState}`);
+  }
+  if (snapshot.externalServiceRequiresAcceptance) counters = incrementCounter(counters, "externalServiceAcceptanceRequired");
+  if (snapshot.externalServiceSafeToDispatch) counters = incrementCounter(counters, "externalServiceDispatchReady");
+  if (snapshot.externalServiceCheckpointRequired) counters = incrementCounter(counters, "externalServiceCheckpointRequired");
+  if (snapshot.externalServicePreviewRequired) counters = incrementCounter(counters, "externalServicePreviewRequired");
+  if (snapshot.mailchimpOperation?.matched) {
+    counters = incrementCounter(counters, "mailchimpDecisions");
+    counters = incrementCounter(counters, `mailchimpTargetKind.${snapshot.mailchimpOperation.targetKind}`);
+    counters = incrementCounter(counters, `mailchimpReportingState.${snapshot.mailchimpOperation.reportingState}`);
+    if (snapshot.mailchimpOperation.exportReady) counters = incrementCounter(counters, "mailchimpExportReadyDecisions");
+    if (snapshot.mailchimpOperation.requiresOperatorAcceptance) counters = incrementCounter(counters, "mailchimpAcceptanceRequiredDecisions");
+    if (snapshot.mailchimpOperation.campaignDispatch) counters = incrementCounter(counters, "mailchimpCampaignDispatchDecisions");
+    if (snapshot.mailchimpOperation.audienceMutation) counters = incrementCounter(counters, "mailchimpAudienceMutationDecisions");
+    if (snapshot.mailchimpOperation.journeyMutation) counters = incrementCounter(counters, "mailchimpJourneyMutationDecisions");
+    if (snapshot.mailchimpOperation.blockingCodes.length) counters = incrementCounter(counters, "mailchimpBlockedExportDecisions");
+  }
   counters = incrementCounter(counters, `riskBand.${snapshot.riskBand || riskBandForScore(snapshot.riskScore)}`);
   if (replay) counters = incrementCounter(counters, "idempotentReplays");
   if (degradedMode.active) counters = incrementCounter(counters, "degradedModeDecisions");
@@ -3968,6 +4918,15 @@ function buildAnalyticsActionQueue(history) {
         matchedPrivilegedMutationOperations: entry.matchedPrivilegedMutationOperations,
         matchedIrreversibleOperations: entry.matchedIrreversibleOperations,
         guardedOperationClassifications: entry.guardedOperationClassifications,
+        externalServiceProfile: entry.externalServiceProfile,
+        externalServiceTargetKind: entry.externalServiceTargetKind,
+        externalServiceReportingState: entry.externalServiceReportingState,
+        externalServiceDispatchMode: entry.externalServiceDispatchMode,
+        externalServiceRequiresAcceptance: entry.externalServiceRequiresAcceptance,
+        externalServiceSafeToDispatch: entry.externalServiceSafeToDispatch,
+        externalServiceReportingCodes: entry.externalServiceReportingCodes,
+        externalServiceNextActionId: entry.externalServiceNextActionId,
+        mailchimpOperation: entry.mailchimpOperation,
         permissionBoundarySource: entry.permissionBoundarySource,
         boundaryDenialCodes: entry.boundaryDenialCodes,
         blockerCodes: entry.blockerCodes,
@@ -3996,6 +4955,36 @@ function buildAnalyticsExportRows(history) {
     privilegedMutation: entry.privilegedMutation,
     irreversibleOperation: entry.irreversibleOperation,
     guardedOperationClassifications: entry.guardedOperationClassifications.join("|"),
+    externalServiceProfile: entry.externalServiceProfile || "generic",
+    externalServiceTargetKind: entry.externalServiceTargetKind || "generic",
+    externalServiceReportingState: entry.externalServiceReportingState || "not-external",
+    externalServiceDispatchMode: entry.externalServiceDispatchMode || "",
+    externalServiceSafeToDispatch: entry.externalServiceSafeToDispatch,
+    externalServiceRequiresAcceptance: entry.externalServiceRequiresAcceptance,
+    externalServiceCheckpointRequired: entry.externalServiceCheckpointRequired,
+    externalServicePreviewRequired: entry.externalServicePreviewRequired,
+    externalServiceReplayFenceKey: entry.externalServiceReplayFenceKey,
+    externalServiceRemoteRequestId: entry.externalServiceRemoteRequestId,
+    externalServiceIdempotencyKey: entry.externalServiceIdempotencyKey,
+    externalServiceRemoteHeaderNames: entry.externalServiceRemoteHeaderNames.join("|"),
+    externalServiceReportingCodes: entry.externalServiceReportingCodes.join("|"),
+    externalServiceNextActionId: entry.externalServiceNextActionId,
+    mailchimpMatched: entry.mailchimpOperation?.matched === true,
+    mailchimpReportingState: entry.mailchimpOperation?.reportingState || "not-mailchimp",
+    mailchimpTargetKind: entry.mailchimpOperation?.targetKind || "generic",
+    mailchimpSummaryKey: entry.mailchimpOperation?.summaryKey || "",
+    mailchimpRemoteRequestId: entry.mailchimpOperation?.remoteRequestId || "",
+    mailchimpIdempotencyKey: entry.mailchimpOperation?.idempotencyKey || "",
+    mailchimpRemoteIdempotencyHeaderNames: (entry.mailchimpOperation?.remoteIdempotencyHeaderNames || []).join("|"),
+    mailchimpCheckpointRequired: entry.mailchimpOperation?.checkpointRequired === true,
+    mailchimpCheckpointId: entry.mailchimpOperation?.checkpointId || "",
+    mailchimpPreviewRequired: entry.mailchimpOperation?.previewRequired === true,
+    mailchimpRequiresOperatorAcceptance: entry.mailchimpOperation?.requiresOperatorAcceptance === true,
+    mailchimpSafeToDispatch: entry.mailchimpOperation?.safeToDispatch === true,
+    mailchimpExportReady: entry.mailchimpOperation?.exportReady === true,
+    mailchimpNextActionId: entry.mailchimpOperation?.nextActionId || "",
+    mailchimpExportTags: (entry.mailchimpOperation?.exportTags || []).join("|"),
+    mailchimpBlockingCodes: (entry.mailchimpOperation?.blockingCodes || []).join("|"),
     targetType: entry.targetType || "resource",
     boundaryKey: entry.boundaryKey,
     permissionBoundarySource: entry.permissionBoundarySource,
@@ -4074,7 +5063,10 @@ function buildAnalyticsExportHealth(entry, nowMs) {
     leaseExpiry.expired ? "execution_lease_expired" : "",
     leaseExpiry.expiresSoon ? "execution_lease_expires_soon" : "",
     entry.blockerCodes.length ? "blocked_export_row" : "",
-    entry.validationCodes.length ? "validation_signals_present" : ""
+    entry.validationCodes.length ? "validation_signals_present" : "",
+    entry.externalServiceReportingState && !["not-external", "dispatch-ready"].includes(entry.externalServiceReportingState)
+      ? `external_service_${entry.externalServiceReportingState}` : "",
+    entry.externalServiceReportingCodes.length ? "external_service_reporting_codes_present" : ""
   ].filter(Boolean);
 }
 
@@ -4107,6 +5099,26 @@ function buildAnalyticsTimelineEvent(entry, nowMs) {
     riskBand: approvalSla.riskBand,
     operationFamily: entry.operationFamily,
     guardedOperationClassifications: entry.guardedOperationClassifications,
+    externalService: {
+      profile: entry.externalServiceProfile,
+      targetKind: entry.externalServiceTargetKind,
+      reportingState: entry.externalServiceReportingState,
+      dispatchMode: entry.externalServiceDispatchMode,
+      safeToDispatch: entry.externalServiceSafeToDispatch,
+      requiresAcceptance: entry.externalServiceRequiresAcceptance,
+      nextActionId: entry.externalServiceNextActionId,
+      reportingCodes: entry.externalServiceReportingCodes
+    },
+    mailchimpOperation: {
+      matched: entry.mailchimpOperation?.matched === true,
+      reportingState: entry.mailchimpOperation?.reportingState || "not-mailchimp",
+      targetKind: entry.mailchimpOperation?.targetKind || "generic",
+      exportReady: entry.mailchimpOperation?.exportReady === true,
+      summaryKey: entry.mailchimpOperation?.summaryKey || "",
+      nextActionId: entry.mailchimpOperation?.nextActionId || "",
+      blockingCodes: entry.mailchimpOperation?.blockingCodes || [],
+      exportTags: entry.mailchimpOperation?.exportTags || []
+    },
     nextActionType: entry.nextActionType,
     approvalSla,
     leaseExpiry,
@@ -4186,6 +5198,28 @@ function buildAnalyticsReporting({
         timeline.some((event) => event.riskBand === band)
       ) || "low"
   };
+  const mailchimpHistory = history.filter((entry) => entry.mailchimpOperation?.matched);
+  const mailchimpExportRows = exportRows.filter((row) => row.mailchimpMatched);
+  const mailchimpReporting = {
+    contractVersion: `${CONTRACT_VERSION}.mailchimp-reporting`,
+    matchedDecisionCount: mailchimpHistory.length,
+    exportReadyDecisionCount: mailchimpHistory.filter((entry) => entry.mailchimpOperation.exportReady).length,
+    blockedExportDecisionCount: mailchimpHistory.filter((entry) => entry.mailchimpOperation.blockingCodes.length).length,
+    acceptanceRequiredDecisionCount: mailchimpHistory.filter((entry) => entry.mailchimpOperation.requiresOperatorAcceptance).length,
+    targetKindCounts: mailchimpHistory.reduce((counts, entry) => incrementCounter(counts, entry.mailchimpOperation.targetKind), {}),
+    reportingStateCounts: mailchimpHistory.reduce((counts, entry) => incrementCounter(counts, entry.mailchimpOperation.reportingState), {}),
+    latest: snapshot.mailchimpOperation,
+    nextActionIds: Array.from(new Set(mailchimpHistory
+      .map((entry) => entry.mailchimpOperation.nextActionId)
+      .filter(Boolean)
+    )).sort(),
+    blockingCodes: Array.from(new Set(mailchimpHistory
+      .flatMap((entry) => entry.mailchimpOperation.blockingCodes)
+    )).sort(),
+    exportTags: Array.from(new Set(mailchimpHistory
+      .flatMap((entry) => entry.mailchimpOperation.exportTags)
+    )).sort()
+  };
   const exportSummary = {
     contractVersion: `${CONTRACT_VERSION}.analytics-export`,
     generatedAt: now,
@@ -4221,6 +5255,20 @@ function buildAnalyticsReporting({
       matchedPrivilegedMutationOperations: snapshot.matchedPrivilegedMutationOperations,
       matchedIrreversibleOperations: snapshot.matchedIrreversibleOperations,
       guardedOperationClassifications: snapshot.guardedOperationClassifications,
+      externalServiceProfile: snapshot.externalServiceProfile,
+      externalServiceTargetKind: snapshot.externalServiceTargetKind,
+      externalServiceReportingState: snapshot.externalServiceReportingState,
+      externalServiceDispatchMode: snapshot.externalServiceDispatchMode,
+      externalServiceSafeToDispatch: snapshot.externalServiceSafeToDispatch,
+      externalServiceRequiresAcceptance: snapshot.externalServiceRequiresAcceptance,
+      externalServiceCheckpointRequired: snapshot.externalServiceCheckpointRequired,
+      externalServicePreviewRequired: snapshot.externalServicePreviewRequired,
+      externalServiceReplayFenceKey: snapshot.externalServiceReplayFenceKey,
+      externalServiceRemoteRequestId: snapshot.externalServiceRemoteRequestId,
+      externalServiceRemoteHeaderNames: snapshot.externalServiceRemoteHeaderNames,
+      externalServiceReportingCodes: snapshot.externalServiceReportingCodes,
+      externalServiceNextActionId: snapshot.externalServiceNextActionId,
+      mailchimpOperation: snapshot.mailchimpOperation,
       executable: snapshot.executable,
       sideEffectsPermitted: snapshot.sideEffectsPermitted,
       approvalSlaDueAt: snapshot.approvalSlaDueAt,
@@ -4243,8 +5291,28 @@ function buildAnalyticsReporting({
     },
     trendState,
     alertSummary,
+    mailchimpReporting,
     actionQueue,
-    rows: exportRows
+    rows: exportRows,
+    mailchimpRows: mailchimpExportRows,
+    mailchimpColumns: [
+      "mailchimpMatched",
+      "mailchimpReportingState",
+      "mailchimpTargetKind",
+      "mailchimpSummaryKey",
+      "mailchimpRemoteRequestId",
+      "mailchimpIdempotencyKey",
+      "mailchimpRemoteIdempotencyHeaderNames",
+      "mailchimpCheckpointRequired",
+      "mailchimpCheckpointId",
+      "mailchimpPreviewRequired",
+      "mailchimpRequiresOperatorAcceptance",
+      "mailchimpSafeToDispatch",
+      "mailchimpExportReady",
+      "mailchimpNextActionId",
+      "mailchimpExportTags",
+      "mailchimpBlockingCodes"
+    ]
   };
   return {
     contractVersion: `${CONTRACT_VERSION}.analytics`,
@@ -4260,6 +5328,7 @@ function buildAnalyticsReporting({
     timeline,
     trendState,
     alertSummary,
+    mailchimpReporting,
     actionQueue,
     exportRows,
     exportSummary,
@@ -4280,7 +5349,16 @@ function buildAnalyticsReporting({
       leaseExpiredCount: alertSummary.leaseExpiredCount,
       leaseExpiringSoonCount: alertSummary.leaseExpiringSoonCount,
       exportHealthSignalCount: alertSummary.exportHealthSignalCount,
-      highestRiskBand: alertSummary.highestRiskBand
+      highestRiskBand: alertSummary.highestRiskBand,
+      mailchimpMatchedDecisionCount: mailchimpReporting.matchedDecisionCount,
+      mailchimpExportReadyDecisionCount: mailchimpReporting.exportReadyDecisionCount,
+      mailchimpBlockedExportDecisionCount: mailchimpReporting.blockedExportDecisionCount,
+      mailchimpAcceptanceRequiredDecisionCount: mailchimpReporting.acceptanceRequiredDecisionCount,
+      mailchimpLatestReportingState: mailchimpReporting.latest.reportingState,
+      externalServiceDecisionCount: asNonNegativeInteger(nextCounts.counters.externalServiceDecisions, 0),
+      externalServiceAcceptanceRequiredCount: asNonNegativeInteger(nextCounts.counters.externalServiceAcceptanceRequired, 0),
+      externalServiceDispatchReadyCount: asNonNegativeInteger(nextCounts.counters.externalServiceDispatchReady, 0),
+      externalServiceCheckpointRequiredCount: asNonNegativeInteger(nextCounts.counters.externalServiceCheckpointRequired, 0)
     }
   };
 }
@@ -5143,7 +6221,10 @@ export function describeDestructiveActionGuardSurface(input = {}) {
         acceptanceMissingFields: routeAcceptanceContract.acceptanceForm.missingFields,
         acceptanceBlockingCodes: routeAcceptanceContract.acceptanceForm.blockingCodes,
         acceptanceHardBlockingCodes: acceptanceReadiness.hardBlockingCodes,
-        acceptanceInputPendingReasons: routeAcceptanceContract.acceptanceForm.inputPendingReasons
+        acceptanceInputPendingReasons: routeAcceptanceContract.acceptanceForm.inputPendingReasons,
+        acceptanceOperationComparison: userVisiblePreview.acceptance.operationComparison,
+        acceptanceExpectedOperationTokens: userVisiblePreview.acceptance.expectedOperationTokens,
+        acceptanceSubmittedOperationTokens: userVisiblePreview.acceptance.submittedOperationTokens
       }
     }
   };
@@ -5247,6 +6328,10 @@ export function describeDestructiveActionGuardSurface(input = {}) {
         expectedBindingFingerprint: previewAcceptance.expectedBindingFingerprint,
         submittedBindingFingerprint: previewAcceptance.bindingFingerprint,
         bindingMatches: previewAcceptance.bindingMatches,
+        operationComparison: previewAcceptance.binding.operationComparison,
+        expectedOperationTokens: previewAcceptance.binding.expectedOperationTokens,
+        submittedOperation: previewAcceptance.binding.submittedOperation,
+        submittedOperationTokens: previewAcceptance.binding.submittedOperationTokens,
         bindingRequiredFields: previewAcceptance.binding.requiredFieldCodes,
         bindingMismatchCodes: previewAcceptance.binding.mismatchCodes,
         acknowledgementComplete: acknowledgementState.complete,
@@ -5420,6 +6505,7 @@ export function describeDestructiveActionGuardSurface(input = {}) {
       latestSnapshot: analyticsReporting.latestSnapshot,
       trendState: analyticsReporting.trendState,
       alertSummary: analyticsReporting.alertSummary,
+      mailchimpReporting: analyticsReporting.mailchimpReporting,
       actionQueue: analyticsReporting.actionQueue,
       exportRows: analyticsReporting.exportRows
     },

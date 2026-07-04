@@ -1346,6 +1346,117 @@ function normalizeLifecycleSettings(input, providerContract, accessBoundary, pro
   };
 }
 
+function buildLifecycleCommandHandoffSummary(lifecycleSettings, providerCommandHandoff, providerDelivery, sync, now) {
+  const handoffCommands = asObject(providerCommandHandoff).commands || [];
+  const handoffCommandByControl = new Map(
+    (Array.isArray(handoffCommands) ? handoffCommands : [])
+      .map((command) => [command.control, command])
+      .filter(([control]) => control)
+  );
+  const controlRows = lifecycleSettings.controls.map((control) => {
+    const command = lifecycleSettings.commands.find((entry) => entry.control === control.id) || null;
+    const handoffCommand = handoffCommandByControl.get(control.id) || null;
+    const blockedReasons = normalizeStringList([
+      ...control.invalidReasons,
+      ...(handoffCommand?.blockedReasons || []),
+      ...(control.dispatch.state === 'blocked' ? control.dispatch.scheduleDecision.invalidReasons : [])
+    ]);
+    const exportState = blockedReasons.length > 0
+      ? 'blocked'
+      : control.dispatch.executableNow ? 'dispatchable'
+        : control.dispatch.schedulable ? 'scheduled'
+          : control.enabled ? 'queued' : 'disabled';
+
+    return {
+      controlId: control.id,
+      commandId: command?.id || null,
+      commandType: control.commandType,
+      exportState,
+      enabled: control.enabled,
+      providerSupported: control.providerSupported,
+      permissionAllowed: control.permissionAllowed,
+      scheduleMode: control.scheduleMode,
+      dispatchState: control.dispatch.state,
+      dispatchKey: control.dispatch.dispatchKey,
+      routeIntent: control.dispatch.routeIntent,
+      executableNow: control.dispatch.executableNow,
+      schedulable: control.dispatch.schedulable,
+      nextAction: control.dispatch.nextAction,
+      dueAt: control.dispatch.dueAt,
+      nextRunAt: control.dispatch.nextRunAt,
+      processCount: control.processIds.length,
+      processIds: control.processIds,
+      handoffCommandId: handoffCommand?.id || null,
+      handoffPhase: handoffCommand?.phase || null,
+      handoffDispatchState: handoffCommand?.dispatchState || null,
+      deliveryState: providerDelivery?.state || null,
+      blockedReasons
+    };
+  });
+  const blockedRows = controlRows.filter((row) => row.exportState === 'blocked');
+  const dispatchableRows = controlRows.filter((row) => row.exportState === 'dispatchable');
+  const scheduledRows = controlRows.filter((row) => row.exportState === 'scheduled');
+  const queuedRows = controlRows.filter((row) => row.exportState === 'queued');
+  const exportReady = lifecycleSettings.valid
+    && blockedRows.length === 0
+    && controlRows.some((row) => ['dispatchable', 'scheduled', 'queued'].includes(row.exportState));
+  const nextAction = blockedRows.length > 0
+    ? 'resolve-lifecycle-handoff-blockers'
+    : dispatchableRows.length > 0 ? 'dispatch-lifecycle-handoff'
+      : scheduledRows.length > 0 ? 'publish-lifecycle-schedule'
+        : queuedRows.length > 0 ? 'queue-lifecycle-handoff' : lifecycleSettings.nextAction;
+  const exportRows = controlRows.map((row) => ({
+    checkpoint: sync.checkpoint,
+    controlId: row.controlId,
+    commandId: row.commandId,
+    commandType: row.commandType,
+    exportState: row.exportState,
+    dispatchState: row.dispatchState,
+    scheduleMode: row.scheduleMode,
+    nextAction: row.nextAction,
+    routeIntent: row.routeIntent,
+    dispatchKey: row.dispatchKey,
+    nextRunAt: row.nextRunAt,
+    processCount: row.processCount,
+    blockedReasonCount: row.blockedReasons.length,
+    blockedReasons: row.blockedReasons.join('|') || null
+  }));
+
+  return {
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+    contractVersion: 'kernel.processSnapshot.lifecycleCommandHandoff.v1',
+    generatedAt: now,
+    checkpoint: sync.checkpoint,
+    state: exportReady ? 'export-ready' : blockedRows.length > 0 ? 'blocked' : 'pending',
+    exportReady,
+    nextAction,
+    controls: controlRows,
+    exportRows,
+    counts: {
+      total: controlRows.length,
+      dispatchable: dispatchableRows.length,
+      scheduled: scheduledRows.length,
+      queued: queuedRows.length,
+      blocked: blockedRows.length,
+      disabled: controlRows.filter((row) => row.exportState === 'disabled').length
+    },
+    blockedReasons: normalizeStringList(blockedRows.flatMap((row) => row.blockedReasons)),
+    routeIntents: controlRows
+      .filter((row) => row.exportState !== 'disabled')
+      .map((row) => row.routeIntent),
+    proof: {
+      digest: [
+        SNAPSHOT_SCHEMA_VERSION,
+        sync.checkpoint,
+        lifecycleSettings.proof.digest,
+        providerCommandHandoff?.proof?.digest || 'no-provider-command-handoff',
+        providerDelivery?.proof?.digest || 'no-provider-delivery',
+        controlRows.map((row) => `${row.controlId}:${row.exportState}:${row.dispatchState}`).join('|')
+      ].join('#')
+    }
+  };
+}
+
 function normalizePersistedSnapshot(input, now, processTable, sync, clientRuntime, accessBoundary) {
   const persisted = asObject(input.persistedState || input.persistedSnapshot || input.previousSnapshot);
   const rawProcesses = asObject(persisted.processes);
@@ -1969,13 +2080,54 @@ function normalizeAcceptance(input, handoff, processTable) {
   const acceptance = asObject(input.acceptance);
   const requestedState = asString(acceptance.state, 'pending');
   const state = ACCEPTANCE_STATES.has(requestedState) ? requestedState : 'pending';
-  const selectedProcessIds = Array.isArray(acceptance.processIds)
+  const rawSelectedProcessIds = Array.isArray(acceptance.processIds)
     ? acceptance.processIds.filter((pid) => typeof pid === 'string' && pid.trim()).map((pid) => pid.trim())
     : handoff.transferableProcessIds;
+  const selectedProcessIds = [...new Set(rawSelectedProcessIds)];
+  const duplicateProcessIds = [...new Set(rawSelectedProcessIds
+    .filter((pid, index) => rawSelectedProcessIds.indexOf(pid) !== index))];
   const knownProcessIds = new Set(processTable.map((process) => process.pid));
-  const acceptedProcessIds = selectedProcessIds.filter((pid) => knownProcessIds.has(pid));
+  const transferableProcessIds = new Set(handoff.transferableProcessIds);
+  const acceptedProcessIds = selectedProcessIds
+    .filter((pid) => knownProcessIds.has(pid) && transferableProcessIds.has(pid));
   const unknownProcessIds = selectedProcessIds.filter((pid) => !knownProcessIds.has(pid));
-  const canCommit = state === 'accepted' && handoff.state === 'ready' && acceptedProcessIds.length > 0;
+  const nonTransferableProcessIds = selectedProcessIds
+    .filter((pid) => knownProcessIds.has(pid) && !transferableProcessIds.has(pid));
+  const acceptedProcessSet = new Set(acceptedProcessIds);
+  const selectionRecords = selectedProcessIds.map((pid) => {
+    const process = processTable.find((record) => record.pid === pid) || null;
+    const known = Boolean(process);
+    const transferable = transferableProcessIds.has(pid);
+    const selectedForCommit = known && transferable;
+    const rejectedReasons = normalizeStringList([
+      ...(known ? [] : ['unknown-or-hidden-process']),
+      ...(known && !transferable ? ['process-not-transferable-for-handoff'] : [])
+    ]);
+
+    return {
+      pid,
+      known,
+      transferable,
+      selectedForCommit,
+      status: process?.status || null,
+      route: process?.route || null,
+      checkpointToken: process?.checkpointToken || null,
+      rejectedReasons
+    };
+  });
+  const invalidSelectionReasons = normalizeStringList([
+    ...(state === 'accepted' && handoff.state !== 'ready' ? [`handoff-not-ready:${handoff.state}`] : []),
+    ...(state === 'accepted' && acceptedProcessIds.length === 0 ? ['accepted-selection-has-no-transferable-processes'] : []),
+    ...unknownProcessIds.map((pid) => `unknown-or-hidden-process:${pid}`),
+    ...nonTransferableProcessIds.map((pid) => `nontransferable-process-selected:${pid}`),
+    ...duplicateProcessIds.map((pid) => `duplicate-acceptance-process:${pid}`)
+  ]);
+  const canCommit = state === 'accepted'
+    && handoff.state === 'ready'
+    && acceptedProcessIds.length > 0
+    && unknownProcessIds.length === 0
+    && nonTransferableProcessIds.length === 0
+    && duplicateProcessIds.length === 0;
 
   return {
     state,
@@ -1986,9 +2138,140 @@ function normalizeAcceptance(input, handoff, processTable) {
     processIds: acceptedProcessIds,
     rejectedProcessIds: state === 'rejected' ? handoff.transferableProcessIds : [],
     invalidProcessIds: unknownProcessIds,
+    requestedProcessIds: selectedProcessIds,
+    rawRequestedProcessIds: rawSelectedProcessIds,
+    duplicateProcessIds,
+    nonTransferableProcessIds,
+    invalidSelectionReasons,
+    selectionRecords,
+    selectionSummary: {
+      requestedCount: selectedProcessIds.length,
+      rawRequestedCount: rawSelectedProcessIds.length,
+      acceptedCount: acceptedProcessIds.length,
+      unknownOrHiddenCount: unknownProcessIds.length,
+      nonTransferableCount: nonTransferableProcessIds.length,
+      duplicateCount: duplicateProcessIds.length,
+      transferableAvailableCount: handoff.transferableProcessIds.length,
+      clean: invalidSelectionReasons.length === 0
+    },
     commitToken: canCommit
       ? [handoff.syncCheckpoint, acceptedProcessIds.join(','), acceptance.nonce || 'accept'].join(':')
       : null
+  };
+}
+
+function deriveProviderAckDeadline(now, deadlineMs, explicitDeadline) {
+  const requestedDeadline = asString(explicitDeadline, null);
+  if (requestedDeadline) return requestedDeadline;
+
+  const nowMs = Date.parse(now);
+  return Number.isFinite(nowMs) ? new Date(nowMs + deadlineMs).toISOString() : null;
+}
+
+function buildProviderAcknowledgementClaim({
+  providerContract,
+  providerSync,
+  handoff,
+  acceptance,
+  lifecycleSettings,
+  sync,
+  clientRuntime,
+  ackInput,
+  ackState,
+  expectedAckDigest,
+  receivedAckDigest,
+  ackDigestMatches,
+  ackDeadlineAt,
+  deliveryGuarantee,
+  commitRequested,
+  now
+}) {
+  const acknowledgedAt = ackState === 'acknowledged' ? asString(ackInput.acknowledgedAt || ackInput.at, now) : null;
+  const deadlineMs = ackDeadlineAt ? Date.parse(ackDeadlineAt) : null;
+  const acknowledgedMs = acknowledgedAt ? Date.parse(acknowledgedAt) : null;
+  const nowMs = Date.parse(now);
+  const expired = deadlineMs !== null
+    && Number.isFinite(deadlineMs)
+    && Number.isFinite(nowMs)
+    && nowMs > deadlineMs
+    && ackState === 'pending';
+  const late = deadlineMs !== null
+    && acknowledgedMs !== null
+    && Number.isFinite(deadlineMs)
+    && Number.isFinite(acknowledgedMs)
+    && acknowledgedMs > deadlineMs;
+  const requiredFields = commitRequested
+    ? ['providerId', 'checkpoint', 'requestId', 'commitToken', 'expectedDigest', 'deadlineAt']
+    : ['providerId', 'checkpoint', 'requestId', 'expectedDigest'];
+  const fieldValues = {
+    providerId: providerContract.providerId,
+    checkpoint: sync.checkpoint,
+    requestId: clientRuntime.requestId,
+    commitToken: acceptance.commitToken,
+    expectedDigest: expectedAckDigest,
+    deadlineAt: ackDeadlineAt
+  };
+  const missingFields = requiredFields.filter((field) => !fieldValues[field]);
+  const errors = normalizeStringList([
+    ...missingFields.map((field) => `missing-${field}`),
+    ...(ackState === 'acknowledged' && !ackDigestMatches ? ['digest-mismatch'] : []),
+    ...(late ? ['acknowledged-after-deadline'] : [])
+  ]);
+  const warnings = normalizeStringList([
+    ...(expired ? ['pending-ack-expired'] : []),
+    ...(ackState === 'acknowledged' && !receivedAckDigest ? ['acknowledged-without-received-digest'] : []),
+    ...(!acceptance.accepted && receivedAckDigest ? ['ack-digest-received-without-commit'] : [])
+  ]);
+  const claimState = errors.length > 0
+    ? 'invalid'
+    : expired ? 'expired'
+      : ackState === 'acknowledged' ? 'satisfied'
+        : ackState === 'rejected' ? 'rejected'
+          : ackState === 'timed-out' ? 'timed-out' : 'pending';
+
+  return {
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+    claimType: 'provider-acknowledgement',
+    state: claimState,
+    required: commitRequested,
+    providerId: providerContract.providerId,
+    checkpoint: sync.checkpoint,
+    requestId: clientRuntime.requestId,
+    kernelSessionId: clientRuntime.kernelSessionId,
+    commitToken: acceptance.commitToken,
+    expectedDigest: expectedAckDigest,
+    receivedDigest: receivedAckDigest,
+    digestMatches: ackDigestMatches,
+    deliveryGuarantee,
+    channel: asString(ackInput.channel, `${DEFAULT_SYNC_CHANNEL}/acks`),
+    deadlineAt: ackDeadlineAt,
+    acknowledgedAt,
+    expired,
+    validation: {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      requiredFields,
+      missingFields
+    },
+    dependencies: {
+      providerSyncDigest: providerSync.proof.digest,
+      handoffLeaseToken: handoff.lease.token || null,
+      lifecycleSettingsDigest: lifecycleSettings.proof.digest
+    },
+    proof: {
+      digest: [
+        SNAPSHOT_SCHEMA_VERSION,
+        'provider-acknowledgement-claim',
+        providerContract.providerId,
+        sync.checkpoint,
+        clientRuntime.requestId,
+        acceptance.commitToken || 'no-commit',
+        expectedAckDigest,
+        ackDeadlineAt || 'no-deadline',
+        claimState
+      ].join('#')
+    }
   };
 }
 
@@ -2000,6 +2283,11 @@ function normalizeProviderDeliveryContract(input, providerContract, providerSync
   const deliveryGuarantee = PROVIDER_DELIVERY_GUARANTEES.has(requestedGuarantee) ? requestedGuarantee : 'at-least-once';
   const requestedAckState = asString(ackInput.state || ackInput.status, acceptance.accepted ? 'pending' : 'pending');
   const ackState = PROVIDER_ACK_STATES.has(requestedAckState) ? requestedAckState : 'pending';
+  const ackDeadlineAt = deriveProviderAckDeadline(
+    now,
+    providerContract.serviceContract.ackDeadlineMs,
+    ackInput.deadlineAt || delivery.ackDeadlineAt
+  );
   const expectedAckDigest = [
     providerSync.proof.digest,
     handoff.lease.token || 'no-lease',
@@ -2023,18 +2311,38 @@ function normalizeProviderDeliveryContract(input, providerContract, providerSync
     || !receivedAckDigest
     || receivedAckDigest === expectedAckDigest;
   const commitRequested = acceptance.accepted && handoff.state === 'ready';
+  const ackClaim = buildProviderAcknowledgementClaim({
+    providerContract,
+    providerSync,
+    handoff,
+    acceptance,
+    lifecycleSettings,
+    sync,
+    clientRuntime,
+    ackInput,
+    ackState,
+    expectedAckDigest,
+    receivedAckDigest,
+    ackDigestMatches,
+    ackDeadlineAt,
+    deliveryGuarantee,
+    commitRequested,
+    now
+  });
   const errors = normalizeStringList([
     ...(providerContract.accepted ? [] : ['provider-contract-not-accepted']),
     ...(providerSync.compatible ? [] : ['provider-sync-not-compatible']),
     ...(handoff.state === 'blocked' ? handoff.blockedReasons.map((reason) => `handoff-blocked:${reason}`) : []),
     ...(commitRequested && deliveryRecords.filter((record) => record.acceptedForCommit).length === 0 ? ['accepted-handoff-has-no-delivery-records'] : []),
     ...(ackState === 'acknowledged' && !ackDigestMatches ? ['ack-digest-mismatch'] : []),
+    ...(ackClaim.validation.valid ? [] : ackClaim.validation.errors.map((error) => `ack-claim:${error}`)),
     ...(ackState === 'rejected' ? [`provider-ack-rejected:${asString(ackInput.reason, 'unspecified')}`] : []),
     ...(ackState === 'timed-out' ? ['provider-ack-timed-out'] : [])
   ]);
   const warnings = normalizeStringList([
     ...(PROVIDER_DELIVERY_GUARANTEES.has(requestedGuarantee) ? [] : [`unsupported-delivery-guarantee:${requestedGuarantee}`]),
     ...(commitRequested && ackState === 'pending' ? ['provider-ack-pending'] : []),
+    ...ackClaim.validation.warnings.map((warning) => `ack-claim:${warning}`),
     ...(deliveryRecords.length < handoff.transferableProcessIds.length ? ['delivery-records-truncated-by-access-boundary'] : [])
   ]);
   const externalState = !clientRuntime.includeExternalHandoff || handoff.state === 'idle'
@@ -2065,9 +2373,10 @@ function normalizeProviderDeliveryContract(input, providerContract, providerSync
       digestMatches: ackDigestMatches,
       acknowledgedBy: asString(ackInput.acknowledgedBy || ackInput.actor, null),
       acknowledgedAt: ackState === 'acknowledged' ? asString(ackInput.acknowledgedAt || ackInput.at, now) : null,
-      deadlineAt: asString(ackInput.deadlineAt || delivery.ackDeadlineAt, null),
+      deadlineAt: ackDeadlineAt,
       deadlineMs: providerContract.serviceContract.ackDeadlineMs,
-      reason: asString(ackInput.reason, null)
+      reason: asString(ackInput.reason, null),
+      claim: ackClaim
     },
     records: deliveryRecords,
     recordCount: deliveryRecords.length,
@@ -2084,6 +2393,7 @@ function normalizeProviderDeliveryContract(input, providerContract, providerSync
         deliveryGuarantee,
         externalState,
         expectedAckDigest,
+        ackClaim.proof.digest,
         deliveryRecords.map((record) => `${record.pid}:${record.acceptedForCommit ? 'commit' : 'preview'}`).join('|') || 'no-delivery-records'
       ].join('#'),
       sourceDigest: providerSync.proof.digest
@@ -2420,6 +2730,11 @@ function buildReadiness(sync, providerSync, handoff, acceptance, validation, acc
 
 function buildValidationSummary(validation, handoff, acceptance, processTable) {
   const transferableCount = handoff.transferableProcessIds.length;
+  const acceptanceWarnings = normalizeStringList([
+    ...acceptance.invalidProcessIds.map((pid) => `acceptance ignored unknown or hidden process:${pid}`),
+    ...acceptance.nonTransferableProcessIds.map((pid) => `acceptance rejected nontransferable process:${pid}`),
+    ...acceptance.duplicateProcessIds.map((pid) => `acceptance ignored duplicate process:${pid}`)
+  ]);
 
   return {
     severity: validation.errors.length > 0 ? 'error' : validation.warnings.length > 0 ? 'warning' : 'ok',
@@ -2436,7 +2751,7 @@ function buildValidationSummary(validation, handoff, acceptance, processTable) {
     errors: validation.errors,
     warnings: [
       ...validation.warnings,
-      ...acceptance.invalidProcessIds.map((pid) => `acceptance ignored unknown process:${pid}`)
+      ...acceptanceWarnings
     ]
   };
 }
@@ -2649,7 +2964,9 @@ function buildOperationalHealth(input, validation, handoff, acceptance, persiste
     ...(accessBoundary.withheldCount > 0 ? ['tenant-boundary-withheld-processes'] : []),
     ...(pausedProcesses.length > 0 ? ['paused-processes-present'] : []),
     ...(waitingProcesses.length > 0 ? ['waiting-processes-present'] : []),
-    ...(acceptance.invalidProcessIds.length > 0 ? ['operator-selected-unknown-processes'] : []),
+    ...(acceptance.invalidProcessIds.length > 0 ? ['operator-selected-unknown-or-hidden-processes'] : []),
+    ...(acceptance.nonTransferableProcessIds.length > 0 ? ['operator-selected-nontransferable-processes'] : []),
+    ...(acceptance.duplicateProcessIds.length > 0 ? ['operator-selected-duplicate-processes'] : []),
     ...(retryPolicy.exhausted ? ['retry-budget-exhausted'] : []),
     ...healthSignals.degradedReasons
   ];
@@ -3053,6 +3370,11 @@ function buildClientPreviewAcceptanceContract(clientRuntime, sync, preview, hand
       selectedProcessIds,
       selectableProcessIds,
       invalidProcessIds: acceptance.invalidProcessIds,
+      nonTransferableProcessIds: acceptance.nonTransferableProcessIds,
+      duplicateProcessIds: acceptance.duplicateProcessIds,
+      invalidSelectionReasons: acceptance.invalidSelectionReasons,
+      selectionSummary: acceptance.selectionSummary,
+      selectionRecords: acceptance.selectionRecords,
       commitToken: acceptance.commitToken,
       submitDisabledReasons,
       decisionDigest: decisionMatrix.proof.digest,
@@ -3814,6 +4136,11 @@ function buildSerializedProviderContractSection(providerContract, providerSync, 
       acknowledgementChannel: providerDelivery.acknowledgement.channel,
       ackState: providerDelivery.acknowledgement.state,
       ackDeadlineMs: providerDelivery.acknowledgement.deadlineMs,
+      ackDeadlineAt: providerDelivery.acknowledgement.deadlineAt,
+      ackClaimState: providerDelivery.acknowledgement.claim.state,
+      ackClaimDigest: providerDelivery.acknowledgement.claim.proof.digest,
+      ackClaimErrors: providerDelivery.acknowledgement.claim.validation.errors,
+      ackClaimWarnings: providerDelivery.acknowledgement.claim.validation.warnings,
       commitRequested: providerDelivery.commitRequested,
       recordCount: providerDelivery.recordCount
     },
@@ -4862,6 +5189,18 @@ export function describeProcessSnapshotSurface(input = {}) {
     }
   };
   const acceptance = normalizeAcceptance(acceptanceInput, handoff, processTable);
+  validation.errors = normalizeStringList([
+    ...validation.errors,
+    ...(acceptance.state === 'accepted' && !acceptance.accepted
+      ? acceptance.invalidSelectionReasons.map((reason) => `acceptance:${reason}`)
+      : [])
+  ]);
+  validation.warnings = normalizeStringList([
+    ...validation.warnings,
+    ...(acceptance.state !== 'accepted'
+      ? acceptance.invalidSelectionReasons.map((reason) => `acceptance:${reason}`)
+      : [])
+  ]);
   const providerDelivery = normalizeProviderDeliveryContract(
     input,
     providerContract,
@@ -4884,6 +5223,13 @@ export function describeProcessSnapshotSurface(input = {}) {
     sync,
     clientRuntime,
     processTable,
+    now
+  );
+  const lifecycleCommandHandoffSummary = buildLifecycleCommandHandoffSummary(
+    lifecycleSettings,
+    providerCommandHandoff,
+    providerDelivery,
+    sync,
     now
   );
   validation.errors = normalizeStringList([
@@ -5016,6 +5362,7 @@ export function describeProcessSnapshotSurface(input = {}) {
     workflowHandoff,
     providerDelivery,
     providerCommandHandoff,
+    lifecycleCommandHandoffSummary,
     operationalHealth,
     preview,
     acceptance,
@@ -5047,6 +5394,12 @@ export function describeProcessSnapshotSurface(input = {}) {
       providerCommandHandoffCommandCount: providerCommandHandoff.commandCount,
       providerCommandHandoffBlockedReasonCount: providerCommandHandoff.blockedReasons.length,
       providerCommandHandoffDigest: providerCommandHandoff.proof.digest,
+      lifecycleCommandHandoffState: lifecycleCommandHandoffSummary.state,
+      lifecycleCommandHandoffExportReady: lifecycleCommandHandoffSummary.exportReady,
+      lifecycleCommandHandoffNextAction: lifecycleCommandHandoffSummary.nextAction,
+      lifecycleCommandHandoffBlockedReasonCount: lifecycleCommandHandoffSummary.blockedReasons.length,
+      lifecycleCommandHandoffRouteIntentCount: lifecycleCommandHandoffSummary.routeIntents.length,
+      lifecycleCommandHandoffDigest: lifecycleCommandHandoffSummary.proof.digest,
       lifecycleSettingsValid: lifecycleSettings.valid,
       lifecycleScheduleMode: lifecycleSettings.schedule.mode,
       lifecycleCommandCount: lifecycleSettings.commandCount,
@@ -5092,6 +5445,13 @@ export function describeProcessSnapshotSurface(input = {}) {
       workflowCommitEnabled: workflowHandoff.clientControls.commit.enabled,
       workflowDigest: workflowHandoff.proof.digest,
       acceptanceState: acceptance.state,
+      acceptanceAccepted: acceptance.accepted,
+      acceptanceRequestedProcessCount: acceptance.selectionSummary.requestedCount,
+      acceptanceAcceptedProcessCount: acceptance.selectionSummary.acceptedCount,
+      acceptanceUnknownOrHiddenProcessCount: acceptance.selectionSummary.unknownOrHiddenCount,
+      acceptanceNonTransferableProcessCount: acceptance.selectionSummary.nonTransferableCount,
+      acceptanceDuplicateProcessCount: acceptance.selectionSummary.duplicateCount,
+      acceptanceInvalidSelectionReasonCount: acceptance.invalidSelectionReasons.length,
       persistedStateStatus: persistedState.status,
       persistedStateRestartStatus: persistedState.storage.restartStatus,
       persistedStateStoreKey: persistedState.storage.storeKey,
@@ -5151,6 +5511,13 @@ export function describeProcessSnapshotSurface(input = {}) {
       analyticsExportBlockedReasonCount: analytics.reportingCounters.exportBlockedReasonCount,
       analyticsTimelineEventCount: analytics.timeline.length,
       analyticsTimelineBlockedEventCount: analytics.timelineSummary.blockedEventIds.length,
+      lifecycleCommandHandoffState: lifecycleCommandHandoffSummary.state,
+      lifecycleCommandHandoffExportReady: lifecycleCommandHandoffSummary.exportReady,
+      lifecycleCommandHandoffNextAction: lifecycleCommandHandoffSummary.nextAction,
+      lifecycleCommandHandoffExportRowCount: lifecycleCommandHandoffSummary.exportRows.length,
+      lifecycleCommandHandoffBlockedReasonCount: lifecycleCommandHandoffSummary.blockedReasons.length,
+      lifecycleCommandHandoffRouteIntentCount: lifecycleCommandHandoffSummary.routeIntents.length,
+      lifecycleCommandHandoffDigest: lifecycleCommandHandoffSummary.proof.digest,
       serializedSnapshotVersion: serializedSnapshot.serializationVersion,
       serializedSnapshotMediaType: serializedSnapshot.mediaType,
       serializedSnapshotByteLength: serializedSnapshot.byteLength,
@@ -5247,6 +5614,26 @@ export function describeProcessSnapshotSurface(input = {}) {
         blockedReasons: providerCommandHandoff.blockedReasons,
         warnings: providerCommandHandoff.warnings,
         digest: providerCommandHandoff.proof.digest,
+        generatedAt: now
+      },
+      {
+        type: 'process-snapshot-lifecycle-command-handoff-export',
+        schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+        contractVersion: lifecycleCommandHandoffSummary.contractVersion,
+        checkpoint: lifecycleCommandHandoffSummary.checkpoint,
+        state: lifecycleCommandHandoffSummary.state,
+        exportReady: lifecycleCommandHandoffSummary.exportReady,
+        nextAction: lifecycleCommandHandoffSummary.nextAction,
+        totalControlCount: lifecycleCommandHandoffSummary.counts.total,
+        dispatchableControlCount: lifecycleCommandHandoffSummary.counts.dispatchable,
+        scheduledControlCount: lifecycleCommandHandoffSummary.counts.scheduled,
+        queuedControlCount: lifecycleCommandHandoffSummary.counts.queued,
+        blockedControlCount: lifecycleCommandHandoffSummary.counts.blocked,
+        disabledControlCount: lifecycleCommandHandoffSummary.counts.disabled,
+        routeIntentCount: lifecycleCommandHandoffSummary.routeIntents.length,
+        blockedReasons: lifecycleCommandHandoffSummary.blockedReasons,
+        exportRows: lifecycleCommandHandoffSummary.exportRows,
+        digest: lifecycleCommandHandoffSummary.proof.digest,
         generatedAt: now
       },
       {

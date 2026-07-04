@@ -47,6 +47,12 @@ const MAX_BACKOFF_MS = 30000;
 const MAX_RETRY_ATTEMPTS = 5;
 const MIN_AUDIT_INTERVAL_MS = 60000;
 const MAX_AUDIT_INTERVAL_MS = 86400000;
+const OPERATIONAL_INCIDENT_SEVERITY_RANK = Object.freeze({
+  info: 0,
+  warning: 1,
+  error: 2,
+  critical: 3
+});
 const LIFECYCLE_MODES = Object.freeze(['manual', 'scheduled', 'continuous']);
 const DEFAULT_LIFECYCLE_SETTINGS = Object.freeze({
   enabled: true,
@@ -119,6 +125,14 @@ const CLIENT_COMMAND_HANDOFF_VIEWS = Object.freeze({
   provider: 'provider-contract-review',
   disabled: 'audit-lifecycle-disabled'
 });
+const MAILCHIMP_SYNC_REQUIRED_IDENTIFIERS = Object.freeze(['audienceId']);
+const MAILCHIMP_SYNC_OPTIONAL_IDENTIFIERS = Object.freeze(['campaignId', 'segmentId', 'automationId']);
+const MAILCHIMP_AUDIT_EVENT_KINDS = Object.freeze([
+  'audience-sync',
+  'campaign-sync',
+  'segment-sync',
+  'automation-sync'
+]);
 
 function asIsoTimestamp(value, fallback) {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -670,6 +684,7 @@ function normalizeProviderContract(value = {}, now) {
     negotiated: missingRequiredCapabilities.length === 0,
     lastNegotiatedAt: asIsoTimestamp(raw.lastNegotiatedAt, DEFAULT_PROVIDER_CONTRACT.lastNegotiatedAt),
     sync,
+    mailchimpSync: normalizeMailchimpSyncContext(raw.mailchimpSync ?? raw.mailchimp, null, now),
     handoffReceipt: normalizeProviderHandoffReceipt(raw.handoffReceipt ?? raw.receipt, now),
     lease: {
       valid: leaseValid,
@@ -705,6 +720,311 @@ function normalizeClientRuntime(value = {}, now) {
       commandReceipts: raw.accepts?.commandReceipts !== false,
       evidenceManifest: raw.accepts?.evidenceManifest !== false,
       externalHandoff: raw.accepts?.externalHandoff !== false
+    }
+  };
+}
+
+function normalizeMailchimpSyncContext(value = {}, state = null, now = new Date().toISOString()) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const source = raw.mailchimp && typeof raw.mailchimp === 'object' ? raw.mailchimp : raw;
+  const identifiers = source.identifiers && typeof source.identifiers === 'object' ? source.identifiers : {};
+  const rawEventKinds = normalizePermissionList(source.eventKinds ?? source.events);
+  const eventKinds = rawEventKinds.length > 0
+    ? rawEventKinds.filter((kind) => MAILCHIMP_AUDIT_EVENT_KINDS.includes(kind))
+    : ['audience-sync'];
+  const unsupportedEventKinds = rawEventKinds.filter((kind) => !MAILCHIMP_AUDIT_EVENT_KINDS.includes(kind));
+  const audienceId = asNonEmptyString(source.audienceId ?? source.listId ?? identifiers.audienceId, null);
+  const campaignId = asNonEmptyString(source.campaignId ?? identifiers.campaignId, null);
+  const segmentId = asNonEmptyString(source.segmentId ?? identifiers.segmentId, null);
+  const automationId = asNonEmptyString(source.automationId ?? identifiers.automationId, null);
+  const externalRevision = asNonEmptyString(
+    source.externalRevision ?? source.revision ?? state?.providerContract?.sync?.externalRevision,
+    null
+  );
+  const lastSyncedAt = asIsoTimestamp(source.lastSyncedAt ?? source.syncedAt, null);
+  const requestedMode = asNonEmptyString(source.mode ?? source.syncMode, 'delta');
+  const syncMode = requestedMode === 'snapshot' || requestedMode === 'delta' || requestedMode === 'webhook'
+    ? requestedMode
+    : 'delta';
+  const missingIdentifiers = MAILCHIMP_SYNC_REQUIRED_IDENTIFIERS.filter((key) => {
+    if (key === 'audienceId') {
+      return !audienceId;
+    }
+    return false;
+  });
+  const requestedBoundary = normalizeBoundary(source.boundary ?? raw.boundary ?? state?.boundary, state?.boundary ?? DEFAULT_BOUNDARY);
+  const requiredBoundaryPermission = operationPermission('handoff-audit');
+  const boundaryAccess = state
+    ? evaluateBoundaryAccess(state.boundary, requestedBoundary, requiredBoundaryPermission)
+    : {
+        allowed: false,
+        reason: 'audit-state-unavailable',
+        scope: 'state',
+        expectedTenantId: null,
+        actualTenantId: requestedBoundary.tenantId,
+        expectedWorkspaceId: null,
+        actualWorkspaceId: requestedBoundary.workspaceId,
+        requiredPermission: requiredBoundaryPermission,
+        permissionClaims: requestedBoundary.permissionClaims
+      };
+  const scopeReady = boundaryAccess.allowed;
+  const optionalIdentifiers = {
+    campaignId,
+    segmentId,
+    automationId
+  };
+  const presentOptionalIdentifiers = MAILCHIMP_SYNC_OPTIONAL_IDENTIFIERS
+    .filter((key) => optionalIdentifiers[key]);
+  const validationFindings = [
+    ...missingIdentifiers.map((identifier) => ({
+      code: 'mailchimp-required-identifier-missing',
+      severity: 'warning',
+      field: `mailchimp.${identifier}`,
+      action: 'provide the Mailchimp audience identifier before external sync evidence can be audit-ready'
+    })),
+    ...unsupportedEventKinds.map((kind) => ({
+      code: 'mailchimp-event-kind-unsupported',
+      severity: 'warning',
+      field: 'mailchimp.eventKinds',
+      value: kind,
+      allowed: MAILCHIMP_AUDIT_EVENT_KINDS,
+      action: 'drop unsupported Mailchimp event kinds from audit routing'
+    })),
+    ...(requestedMode !== syncMode ? [{
+      code: 'mailchimp-sync-mode-normalized',
+      severity: 'warning',
+      field: 'mailchimp.syncMode',
+      value: requestedMode,
+      effectiveValue: syncMode,
+      action: 'use delta, snapshot, or webhook for Mailchimp memory audit sync'
+    }] : []),
+    ...(!scopeReady ? [{
+      code: 'mailchimp-boundary-handoff-blocked',
+      severity: 'warning',
+      field: boundaryAccess.scope === 'permission' ? 'boundary.permissions' : `boundary.${boundaryAccess.scope}`,
+      expectedTenantId: boundaryAccess.expectedTenantId,
+      actualTenantId: boundaryAccess.actualTenantId,
+      expectedWorkspaceId: boundaryAccess.expectedWorkspaceId,
+      actualWorkspaceId: boundaryAccess.actualWorkspaceId,
+      requiredPermission: requiredBoundaryPermission,
+      action: boundaryAccess.reason === 'audit-state-unavailable'
+        ? 'bind Mailchimp audit sync to a shaped memory audit state before publishing'
+        : 'publish Mailchimp audit sync only from a tenant/workspace boundary with handoff permission'
+    }] : [])
+  ];
+  const subjectKey = [
+    'mailchimp',
+    audienceId || 'audience-unbound',
+    campaignId || segmentId || automationId || 'workspace'
+  ].join(':');
+  const identifierReady = missingIdentifiers.length === 0 && eventKinds.length > 0;
+  const ready = identifierReady && scopeReady;
+  const routeBase = '/memory/audit/mailchimp-sync';
+  const checkpointCursor = state?.checkpoint?.cursor ?? 0;
+  const checkpointGeneration = state?.checkpoint?.generation ?? 0;
+  const boundaryHandoff = {
+    schema: 'memory-audit-mailchimp-boundary-handoff.v1',
+    route: `${routeBase}/boundary`,
+    provider: 'mailchimp',
+    subjectKey,
+    requiredPermission: requiredBoundaryPermission,
+    decision: {
+      allowed: boundaryAccess.allowed,
+      reason: boundaryAccess.allowed ? 'allowed' : boundaryAccess.reason,
+      scope: boundaryAccess.scope,
+      permissionSource: requestedBoundary.permissionClaims.source,
+      deniedPermissions: requestedBoundary.permissionClaims.denied,
+      unknownPermissions: requestedBoundary.permissionClaims.unknown
+    },
+    scope: {
+      tenantId: requestedBoundary.tenantId,
+      workspaceId: requestedBoundary.workspaceId,
+      actorId: requestedBoundary.actorId,
+      role: requestedBoundary.role,
+      boundaryKey: requestedBoundary.isolation.boundaryKey,
+      expectedBoundaryKey: state?.boundary?.isolation?.boundaryKey ?? null,
+      tenantScoped: requestedBoundary.isolation.tenantScoped,
+      workspaceScoped: requestedBoundary.isolation.workspaceScoped
+    },
+    publishGate: {
+      ready,
+      identifierReady,
+      scopeReady,
+      checkpointBound: Boolean(state),
+      blockedReasons: [
+        ...missingIdentifiers.map((identifier) => `missing-${identifier}`),
+        ...(eventKinds.length === 0 ? ['mailchimp-event-kind-missing'] : []),
+        ...(!scopeReady ? [`boundary-${boundaryAccess.reason}`] : [])
+      ]
+    },
+    auditPartition: {
+      partitionKey: `${requestedBoundary.isolation.boundaryKey}:${subjectKey}`,
+      checkpointCursor,
+      checkpointGeneration,
+      highWatermark: state?.checkpoint?.highWatermark ?? null
+    },
+    proof: {
+      digestAlgorithm: 'fnv1a32-stable-json',
+      digest: stableDigest({
+        surfaceId,
+        provider: 'mailchimp',
+        subjectKey,
+        boundaryKey: requestedBoundary.isolation.boundaryKey,
+        expectedBoundaryKey: state?.boundary?.isolation?.boundaryKey ?? null,
+        requiredBoundaryPermission,
+        boundaryAllowed: boundaryAccess.allowed,
+        checkpointCursor,
+        checkpointGeneration
+      })
+    }
+  };
+  const acceptanceToken = stableDigest({
+    surfaceId,
+    provider: 'mailchimp',
+    subjectKey,
+    boundaryKey: requestedBoundary.isolation.boundaryKey,
+    syncMode,
+    eventKinds,
+    checkpointCursor,
+    checkpointGeneration,
+    externalRevision,
+    ready
+  });
+  const previewStatus = ready
+    ? (externalRevision ? 'ready-to-publish' : 'ready-without-external-revision')
+    : 'needs-scope';
+  const workflowContract = {
+    schema: 'memory-audit-mailchimp-workflow.v1',
+    routeBase,
+    preview: {
+      route: `${routeBase}/preview`,
+      status: previewStatus,
+      subjectKey,
+      eventKinds,
+      boundary: boundaryHandoff.scope,
+      publishGate: boundaryHandoff.publishGate,
+      checkpoint: {
+        cursor: checkpointCursor,
+        generation: checkpointGeneration
+      },
+      externalRevision,
+      validationFindingCount: validationFindings.length
+    },
+    acceptance: {
+      route: `${routeBase}/accept`,
+      method: 'POST',
+      required: true,
+      enabled: ready,
+      token: ready ? acceptanceToken : null,
+      blockedReason: ready ? null : 'mailchimp_sync_scope_incomplete',
+      body: ready
+        ? {
+            provider: 'mailchimp',
+            subjectKey,
+            eventKinds,
+            syncMode,
+            externalRevision,
+            boundaryKey: requestedBoundary.isolation.boundaryKey,
+            tenantId: requestedBoundary.tenantId,
+            workspaceId: requestedBoundary.workspaceId,
+            checkpointCursor,
+            checkpointGeneration,
+            token: acceptanceToken
+          }
+        : null
+    },
+    validationSummary: {
+      route: `${routeBase}/validation`,
+      ok: missingIdentifiers.length === 0 && scopeReady,
+      blockerCount: missingIdentifiers.length + (scopeReady ? 0 : 1),
+      warningCount: validationFindings.length,
+      missingIdentifiers,
+      unsupportedEventKinds,
+      boundaryDecision: boundaryHandoff.decision
+    },
+    nextSteps: ready
+      ? [{
+          action: 'publish-mailchimp-audit-sync',
+          route: `${routeBase}/accept`,
+          token: acceptanceToken
+        }]
+      : missingIdentifiers.map((identifier) => ({
+          action: 'collect-mailchimp-sync-identifier',
+          route: `${routeBase}/scope`,
+          field: `mailchimp.${identifier}`
+        })),
+    boundaryHandoff,
+    proof: stableDigest({
+      surfaceId,
+      routeBase,
+      subjectKey,
+      previewStatus,
+      acceptanceToken,
+      boundaryProof: boundaryHandoff.proof.digest,
+      missingIdentifiers,
+      unsupportedEventKinds
+    })
+  };
+
+  return {
+    schema: 'memory-audit-mailchimp-sync-context.v1',
+    generatedAt: now,
+    provider: 'mailchimp',
+    subjectKey,
+    ready,
+    identifiers: {
+      audienceId,
+      campaignId,
+      segmentId,
+      automationId,
+      presentOptionalIdentifiers,
+      missingRequiredIdentifiers: missingIdentifiers
+    },
+    sync: {
+      mode: syncMode,
+      externalRevision,
+      lastSyncedAt,
+      eventKinds,
+      unsupportedEventKinds,
+      checkpointCursor,
+      checkpointGeneration
+    },
+    boundaryHandoff,
+    validation: {
+      ok: missingIdentifiers.length === 0 && scopeReady,
+      findings: validationFindings
+    },
+    workflowContract,
+    nextAction: ready
+      ? {
+          action: 'publish-mailchimp-audit-sync',
+          command: {
+            op: 'update-provider-sync',
+            externalRevision,
+            cursor: checkpointCursor,
+            generation: checkpointGeneration,
+            acceptanceToken
+          }
+        }
+      : {
+          action: 'collect-mailchimp-sync-identifiers',
+          command: null,
+          missingIdentifiers
+        },
+    proof: {
+      digestAlgorithm: 'fnv1a32-stable-json',
+      digest: stableDigest({
+        surfaceId,
+        provider: 'mailchimp',
+        subjectKey,
+        audienceId,
+        campaignId,
+        segmentId,
+        automationId,
+        externalRevision,
+        eventKinds,
+        ready
+      })
     }
   };
 }
@@ -1191,6 +1511,101 @@ function buildRecoveredCommandReceipt(id, index, state, now) {
   }, index, now);
 }
 
+function buildReceiptRecoveryActions(recovery) {
+  const actions = [];
+
+  if (recovery.recoveredReceiptIds.length > 0) {
+    actions.push({
+      action: 'persist-recovered-command-receipts',
+      reason: 'command-log-receipts-recovered-after-restart',
+      command: { op: 'mark-flushed' },
+      receiptIds: recovery.recoveredReceiptIds
+    });
+  }
+
+  if (recovery.truncatedReceiptIds.length > 0) {
+    actions.push({
+      action: 'compact-command-receipt-window',
+      reason: 'command-log-exceeds-retained-receipt-window',
+      command: null,
+      receiptIds: recovery.truncatedReceiptIds
+    });
+  }
+
+  if (recovery.staleReceiptIds.length > 0) {
+    actions.push({
+      action: 'reconcile-stale-command-receipts',
+      reason: 'receipt-retained-without-command-log-entry',
+      command: { op: 'mark-flushed' },
+      receiptIds: recovery.staleReceiptIds
+    });
+  }
+
+  return actions;
+}
+
+function buildReceiptRecoverySummary({
+  state,
+  now,
+  missingReceiptIds,
+  recoveredReceipts,
+  staleReceiptIds,
+  retainedReceiptIds
+}) {
+  const recoveredReceiptIds = recoveredReceipts.map((receipt) => receipt.id);
+  const truncatedReceiptIds = state.commandLog.filter((id) => !retainedReceiptIds.has(id));
+  const unrecoveredReceiptIds = missingReceiptIds.filter((id) => !retainedReceiptIds.has(id));
+  const aligned = unrecoveredReceiptIds.length === 0;
+  const evidenceComplete = aligned && truncatedReceiptIds.length === 0;
+  const reconciliationStatus = !evidenceComplete
+    ? 'receipt-window-truncated'
+    : recoveredReceiptIds.length > 0
+      ? 'recovered'
+      : staleReceiptIds.length > 0
+        ? 'stale-receipts-retained'
+        : 'aligned';
+  const recovery = {
+    schema: 'memory-audit-receipt-recovery.v1',
+    observedAt: now,
+    aligned,
+    evidenceComplete,
+    reconciliationStatus,
+    reviewRequired: reconciliationStatus !== 'aligned',
+    commandLogCount: state.commandLog.length,
+    receiptCount: retainedReceiptIds.size,
+    missingReceiptIds,
+    recoveredReceiptIds,
+    unrecoveredReceiptIds,
+    staleReceiptIds,
+    truncatedReceiptIds,
+    impact: {
+      recovered: recoveredReceiptIds.length,
+      stale: staleReceiptIds.length,
+      truncated: truncatedReceiptIds.length,
+      retainedWindowLimit: MAX_COMMAND_RECEIPTS
+    },
+    proof: {
+      digestAlgorithm: 'fnv1a32-stable-json',
+      digest: stableDigest({
+        surfaceId,
+        boundaryKey: state.boundary.isolation.boundaryKey,
+        commandLog: state.commandLog,
+        missingReceiptIds,
+        recoveredReceiptIds,
+        unrecoveredReceiptIds,
+        staleReceiptIds,
+        truncatedReceiptIds,
+        reconciliationStatus
+      })
+    }
+  };
+
+  return {
+    ...recovery,
+    actions: buildReceiptRecoveryActions(recovery)
+  };
+}
+
 function alignCommandReceiptsWithLog(state, now) {
   const receiptIds = new Set(state.commandReceipts.map((receipt) => receipt.id));
   const missingReceiptIds = state.commandLog.filter((id) => !receiptIds.has(id));
@@ -1206,33 +1621,20 @@ function alignCommandReceiptsWithLog(state, now) {
     state.commandReceipts
   );
   const retainedReceiptIds = new Set(commandReceipts.map((receipt) => receipt.id));
+  const receiptRecovery = buildReceiptRecoverySummary({
+    state,
+    now,
+    missingReceiptIds,
+    recoveredReceipts,
+    staleReceiptIds,
+    retainedReceiptIds
+  });
 
   return {
     ...state,
     commandReceipts,
-    dirty: state.dirty || recoveredReceipts.length > 0,
-    receiptRecovery: {
-      schema: 'memory-audit-receipt-recovery.v1',
-      observedAt: now,
-      aligned: missingReceiptIds.length === 0,
-      commandLogCount: state.commandLog.length,
-      receiptCount: commandReceipts.length,
-      missingReceiptIds,
-      recoveredReceiptIds: recoveredReceipts.map((receipt) => receipt.id),
-      staleReceiptIds,
-      truncatedReceiptIds: state.commandLog.filter((id) => !retainedReceiptIds.has(id)),
-      proof: {
-        digestAlgorithm: 'fnv1a32-stable-json',
-        digest: stableDigest({
-          surfaceId,
-          boundaryKey: state.boundary.isolation.boundaryKey,
-          commandLog: state.commandLog,
-          missingReceiptIds,
-          recoveredReceiptIds: recoveredReceipts.map((receipt) => receipt.id),
-          staleReceiptIds
-        })
-      }
-    }
+    dirty: state.dirty || receiptRecovery.reviewRequired,
+    receiptRecovery
   };
 }
 
@@ -1659,6 +2061,10 @@ function applyCommand(state, command, now) {
         ...next.providerContract.sync,
         ...command.providerContract?.sync
       },
+      mailchimpSync: command.mailchimpSync
+        ?? command.mailchimp
+        ?? command.providerContract?.mailchimpSync
+        ?? next.providerContract.mailchimpSync,
       lastNegotiatedAt: now
     }, now);
     next.ledger.push(normalizeLedgerEntry({
@@ -1683,7 +2089,8 @@ function applyCommand(state, command, now) {
           ?? command.sync?.externalRevision
           ?? next.providerContract.sync.externalRevision,
         lastSyncedAt: command.lastSyncedAt ?? command.sync?.lastSyncedAt ?? now
-      }
+      },
+      mailchimpSync: command.mailchimpSync ?? command.mailchimp ?? next.providerContract.mailchimpSync
     }, now);
     next.ledger.push(normalizeLedgerEntry({
       id: `${id}:provider-sync`,
@@ -1860,7 +2267,7 @@ function buildStatus(state) {
     return 'boundary-review';
   }
 
-  if (state.receiptRecovery?.recoveredReceiptIds?.length > 0) {
+  if (state.receiptRecovery?.reviewRequired) {
     return 'receipt-recovery-review';
   }
 
@@ -1974,10 +2381,12 @@ function buildRestartRecoveryState(state, now) {
   const retryDue = state.retry.nextRetryAt
     ? new Date(state.retry.nextRetryAt).getTime() <= new Date(now).getTime()
     : false;
-  const commandReceiptsAligned = state.commandLog.every((id) => (
-    state.commandReceipts.some((receipt) => receipt.id === id)
-  ));
-  const recoveredReceiptIds = state.receiptRecovery?.recoveredReceiptIds ?? [];
+  const commandReceiptsAligned = state.receiptRecovery?.aligned
+    ?? state.commandLog.every((id) => (
+      state.commandReceipts.some((receipt) => receipt.id === id)
+    ));
+  const receiptEvidenceComplete = state.receiptRecovery?.evidenceComplete ?? commandReceiptsAligned;
+  const receiptRecoveryActions = state.receiptRecovery?.actions ?? [];
   const actions = [];
 
   if (!commandReceiptsAligned) {
@@ -1988,14 +2397,11 @@ function buildRestartRecoveryState(state, now) {
     });
   }
 
-  if (recoveredReceiptIds.length > 0) {
-    actions.push({
-      action: 'persist-recovered-command-receipts',
-      reason: 'command-log-receipts-recovered-after-restart',
-      command: { op: 'mark-flushed' },
-      receiptIds: recoveredReceiptIds
-    });
-  }
+  receiptRecoveryActions.forEach((action) => {
+    if (!actions.some((candidate) => candidate.action === action.action)) {
+      actions.push(action);
+    }
+  });
 
   if (state.dirty) {
     actions.push({
@@ -2045,6 +2451,7 @@ function buildRestartRecoveryState(state, now) {
     providerBehind,
     retryDue,
     commandReceiptsAligned,
+    receiptEvidenceComplete,
     receiptRecovery: state.receiptRecovery,
     receiptCount: state.commandReceipts.length,
     commandLogCount: state.commandLog.length,
@@ -2060,6 +2467,15 @@ function validateReceiptRecovery(state) {
   }
 
   const findings = [];
+
+  if (recovery.unrecoveredReceiptIds?.length > 0) {
+    findings.push({
+      code: 'command-receipts-unrecovered',
+      severity: 'warning',
+      receiptIds: recovery.unrecoveredReceiptIds,
+      action: 'rebuild receipts from durable command history before accepting external audit handoff'
+    });
+  }
 
   if (recovery.recoveredReceiptIds.length > 0) {
     findings.push({
@@ -2085,6 +2501,15 @@ function validateReceiptRecovery(state) {
       severity: 'warning',
       receiptIds: recovery.staleReceiptIds,
       action: 'keep stale receipts as evidence but rebuild command log during the next persistence cycle'
+    });
+  }
+
+  if (recovery.reviewRequired && findings.length === 0) {
+    findings.push({
+      code: 'command-receipt-recovery-review-required',
+      severity: 'warning',
+      status: recovery.reconciliationStatus,
+      action: 'review receipt recovery metadata before promoting restart state'
     });
   }
 
@@ -2221,6 +2646,7 @@ function providerSyncAligned(state) {
 
 function buildProviderServiceContract(state, now) {
   const provider = state.providerContract;
+  const mailchimpSync = normalizeMailchimpSyncContext(provider.mailchimpSync, state, now);
   const syncAligned = providerSyncAligned(state);
   const unsupportedOptional = provider.unsupportedCapabilities
     .filter((capability) => OPTIONAL_PROVIDER_CAPABILITIES.includes(capability));
@@ -2241,7 +2667,8 @@ function buildProviderServiceContract(state, now) {
     ...(state.degradedMode ? ['degraded-mode'] : []),
     ...(state.lastFailure ? [state.lastFailure.code] : []),
     ...(receiptRejected ? ['provider-handoff-rejected'] : []),
-    ...(state.boundaryViolations.length > 0 ? ['boundary-violation'] : [])
+    ...(state.boundaryViolations.length > 0 ? ['boundary-violation'] : []),
+    ...(!mailchimpSync.ready && provider.service === 'mailchimp' ? ['mailchimp-sync-context-incomplete'] : [])
   ];
   const phase = blockers.length > 0
     ? 'blocked'
@@ -2290,6 +2717,7 @@ function buildProviderServiceContract(state, now) {
     grantedCapabilities: provider.grantedCapabilities,
     missingRequired,
     receipt,
+    mailchimpSync,
     phase,
     blockers
   };
@@ -2331,6 +2759,7 @@ function buildProviderServiceContract(state, now) {
         generation: Math.max(0, state.checkpoint.generation - provider.sync.generation)
       }
     },
+    mailchimpSync,
     handoffState: {
       available: state.auditHandoff !== null,
       target: state.auditHandoff?.target ?? null,
@@ -2342,7 +2771,12 @@ function buildProviderServiceContract(state, now) {
       readyForExternalService: phase === 'handoff-ready',
       acknowledgedByExternalService: phase === 'handoff-received'
     },
-    nextCommand,
+    nextCommand: !mailchimpSync.ready && provider.service === 'mailchimp'
+      ? mailchimpSync.nextAction.command
+      : nextCommand,
+    productNextAction: provider.service === 'mailchimp'
+      ? mailchimpSync.nextAction
+      : null,
     receiptCommand,
     proof: {
       digestAlgorithm: 'fnv1a32-stable-json',
@@ -2747,6 +3181,149 @@ function buildActionableErrors(state, findings, now) {
   return errors.map((error) => buildActionableErrorContract(state, now, error));
 }
 
+function incidentSeverityRank(severity) {
+  return OPERATIONAL_INCIDENT_SEVERITY_RANK[severity] ?? OPERATIONAL_INCIDENT_SEVERITY_RANK.error;
+}
+
+function incidentPhaseForError(error) {
+  if (error.degradedMode.active || error.degradedMode.triggeredByThisError || error.severity === 'critical') {
+    return 'degraded-service';
+  }
+
+  if (error.retry.exhausted) {
+    return 'retry-exhausted';
+  }
+
+  if (error.retryable && error.retry.due) {
+    return 'retry-due';
+  }
+
+  if (error.retryable) {
+    return 'waiting-for-backoff';
+  }
+
+  return 'operator-repair';
+}
+
+function buildIncidentRepairStep(state, now, error, index) {
+  const phase = incidentPhaseForError(error);
+  const command = error.remediation.command ?? (
+    phase === 'degraded-service' || phase === 'retry-exhausted'
+      ? { op: 'recover' }
+      : null
+  );
+  const commandAllowed = command
+    ? buildLifecycleCommandContract(state, now, command, state.boundary).allowed
+    : false;
+  const retryAt = error.retry.due ? now : error.retry.retryAt;
+
+  return {
+    id: `${surfaceId}:incident:${state.checkpoint.generation}:${index + 1}`,
+    code: error.code,
+    source: error.source,
+    phase,
+    severity: error.severity,
+    route: error.route,
+    message: error.message,
+    action: error.action,
+    retryable: error.retryable,
+    retry: {
+      attempts: error.retry.attempts,
+      maxAttempts: error.retry.maxAttempts,
+      backoffMs: error.retry.backoffMs,
+      retryAt,
+      due: error.retry.due,
+      exhausted: error.retry.exhausted
+    },
+    command,
+    commandAllowed,
+    operatorBlockingReason: command && !commandAllowed
+      ? 'remediation-command-not-authorized-for-boundary'
+      : null,
+    proof: stableDigest({
+      surfaceId,
+      boundaryKey: state.boundary.isolation.boundaryKey,
+      checkpoint: state.checkpoint,
+      code: error.code,
+      phase,
+      route: error.route,
+      command,
+      retryAt
+    })
+  };
+}
+
+function buildOperationalIncidentPlan(state, actionableErrors, now) {
+  const incidents = actionableErrors
+    .map((error, index) => buildIncidentRepairStep(state, now, error, index))
+    .sort((left, right) =>
+      incidentSeverityRank(right.severity) - incidentSeverityRank(left.severity)
+      || Number(right.retry.due) - Number(left.retry.due)
+      || left.code.localeCompare(right.code)
+    );
+  const primaryIncident = incidents[0] ?? null;
+  const retryableIncidents = incidents.filter((incident) => incident.retryable);
+  const retryDueIncidents = retryableIncidents.filter((incident) => incident.retry.due);
+  const exhaustedIncidents = incidents.filter((incident) => incident.retry.exhausted);
+  const degradedIncidents = incidents.filter((incident) => incident.phase === 'degraded-service');
+  const operatorBlockedIncidents = incidents.filter((incident) => incident.operatorBlockingReason);
+  const commands = incidents
+    .filter((incident) => incident.command)
+    .map((incident) => ({
+      incidentId: incident.id,
+      code: incident.code,
+      command: incident.command,
+      allowed: incident.commandAllowed,
+      route: incident.route,
+      reason: incident.operatorBlockingReason ?? incident.phase
+    }));
+  const mode = state.degradedMode || degradedIncidents.length > 0
+    ? 'degraded'
+    : exhaustedIncidents.length > 0
+      ? 'failed'
+      : retryDueIncidents.length > 0
+        ? 'retry-ready'
+        : retryableIncidents.length > 0
+          ? 'backoff'
+          : incidents.length > 0
+            ? 'repair-required'
+            : 'nominal';
+
+  return {
+    schema: 'memory-audit-operational-incident-plan.v1',
+    generatedAt: now,
+    mode,
+    ready: incidents.length === 0,
+    degraded: state.degradedMode || degradedIncidents.length > 0,
+    primaryIncident,
+    counts: {
+      total: incidents.length,
+      retryable: retryableIncidents.length,
+      retryDue: retryDueIncidents.length,
+      exhausted: exhaustedIncidents.length,
+      degraded: degradedIncidents.length,
+      operatorBlocked: operatorBlockedIncidents.length
+    },
+    nextRetryAt: retryDueIncidents.length > 0
+      ? now
+      : retryableIncidents
+        .map((incident) => incident.retry.retryAt)
+        .filter(Boolean)
+        .sort()[0] ?? null,
+    incidents,
+    commands,
+    exportable: incidents.length === 0 || commands.some((command) => command.allowed),
+    proof: stableDigest({
+      surfaceId,
+      boundaryKey: state.boundary.isolation.boundaryKey,
+      checkpoint: state.checkpoint,
+      mode,
+      incidentCodes: incidents.map((incident) => incident.code),
+      commandIds: commands.map((command) => command.command ? commandId(command.command) : null)
+    })
+  };
+}
+
 function buildOperationalHealth(state, now) {
   const ledgerFindings = validateLedger(state);
   const providerFindings = validateProviderContract(state, now);
@@ -2761,6 +3338,7 @@ function buildOperationalHealth(state, now) {
     ...receiptRecoveryFindings
   ];
   const actionableErrors = buildActionableErrors(state, findings, now);
+  const incidentPlan = buildOperationalIncidentPlan(state, actionableErrors, now);
   const retryDue = state.retry.nextRetryAt
     ? new Date(state.retry.nextRetryAt).getTime() <= new Date(now).getTime()
     : false;
@@ -2792,7 +3370,8 @@ function buildOperationalHealth(state, now) {
     providerContract: state.providerContract,
     providerServiceContract: buildProviderServiceContract(state, now),
     receiptRecovery: state.receiptRecovery,
-    actionableErrors
+    actionableErrors,
+    incidentPlan
   };
 }
 
@@ -2856,7 +3435,11 @@ function buildAnalyticsCounters(state, commands, operationalHealth) {
       validationFindings: operationalHealth.validation.findings.length,
       restartRecoveryActions: operationalHealth.restartRecovery.actions.length,
       receiptRecoveryAligned: state.receiptRecovery?.aligned ?? true,
+      receiptEvidenceComplete: state.receiptRecovery?.evidenceComplete ?? true,
+      receiptRecoveryReviewRequired: state.receiptRecovery?.reviewRequired ?? false,
+      receiptRecoveryStatus: state.receiptRecovery?.reconciliationStatus ?? 'aligned',
       recoveredCommandReceipts: state.receiptRecovery?.recoveredReceiptIds.length ?? 0,
+      unrecoveredCommandReceipts: state.receiptRecovery?.unrecoveredReceiptIds?.length ?? 0,
       staleCommandReceipts: state.receiptRecovery?.staleReceiptIds.length ?? 0,
       truncatedCommandReceipts: state.receiptRecovery?.truncatedReceiptIds.length ?? 0
     },
@@ -3395,6 +3978,164 @@ function buildReportingState(state, analytics, timeline, history, currentSnapsho
   };
 }
 
+function buildProviderHandoffTimeline(state, operationalHealth, now) {
+  const provider = state.providerContract;
+  const contract = operationalHealth.providerServiceContract;
+  const events = [
+    {
+      id: `${surfaceId}:provider:${provider.providerId}:contract`,
+      at: provider.lastNegotiatedAt ?? now,
+      type: provider.negotiated ? 'provider-contract-negotiated' : 'provider-contract-pending',
+      severity: provider.negotiated ? 'info' : 'warning',
+      providerId: provider.providerId,
+      service: provider.service,
+      phase: contract.phase,
+      action: provider.negotiated ? 'monitor-provider-contract' : 'negotiate-provider-contract',
+      route: PROVIDER_SERVICE_ROUTES.negotiate,
+      checkpoint: state.checkpoint
+    },
+    {
+      id: `${surfaceId}:provider:${provider.providerId}:sync`,
+      at: provider.sync.lastSyncedAt ?? now,
+      type: contract.syncMetadata.aligned ? 'provider-sync-aligned' : 'provider-sync-behind',
+      severity: contract.syncMetadata.aligned ? 'info' : 'warning',
+      providerId: provider.providerId,
+      service: provider.service,
+      phase: contract.phase,
+      action: contract.syncMetadata.aligned ? 'monitor-provider-sync' : 'update-provider-sync',
+      route: PROVIDER_SERVICE_ROUTES.sync,
+      checkpoint: state.checkpoint,
+      sync: {
+        cursor: provider.sync.cursor,
+        generation: provider.sync.generation,
+        highWatermark: state.checkpoint.highWatermark,
+        aligned: contract.syncMetadata.aligned,
+        leaseValid: provider.lease.valid
+      }
+    }
+  ];
+
+  if (state.auditHandoff) {
+    events.push({
+      id: `${surfaceId}:provider:${provider.providerId}:handoff`,
+      at: state.auditHandoff.at ?? now,
+      type: provider.handoffReceipt ? 'provider-handoff-receipted' : 'provider-handoff-awaiting-receipt',
+      severity: provider.handoffReceipt?.status === 'rejected' ? 'error' : provider.handoffReceipt ? 'info' : 'warning',
+      providerId: provider.providerId,
+      service: provider.service,
+      phase: contract.phase,
+      action: provider.handoffReceipt ? 'monitor-provider-handoff-receipt' : 'acknowledge-provider-handoff',
+      route: PROVIDER_SERVICE_ROUTES.handoff,
+      checkpoint: state.auditHandoff.checkpoint,
+      receiptStatus: provider.handoffReceipt?.status ?? 'pending'
+    });
+  }
+
+  if (contract.blockers.length > 0) {
+    events.push({
+      id: `${surfaceId}:provider:${provider.providerId}:blockers`,
+      at: now,
+      type: 'provider-service-blocked',
+      severity: 'error',
+      providerId: provider.providerId,
+      service: provider.service,
+      phase: contract.phase,
+      action: 'review-provider-service-contract',
+      route: CLIENT_HANDOFF_ROUTES.provider,
+      checkpoint: state.checkpoint,
+      blockers: contract.blockers
+    });
+  }
+
+  return events
+    .sort((left, right) => left.at.localeCompare(right.at))
+    .slice(-8);
+}
+
+function buildProviderExportActionSummary(state, operationalHealth, now) {
+  const provider = state.providerContract;
+  const contract = operationalHealth.providerServiceContract;
+  const handoffReceiptRequired = provider.grantedCapabilities.includes('handoff-receipt');
+  const receiptPending = state.auditHandoff !== null && handoffReceiptRequired && !provider.handoffReceipt;
+  const blockers = [
+    ...contract.blockers,
+    ...(!provider.negotiated ? ['provider-contract-not-negotiated'] : []),
+    ...(!contract.syncMetadata.aligned ? ['provider-sync-behind-checkpoint'] : []),
+    ...(receiptPending ? ['provider-handoff-receipt-pending'] : []),
+    ...(provider.handoffReceipt?.status === 'rejected' ? ['provider-handoff-rejected'] : []),
+    ...(!provider.lease.valid ? ['provider-lease-invalid'] : [])
+  ];
+  const commands = [];
+
+  if (!provider.negotiated) {
+    commands.push({
+      op: 'negotiate-provider-contract',
+      providerId: provider.providerId,
+      requestedCapabilities: REQUIRED_PROVIDER_CAPABILITIES,
+      route: PROVIDER_SERVICE_ROUTES.negotiate
+    });
+  }
+
+  if (!contract.syncMetadata.aligned) {
+    commands.push({
+      op: 'update-provider-sync',
+      providerId: provider.providerId,
+      checkpoint: state.checkpoint,
+      route: PROVIDER_SERVICE_ROUTES.sync
+    });
+  }
+
+  if (receiptPending) {
+    commands.push({
+      op: 'acknowledge-provider-handoff',
+      providerId: provider.providerId,
+      checkpoint: state.auditHandoff.checkpoint,
+      route: PROVIDER_SERVICE_ROUTES.handoff
+    });
+  }
+
+  const phase = blockers.length === 0
+    ? 'ready'
+    : !provider.negotiated
+      ? 'negotiate'
+      : !contract.syncMetadata.aligned
+        ? 'sync'
+        : receiptPending
+          ? 'handoff-receipt'
+          : 'provider-review';
+
+  return {
+    schema: 'memory-audit-provider-export-action-summary.v1',
+    generatedAt: now,
+    providerId: provider.providerId,
+    service: provider.service,
+    phase,
+    ready: blockers.length === 0,
+    blockers: [...new Set(blockers)].sort(),
+    nextCommand: commands[0] ?? contract.nextCommand ?? null,
+    commands,
+    timeline: buildProviderHandoffTimeline(state, operationalHealth, now),
+    exportGate: {
+      providerSyncAligned: contract.syncMetadata.aligned,
+      leaseValid: provider.lease.valid,
+      handoffReceiptRequired,
+      handoffReceiptStatus: provider.handoffReceipt?.status ?? null,
+      canExportProviderScopedEvidence: blockers.length === 0
+    },
+    proof: {
+      digestAlgorithm: 'fnv1a32-stable-json',
+      digest: stableDigest({
+        providerId: provider.providerId,
+        phase,
+        blockers,
+        checkpoint: state.checkpoint,
+        sync: provider.sync,
+        receiptStatus: provider.handoffReceipt?.status ?? null
+      })
+    }
+  };
+}
+
 function buildCurrentHistorySnapshot(state, counters, status, now) {
   return normalizeHistorySnapshot({
     id: `${surfaceId}:${state.checkpoint.generation}:${state.ledger.length}:${state.boundaryViolations.length}`,
@@ -3530,6 +4271,7 @@ function buildExternalHandoffState(state, operationalHealth, now) {
       negotiated: provider.negotiated
     },
     providerServiceContract,
+    providerActionSummary: buildProviderExportActionSummary(state, operationalHealth, now),
     boundaryContract: buildBoundaryContractSummary(state, operationalHealth),
     sync: {
       ...provider.sync,
@@ -3858,7 +4600,8 @@ function buildAuditEvidenceManifest(state, operationalHealth, analytics, now) {
       handoffReceiptStatus: state.providerContract.handoffReceipt?.status ?? null,
       handoffReceiptAcknowledgedAt: state.providerContract.handoffReceipt?.acknowledgedAt ?? null,
       syncAligned: providerSyncAligned,
-      leaseValid: state.providerContract.lease.valid
+      leaseValid: state.providerContract.lease.valid,
+      actionSummary: buildProviderExportActionSummary(state, operationalHealth, now)
     },
     validation: {
       ok: operationalHealth.validation.ok,
@@ -3898,8 +4641,10 @@ function buildExportSummary(state, counters, timeline, operationalHealth, status
     counters,
     providerContract: state.providerContract,
     providerServiceContract: operationalHealth.providerServiceContract,
+    providerActionSummary: externalHandoffState.providerActionSummary,
     clientRuntime: state.clientRuntime,
     lifecycle: operationalHealth.lifecycle,
+    incidentPlan: operationalHealth.incidentPlan,
     restartRecovery: operationalHealth.restartRecovery,
     receiptRecovery: operationalHealth.receiptRecovery,
     reportingState,
@@ -3917,6 +4662,8 @@ function buildExportSummary(state, counters, timeline, operationalHealth, status
     blockers: blockerCodes,
     nextRetryAt: operationalHealth.retry.retryDue ? now : operationalHealth.retry.nextRetryAt,
     nextAction: operationalHealth.lifecycle.nextAction,
+    incidentMode: operationalHealth.incidentPlan.mode,
+    primaryIncident: operationalHealth.incidentPlan.primaryIncident,
     clientWorkflow: externalHandoffState.clientWorkflow,
     externalHandoffState,
     evidenceManifest,
@@ -4109,12 +4856,18 @@ export function describeMemoryAuditSurface(input = {}) {
         id: `${reporting.exportSummary.exportId}:receipt-recovery`,
         at: state.receiptRecovery.observedAt,
         aligned: state.receiptRecovery.aligned,
+        evidenceComplete: state.receiptRecovery.evidenceComplete,
+        reconciliationStatus: state.receiptRecovery.reconciliationStatus,
+        reviewRequired: state.receiptRecovery.reviewRequired,
         commandLogCount: state.receiptRecovery.commandLogCount,
         receiptCount: state.receiptRecovery.receiptCount,
         missingReceiptIds: state.receiptRecovery.missingReceiptIds,
         recoveredReceiptIds: state.receiptRecovery.recoveredReceiptIds,
+        unrecoveredReceiptIds: state.receiptRecovery.unrecoveredReceiptIds,
         staleReceiptIds: state.receiptRecovery.staleReceiptIds,
         truncatedReceiptIds: state.receiptRecovery.truncatedReceiptIds,
+        impact: state.receiptRecovery.impact,
+        actions: state.receiptRecovery.actions,
         proof: state.receiptRecovery.proof
       },
       {

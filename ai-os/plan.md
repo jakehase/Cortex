@@ -1028,35 +1028,3 @@ Memory/update path:
 Plan truth boundary:
 
 This `plan.md` is a planning and coordination artifact. It is not implementation proof. Completion claims require the evidence and verifiers named above.
-
-## Implementation checkpoint — 2026-07-03 default-on OpenClaw adapter promotion
-
-Jake explicitly promoted the AI OS adapter from opt-in to permanent/default-on for the current OpenClaw setup.
-
-Implemented in `/root/clawd/scripts/aios-adapter.mjs`:
-
-- Added `promote-default` command.
-- Added default-on config at `/root/clawd/config/ai-os-adapter/default.json`.
-- Added default-on state at `/root/clawd/state/ai-os-adapter/default-on-state.json`.
-- `status` and `recover` now resolve the default-on root without `--last` or an explicit artifact root.
-- Default-on safety boundary is encoded as `default_on_internal_local_status_recovery_handoff_only_no_external_writes_no_runtime_replacement`.
-
-Default-on proof root:
-
-```text
-/root/clawd/ai-os/artifacts/openclaw-dogfood/default-on-integration-20260703150217
-```
-
-Validation:
-
-```bash
-cd /root/clawd && node --check scripts/aios-adapter.mjs
-node scripts/aios-adapter.mjs promote-default --label default-on-integration
-node scripts/aios-adapter.mjs status
-node scripts/aios-adapter.mjs recover
-cd /root/clawd/ai-os && npm test
-```
-
-Observed result: default promotion green, boot/run/verifier/claim/recovery green, no-root `status` and `recover` green, AI OS `npm test` green.
-
-Truth boundary: default-on means internal AI OS substrate for status/recovery/handoff and bounded internal jobs. It does **not** replace Cortex/OpenClaw routing, perform external writes, promote the red 6h benchmark output, or claim AI OS full-runtime replacement.

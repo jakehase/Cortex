@@ -35,6 +35,8 @@ const CLIENT_WORKFLOW_ROUTES = {
   scheduledRun: 'memory/volatile-facts/scheduled-run'
 };
 const CLIENT_CONTINUATION_STATES = new Set(['draft', 'previewed', 'submitted', 'acknowledged', 'abandoned']);
+const PRODUCT_WORKFLOW_PROVIDERS = new Set(['mailchimp', 'hosted-kernel', 'external']);
+const PRODUCT_WORKFLOW_STAGES = new Set(['draft', 'preview', 'approval', 'sync', 'sent', 'archived']);
 const DEFAULT_RETRY_POLICY = {
   maxAttempts: 3,
   baseDelayMs: 250,
@@ -50,6 +52,156 @@ function asText(value) {
 function uniqueTextList(value) {
   const source = Array.isArray(value) ? value : [];
   return [...new Set(source.map(asText).filter(Boolean))];
+}
+
+function normalizeProductWorkflowRuntimeContext(input = {}, runtime = {}, request = {}) {
+  const source = input.productWorkflow && typeof input.productWorkflow === 'object'
+    ? input.productWorkflow
+    : input.mailchimp && typeof input.mailchimp === 'object'
+      ? input.mailchimp
+      : runtime.productWorkflow && typeof runtime.productWorkflow === 'object'
+        ? runtime.productWorkflow
+        : request.productWorkflow && typeof request.productWorkflow === 'object'
+          ? request.productWorkflow
+          : {};
+  const provider = PRODUCT_WORKFLOW_PROVIDERS.has(asText(source.provider))
+    ? asText(source.provider)
+    : asText(source.campaignId || source.audienceId || source.segmentId)
+      ? 'mailchimp'
+      : 'hosted-kernel';
+  const stage = PRODUCT_WORKFLOW_STAGES.has(asText(source.stage))
+    ? asText(source.stage)
+    : asText(source.sentAt)
+      ? 'sent'
+      : source.approvalRequired === true
+        ? 'approval'
+        : 'preview';
+  const campaignId = asText(source.campaignId || source.campaign?.id) || null;
+  const audienceId = asText(source.audienceId || source.listId || source.audience?.id) || null;
+  const segmentId = asText(source.segmentId || source.segment?.id) || null;
+  const workflowId = asText(source.workflowId || source.journeyId || source.automationId)
+    || (campaignId ? `mailchimp:${campaignId}` : null);
+  const sentAt = asText(source.sentAt) || null;
+  const updatedAt = asText(source.updatedAt) || null;
+  const validation = [
+    provider === 'mailchimp' && !campaignId ? 'mailchimp.campaignId.required_for_fact_check_handoff' : null,
+    provider === 'mailchimp' && !audienceId ? 'mailchimp.audienceId.required_for_volatile_fact_scope' : null,
+    sentAt && parseTimestampMs(sentAt) === null ? 'mailchimp.sentAt.invalid_timestamp' : null,
+    updatedAt && parseTimestampMs(updatedAt) === null ? 'mailchimp.updatedAt.invalid_timestamp' : null
+  ].filter(Boolean);
+  const stateKey = [
+    provider,
+    workflowId || 'no-workflow',
+    campaignId || 'no-campaign',
+    audienceId || 'no-audience',
+    segmentId || 'no-segment'
+  ].join(':');
+
+  return {
+    schemaVersion: 'volatile-fact-check.product-workflow-context.v1',
+    provider,
+    stage,
+    workflowId,
+    campaignId,
+    audienceId,
+    segmentId,
+    externalReference: asText(source.externalReference || source.externalId || source.url || source.webId) || null,
+    requestedTags: uniqueTextList(source.tags || source.mergeTags || source.interests),
+    approvalRequired: source.approvalRequired === true || stage === 'approval',
+    sentAt,
+    updatedAt,
+    stateKey,
+    validation,
+    valid: validation.length === 0,
+    proofDigest: buildProofDigest([surfaceId, provider, workflowId || '', campaignId || '', audienceId || '', segmentId || '', stage, ...validation])
+  };
+}
+
+function buildMailchimpFactHandoffBoundary({ now, scope, principal, boundary, health, command, evidenceProof, clientRuntime }) {
+  const productWorkflow = clientRuntime.productWorkflow;
+  const applies = productWorkflow.provider === 'mailchimp';
+  const missingIdentifiers = applies
+    ? [
+      ...(!productWorkflow.campaignId ? ['campaignId'] : []),
+      ...(!productWorkflow.audienceId ? ['audienceId'] : [])
+    ]
+    : [];
+  const scopeAligned = applies
+    ? Boolean(scope.tenantId && scope.workspaceId && boundary.allowed)
+    : true;
+  const auditWritable = boundary.permissions.canAudit && !health.dependencySummary.requiredDown.includes('auditSink');
+  const mutationSafe = health.allowMutation && command.mutation !== null;
+  const blockedReasons = [
+    ...missingIdentifiers.map((field) => `mailchimp.${field}.required`),
+    ...(!scopeAligned ? ['tenant_workspace_boundary_not_clear'] : []),
+    ...(applies && !boundary.permissions.canRead ? ['principal_lacks_fact_read_permission'] : []),
+    ...(applies && command.mutation && !boundary.permissions.canWrite ? ['principal_lacks_fact_write_permission'] : []),
+    ...(applies && inputRequiresAudit(command.action) && !auditWritable ? ['audit_handoff_not_writable'] : []),
+    ...(applies && command.mutation && !health.allowMutation ? ['volatile_fact_mutation_blocked_by_health'] : [])
+  ];
+  const handoffStatus = !applies
+    ? 'not_applicable'
+    : blockedReasons.length > 0
+      ? 'blocked'
+      : mutationSafe
+        ? 'ready_to_commit'
+        : 'read_only_review';
+
+  return {
+    format: 'volatile-fact-check.mailchimp-fact-handoff-boundary.v1',
+    generatedAt: now,
+    applies,
+    handoffStatus,
+    provider: productWorkflow.provider,
+    stage: productWorkflow.stage,
+    tenantId: scope.tenantId || null,
+    workspaceId: scope.workspaceId || null,
+    memoryNamespace: scope.memoryNamespace,
+    factId: scope.factId || null,
+    campaignId: productWorkflow.campaignId,
+    audienceId: productWorkflow.audienceId,
+    segmentId: productWorkflow.segmentId,
+    workflowId: productWorkflow.workflowId,
+    stateKey: productWorkflow.stateKey,
+    scopeAligned,
+    auditWritable,
+    mutationSafe,
+    blockedReasons,
+    permissionSnapshot: {
+      principalId: principal.id,
+      roles: boundary.permissionProof.effectiveRoles,
+      matchingGrantIds: boundary.permissionProof.matchingGrantIds,
+      workspaceAccess: boundary.permissionProof.workspaceAccess,
+      workspaceBindingId: boundary.workspaceScopeProof.activeBindingId
+    },
+    auditHandoff: {
+      required: applies && inputRequiresAudit(command.action),
+      destination: 'memory-manager/volatile-fact-check/mailchimp-audit',
+      idempotencyKey: applies
+        ? `${scope.tenantId}:${scope.workspaceId}:${productWorkflow.stateKey}:${command.commandId}`
+        : null,
+      evidenceProofDigest: evidenceProof.proofDigest,
+      safeToAppend: applies && auditWritable && blockedReasons.length === 0
+    },
+    restartKey: applies
+      ? buildProofDigest([
+        scope.tenantId || '',
+        scope.workspaceId || '',
+        scope.memoryNamespace,
+        productWorkflow.stateKey,
+        command.idempotencyKey
+      ])
+      : null,
+    proofDigest: buildProofDigest([
+      surfaceId,
+      applies ? 'mailchimp' : 'not-mailchimp',
+      handoffStatus,
+      scope.tenantId || '',
+      scope.workspaceId || '',
+      productWorkflow.stateKey,
+      ...blockedReasons
+    ])
+  };
 }
 
 function finiteNonNegativeNumber(value, fallback = 0) {
@@ -1632,6 +1784,7 @@ function buildPersistedStatePatch({ now, persistedState, command, evidenceProof,
   const durableCursor = hostedKernelProjection.journalAppend
     ? providerServiceContract.sync.nextCursor
     : providerServiceContract.sync.previousCursor || providerServiceContract.sync.nextCursor;
+  const productWorkflow = providerServiceContract.clientRuntime.productWorkflow;
   const factPatch = writeFact
     ? {
         op: recovery.recoveryMode === 'resume_pending_commit' ? 'recover_and_upsert_fact' : 'upsert_fact',
@@ -1681,6 +1834,7 @@ function buildPersistedStatePatch({ now, persistedState, command, evidenceProof,
           committedAt: terminalStatus === 'committed' || terminalStatus === 'replayed' ? now : null,
           lastSeenAt: now,
           durableCursor,
+          productWorkflowStateKey: productWorkflow.stateKey,
           proofDigest: evidenceProof.proofDigest,
           replayable: ['committed', 'replayed', 'denied'].includes(terminalStatus)
         }
@@ -1761,6 +1915,18 @@ function buildPersistedStatePatch({ now, persistedState, command, evidenceProof,
       lifecycleRunMode: lifecyclePatch?.value.settings.runMode || lifecycleSettings.runMode,
       lifecycleScheduleEnabled: lifecyclePatch?.value.settings.schedule.enabled ?? lifecycleSettings.schedule.enabled,
       lifecycleNextRunAt: lifecyclePatch?.value.settings.schedule.nextRunAt ?? lifecycleSettings.schedule.nextRunAt
+    },
+    productWorkflow: {
+      provider: productWorkflow.provider,
+      stage: productWorkflow.stage,
+      workflowId: productWorkflow.workflowId,
+      campaignId: productWorkflow.campaignId,
+      audienceId: productWorkflow.audienceId,
+      segmentId: productWorkflow.segmentId,
+      stateKey: productWorkflow.stateKey,
+      validation: productWorkflow.validation,
+      valid: productWorkflow.valid,
+      proofDigest: productWorkflow.proofDigest
     },
     operations: patchOperations,
     recoveryProof: {
@@ -1866,6 +2032,7 @@ function normalizeClientRuntimeState(input) {
   const navigation = runtime.navigation && typeof runtime.navigation === 'object' ? runtime.navigation : {};
   const draft = runtime.draft && typeof runtime.draft === 'object' ? runtime.draft : {};
   const routeKey = asText(runtime.routeKey) || asText(request.routeKey) || `${surfaceGroup}/${surfaceName}`;
+  const productWorkflow = normalizeProductWorkflowRuntimeContext(input, runtime, request);
 
   return {
     schemaVersion: 'volatile-fact-check.client-runtime-state.v1',
@@ -1888,7 +2055,8 @@ function normalizeClientRuntimeState(input) {
       : null,
     selectedFactIds: uniqueTextList(runtime.selectedFactIds || request.selectedFactIds),
     dirtyFields: uniqueTextList(draft.dirtyFields || runtime.dirtyFields),
-    clientCapabilities: uniqueTextList(runtime.capabilities || input.consumerCapabilities)
+    clientCapabilities: uniqueTextList(runtime.capabilities || input.consumerCapabilities),
+    productWorkflow
   };
 }
 
@@ -1899,7 +2067,8 @@ function buildClientContinuationState({ now, clientRuntime, command, nextCursor,
     command.commandId,
     nextCursor,
     nextActionState.status,
-    hostedKernelProjection.commandStatus
+    hostedKernelProjection.commandStatus,
+    clientRuntime.productWorkflow.stateKey
   ]);
   const acceptanceRequired = hostedKernelProjection.commitDecision !== 'read_only'
     && !hostedKernelProjection.mutationBlocked
@@ -1941,6 +2110,7 @@ function buildClientContinuationState({ now, clientRuntime, command, nextCursor,
     sessionId: clientRuntime.sessionId,
     traceId: clientRuntime.traceId,
     sourceRouteKey: clientRuntime.routeKey,
+    productWorkflow: clientRuntime.productWorkflow,
     cursor: {
       lastSeen: clientRuntime.lastSeenCursor,
       expected: nextCursor,
@@ -1958,7 +2128,10 @@ function buildClientContinuationState({ now, clientRuntime, command, nextCursor,
     guards: {
       refreshBeforeAccept: staleCursor,
       preserveDirtyDraft: clientRuntime.dirtyFields.length > 0 && tokenState !== 'accepted',
-      canSubmitAcceptance: acceptanceRequired && !staleCursor && tokenState !== 'stale_or_mismatched',
+      canSubmitAcceptance: acceptanceRequired
+        && !staleCursor
+        && tokenState !== 'stale_or_mismatched'
+        && clientRuntime.productWorkflow.valid,
       canHydrateFromCursor: Boolean(nextCursor)
     },
     handoffToken: expectedHandoffToken
@@ -1967,8 +2140,9 @@ function buildClientContinuationState({ now, clientRuntime, command, nextCursor,
 
 function buildClientWorkflowHandoff({ now, clientRuntime, scope, boundary, health, validation, command, recovery, hostedKernelProjection, lifecycleSettings, nextActionState, providerServiceContract }) {
   const hasBlockingValidation = validation.errors.length > 0 || boundary.failures.length > 0;
+  const productWorkflowBlocked = clientRuntime.productWorkflow.validation.length > 0;
   const dependencyBlocked = nextActionState.status === 'wait_for_dependency_recovery';
-  const routeName = hasBlockingValidation
+  const routeName = hasBlockingValidation || productWorkflowBlocked
     ? 'repair'
     : dependencyBlocked
       ? 'dependencyWait'
@@ -1985,6 +2159,8 @@ function buildClientWorkflowHandoff({ now, clientRuntime, scope, boundary, healt
   const handoffToken = continuation.handoffToken;
   const primaryAction = hasBlockingValidation
     ? 'edit_request'
+    : productWorkflowBlocked
+      ? 'repair_product_workflow_context'
     : dependencyBlocked
       ? 'wait_for_dependency_recovery'
       : routeName === 'lifecycle'
@@ -2025,11 +2201,24 @@ function buildClientWorkflowHandoff({ now, clientRuntime, scope, boundary, healt
       selectedFactIds: scope.factId ? uniqueTextList([scope.factId, ...clientRuntime.selectedFactIds]) : clientRuntime.selectedFactIds,
       dirtyFields: hasBlockingValidation ? clientRuntime.dirtyFields : [],
       banner: nextActionState.primaryReason || null,
-      retryAfterMs: nextActionState.retryAfterMs
+      retryAfterMs: nextActionState.retryAfterMs,
+      productWorkflow: {
+        provider: clientRuntime.productWorkflow.provider,
+        stage: clientRuntime.productWorkflow.stage,
+        workflowId: clientRuntime.productWorkflow.workflowId,
+        campaignId: clientRuntime.productWorkflow.campaignId,
+        audienceId: clientRuntime.productWorkflow.audienceId,
+        segmentId: clientRuntime.productWorkflow.segmentId,
+        stateKey: clientRuntime.productWorkflow.stateKey,
+        validation: clientRuntime.productWorkflow.validation
+      }
     },
     primaryAction: {
       type: primaryAction,
-      enabled: !hasBlockingValidation && !dependencyBlocked && !continuation.guards.refreshBeforeAccept,
+      enabled: !hasBlockingValidation
+        && !productWorkflowBlocked
+        && !dependencyBlocked
+        && !continuation.guards.refreshBeforeAccept,
       commandId: command.commandId,
       idempotencyKey: command.idempotencyKey,
       providerCursor: providerServiceContract.sync.nextCursor,
@@ -2039,6 +2228,8 @@ function buildClientWorkflowHandoff({ now, clientRuntime, scope, boundary, healt
     workflowGuards: {
       permissionDenied: !boundary.allowed,
       validationBlocked: validation.errors.length > 0,
+      productWorkflowBlocked,
+      productWorkflowValidation: clientRuntime.productWorkflow.validation,
       dependencyBlocked,
       restartUnsafe: !recovery.restartSafe,
       lifecycleStatus: lifecycleSettings.status,
@@ -2046,7 +2237,8 @@ function buildClientWorkflowHandoff({ now, clientRuntime, scope, boundary, healt
       staleClientCursor: continuation.cursor.stale,
       acceptanceTokenState: continuation.acceptance.tokenState,
       preserveDirtyDraft: continuation.guards.preserveDirtyDraft
-    }
+    },
+    productWorkflow: clientRuntime.productWorkflow
   };
 }
 
@@ -2363,13 +2555,17 @@ function buildExternalHandoffDispatchPlan({ now, providerRequest, handoffBlocked
       idempotencyKey: command.idempotencyKey,
       commandStatus: hostedKernelProjection.commandStatus,
       proofDigest: evidenceProof.proofDigest,
-      auditEventType: auditHandoff.eventType
+      auditEventType: auditHandoff.eventType,
+      productWorkflowStateKey: providerRequest.productWorkflow.stateKey,
+      productWorkflowProvider: providerRequest.productWorkflow.provider,
+      productWorkflowStage: providerRequest.productWorkflow.stage
     }
   };
 }
 
 function buildProviderServiceContract({ input, now, scope, boundary, health, validation, command, evidenceProof, recovery, hostedKernelProjection, lifecycleCommand, nextActionState, auditHandoff, clientRuntime }) {
   const providerRequest = normalizeProviderRequest(input);
+  providerRequest.productWorkflow = clientRuntime.productWorkflow;
   const negotiatedCapabilities = uniqueTextList([
     ...providerRequest.requestedCapabilities,
     ...providerRequest.requiredCapabilities
@@ -2423,7 +2619,8 @@ function buildProviderServiceContract({ input, now, scope, boundary, health, val
       : null,
     providerRequest.externalHandoff.enabled && providerRequest.externalHandoff.deliveryState === 'dead_letter'
       ? 'external handoff is already in dead-letter state'
-      : null
+      : null,
+    ...providerRequest.productWorkflow.validation.map((issue) => `product workflow handoff blocked: ${issue}`)
   ].filter(Boolean);
   const externalDispatch = buildExternalHandoffDispatchPlan({
     now,
@@ -2473,6 +2670,7 @@ function buildProviderServiceContract({ input, now, scope, boundary, health, val
       continuationState: clientRuntime.continuationState,
       selectedFactIds: clientRuntime.selectedFactIds,
       clientCapabilities: clientRuntime.clientCapabilities,
+      productWorkflow: clientRuntime.productWorkflow,
       continuation: clientContinuation
     },
     capabilityNegotiation: {
@@ -2525,6 +2723,17 @@ function buildProviderServiceContract({ input, now, scope, boundary, health, val
       auditEventType: auditHandoff.eventType,
       deliveryState: providerRequest.externalHandoff.deliveryState,
       syncReceiptId: syncReceipt.receiptId,
+      productWorkflow: {
+        provider: providerRequest.productWorkflow.provider,
+        stage: providerRequest.productWorkflow.stage,
+        workflowId: providerRequest.productWorkflow.workflowId,
+        campaignId: providerRequest.productWorkflow.campaignId,
+        audienceId: providerRequest.productWorkflow.audienceId,
+        segmentId: providerRequest.productWorkflow.segmentId,
+        stateKey: providerRequest.productWorkflow.stateKey,
+        validation: providerRequest.productWorkflow.validation,
+        proofDigest: providerRequest.productWorkflow.proofDigest
+      },
       dispatch: externalDispatch
     }
   };
@@ -2779,6 +2988,118 @@ function buildAnalyticsCounters({ boundary, health, validation, evidence, eviden
   };
 }
 
+function buildMailchimpFactAnalyticsContract({ now, scope, command, boundary, health, validation, evidenceProof, recovery, clientRuntime, mailchimpFactHandoffBoundary, providerServiceContract }) {
+  const productWorkflow = clientRuntime.productWorkflow;
+  const applies = productWorkflow.provider === 'mailchimp';
+  const externalHandoff = providerServiceContract.externalHandoff;
+  const providerSync = providerServiceContract.sync;
+  const blockedReasons = !applies
+    ? []
+    : [
+      ...productWorkflow.validation,
+      ...mailchimpFactHandoffBoundary.blockedReasons,
+      ...(validation.valid ? [] : validation.errors.map((issue) => issue.code)),
+      ...(health.failureState === 'blocking' ? ['volatile_fact.health_blocking'] : []),
+      ...(!recovery.restartSafe ? ['volatile_fact.recovery_not_restart_safe'] : []),
+      ...(externalHandoff.state === 'blocked' ? externalHandoff.blockedReasons.map((reason) => `provider.handoff:${reason}`) : []),
+      ...(providerSync.externalAckOverdue ? ['provider.external_ack_overdue'] : []),
+      ...(!boundary.permissions.canAudit && mailchimpFactHandoffBoundary.auditHandoff.required ? ['mailchimp.audit_permission_required'] : [])
+    ];
+  const readyForAnalyticsExport = applies
+    && blockedReasons.length === 0
+    && mailchimpFactHandoffBoundary.auditHandoff.safeToAppend
+    && evidenceProof.decision !== 'conflict';
+  const nextAction = !applies
+    ? 'observe-volatile-fact-check'
+    : productWorkflow.validation.length > 0
+      ? 'repair-mailchimp-fact-scope'
+      : validation.errors.length > 0
+        ? 'repair-volatile-fact-validation'
+        : health.failureState === 'blocking'
+          ? 'wait-for-volatile-fact-health'
+          : !recovery.restartSafe
+            ? 'recover-volatile-fact-state'
+            : externalHandoff.state === 'blocked'
+              ? 'repair-provider-fact-handoff'
+              : providerSync.externalAckOverdue
+                ? 'collect-provider-fact-acknowledgement'
+                : evidenceProof.decision === 'conflict'
+                  ? 'resolve-mailchimp-evidence-conflict'
+                  : 'export-mailchimp-fact-analytics';
+  const exportRow = {
+    rowType: 'mailchimp_fact_analytics',
+    generatedAt: now,
+    tenantId: scope.tenantId || null,
+    workspaceId: scope.workspaceId || null,
+    memoryNamespace: scope.memoryNamespace,
+    factId: scope.factId || null,
+    commandId: command.commandId,
+    campaignId: productWorkflow.campaignId,
+    audienceId: productWorkflow.audienceId,
+    segmentId: productWorkflow.segmentId,
+    workflowId: productWorkflow.workflowId,
+    stateKey: productWorkflow.stateKey,
+    handoffStatus: mailchimpFactHandoffBoundary.handoffStatus,
+    providerExternalState: externalHandoff.state,
+    evidenceDecision: evidenceProof.decision,
+    readyForAnalyticsExport,
+    nextAction,
+    blockedReasons: [...new Set(blockedReasons)]
+  };
+
+  return {
+    schemaVersion: 'volatile-fact-check.mailchimp-fact-analytics.v1',
+    generatedAt: now,
+    applies,
+    provider: productWorkflow.provider,
+    stage: productWorkflow.stage,
+    stateKey: productWorkflow.stateKey,
+    campaignId: productWorkflow.campaignId,
+    audienceId: productWorkflow.audienceId,
+    segmentId: productWorkflow.segmentId,
+    workflowId: productWorkflow.workflowId,
+    readyForAnalyticsExport,
+    nextAction,
+    blockedReasons: exportRow.blockedReasons,
+    counters: {
+      scopeValid: productWorkflow.valid ? 1 : 0,
+      evidenceConflict: evidenceProof.decision === 'conflict' ? 1 : 0,
+      auditWritable: mailchimpFactHandoffBoundary.auditWritable ? 1 : 0,
+      mutationSafe: mailchimpFactHandoffBoundary.mutationSafe ? 1 : 0,
+      providerBlocked: externalHandoff.state === 'blocked' ? 1 : 0,
+      ackOutstanding: providerSync.externalAckOutstanding ? 1 : 0,
+      blockedReasonCount: exportRow.blockedReasons.length
+    },
+    exportColumns: [
+      'campaignId',
+      'audienceId',
+      'segmentId',
+      'workflowId',
+      'stateKey',
+      'handoffStatus',
+      'readyForAnalyticsExport',
+      'nextAction'
+    ],
+    exportRow,
+    timelineEvent: {
+      at: now,
+      eventType: 'volatile_fact.mailchimp_analytics_readiness',
+      severity: readyForAnalyticsExport ? 'info' : 'warning',
+      status: readyForAnalyticsExport ? 'ready' : 'blocked',
+      summary: readyForAnalyticsExport
+        ? `Mailchimp fact analytics ready for ${productWorkflow.stateKey}`
+        : `${exportRow.blockedReasons.length} Mailchimp fact analytics blocker(s) for ${productWorkflow.stateKey}`
+    },
+    proofDigest: buildProofDigest([
+      surfaceId,
+      productWorkflow.stateKey,
+      readyForAnalyticsExport ? 'ready' : 'blocked',
+      nextAction,
+      ...exportRow.blockedReasons
+    ])
+  };
+}
+
 function historyTimestamp(value, fallback) {
   return asText(value) || fallback;
 }
@@ -2835,7 +3156,7 @@ function buildHistorySnapshots({ now, persistedState, command, evidenceProof, re
   };
 }
 
-function buildTimelineReport({ now, boundary, health, validation, command, evidenceProof, recovery, hostedKernelProjection, lifecycleSettings, lifecycleCommand, nextActionState }) {
+function buildTimelineReport({ now, boundary, health, validation, command, evidenceProof, recovery, hostedKernelProjection, lifecycleSettings, lifecycleCommand, nextActionState, mailchimpFactAnalytics }) {
   const events = [
     {
       at: now,
@@ -2896,7 +3217,8 @@ function buildTimelineReport({ now, boundary, health, validation, command, evide
       severity: nextActionState.status.startsWith('needs_') ? 'warning' : 'info',
       status: nextActionState.status,
       summary: nextActionState.primaryReason || `next action actor is ${nextActionState.actor}`
-    }
+    },
+    ...(mailchimpFactAnalytics?.applies ? [mailchimpFactAnalytics.timelineEvent] : [])
   ];
 
   return {
@@ -2913,7 +3235,7 @@ function buildTimelineReport({ now, boundary, health, validation, command, evide
   };
 }
 
-function buildExportReadySummary({ now, scope, principal, boundary, command, analyticsCounters, historySnapshots, timelineReport, evidenceProof, hostedKernelProjection, lifecycleSettings, nextActionState }) {
+function buildExportReadySummary({ now, scope, principal, boundary, command, analyticsCounters, historySnapshots, timelineReport, evidenceProof, hostedKernelProjection, lifecycleSettings, nextActionState, mailchimpFactAnalytics }) {
   return {
     schemaVersion: 'volatile-fact-check.export-summary.v1',
     generatedAt: now,
@@ -2961,7 +3283,8 @@ function buildExportReadySummary({ now, scope, principal, boundary, command, ana
         proofDigest: evidenceProof.proofDigest,
         validationErrors: analyticsCounters.proofQuality.validationErrors,
         validationWarnings: analyticsCounters.proofQuality.validationWarnings
-      }
+      },
+      ...(mailchimpFactAnalytics?.applies ? [mailchimpFactAnalytics.exportRow] : [])
     ]
   };
 }
@@ -3007,7 +3330,7 @@ function numericDelta(current, previous, key) {
   return Math.trunc(finiteNonNegativeNumber(current[key], 0)) - Math.trunc(finiteNonNegativeNumber(previous?.[key], 0));
 }
 
-function buildAnalyticsExportReport({ input, now, scope, command, analyticsCounters, historySnapshots, timelineReport, exportReadySummary, evidenceProof, hostedKernelProjection, providerServiceContract }) {
+function buildAnalyticsExportReport({ input, now, scope, command, analyticsCounters, historySnapshots, timelineReport, exportReadySummary, evidenceProof, hostedKernelProjection, providerServiceContract, mailchimpFactAnalytics }) {
   const previousSnapshots = normalizeAnalyticsHistory(input, { now, scope })
     .sort((a, b) => (parseTimestampMs(b.capturedAt) ?? 0) - (parseTimestampMs(a.capturedAt) ?? 0));
   const currentSnapshot = {
@@ -3050,6 +3373,16 @@ function buildAnalyticsExportReport({ input, now, scope, command, analyticsCount
       schemaVersion: analyticsCounters.schemaVersion,
       rowCount: 1 + previousSnapshots.length,
       exportKey: buildProofDigest([exportReadySummary.exportKey, 'analytics', currentSnapshot.snapshotId])
+    },
+    {
+      name: 'mailchimpFactAnalytics',
+      schemaVersion: mailchimpFactAnalytics?.schemaVersion || 'volatile-fact-check.mailchimp-fact-analytics.v1',
+      rowCount: mailchimpFactAnalytics?.applies ? 1 : 0,
+      exportKey: buildProofDigest([
+        exportReadySummary.exportKey,
+        'mailchimpFactAnalytics',
+        mailchimpFactAnalytics?.proofDigest || 'not-applicable'
+      ])
     }
   ];
 
@@ -3084,7 +3417,17 @@ function buildAnalyticsExportReport({ input, now, scope, command, analyticsCount
       externalPayloadKinds: providerServiceContract.externalHandoff.payloadKinds,
       ackOutstanding: providerServiceContract.sync.externalAckOutstanding,
       ackOverdue: providerServiceContract.sync.externalAckOverdue
-    }
+    },
+    mailchimpFactAnalytics: mailchimpFactAnalytics
+      ? {
+          applies: mailchimpFactAnalytics.applies,
+          stateKey: mailchimpFactAnalytics.stateKey,
+          readyForAnalyticsExport: mailchimpFactAnalytics.readyForAnalyticsExport,
+          nextAction: mailchimpFactAnalytics.nextAction,
+          blockedReasons: mailchimpFactAnalytics.blockedReasons,
+          proofDigest: mailchimpFactAnalytics.proofDigest
+        }
+      : null
   };
 }
 
@@ -3409,6 +3752,146 @@ function buildExplainableNextStepItems({ nextActionState, clientWorkflowHandoff,
   ];
 }
 
+function buildOperatorWorkflowHandoffSummary({
+  now,
+  scope,
+  principal,
+  boundary,
+  health,
+  validation,
+  command,
+  recovery,
+  hostedKernelProjection,
+  providerServiceContract,
+  clientWorkflowHandoff,
+  operationalIncidentReport,
+  readinessGateSummary,
+  acceptanceForm,
+  explainableNextSteps
+}) {
+  const blockingReasons = [
+    ...boundary.failures.map((reason) => `boundary:${reason}`),
+    ...validation.errors.map((issue) => `validation:${issue.code}`),
+    ...health.readOnlyReasons.map((reason) => `health:${reason}`),
+    ...(recovery.restartSafe ? [] : recovery.pendingRecoveryReasons.map((reason) => `recovery:${reason}`)),
+    ...(providerServiceContract.externalHandoff.state === 'blocked'
+      ? providerServiceContract.externalHandoff.blockedReasons.map((reason) => `provider:${reason}`)
+      : []),
+    ...(operationalIncidentReport.severity === 'error' ? [`incident:${operationalIncidentReport.state}`] : [])
+  ];
+  const warningReasons = [
+    ...validation.warnings.map((issue) => `validation:${issue.code}`),
+    ...(health.degradedMode ? [`health:${health.status}`] : []),
+    ...(operationalIncidentReport.severity === 'warning' ? [`incident:${operationalIncidentReport.state}`] : []),
+    ...(providerServiceContract.sync.ackCursorConflict ? ['provider:ack-cursor-conflict'] : [])
+  ];
+  const workflowState = blockingReasons.length
+    ? 'blocked'
+    : acceptanceForm.enabled
+      ? 'acceptance-ready'
+      : readinessGateSummary.state === 'ready_with_warnings'
+        ? 'review-warnings'
+        : 'review-ready';
+  const primaryStep = explainableNextSteps.find((step) => step.enabled)
+    || explainableNextSteps.find((step) => step.action !== 'no_operator_action')
+    || explainableNextSteps[0]
+    || null;
+  const handoffId = buildProofDigest([
+    'volatile-fact-check-operator-handoff',
+    scope.tenantId || 'no-tenant',
+    scope.workspaceId || 'no-workspace',
+    command.commandId,
+    providerServiceContract.sync.nextCursor,
+    workflowState
+  ]);
+
+  return {
+    schemaVersion: 'volatile-fact-check.operator-workflow-handoff.v1',
+    generatedAt: now,
+    handoffId,
+    workflowState,
+    route: clientWorkflowHandoff.destinationRoute,
+    routeName: clientWorkflowHandoff.routeName,
+    principal: {
+      actorId: principal.id,
+      tenantId: principal.tenantId || null,
+      roles: principal.roles
+    },
+    subject: {
+      tenantId: scope.tenantId || null,
+      workspaceId: scope.workspaceId || null,
+      memoryNamespace: scope.memoryNamespace,
+      factId: scope.factId || null,
+      scopeKey: command.scopeKey
+    },
+    decisionState: {
+      commandId: command.commandId,
+      idempotencyKey: command.idempotencyKey,
+      action: command.action,
+      commitDecision: hostedKernelProjection.commitDecision,
+      commandStatus: hostedKernelProjection.commandStatus,
+      lifecycleDecision: hostedKernelProjection.lifecycleDecision,
+      acceptanceEnabled: acceptanceForm.enabled,
+      acceptanceTokenRequired: providerServiceContract.clientRuntime.continuation.acceptance.required,
+      acceptanceTokenState: providerServiceContract.clientRuntime.continuation.acceptance.tokenState,
+      restartSafe: recovery.restartSafe,
+      recoveryMode: recovery.recoveryMode
+    },
+    readiness: {
+      state: readinessGateSummary.state,
+      passedCount: readinessGateSummary.passedCount,
+      warningCount: readinessGateSummary.warningCount,
+      blockedCount: readinessGateSummary.blockedCount,
+      firstBlockingSummary: readinessGateSummary.firstBlockingSummary,
+      dependencySummary: health.dependencySummary,
+      externalHandoffState: providerServiceContract.externalHandoff.state
+    },
+    blockingReasons: [...new Set(blockingReasons)],
+    warningReasons: [...new Set(warningReasons)],
+    runtimePatch: {
+      routeKey: clientWorkflowHandoff.sourceRouteKey,
+      destinationRoute: clientWorkflowHandoff.destinationRoute,
+      resumeState: clientWorkflowHandoff.resume.resumeState,
+      handoffToken: clientWorkflowHandoff.resume.handoffToken,
+      providerCursor: providerServiceContract.sync.nextCursor,
+      activePanel: clientWorkflowHandoff.uiStatePatch.activePanel,
+      banner: blockingReasons[0] || warningReasons[0] || null,
+      selectedFactIds: clientWorkflowHandoff.uiStatePatch.selectedFactIds,
+      dirtyFields: clientWorkflowHandoff.uiStatePatch.dirtyFields
+    },
+    nextAction: primaryStep
+      ? {
+          stepId: primaryStep.stepId,
+          actor: primaryStep.actor,
+          route: primaryStep.route,
+          action: primaryStep.action,
+          enabled: primaryStep.enabled,
+          reason: primaryStep.reason
+        }
+      : null,
+    auditHandoff: {
+      eventType: workflowState === 'blocked'
+        ? 'volatile_fact_check.operator_handoff.blocked'
+        : 'volatile_fact_check.operator_handoff.ready',
+      auditSubject: `${scope.tenantId || 'unscoped'}:${scope.workspaceId || 'unscoped'}:${command.commandId}`,
+      providerId: providerServiceContract.providerId,
+      consumerId: providerServiceContract.consumerId,
+      syncReceiptId: providerServiceContract.sync.receipt.receiptId,
+      externalDispatchId: providerServiceContract.externalHandoff.dispatchId,
+      incidentId: operationalIncidentReport.incidentId
+    },
+    proof: buildProofDigest([
+      handoffId,
+      workflowState,
+      command.idempotencyKey,
+      hostedKernelProjection.commandStatus,
+      providerServiceContract.sync.nextCursor,
+      blockingReasons.join('|'),
+      warningReasons.join('|')
+    ])
+  };
+}
+
 function buildClientPreviewAcceptanceContract({ now, scope, principal, boundary, health, validation, command, evidenceProof, recovery, hostedKernelProjection, lifecycleSettings, lifecycleCommand, nextActionState, providerServiceContract, clientRuntime, clientWorkflowHandoff, operationalIncidentReport }) {
   const mutationPreview = hostedKernelProjection.writeSet?.fact || null;
   const lifecyclePreview = hostedKernelProjection.lifecycleWriteSet || null;
@@ -3507,6 +3990,23 @@ function buildClientPreviewAcceptanceContract({ now, scope, principal, boundary,
     clientWorkflowHandoff,
     providerServiceContract,
     operationalIncidentReport
+  });
+  const operatorWorkflowHandoff = buildOperatorWorkflowHandoffSummary({
+    now,
+    scope,
+    principal,
+    boundary,
+    health,
+    validation,
+    command,
+    recovery,
+    hostedKernelProjection,
+    providerServiceContract,
+    clientWorkflowHandoff,
+    operationalIncidentReport,
+    readinessGateSummary,
+    acceptanceForm,
+    explainableNextSteps
   });
 
   return {
@@ -3622,6 +4122,7 @@ function buildClientPreviewAcceptanceContract({ now, scope, principal, boundary,
           : 'edit_request',
       steps: explainableNextSteps
     },
+    operatorWorkflowHandoff,
     workflowHandoff: clientWorkflowHandoff
   };
 }
@@ -3655,6 +4156,16 @@ export function describeVolatileFactCheckSurface(input = {}) {
   const actionableErrors = buildActionableErrors({ boundary, health, validation });
   const clientRuntime = normalizeClientRuntimeState(input);
   const auditHandoff = buildAuditHandoff({ now, principal, scope, boundary, evidence, command, evidenceProof, clientRuntime });
+  const mailchimpFactHandoffBoundary = buildMailchimpFactHandoffBoundary({
+    now,
+    scope,
+    principal,
+    boundary,
+    health,
+    command,
+    evidenceProof,
+    clientRuntime
+  });
   const recovery = buildStateRecovery({ persistedState, command, scope, health, boundary });
   const restartSafeStatus = buildRestartSafeStatus({ boundary, health, command, recovery });
   const hostedKernelProjection = buildHostedKernelProjection({
@@ -3696,6 +4207,19 @@ export function describeVolatileFactCheckSurface(input = {}) {
     nextActionState,
     auditHandoff,
     clientRuntime
+  });
+  const mailchimpFactAnalytics = buildMailchimpFactAnalyticsContract({
+    now,
+    scope,
+    command,
+    boundary,
+    health,
+    validation,
+    evidenceProof,
+    recovery,
+    clientRuntime,
+    mailchimpFactHandoffBoundary,
+    providerServiceContract
   });
   const persistedStatePatch = buildPersistedStatePatch({
     now,
@@ -3765,7 +4289,8 @@ export function describeVolatileFactCheckSurface(input = {}) {
     hostedKernelProjection,
     lifecycleSettings,
     lifecycleCommand,
-    nextActionState
+    nextActionState,
+    mailchimpFactAnalytics
   });
   const exportReadySummary = buildExportReadySummary({
     now,
@@ -3779,7 +4304,8 @@ export function describeVolatileFactCheckSurface(input = {}) {
     evidenceProof,
     hostedKernelProjection,
     lifecycleSettings,
-    nextActionState
+    nextActionState,
+    mailchimpFactAnalytics
   });
   const analyticsExportReport = buildAnalyticsExportReport({
     input,
@@ -3792,7 +4318,8 @@ export function describeVolatileFactCheckSurface(input = {}) {
     exportReadySummary,
     evidenceProof,
     hostedKernelProjection,
-    providerServiceContract
+    providerServiceContract,
+    mailchimpFactAnalytics
   });
   const reportingState = buildReportingState({
     input,
@@ -3823,6 +4350,7 @@ export function describeVolatileFactCheckSurface(input = {}) {
     nextActionState,
     providerServiceContract,
     clientRuntime,
+    mailchimpFactHandoffBoundary,
     clientWorkflowHandoff,
     operationalIncidentReport
   });
@@ -3874,8 +4402,11 @@ export function describeVolatileFactCheckSurface(input = {}) {
     persistedStatePatch,
     nextActionState,
     clientRuntime,
+    mailchimpFactHandoffBoundary,
     clientWorkflowHandoff,
+    operatorWorkflowHandoff: clientPreviewAcceptance.operatorWorkflowHandoff,
     providerServiceContract,
+    mailchimpFactAnalytics,
     operationalIncidentReport,
     analyticsCounters,
     historySnapshots,
@@ -3910,7 +4441,10 @@ export function describeVolatileFactCheckSurface(input = {}) {
       nextActionState,
       clientRuntime,
       clientWorkflowHandoff,
+      operatorWorkflowHandoff: clientPreviewAcceptance.operatorWorkflowHandoff,
       providerServiceContract,
+      mailchimpFactAnalytics,
+      mailchimpFactHandoffBoundary,
       operationalIncidentReport,
       analyticsCounters,
       historySnapshots,
@@ -3919,6 +4453,7 @@ export function describeVolatileFactCheckSurface(input = {}) {
       analyticsExportReport,
       reportingState,
       clientPreviewAcceptance,
+      mailchimpFactHandoffBoundary,
       auditHandoff
     }
   };

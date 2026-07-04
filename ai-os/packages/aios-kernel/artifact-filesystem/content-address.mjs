@@ -925,6 +925,112 @@ function normalizeCommandLockRecord(rawLock, now) {
   };
 }
 
+function normalizeCommandReceiptRecord(rawReceipt) {
+  const receipt = asRecord(rawReceipt);
+  const commandId = String(receipt.commandId || receipt.id);
+  const commandType = typeof receipt.commandType === 'string' && receipt.commandType
+    ? receipt.commandType
+    : typeof receipt.type === 'string' && receipt.type
+      ? receipt.type
+      : null;
+  const replayKey = typeof receipt.replayKey === 'string' && receipt.replayKey
+    ? receipt.replayKey
+    : null;
+  const artifactIds = normalizeStringList(receipt.artifactIds || receipt.targetIds);
+  const recordedAt = normalizeIsoTimestamp(
+    receipt.recordedAt
+    || receipt.persistedAt
+    || receipt.appliedAt
+    || receipt.completedAt
+  );
+  const resultDigest = typeof receipt.resultDigest === 'string' && receipt.resultDigest
+    ? receipt.resultDigest
+    : null;
+  const payload = {
+    contract: COMMAND_RECOVERY_CONTRACT_VERSION,
+    commandId,
+    commandType,
+    replayKey,
+    applied: receipt.applied === true,
+    code: typeof receipt.code === 'string' && receipt.code ? receipt.code : null,
+    artifactIds,
+    recordedAt,
+    resultDigest
+  };
+
+  return {
+    ...payload,
+    receiptDigest: typeof receipt.receiptDigest === 'string' && receipt.receiptDigest
+      ? receipt.receiptDigest
+      : `${DEFAULT_ALGORITHM}:${sha256Base64Url(stableManifestJson(payload))}`
+  };
+}
+
+function reconcileCommandLocksWithReceipts(commandLocks, commandReceipts) {
+  const receiptsByCommandId = new Map();
+  const receiptsByReplayKey = new Map();
+
+  commandReceipts.forEach((receipt) => {
+    if (!receiptsByCommandId.has(receipt.commandId)) {
+      receiptsByCommandId.set(receipt.commandId, []);
+    }
+    receiptsByCommandId.get(receipt.commandId).push(receipt);
+
+    if (receipt.replayKey && !receiptsByReplayKey.has(receipt.replayKey)) {
+      receiptsByReplayKey.set(receipt.replayKey, receipt);
+    }
+  });
+
+  return commandLocks.map((lock) => {
+    const sameCommandReceipts = receiptsByCommandId.get(lock.commandId) || [];
+    const replayKeyReceipt = lock.replayKey ? receiptsByReplayKey.get(lock.replayKey) : null;
+    const matchingReceipt = replayKeyReceipt
+      || sameCommandReceipts.find((receipt) => !lock.replayKey || !receipt.replayKey || receipt.replayKey === lock.replayKey)
+      || null;
+    const conflictingReceipt = sameCommandReceipts.find((receipt) => (
+      lock.replayKey
+      && receipt.replayKey
+      && receipt.replayKey !== lock.replayKey
+    )) || null;
+    const resultDigestMismatch = Boolean(
+      matchingReceipt
+      && lock.resultDigest
+      && matchingReceipt.resultDigest
+      && lock.resultDigest !== matchingReceipt.resultDigest
+    );
+    const receiptResolved = Boolean(matchingReceipt && !resultDigestMismatch);
+    const reconciliationIssueCodes = [
+      ...(receiptResolved ? ['matching_command_receipt_observed'] : []),
+      ...(conflictingReceipt ? ['command_receipt_replay_mismatch'] : []),
+      ...(resultDigestMismatch ? ['command_receipt_result_digest_mismatch'] : [])
+    ];
+
+    return {
+      ...lock,
+      receiptResolved,
+      restartSafe: receiptResolved ? true : lock.restartSafe,
+      recoveryAction: receiptResolved ? 'observe_only' : lock.recoveryAction,
+      recoveryIssueCodes: receiptResolved
+        ? lock.recoveryIssueCodes.filter((code) => code !== 'command_lock_expired')
+        : lock.recoveryIssueCodes,
+      receiptReconciliation: {
+        state: receiptResolved
+          ? 'receipt_resolved'
+          : resultDigestMismatch
+            ? 'receipt_digest_mismatch'
+            : conflictingReceipt
+              ? 'receipt_replay_mismatch'
+              : 'awaiting_receipt',
+        matchingReceiptDigest: matchingReceipt?.receiptDigest || null,
+        matchingReceiptRecordedAt: matchingReceipt?.recordedAt || null,
+        matchingReceiptApplied: matchingReceipt?.applied === true,
+        conflictingReceiptDigest: conflictingReceipt?.receiptDigest || null,
+        issueCodes: reconciliationIssueCodes
+      }
+    };
+  });
+}
+
 function normalizePersistedState(input, artifacts, now) {
   const persisted = asRecord(input.persistedState || input.stateSnapshot || input.recoveredState);
   const persistedRestartResume = asRecord(persisted.restartResume || persisted.restartCheckpoint);
@@ -951,6 +1057,32 @@ function normalizePersistedState(input, artifacts, now) {
     .map((snapshot) => asRecord(snapshot))
     .filter((snapshot) => typeof snapshot.artifactId === 'string' || typeof snapshot.id === 'string')
     .map((snapshot) => [String(snapshot.artifactId || snapshot.id), snapshot]));
+  const commandReceipts = rawCommandReceipts
+    .map((receipt) => asRecord(receipt))
+    .filter((receipt) => typeof receipt.commandId === 'string' || typeof receipt.id === 'string')
+    .map(normalizeCommandReceiptRecord)
+    .filter((receipt, index, receipts) => (
+      receipts.findIndex((candidate) => (
+        candidate.commandId === receipt.commandId
+        && candidate.replayKey === receipt.replayKey
+        && candidate.receiptDigest === receipt.receiptDigest
+      )) === index
+    ))
+    .slice(-25);
+  const reconciledCommandLocks = reconcileCommandLocksWithReceipts(
+    rawCommandLocks
+      .map((lock) => asRecord(lock))
+      .filter((lock) => typeof lock.commandId === 'string' || typeof lock.id === 'string')
+      .map((lock) => normalizeCommandLockRecord(lock, now))
+      .filter((lock) => lock.state !== 'completed'),
+    commandReceipts
+  );
+  const activeCommandLocks = reconciledCommandLocks
+    .filter((lock) => lock.receiptResolved !== true)
+    .slice(-10);
+  const resolvedCommandLocks = reconciledCommandLocks
+    .filter((lock) => lock.receiptResolved === true)
+    .slice(-10);
 
   return {
     contract: STATE_CONTRACT_VERSION,
@@ -989,34 +1121,22 @@ function normalizePersistedState(input, artifacts, now) {
         ? persistedRestartResume.lastCommandCode
         : null
     },
-    commandReceipts: rawCommandReceipts
-      .map((receipt) => asRecord(receipt))
-      .filter((receipt) => typeof receipt.commandId === 'string' || typeof receipt.id === 'string')
-      .map((receipt) => ({
-        commandId: String(receipt.commandId || receipt.id),
-        commandType: typeof receipt.commandType === 'string' && receipt.commandType
-          ? receipt.commandType
-          : typeof receipt.type === 'string' && receipt.type
-            ? receipt.type
-            : null,
-        replayKey: typeof receipt.replayKey === 'string' && receipt.replayKey
-          ? receipt.replayKey
-          : null,
-        applied: receipt.applied === true,
-        code: typeof receipt.code === 'string' && receipt.code ? receipt.code : null,
-        artifactIds: normalizeStringList(receipt.artifactIds),
-        recordedAt: normalizeIsoTimestamp(receipt.recordedAt || receipt.persistedAt || receipt.appliedAt),
-        resultDigest: typeof receipt.resultDigest === 'string' && receipt.resultDigest
-          ? receipt.resultDigest
-          : null
-      }))
-      .slice(-25),
-    commandLocks: rawCommandLocks
-      .map((lock) => asRecord(lock))
-      .filter((lock) => typeof lock.commandId === 'string' || typeof lock.id === 'string')
-      .map((lock) => normalizeCommandLockRecord(lock, now))
-      .filter((lock) => lock.state !== 'completed')
-      .slice(-10),
+    commandReceipts,
+    commandLocks: activeCommandLocks,
+    resolvedCommandLocks,
+    commandLockReconciliation: {
+      contract: COMMAND_RECOVERY_CONTRACT_VERSION,
+      total: reconciledCommandLocks.length,
+      active: activeCommandLocks.length,
+      receiptResolved: resolvedCommandLocks.length,
+      awaitingReceipt: reconciledCommandLocks.filter((lock) => (
+        lock.receiptReconciliation.state === 'awaiting_receipt'
+      )).length,
+      issueCodes: [...new Set(reconciledCommandLocks.flatMap((lock) => (
+        lock.receiptReconciliation.issueCodes
+      )))],
+      resolvedCommandIds: resolvedCommandLocks.map((lock) => lock.commandId)
+    },
     artifactSnapshots: artifacts.map((artifact) => {
       const snapshot = asRecord(snapshotsById.get(artifact.id));
       const snapshotProof = asRecord(snapshot.proof);
@@ -4715,10 +4835,28 @@ function buildRecoveryReport(persistedState, artifacts) {
       restartSafe: persistedState.commandLocks.filter((lock) => lock.restartSafe).length,
       expired: persistedState.commandLocks.filter((lock) => lock.expired).length,
       blocked: persistedState.commandLocks.filter((lock) => lock.recoveryAction === 'require_operator_review').length,
+      receiptResolved: persistedState.commandLockReconciliation?.receiptResolved || 0,
+      awaitingReceipt: persistedState.commandLockReconciliation?.awaitingReceipt || 0,
+      reconciliationIssueCodes: persistedState.commandLockReconciliation?.issueCodes || [],
+      resolvedCommandIds: persistedState.commandLockReconciliation?.resolvedCommandIds || [],
       recoveryRequiredCommandIds: persistedState.commandLocks
         .filter((lock) => lock.restartSafe === false)
         .map((lock) => lock.commandId)
     },
+    resolvedCommandLocks: asArray(persistedState.resolvedCommandLocks).map((lock) => ({
+      contract: lock.contract,
+      commandId: lock.commandId,
+      commandType: lock.commandType,
+      replayKey: lock.replayKey,
+      artifactIds: lock.artifactIds,
+      expired: lock.expired,
+      restartSafe: lock.restartSafe,
+      recoveryAction: lock.recoveryAction,
+      recoveryIssueCodes: lock.recoveryIssueCodes,
+      lockDigest: lock.lockDigest,
+      receiptReconciliation: lock.receiptReconciliation,
+      source: lock.source
+    })),
     pendingCommandLocks: persistedState.commandLocks.map((lock) => ({
       contract: lock.contract,
       commandId: lock.commandId,
@@ -4731,6 +4869,7 @@ function buildRecoveryReport(persistedState, artifacts) {
       recoveryAction: lock.recoveryAction,
       recoveryIssueCodes: lock.recoveryIssueCodes,
       lockDigest: lock.lockDigest,
+      receiptReconciliation: lock.receiptReconciliation,
       expiresAt: lock.expiresAt,
       source: lock.source
     }))
@@ -5002,6 +5141,147 @@ function buildReportingHistory({
   };
 }
 
+function normalizeMailchimpHandoffSettings(input, requestContext) {
+  const analytics = asRecord(input.analytics);
+  const source = asRecord(
+    input.mailchimp
+    || input.mailchimpExport
+    || input.marketingExport
+    || analytics.mailchimp
+  );
+  const enabled = normalizeBoolean(
+    source.enabled ?? source.requested ?? source.syncRequested,
+    false
+  );
+  const audienceId = normalizeScopedId(
+    source.audienceId || source.listId || source.audienceRef,
+    null
+  );
+  const segmentId = normalizeScopedId(source.segmentId || source.segmentRef, null);
+  const route = typeof source.route === 'string' && source.route.trim()
+    ? source.route.trim()
+    : '/integrations/mailchimp/content-address/export';
+  const externalCursor = normalizeScopedId(source.cursor || source.externalCursor, null);
+  const tagPrefix = typeof source.tagPrefix === 'string' && source.tagPrefix.trim()
+    ? source.tagPrefix.trim().slice(0, 24)
+    : 'aios-content';
+  const includeRiskTags = source.includeRiskTags !== false;
+
+  return {
+    enabled,
+    audienceId,
+    segmentId,
+    listRef: audienceId ? `mailchimp:${audienceId}` : null,
+    route,
+    externalCursor,
+    tagPrefix,
+    includeRiskTags,
+    workspaceTag: `${tagPrefix}:workspace:${requestContext.workspaceId}`.slice(0, 96)
+  };
+}
+
+function buildMailchimpContentAddressHandoff({
+  input,
+  now,
+  requestContext,
+  visibleArtifacts,
+  validation,
+  acceptance,
+  boundaryContext,
+  operationalHealth,
+  integrityManifest,
+  exportReady,
+  currentSnapshot,
+  reportingHistory,
+  exportRiskByArtifact
+}) {
+  const settings = normalizeMailchimpHandoffSettings(input, requestContext);
+  const riskByArtifact = new Map(exportRiskByArtifact.map((entry) => [entry.artifactId, entry.riskCodes]));
+  const blockedReasonCodes = [
+    ...(!settings.enabled ? ['mailchimp_export_not_requested'] : []),
+    ...(settings.enabled && !settings.audienceId ? ['mailchimp_audience_missing'] : []),
+    ...(settings.enabled && !exportReady ? ['content_address_export_not_ready'] : []),
+    ...(validation.errorCount > 0 ? ['validation_errors_present'] : []),
+    ...(acceptance.complete ? [] : ['artifact_acceptance_incomplete']),
+    ...(boundaryContext.quarantinedArtifactIds.length ? ['boundary_quarantine_present'] : []),
+    ...(operationalHealth.state === 'failing' ? ['operational_health_failing'] : []),
+    ...(integrityManifest && integrityManifest.validForAudit !== true ? ['integrity_manifest_not_audit_ready'] : [])
+  ];
+  const rows = visibleArtifacts.map((artifact, index) => {
+    const riskCodes = riskByArtifact.get(artifact.id) || [];
+    const ready = blockedReasonCodes.length === 0 && riskCodes.length === 0;
+    const tags = [
+      settings.workspaceTag,
+      `${settings.tagPrefix}:algorithm:${artifact.algorithm}`.slice(0, 96),
+      artifact.accepted ? `${settings.tagPrefix}:accepted` : `${settings.tagPrefix}:pending`,
+      artifact.proof.verified === true ? `${settings.tagPrefix}:proof-verified` : `${settings.tagPrefix}:proof-missing`,
+      ...(settings.includeRiskTags ? riskCodes.slice(0, 5).map((code) => `${settings.tagPrefix}:risk:${code}`.slice(0, 96)) : [])
+    ];
+    const mergeFields = {
+      ARTIFACT: artifact.id.slice(0, 64),
+      WORKSPACE: requestContext.workspaceId.slice(0, 64),
+      ALGORITHM: artifact.algorithm.slice(0, 16),
+      DIGESTENC: artifact.digestEncoding.slice(0, 16),
+      VERIFIED: artifact.proof.verified === true ? 'yes' : 'no',
+      ACCEPTED: artifact.accepted === true ? 'yes' : 'no',
+      RISKS: riskCodes.length
+    };
+
+    return {
+      rowId: `${requestContext.workspaceId}:content-address:mailchimp:${index + 1}`,
+      artifactId: artifact.id,
+      externalId: sha256Base64Url(stableManifestJson({
+        tenantId: requestContext.tenantId,
+        workspaceId: requestContext.workspaceId,
+        artifactId: artifact.id,
+        contentAddress: artifact.contentAddress
+      })),
+      status: ready ? 'ready' : 'blocked',
+      blockedReasonCodes: ready ? [] : [...new Set([...blockedReasonCodes, ...riskCodes])],
+      tags: [...new Set(tags)],
+      mergeFields,
+      contentAddressDigest: artifact.digest,
+      contentAddressAlgorithm: artifact.algorithm,
+      updatedAt: now
+    };
+  });
+  const readyRows = rows.filter((row) => row.status === 'ready');
+  const state = !settings.enabled
+    ? 'not-requested'
+    : blockedReasonCodes.length
+      ? 'blocked'
+      : readyRows.length === rows.length
+        ? 'ready'
+        : 'attention';
+  const exportDigest = `${DEFAULT_ALGORITHM}:${sha256Base64Url(stableManifestJson({
+    settings,
+    state,
+    blockedReasonCodes,
+    rows,
+    snapshotId: currentSnapshot.snapshotId,
+    reportingDigest: reportingHistory.timelineDigest
+  }))}`;
+
+  return {
+    contract: 'content-address.mailchimp-handoff.v1',
+    generatedAt: now,
+    state,
+    enabled: settings.enabled,
+    route: settings.route,
+    listRef: settings.listRef,
+    audienceId: settings.audienceId,
+    segmentId: settings.segmentId,
+    externalCursor: settings.externalCursor,
+    rowCount: rows.length,
+    readyRowCount: readyRows.length,
+    blockedRowCount: rows.length - readyRows.length,
+    blockedReasonCodes: [...new Set(blockedReasonCodes)],
+    cursor: `${requestContext.workspaceId}:${currentSnapshot.snapshotId}`,
+    exportDigest,
+    rows
+  };
+}
+
 function buildContentAddressAnalytics(input, now, artifacts, validation, acceptance, boundaryContext, recovery, commandResult, requestContext, operationalHealth, integrityManifest = null) {
   const visibleArtifacts = artifacts.filter((artifact) => boundaryContext.visibleArtifactIds.includes(artifact.id));
   const blockedArtifactIds = validation.byArtifact
@@ -5113,6 +5393,21 @@ function buildContentAddressAnalytics(input, now, artifacts, validation, accepta
     exportReady,
     requestContext
   });
+  const mailchimpHandoff = buildMailchimpContentAddressHandoff({
+    input,
+    now,
+    requestContext,
+    visibleArtifacts,
+    validation,
+    acceptance,
+    boundaryContext,
+    operationalHealth,
+    integrityManifest,
+    exportReady,
+    currentSnapshot,
+    reportingHistory,
+    exportRiskByArtifact
+  });
 
   return {
     contract: ANALYTICS_CONTRACT_VERSION,
@@ -5160,6 +5455,14 @@ function buildContentAddressAnalytics(input, now, artifacts, validation, accepta
       exportReady,
       suggestedFilename: `${requestContext.workspaceId}-content-address-${now.slice(0, 10)}.json`,
       route: DEFAULT_AUDIT_ROUTE,
+      mailchimp: {
+        state: mailchimpHandoff.state,
+        listRef: mailchimpHandoff.listRef,
+        rowCount: mailchimpHandoff.rowCount,
+        readyRowCount: mailchimpHandoff.readyRowCount,
+        blockedReasonCodes: mailchimpHandoff.blockedReasonCodes,
+        exportDigest: mailchimpHandoff.exportDigest
+      },
       manifestDigest: integrityManifest?.digest || null,
       manifestContract: integrityManifest?.contract || null,
       riskSummary: {
@@ -5200,6 +5503,7 @@ function buildContentAddressAnalytics(input, now, artifacts, validation, accepta
         verifiedAt: artifact.proof.verifiedAt || null
       }))
     },
+    mailchimpHandoff,
     reportingHistory,
     timeline: {
       snapshots: timeline,

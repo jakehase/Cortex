@@ -331,6 +331,53 @@ function asList(value) {
   return [];
 }
 
+function normalizeRedactionFieldToken(value) {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+    : '';
+}
+
+function normalizeRedactionFields(value) {
+  return [...new Set(DEFAULT_REDACTION_FIELDS.concat(asList(value)))]
+    .map((field) => String(field || '').trim())
+    .filter(Boolean);
+}
+
+function shouldRedactFieldName(key, redactionFields) {
+  const normalizedKey = normalizeRedactionFieldToken(key);
+  if (!normalizedKey) return false;
+
+  return redactionFields.some((field) => {
+    const normalizedField = normalizeRedactionFieldToken(field);
+    return normalizedField && (
+      normalizedKey === normalizedField
+        || normalizedKey.endsWith(normalizedField)
+        || normalizedKey.includes(normalizedField)
+    );
+  });
+}
+
+function normalizeEvidenceArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => entry !== undefined);
+}
+
+function buildRedactedEvidenceBundle(evidence, redactionFields) {
+  const entries = normalizeEvidenceArray(evidence);
+  const redactedEntries = redactValue(entries, redactionFields);
+  const redactionPaths = collectRedactionPaths(entries, redactionFields)
+    .map((path) => `evidence.${path}`);
+
+  return {
+    schema: 'aios.audit-redaction.evidence-redaction.v1',
+    supplied: entries.length > 0,
+    entryCount: entries.length,
+    redactionPaths,
+    redactionPathCount: redactionPaths.length,
+    redacted: redactedEntries
+  };
+}
+
 function normalizeScope(input = {}) {
   const actorInput = input.actor && typeof input.actor === 'object' ? input.actor : {};
   const tenantId = typeof input.tenantId === 'string' ? input.tenantId.trim() : '';
@@ -628,8 +675,7 @@ function redactValue(value, redactionFields, path = []) {
 
   const redacted = {};
   for (const [key, nested] of Object.entries(value)) {
-    const lowerKey = key.toLowerCase();
-    const shouldRedact = redactionFields.some((field) => lowerKey === field.toLowerCase());
+    const shouldRedact = shouldRedactFieldName(key, redactionFields);
     redacted[key] = shouldRedact ? '[REDACTED]' : redactValue(nested, redactionFields, path.concat(key));
   }
   return redacted;
@@ -645,8 +691,7 @@ function collectRedactionPaths(value, redactionFields, path = []) {
 
   return Object.entries(value).flatMap(([key, nested]) => {
     const nextPath = path.concat(key);
-    const lowerKey = key.toLowerCase();
-    if (redactionFields.some((field) => lowerKey === field.toLowerCase())) {
+    if (shouldRedactFieldName(key, redactionFields)) {
       return [nextPath.join('.')];
     }
     return collectRedactionPaths(nested, redactionFields, nextPath);
@@ -2865,6 +2910,75 @@ function buildReportingState({ input, generatedAt, scope, action, auditSinkHealt
   };
 }
 
+function buildExportWindowContract({ sinceInput, untilInput, sinceMs, untilMs, generatedAtMs, retentionStartMs, retentionDays }) {
+  const sinceProvided = Boolean(sinceInput);
+  const untilProvided = Boolean(untilInput);
+  const sinceValid = sinceProvided && sinceMs !== null;
+  const untilValid = untilProvided && untilMs !== null;
+  const generatedAtValid = generatedAtMs !== null;
+  const ordered = sinceValid && untilValid ? sinceMs <= untilMs : false;
+  const durationMs = ordered ? untilMs - sinceMs : null;
+  const retentionStartAt = retentionStartMs === null ? null : new Date(retentionStartMs).toISOString();
+  const withinRetention = sinceValid && retentionStartMs !== null ? sinceMs >= retentionStartMs : false;
+  const issueHints = [];
+
+  if (!sinceProvided) issueHints.push('since_required');
+  if (sinceProvided && !sinceValid) issueHints.push('since_invalid');
+  if (!untilValid) issueHints.push('until_invalid');
+  if (sinceValid && untilValid && !ordered) issueHints.push('window_reversed');
+  if (!generatedAtValid) issueHints.push('generatedAt_invalid');
+  if (sinceValid && retentionStartMs !== null && !withinRetention) {
+    issueHints.push('export_window_out_of_retention');
+  }
+
+  return {
+    schema: 'aios.audit-redaction.export-window.v1',
+    since: sinceInput,
+    until: untilInput,
+    sinceMs,
+    untilMs,
+    durationMs,
+    generatedAtMs,
+    generatedAtValid,
+    ordered,
+    valid: sinceValid && untilValid && ordered && generatedAtValid,
+    retention: {
+      retentionDays,
+      retentionStartAt,
+      retentionStartMs,
+      withinRetention
+    },
+    issueHints
+  };
+}
+
+function buildExportDeliveryContract({ format, redactionLevel, includeProof, workspaceIds, boundary, outOfBoundaryWorkspaceIds }) {
+  const requiresProofAttachment = redactionLevel === 'proof-only' || includeProof;
+  const workspaceRouteCount = workspaceIds.length;
+  const commitWorkspaceIds = workspaceIds.filter((workspaceId) => boundary.effectiveWorkspaceIds.includes(workspaceId));
+  const proofOnlyWorkspaceIds = outOfBoundaryWorkspaceIds;
+
+  return {
+    schema: 'aios.audit-redaction.export-delivery.v1',
+    format,
+    redactionLevel,
+    includeProof,
+    requiresProofAttachment,
+    workspaceRouteCount,
+    commitWorkspaceIds,
+    proofOnlyWorkspaceIds,
+    isolated: proofOnlyWorkspaceIds.length === 0,
+    deliveryPolicy: proofOnlyWorkspaceIds.length
+      ? 'block-out-of-scope-workspace-export'
+      : redactionLevel === 'proof-only' ? 'proof-manifest-only' : 'redacted-audit-events-with-optional-proof',
+    manifestReadyPreconditions: {
+      hasWorkspaceRoutes: workspaceRouteCount > 0,
+      allWorkspacesInBoundary: proofOnlyWorkspaceIds.length === 0,
+      proofConsistent: redactionLevel !== 'proof-only' || includeProof === true
+    }
+  };
+}
+
 function normalizeExportRequest({ input, scope, boundary, lifecycle, action, generatedAt }) {
   const source = input.exportRequest && typeof input.exportRequest === 'object'
     ? input.exportRequest
@@ -2886,19 +3000,39 @@ function normalizeExportRequest({ input, scope, boundary, lifecycle, action, gen
   const requestedRedactionLevel = typeof source.redactionLevel === 'string' && source.redactionLevel.trim()
     ? source.redactionLevel.trim().toLowerCase()
     : 'redacted';
-  const includeProof = source.includeProof === undefined ? true : source.includeProof === true;
+  const includeProofProvided = Object.prototype.hasOwnProperty.call(source, 'includeProof');
+  const includeProof = includeProofProvided ? source.includeProof === true : true;
   const workspaceIds = [...new Set(asList(source.workspaceIds || input.exportWorkspaceIds || scope.requestedWorkspaceIds))];
+  const format = EXPORT_FORMATS.has(requestedFormat) ? requestedFormat : 'jsonl';
+  const redactionLevel = EXPORT_REDACTION_LEVELS.has(requestedRedactionLevel) ? requestedRedactionLevel : 'redacted';
+  const windowContract = buildExportWindowContract({
+    sinceInput,
+    untilInput,
+    sinceMs,
+    untilMs,
+    generatedAtMs,
+    retentionStartMs,
+    retentionDays: lifecycle.settings.retentionDays
+  });
+  const outOfBoundaryWorkspaceIds = workspaceIds.filter((workspaceId) => !boundary.effectiveWorkspaceIds.includes(workspaceId));
+  const deliveryContract = buildExportDeliveryContract({
+    format,
+    redactionLevel,
+    includeProof,
+    workspaceIds,
+    boundary,
+    outOfBoundaryWorkspaceIds
+  });
   const issues = [];
 
   if (!EXPORT_FORMATS.has(requestedFormat)) issues.push('format_unsupported');
   if (!EXPORT_REDACTION_LEVELS.has(requestedRedactionLevel)) issues.push('redactionLevel_unsupported');
-  if (!sinceInput || sinceMs === null) issues.push('since_required');
-  if (untilMs === null) issues.push('until_invalid');
-  if (sinceMs !== null && untilMs !== null && sinceMs > untilMs) issues.push('window_reversed');
+  if (includeProofProvided && typeof source.includeProof !== 'boolean') issues.push('includeProof_must_be_boolean');
+  if (requestedRedactionLevel === 'proof-only' && includeProof !== true) issues.push('proofOnly_requires_includeProof');
+  issues.push(...windowContract.issueHints.filter((issue) => issue !== 'export_window_out_of_retention'));
   if (!workspaceIds.length) issues.push('workspaceIds_required');
-  const outOfBoundaryWorkspaceIds = workspaceIds.filter((workspaceId) => !boundary.effectiveWorkspaceIds.includes(workspaceId));
   if (outOfBoundaryWorkspaceIds.length) issues.push('workspaceIds_out_of_scope');
-  const outOfRetention = sinceMs !== null && retentionStartMs !== null && sinceMs < retentionStartMs;
+  const outOfRetention = windowContract.issueHints.includes('export_window_out_of_retention');
   const reasons = [];
   if (issues.length) reasons.push('invalid_export_request');
   if (outOfRetention) reasons.push('export_window_out_of_retention');
@@ -2907,17 +3041,24 @@ function normalizeExportRequest({ input, scope, boundary, lifecycle, action, gen
     schema: 'aios.audit-redaction.export-request.v1',
     requested: action === 'audit:export' || Object.keys(source).length > 0,
     valid: issues.length === 0 && !outOfRetention,
-    format: EXPORT_FORMATS.has(requestedFormat) ? requestedFormat : 'jsonl',
-    redactionLevel: EXPORT_REDACTION_LEVELS.has(requestedRedactionLevel) ? requestedRedactionLevel : 'redacted',
+    format,
+    redactionLevel,
     includeProof,
     window: {
       since: sinceInput,
       until: untilInput,
       sinceMs,
       untilMs,
-      retentionStartAt: retentionStartMs === null ? null : new Date(retentionStartMs).toISOString(),
-      retentionDays: lifecycle.settings.retentionDays
+      durationMs: windowContract.durationMs,
+      ordered: windowContract.ordered,
+      valid: windowContract.valid,
+      retentionStartAt: windowContract.retention.retentionStartAt,
+      retentionStartMs: windowContract.retention.retentionStartMs,
+      retentionDays: lifecycle.settings.retentionDays,
+      withinRetention: windowContract.retention.withinRetention
     },
+    windowContract,
+    deliveryContract,
     workspaceIds,
     outOfBoundaryWorkspaceIds,
     issues,
@@ -2987,12 +3128,126 @@ function buildAuditExportManifest({ exportRequest, scope, action, generatedAt, r
   };
 }
 
+function buildLifecycleClientControls({ lifecycle, action, permissions, exportRequest, exportManifest, failureState, reporting, generatedAt }) {
+  const canManageLifecycle = permissions.includes('redaction:manage');
+  const blockers = [...new Set([
+    ...lifecycle.reasons,
+    ...exportRequest.reasons,
+    ...(failureState.blocked ? failureState.reasons : [])
+  ])].sort();
+  const exportBlocked = action === 'audit:export' && (!exportRequest.valid || !exportManifest.ready);
+  const scheduleDue = lifecycle.scheduleRuntime.due || lifecycle.scheduleRuntime.commandTriggered;
+  const lifecycleBlocked = lifecycle.reasons.length > 0;
+  const controls = [
+    {
+      id: 'enable-redaction',
+      label: 'Enable redaction',
+      command: 'enable',
+      enabled: canManageLifecycle && !lifecycle.desiredSettings.redactionEnabled,
+      visible: !lifecycle.desiredSettings.redactionEnabled,
+      reason: canManageLifecycle ? 'redaction-currently-disabled' : 'redaction-manage-permission-required'
+    },
+    {
+      id: 'pause-capture',
+      label: 'Pause capture',
+      command: 'pause',
+      enabled: canManageLifecycle && lifecycle.desiredSettings.auditCaptureEnabled,
+      visible: lifecycle.desiredSettings.auditCaptureEnabled,
+      reason: canManageLifecycle ? 'audit-capture-enabled' : 'redaction-manage-permission-required'
+    },
+    {
+      id: 'run-now',
+      label: 'Run now',
+      command: 'run-now',
+      enabled: canManageLifecycle && lifecycle.settingsValid && !lifecycleBlocked,
+      visible: lifecycle.desiredSettings.redactionEnabled,
+      reason: lifecycleBlocked ? 'resolve-lifecycle-blockers' : 'manual-dispatch-available'
+    },
+    {
+      id: 'commit-lifecycle',
+      label: 'Commit lifecycle',
+      command: lifecycle.command.present ? lifecycle.command.name : 'none',
+      enabled: canManageLifecycle && lifecycle.controlPlan.commitRequired && !lifecycleBlocked,
+      visible: lifecycle.command.present || lifecycle.controlPlan.commitRequired,
+      reason: lifecycle.controlPlan.commitRequired ? 'persist-lifecycle-command' : 'no-lifecycle-commit-pending'
+    },
+    {
+      id: 'schedule-next-run',
+      label: 'Schedule next run',
+      command: 'schedule',
+      enabled: canManageLifecycle && lifecycle.settingsValid && !lifecycleBlocked,
+      visible: lifecycle.desiredSettings.schedule.frequency === 'manual' || !lifecycle.desiredSettings.schedule.enabled,
+      reason: lifecycle.desiredSettings.schedule.enabled ? 'schedule-already-enabled' : 'schedule-not-configured'
+    },
+    {
+      id: 'export-audit',
+      label: 'Export audit',
+      command: 'audit:export',
+      enabled: action === 'audit:export' && exportManifest.ready,
+      visible: action === 'audit:export' || exportRequest.requested,
+      reason: exportManifest.ready
+        ? 'export-manifest-ready'
+        : exportBlocked ? 'export-preconditions-blocked' : 'export-not-requested'
+    }
+  ];
+  const visibleControls = controls.filter((control) => control.visible);
+  const enabledControls = visibleControls.filter((control) => control.enabled);
+  const disabledControls = visibleControls.filter((control) => !control.enabled);
+  const nextClientAction = enabledControls[0]?.id
+    || (blockers.length ? 'resolve-blockers' : scheduleDue ? 'dispatch-scheduled-run' : 'monitor');
+  const exportPreflight = {
+    requested: exportRequest.requested,
+    ready: exportManifest.ready,
+    manifestId: exportManifest.manifestId,
+    status: exportManifest.status,
+    issues: exportRequest.issues,
+    reasons: exportRequest.reasons,
+    workspaceIds: exportRequest.workspaceIds,
+    outOfBoundaryWorkspaceIds: exportRequest.outOfBoundaryWorkspaceIds,
+    deliveryPolicy: exportRequest.deliveryContract.deliveryPolicy,
+    proofRequired: exportRequest.deliveryContract.requiresProofAttachment,
+    files: exportManifest.files,
+    analyticsReportId: reporting.historySnapshot.reportId,
+    timelineEventCount: reporting.timeline.length
+  };
+
+  return {
+    schema: 'aios.audit-redaction.lifecycle-client-controls.v1',
+    generatedAt,
+    lifecycleState: lifecycle.controlPlan.stateAfterCommand,
+    settingsValid: lifecycle.settingsValid,
+    canManageLifecycle,
+    nextClientAction,
+    schedule: {
+      enabled: lifecycle.scheduleRuntime.enabled,
+      due: lifecycle.scheduleRuntime.due,
+      commandTriggered: lifecycle.scheduleRuntime.commandTriggered,
+      dispatchAllowed: lifecycle.scheduleRuntime.dispatch.allowed,
+      dispatchAction: lifecycle.scheduleRuntime.dispatch.action,
+      nextRunAt: lifecycle.scheduleRuntime.nextRunAt,
+      missedRunCount: lifecycle.scheduleRuntime.missedRunCount,
+      catchUpLimited: lifecycle.scheduleRuntime.catchUpLimited,
+      disabledReason: lifecycle.scheduleRuntime.disabledReason
+    },
+    controls: visibleControls,
+    enabledControlIds: enabledControls.map((control) => control.id),
+    disabledControlIds: disabledControls.map((control) => control.id),
+    blockers,
+    exportPreflight,
+    routeState: blockers.length
+      ? 'blocked'
+      : exportManifest.ready ? 'export-ready'
+        : scheduleDue ? 'schedule-ready' : 'ready'
+  };
+}
+
 function buildAuditProofBundle({
   scope,
   action,
   generatedAt,
   redactionFields,
   redactionPaths,
+  evidenceBundle,
   workspaceBoundary,
   permissionBoundary,
   lifecycle,
@@ -3030,6 +3285,9 @@ function buildAuditProofBundle({
   if (!providerNegotiation.accepted) omittedSections.push('provider-contract-blocked');
   if (exportRequest.requested && !exportRequest.valid) omittedSections.push('export-request-invalid');
   if (failureState.blocked) omittedSections.push('handoff-blocked');
+  if (evidenceBundle.supplied && evidenceBundle.redactionPathCount > 0) {
+    omittedSections.push('sensitive-evidence-redacted');
+  }
 
   return {
     schema: 'aios.audit-redaction.proof-bundle.v1',
@@ -3053,7 +3311,15 @@ function buildAuditProofBundle({
       paths: redactionPaths,
       pathCount: redactionPaths.length,
       proofRequired: lifecycle.settings.proofRequired,
-      complete: lifecycle.settings.proofRequired ? redactionPaths.length > 0 : true
+      complete: lifecycle.settings.proofRequired ? redactionPaths.length > 0 : true,
+      evidencePathCount: evidenceBundle.redactionPathCount
+    },
+    evidenceRedaction: {
+      schema: evidenceBundle.schema,
+      supplied: evidenceBundle.supplied,
+      entryCount: evidenceBundle.entryCount,
+      redactionPathCount: evidenceBundle.redactionPathCount,
+      redactionPaths: evidenceBundle.redactionPaths
     },
     scopeProof: {
       tenantIsolated: workspaceBoundary.isolation.tenant,
@@ -3409,10 +3675,11 @@ export function describeAuditRedactionSurface(input = {}) {
     exportRequest,
     generatedAt
   });
-  const redactionFields = [...new Set(DEFAULT_REDACTION_FIELDS.concat(asList(input.redactionFields)))];
+  const redactionFields = normalizeRedactionFields(input.redactionFields);
   const rawEvent = eventValidation.normalizedEvent;
   const redactedEvent = redactValue(rawEvent, redactionFields);
   const redactionPaths = collectRedactionPaths(rawEvent, redactionFields);
+  const evidenceBundle = buildRedactedEvidenceBundle(input.evidence, redactionFields);
   const auditHandoff = buildAuditHandoff({
     input: { ...input, action },
     scope,
@@ -3461,7 +3728,8 @@ export function describeAuditRedactionSurface(input = {}) {
     auditHandoff,
     persistedState,
     reporting,
-    failureState
+    failureState,
+    evidenceBundle
   });
   const exportManifest = buildAuditExportManifest({
     exportRequest,
@@ -3474,6 +3742,16 @@ export function describeAuditRedactionSurface(input = {}) {
     providerNegotiation,
     failureState,
     proofBundle: auditProofBundle
+  });
+  const lifecycleClientControls = buildLifecycleClientControls({
+    lifecycle,
+    action,
+    permissions,
+    exportRequest,
+    exportManifest,
+    failureState,
+    reporting,
+    generatedAt
   });
   const externalHandoff = buildExternalHandoffState({
     provider,
@@ -3569,6 +3847,7 @@ export function describeAuditRedactionSurface(input = {}) {
       lifecycleDesiredSettings: lifecycle.desiredSettings,
       lifecycleControlPlan: lifecycle.controlPlan,
       lifecycleScheduleRuntime: lifecycle.scheduleRuntime,
+      lifecycleClientControls,
       providerContract: providerNegotiation,
       exportRequest,
       exportManifest,
@@ -3592,6 +3871,7 @@ export function describeAuditRedactionSurface(input = {}) {
       readiness: previewAcceptance.readiness,
       routeReadiness: clientPreviewRoute.validation,
       nextAction: lifecycle.nextAction,
+      lifecycleClientControls,
       lifecycleControlPlan: lifecycle.controlPlan,
       lifecycleScheduleRuntime: lifecycle.scheduleRuntime
     },
@@ -3608,6 +3888,7 @@ export function describeAuditRedactionSurface(input = {}) {
         commandApplied: lifecycle.commandApplied,
         controlChanges: lifecycle.controlChanges,
         controlPlan: lifecycle.controlPlan,
+        clientControls: lifecycleClientControls,
         nextAction: lifecycle.nextAction,
         schedule: lifecycle.settings.schedule,
         desiredSchedule: lifecycle.desiredSettings.schedule,
@@ -3644,6 +3925,7 @@ export function describeAuditRedactionSurface(input = {}) {
       previewAcceptance,
       clientHandoffState,
       clientPreviewRoute,
+      lifecycleClientControls,
       auditExport: exportManifest,
       exportRequest,
       auditProofBundle
@@ -3686,6 +3968,11 @@ export function describeAuditRedactionSurface(input = {}) {
       lifecycleScheduleDispatchAction: lifecycle.scheduleRuntime.dispatch.action,
       lifecycleScheduleCatchUpLimited: lifecycle.scheduleRuntime.catchUpLimited,
       lifecycleSettingsValid: lifecycle.settingsValid,
+      lifecycleClientNextAction: lifecycleClientControls.nextClientAction,
+      lifecycleEnabledControlIds: lifecycleClientControls.enabledControlIds,
+      lifecycleRouteState: lifecycleClientControls.routeState,
+      exportPreflightStatus: lifecycleClientControls.exportPreflight.status,
+      exportPreflightReady: lifecycleClientControls.exportPreflight.ready,
       validationReasons: eventValidation.valid ? [] : [eventValidation.reason],
       failureState: failureState.state,
       retryBudget: failureState.retryBudget,
@@ -3693,6 +3980,7 @@ export function describeAuditRedactionSurface(input = {}) {
       operationalRecoveryTerminal: operationalRecovery.terminal,
       operationalRecoveryActions: operationalRecovery.operatorActions,
       redactedFieldCount: redactionPaths.length,
+      redactedEvidenceFieldCount: evidenceBundle.redactionPathCount,
       outOfScopeWorkspaceIds: boundary.outOfScopeWorkspaceIds,
       effectiveWorkspaceIds: boundary.effectiveWorkspaceIds,
       workspaceGrantProof: boundary.workspaceProof,
@@ -3704,7 +3992,12 @@ export function describeAuditRedactionSurface(input = {}) {
       actorPermissionRoles: permissionBoundary.actor.roles,
       actorExplicitPermissions: permissionBoundary.actor.explicitPermissions,
       workspaceBoundarySchema: workspaceBoundary.schema,
-      evidence: Array.isArray(input.evidence) ? input.evidence : [],
+      evidence: evidenceBundle.redacted,
+      evidenceRedaction: {
+        schema: evidenceBundle.schema,
+        redactionPathCount: evidenceBundle.redactionPathCount,
+        redactionPaths: evidenceBundle.redactionPaths
+      },
       analyticsReportId: reporting.historySnapshot.reportId,
       timelineEventCount: reporting.timeline.length,
       clientRequestId: clientRuntime.requestId,

@@ -1688,6 +1688,159 @@ function buildPersistedReplayState({
   };
 }
 
+function buildReplayClaimEnvelope({
+  command,
+  lifecycle,
+  sync,
+  nextAction,
+  acceptance,
+  readiness,
+  persistedState,
+  persistedOutput,
+  providerReceipt,
+  workspaceBoundary,
+  operationalHealth,
+  now
+}) {
+  const boundaryBlocked = workspaceBoundary.authorized === false;
+  const lifecycleBlocked = lifecycle.controlDecision.allowed === false;
+  const healthBlocked = operationalHealth.blocking === true;
+  const receiptBlocked = providerReceipt.required === true && providerReceipt.acknowledged !== true;
+  const restartBlocked = persistedOutput.restart.restartSafe === false
+    || persistedOutput.restart.providerStatusRequired === true && providerReceipt.acknowledged !== true;
+  const claimBlockers = [
+    persistedState.commandKeyReusedForDifferentBatch
+      ? {
+        code: "command_key_batch_conflict",
+        owner: "operator",
+        retryable: false,
+        field: "commandKey",
+        detail: "The command key was previously bound to a different replay batch."
+      }
+      : null,
+    boundaryBlocked
+      ? {
+        code: "workspace_boundary_blocked",
+        owner: "tenant-admin",
+        retryable: false,
+        field: "workspaceBoundary",
+        detail: workspaceBoundary.boundaryErrors.map((error) => error.code).join(",") || "workspace boundary denied"
+      }
+      : null,
+    lifecycleBlocked
+      ? {
+        code: lifecycle.controlDecision.denialCode || "lifecycle_command_denied",
+        owner: "recovery-operator",
+        retryable: false,
+        field: "settings.lifecycleControls",
+        detail: lifecycle.controlDecision.operatorAction
+      }
+      : null,
+    healthBlocked
+      ? {
+        code: operationalHealth.failureState.state,
+        owner: "provider-ops",
+        retryable: operationalHealth.retry.retryable,
+        field: "operationalHealth",
+        detail: operationalHealth.failureState.operatorAction
+      }
+      : null,
+    receiptBlocked
+      ? {
+        code: "provider_receipt_required",
+        owner: "provider",
+        retryable: true,
+        field: "providerReceipt",
+        detail: providerReceipt.requiredReasons.join(",") || "provider receipt required"
+      }
+      : null,
+    restartBlocked
+      ? {
+        code: persistedOutput.restart.recoveryPath,
+        owner: "hosted-kernel",
+        retryable: persistedOutput.restart.restartSafe,
+        field: "persistedState.restart",
+        detail: persistedOutput.restart.operatorAction
+      }
+      : null
+  ].filter(Boolean);
+  const terminal = terminalReplayStates.has(persistedOutput.status)
+    || persistedOutput.status === "failed"
+    || claimBlockers.some((blocker) => blocker.retryable === false);
+  const duplicateReturn = persistedState.duplicateCommand && persistedOutput.idempotency.retainedStatus;
+  const replayable = claimBlockers.length === 0
+    && acceptance.accepted
+    && readiness.state !== "blocked"
+    && persistedOutput.idempotency.mutationAllowed
+    && !terminal;
+  const retryable = !replayable
+    && !terminal
+    && claimBlockers.length > 0
+    && claimBlockers.every((blocker) => blocker.retryable !== false);
+  const nextAttemptAt = operationalHealth.retry.nextRetryAt
+    || providerReceipt.required && !providerReceipt.acknowledged ? now : null;
+  const claimState = duplicateReturn
+    ? "duplicate-return"
+    : persistedState.commandKeyReusedForDifferentBatch
+      ? "conflict"
+      : replayable
+        ? "claimable"
+        : retryable
+          ? "retry-wait"
+          : terminal
+            ? "terminal"
+            : "blocked";
+
+  return {
+    schemaVersion: "aios.auditRecovery.eventReplay.replayClaim.v1",
+    generatedAt: now,
+    state: claimState,
+    command,
+    commandKey: persistedState.commandKey,
+    batchId: sync.batchId,
+    cursor: sync.cursor,
+    claimable: replayable,
+    duplicateReturn,
+    terminal,
+    retryable,
+    nextAttemptAt,
+    blockers: claimBlockers,
+    blockerCodes: claimBlockers.map((blocker) => blocker.code),
+    replayPolicy: {
+      idempotencyScope: "commandKey:batchId:cursor",
+      replaySafe: replayable || duplicateReturn,
+      mutationAllowed: persistedOutput.idempotency.mutationAllowed,
+      receiptRequired: providerReceipt.required,
+      receiptAcknowledged: providerReceipt.acknowledged,
+      restartSafe: persistedOutput.restart.restartSafe,
+      providerStatusRequired: persistedOutput.restart.providerStatusRequired
+    },
+    resume: {
+      route: "audit-recovery/event-replay/replay-claim",
+      action: replayable
+        ? "claim-and-continue"
+        : duplicateReturn
+          ? "return-existing-status"
+          : retryable
+            ? "wait-and-retry"
+            : "operator-review",
+      reason: claimBlockers[0]?.code || persistedOutput.restart.recoveryPath,
+      operatorAction: claimBlockers[0]?.detail || persistedOutput.restart.operatorAction
+    },
+    audit: {
+      proofType: "aios.auditRecovery.eventReplay.replayClaimProof.v1",
+      commandKey: persistedState.commandKey,
+      status: persistedOutput.status,
+      previousStatus: persistedState.previous.status,
+      recoveryPath: persistedOutput.restart.recoveryPath,
+      blockerCount: claimBlockers.length,
+      claimStable: persistedOutput.batchId === sync.batchId
+        && persistedOutput.cursor === sync.cursor
+        && persistedOutput.lastCommandKey === persistedState.commandKey
+    }
+  };
+}
+
 function deriveNextAction(command, settings, validationErrors, providerContract, handoff, workspaceBoundary, operationalHealth) {
   if (validationErrors.length > 0) {
     const boundaryBlocked = workspaceBoundary?.boundaryErrors?.length > 0;
@@ -1901,6 +2054,8 @@ function buildReplayProof({ command, settings, evidence, now, validationErrors, 
     replayPlanFingerprint: [
       replayPlan?.schemaVersion || "no-plan",
       replayPlan?.planReady ? "plan-ready" : "plan-blocked",
+      replayPlan?.integrity?.valid ? "integrity-valid" : "integrity-blocked",
+      replayPlan?.integrity?.errors?.map((error) => error.code).join("+") || "no-integrity-errors",
       replayPlan?.manifest?.entryCount ?? 0,
       replayPlan?.manifest?.executableCount ?? 0,
       replayPlan?.manifest?.checkpointStart || "no-start",
@@ -2392,6 +2547,7 @@ function buildReplayPlanEntry(event, index, context) {
     event.aggregateId || "unscoped"
   ].join("/");
   const executable = event.replayable
+    && event.operation !== "skip"
     && proofSatisfied
     && context.providerContract.serviceContract.contractValid
     && context.workspaceBoundary.authorized
@@ -2422,12 +2578,115 @@ function buildReplayPlanEntry(event, index, context) {
       executable,
       blockedBy: [
         !event.replayable ? event.reason : null,
+        event.operation === "skip" ? "skip_operation_not_executable" : null,
         !proofSatisfied ? "proof_required" : null,
         !context.providerContract.serviceContract.contractValid ? "provider_service_contract_invalid" : null,
         !context.workspaceBoundary.authorized ? "workspace_boundary_blocked" : null,
         ...eventBoundary.blockedBy
       ].filter(Boolean)
     }
+  };
+}
+
+function duplicateValues(values) {
+  const counts = new Map();
+  for (const value of values.filter(Boolean)) {
+    counts.set(value, (counts.get(value) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([value, count]) => ({ value, count }));
+}
+
+function analyzeReplayPlanIntegrity(entries, settings, sync) {
+  const duplicateEventIds = duplicateValues(entries.map((entry) => entry.eventId));
+  const duplicateCheckpoints = duplicateValues(entries.map((entry) => entry.checkpoint));
+  const missingCursorEntries = entries.filter((entry) => !entry.sourceCursor);
+  const executableMutationEntries = entries.filter((entry) => (
+    entry.execution.executable && entry.operation !== "skip"
+  ));
+  const orderedByRoute = new Map();
+  const timestampOrderViolations = [];
+
+  for (const entry of entries) {
+    if (!entry.timestamp) {
+      continue;
+    }
+
+    const observedAt = Date.parse(entry.timestamp);
+    if (!Number.isFinite(observedAt)) {
+      continue;
+    }
+
+    const routeState = orderedByRoute.get(entry.routeKey);
+    if (routeState && observedAt < routeState.observedAt) {
+      timestampOrderViolations.push({
+        routeKey: entry.routeKey,
+        previousEventId: routeState.eventId,
+        eventId: entry.eventId,
+        previousTimestamp: routeState.timestamp,
+        timestamp: entry.timestamp
+      });
+    }
+
+    orderedByRoute.set(entry.routeKey, {
+      eventId: entry.eventId,
+      observedAt,
+      timestamp: entry.timestamp
+    });
+  }
+
+  const errors = [
+    ...duplicateEventIds.map((duplicate) => ({
+      field: "evidence.id",
+      code: "replay_plan_duplicate_event_id",
+      eventId: duplicate.value,
+      count: duplicate.count
+    })),
+    ...duplicateCheckpoints.map((duplicate) => ({
+      field: "replayPlan.entries.checkpoint",
+      code: "replay_plan_duplicate_checkpoint",
+      checkpoint: duplicate.value,
+      count: duplicate.count
+    })),
+    ...(
+      settings.replay.dryRun
+        ? []
+        : missingCursorEntries.map((entry) => ({
+          field: "replayPlan.entries.sourceCursor",
+          code: "live_replay_entry_cursor_required",
+          eventId: entry.eventId,
+          checkpoint: entry.checkpoint
+        }))
+    ),
+    ...timestampOrderViolations.map((violation) => ({
+      field: "replayPlan.entries.timestamp",
+      code: "replay_plan_timestamp_order_violation",
+      ...violation
+    })),
+    entries.length > 0 && executableMutationEntries.length === 0
+      ? {
+        field: "replayPlan.entries.operation",
+        code: "replay_plan_requires_executable_mutation",
+        allowedOperations: Array.from(replayOperationKinds).filter((operation) => operation !== "skip")
+      }
+      : null
+  ].filter(Boolean);
+
+  return {
+    schemaVersion: "aios.auditRecovery.eventReplay.planIntegrity.v1",
+    valid: errors.length === 0,
+    errors,
+    duplicateEventIds,
+    duplicateCheckpoints,
+    missingCursorEventIds: missingCursorEntries.map((entry) => entry.eventId),
+    timestampOrderViolations,
+    cursorPolicy: {
+      required: !settings.replay.dryRun,
+      batchCursor: sync.cursor,
+      missingCount: missingCursorEntries.length
+    },
+    executableMutationCount: executableMutationEntries.length
   };
 }
 
@@ -2445,8 +2704,10 @@ function buildReplayPlan({ preview, settings, sync, providerContract, workspaceB
   const healthAllowsExecution = settings.replay.dryRun
     ? operationalHealth.failureState.canPreview
     : operationalHealth.failureState.canDispatch;
+  const integrity = analyzeReplayPlanIntegrity(entries, settings, sync);
   const planReady = entries.length > 0
     && blockedEntries.length === 0
+    && integrity.valid
     && healthAllowsExecution
     && (!liveReplayRequested || providerContract.effectiveCapabilities.includes("live-replay"));
 
@@ -2465,10 +2726,18 @@ function buildReplayPlan({ preview, settings, sync, providerContract, workspaceB
       retry: operationalHealth.retry
     },
     entries,
+    integrity,
     manifest: {
       entryCount: entries.length,
       executableCount: executableEntries.length,
       blockedCount: blockedEntries.length,
+      integrityValid: integrity.valid,
+      integrityErrorCount: integrity.errors.length,
+      duplicateEventIdCount: integrity.duplicateEventIds.length,
+      duplicateCheckpointCount: integrity.duplicateCheckpoints.length,
+      missingCursorCount: integrity.cursorPolicy.missingCount,
+      timestampOrderViolationCount: integrity.timestampOrderViolations.length,
+      executableMutationCount: integrity.executableMutationCount,
       checkpointStart: entries[0]?.checkpoint || null,
       checkpointEnd: entries.at(-1)?.checkpoint || null,
       operationCounts: entries.reduce((counts, entry) => ({
@@ -2516,6 +2785,8 @@ function buildHostedKernelInvocation({
   const dispatchBlockers = [
     !acceptance.accepted ? "acceptance_required" : null,
     !replayPlan.planReady ? "replay_plan_not_ready" : null,
+    !replayPlan.integrity.valid ? "replay_plan_integrity_invalid" : null,
+    ...replayPlan.integrity.errors.map((error) => error.code),
     operationalHealth.status === "failed" ? "operational_health_failed" : null,
     operationalHealth.failureState.stale && replayPlan.mode === "live-replay" ? "operational_health_observation_stale" : null,
     operationalHealth.failureState.retryBudget.exhausted ? "operational_health_retry_budget_exhausted" : null,
@@ -2576,6 +2847,7 @@ function buildHostedKernelInvocation({
     deliveryGuarantee: providerContract.serviceContract.deliveryGuarantee,
     dispatchable: dispatchBlockers.length === 0 && operations.length > 0,
     dispatchBlockers,
+    planIntegrity: replayPlan.integrity,
     endpoints: {
       scan: scanEndpoint,
       proof: proofEndpoint,
@@ -2915,10 +3187,11 @@ function buildAcceptanceContract({ command, preview, replayPlan, nextAction, val
       : null,
     requirements: {
       validationPassed: validationSummary.status === "valid",
-      providerNegotiated: providerContract.missingCapabilities.length === 0
+    providerNegotiated: providerContract.missingCapabilities.length === 0
         && providerContract.serviceContract.contractValid,
       boundaryAuthorized: workspaceBoundary.authorized,
       operationalHealthAcceptable: healthAcceptable,
+      replayPlanIntegrityValid: replayPlan.integrity.valid,
       replayPlanReady: replayPlan.planReady,
       proofSatisfied,
       hasSelectedEvents,
@@ -2930,6 +3203,8 @@ function buildAcceptanceContract({ command, preview, replayPlan, nextAction, val
       !providerContract.serviceContract.contractValid ? "provider_service_contract_invalid" : null,
       !workspaceBoundary.authorized ? "workspace_boundary_blocked" : null,
       !healthAcceptable ? operationalHealth.status === "failed" ? "operational_health_failed" : "operational_health_degraded" : null,
+      !replayPlan.integrity.valid ? "replay_plan_integrity_invalid" : null,
+      ...replayPlan.integrity.errors.map((error) => error.code),
       !replayPlan.planReady ? "replay_plan_not_ready" : null,
       !proofSatisfied ? "proof_coverage_incomplete" : null,
       !hasSelectedEvents ? "no_replayable_events_selected" : null,
@@ -3024,6 +3299,7 @@ function buildReadinessContract({ settings, preview, replayPlan, acceptance, nex
     replayMode: preview.mode,
     replayPlanReady: replayPlan.planReady,
     replayPlanManifest: replayPlan.manifest,
+    replayPlanIntegrity: replayPlan.integrity,
     batchId: preview.batchId,
     cursor: integration.sync.cursor,
     scheduleMode: settings.schedule.mode,
@@ -3586,6 +3862,8 @@ function buildOperatorDecisionContract({
       healthGateState: operationalHealth.failureState.state,
       providerReceiptState: providerReceipt.state,
       replayPlanReady: replayPlan.planReady,
+      replayPlanIntegrityValid: replayPlan.integrity.valid,
+      replayPlanIntegrityErrors: replayPlan.integrity.errors,
       dispatchable: hostedKernelInvocation.dispatchable
     }
   };
@@ -3872,6 +4150,7 @@ function buildAuditOutputs({
     persistedStatusJournalSize: persistedOutput.statusJournal.length,
     replayPlanReady: replayPlan.planReady,
     replayPlanManifest: replayPlan.manifest,
+    replayPlanIntegrity: replayPlan.integrity,
     hostedKernelDispatchable: hostedKernelInvocation.dispatchable,
     hostedKernelDispatchBlockers: hostedKernelInvocation.dispatchBlockers,
     hostedKernelOperationCount: hostedKernelInvocation.operationCount,
@@ -4077,6 +4356,7 @@ function buildReportingState({
   const exportBlockers = [
     !acceptance.accepted ? "replay_not_accepted" : null,
     !replayPlan.planReady ? "replay_plan_not_ready" : null,
+    !replayPlan.integrity.valid ? "replay_plan_integrity_invalid" : null,
     !readiness.canExportProof ? "proof_export_not_negotiated" : null,
     !providerContract.serviceContract.contractValid ? "provider_service_contract_invalid" : null,
     !preview.proofCoverage.complete ? "proof_coverage_incomplete" : null,
@@ -4198,6 +4478,12 @@ function buildReportingState({
       replayPlanEntries: replayPlan.manifest.entryCount,
       replayPlanExecutableEntries: replayPlan.manifest.executableCount,
       replayPlanBlockedEntries: replayPlan.manifest.blockedCount,
+      replayPlanIntegrityErrors: replayPlan.integrity.errors.length,
+      replayPlanDuplicateEventIds: replayPlan.integrity.duplicateEventIds.length,
+      replayPlanDuplicateCheckpoints: replayPlan.integrity.duplicateCheckpoints.length,
+      replayPlanMissingCursors: replayPlan.integrity.cursorPolicy.missingCount,
+      replayPlanTimestampOrderViolations: replayPlan.integrity.timestampOrderViolations.length,
+      replayPlanExecutableMutations: replayPlan.integrity.executableMutationCount,
       replayPlanBoundaryBlockedEntries: replayPlan.manifest.boundaryBlockedCount,
       hostedKernelOperations: hostedKernelInvocation.operationCount,
       hostedKernelDispatchableOperations: hostedKernelInvocation.dispatchableOperationCount,
@@ -4258,6 +4544,7 @@ function buildReportingState({
         "providerServiceContract",
         "providerReceipt",
         "replayPlan.manifest",
+        "replayPlan.integrity",
         "hostedKernelInvocation",
         "clientContinuationResume",
         "history.snapshots",
@@ -4295,6 +4582,12 @@ function buildReportingState({
         recoveryLeaseReclaimable: persistedOutput.lease.reclaimable,
         recoveryPendingOperations: persistedOutput.recoveryCheckpoint.pendingOperationIds.length,
         replayPlanReady: replayPlan.planReady,
+        replayPlanIntegrityValid: replayPlan.integrity.valid,
+        replayPlanIntegrityErrors: replayPlan.integrity.errors.length,
+        replayPlanDuplicateEventIds: replayPlan.integrity.duplicateEventIds.length,
+        replayPlanDuplicateCheckpoints: replayPlan.integrity.duplicateCheckpoints.length,
+        replayPlanMissingCursors: replayPlan.integrity.cursorPolicy.missingCount,
+        replayPlanTimestampOrderViolations: replayPlan.integrity.timestampOrderViolations.length,
         replayPlanBoundaryBlockedEvents: replayPlan.manifest.boundaryBlockedCount,
         hostedKernelDispatchable: hostedKernelInvocation.dispatchable,
         hostedKernelDispatchableOperations: hostedKernelInvocation.dispatchableOperationCount,
@@ -4327,6 +4620,107 @@ function buildReportingState({
       healthGateOperatorAction: operationalHealth.failureState.operatorAction,
       lifecycleControlState: audit.lifecycleControl.allowed ? "allowed" : "denied",
       auditTags: workflowHandoff.auditTags
+    }
+  };
+}
+
+function buildExportHandoffSummary({
+  now,
+  reporting,
+  readiness,
+  workflowHandoff,
+  hostedKernelInvocation,
+  providerContract,
+  providerReceipt,
+  workspaceBoundary,
+  operationalHealth,
+  replayClaim
+}) {
+  const exportSummary = reporting.exportSummary;
+  const providerProofEndpoint = hostedKernelInvocation.endpoints.proof;
+  const statusEndpoint = hostedKernelInvocation.endpoints.status;
+  const lineItemLimitReached = exportSummary.lineItemCount > exportSummary.lineItems.length;
+  const clientDeliverable = workflowHandoff.continuation.deliverable;
+  const receiptOpen = providerReceipt.required && !providerReceipt.acknowledged;
+  const recoveryOpen = replayClaim.retryable || replayClaim.claimable === false && replayClaim.terminal === false;
+  const blockingReasons = [
+    ...exportSummary.blockers,
+    !providerProofEndpoint ? "proof_endpoint_missing" : null,
+    !statusEndpoint && receiptOpen ? "status_endpoint_missing_for_receipt_poll" : null,
+    !clientDeliverable ? "client_continuation_not_deliverable" : null,
+    receiptOpen ? "provider_receipt_open" : null,
+    operationalHealth.failureState.stale ? "operational_health_observation_stale" : null,
+    operationalHealth.failureState.retryBudget.exhausted ? "operational_health_retry_budget_exhausted" : null,
+    recoveryOpen ? "replay_claim_not_terminal_or_claimable" : null
+  ].filter(Boolean);
+  const ready = exportSummary.ready
+    && blockingReasons.length === 0
+    && readiness.canExportProof
+    && providerContract.serviceContract.contractValid;
+
+  return {
+    schemaVersion: "aios.auditRecovery.eventReplay.exportHandoffSummary.v1",
+    generatedAt: now,
+    ready,
+    state: ready
+      ? "export-handoff-ready"
+      : receiptOpen
+        ? "waiting-provider-receipt"
+        : recoveryOpen
+          ? "waiting-replay-claim"
+          : blockingReasons.length > 0
+            ? "export-handoff-blocked"
+            : "export-handoff-pending",
+    exportId: exportSummary.exportId,
+    filename: exportSummary.filename,
+    contentType: exportSummary.format,
+    lineItemCount: exportSummary.lineItemCount,
+    lineItemLimitReached,
+    blockingReasons: [...new Set(blockingReasons)].sort(),
+    provider: {
+      providerId: providerContract.providerId,
+      serviceId: providerContract.serviceId,
+      protocolVersion: providerContract.serviceContract.negotiatedProtocolVersion,
+      proofEndpoint: providerProofEndpoint,
+      statusEndpoint,
+      receiptState: providerReceipt.state,
+      receiptAcknowledged: providerReceipt.acknowledged,
+      externalTicketId: providerReceipt.externalTicketId
+    },
+    boundary: {
+      tenantId: workspaceBoundary.tenantId,
+      workspaceId: workspaceBoundary.workspaceId,
+      authorized: workspaceBoundary.authorized,
+      missingPermissions: workspaceBoundary.missingPermissions
+    },
+    claim: {
+      state: replayClaim.state,
+      claimable: replayClaim.claimable,
+      retryable: replayClaim.retryable,
+      terminal: replayClaim.terminal,
+      nextAttemptAt: replayClaim.nextAttemptAt,
+      blockerCodes: replayClaim.blockerCodes
+    },
+    routeContract: {
+      route: `${workflowHandoff.returnRoute}/event-replay/${exportSummary.summary.batchId}/export`,
+      method: ready ? "POST" : "GET",
+      bodySchema: ready ? "aios.auditRecovery.eventReplay.exportHandoffRequest.v1" : null,
+      statusRoute: statusEndpoint,
+      continuationTarget: workflowHandoff.continuation.target,
+      continuationAction: workflowHandoff.continuation.action
+    },
+    consumerSummary: {
+      surfaceId,
+      kind: "event-replay-export",
+      batchId: exportSummary.summary.batchId,
+      commandKey: readiness.commandKey,
+      readinessState: readiness.state,
+      healthGateState: operationalHealth.failureState.state,
+      selectedEvents: exportSummary.summary.selectedEvents,
+      dispatchableOperations: exportSummary.summary.hostedKernelDispatchableOperations,
+      validationErrors: exportSummary.summary.validationErrors,
+      replayPlanIntegrityErrors: exportSummary.summary.replayPlanIntegrityErrors,
+      exportReady: ready
     }
   };
 }
@@ -4412,6 +4806,20 @@ export function describeEventReplaySurface(input = {}) {
     acceptance,
     persistedState,
     providerReceipt,
+    operationalHealth,
+    now
+  });
+  const replayClaim = buildReplayClaimEnvelope({
+    command,
+    lifecycle,
+    sync,
+    nextAction,
+    acceptance,
+    readiness: { state: acceptance.accepted ? lifecycle.settings.replay.dryRun ? "preview-ready" : "execution-ready" : nextAction.state },
+    persistedState,
+    persistedOutput,
+    providerReceipt,
+    workspaceBoundary,
     operationalHealth,
     now
   });
@@ -4548,6 +4956,18 @@ export function describeEventReplaySurface(input = {}) {
     clientContinuationResume,
     audit
   });
+  const exportHandoffSummary = buildExportHandoffSummary({
+    now,
+    reporting,
+    readiness,
+    workflowHandoff,
+    hostedKernelInvocation,
+    providerContract,
+    providerReceipt,
+    workspaceBoundary,
+    operationalHealth,
+    replayClaim
+  });
   const proof = buildReplayProof({
     command,
     settings: lifecycle.settings,
@@ -4564,6 +4984,7 @@ export function describeEventReplaySurface(input = {}) {
     workspaceBoundary,
     operationalHealth,
     replayPlan,
+    replayClaim,
     reporting
   });
 
@@ -4589,12 +5010,14 @@ export function describeEventReplaySurface(input = {}) {
     acceptance,
     readiness,
     persistedState: persistedOutput,
+    replayClaim,
     workflowHandoff,
     hostedKernelInvocation,
     integration,
     operationalHealth,
     workspaceBoundary,
     reporting,
+    exportHandoffSummary,
     audit: {
       ...audit,
       evidenceAccepted: evidence.length,
@@ -4605,7 +5028,13 @@ export function describeEventReplaySurface(input = {}) {
       readinessState: readiness.state,
       analyticsCounters: reporting.counters,
       exportReady: reporting.exportSummary.ready,
-      reportSeverity: reporting.reportState.severity
+      exportHandoffReady: exportHandoffSummary.ready,
+      exportHandoffState: exportHandoffSummary.state,
+      exportHandoffBlockers: exportHandoffSummary.blockingReasons,
+      reportSeverity: reporting.reportState.severity,
+      replayClaimState: replayClaim.state,
+      replayClaimBlockers: replayClaim.blockerCodes,
+      replayClaimStable: replayClaim.audit.claimStable
     },
     proof,
     evidence

@@ -382,6 +382,950 @@ function buildWorkflowHandoff(ast, compiledRules) {
   };
 }
 
+function normalizeClaimLifecycleSettings(value) {
+  const source = typeof value === "string" ? { command: value } : { ...(value ?? {}) };
+  const command = ["prepare", "enable", "disable", "schedule", "resume", "cancel"].includes(source.command)
+    ? source.command
+    : "prepare";
+  const enabled = source.enabled === undefined ? !["disable", "cancel"].includes(command) : source.enabled === true;
+  const schedule = typeof source.schedule === "string" ? { mode: source.schedule } : { ...(source.schedule ?? {}) };
+  const scheduleMode = ["manual", "immediate", "windowed", "disabled"].includes(schedule.mode)
+    ? schedule.mode
+    : command === "schedule"
+      ? "windowed"
+      : "manual";
+  return {
+    command,
+    enabled,
+    releasePolicy: ["manual-approval", "auto-when-ready", "disabled"].includes(source.releasePolicy)
+      ? source.releasePolicy
+      : "manual-approval",
+    schedule: {
+      mode: enabled ? scheduleMode : "disabled",
+      windowStart: schedule.windowStart ? String(schedule.windowStart) : null,
+      windowEnd: schedule.windowEnd ? String(schedule.windowEnd) : null,
+      timezone: schedule.timezone ? String(schedule.timezone) : "UTC",
+    },
+  };
+}
+
+function normalizeVerifierRecoveryExportLedger(value, gateName, recoveryHandoff, sourceClientPatch = {}) {
+  const source = value === undefined || value === null || value === false
+    ? {}
+    : typeof value === "string"
+      ? { id: value }
+      : { ...value };
+  const packet = source.claimGatePacket ?? source.clientPatch ?? sourceClientPatch;
+  const state = normalizeIdentifier(
+    source.state
+      ?? packet.verifierRecoveryExportState
+      ?? recoveryHandoff.state,
+    recoveryHandoff.ready ? "ready" : "blocked",
+  );
+  const ready = source.ready === true
+    || packet.verifierRecoveryExportReady === true
+    || ["ready", "review"].includes(state);
+  const commandIds = asArray(
+    source.commandIds
+      ?? source.commands
+      ?? packet.verifierRecoveryExportCommandIds,
+  )
+    .map((command) => (typeof command === "string" ? command : command?.id))
+    .filter(Boolean)
+    .sort();
+  const blockedKeys = asArray(
+    source.blockedKeys
+      ?? packet.verifierRecoveryExportBlockedKeys
+      ?? (state === "blocked" ? ["verifier-recovery-export"] : []),
+  ).map((key) => normalizeIdentifier(key, "verifier-recovery-export"));
+  const waitingKeys = asArray(
+    source.waitingKeys
+      ?? packet.verifierRecoveryExportWaitingKeys
+      ?? recoveryHandoff.missingStateKeys,
+  ).map((key) => normalizeIdentifier(key, "verifier-recovery-export"));
+  const reviewKeys = asArray(source.reviewKeys ?? packet.verifierRecoveryExportReviewKeys)
+    .map((key) => normalizeIdentifier(key, "verifier-recovery-review"));
+  const id = source.id
+    ?? source.ledgerId
+    ?? packet.verifierRecoveryExportLedgerId
+    ?? stableId("verifierexport", [
+      gateName,
+      recoveryHandoff.id,
+      state,
+      blockedKeys.join(","),
+      waitingKeys.join(","),
+    ]);
+  const resumeCursor = source.resumeCursor
+    ?? packet.verifierRecoveryExportResumeCursor
+    ?? recoveryHandoff.resumeCursor
+    ?? stableId("verifierexportcursor", [id, state]);
+  const replayCursor = source.replayCursor
+    ?? packet.verifierRecoveryExportReplayCursor
+    ?? stableId("verifierexportreplay", [id, resumeCursor, commandIds.join(",")]);
+  return {
+    id,
+    protocol: source.protocol ?? "aios.mailchimp.verifier-recovery-export-ledger.v1",
+    state,
+    ready,
+    visibleStatus: source.visibleStatus
+      ?? packet.verifierRecoveryExportVisibleStatus
+      ?? (state === "ready" ? "verifier-recovery-export-ready" : `verifier-recovery-export-${state}`),
+    nextAction: source.nextAction
+      ?? packet.verifierRecoveryExportNextAction
+      ?? (blockedKeys.length
+        ? "restore-verifier-recovery-export"
+        : waitingKeys.length
+          ? "hydrate-verifier-client-state-before-claim-gate"
+          : "adopt-verifier-recovery-export"),
+    resumeCursor,
+    replayCursor,
+    commandIds,
+    blockedKeys: [...new Set(blockedKeys)].sort(),
+    waitingKeys: [...new Set(waitingKeys)].sort(),
+    reviewKeys: [...new Set(reviewKeys)].sort(),
+    sourceIds: source.sourceIds ?? {
+      recoveryHandoffId: recoveryHandoff.id ?? null,
+      acceptanceReviewId: source.acceptanceReviewId ?? null,
+      reportHistorySnapshotId: source.reportHistorySnapshotId ?? null,
+      operationalIncidentLedgerId: source.operationalIncidentLedgerId ?? null,
+    },
+    requiredStateKeys: asArray(source.requiredStateKeys ?? recoveryHandoff.missingStateKeys)
+      .map((stateKey) => String(stateKey))
+      .filter(Boolean)
+      .sort(),
+    persistedStateContract: source.persistedStateContract ?? {
+      namespace: "verifier.recovery_export",
+      ledgerKey: `verifier.recovery_export.${id}`,
+      statusKey: "verifier.recovery_export.currentStatus",
+      adoptionEvent: "mailchimp.verifier.recovery_export.adopted",
+      missingStatePolicy: state === "blocked"
+        ? "block-claim-gate-until-verifier-recovery-export-restored"
+        : "rebuild-verifier-recovery-export-from-compiled-contract",
+    },
+    restartSemantics: {
+      restartSafe: source.restartSemantics?.restartSafe !== false && state !== "blocked",
+      onRestart: source.restartSemantics?.onRestart
+        ?? (state === "ready" ? "load-verifier-recovery-export-ledger" : "rebuild-verifier-recovery-export-ledger"),
+      onDuplicateCommand: source.restartSemantics?.onDuplicateCommand
+        ?? "return-existing-verifier-recovery-export-ledger",
+      onMissingState: source.restartSemantics?.onMissingState
+        ?? (waitingKeys.length ? "hydrate-verifier-client-state-before-claim-gate" : "rebuild-verifier-recovery-export-ledger"),
+      externalWritesPerformed: source.restartSemantics?.externalWritesPerformed === true,
+    },
+  };
+}
+
+function normalizeVerifierAcceptanceDependency(value, gateName) {
+  if (value === undefined || value === null || value === false) {
+    const recoveryHandoffId = stableId("verifierrecovery", [gateName, "not-required"]);
+    return {
+      required: false,
+      source: "not-declared",
+      state: "ready",
+      ready: true,
+      visibleStatus: "verifier-acceptance-not-required",
+      nextAction: "continue-claim-acceptance",
+      snapshotId: null,
+      acceptanceReviewId: null,
+      acceptedForRuntime: true,
+      acceptedForExternalWrite: false,
+      blockingRuleIds: [],
+      pendingRuleIds: [],
+      warningRuleIds: [],
+      requiredClientState: [],
+      commandIds: [],
+      recoveryHandoff: {
+        id: recoveryHandoffId,
+        state: "ready",
+        ready: true,
+        visibleStatus: "verifier-recovery-not-required",
+        nextAction: "continue-claim-acceptance",
+        resumeCursor: stableId("verifierrecoverycursor", [recoveryHandoffId]),
+        commandIds: [],
+        blockedRuleIds: [],
+        missingStateKeys: [],
+        restartSemantics: {
+          restartSafe: true,
+          onRestart: "continue-claim-acceptance",
+          onMissingState: "continue-claim-acceptance",
+        },
+      },
+      validationSummary: {
+        totalChecks: 0,
+        blockedChecks: 0,
+        pendingChecks: 0,
+        warningChecks: 0,
+      },
+    };
+  }
+
+  const source = typeof value === "string" ? { snapshotId: value } : { ...(value ?? {}) };
+  const acceptance = source.acceptance ?? {};
+  const exportSummary = source.exportSummary ?? {};
+  const validationSummary = source.validationSummary ?? {};
+  const persistedStateContract = source.persistedStateContract ?? {};
+  const clientPatch = source.clientPatch ?? {};
+  const reviewRows = asArray(source.reviewRows ?? source.rows);
+  const recoverySource = source.recoveryHandoff
+    ?? source.verifierRecoveryHandoff
+    ?? source.recovery;
+  const recoveryExportSource = source.recoveryExportLedger
+    ?? source.verifierRecoveryExportLedger
+    ?? source.recoveryExport
+    ?? clientPatch.verifierRecoveryExportLedger;
+  const status = normalizeIdentifier(source.status ?? source.state, "unknown");
+  const blockingRuleIds = asArray(
+    source.blockingRuleIds
+      ?? exportSummary.blockingRuleIds
+      ?? validationSummary.blockingRuleIds,
+  ).map((ruleId) => normalizeIdentifier(ruleId, "rule"));
+  const pendingRuleIds = asArray(
+    source.pendingRuleIds
+      ?? exportSummary.pendingRuleIds
+      ?? validationSummary.pendingRuleIds,
+  ).map((ruleId) => normalizeIdentifier(ruleId, "rule"));
+  const warningRuleIds = asArray(
+    source.warningRuleIds
+      ?? exportSummary.warningRuleIds
+      ?? validationSummary.warningRuleIds,
+  ).map((ruleId) => normalizeIdentifier(ruleId, "rule"));
+  const acceptedForRuntime = source.acceptedForRuntime === true
+    || acceptance.acceptedForRuntime === true
+    || exportSummary.acceptedForRuntime === true;
+  const acceptedForExternalWrite = source.acceptedForExternalWrite === true
+    || acceptance.acceptedForExternalWrite === true
+    || exportSummary.acceptedForExternalWrite === true;
+  const requiredClientState = asArray(
+    source.requiredClientState
+      ?? acceptance.requiredClientState
+      ?? persistedStateContract.requiredStateKeys,
+  ).map((stateKey) => String(stateKey)).filter(Boolean).sort();
+  const lifecycleBlocked = status === "lifecycle-action-required"
+    || source.lifecycleBlocked === true
+    || validationSummary.lifecycleStatus === "manual-action-required";
+  const blocked = !acceptedForRuntime
+    || status === "blocked"
+    || lifecycleBlocked
+    || blockingRuleIds.length > 0
+    || pendingRuleIds.length > 0;
+  const review = !blocked && (status === "ready-with-review" || warningRuleIds.length > 0);
+  const state = blocked ? "blocked" : review ? "review" : "ready";
+  const nextAction = source.nextAction
+    ?? acceptance.nextStep
+    ?? (lifecycleBlocked
+      ? "complete-verifier-lifecycle-action"
+      : pendingRuleIds.length > 0
+        ? "evaluate-candidate-before-runtime-handoff"
+        : blockingRuleIds.length > 0
+          ? "resolve-blocking-verifier-rule"
+          : warningRuleIds.length > 0
+            ? "review-verifier-warnings"
+            : "acknowledge-verifier-acceptance");
+  const snapshotId = source.snapshotId
+    ?? source.id
+    ?? persistedStateContract.snapshotKey
+    ?? stableId("verifieraccept", [gateName, status, blockingRuleIds.join(","), pendingRuleIds.join(",")]);
+  const recoveryState = normalizeIdentifier(recoverySource?.state ?? source.recoveryState, state);
+  const recoveryReady = recoverySource?.ready === true
+    || ["ready", "review"].includes(recoveryState);
+  const recoveryBlockedRuleIds = asArray(
+    recoverySource?.blockedRuleIds
+      ?? recoverySource?.clientPatch?.verifierRecoveryBlockedRuleIds
+      ?? blockingRuleIds,
+  ).map((ruleId) => normalizeIdentifier(ruleId, "rule"));
+  const recoveryMissingStateKeys = asArray(
+    recoverySource?.missingStateKeys
+      ?? recoverySource?.clientPatch?.verifierRecoveryMissingStateKeys
+      ?? requiredClientState,
+  ).map((stateKey) => String(stateKey)).filter(Boolean).sort();
+  const recoveryCommandIds = asArray(recoverySource?.commandIds ?? recoverySource?.commands)
+    .map((command) => (typeof command === "string" ? command : command?.id))
+    .filter(Boolean);
+  const commandIds = asArray(
+    source.commandIds
+      ?? source.commands
+      ?? clientPatch.verifierAcceptanceCommandId,
+  )
+    .map((command) => (typeof command === "string" ? command : command?.id))
+    .filter(Boolean);
+  const blockedReviewKeys = asArray(
+    validationSummary.blockedReviewKeys
+      ?? reviewRows.filter((row) => row?.state === "blocked").map((row) => row.key),
+  ).map((key) => normalizeIdentifier(key, "verifier-review"));
+  const waitingReviewKeys = asArray(
+    validationSummary.waitingReviewKeys
+      ?? reviewRows.filter((row) => row?.state === "waiting").map((row) => row.key),
+  ).map((key) => normalizeIdentifier(key, "verifier-review"));
+  const recoveryHandoffId = recoverySource?.id
+    ?? source.recoveryHandoffId
+    ?? clientPatch.verifierRecoveryHandoffId
+    ?? stableId("verifierrecovery", [
+      gateName,
+      snapshotId,
+      recoveryState,
+      recoveryBlockedRuleIds.join(","),
+      recoveryMissingStateKeys.join(","),
+    ]);
+  const recoveryResumeCursor = recoverySource?.resumeCursor
+    ?? recoverySource?.clientPatch?.verifierRecoveryResumeCursor
+    ?? clientPatch.verifierRecoveryResumeCursor
+    ?? stableId("verifierrecoverycursor", [recoveryHandoffId, snapshotId, recoveryState]);
+  const recoveryHandoff = {
+    id: recoveryHandoffId,
+    state: recoveryState,
+    ready: recoveryReady,
+    visibleStatus: recoverySource?.visibleStatus
+      ?? recoverySource?.clientPatch?.verifierRecoveryVisibleStatus
+      ?? (recoveryState === "ready"
+        ? "verifier-recovery-ready"
+        : recoveryState === "review"
+          ? "review-verifier-recovery"
+          : recoveryState === "waiting"
+            ? "verifier-recovery-waiting"
+            : "verifier-recovery-blocked"),
+    nextAction: recoverySource?.nextAction
+      ?? recoverySource?.clientPatch?.verifierRecoveryNextAction
+      ?? nextAction,
+    resumeCursor: recoveryResumeCursor,
+    commandIds: recoveryCommandIds,
+    blockedRuleIds: [...new Set(recoveryBlockedRuleIds)].sort(),
+    missingStateKeys: [...new Set(recoveryMissingStateKeys)].sort(),
+    restartSemantics: {
+      restartSafe: recoverySource?.restartSemantics?.restartSafe !== false && recoveryState !== "blocked",
+      onRestart: recoverySource?.restartSemantics?.onRestart
+        ?? (recoveryState === "ready" ? "load-verifier-recovery-handoff" : "rebuild-verifier-recovery-handoff"),
+      onMissingState: recoverySource?.restartSemantics?.onMissingState
+        ?? (recoveryState === "blocked" ? "block-claim-acceptance" : "rebuild-verifier-recovery-handoff"),
+    },
+  };
+  const recoveryExportLedger = normalizeVerifierRecoveryExportLedger(
+    recoveryExportSource,
+    gateName,
+    recoveryHandoff,
+    clientPatch,
+  );
+
+  return {
+    required: source.required !== false,
+    source: "verifier-acceptance-review",
+    state,
+    ready: state === "ready" || state === "review",
+    visibleStatus: state === "ready"
+      ? "verifier-acceptance-ready"
+      : state === "review"
+        ? "review-verifier-acceptance"
+        : "verifier-acceptance-blocked",
+    nextAction,
+    snapshotId,
+    acceptanceReviewId: source.acceptanceReviewId ?? source.id ?? snapshotId,
+    acceptedForRuntime,
+    acceptedForExternalWrite,
+    blockingRuleIds: [...new Set(blockingRuleIds)].sort(),
+    pendingRuleIds: [...new Set(pendingRuleIds)].sort(),
+    warningRuleIds: [...new Set(warningRuleIds)].sort(),
+    requiredClientState,
+    commandIds: [...new Set([...commandIds, ...recoveryExportLedger.commandIds])].sort(),
+    clientPatch,
+    reviewRows,
+    recoveryHandoff,
+    recoveryExportLedger,
+    validationSummary: {
+      totalChecks: Number.isInteger(validationSummary.totalChecks) ? validationSummary.totalChecks : 0,
+      blockedChecks: Number.isInteger(validationSummary.blockedChecks)
+        ? validationSummary.blockedChecks
+        : blockingRuleIds.length,
+      pendingChecks: Number.isInteger(validationSummary.pendingChecks)
+        ? validationSummary.pendingChecks
+        : pendingRuleIds.length,
+      warningChecks: Number.isInteger(validationSummary.warningChecks)
+        ? validationSummary.warningChecks
+        : warningRuleIds.length,
+      reviewState: validationSummary.reviewState ?? state,
+      blockedReviewKeys,
+      waitingReviewKeys,
+      providerServiceStatus: validationSummary.providerServiceStatus ?? source.providerServiceStatus ?? null,
+      lifecycleStatus: validationSummary.lifecycleStatus ?? source.lifecycleStatus ?? null,
+    },
+    restartSemantics: {
+      restartSafe: (state !== "blocked" || pendingRuleIds.length > 0)
+        && recoveryState !== "blocked"
+        && recoveryExportLedger.restartSemantics.restartSafe !== false,
+      onRestart: state === "ready" ? "load-verifier-acceptance" : "rebuild-verifier-acceptance-review",
+      onMissingState: blocked ? "block-claim-acceptance" : "rebuild-verifier-acceptance-review",
+    },
+  };
+}
+
+function buildClaimLifecyclePrerequisiteContract(ast, requestState, tenantAuditHandoff, claimAcceptance) {
+  const lifecycle = ast.lifecycleSettings ?? normalizeClaimLifecycleSettings();
+  const verifierRecovery = ast.verifierAcceptance?.recoveryHandoff ?? {};
+  const verifierRecoveryExport = ast.verifierAcceptance?.recoveryExportLedger ?? {};
+  const scheduleWindowMissing = lifecycle.schedule.mode === "windowed"
+    && (!lifecycle.schedule.windowStart || !lifecycle.schedule.windowEnd);
+  const rows = [
+    {
+      key: "claim-state",
+      state: requestState.status === "ready-for-runtime" ? "ready" : "blocked",
+      sourceId: requestState.version,
+      nextAction: requestState.status === "ready-for-runtime" ? "continue-runtime-handoff" : "collect-missing-evidence",
+      commandId: requestState.commands.find((command) => command.type === "persist-claim-state")?.id ?? null,
+    },
+    {
+      key: "claim-lifecycle-enabled",
+      state: lifecycle.enabled ? "ready" : "blocked",
+      sourceId: ast.id,
+      nextAction: lifecycle.enabled ? "persist-claim-lifecycle-prerequisites" : "enable-claim-lifecycle",
+      commandId: null,
+    },
+    {
+      key: "claim-schedule",
+      state: lifecycle.schedule.mode === "disabled" || scheduleWindowMissing
+        ? "blocked"
+        : lifecycle.command === "schedule" || lifecycle.schedule.mode === "windowed"
+          ? "waiting"
+          : "ready",
+      sourceId: ast.id,
+      nextAction: lifecycle.schedule.mode === "disabled"
+        ? "choose-claim-release-schedule"
+        : scheduleWindowMissing
+          ? "declare-claim-release-window"
+          : lifecycle.command === "schedule" || lifecycle.schedule.mode === "windowed"
+            ? "wait-for-claim-release-window"
+            : "persist-claim-lifecycle-prerequisites",
+      commandId: null,
+    },
+    {
+      key: "tenant-audit",
+      state: tenantAuditHandoff.ready ? "ready" : tenantAuditHandoff.state === "review" ? "review" : "blocked",
+      sourceId: tenantAuditHandoff.id,
+      nextAction: tenantAuditHandoff.nextAction,
+      commandId: tenantAuditHandoff.commands?.[0]?.id ?? null,
+    },
+    {
+      key: "claim-acceptance",
+      state: claimAcceptance.canAcknowledge ? "ready" : claimAcceptance.status === "review" ? "review" : "blocked",
+      sourceId: claimAcceptance.id,
+      nextAction: claimAcceptance.nextAction,
+      commandId: claimAcceptance.acknowledgement?.command?.id ?? null,
+    },
+    {
+      key: "verifier-recovery-handoff",
+      state: verifierRecovery.ready ? "ready" : verifierRecovery.state === "review" ? "review" : "blocked",
+      sourceId: verifierRecovery.id ?? null,
+      nextAction: verifierRecovery.nextAction ?? "rebuild-verifier-recovery-handoff",
+      commandId: verifierRecovery.commandIds?.[0] ?? null,
+    },
+    {
+      key: "verifier-recovery-export",
+      state: verifierRecoveryExport.ready
+        ? "ready"
+        : verifierRecoveryExport.state === "review"
+          ? "review"
+          : verifierRecoveryExport.state === "waiting"
+            ? "waiting"
+            : "blocked",
+      sourceId: verifierRecoveryExport.id ?? null,
+      nextAction: verifierRecoveryExport.nextAction ?? "rebuild-verifier-recovery-export-ledger",
+      commandId: verifierRecoveryExport.commandIds?.[0] ?? null,
+    },
+  ];
+  const blockedRows = rows.filter((row) => row.state === "blocked");
+  const waitingRows = rows.filter((row) => row.state === "waiting");
+  const reviewRows = rows.filter((row) => row.state === "review");
+  const state = blockedRows.length > 0
+    ? "blocked"
+    : waitingRows.length > 0
+      ? "waiting"
+      : reviewRows.length > 0
+        ? "review"
+        : "ready";
+  const scope = [
+    ast.id,
+    requestState.version,
+    tenantAuditHandoff.auditDigest,
+    claimAcceptance.acceptanceToken,
+    state,
+    rows.map((row) => `${row.key}:${row.state}`).join(","),
+  ];
+  const command = {
+    id: stableId("claimlifecmd", [...scope, "persist-claim-lifecycle-prerequisites"]),
+    type: "persist-claim-lifecycle-prerequisites",
+    idempotencyKey: stableId("idem", [...scope, "persist-claim-lifecycle-prerequisites"]),
+    statusAfterReplay: state === "ready" ? "claim-lifecycle-ready" : `claim-lifecycle-${state}`,
+    writes: ["claimLifecyclePrerequisiteId", "rows", "nextAction", "resumeCursor"],
+    conflict: "return-existing",
+  };
+  return {
+    id: stableId("claimlife", scope),
+    product: "mailchimp",
+    contractVersion: "aios.mailchimp.claim-lifecycle-prerequisites.v1",
+    state,
+    ready: state === "ready",
+    visibleStatus: state === "ready"
+      ? "claim-lifecycle-ready"
+      : state === "waiting"
+        ? "claim-lifecycle-waiting"
+        : state === "review"
+          ? "review-claim-lifecycle"
+          : "repair-claim-lifecycle",
+    nextAction: blockedRows[0]?.nextAction
+      ?? waitingRows[0]?.nextAction
+      ?? reviewRows[0]?.nextAction
+      ?? "persist-claim-lifecycle-prerequisites",
+    lifecycle,
+    rows,
+    command,
+    validationSummary: {
+      blockedKeys: blockedRows.map((row) => row.key),
+      waitingKeys: waitingRows.map((row) => row.key),
+      reviewKeys: reviewRows.map((row) => row.key),
+      pendingFacts: requestState.pendingFacts,
+      scheduleWindowMissing,
+      verifierRecoveryExportState: verifierRecoveryExport.state ?? "unknown",
+      verifierRecoveryExportBlockedKeys: verifierRecoveryExport.blockedKeys ?? [],
+      verifierRecoveryExportWaitingKeys: verifierRecoveryExport.waitingKeys ?? [],
+    },
+  };
+}
+
+function buildClientRecoverySnapshotContract(input) {
+  const {
+    ast,
+    requestState,
+    tenantAuditHandoff,
+    clientResumeContract,
+    claimAcceptance,
+    lifecyclePrerequisites,
+    routeClientHandoff,
+    runtimeAdoptionPacket,
+    exportPacket,
+    operatorReadinessPacket,
+  } = input;
+  const verifierRecovery = ast.verifierAcceptance?.recoveryHandoff ?? {};
+  const verifierRecoveryExport = ast.verifierAcceptance?.recoveryExportLedger ?? {};
+  const rows = [
+    {
+      key: "request-state",
+      state: requestState.status === "ready-for-runtime" ? "ready" : "blocked",
+      visibleStatus: requestState.status,
+      nextAction: requestState.pendingFacts.length > 0 ? "collect-missing-evidence" : "handoff-to-runtime-adapter",
+      resumeCursor: requestState.resumeCursor,
+      sourceId: requestState.version,
+      commandIds: requestState.commands.map((command) => command.id),
+      restartSafe: requestState.restartSafe,
+      blockers: requestState.pendingFacts,
+    },
+    {
+      key: "tenant-audit",
+      state: tenantAuditHandoff.ready ? "ready" : tenantAuditHandoff.state,
+      visibleStatus: tenantAuditHandoff.state === "ready" ? "tenant-audit-ready" : `tenant-audit-${tenantAuditHandoff.state}`,
+      nextAction: tenantAuditHandoff.nextAction,
+      resumeCursor: requestState.resumeCursor,
+      sourceId: tenantAuditHandoff.id,
+      commandIds: tenantAuditHandoff.commands.map((command) => command.id),
+      restartSafe: tenantAuditHandoff.state !== "blocked",
+      blockers: tenantAuditHandoff.blockers,
+    },
+    {
+      key: "claim-acceptance",
+      state: claimAcceptance.canAcknowledge ? "ready" : claimAcceptance.status,
+      visibleStatus: claimAcceptance.visibleStatus,
+      nextAction: claimAcceptance.nextAction,
+      resumeCursor: requestState.resumeCursor,
+      sourceId: claimAcceptance.id,
+      commandIds: [claimAcceptance.acknowledgement?.command?.id].filter(Boolean),
+      restartSafe: claimAcceptance.status !== "blocked",
+      blockers: claimAcceptance.validationSummary?.pendingFacts ?? [],
+    },
+    {
+      key: "verifier-recovery-handoff",
+      state: verifierRecovery.ready ? "ready" : verifierRecovery.state ?? "blocked",
+      visibleStatus: verifierRecovery.visibleStatus ?? "verifier-recovery-unknown",
+      nextAction: verifierRecovery.nextAction ?? "rebuild-verifier-recovery-handoff",
+      resumeCursor: verifierRecovery.resumeCursor ?? requestState.resumeCursor,
+      sourceId: verifierRecovery.id ?? ast.verifierAcceptance?.snapshotId ?? null,
+      commandIds: verifierRecovery.commandIds ?? [],
+      restartSafe: verifierRecovery.restartSemantics?.restartSafe !== false && verifierRecovery.state !== "blocked",
+      blockers: [
+        ...(verifierRecovery.blockedRuleIds ?? []),
+        ...(verifierRecovery.missingStateKeys ?? []),
+      ],
+    },
+    {
+      key: "verifier-recovery-export",
+      state: verifierRecoveryExport.ready ? "ready" : verifierRecoveryExport.state ?? "blocked",
+      visibleStatus: verifierRecoveryExport.visibleStatus ?? "verifier-recovery-export-unknown",
+      nextAction: verifierRecoveryExport.nextAction ?? "rebuild-verifier-recovery-export-ledger",
+      resumeCursor: verifierRecoveryExport.resumeCursor ?? requestState.resumeCursor,
+      sourceId: verifierRecoveryExport.id ?? null,
+      commandIds: verifierRecoveryExport.commandIds ?? [],
+      restartSafe: verifierRecoveryExport.restartSemantics?.restartSafe !== false
+        && verifierRecoveryExport.state !== "blocked",
+      blockers: [
+        ...(verifierRecoveryExport.blockedKeys ?? []),
+        ...(verifierRecoveryExport.requiredStateKeys ?? []).filter((key) => (
+          (verifierRecoveryExport.waitingKeys ?? []).includes(key)
+        )),
+      ],
+    },
+    {
+      key: "lifecycle-prerequisites",
+      state: lifecyclePrerequisites.ready ? "ready" : lifecyclePrerequisites.state,
+      visibleStatus: lifecyclePrerequisites.visibleStatus,
+      nextAction: lifecyclePrerequisites.nextAction,
+      resumeCursor: requestState.resumeCursor,
+      sourceId: lifecyclePrerequisites.id,
+      commandIds: [lifecyclePrerequisites.command?.id].filter(Boolean),
+      restartSafe: lifecyclePrerequisites.state !== "blocked",
+      blockers: lifecyclePrerequisites.validationSummary?.blockedKeys ?? [],
+    },
+    {
+      key: "route-client-handoff",
+      state: routeClientHandoff.ready ? "ready" : routeClientHandoff.state,
+      visibleStatus: routeClientHandoff.userVisibleStatus,
+      nextAction: routeClientHandoff.nextAction,
+      resumeCursor: routeClientHandoff.restartSemantics?.replayCursor ?? requestState.resumeCursor,
+      sourceId: routeClientHandoff.digest,
+      commandIds: [routeClientHandoff.command?.id].filter(Boolean),
+      restartSafe: routeClientHandoff.restartSemantics?.restartSafe !== false,
+      blockers: routeClientHandoff.validationSummary?.blockedKeys ?? [],
+    },
+    {
+      key: "runtime-adoption",
+      state: runtimeAdoptionPacket.ready ? "ready" : runtimeAdoptionPacket.state,
+      visibleStatus: runtimeAdoptionPacket.userVisibleStatus,
+      nextAction: runtimeAdoptionPacket.nextAction,
+      resumeCursor: runtimeAdoptionPacket.restartSemantics?.replayCursor ?? requestState.resumeCursor,
+      sourceId: runtimeAdoptionPacket.digest,
+      commandIds: [runtimeAdoptionPacket.command?.id].filter(Boolean),
+      restartSafe: runtimeAdoptionPacket.restartSemantics?.restartSafe !== false,
+      blockers: runtimeAdoptionPacket.validationSummary?.blockedKeys ?? [],
+    },
+    {
+      key: "claim-export",
+      state: exportPacket.exportReady ? "ready" : exportPacket.state,
+      visibleStatus: exportPacket.state === "ready" ? "claim-export-ready" : `claim-export-${exportPacket.state}`,
+      nextAction: exportPacket.nextAction,
+      resumeCursor: exportPacket.replayCursor ?? requestState.resumeCursor,
+      sourceId: exportPacket.digest,
+      commandIds: exportPacket.publishCommands.map((command) => command.id),
+      restartSafe: exportPacket.state !== "blocked",
+      blockers: exportPacket.exportSummary?.blockerArtifactNames ?? [],
+    },
+    {
+      key: "operator-readiness",
+      state: operatorReadinessPacket.ready ? "ready" : operatorReadinessPacket.state,
+      visibleStatus: operatorReadinessPacket.visibleStatus,
+      nextAction: operatorReadinessPacket.nextAction,
+      resumeCursor: operatorReadinessPacket.clientPatch?.resumeCursor ?? requestState.resumeCursor,
+      sourceId: operatorReadinessPacket.id,
+      commandIds: [operatorReadinessPacket.acknowledgementCommand?.id].filter(Boolean),
+      restartSafe: operatorReadinessPacket.state !== "blocked",
+      blockers: operatorReadinessPacket.validationSummary?.blockedReadinessKeys ?? [],
+    },
+  ];
+  const blockedRows = rows.filter((row) => row.state === "blocked");
+  const waitingRows = rows.filter((row) => ["waiting", "review"].includes(row.state));
+  const state = blockedRows.length > 0 ? "blocked" : waitingRows.length > 0 ? "waiting" : "ready";
+  const snapshotId = stableId("clientrecover", [
+    ast.id,
+    requestState.version,
+    clientResumeContract.id,
+    state,
+    rows.map((row) => `${row.key}:${row.state}:${row.sourceId}`).join(","),
+  ]);
+  return {
+    protocol: "aios.mailchimp.claim-client-recovery-snapshot.v1",
+    id: snapshotId,
+    product: "mailchimp",
+    state,
+    ready: state === "ready",
+    requestId: ast.clientRuntime.requestId,
+    workflowId: ast.clientRuntime.workflowId,
+    tenantId: ast.clientRuntime.tenantId,
+    workspaceId: ast.clientRuntime.workspaceId,
+    clientStateKey: requestState.key,
+    continuationToken: ast.clientRuntime.continuationToken,
+    resumeCursor: stableId("clientrecovercursor", [
+      snapshotId,
+      requestState.resumeCursor,
+      rows.map((row) => row.resumeCursor).join(","),
+    ]),
+    rows,
+    resumeCursors: [...new Set(rows.map((row) => row.resumeCursor).filter(Boolean))].sort(),
+    commandIds: [...new Set(rows.flatMap((row) => row.commandIds))].sort(),
+    blockedKeys: blockedRows.map((row) => row.key),
+    waitingKeys: waitingRows.map((row) => row.key),
+    nextAction: blockedRows[0]?.nextAction ?? waitingRows[0]?.nextAction ?? "continue-runtime-adoption",
+    clientPatch: {
+      clientRecoverySnapshotId: snapshotId,
+      clientRecoveryState: state,
+      clientRecoveryReady: state === "ready",
+      clientRecoveryNextAction: blockedRows[0]?.nextAction ?? waitingRows[0]?.nextAction ?? "continue-runtime-adoption",
+      clientRecoveryBlockedKeys: blockedRows.map((row) => row.key),
+      clientRecoveryWaitingKeys: waitingRows.map((row) => row.key),
+      clientRecoveryResumeCursor: requestState.resumeCursor,
+    },
+    restartSemantics: {
+      restartSafe: blockedRows.length === 0 && rows.every((row) => row.restartSafe),
+      onRestart: state === "ready" ? "load-client-recovery-snapshot" : "reload-client-recovery-snapshot",
+      onDuplicateCommand: "return-existing-client-recovery-snapshot",
+      onStaleClaimState: "reload-claim-state-before-client-handoff",
+    },
+  };
+}
+
+function buildClaimWorkflowCheckpointHandoff(input) {
+  const {
+    ast,
+    requestState,
+    tenantAuditHandoff,
+    clientResumeContract,
+    claimAcceptance,
+    lifecyclePrerequisites,
+    routeClientHandoff,
+    runtimeAdoptionPacket,
+    exportPacket,
+    operatorReadinessPacket,
+    clientRecoverySnapshot,
+    boundaryRecoveryLedger,
+  } = input;
+  const verifierAcceptance = ast.verifierAcceptance ?? normalizeVerifierAcceptanceDependency(null, ast.name);
+  const verifierRecovery = verifierAcceptance.recoveryHandoff ?? {};
+  const verifierRecoveryExport = verifierAcceptance.recoveryExportLedger ?? {};
+  const rows = [
+    {
+      key: "claim-request-state",
+      state: requestState.status === "ready-for-runtime" ? "ready" : "blocked",
+      sourceId: requestState.version,
+      visibleStatus: requestState.status,
+      nextAction: requestState.pendingFacts.length ? "collect-missing-evidence" : "continue-runtime-handoff",
+      resumeCursor: requestState.resumeCursor,
+      commandIds: requestState.commands.map((command) => command.id),
+      blockers: requestState.pendingFacts,
+      waiting: [],
+      restartSafe: requestState.restartSafe,
+    },
+    {
+      key: "verifier-acceptance",
+      state: verifierAcceptance.state === "blocked"
+        ? "blocked"
+        : verifierAcceptance.state === "review"
+          ? "review"
+          : verifierAcceptance.ready
+            ? "ready"
+            : "waiting",
+      sourceId: verifierAcceptance.acceptanceReviewId ?? verifierAcceptance.snapshotId,
+      visibleStatus: verifierAcceptance.visibleStatus,
+      nextAction: verifierAcceptance.nextAction,
+      resumeCursor: verifierRecovery.resumeCursor ?? requestState.resumeCursor,
+      commandIds: verifierAcceptance.commandIds ?? [],
+      blockers: [
+        ...(verifierAcceptance.blockingRuleIds ?? []),
+        ...(verifierAcceptance.pendingRuleIds ?? []),
+        ...(verifierRecovery.missingStateKeys ?? []),
+      ],
+      waiting: verifierAcceptance.warningRuleIds ?? [],
+      restartSafe: verifierAcceptance.restartSemantics?.restartSafe !== false
+        && verifierRecovery.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "verifier-recovery-export",
+      state: verifierRecoveryExport.state === "blocked"
+        ? "blocked"
+        : verifierRecoveryExport.state === "review"
+          ? "review"
+          : verifierRecoveryExport.ready
+            ? "ready"
+            : "waiting",
+      sourceId: verifierRecoveryExport.id ?? null,
+      visibleStatus: verifierRecoveryExport.visibleStatus ?? "verifier-recovery-export-unknown",
+      nextAction: verifierRecoveryExport.nextAction ?? "rebuild-verifier-recovery-export-ledger",
+      resumeCursor: verifierRecoveryExport.resumeCursor ?? verifierRecovery.resumeCursor ?? requestState.resumeCursor,
+      commandIds: verifierRecoveryExport.commandIds ?? [],
+      blockers: verifierRecoveryExport.blockedKeys ?? [],
+      waiting: [
+        ...(verifierRecoveryExport.waitingKeys ?? []),
+        ...(verifierRecoveryExport.reviewKeys ?? []),
+      ],
+      restartSafe: verifierRecoveryExport.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "tenant-audit-handoff",
+      state: tenantAuditHandoff.ready ? "ready" : tenantAuditHandoff.state,
+      sourceId: tenantAuditHandoff.id,
+      visibleStatus: tenantAuditHandoff.state === "ready" ? "tenant-audit-ready" : `tenant-audit-${tenantAuditHandoff.state}`,
+      nextAction: tenantAuditHandoff.nextAction,
+      resumeCursor: requestState.resumeCursor,
+      commandIds: tenantAuditHandoff.commands.map((command) => command.id),
+      blockers: tenantAuditHandoff.blockers,
+      waiting: tenantAuditHandoff.warnings,
+      restartSafe: tenantAuditHandoff.state !== "blocked",
+    },
+    {
+      key: "claim-acceptance",
+      state: claimAcceptance.canAcknowledge ? "ready" : claimAcceptance.status,
+      sourceId: claimAcceptance.id,
+      visibleStatus: claimAcceptance.visibleStatus,
+      nextAction: claimAcceptance.nextAction,
+      resumeCursor: requestState.resumeCursor,
+      commandIds: [claimAcceptance.acknowledgement?.command?.id].filter(Boolean),
+      blockers: claimAcceptance.validationSummary?.pendingFacts ?? [],
+      waiting: claimAcceptance.validationSummary?.warningRuleIds ?? [],
+      restartSafe: claimAcceptance.status !== "blocked",
+    },
+    {
+      key: "lifecycle-prerequisites",
+      state: lifecyclePrerequisites.ready ? "ready" : lifecyclePrerequisites.state,
+      sourceId: lifecyclePrerequisites.id,
+      visibleStatus: lifecyclePrerequisites.visibleStatus,
+      nextAction: lifecyclePrerequisites.nextAction,
+      resumeCursor: requestState.resumeCursor,
+      commandIds: [lifecyclePrerequisites.command?.id].filter(Boolean),
+      blockers: lifecyclePrerequisites.validationSummary?.blockedKeys ?? [],
+      waiting: [
+        ...(lifecyclePrerequisites.validationSummary?.waitingKeys ?? []),
+        ...(lifecyclePrerequisites.validationSummary?.reviewKeys ?? []),
+      ],
+      restartSafe: lifecyclePrerequisites.state !== "blocked",
+    },
+    {
+      key: "route-client-handoff",
+      state: routeClientHandoff.ready ? "ready" : routeClientHandoff.state,
+      sourceId: routeClientHandoff.digest,
+      visibleStatus: routeClientHandoff.userVisibleStatus,
+      nextAction: routeClientHandoff.nextAction,
+      resumeCursor: routeClientHandoff.restartSemantics?.replayCursor ?? requestState.resumeCursor,
+      commandIds: [routeClientHandoff.command?.id].filter(Boolean),
+      blockers: routeClientHandoff.validationSummary?.blockedKeys ?? [],
+      waiting: routeClientHandoff.validationSummary?.waitingKeys ?? [],
+      restartSafe: routeClientHandoff.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "runtime-adoption",
+      state: runtimeAdoptionPacket.ready ? "ready" : runtimeAdoptionPacket.state,
+      sourceId: runtimeAdoptionPacket.digest,
+      visibleStatus: runtimeAdoptionPacket.userVisibleStatus,
+      nextAction: runtimeAdoptionPacket.nextAction,
+      resumeCursor: runtimeAdoptionPacket.restartSemantics?.replayCursor ?? requestState.resumeCursor,
+      commandIds: [runtimeAdoptionPacket.command?.id].filter(Boolean),
+      blockers: runtimeAdoptionPacket.validationSummary?.blockedKeys ?? [],
+      waiting: runtimeAdoptionPacket.validationSummary?.waitingKeys ?? [],
+      restartSafe: runtimeAdoptionPacket.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "client-recovery-snapshot",
+      state: clientRecoverySnapshot.ready ? "ready" : clientRecoverySnapshot.state,
+      sourceId: clientRecoverySnapshot.id,
+      visibleStatus: clientRecoverySnapshot.state === "ready" ? "client-recovery-ready" : `client-recovery-${clientRecoverySnapshot.state}`,
+      nextAction: clientRecoverySnapshot.nextAction,
+      resumeCursor: clientRecoverySnapshot.resumeCursor,
+      commandIds: clientRecoverySnapshot.commandIds,
+      blockers: clientRecoverySnapshot.blockedKeys,
+      waiting: clientRecoverySnapshot.waitingKeys,
+      restartSafe: clientRecoverySnapshot.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "boundary-recovery-ledger",
+      state: boundaryRecoveryLedger.ready ? "ready" : boundaryRecoveryLedger.state,
+      sourceId: boundaryRecoveryLedger.id,
+      visibleStatus: boundaryRecoveryLedger.state === "ready" ? "boundary-recovery-ready" : `boundary-recovery-${boundaryRecoveryLedger.state}`,
+      nextAction: boundaryRecoveryLedger.nextAction,
+      resumeCursor: boundaryRecoveryLedger.resumeCursor,
+      commandIds: boundaryRecoveryLedger.commandIds ?? [boundaryRecoveryLedger.command?.id].filter(Boolean),
+      blockers: boundaryRecoveryLedger.blockedKeys ?? [],
+      waiting: boundaryRecoveryLedger.waitingKeys ?? [],
+      restartSafe: boundaryRecoveryLedger.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "claim-export",
+      state: exportPacket.exportReady ? "ready" : exportPacket.state,
+      sourceId: exportPacket.digest,
+      visibleStatus: exportPacket.exportReady ? "claim-export-ready" : `claim-export-${exportPacket.state}`,
+      nextAction: exportPacket.nextAction,
+      resumeCursor: exportPacket.replayCursor ?? requestState.resumeCursor,
+      commandIds: exportPacket.publishCommands.map((command) => command.id),
+      blockers: exportPacket.exportSummary?.blockerArtifactNames ?? [],
+      waiting: exportPacket.exportSummary?.waitingArtifactNames ?? [],
+      restartSafe: exportPacket.state !== "blocked",
+    },
+    {
+      key: "operator-readiness",
+      state: operatorReadinessPacket.ready ? "ready" : operatorReadinessPacket.state,
+      sourceId: operatorReadinessPacket.id,
+      visibleStatus: operatorReadinessPacket.visibleStatus,
+      nextAction: operatorReadinessPacket.nextAction,
+      resumeCursor: operatorReadinessPacket.clientPatch?.resumeCursor ?? requestState.resumeCursor,
+      commandIds: [operatorReadinessPacket.acknowledgementCommand?.id].filter(Boolean),
+      blockers: operatorReadinessPacket.validationSummary?.blockedKeys
+        ?? operatorReadinessPacket.validationSummary?.blockedReadinessKeys
+        ?? [],
+      waiting: operatorReadinessPacket.validationSummary?.reviewKeys
+        ?? operatorReadinessPacket.validationSummary?.waitingReadinessKeys
+        ?? [],
+      restartSafe: operatorReadinessPacket.restartSemantics?.restartSafe !== false,
+    },
+  ].map((row, index) => ({
+    sequence: index + 1,
+    rowId: stableId("workflowrow", [ast.id, row.key, row.state, row.sourceId]),
+    ...row,
+  }));
+  const blockedRows = rows.filter((row) => row.state === "blocked");
+  const waitingRows = rows.filter((row) => ["waiting", "review"].includes(row.state));
+  const state = blockedRows.length ? "blocked" : waitingRows.length ? "waiting" : "ready";
+  const handoffId = stableId("workflowhandoff", [
+    ast.id,
+    requestState.version,
+    state,
+    rows.map((row) => `${row.key}:${row.state}:${row.sourceId}`).join(","),
+  ]);
+  const command = {
+    id: stableId("workflowcmd", [handoffId, "persist-claim-workflow-checkpoints"]),
+    type: "persist-claim-workflow-checkpoints",
+    idempotencyKey: stableId("idem", [handoffId, "persist-claim-workflow-checkpoints"]),
+    statusAfterReplay: state === "ready" ? "claim-workflow-ready" : `claim-workflow-${state}`,
+    writes: ["workflowCheckpointRows", "visibleStatus", "nextAction", "resumeCursors"],
+    conflict: "return-existing",
+  };
+  return {
+    protocol: "aios.mailchimp.claim-workflow-checkpoint-handoff.v1",
+    id: handoffId,
+    product: "mailchimp",
+    state,
+    ready: state === "ready",
+    requestId: ast.clientRuntime.requestId,
+    workflowId: ast.clientRuntime.workflowId,
+    clientStateKey: requestState.key,
+    continuationToken: ast.clientRuntime.continuationToken,
+    visibleStatus: state === "ready" ? "claim-workflow-ready" : `claim-workflow-${state}`,
+    nextAction: blockedRows[0]?.nextAction ?? waitingRows[0]?.nextAction ?? "continue-runtime-adoption",
+    rows,
+    blockedKeys: [...new Set(blockedRows.map((row) => row.key))].sort(),
+    waitingKeys: [...new Set(waitingRows.map((row) => row.key))].sort(),
+    blockedFacts: [...new Set(blockedRows.flatMap((row) => row.blockers))].sort(),
+    resumeCursors: [...new Set(rows.map((row) => row.resumeCursor).filter(Boolean))].sort(),
+    commandIds: [...new Set([command.id, ...rows.flatMap((row) => row.commandIds)])].sort(),
+    command,
+    clientPatch: {
+      claimWorkflowCheckpointHandoffId: handoffId,
+      claimWorkflowCheckpointState: state,
+      claimWorkflowCheckpointReady: state === "ready",
+      claimWorkflowCheckpointVisibleStatus: state === "ready" ? "claim-workflow-ready" : `claim-workflow-${state}`,
+      claimWorkflowCheckpointNextAction: blockedRows[0]?.nextAction ?? waitingRows[0]?.nextAction ?? "continue-runtime-adoption",
+      claimWorkflowCheckpointBlockedKeys: blockedRows.map((row) => row.key),
+      claimWorkflowCheckpointWaitingKeys: waitingRows.map((row) => row.key),
+      claimWorkflowCheckpointResumeCursor: requestState.resumeCursor,
+      claimWorkflowCheckpointCommandId: command.id,
+    },
+    restartSemantics: {
+      restartSafe: state !== "blocked" && rows.every((row) => row.restartSafe),
+      onRestart: state === "ready" ? "load-claim-workflow-checkpoints" : "reload-claim-workflow-checkpoints",
+      onDuplicateCommand: "return-existing-claim-workflow-checkpoints",
+      onMissingClientState: "rebuild-claim-workflow-checkpoints",
+    },
+  };
+}
+
 function buildRequestStateSnapshot(ast, compiledRules, evidenceFacts) {
   const pendingFacts = [...new Set(compiledRules.flatMap((rule) => rule.missing))].sort();
   const blockedRules = compiledRules.filter((rule) => rule.status === "blocked");
@@ -540,6 +1484,9 @@ function countBy(items, keySelector) {
 
 function buildClaimGateReporting(ast, compiledRules, issues, requestState, tenantAuditHandoff = null) {
   const tenantBoundary = buildTenantBoundaryReport(ast);
+  const verifierAcceptance = ast.verifierAcceptance ?? normalizeVerifierAcceptanceDependency(null, ast.name);
+  const verifierRecovery = verifierAcceptance.recoveryHandoff ?? {};
+  const verifierRecoveryExport = verifierAcceptance.recoveryExportLedger ?? {};
   const verifiedFacts = requestState.verifiedFacts;
   const pendingFacts = requestState.pendingFacts;
   const blockedRules = compiledRules.filter((rule) => rule.status === "blocked");
@@ -596,6 +1543,40 @@ function buildClaimGateReporting(ast, compiledRules, issues, requestState, tenan
       nextAction: pendingFacts.length > 0 ? "collect-missing-evidence" : "handoff-to-runtime-adapter",
       resumeCursor: requestState.resumeCursor,
     },
+    {
+      id: stableId("gatehist", [
+        ...historyScope,
+        "verifier-recovery",
+        verifierAcceptance.snapshotId,
+        verifierRecovery.id,
+      ]),
+      sequence: 5,
+      type: "verifier-recovery-handoff",
+      status: verifierRecovery.state ?? verifierAcceptance.state,
+      snapshotId: verifierAcceptance.snapshotId,
+      recoveryHandoffId: verifierRecovery.id ?? null,
+      visibleStatus: verifierRecovery.visibleStatus ?? verifierAcceptance.visibleStatus,
+      nextAction: verifierRecovery.nextAction ?? verifierAcceptance.nextAction,
+      blockedRuleIds: verifierRecovery.blockedRuleIds ?? verifierAcceptance.blockingRuleIds,
+      missingStateKeys: verifierRecovery.missingStateKeys ?? verifierAcceptance.requiredClientState,
+    },
+    {
+      id: stableId("gatehist", [
+        ...historyScope,
+        "verifier-recovery-export",
+        verifierRecoveryExport.id,
+        verifierRecoveryExport.state,
+      ]),
+      sequence: 6,
+      type: "verifier-recovery-export-ledger",
+      status: verifierRecoveryExport.state ?? "unknown",
+      exportLedgerId: verifierRecoveryExport.id ?? null,
+      visibleStatus: verifierRecoveryExport.visibleStatus ?? null,
+      nextAction: verifierRecoveryExport.nextAction ?? null,
+      blockedKeys: verifierRecoveryExport.blockedKeys ?? [],
+      waitingKeys: verifierRecoveryExport.waitingKeys ?? [],
+      replayCursor: verifierRecoveryExport.replayCursor ?? null,
+    },
   ];
   const timeline = [
     {
@@ -619,6 +1600,22 @@ function buildClaimGateReporting(ast, compiledRules, issues, requestState, tenan
       status: tenantBoundary.actorCanExecute && pendingFacts.length === 0 ? "ready-for-runtime" : "blocked",
       commandId: null,
       restartSafe: requestState.restartSafe,
+    },
+    {
+      sequence: pendingFacts.length + 3,
+      event: "verifier-recovery-handoff",
+      status: verifierRecovery.ready ? "ready" : verifierRecovery.state ?? verifierAcceptance.state,
+      commandId: verifierRecovery.commandIds?.[0] ?? null,
+      restartSafe: verifierRecovery.restartSemantics?.restartSafe !== false,
+      nextAction: verifierRecovery.nextAction ?? verifierAcceptance.nextAction,
+    },
+    {
+      sequence: pendingFacts.length + 4,
+      event: "verifier-recovery-export-ledger",
+      status: verifierRecoveryExport.ready ? "ready" : verifierRecoveryExport.state ?? "unknown",
+      commandId: verifierRecoveryExport.commandIds?.[0] ?? null,
+      restartSafe: verifierRecoveryExport.restartSemantics?.restartSafe !== false,
+      nextAction: verifierRecoveryExport.nextAction ?? "rebuild-verifier-recovery-export-ledger",
     },
   ];
   const exportSummary = {
@@ -645,6 +1642,16 @@ function buildClaimGateReporting(ast, compiledRules, issues, requestState, tenan
       tenantAuditReady: tenantAuditHandoff?.ready ? 1 : 0,
       tenantAuditCommands: tenantAuditHandoff?.commands?.length ?? 0,
       tenantAuditBlockers: tenantAuditHandoff?.blockers?.length ?? 0,
+      verifierAcceptanceRequired: verifierAcceptance.required ? 1 : 0,
+      verifierAcceptanceReady: verifierAcceptance.ready ? 1 : 0,
+      verifierRecoveryReady: verifierRecovery.ready ? 1 : 0,
+      verifierRecoveryCommands: verifierRecovery.commandIds?.length ?? 0,
+      verifierRecoveryBlockedRules: verifierRecovery.blockedRuleIds?.length ?? 0,
+      verifierRecoveryMissingStateKeys: verifierRecovery.missingStateKeys?.length ?? 0,
+      verifierRecoveryExportReady: verifierRecoveryExport.ready ? 1 : 0,
+      verifierRecoveryExportCommands: verifierRecoveryExport.commandIds?.length ?? 0,
+      verifierRecoveryExportBlockedKeys: verifierRecoveryExport.blockedKeys?.length ?? 0,
+      verifierRecoveryExportWaitingKeys: verifierRecoveryExport.waitingKeys?.length ?? 0,
     },
     byRuleOperator: ruleOperatorCounts,
     byRuleStatus: ruleStatusCounts,
@@ -654,6 +1661,13 @@ function buildClaimGateReporting(ast, compiledRules, issues, requestState, tenan
     resumeCursor: requestState.resumeCursor,
     tenantAuditDigest: tenantAuditHandoff?.auditDigest ?? null,
     tenantAuditState: tenantAuditHandoff?.state ?? "unknown",
+    verifierAcceptanceState: verifierAcceptance.state,
+    verifierRecoveryState: verifierRecovery.state ?? "unknown",
+    verifierRecoveryHandoffId: verifierRecovery.id ?? null,
+    verifierRecoveryNextAction: verifierRecovery.nextAction ?? verifierAcceptance.nextAction,
+    verifierRecoveryExportState: verifierRecoveryExport.state ?? "unknown",
+    verifierRecoveryExportLedgerId: verifierRecoveryExport.id ?? null,
+    verifierRecoveryExportNextAction: verifierRecoveryExport.nextAction ?? null,
     historySnapshotIds: snapshots.map((snapshot) => snapshot.id),
   };
   return {
@@ -670,18 +1684,22 @@ function buildClaimGateReporting(ast, compiledRules, issues, requestState, tenan
 
 function buildClaimAcceptanceContract(ast, compiledRules, issues, requestState, reporting) {
   const tenantBoundary = buildTenantBoundaryReport(ast);
+  const verifierAcceptance = ast.verifierAcceptance ?? normalizeVerifierAcceptanceDependency(null, ast.name);
   const pendingFacts = requestState.pendingFacts;
   const errorIssues = issues.filter((issue) => issue.severity === "error");
   const warningIssues = issues.filter((issue) => issue.severity === "warning");
   const blockedRules = compiledRules.filter((rule) => rule.status === "blocked");
   const readyForRuntime = requestState.status === "ready-for-runtime"
     && tenantBoundary.actorCanExecute
+    && verifierAcceptance.state !== "blocked"
     && errorIssues.length === 0;
   const acceptanceToken = stableId("claimaccept", [
     ast.id,
     requestState.version,
     requestState.resumeCursor,
     tenantBoundary.id,
+    verifierAcceptance.snapshotId,
+    verifierAcceptance.state,
     reporting.exportSummary.status,
     pendingFacts.join(","),
   ]);
@@ -709,6 +1727,12 @@ function buildClaimAcceptanceContract(ast, compiledRules, issues, requestState, 
       value: requestState.resumeCursor,
       required: pendingFacts.length > 0,
       reason: "Lets clients resume evidence collection without recomputing gate state.",
+    },
+    {
+      name: "verifierAcceptanceSnapshotId",
+      value: verifierAcceptance.snapshotId,
+      required: verifierAcceptance.required,
+      reason: "Binds claim acceptance to the latest Mailchimp verifier acceptance review.",
     },
   ];
   const validationChecks = [
@@ -749,6 +1773,22 @@ function buildClaimAcceptanceContract(ast, compiledRules, issues, requestState, 
         : `Request state ${requestState.key} is not restart-safe.`,
       nextAction: requestState.restartSafe ? "persist-claim-acknowledgment" : "repair-request-state",
       commandIds: requestState.commands.map((command) => command.id),
+    },
+    {
+      name: "verifier-acceptance",
+      status: verifierAcceptance.state === "blocked"
+        ? "blocked"
+        : verifierAcceptance.state === "review"
+          ? "review"
+          : "ready",
+      detail: verifierAcceptance.required
+        ? `Verifier acceptance is ${verifierAcceptance.visibleStatus}.`
+        : "Verifier acceptance is not required for this claim gate.",
+      nextAction: verifierAcceptance.nextAction,
+      snapshotId: verifierAcceptance.snapshotId,
+      blockingRuleIds: verifierAcceptance.blockingRuleIds,
+      pendingRuleIds: verifierAcceptance.pendingRuleIds,
+      warningRuleIds: verifierAcceptance.warningRuleIds,
     },
   ];
   const blockingChecks = validationChecks.filter((check) => check.status === "blocked");
@@ -803,10 +1843,23 @@ function buildClaimAcceptanceContract(ast, compiledRules, issues, requestState, 
       pendingFacts,
       blockedRuleIds: blockedRules.map((rule) => rule.id),
       tenantBoundary,
+      verifierAcceptance: {
+        state: verifierAcceptance.state,
+        visibleStatus: verifierAcceptance.visibleStatus,
+        snapshotId: verifierAcceptance.snapshotId,
+        acceptedForRuntime: verifierAcceptance.acceptedForRuntime,
+        acceptedForExternalWrite: verifierAcceptance.acceptedForExternalWrite,
+        blockingRuleIds: verifierAcceptance.blockingRuleIds,
+        pendingRuleIds: verifierAcceptance.pendingRuleIds,
+        warningRuleIds: verifierAcceptance.warningRuleIds,
+      },
     },
     validationSummary: {
       valid: errorIssues.length === 0,
       readyForRuntime,
+      verifierAcceptanceState: verifierAcceptance.state,
+      verifierAcceptanceReady: verifierAcceptance.ready,
+      verifierAcceptanceSnapshotId: verifierAcceptance.snapshotId,
       issueCounts: reporting.byIssueSeverity,
       issueCodes: issues.map((issue) => issue.code),
       pendingFacts,
@@ -814,6 +1867,7 @@ function buildClaimAcceptanceContract(ast, compiledRules, issues, requestState, 
       verifiedFacts: requestState.verifiedFacts,
       requiredInputNames: requiredInputs.filter((input) => input.required).map((input) => input.name),
     },
+    verifierAcceptance,
     acknowledgement: {
       canAcknowledge: readyForRuntime,
       acknowledgeAction: readyForRuntime
@@ -2030,6 +3084,50 @@ function buildClaimGateAnalyticsExport({
     tenantAuditCommandCount: tenantAuditHandoff.commands.length,
     clientActionCount: clientResumeContract.actions.length,
   };
+  const exportChannels = [
+    {
+      name: "kernel.analytics.mailchimp.claim_gate",
+      state: failedCheckpoints.length ? "blocked" : reviewCheckpoints.length ? "review" : "ready",
+      required: true,
+      nextAction: failedCheckpoints.length
+        ? "repair-claim-gate-analytics-export"
+        : reviewCheckpoints.length
+          ? "review-claim-gate-analytics-export"
+          : "publish-claim-gate-analytics-export",
+      snapshotIds: historySnapshots.map((snapshot) => snapshot.id),
+    },
+    {
+      name: "client.timeline.mailchimp.claim_gate",
+      state: requestState.pendingFacts.length ? "review" : "ready",
+      required: false,
+      nextAction: requestState.pendingFacts.length
+        ? "publish-claim-gate-timeline-with-pending-evidence"
+        : "publish-claim-gate-timeline",
+      snapshotIds: historySnapshots
+        .filter((snapshot) => ["claim-gate-compiled", "evidence-pending", "evidence-complete"].includes(snapshot.type))
+        .map((snapshot) => snapshot.id),
+    },
+    {
+      name: "audit.mailchimp.claim_gate",
+      state: tenantAuditHandoff.ready ? "ready" : tenantAuditHandoff.state,
+      required: tenantAuditHandoff.auditRequired === true,
+      nextAction: tenantAuditHandoff.ready ? "publish-tenant-audit-summary" : tenantAuditHandoff.nextAction,
+      snapshotIds: historySnapshots
+        .filter((snapshot) => ["tenant-boundary-evaluated", "tenant-audit-handoff"].includes(snapshot.type))
+        .map((snapshot) => snapshot.id),
+    },
+  ];
+  const blockedChannels = exportChannels.filter((channel) => channel.required && channel.state === "blocked");
+  const reviewChannels = exportChannels.filter((channel) => ["review", "waiting"].includes(channel.state));
+  const exportReadiness = {
+    ready: blockedChannels.length === 0,
+    channelCount: exportChannels.length,
+    blockedChannels: blockedChannels.map((channel) => channel.name),
+    reviewChannels: reviewChannels.map((channel) => channel.name),
+    nextAction: blockedChannels[0]?.nextAction
+      ?? reviewChannels[0]?.nextAction
+      ?? "publish-claim-gate-analytics-export",
+  };
   const state = failedCheckpoints.length
     ? "blocked"
     : reviewCheckpoints.length
@@ -2077,6 +3175,14 @@ function buildClaimGateAnalyticsExport({
       failedCheckpoints: failedCheckpoints.map((checkpoint) => checkpoint.name),
       reviewCheckpoints: reviewCheckpoints.map((checkpoint) => checkpoint.name),
       historySnapshotIds: historySnapshots.map((snapshot) => snapshot.id),
+      exportChannels: exportChannels.map((channel) => ({
+        name: channel.name,
+        state: channel.state,
+        required: channel.required,
+        nextAction: channel.nextAction,
+      })),
+      blockedChannels: exportReadiness.blockedChannels,
+      reviewChannels: exportReadiness.reviewChannels,
       counters,
     },
     reporting: {
@@ -2084,6 +3190,8 @@ function buildClaimGateAnalyticsExport({
       retention: requestState.pendingFacts.length || blockedRules.length ? "durable_review" : "durable_audit",
       latestSnapshotId: historySnapshots[historySnapshots.length - 1]?.id ?? null,
       latestTimelineEvent: timeline[timeline.length - 1]?.event ?? null,
+      exportReadiness,
+      exportChannels,
     },
     blockers,
     warnings,
@@ -2208,6 +3316,16 @@ function buildClaimGateExportPacket({
     requiredArtifacts.map((artifact) => `${artifact.name}:${artifact.state}:${artifact.artifactId}`).join("|"),
     analyticsExport.digest,
   ]);
+  const retentionManifest = buildClaimExportRetentionManifest({
+    ast,
+    requestState,
+    exportDigest,
+    exportState,
+    requiredArtifacts,
+    analyticsExport,
+    operationalHealth,
+    replayManifest,
+  });
   return {
     protocol: "aios.mailchimp.claim-gate.export-packet.v1",
     product: "mailchimp",
@@ -2230,6 +3348,9 @@ function buildClaimGateExportPacket({
       runtimeAdoptionDigest: runtimeAdoptionPacket.digest,
       latestSnapshotId: analyticsExport.reporting.latestSnapshotId,
       historySnapshotIds: analyticsExport.exportSummary.historySnapshotIds,
+      retentionManifestId: retentionManifest.id,
+      retentionState: retentionManifest.state,
+      retentionReady: retentionManifest.ready,
     },
     counters: {
       artifacts: requiredArtifacts.length,
@@ -2240,6 +3361,10 @@ function buildClaimGateExportPacket({
       pendingFacts: requestState.pendingFacts.length,
       historySnapshots: analyticsExport.exportSummary.historySnapshotIds.length,
       timelineEvents: analyticsExport.timeline.length,
+      retentionRows: retentionManifest.counters.rows,
+      retentionDurableRows: retentionManifest.counters.durableRows,
+      retentionReviewRows: retentionManifest.counters.reviewRows,
+      retentionBlockedRows: retentionManifest.counters.blockedRows,
     },
     byExportClass: classCounts,
     byArtifactState: stateCounts,
@@ -2248,6 +3373,7 @@ function buildClaimGateExportPacket({
       ...artifact,
       exportKey: stableId("exportrow", [exportDigest, artifact.name, artifact.artifactId]),
     })),
+    retentionManifest,
     publishCommands: exportState === "ready"
       ? [
           {
@@ -2258,6 +3384,7 @@ function buildClaimGateExportPacket({
             writes: ["claimExportDigest", "artifactManifest", "historySnapshotIds"],
             conflict: "return-existing",
           },
+          ...retentionManifest.commands,
         ]
       : [],
     exportSummary: {
@@ -2268,24 +3395,144 @@ function buildClaimGateExportPacket({
       blockerArtifactNames: blockedArtifacts.map((artifact) => artifact.name),
       issueCodes: issues.map((issue) => issue.code),
       historySnapshotIds: analyticsExport.exportSummary.historySnapshotIds,
+      retentionManifestId: retentionManifest.id,
+      retentionState: retentionManifest.state,
+      retentionReady: retentionManifest.ready,
+      retentionBlockedArtifactNames: retentionManifest.blockedArtifactNames,
       nextAction: exportState === "ready"
-        ? "publish-claim-export-packet"
-        : blockedArtifacts[0]?.nextAction ?? analyticsExport.nextAction,
+        ? retentionManifest.nextAction
+        : retentionManifest.blockedArtifactNames.length
+          ? retentionManifest.nextAction
+          : blockedArtifacts[0]?.nextAction ?? analyticsExport.nextAction,
     },
     clientPatch: {
       claimExportDigest: exportDigest,
       claimExportStatus: exportState,
       claimExportReady: exportState === "ready",
       claimExportNextAction: exportState === "ready"
-        ? "publish-claim-export-packet"
-        : blockedArtifacts[0]?.nextAction ?? analyticsExport.nextAction,
+        ? retentionManifest.nextAction
+        : retentionManifest.blockedArtifactNames.length
+          ? retentionManifest.nextAction
+          : blockedArtifacts[0]?.nextAction ?? analyticsExport.nextAction,
       claimExportBlockedArtifacts: blockedArtifacts.map((artifact) => artifact.name),
       claimExportLatestSnapshotId: analyticsExport.reporting.latestSnapshotId,
+      claimExportRetentionManifestId: retentionManifest.id,
+      claimExportRetentionState: retentionManifest.state,
+      claimExportRetentionBlockedArtifacts: retentionManifest.blockedArtifactNames,
     },
     restartSemantics: {
       replaySafe: replayManifest.restartSafe === true,
       duplicateCommandPolicy: "dedupe-by-claim-export-digest",
       resumeFromDigest: exportDigest,
+      externalWritesPerformed: false,
+    },
+  };
+}
+
+function buildClaimExportRetentionManifest({
+  ast,
+  requestState,
+  exportDigest,
+  exportState,
+  requiredArtifacts,
+  analyticsExport,
+  operationalHealth,
+  replayManifest,
+}) {
+  const historySnapshotIds = analyticsExport.exportSummary.historySnapshotIds ?? [];
+  const latestSnapshotId = analyticsExport.reporting.latestSnapshotId ?? historySnapshotIds.at(-1) ?? null;
+  const retentionRows = requiredArtifacts.map((artifact, index) => {
+    const historyBound = artifact.exportClass === "analytics"
+      || artifact.exportClass === "audit"
+      || artifact.name === "request-state";
+    const durable = historyBound || artifact.ready === true;
+    const reviewRequired = artifact.ready !== true || artifact.state === "review";
+    const rowState = artifact.ready === true
+      ? reviewRequired
+        ? "review"
+        : "retained"
+      : artifact.state === "blocked"
+        ? "blocked"
+        : "review";
+    return {
+      sequence: index + 1,
+      artifactName: artifact.name,
+      artifactId: artifact.artifactId,
+      exportClass: artifact.exportClass,
+      state: rowState,
+      durable,
+      reviewRequired,
+      retentionKey: stableId("retention", [
+        exportDigest,
+        artifact.name,
+        artifact.artifactId,
+        latestSnapshotId,
+      ]),
+      historySnapshotId: historyBound ? latestSnapshotId : null,
+      replayCursor: artifact.exportClass === "recovery" ? replayManifest.replayCursor : requestState.resumeCursor,
+      nextAction: rowState === "blocked"
+        ? artifact.nextAction
+        : rowState === "review"
+          ? "review-claim-export-retention"
+          : "retain-claim-export-artifact",
+    };
+  });
+  const blockedRows = retentionRows.filter((row) => row.state === "blocked");
+  const reviewRows = retentionRows.filter((row) => row.state === "review");
+  const durableRows = retentionRows.filter((row) => row.durable);
+  const state = exportState === "blocked" || blockedRows.length
+    ? "blocked"
+    : reviewRows.length
+      ? "review"
+      : "ready";
+  const manifestId = stableId("claimretention", [
+    ast.id,
+    exportDigest,
+    requestState.version,
+    state,
+    retentionRows.map((row) => `${row.artifactName}:${row.state}:${row.retentionKey}`).join("|"),
+  ]);
+  const commands = state === "ready"
+    ? [
+        {
+          id: stableId("cmd", [manifestId, "persist-retention-manifest"]),
+          type: "persist-claim-export-retention-manifest",
+          idempotencyKey: stableId("idem", [manifestId, "persist-retention-manifest"]),
+          statusAfterReplay: "claim-export-retention-ready",
+          writes: ["retentionManifestId", "retentionRows", "latestSnapshotId", "exportDigest"],
+          conflict: "return-existing",
+        },
+      ]
+    : [];
+  return {
+    protocol: "aios.mailchimp.claim-export-retention-manifest.v1",
+    id: manifestId,
+    product: "mailchimp",
+    gateId: ast.id,
+    exportDigest,
+    state,
+    ready: state === "ready",
+    latestSnapshotId,
+    operationalHealthDigest: operationalHealth.digest,
+    replayDigest: replayManifest.digest,
+    rows: retentionRows,
+    counters: {
+      rows: retentionRows.length,
+      durableRows: durableRows.length,
+      reviewRows: reviewRows.length,
+      blockedRows: blockedRows.length,
+      historySnapshots: historySnapshotIds.length,
+    },
+    blockedArtifactNames: blockedRows.map((row) => row.artifactName),
+    reviewArtifactNames: reviewRows.map((row) => row.artifactName),
+    commands,
+    nextAction: blockedRows[0]?.nextAction
+      ?? reviewRows[0]?.nextAction
+      ?? "persist-claim-export-retention-manifest",
+    restartSemantics: {
+      restartSafe: state !== "blocked" && replayManifest.restartSafe === true,
+      onRestart: state === "ready" ? "load-claim-export-retention-manifest" : "rebuild-claim-export-retention-manifest",
+      onDuplicateCommand: "return-existing-retention-manifest",
       externalWritesPerformed: false,
     },
   };
@@ -2337,6 +3584,467 @@ function claimGateActionForIssue(code) {
   return "repair-claim-gate";
 }
 
+function buildClaimOperatorReadinessPacket({
+  ast,
+  requestState,
+  tenantAuditHandoff,
+  clientResumeContract,
+  claimAcceptance,
+  lifecyclePrerequisites,
+  routeDecisionSeed,
+  routeClientHandoff,
+  runtimeAdoptionPacket,
+  exportPacket,
+  issues,
+}) {
+  const issueRows = issues.map((issue, index) => ({
+    sequence: index + 1,
+    code: issue.code,
+    severity: issue.severity,
+    source: claimGateIssueSource(issue.code),
+    retryable: claimGateIssueRetryable(issue.code),
+    nextAction: claimGateActionForIssue(issue.code),
+  }));
+  const workflowGuards = [
+    {
+      key: "client-state-key",
+      state: ast.clientRuntime.clientStateKey ? "ready" : "blocked",
+      expected: ast.clientRuntime.clientStateKey,
+      observed: requestState.key,
+      nextAction: ast.clientRuntime.clientStateKey ? "continue-client-workflow" : "declare-client-state-key",
+    },
+    {
+      key: "route-client-handoff",
+      state: routeClientHandoff.ready ? "ready" : routeClientHandoff.state === "review" ? "review" : "blocked",
+      expected: routeDecisionSeed.digest,
+      observed: routeClientHandoff.digest,
+      nextAction: routeClientHandoff.nextAction,
+    },
+    {
+      key: "runtime-adoption",
+      state: runtimeAdoptionPacket.ready ? "ready" : runtimeAdoptionPacket.state === "review" ? "review" : "blocked",
+      expected: routeClientHandoff.digest,
+      observed: runtimeAdoptionPacket.runtimeInputs?.clientHandoffDigest ?? null,
+      nextAction: runtimeAdoptionPacket.nextAction,
+    },
+    {
+      key: "claim-export",
+      state: exportPacket.exportReady ? "ready" : exportPacket.state === "review" ? "review" : "blocked",
+      expected: runtimeAdoptionPacket.digest,
+      observed: exportPacket.manifest?.runtimeAdoptionDigest ?? null,
+      nextAction: exportPacket.nextAction,
+    },
+  ].map((row, index) => ({
+    sequence: index + 1,
+    ...row,
+    matched: row.expected === row.observed || row.state !== "ready",
+    guardKey: stableId("workflowguardrow", [
+      ast.id,
+      requestState.version,
+      row.key,
+      row.state,
+      row.expected,
+      row.observed,
+    ]),
+  }));
+  const blockedWorkflowGuards = workflowGuards.filter((row) => row.state === "blocked" || row.matched === false);
+  const reviewWorkflowGuards = workflowGuards.filter((row) => row.state === "review");
+  const workflowGuardState = blockedWorkflowGuards.length > 0
+    ? "blocked"
+    : reviewWorkflowGuards.length > 0
+      ? "review"
+      : "ready";
+  const workflowHandoffGuard = {
+    protocol: "aios.mailchimp.claim-client-workflow-guard.v1",
+    id: stableId("workflowguard", [
+      ast.id,
+      requestState.version,
+      routeClientHandoff.digest,
+      runtimeAdoptionPacket.digest,
+      exportPacket.digest,
+      workflowGuardState,
+    ]),
+    state: workflowGuardState,
+    ready: workflowGuardState === "ready",
+    clientStateKey: ast.clientRuntime.clientStateKey,
+    resumeCursor: requestState.resumeCursor,
+    continuationToken: ast.clientRuntime.continuationToken,
+    rows: workflowGuards,
+    blockedKeys: blockedWorkflowGuards.map((row) => row.key),
+    reviewKeys: reviewWorkflowGuards.map((row) => row.key),
+    nextAction: blockedWorkflowGuards[0]?.nextAction
+      ?? reviewWorkflowGuards[0]?.nextAction
+      ?? "persist-client-workflow-guard",
+    digest: stableId("workflowguarddigest", [
+      ast.id,
+      requestState.version,
+      workflowGuardState,
+      workflowGuards.map((row) => `${row.key}:${row.state}:${row.matched}`).join("|"),
+    ]),
+  };
+  const readinessRows = [
+    {
+      key: "claim-evidence",
+      state: requestState.pendingFacts.length > 0 ? "blocked" : "ready",
+      visibleStatus: requestState.pendingFacts.length > 0 ? "needs-mailchimp-evidence" : "claim-evidence-ready",
+      nextAction: requestState.pendingFacts.length > 0 ? "collect-missing-evidence" : "continue-runtime-handoff",
+      sourceId: requestState.version,
+      blockerCodes: requestState.pendingFacts.map((fact) => `missing-fact:${fact}`),
+      commandIds: requestState.commands.map((command) => command.id),
+    },
+    {
+      key: "tenant-audit",
+      state: tenantAuditHandoff.ready ? "ready" : tenantAuditHandoff.state === "review" ? "review" : "blocked",
+      visibleStatus: tenantAuditHandoff.ready ? "tenant-audit-ready" : `tenant-audit-${tenantAuditHandoff.state}`,
+      nextAction: tenantAuditHandoff.nextAction,
+      sourceId: tenantAuditHandoff.id,
+      blockerCodes: tenantAuditHandoff.blockers ?? [],
+      commandIds: tenantAuditHandoff.commands.map((command) => command.id),
+    },
+    {
+      key: "claim-acceptance",
+      state: claimAcceptance.canAcknowledge ? "ready" : claimAcceptance.status === "review" ? "review" : "blocked",
+      visibleStatus: claimAcceptance.visibleStatus,
+      nextAction: claimAcceptance.nextAction,
+      sourceId: claimAcceptance.id,
+      blockerCodes: claimAcceptance.validationSummary?.blockers ?? [],
+      commandIds: [claimAcceptance.acknowledgement?.command?.id].filter(Boolean),
+    },
+    {
+      key: "lifecycle-prerequisites",
+      state: lifecyclePrerequisites.ready ? "ready" : lifecyclePrerequisites.state,
+      visibleStatus: lifecyclePrerequisites.visibleStatus,
+      nextAction: lifecyclePrerequisites.nextAction,
+      sourceId: lifecyclePrerequisites.id,
+      blockerCodes: lifecyclePrerequisites.validationSummary?.blockedKeys ?? [],
+      commandIds: [lifecyclePrerequisites.command?.id].filter(Boolean),
+    },
+    {
+      key: "route-handoff",
+      state: routeClientHandoff.ready ? "ready" : routeClientHandoff.state,
+      visibleStatus: routeClientHandoff.userVisibleStatus,
+      nextAction: routeClientHandoff.nextAction,
+      sourceId: routeClientHandoff.id,
+      blockerCodes: routeClientHandoff.validationSummary?.blockedKeys ?? [],
+      commandIds: [routeClientHandoff.command?.id].filter(Boolean),
+    },
+    {
+      key: "runtime-adoption",
+      state: runtimeAdoptionPacket.ready ? "ready" : runtimeAdoptionPacket.state,
+      visibleStatus: runtimeAdoptionPacket.userVisibleStatus,
+      nextAction: runtimeAdoptionPacket.nextAction,
+      sourceId: runtimeAdoptionPacket.id,
+      blockerCodes: runtimeAdoptionPacket.validationSummary?.blockedKeys ?? [],
+      commandIds: [runtimeAdoptionPacket.command?.id].filter(Boolean),
+    },
+    {
+      key: "export-contract",
+      state: exportPacket.exportReady ? "ready" : exportPacket.state,
+      visibleStatus: exportPacket.state === "ready" ? "claim-export-ready" : `claim-export-${exportPacket.state}`,
+      nextAction: exportPacket.nextAction,
+      sourceId: exportPacket.id,
+      blockerCodes: exportPacket.exportSummary?.blockerCodes ?? [],
+      commandIds: exportPacket.publishCommands.map((command) => command.id),
+    },
+    {
+      key: "client-workflow-guard",
+      state: workflowHandoffGuard.ready ? "ready" : workflowHandoffGuard.state,
+      visibleStatus: workflowHandoffGuard.ready ? "client-workflow-ready" : `client-workflow-${workflowHandoffGuard.state}`,
+      nextAction: workflowHandoffGuard.nextAction,
+      sourceId: workflowHandoffGuard.id,
+      blockerCodes: workflowHandoffGuard.blockedKeys,
+      commandIds: [],
+    },
+  ];
+  const blockedRows = readinessRows.filter((row) => row.state === "blocked");
+  const reviewRows = readinessRows.filter((row) => row.state === "review");
+  const state = blockedRows.length > 0
+    ? "blocked"
+    : reviewRows.length > 0 || issueRows.some((issue) => issue.severity === "warning")
+      ? "review"
+      : "ready";
+  const digest = stableId("opreadyhash", [
+    ast.id,
+    requestState.version,
+    state,
+    readinessRows.map((row) => `${row.key}:${row.state}:${row.sourceId}`).join("|"),
+    issueRows.map((issue) => `${issue.code}:${issue.severity}`).join("|"),
+  ]);
+  const packetId = stableId("opready", [
+    ast.id,
+    routeDecisionSeed.id,
+    runtimeAdoptionPacket.id,
+    exportPacket.id,
+    digest,
+  ]);
+  const acknowledgementCommand = {
+    id: stableId("cmd", [packetId, "persist-operator-readiness"]),
+    type: "persist-claim-operator-readiness",
+    idempotencyKey: stableId("idem", [packetId, "persist-operator-readiness"]),
+    statusAfterReplay: state === "ready" ? "claim-operator-ready" : `claim-operator-${state}`,
+    writes: ["operatorReadinessPacketId", "readinessRows", "digest", "nextAction"],
+    conflict: "return-existing",
+  };
+  return {
+    protocol: "aios.mailchimp.claim-operator-readiness.v1",
+    id: packetId,
+    product: "mailchimp",
+    gateId: ast.id,
+    requestId: ast.clientRuntime.requestId,
+    workflowId: ast.clientRuntime.workflowId,
+    tenantId: ast.clientRuntime.tenantId,
+    workspaceId: ast.clientRuntime.workspaceId,
+    state,
+    ready: state === "ready",
+    visibleStatus: state === "ready"
+      ? "claim-operator-ready"
+      : state === "review"
+        ? "review-claim-operator-readiness"
+        : "repair-claim-operator-readiness",
+    nextAction: blockedRows[0]?.nextAction ?? reviewRows[0]?.nextAction ?? "persist-claim-operator-readiness",
+    digest,
+    acknowledgementCommand,
+    rows: readinessRows,
+    issueRows,
+    workflowHandoffGuard,
+    clientPatch: {
+      claimOperatorReadinessId: packetId,
+      claimOperatorReadinessState: state,
+      claimOperatorReadinessVisibleStatus: state === "ready"
+        ? "claim-operator-ready"
+        : state === "review"
+          ? "review-claim-operator-readiness"
+          : "repair-claim-operator-readiness",
+      claimOperatorReadinessNextAction: blockedRows[0]?.nextAction ?? reviewRows[0]?.nextAction ?? "persist-claim-operator-readiness",
+      blockedReadinessKeys: blockedRows.map((row) => row.key),
+      reviewReadinessKeys: reviewRows.map((row) => row.key),
+      workflowGuardId: workflowHandoffGuard.id,
+      workflowGuardState: workflowHandoffGuard.state,
+      workflowGuardBlockedKeys: workflowHandoffGuard.blockedKeys,
+      workflowGuardReviewKeys: workflowHandoffGuard.reviewKeys,
+      pendingFacts: requestState.pendingFacts,
+      resumeCursor: requestState.resumeCursor,
+      continuationToken: ast.clientRuntime.continuationToken,
+    },
+    validationSummary: {
+      rowCount: readinessRows.length,
+      blockedKeys: blockedRows.map((row) => row.key),
+      reviewKeys: reviewRows.map((row) => row.key),
+      errorCodes: issueRows.filter((issue) => issue.severity === "error").map((issue) => issue.code),
+      warningCodes: issueRows.filter((issue) => issue.severity === "warning").map((issue) => issue.code),
+      pendingFacts: requestState.pendingFacts,
+      clientResumeAction: clientResumeContract.primaryAction,
+      routeDecisionState: routeDecisionSeed.state,
+      workflowGuardState: workflowHandoffGuard.state,
+      workflowGuardBlockedKeys: workflowHandoffGuard.blockedKeys,
+      workflowGuardReviewKeys: workflowHandoffGuard.reviewKeys,
+    },
+    restartSemantics: {
+      restartSafe: state !== "blocked" && requestState.restartSafe === true,
+      onRestart: state === "ready" ? "load-claim-operator-readiness" : "rebuild-claim-operator-readiness",
+      onDuplicateCommand: "return-existing-operator-readiness",
+      externalWritesPerformed: false,
+    },
+  };
+}
+
+function buildClaimBoundaryRecoveryLedger({
+  ast,
+  requestState,
+  tenantAuditHandoff,
+  clientResumeContract,
+  claimAcceptance,
+  lifecyclePrerequisites,
+  routeClientHandoff,
+  runtimeAdoptionPacket,
+  operatorReadinessPacket,
+}) {
+  const tenantBoundary = buildTenantBoundaryReport(ast);
+  const sourceRows = [
+    {
+      key: "request-state",
+      state: requestState.restartSafe ? requestState.status : "blocked",
+      sourceId: requestState.version,
+      resumeCursor: requestState.resumeCursor,
+      nextAction: requestState.pendingFacts.length > 0 ? "collect-missing-evidence" : "load-claim-request-state",
+      commandIds: requestState.commands.map((command) => command.id),
+      blockers: requestState.pendingFacts.map((fact) => `missing-fact:${fact}`),
+      restartSafe: requestState.restartSafe === true,
+    },
+    {
+      key: "tenant-boundary",
+      state: tenantBoundary.actorCanExecute ? "ready" : "blocked",
+      sourceId: tenantBoundary.id,
+      resumeCursor: requestState.resumeCursor,
+      nextAction: tenantBoundary.actorCanExecute ? "append-tenant-audit" : "repair-tenant-permission",
+      commandIds: tenantAuditHandoff.commands.map((command) => command.id),
+      blockers: tenantBoundary.actorCanExecute ? [] : ["actor-role-denied"],
+      restartSafe: tenantBoundary.roleAllowedInWorkspace === true,
+    },
+    {
+      key: "tenant-audit",
+      state: tenantAuditHandoff.ready ? "ready" : tenantAuditHandoff.state,
+      sourceId: tenantAuditHandoff.id,
+      resumeCursor: requestState.resumeCursor,
+      nextAction: tenantAuditHandoff.nextAction,
+      commandIds: tenantAuditHandoff.commands.map((command) => command.id),
+      blockers: tenantAuditHandoff.blockers ?? [],
+      restartSafe: tenantAuditHandoff.state !== "blocked",
+    },
+    {
+      key: "client-resume",
+      state: clientResumeContract.screenState === "ready" ? "ready" : "waiting",
+      sourceId: clientResumeContract.id,
+      resumeCursor: clientResumeContract.resumeCursor,
+      nextAction: clientResumeContract.primaryAction,
+      commandIds: clientResumeContract.durableSnapshot?.commandIds ?? [],
+      blockers: clientResumeContract.blockedRuleSummaries?.flatMap((rule) => rule.missingFacts) ?? [],
+      restartSafe: clientResumeContract.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "claim-acceptance",
+      state: claimAcceptance.canAcknowledge ? "ready" : claimAcceptance.status,
+      sourceId: claimAcceptance.id,
+      resumeCursor: requestState.resumeCursor,
+      nextAction: claimAcceptance.nextAction,
+      commandIds: [claimAcceptance.acknowledgement?.command?.id].filter(Boolean),
+      blockers: claimAcceptance.validationSummary?.blockers ?? [],
+      restartSafe: claimAcceptance.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "lifecycle-prerequisites",
+      state: lifecyclePrerequisites.ready ? "ready" : lifecyclePrerequisites.state,
+      sourceId: lifecyclePrerequisites.id,
+      resumeCursor: requestState.resumeCursor,
+      nextAction: lifecyclePrerequisites.nextAction,
+      commandIds: [lifecyclePrerequisites.command?.id].filter(Boolean),
+      blockers: lifecyclePrerequisites.validationSummary?.blockedKeys ?? [],
+      restartSafe: lifecyclePrerequisites.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "route-client-handoff",
+      state: routeClientHandoff.ready ? "ready" : routeClientHandoff.state,
+      sourceId: routeClientHandoff.id,
+      resumeCursor: routeClientHandoff.preview?.resumeCursor ?? requestState.resumeCursor,
+      nextAction: routeClientHandoff.nextAction,
+      commandIds: [routeClientHandoff.command?.id].filter(Boolean),
+      blockers: routeClientHandoff.blockers ?? [],
+      restartSafe: routeClientHandoff.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "runtime-adoption",
+      state: runtimeAdoptionPacket.ready ? "ready" : runtimeAdoptionPacket.state,
+      sourceId: runtimeAdoptionPacket.id,
+      resumeCursor: runtimeAdoptionPacket.restartSemantics?.replayCursor ?? requestState.resumeCursor,
+      nextAction: runtimeAdoptionPacket.nextAction,
+      commandIds: [runtimeAdoptionPacket.command?.id].filter(Boolean),
+      blockers: runtimeAdoptionPacket.validationSummary?.blockers ?? [],
+      restartSafe: runtimeAdoptionPacket.restartSemantics?.restartSafe !== false,
+    },
+    {
+      key: "operator-readiness",
+      state: operatorReadinessPacket.ready ? "ready" : operatorReadinessPacket.state,
+      sourceId: operatorReadinessPacket.id,
+      resumeCursor: operatorReadinessPacket.clientPatch?.resumeCursor ?? requestState.resumeCursor,
+      nextAction: operatorReadinessPacket.nextAction,
+      commandIds: [operatorReadinessPacket.acknowledgementCommand?.id].filter(Boolean),
+      blockers: operatorReadinessPacket.validationSummary?.blockedKeys ?? [],
+      restartSafe: operatorReadinessPacket.restartSemantics?.restartSafe !== false,
+    },
+  ];
+  const rows = sourceRows.map((row, index) => ({
+    sequence: index + 1,
+    ...row,
+    rowId: stableId("boundaryrow", [
+      ast.id,
+      requestState.version,
+      row.key,
+      row.state,
+      row.sourceId,
+      row.resumeCursor,
+    ]),
+    exportState: row.state === "blocked"
+      ? "blocked"
+      : ["waiting", "review", "needs-evidence"].includes(row.state)
+        ? "waiting"
+        : row.restartSafe
+          ? "exportable"
+          : "review",
+  }));
+  const blockedRows = rows.filter((row) => row.exportState === "blocked");
+  const waitingRows = rows.filter((row) => row.exportState === "waiting");
+  const reviewRows = rows.filter((row) => row.exportState === "review");
+  const state = blockedRows.length > 0
+    ? "blocked"
+    : waitingRows.length > 0
+      ? "waiting"
+      : reviewRows.length > 0
+        ? "review"
+        : "ready";
+  const ledgerId = stableId("boundaryledger", [
+    ast.id,
+    requestState.version,
+    tenantBoundary.id,
+    state,
+    rows.map((row) => `${row.key}:${row.exportState}:${row.sourceId}`).join(","),
+  ]);
+  const command = {
+    id: stableId("cmd", [ledgerId, "persist-boundary-recovery-ledger"]),
+    type: "persist-claim-boundary-recovery-ledger",
+    idempotencyKey: stableId("idem", [ledgerId, "persist-boundary-recovery-ledger"]),
+    statusAfterReplay: state,
+    writes: ["boundaryRecoveryRows", "resumeCursors", "blockedKeys", "nextAction"],
+    conflict: "return-existing",
+  };
+  return {
+    protocol: "aios.mailchimp.claim-boundary-recovery-ledger.v1",
+    id: ledgerId,
+    product: "mailchimp",
+    gateId: ast.id,
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    boundaryId: tenantBoundary.id,
+    state,
+    ready: state === "ready",
+    restartSafe: state !== "blocked" && rows.every((row) => row.restartSafe),
+    resumeCursor: stableId("boundarycursor", [
+      requestState.resumeCursor,
+      tenantAuditHandoff.auditDigest,
+      rows.map((row) => `${row.key}:${row.exportState}`).join(","),
+    ]),
+    rows,
+    blockedKeys: blockedRows.map((row) => row.key),
+    waitingKeys: waitingRows.map((row) => row.key),
+    reviewKeys: reviewRows.map((row) => row.key),
+    command,
+    commandIds: [...new Set(rows.flatMap((row) => row.commandIds).filter(Boolean))].sort(),
+    resumeCursors: [...new Set(rows.map((row) => row.resumeCursor).filter(Boolean))].sort(),
+    nextAction: blockedRows[0]?.nextAction
+      ?? waitingRows[0]?.nextAction
+      ?? reviewRows[0]?.nextAction
+      ?? "publish-claim-boundary-recovery-ledger",
+    clientPatch: {
+      claimBoundaryRecoveryLedgerId: ledgerId,
+      claimBoundaryRecoveryState: state,
+      claimBoundaryRecoveryReady: state === "ready",
+      claimBoundaryRecoveryNextAction: blockedRows[0]?.nextAction
+        ?? waitingRows[0]?.nextAction
+        ?? reviewRows[0]?.nextAction
+        ?? "publish-claim-boundary-recovery-ledger",
+      claimBoundaryRecoveryBlockedKeys: blockedRows.map((row) => row.key),
+      claimBoundaryRecoveryWaitingKeys: waitingRows.map((row) => row.key),
+      claimBoundaryRecoveryResumeCursor: requestState.resumeCursor,
+    },
+    restartSemantics: {
+      restartSafe: state !== "blocked" && rows.every((row) => row.restartSafe),
+      onRestart: state === "ready" ? "load-claim-boundary-recovery-ledger" : "rebuild-claim-boundary-recovery-ledger",
+      onDuplicateCommand: "return-existing-claim-boundary-recovery-ledger",
+      onTenantBoundaryChange: "recompute-claim-boundary-recovery-ledger",
+      externalWritesPerformed: false,
+    },
+  };
+}
+
 export function parseClaimGate(source) {
   const manifest = parseClaimSource(source);
   const name = normalizeIdentifier(manifest.name ?? manifest.gate, "mailchimp-claim-gate");
@@ -2350,6 +4058,16 @@ export function parseClaimGate(source) {
     manifest.tenantPolicy ?? manifest.permissions ?? manifest.permissionPolicy,
     clientRuntime,
   );
+  const lifecycleSettings = normalizeClaimLifecycleSettings(
+    manifest.lifecycle ?? manifest.lifecycleSettings ?? manifest.controls,
+  );
+  const verifierAcceptance = normalizeVerifierAcceptanceDependency(
+    manifest.verifierAcceptance
+      ?? manifest.verifierReadiness
+      ?? manifest.verifierReview
+      ?? manifest.acceptanceReviewPacket,
+    name,
+  );
   return {
     kind: "AiosClaimGateAst",
     id: stableId("gate", [name, rules.map((rule) => rule.id).join(",")]),
@@ -2357,6 +4075,8 @@ export function parseClaimGate(source) {
     product: "mailchimp",
     clientRuntime,
     tenantPolicy,
+    lifecycleSettings,
+    verifierAcceptance,
     evidence,
     rules,
     requiredFacts,
@@ -2364,7 +4084,16 @@ export function parseClaimGate(source) {
 }
 
 export function compileClaimGate(source, options = {}) {
-  const ast = parseClaimGate(source);
+  const parsedAst = parseClaimGate(source);
+  const verifierOverride = options.verifierAcceptance
+    ?? options.verifierReadiness
+    ?? options.acceptanceReviewPacket;
+  const ast = {
+    ...parsedAst,
+    verifierAcceptance: verifierOverride === undefined
+      ? parsedAst.verifierAcceptance
+      : normalizeVerifierAcceptanceDependency(verifierOverride, parsedAst.name),
+  };
   const evidenceFacts = new Set(ast.evidence.map((entry) => entry.fact));
   const compiledRules = ast.rules.map((rule) => compileRule(rule, evidenceFacts));
   const issues = collectGateIssues(compiledRules, ast);
@@ -2373,6 +4102,12 @@ export function compileClaimGate(source, options = {}) {
   const clientResumeContract = buildClientResumeContract(ast, compiledRules, requestState);
   const reporting = buildClaimGateReporting(ast, compiledRules, issues, requestState, tenantAuditHandoff);
   const claimAcceptance = buildClaimAcceptanceContract(ast, compiledRules, issues, requestState, reporting);
+  const lifecyclePrerequisites = buildClaimLifecyclePrerequisiteContract(
+    ast,
+    requestState,
+    tenantAuditHandoff,
+    claimAcceptance,
+  );
   const routeDecisionSeed = buildClaimRouteDecisionSeed(
     ast,
     compiledRules,
@@ -2445,6 +4180,11 @@ export function compileClaimGate(source, options = {}) {
     operationalHealth,
     analyticsExport,
   });
+  const exportIssues = [
+    ...allIssues,
+    ...collectClaimRouteClientHandoffIssues(routeClientHandoff),
+    ...collectClaimRuntimeAdoptionIssues(runtimeAdoptionPacket),
+  ];
   const exportPacket = buildClaimGateExportPacket({
     ast,
     requestState,
@@ -2458,17 +4198,59 @@ export function compileClaimGate(source, options = {}) {
     analyticsExport,
     routeClientHandoff,
     runtimeAdoptionPacket,
-    issues: [
-      ...allIssues,
-      ...collectClaimRouteClientHandoffIssues(routeClientHandoff),
-      ...collectClaimRuntimeAdoptionIssues(runtimeAdoptionPacket),
-    ],
+    issues: exportIssues,
   });
-  const finalIssues = [
-    ...allIssues,
-    ...collectClaimRouteClientHandoffIssues(routeClientHandoff),
-    ...collectClaimRuntimeAdoptionIssues(runtimeAdoptionPacket),
-  ];
+  const finalIssues = exportIssues;
+  const operatorReadinessPacket = buildClaimOperatorReadinessPacket({
+    ast,
+    requestState,
+    tenantAuditHandoff,
+    clientResumeContract,
+    claimAcceptance,
+    lifecyclePrerequisites,
+    routeDecisionSeed,
+    routeClientHandoff,
+    runtimeAdoptionPacket,
+    exportPacket,
+    issues: finalIssues,
+  });
+  const clientRecoverySnapshot = buildClientRecoverySnapshotContract({
+    ast,
+    requestState,
+    tenantAuditHandoff,
+    clientResumeContract,
+    claimAcceptance,
+    lifecyclePrerequisites,
+    routeClientHandoff,
+    runtimeAdoptionPacket,
+    exportPacket,
+    operatorReadinessPacket,
+  });
+  const boundaryRecoveryLedger = buildClaimBoundaryRecoveryLedger({
+    ast,
+    requestState,
+    tenantAuditHandoff,
+    clientResumeContract,
+    claimAcceptance,
+    lifecyclePrerequisites,
+    routeClientHandoff,
+    runtimeAdoptionPacket,
+    operatorReadinessPacket,
+  });
+  const workflowCheckpointHandoff = buildClaimWorkflowCheckpointHandoff({
+    ast,
+    requestState,
+    tenantAuditHandoff,
+    clientResumeContract,
+    claimAcceptance,
+    lifecyclePrerequisites,
+    routeClientHandoff,
+    runtimeAdoptionPacket,
+    exportPacket,
+    operatorReadinessPacket,
+    clientRecoverySnapshot,
+    boundaryRecoveryLedger,
+  });
   return {
     ast,
     descriptor: {
@@ -2499,13 +4281,31 @@ export function compileClaimGate(source, options = {}) {
           version: requestState.version,
           resumeCursor: requestState.resumeCursor,
           restartSafe: requestState.restartSafe,
-          commandIds: requestState.commands.map((command) => command.id),
-          clientResumeContractId: clientResumeContract.id,
-          replayCursor: replayManifest.replayCursor,
+      commandIds: requestState.commands.map((command) => command.id),
+      clientResumeContractId: clientResumeContract.id,
+          verifierRecoveryHandoffId: ast.verifierAcceptance.recoveryHandoff.id,
+          verifierRecoveryState: ast.verifierAcceptance.recoveryHandoff.state,
+          verifierRecoveryResumeCursor: ast.verifierAcceptance.recoveryHandoff.resumeCursor,
+          verifierRecoveryExportLedgerId: ast.verifierAcceptance.recoveryExportLedger.id,
+          verifierRecoveryExportState: ast.verifierAcceptance.recoveryExportLedger.state,
+          verifierRecoveryExportResumeCursor: ast.verifierAcceptance.recoveryExportLedger.resumeCursor,
+          verifierRecoveryExportReplayCursor: ast.verifierAcceptance.recoveryExportLedger.replayCursor,
+          verifierRecoveryExportCommandIds: ast.verifierAcceptance.recoveryExportLedger.commandIds,
+      replayCursor: replayManifest.replayCursor,
           replayDigest: replayManifest.digest,
           runtimeAdoptionKey: runtimeAdoptionPacket.adoptionKey,
           runtimeAdoptionDigest: runtimeAdoptionPacket.digest,
           runtimeAdoptionState: runtimeAdoptionPacket.state,
+          operatorReadinessId: operatorReadinessPacket.id,
+          operatorReadinessDigest: operatorReadinessPacket.digest,
+          operatorReadinessState: operatorReadinessPacket.state,
+          boundaryRecoveryLedgerId: boundaryRecoveryLedger.id,
+          boundaryRecoveryState: boundaryRecoveryLedger.state,
+          boundaryRecoveryResumeCursor: boundaryRecoveryLedger.resumeCursor,
+          workflowCheckpointHandoffId: workflowCheckpointHandoff.id,
+          workflowCheckpointState: workflowCheckpointHandoff.state,
+          workflowCheckpointResumeCursors: workflowCheckpointHandoff.resumeCursors,
+          workflowCheckpointCommandId: workflowCheckpointHandoff.command.id,
         },
       },
       tenantPolicy: {
@@ -2520,6 +4320,8 @@ export function compileClaimGate(source, options = {}) {
           nextAction: tenantAuditHandoff.nextAction,
         },
       },
+      lifecyclePrerequisites,
+      verifierAcceptance: ast.verifierAcceptance,
       rules: compiledRules,
       verifierContract: {
         id: stableId("verifier", [ast.id, ast.requiredFacts.join(",")]),
@@ -2552,14 +4354,19 @@ export function compileClaimGate(source, options = {}) {
       clientResumeContract,
       reporting,
       claimAcceptance,
+      verifierAcceptance: ast.verifierAcceptance,
       routeDecisionSeed,
       replayManifest,
       operationalHealth,
       analyticsExport,
       routeClientHandoff,
       runtimeAdoptionPacket,
+      clientRecoverySnapshot,
+      boundaryRecoveryLedger,
+      workflowCheckpointHandoff,
       exportPacket,
       claimExportPacket: exportPacket,
+      operatorReadinessPacket,
       userVisiblePreview: claimAcceptance.preview,
       acceptance: claimAcceptance.acknowledgement,
       routeAcceptance: {
@@ -2580,6 +4387,34 @@ export function compileClaimGate(source, options = {}) {
         runtimeAdoptionDigest: runtimeAdoptionPacket.digest,
         runtimeAdoptionState: runtimeAdoptionPacket.state,
         runtimeAdoptionNextAction: runtimeAdoptionPacket.nextAction,
+        lifecyclePrerequisiteId: lifecyclePrerequisites.id,
+        lifecyclePrerequisiteState: lifecyclePrerequisites.state,
+        lifecyclePrerequisiteNextAction: lifecyclePrerequisites.nextAction,
+      },
+      verifierReadiness: {
+        state: ast.verifierAcceptance.state,
+        ready: ast.verifierAcceptance.ready,
+        visibleStatus: ast.verifierAcceptance.visibleStatus,
+        nextAction: ast.verifierAcceptance.nextAction,
+        snapshotId: ast.verifierAcceptance.snapshotId,
+        acceptanceReviewId: ast.verifierAcceptance.acceptanceReviewId,
+        acceptedForRuntime: ast.verifierAcceptance.acceptedForRuntime,
+        acceptedForExternalWrite: ast.verifierAcceptance.acceptedForExternalWrite,
+        blockingRuleIds: ast.verifierAcceptance.blockingRuleIds,
+        pendingRuleIds: ast.verifierAcceptance.pendingRuleIds,
+        warningRuleIds: ast.verifierAcceptance.warningRuleIds,
+        requiredClientState: ast.verifierAcceptance.requiredClientState,
+        recoveryHandoff: ast.verifierAcceptance.recoveryHandoff,
+        recoveryExportLedger: ast.verifierAcceptance.recoveryExportLedger,
+      },
+      claimLifecycle: {
+        state: lifecyclePrerequisites.state,
+        ready: lifecyclePrerequisites.ready,
+        visibleStatus: lifecyclePrerequisites.visibleStatus,
+        nextAction: lifecyclePrerequisites.nextAction,
+        lifecycle: lifecyclePrerequisites.lifecycle,
+        command: lifecyclePrerequisites.command,
+        validationSummary: lifecyclePrerequisites.validationSummary,
       },
       clientRouteHandoff: {
         state: routeClientHandoff.state,
@@ -2602,6 +4437,44 @@ export function compileClaimGate(source, options = {}) {
         nextAction: runtimeAdoptionPacket.nextAction,
         digest: runtimeAdoptionPacket.digest,
       },
+      clientRecovery: {
+        id: clientRecoverySnapshot.id,
+        state: clientRecoverySnapshot.state,
+        ready: clientRecoverySnapshot.ready,
+        resumeCursor: clientRecoverySnapshot.resumeCursor,
+        nextAction: clientRecoverySnapshot.nextAction,
+        blockedKeys: clientRecoverySnapshot.blockedKeys,
+        waitingKeys: clientRecoverySnapshot.waitingKeys,
+        commandIds: clientRecoverySnapshot.commandIds,
+        clientPatch: clientRecoverySnapshot.clientPatch,
+        restartSemantics: clientRecoverySnapshot.restartSemantics,
+      },
+      boundaryRecovery: {
+        id: boundaryRecoveryLedger.id,
+        state: boundaryRecoveryLedger.state,
+        ready: boundaryRecoveryLedger.ready,
+        resumeCursor: boundaryRecoveryLedger.resumeCursor,
+        nextAction: boundaryRecoveryLedger.nextAction,
+        blockedKeys: boundaryRecoveryLedger.blockedKeys,
+        waitingKeys: boundaryRecoveryLedger.waitingKeys,
+        commandId: boundaryRecoveryLedger.command.id,
+        commandIds: boundaryRecoveryLedger.commandIds,
+        clientPatch: boundaryRecoveryLedger.clientPatch,
+        restartSemantics: boundaryRecoveryLedger.restartSemantics,
+      },
+      workflowCheckpoint: {
+        id: workflowCheckpointHandoff.id,
+        state: workflowCheckpointHandoff.state,
+        ready: workflowCheckpointHandoff.ready,
+        visibleStatus: workflowCheckpointHandoff.visibleStatus,
+        nextAction: workflowCheckpointHandoff.nextAction,
+        blockedKeys: workflowCheckpointHandoff.blockedKeys,
+        waitingKeys: workflowCheckpointHandoff.waitingKeys,
+        resumeCursors: workflowCheckpointHandoff.resumeCursors,
+        commandIds: workflowCheckpointHandoff.commandIds,
+        clientPatch: workflowCheckpointHandoff.clientPatch,
+        restartSemantics: workflowCheckpointHandoff.restartSemantics,
+      },
       exportContract: {
         state: exportPacket.state,
         ready: exportPacket.exportReady,
@@ -2610,6 +4483,17 @@ export function compileClaimGate(source, options = {}) {
         counters: exportPacket.counters,
         clientPatch: exportPacket.clientPatch,
         publishCommandIds: exportPacket.publishCommands.map((command) => command.id),
+      },
+      operatorReadiness: {
+        id: operatorReadinessPacket.id,
+        state: operatorReadinessPacket.state,
+        ready: operatorReadinessPacket.ready,
+        visibleStatus: operatorReadinessPacket.visibleStatus,
+        nextAction: operatorReadinessPacket.nextAction,
+        digest: operatorReadinessPacket.digest,
+        validationSummary: operatorReadinessPacket.validationSummary,
+        clientPatch: operatorReadinessPacket.clientPatch,
+        commandId: operatorReadinessPacket.acknowledgementCommand.id,
       },
       truthBoundary: {
         generatedBy: "claim-gate-compiler",

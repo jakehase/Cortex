@@ -210,13 +210,106 @@ function digestParts(value, fallbackAlgorithm = "sha256") {
   };
 }
 
+function decodeReferencePath(value) {
+  try {
+    return {
+      value: decodeURIComponent(value),
+      malformed: false
+    };
+  } catch {
+    return {
+      value,
+      malformed: true
+    };
+  }
+}
+
+function inspectReferencePath(value, fallback, options = {}) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const reasons = [];
+  let candidate = raw || fallback;
+
+  if (!raw) {
+    reasons.push("path-missing-used-fallback");
+  }
+  if (typeof value === "string" && value !== raw) {
+    reasons.push("path-trimmed");
+  }
+  if (/[\u0000-\u001F\u007F]/.test(candidate)) {
+    reasons.push("path-contains-control-character");
+  }
+
+  const schemeMatch = candidate.match(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^/]*)(\/?.*)$/);
+  if (schemeMatch) {
+    const scheme = schemeMatch[1].toLowerCase();
+    const host = schemeMatch[2];
+    const path = schemeMatch[3] || "";
+    if (scheme === "aios://" && host === "artifact-root") {
+      candidate = path;
+      reasons.push("path-root-uri-stripped");
+    } else {
+      reasons.push("path-uses-unsupported-root-uri");
+      candidate = path || host || fallback;
+    }
+  }
+
+  if (candidate.startsWith("/")) {
+    reasons.push("path-was-absolute");
+  }
+  if (candidate.includes("\\")) {
+    reasons.push("path-contained-backslash");
+    candidate = candidate.replace(/\\/g, "/");
+  }
+
+  const decoded = decodeReferencePath(candidate);
+  if (decoded.malformed) {
+    reasons.push("path-has-malformed-encoding");
+  }
+  if (decoded.value !== candidate) {
+    reasons.push("path-was-percent-decoded");
+  }
+  candidate = decoded.value;
+
+  const segments = [];
+  for (const segment of candidate.replace(/^\/+/, "").split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      reasons.push("path-traversal-segment");
+      continue;
+    }
+    if (/[\u0000-\u001F\u007F]/.test(segment)) {
+      reasons.push("path-segment-contains-control-character");
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  const normalizedPath = (segments.length > 0 ? segments.join("/") : fallback).replace(/\/$/g, "");
+  const blockingReasons = reasons.filter((reason) => [
+    "path-contains-control-character",
+    "path-uses-unsupported-root-uri",
+    "path-was-absolute",
+    "path-has-malformed-encoding",
+    "path-traversal-segment",
+    "path-segment-contains-control-character",
+    ...(options.requireInput ? ["path-missing-used-fallback"] : [])
+  ].includes(reason));
+
+  return {
+    originalPath: typeof value === "string" ? value : null,
+    normalizedPath,
+    canonicalPath: normalizedPath,
+    pathChanged: raw !== normalizedPath,
+    valid: blockingReasons.length === 0,
+    reasons: normalizeStringList(reasons),
+    blockingReasons: normalizeStringList(blockingReasons)
+  };
+}
+
 function normalizeReferencePath(value, fallback) {
-  const candidate = typeof value === "string" && value.trim() ? value.trim() : fallback;
-  return candidate
-    .replace(/^aios:\/\/artifact-root\//, "")
-    .replace(/^\/+/, "")
-    .replace(/\/+/g, "/")
-    .replace(/\/$/g, "");
+  return inspectReferencePath(value, fallback).normalizedPath;
 }
 
 export function createBundleManifestReference(input = {}) {
@@ -232,12 +325,24 @@ export function createBundleManifestReference(input = {}) {
     workspaceId: source.workspaceId || source.tenantId || "local-workspace"
   });
   const resolved = digestParts(digest);
-  const prefix = normalizeReferencePath(source.contentAddressRoot || source.casRoot, "cas/bundle-manifests");
-  const logicalRoot = normalizeReferencePath(source.logicalRoot || source.rootPrefix, "manifests");
+  const contentAddressRootInspection = inspectReferencePath(source.contentAddressRoot || source.casRoot, "cas/bundle-manifests");
+  const logicalRootInspection = inspectReferencePath(source.logicalRoot || source.rootPrefix, "manifests");
+  const prefix = contentAddressRootInspection.normalizedPath;
+  const logicalRoot = logicalRootInspection.normalizedPath;
   const digestDirectory = `${prefix}/${resolved.algorithm}/${resolved.hex}`;
   const manifestPath = `${digestDirectory}/manifest.json`;
   const proofPath = `${digestDirectory}/proof.json`;
   const indexPath = `${logicalRoot}/${bundleId}/manifest.ref.json`;
+  const referencePathPolicy = {
+    contractVersion: `${BUNDLE_MANIFEST_SCHEMA}.referencePathPolicy.v1`,
+    valid: contentAddressRootInspection.valid && logicalRootInspection.valid,
+    contentAddressRoot: contentAddressRootInspection,
+    logicalRoot: logicalRootInspection,
+    blockingReasons: normalizeStringList([
+      ...contentAddressRootInspection.blockingReasons.map((reason) => `contentAddressRoot:${reason}`),
+      ...logicalRootInspection.blockingReasons.map((reason) => `logicalRoot:${reason}`)
+    ])
+  };
 
   return {
     schema: `${BUNDLE_MANIFEST_SCHEMA}.contentAddressedManifestReference`,
@@ -253,11 +358,13 @@ export function createBundleManifestReference(input = {}) {
     uri: `aios://artifact-root/${manifestPath}`,
     immutable: true,
     referenceType: "content-addressed-bundle-manifest",
+    pathPolicy: referencePathPolicy,
     verification: {
       digestValid: resolved.valid,
       expectedDigest: resolved.digest,
       requiredPaths: [manifestPath, proofPath, indexPath],
-      replaySafe: resolved.valid
+      pathPolicyClear: referencePathPolicy.valid,
+      replaySafe: resolved.valid && referencePathPolicy.valid
     }
   };
 }
@@ -2051,6 +2158,80 @@ function normalizePersistedArtifactState(value = {}) {
   };
 }
 
+function normalizePersistedMailchimpManifestState(value = {}, { bundleId, generatedAt }) {
+  const source = value && typeof value === "object" ? value : {};
+  const lastHandoff = source.lastHandoff && typeof source.lastHandoff === "object"
+    ? source.lastHandoff
+    : source.handoff && typeof source.handoff === "object"
+      ? source.handoff
+      : {};
+  const statusCandidate = typeof source.status === "string" ? source.status.trim().toLowerCase() : "";
+  const status = [
+    "missing",
+    "previewed",
+    "accepted",
+    "dispatching",
+    "acknowledged",
+    "failed",
+    "blocked"
+  ].includes(statusCandidate)
+    ? statusCandidate
+    : lastHandoff.payloadDigest
+      ? "previewed"
+      : "missing";
+  const payloadDigest = digestParts(
+    source.payloadDigest || lastHandoff.payloadDigest || source.lastPayloadDigest
+  );
+  const targetScopeDigest = digestParts(
+    source.targetScopeDigest || lastHandoff.targetScopeDigest || source.lastTargetScopeDigest
+  );
+  const acceptedAt = normalizeOptionalIsoTimestamp(source.acceptedAt || lastHandoff.acceptedAt);
+  const acknowledgedAt = normalizeOptionalIsoTimestamp(source.acknowledgedAt || lastHandoff.acknowledgedAt);
+  const failedAt = normalizeOptionalIsoTimestamp(source.failedAt || lastHandoff.failedAt);
+  const retryAfter = normalizeOptionalIsoTimestamp(source.retryAfter || lastHandoff.retryAfter);
+  const attempt = normalizeAttempt(source.attempt || lastHandoff.attempt);
+  const commandId = normalizeIdentifier(
+    source.commandId || lastHandoff.commandId,
+    `${bundleId}:mailchimp-manifest`
+  );
+  const idempotencyKey = normalizeIdentifier(
+    source.idempotencyKey || lastHandoff.idempotencyKey,
+    commandId
+  );
+
+  return {
+    schema: `${BUNDLE_MANIFEST_SCHEMA}.persistedMailchimpManifestState`,
+    status,
+    recoveredAt: generatedAt,
+    commandId,
+    idempotencyKey,
+    payloadDigest: payloadDigest.digest,
+    payloadDigestValid: payloadDigest.valid,
+    targetScopeDigest: targetScopeDigest.digest,
+    targetScopeDigestValid: targetScopeDigest.valid,
+    resumeToken: typeof source.resumeToken === "string" && source.resumeToken.trim()
+      ? source.resumeToken.trim()
+      : typeof lastHandoff.resumeToken === "string" && lastHandoff.resumeToken.trim()
+        ? lastHandoff.resumeToken.trim()
+        : null,
+    acknowledgementToken: typeof source.acknowledgementToken === "string" && source.acknowledgementToken.trim()
+      ? source.acknowledgementToken.trim()
+      : null,
+    acceptedAt,
+    acknowledgedAt,
+    failedAt,
+    retryAfter,
+    attempt,
+    replayable: ["accepted", "dispatching", "failed"].includes(status),
+    terminal: ["acknowledged", "blocked"].includes(status),
+    failureReason: typeof source.failureReason === "string" && source.failureReason.trim()
+      ? source.failureReason.trim().slice(0, 220)
+      : typeof lastHandoff.failureReason === "string" && lastHandoff.failureReason.trim()
+        ? lastHandoff.failureReason.trim().slice(0, 220)
+        : null
+  };
+}
+
 function normalizeCommandJournal(input = []) {
   if (!Array.isArray(input)) {
     return [];
@@ -2189,27 +2370,73 @@ function normalizeClientState(client = {}) {
   };
 }
 
+function normalizeProviderCapabilityList(value, fallback = []) {
+  const raw = Array.isArray(value) ? value : fallback;
+  const seen = new Set();
+  const duplicates = new Set();
+  const normalized = [];
+
+  for (const item of raw) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const capability = item.trim().toLowerCase();
+    if (!capability) {
+      continue;
+    }
+    if (seen.has(capability)) {
+      duplicates.add(capability);
+      continue;
+    }
+    seen.add(capability);
+    normalized.push(capability);
+  }
+
+  const supported = normalized.filter((capability) => SUPPORTED_PROVIDER_CAPABILITIES.has(capability));
+  const unsupported = normalized.filter((capability) => !SUPPORTED_PROVIDER_CAPABILITIES.has(capability));
+
+  return {
+    normalized,
+    supported,
+    unsupported,
+    duplicates: [...duplicates]
+  };
+}
+
 function normalizeProviderContract(input = {}, { generatedAt, requestState, clientState }) {
   const source = input && typeof input === "object" ? input : {};
   const suppliedCapabilities = Array.isArray(source.capabilities) || Array.isArray(source.advertisedCapabilities);
-  const capabilities = suppliedCapabilities
-    ? normalizeStringList(source.capabilities || source.advertisedCapabilities)
+  const advertisedCapabilityInput = suppliedCapabilities
+    ? source.capabilities || source.advertisedCapabilities
     : [...REQUIRED_PROVIDER_CAPABILITIES, "manifest.sync", "handoff.external"];
-  const requestedProfile = normalizeIdentifier(source.profile || source.serviceProfile, "durable-external");
-  const profileCapabilities = PROVIDER_CAPABILITY_PROFILES[requestedProfile] || PROVIDER_CAPABILITY_PROFILES["durable-external"];
-  const requiredCapabilities = normalizeStringList(source.requiredCapabilities).length > 0
-    ? normalizeStringList(source.requiredCapabilities)
+  const advertisedCapabilitySet = normalizeProviderCapabilityList(advertisedCapabilityInput);
+  const capabilities = advertisedCapabilitySet.supported;
+  const rawAdvertisedCapabilities = advertisedCapabilitySet.normalized;
+  const unsupportedAdvertisedCapabilities = advertisedCapabilitySet.unsupported;
+  const duplicateAdvertisedCapabilities = advertisedCapabilitySet.duplicates;
+  const requestedProfileCandidate = typeof (source.profile || source.serviceProfile) === "string"
+    ? (source.profile || source.serviceProfile).trim()
+    : "";
+  const requestedProfileKnown = Object.prototype.hasOwnProperty.call(PROVIDER_CAPABILITY_PROFILES, requestedProfileCandidate);
+  const requestedProfile = requestedProfileKnown ? requestedProfileCandidate : "durable-external";
+  const profileCapabilities = PROVIDER_CAPABILITY_PROFILES[requestedProfile];
+  const requiredCapabilitySet = normalizeProviderCapabilityList(source.requiredCapabilities, REQUIRED_PROVIDER_CAPABILITIES);
+  const requiredCapabilities = requiredCapabilitySet.supported.length > 0
+    ? requiredCapabilitySet.supported
     : REQUIRED_PROVIDER_CAPABILITIES;
-  const clientRequestedCapabilities = normalizeStringList(
+  const unsupportedRequiredCapabilities = requiredCapabilitySet.unsupported;
+  const duplicateRequiredCapabilities = requiredCapabilitySet.duplicates;
+  const clientCapabilitySet = normalizeProviderCapabilityList(
     source.clientRequestedCapabilities || source.clientCapabilities || source.negotiatedCapabilities
   );
+  const clientRequestedCapabilities = clientCapabilitySet.supported;
   const missingCapabilities = requiredCapabilities.filter((capability) => !capabilities.includes(capability));
-  const unsupportedRequestedCapabilities = clientRequestedCapabilities
-    .filter((capability) => !SUPPORTED_PROVIDER_CAPABILITIES.has(capability));
+  const unsupportedRequestedCapabilities = clientCapabilitySet.unsupported;
+  const duplicateRequestedCapabilities = clientCapabilitySet.duplicates;
   const acceptedClientCapabilities = clientRequestedCapabilities
-    .filter((capability) => capabilities.includes(capability) && SUPPORTED_PROVIDER_CAPABILITIES.has(capability));
+    .filter((capability) => capabilities.includes(capability));
   const declinedClientCapabilities = clientRequestedCapabilities
-    .filter((capability) => SUPPORTED_PROVIDER_CAPABILITIES.has(capability) && !capabilities.includes(capability));
+    .filter((capability) => !capabilities.includes(capability));
   const optionalCapabilities = OPTIONAL_PROVIDER_CAPABILITIES.filter((capability) => capabilities.includes(capability));
   const profileGaps = profileCapabilities.filter((capability) => !capabilities.includes(capability));
   const syncCapable = capabilities.includes("manifest.sync");
@@ -2235,6 +2462,16 @@ function normalizeProviderContract(input = {}, { generatedAt, requestState, clie
   const strictCapabilityNegotiation = source.strictCapabilities === true || source.strictCapabilityNegotiation === true;
   const issues = [];
 
+  if (requestedProfileCandidate && !requestedProfileKnown) {
+    issues.push({
+      code: "provider-contract-mismatch",
+      severity: strictCapabilityNegotiation ? "error" : "warning",
+      providerId,
+      requestedProfile: requestedProfileCandidate,
+      selectedProfile: requestedProfile,
+      detail: "Provider capability profile must be one of durable-external, audited-inline, or stateless-audit; durable-external was selected as the fallback profile."
+    });
+  }
   if (!online) {
     issues.push({
       code: "provider-unavailable",
@@ -2252,6 +2489,26 @@ function normalizeProviderContract(input = {}, { generatedAt, requestState, clie
       expectedRoute: requestState.route,
       actualRoute: normalizeIdentifier(source.route, "unknown"),
       detail: "Provider contract route must match the bundle manifest request route."
+    });
+  }
+  for (const capability of unsupportedAdvertisedCapabilities) {
+    issues.push({
+      code: "provider-unsupported-capability",
+      severity: strictCapabilityNegotiation ? "error" : "warning",
+      providerId,
+      capability,
+      capabilitySource: "advertised",
+      detail: "Provider advertised a capability outside the bundle manifest provider contract and it was excluded from dispatch decisions."
+    });
+  }
+  for (const capability of unsupportedRequiredCapabilities) {
+    issues.push({
+      code: "provider-unsupported-capability",
+      severity: "error",
+      providerId,
+      capability,
+      capabilitySource: "required",
+      detail: "Required provider capabilities must be supported by the bundle manifest provider contract before negotiation can complete."
     });
   }
   for (const capability of missingCapabilities) {
@@ -2281,7 +2538,6 @@ function normalizeProviderContract(input = {}, { generatedAt, requestState, clie
       detail: "Provider capability negotiation only accepts artifact persistence, publish, audit, sync, external handoff, digest verification, preview, or analytics capabilities."
     });
   }
-
   const blockingIssueCount = issues.filter((issue) => issue.severity === "error").length;
   const negotiationComplete = blockingIssueCount === 0;
   const selectedMode = !negotiationComplete
@@ -2297,11 +2553,14 @@ function normalizeProviderContract(input = {}, { generatedAt, requestState, clie
     contractVersion,
     route: requestState.route,
     requestedProfile,
+    rawAdvertisedCapabilities,
     capabilities,
     requiredCapabilities,
     acceptedClientCapabilities,
     declinedClientCapabilities,
     unsupportedRequestedCapabilities,
+    unsupportedAdvertisedCapabilities,
+    unsupportedRequiredCapabilities,
     syncCursor,
     externalHandoffId
   });
@@ -2315,6 +2574,7 @@ function normalizeProviderContract(input = {}, { generatedAt, requestState, clie
     online,
     route: requestState.route,
     advertisedCapabilities: capabilities,
+    rawAdvertisedCapabilities,
     requiredCapabilities,
     optionalCapabilities,
     missingCapabilities,
@@ -2322,6 +2582,7 @@ function normalizeProviderContract(input = {}, { generatedAt, requestState, clie
     capabilityProfile: {
       schema: `${BUNDLE_MANIFEST_SCHEMA}.providerCapabilityProfile`,
       requestedProfile,
+      requestedProfileKnown,
       selectedMode,
       profileCapabilities,
       profileGaps,
@@ -2339,11 +2600,20 @@ function normalizeProviderContract(input = {}, { generatedAt, requestState, clie
       accepted: acceptedClientCapabilities,
       declined: declinedClientCapabilities,
       unsupported: unsupportedRequestedCapabilities,
+      unsupportedAdvertised: unsupportedAdvertisedCapabilities,
+      unsupportedRequired: unsupportedRequiredCapabilities,
+      duplicateAdvertised: duplicateAdvertisedCapabilities,
+      duplicateRequired: duplicateRequiredCapabilities,
+      duplicateRequested: duplicateRequestedCapabilities,
       requiredSatisfied: missingCapabilities.length === 0,
+      advertisedSupported: capabilities,
+      advertisedRaw: rawAdvertisedCapabilities,
       optionalAccepted: optionalCapabilities,
       nextAction: negotiationComplete
         ? "use-negotiated-provider-contract"
-        : missingCapabilities.length > 0 || declinedClientCapabilities.length > 0
+        : unsupportedRequiredCapabilities.length > 0
+          ? "remove-unsupported-required-provider-capabilities"
+          : missingCapabilities.length > 0 || declinedClientCapabilities.length > 0
           ? "select-provider-with-required-capabilities"
           : "drop-unsupported-provider-capability-request"
     },
@@ -2462,6 +2732,10 @@ function normalizePersistedBundleState(input = {}, { bundleId, generatedAt }) {
   const packetCheckpoints = normalizePacketCheckpoints(
     persisted.packetCheckpoints || persisted.packetCheckpoint || persisted.packetRecovery || persisted.packets
   );
+  const mailchimpManifest = normalizePersistedMailchimpManifestState(
+    persisted.mailchimpManifest || persisted.mailchimpManifestReadiness || persisted.mailchimp || {},
+    { bundleId, generatedAt }
+  );
   const artifactStates = persisted.artifacts && typeof persisted.artifacts === "object"
     ? persisted.artifacts
     : {};
@@ -2502,6 +2776,19 @@ function normalizePersistedBundleState(input = {}, { bundleId, generatedAt }) {
         .sort()
         .at(-1) || null
     },
+    mailchimpManifest,
+    mailchimpManifestSummary: {
+      schema: `${BUNDLE_MANIFEST_SCHEMA}.mailchimpManifestPersistedSummary`,
+      status: mailchimpManifest.status,
+      replayable: mailchimpManifest.replayable,
+      terminal: mailchimpManifest.terminal,
+      commandId: mailchimpManifest.commandId,
+      idempotencyKey: mailchimpManifest.idempotencyKey,
+      payloadDigestValid: mailchimpManifest.payloadDigestValid,
+      targetScopeDigestValid: mailchimpManifest.targetScopeDigestValid,
+      retryAfter: mailchimpManifest.retryAfter,
+      acknowledgementToken: mailchimpManifest.acknowledgementToken
+    },
     artifacts: Object.fromEntries(Object.entries(artifactStates)
       .filter(([artifactId]) => normalizeIdentifier(artifactId, "") === artifactId)
       .map(([artifactId, state]) => [artifactId, normalizePersistedArtifactState(state)]))
@@ -2539,7 +2826,8 @@ function normalizeArtifactEntry(entry, index) {
     : "application/octet-stream";
   const bytes = Number.isInteger(source.bytes) && source.bytes >= 0 ? source.bytes : null;
   const role = normalizeIdentifier(source.role, "bundle-member");
-  const normalizedPath = path || `unplaced/${id}`;
+  const pathInspection = inspectReferencePath(path, `unplaced/${id}`, { requireInput: true });
+  const normalizedPath = pathInspection.normalizedPath;
   const digestProof = normalizeDigestProof(source.digest || source.contentDigest || source.integrity, {
     artifactId: id,
     path: normalizedPath,
@@ -2548,12 +2836,15 @@ function normalizeArtifactEntry(entry, index) {
   const digest = digestProof.verified ? digestProof.digest : null;
   const issues = [];
 
-  if (!path || path.startsWith("/") || path.includes("..")) {
+  if (!pathInspection.valid) {
     issues.push({
       code: "invalid-artifact-path",
       severity: "error",
       artifactId: id,
-      detail: "Artifact paths must be relative bundle paths without parent traversal."
+      path: pathInspection.originalPath,
+      normalizedPath,
+      reasons: pathInspection.blockingReasons,
+      detail: "Artifact paths must be relative bundle paths under the artifact root, without unsupported URI roots, control characters, or parent traversal."
     });
   }
   if (digestProof.state === "missing") {
@@ -2583,6 +2874,7 @@ function normalizeArtifactEntry(entry, index) {
       digest,
       digestProof,
       role,
+      pathPolicy: pathInspection,
       proofRequired: digestProof.proofRequired
     },
     issues
@@ -3830,7 +4122,369 @@ function buildPreviewDecisionContract({
           ? "Preview decision deferred; hosted-kernel replay remains held."
           : acceptance.readyForDegradedHandoff
             ? "Preview approved with digest proof follow-up required."
-            : "Preview approved for hosted-kernel publish replay."
+      : "Preview approved for hosted-kernel publish replay."
+  };
+}
+
+function normalizeMailchimpManifestSettings(input = {}) {
+  const source = input.mailchimpManifest
+    || input.mailchimp
+    || input.integration?.mailchimp
+    || input.client?.mailchimp
+    || {};
+  const audienceId = normalizeOptionalIdentifier(source.audienceId || source.listId || source.audience);
+  const campaignId = normalizeOptionalIdentifier(source.campaignId || source.campaign);
+  const accountId = normalizeOptionalIdentifier(source.accountId || source.providerAccountId || source.mailchimpAccountId);
+  const dataCenterSource = typeof source.dataCenter === "string"
+    ? source.dataCenter
+    : typeof source.dc === "string"
+      ? source.dc
+      : source.serverPrefix;
+  const dataCenter = normalizeOptionalIdentifier(
+    typeof dataCenterSource === "string"
+      ? dataCenterSource.trim().toLowerCase().replace(/[^a-z0-9-]/g, "")
+      : null
+  );
+  const journeyId = normalizeOptionalIdentifier(source.journeyId || source.automationId || source.customerJourneyId);
+  const syncCursor = normalizeOptionalIdentifier(source.syncCursor || source.cursor || source.lastWebhookCursor);
+  const mode = typeof source.mode === "string" ? source.mode.trim().toLowerCase() : "campaign-manifest";
+  const mergeTagPrefix = typeof source.mergeTagPrefix === "string" && source.mergeTagPrefix.trim()
+    ? source.mergeTagPrefix.trim().replace(/[^A-Za-z0-9_:-]/g, "_").slice(0, 40)
+    : "AIOS_BUNDLE";
+  const enabled = typeof source.enabled === "boolean"
+    ? source.enabled
+    : Boolean(audienceId || campaignId || source.requireAcceptance === true);
+
+  return {
+    schema: `${BUNDLE_MANIFEST_SCHEMA}.mailchimpManifestSettings`,
+    enabled,
+    mode: ["campaign-manifest", "audience-archive", "journey-proof"].includes(mode)
+      ? mode
+      : "campaign-manifest",
+    accountId,
+    dataCenter,
+    audienceId,
+    campaignId,
+    journeyId,
+    syncCursor,
+    requireAcceptance: source.requireAcceptance !== false,
+    requireDigestCoverage: source.requireDigestCoverage !== false,
+    allowDegradedProofFollowup: source.allowDegradedProofFollowup === true,
+    requireAcknowledgement: source.requireAcknowledgement !== false,
+    mergeTagPrefix,
+    webhookRoute: typeof source.webhookRoute === "string" && source.webhookRoute.startsWith("/")
+      ? source.webhookRoute
+      : null
+  };
+}
+
+function buildMailchimpManifestTargetScope({ bundleId, generatedAt, settings, requestState, clientState, artifactRows }) {
+  const targetKind = settings.mode === "campaign-manifest"
+    ? "campaign"
+    : settings.mode === "journey-proof"
+      ? "journey"
+      : "audience";
+  const targetId = targetKind === "campaign"
+    ? settings.campaignId
+    : targetKind === "journey"
+      ? settings.journeyId
+      : settings.audienceId;
+  const targetKey = [
+    "mailchimp",
+    settings.accountId || "account-unbound",
+    settings.dataCenter || "dc-unbound",
+    targetKind,
+    targetId || "target-unbound"
+  ].join(":");
+  const workspaceId = requestState.workspaceId || requestState.tenantId;
+  const workspaceKey = `${requestState.tenantId}:${workspaceId}`;
+  const missingBindings = [
+    !settings.accountId ? "mailchimp-account-id-required" : null,
+    !settings.dataCenter ? "mailchimp-data-center-required" : null,
+    !targetId ? `mailchimp-${targetKind}-id-required` : null
+  ].filter(Boolean);
+  const exportableRows = artifactRows.filter((row) => row.exportable).length;
+  const scopeSubject = {
+    schema: `${BUNDLE_MANIFEST_SCHEMA}.mailchimpTargetScopeSubject`,
+    bundleId,
+    generatedAt,
+    requestId: clientState.requestId,
+    correlationId: clientState.correlationId,
+    workspaceKey,
+    targetKey,
+    targetKind,
+    targetId,
+    syncCursor: settings.syncCursor,
+    exportableRows
+  };
+
+  return {
+    schema: `${BUNDLE_MANIFEST_SCHEMA}.mailchimpTargetScope`,
+    provider: "mailchimp",
+    tenantId: requestState.tenantId,
+    workspaceId,
+    workspaceKey,
+    accountId: settings.accountId,
+    dataCenter: settings.dataCenter,
+    audienceId: settings.audienceId,
+    campaignId: settings.campaignId,
+    journeyId: settings.journeyId,
+    targetKind,
+    targetId,
+    targetKey,
+    syncCursor: settings.syncCursor,
+    exportableRows,
+    missingBindings,
+    bound: missingBindings.length === 0,
+    subjectDigest: sha256Digest(scopeSubject),
+    canonicalSubject: scopeSubject
+  };
+}
+
+function buildMailchimpManifestReadiness({
+  bundleId,
+  generatedAt,
+  requestState,
+  clientState,
+  preview,
+  acceptance,
+  previewDecision,
+  validationSummary,
+  nextSteps,
+  command,
+  commandReplay,
+  manifestIntegrity,
+  providerContract,
+  lifecycleSettings,
+  operationalHealth,
+  persistedState,
+  input
+}) {
+  const settings = normalizeMailchimpManifestSettings(input);
+  const artifactRows = preview.rows.map((row) => {
+    const blockedReasons = [
+      row.statusBadge === "blocked" ? "artifact-preview-blocked" : null,
+      settings.requireDigestCoverage && !row.digestVerified ? "digest-proof-required" : null,
+      row.crossesTenantBoundary ? "tenant-boundary-review-required" : null,
+      row.crossesWorkspaceBoundary ? "workspace-boundary-review-required" : null
+    ].filter(Boolean);
+
+    return {
+      rowId: sha256Digest({
+        bundleId,
+        artifactId: row.artifactId,
+        path: row.path,
+        mailchimpMode: settings.mode,
+        blockedReasons
+      }),
+      artifactId: row.artifactId,
+      path: row.path,
+      status: blockedReasons.length === 0 ? "exportable" : "blocked",
+      exportable: blockedReasons.length === 0,
+      blockedReasons,
+      mergeFields: {
+        AIOS_BUNDLE_ID: bundleId,
+        AIOS_ARTIFACT_ID: row.artifactId,
+        AIOS_PATH: row.workspaceRelativePath,
+        AIOS_DIGEST: row.digestVerified ? row.digestAlgorithm : "missing",
+        AIOS_COMMAND: commandReplay.durableCommandId
+      },
+      tags: normalizeStringList([
+        `${settings.mergeTagPrefix}:BUNDLE:${bundleId}`,
+        `${settings.mergeTagPrefix}:ARTIFACT:${row.artifactId}`,
+        row.digestVerified ? `${settings.mergeTagPrefix}:DIGESTED` : `${settings.mergeTagPrefix}:DIGEST_FOLLOWUP`,
+        row.statusBadge === "blocked" ? `${settings.mergeTagPrefix}:BLOCKED` : `${settings.mergeTagPrefix}:READY`
+      ].map((tag) => tag.toUpperCase()))
+    };
+  });
+  const exportableRows = artifactRows.filter((row) => row.exportable);
+  const blockedRows = artifactRows.filter((row) => !row.exportable);
+  const targetScope = buildMailchimpManifestTargetScope({
+    bundleId,
+    generatedAt,
+    settings,
+    requestState,
+    clientState,
+    artifactRows
+  });
+  const degradedAllowed = settings.allowDegradedProofFollowup
+    && acceptance.readyForDegradedHandoff
+    && operationalHealth.degradedMode;
+  const blockedReasons = [
+    !settings.enabled ? "mailchimp-manifest-disabled" : null,
+    settings.mode !== "campaign-manifest" && !settings.audienceId ? "mailchimp-audience-id-required" : null,
+    settings.mode === "campaign-manifest" && !settings.campaignId ? "mailchimp-campaign-id-required" : null,
+    settings.mode === "journey-proof" && !settings.journeyId ? "mailchimp-journey-id-required" : null,
+    !targetScope.bound ? "mailchimp-target-scope-unbound" : null,
+    settings.requireAcceptance && !acceptance.accepted ? "manifest-acceptance-required" : null,
+    previewDecision.state === "blocked" ? "preview-decision-blocked" : null,
+    validationSummary.counts.errors > 0 ? "manifest-validation-errors" : null,
+    !providerContract.negotiationComplete ? "provider-contract-not-ready" : null,
+    !lifecycleSettings.publishAllowedNow ? "lifecycle-gate-not-open" : null,
+    operationalHealth.status === "failed" ? "operational-health-failed" : null,
+    settings.requireDigestCoverage && blockedRows.some((row) => row.blockedReasons.includes("digest-proof-required")) && !degradedAllowed
+      ? "digest-proof-followup-not-allowed"
+      : null,
+    artifactRows.length === 0 ? "mailchimp-manifest-empty" : null
+  ].filter(Boolean);
+  const status = blockedReasons.length === 0 && blockedRows.length === 0
+    ? "ready"
+    : settings.enabled && degradedAllowed && exportableRows.length > 0 && validationSummary.counts.errors === 0
+      ? "degraded-ready"
+      : "blocked";
+  const payloadDigest = sha256Digest({
+    bundleId,
+    generatedAt,
+    settings,
+    commandId: commandReplay.durableCommandId,
+    manifestDigest: manifestIntegrity.manifestDigest,
+    rowIds: artifactRows.map((row) => row.rowId),
+    status
+  });
+  const persistedMailchimp = persistedState.mailchimpManifest;
+  const payloadMatchesPersisted = persistedMailchimp.payloadDigest === payloadDigest;
+  const targetMatchesPersisted = persistedMailchimp.targetScopeDigest === targetScope.subjectDigest;
+  const acknowledgedDuplicate = payloadMatchesPersisted
+    && targetMatchesPersisted
+    && persistedMailchimp.status === "acknowledged";
+  const replayablePriorHandoff = payloadMatchesPersisted
+    && targetMatchesPersisted
+    && persistedMailchimp.replayable;
+  const recoveryBlocked = persistedMailchimp.status === "failed"
+    && persistedMailchimp.retryAfter
+    && new Date(persistedMailchimp.retryAfter).valueOf() > new Date(generatedAt).valueOf();
+  const nextAction = status === "ready"
+    ? acknowledgedDuplicate
+      ? "reuse-acknowledged-mailchimp-manifest"
+      : replayablePriorHandoff
+        ? "replay-mailchimp-manifest-handoff"
+        : "dispatch-mailchimp-manifest"
+    : status === "degraded-ready"
+      ? replayablePriorHandoff
+        ? "replay-mailchimp-manifest-handoff-with-digest-followup"
+        : "dispatch-mailchimp-manifest-with-digest-followup"
+      : blockedReasons.includes("lifecycle-gate-not-open")
+        ? lifecycleSettings.nextLifecycleAction
+        : blockedReasons.includes("provider-contract-not-ready")
+          ? "negotiate-provider-contract"
+          : blockedReasons.includes("manifest-acceptance-required")
+            ? "accept-bundle-preview"
+            : nextSteps.primary?.action || "repair-mailchimp-manifest";
+  const handoffDispatchable = status === "ready" && !acknowledgedDuplicate && !recoveryBlocked;
+  const degradedDispatchable = status === "degraded-ready" && !acknowledgedDuplicate && !recoveryBlocked;
+  const recoveryCheckpoint = {
+    schema: `${BUNDLE_MANIFEST_SCHEMA}.mailchimpManifestRecoveryCheckpoint`,
+    state: acknowledgedDuplicate
+      ? "already-acknowledged"
+      : recoveryBlocked
+        ? "retry-window-open"
+        : replayablePriorHandoff
+          ? "replayable"
+          : payloadMatchesPersisted || targetMatchesPersisted
+            ? "changed"
+            : "new",
+    priorStatus: persistedMailchimp.status,
+    priorCommandId: persistedMailchimp.commandId,
+    priorIdempotencyKey: persistedMailchimp.idempotencyKey,
+    priorPayloadDigest: persistedMailchimp.payloadDigest,
+    priorTargetScopeDigest: persistedMailchimp.targetScopeDigest,
+    payloadMatchesPersisted,
+    targetMatchesPersisted,
+    acknowledgedDuplicate,
+    replayablePriorHandoff,
+    retryAfter: persistedMailchimp.retryAfter,
+    resumeToken: persistedMailchimp.resumeToken,
+    acknowledgementToken: persistedMailchimp.acknowledgementToken,
+    restartSafe: acknowledgedDuplicate || replayablePriorHandoff || status === "blocked",
+    nextRecoveryAction: acknowledgedDuplicate
+      ? "reuse-acknowledged-mailchimp-manifest"
+      : recoveryBlocked
+        ? "wait-for-mailchimp-retry-window"
+        : replayablePriorHandoff
+          ? "replay-mailchimp-manifest-handoff"
+          : status === "blocked"
+            ? "persist-blocked-mailchimp-preview"
+            : "write-mailchimp-manifest-checkpoint"
+  };
+
+  return {
+    schema: `${BUNDLE_MANIFEST_SCHEMA}.mailchimpManifestReadiness`,
+    bundleId,
+    generatedAt,
+    status,
+    ready: status === "ready",
+    degradedReady: status === "degraded-ready",
+    settings,
+    target: {
+      provider: "mailchimp",
+      accountId: settings.accountId,
+      dataCenter: settings.dataCenter,
+      audienceId: settings.audienceId,
+      campaignId: settings.campaignId,
+      journeyId: settings.journeyId,
+      scopeKey: targetScope.targetKey,
+      webhookRoute: settings.webhookRoute
+    },
+    targetScope,
+    validationSummary: {
+      ok: status === "ready" && !recoveryBlocked,
+      blockedReasons,
+      recoveryBlocked,
+      artifactRows: artifactRows.length,
+      exportableRows: exportableRows.length,
+      blockedRows: blockedRows.length,
+      degradedAllowed
+    },
+    recoveryCheckpoint,
+    handoff: {
+      command: "bundle-manifest.mailchimp.dispatch",
+      route: "/artifact-filesystem/bundle-manifest/handoff/mailchimp",
+      method: "POST",
+      dispatchable: handoffDispatchable,
+      degradedDispatchable,
+      payloadContract: `${BUNDLE_MANIFEST_SCHEMA}.mailchimpPayload.v1`,
+      payloadDigest,
+      targetScopeDigest: targetScope.subjectDigest,
+      resumeToken: sha256Digest({
+        bundleId,
+        commandId: commandReplay.durableCommandId,
+        targetKey: targetScope.targetKey,
+        syncCursor: settings.syncCursor,
+        payloadDigest
+      }),
+      acknowledgement: {
+        required: settings.requireAcknowledgement,
+        expectedState: settings.requireAcknowledgement ? "mailchimp-handoff-acknowledged" : "not-required",
+        webhookRoute: settings.webhookRoute,
+        syncCursor: settings.syncCursor,
+        targetScopeDigest: targetScope.subjectDigest
+      },
+      idempotencyKey: sha256Digest({
+        bundleId,
+        commandId: commandReplay.durableCommandId,
+        providerId: providerContract.providerId,
+        targetScope: targetScope.subjectDigest,
+        payloadDigest
+      }),
+      duplicateSuppressed: acknowledgedDuplicate,
+      replayingPriorHandoff: replayablePriorHandoff,
+      recoveryCheckpointState: recoveryCheckpoint.state
+    },
+    nextAction: {
+      action: nextAction,
+      status: status === "blocked" || recoveryBlocked ? "blocked" : acknowledgedDuplicate ? "complete" : "ready",
+      reason: recoveryBlocked ? "mailchimp-retry-window-open" : blockedReasons[0] || recoveryCheckpoint.state || status,
+      commandId: commandReplay.durableCommandId
+    },
+    rows: artifactRows,
+    previewRows: artifactRows.slice(0, 25),
+    proof: sha256Digest({
+      bundleId,
+      status,
+      blockedReasons,
+      payloadDigest,
+      manifestDigest: manifestIntegrity.manifestDigest
+    })
   };
 }
 
@@ -4755,6 +5409,25 @@ export function describeBundleManifestSurface(input = {}) {
     manifestIntegrity,
     requestedDecision: input.previewDecision || input.acceptanceDecision || input.decision
   });
+  const mailchimpManifestReadiness = buildMailchimpManifestReadiness({
+    bundleId,
+    generatedAt,
+    requestState,
+    clientState,
+    preview,
+    acceptance,
+    previewDecision,
+    validationSummary,
+    nextSteps,
+    command,
+    commandReplay,
+    manifestIntegrity,
+    providerContract,
+    lifecycleSettings,
+    operationalHealth,
+    persistedState,
+    input
+  });
   const clientWorkflow = buildClientWorkflowHandoff({
     bundleId,
     generatedAt,
@@ -4933,6 +5606,7 @@ export function describeBundleManifestSurface(input = {}) {
       preview,
       acceptance,
       previewDecision,
+      mailchimpManifestReadiness,
       clientWorkflow,
       packetManifest,
       packetClientReadiness,
@@ -4965,6 +5639,12 @@ export function describeBundleManifestSurface(input = {}) {
         lifecycleScheduleWithinPolicy: lifecycleSettings.commandState.scheduleWithinPolicy,
         lifecycleDisableWithinPolicy: lifecycleSettings.commandState.disableWithinPolicy,
         lifecycleTransition: lifecycleSettings.transition,
+        mailchimpManifestStatus: mailchimpManifestReadiness.status,
+        mailchimpManifestReady: mailchimpManifestReadiness.ready,
+        mailchimpManifestDegradedReady: mailchimpManifestReadiness.degradedReady,
+        mailchimpManifestNextAction: mailchimpManifestReadiness.nextAction.action,
+        mailchimpManifestPayloadDigest: mailchimpManifestReadiness.handoff.payloadDigest,
+        mailchimpManifestBlockedReasons: mailchimpManifestReadiness.validationSummary.blockedReasons,
         digestProofComplete: proof.completeDigestCoverage,
         integrityComplete: manifestIntegrity.complete,
         manifestDigest: manifestIntegrity.manifestDigest,
@@ -5211,6 +5891,15 @@ export function describeBundleManifestSurface(input = {}) {
       previewDecisionAction: previewDecision.action,
       previewDecisionToken: previewDecision.decisionToken,
       previewDecisionBlockedReasons: previewDecision.blockedReasons,
+      mailchimpManifestStatus: mailchimpManifestReadiness.status,
+      mailchimpManifestReady: mailchimpManifestReadiness.ready,
+      mailchimpManifestDegradedReady: mailchimpManifestReadiness.degradedReady,
+      mailchimpManifestAudienceId: mailchimpManifestReadiness.target.audienceId,
+      mailchimpManifestCampaignId: mailchimpManifestReadiness.target.campaignId,
+      mailchimpManifestPayloadDigest: mailchimpManifestReadiness.handoff.payloadDigest,
+      mailchimpManifestDispatchable: mailchimpManifestReadiness.handoff.dispatchable,
+      mailchimpManifestBlockedReasons: mailchimpManifestReadiness.validationSummary.blockedReasons,
+      mailchimpManifestNextAction: mailchimpManifestReadiness.nextAction.action,
       readinessPublishReady: acceptance.readyForPublish,
       readinessDegradedHandoffReady: acceptance.readyForDegradedHandoff,
       validationSummaryStatus: validationSummary.status,
@@ -5355,6 +6044,7 @@ export function describeBundleManifestSurface(input = {}) {
       preview,
       acceptance,
       previewDecision,
+      mailchimpManifestReadiness,
       clientWorkflow,
       clientDelivery: clientWorkflow.delivery,
       readiness: {
@@ -5379,6 +6069,12 @@ export function describeBundleManifestSurface(input = {}) {
         packetRecoveryCheckpointDigest: packetRecoveryCheckpoint.checkpointDigest,
         packetRecoveryRestartSafe: packetRecoveryCheckpoint.restartSafe,
         packetRecoveryNextCommand: packetRecoveryCheckpoint.nextRestartCommand,
+        mailchimpManifestStatus: mailchimpManifestReadiness.status,
+        mailchimpManifestReady: mailchimpManifestReadiness.ready,
+        mailchimpManifestDegradedReady: mailchimpManifestReadiness.degradedReady,
+        mailchimpManifestNextAction: mailchimpManifestReadiness.nextAction.action,
+        mailchimpManifestPayloadDigest: mailchimpManifestReadiness.handoff.payloadDigest,
+        mailchimpManifestBlockedReasons: mailchimpManifestReadiness.validationSummary.blockedReasons,
         validationStatus: validationSummary.status,
         failedChecklistKeys: acceptance.failedChecklistKeys
       },

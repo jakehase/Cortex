@@ -50,9 +50,25 @@ const BLOCKING_PROVIDER_READINESS_REASONS = new Set([
   "provider_contract_current_sync_required",
   "provider_contract_sync_failed",
   "provider_contract_sync_lag_exceeded",
+  "provider_contract_sync_timestamp_invalid",
+  "provider_contract_sync_timestamp_future",
   "provider_contract_proof_missing",
-  "provider_contract_required_scopes_missing"
+  "provider_contract_required_scopes_missing",
+  "mailchimp_provider_sync_required",
+  "mailchimp_provider_proof_required",
+  "mailchimp_provider_handoff_target_missing",
+  "mailchimp_provider_webhook_receipt_missing",
+  "mailchimp_required_scope_missing"
 ]);
+
+const MAILCHIMP_SCOPE_PREFIXES = ["mailchimp:", "integration:mailchimp:", "provider:mailchimp:"];
+const MAILCHIMP_MUTATING_SCOPE_MARKERS = [":write", ":send", ":create", ":update", ":delete", ":sync"];
+const MAILCHIMP_REQUIRED_SCOPES = Object.freeze({
+  audience: ["mailchimp:audience:read"],
+  campaign: ["mailchimp:campaign:read"],
+  commerce: ["mailchimp:commerce:read"],
+  webhook: ["mailchimp:webhook:read"]
+});
 
 function asArray(value) {
   if (Array.isArray(value)) return value;
@@ -73,6 +89,106 @@ function normalizeIdentity(value) {
 
 function uniqueNormalized(values) {
   return Array.from(new Set(asArray(values).map(normalizeScope).filter(Boolean)));
+}
+
+function isMailchimpScope(scope) {
+  const normalized = normalizeScope(scope);
+  return MAILCHIMP_SCOPE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function mailchimpScopeResource(scope) {
+  const normalized = normalizeScope(scope)
+    .replace(/^integration:mailchimp:/, "mailchimp:")
+    .replace(/^provider:mailchimp:/, "mailchimp:");
+  return normalized.split(":")[1] || "general";
+}
+
+function mailchimpScopeMutates(scope) {
+  const normalized = normalizeScope(scope);
+  return isMailchimpScope(normalized) && MAILCHIMP_MUTATING_SCOPE_MARKERS.some((marker) => normalized.endsWith(marker));
+}
+
+function mailchimpRequiredScopesFor(scope) {
+  if (!isMailchimpScope(scope)) return [];
+  return MAILCHIMP_REQUIRED_SCOPES[mailchimpScopeResource(scope)] || [];
+}
+
+function requestedScopeSource(input) {
+  if (Object.hasOwn(input, "requestedScopes")) return { key: "requestedScopes", value: input.requestedScopes };
+  if (Object.hasOwn(input, "requiredScopes")) return { key: "requiredScopes", value: input.requiredScopes };
+  if (Object.hasOwn(input, "scope")) return { key: "scope", value: input.scope };
+  return { key: "requestedScopes", value: [] };
+}
+
+function requestedScopeCandidate(rawScope, index, sourceKey) {
+  const rawType = Array.isArray(rawScope) ? "array" : typeof rawScope;
+  const stringValue = typeof rawScope === "string" ? rawScope : "";
+  const normalized = normalizeScope(rawScope);
+  const hasEmptySegment = normalized.split(":").some((part) => part.length === 0);
+  const reasons = [
+    typeof rawScope !== "string" ? "scope_must_be_string" : null,
+    stringValue.trim() === "" ? "scope_empty" : null,
+    normalized.includes("*") ? "requested_scope_wildcard_not_allowed" : null,
+    hasEmptySegment ? "scope_contains_empty_segment" : null,
+    normalized.length > 240 ? "scope_too_long" : null,
+    normalized && !/^[a-z0-9:_./-]+$/.test(normalized) ? "scope_contains_unsupported_characters" : null
+  ].filter(Boolean);
+
+  return {
+    index,
+    sourceKey,
+    rawType,
+    rawValue: typeof rawScope === "string" || typeof rawScope === "number" || typeof rawScope === "boolean"
+      ? String(rawScope)
+      : rawScope === null || rawScope === undefined
+        ? null
+        : rawType,
+    normalizedScope: reasons.length === 0 ? normalized : null,
+    accepted: reasons.length === 0,
+    reasons
+  };
+}
+
+function normalizeRequestedScopeContract(input, now) {
+  const source = requestedScopeSource(input);
+  const candidates = asArray(source.value).map((scope, index) => requestedScopeCandidate(scope, index, source.key));
+  const acceptedScopeStream = candidates
+    .filter((candidate) => candidate.accepted)
+    .map((candidate) => candidate.normalizedScope);
+  const acceptedScopes = Array.from(new Set(acceptedScopeStream));
+  const rejected = candidates.filter((candidate) => !candidate.accepted);
+  const duplicateScopes = Array.from(new Set(acceptedScopeStream.filter((scope, index) => (
+    acceptedScopeStream.indexOf(scope) !== index
+  ))));
+
+  return {
+    contract: "hosted-kernel.scope-matcher.requested-scope-contract.v1",
+    generatedAt: now,
+    sourceKey: source.key,
+    supplied: candidates.length > 0,
+    requestedCount: candidates.length,
+    acceptedCount: acceptedScopes.length,
+    rejectedCount: rejected.length,
+    duplicateScopes,
+    requestedScopes: acceptedScopes,
+    rejectedScopes: rejected.map((candidate) => ({
+      index: candidate.index,
+      sourceKey: candidate.sourceKey,
+      rawType: candidate.rawType,
+      rawValue: candidate.rawValue,
+      reasons: candidate.reasons
+    })),
+    state: rejected.length > 0
+      ? "invalid"
+      : acceptedScopes.length > 0
+        ? "normalized"
+        : "missing",
+    nextAction: rejected.length > 0
+      ? "repair_requested_scope_input"
+      : acceptedScopes.length > 0
+        ? "continue_scope_matching"
+        : "provide_requested_scopes"
+  };
 }
 
 function normalizeCapabilityClaim(claim) {
@@ -120,6 +236,9 @@ function normalizeProviderContract(contract, index) {
     providerId: String(contract.providerId || contract.provider || contract.service || contract.id || `provider-${index}`),
     capabilityId: contract.capabilityId || contract.capability || null,
     version: String(contract.version || contract.contractVersion || "1"),
+    productSurface: String(contract.productSurface || contract.integration || contract.product || ""),
+    integrationKind: String(contract.integrationKind || contract.kind || contract.providerKind || ""),
+    serviceKey: String(contract.serviceKey || contract.service || contract.provider || contract.id || `provider-${index}`),
     status: PROVIDER_CONTRACT_STATUSES.has(rawStatus) ? rawStatus : "revoked",
     supportedScopes: asArray(contract.supportedScopes || contract.scopes || contract.offeredScopes)
       .map(normalizeScope)
@@ -137,10 +256,26 @@ function normalizeProviderContract(contract, index) {
     handoff: {
       state: HANDOFF_STATES.has(handoffState) ? handoffState : "not_required",
       target: rawHandoff.target || contract.handoffTarget || null,
-      mode: rawHandoff.mode || contract.handoffMode || "none"
+      mode: rawHandoff.mode || contract.handoffMode || "none",
+      receiptId: rawHandoff.receiptId || contract.handoffReceiptId || null,
+      webhookRoute: rawHandoff.webhookRoute || rawHandoff.callbackRoute || contract.webhookRoute || contract.callbackRoute || null
     },
     owner: contract.owner || contract.team || null
   };
+}
+
+function isMailchimpProviderContract(contract) {
+  const identifiers = [
+    contract.providerId,
+    contract.capabilityId,
+    contract.owner,
+    contract.productSurface,
+    contract.serviceKey,
+    contract.integrationKind
+  ].map((value) => String(value || "").toLowerCase());
+  return identifiers.some((value) => value.includes("mailchimp")) ||
+    contract.supportedScopes.some(isMailchimpScope) ||
+    contract.requiredScopes.some(isMailchimpScope);
 }
 
 function normalizeProviderContracts(input, capabilityClaims) {
@@ -215,6 +350,92 @@ function readinessStateFromReasons(reasons) {
   return "ready";
 }
 
+function timestampFreshness(value, now, maxAgeMs = null) {
+  const nowMs = Date.parse(now);
+  const timestampMs = Date.parse(value);
+  const supplied = value !== undefined && value !== null && value !== "";
+  const valid = !supplied || Number.isFinite(timestampMs);
+  const ageMs = supplied && valid && Number.isFinite(nowMs)
+    ? nowMs - timestampMs
+    : null;
+  const future = Number.isFinite(ageMs) && ageMs < 0;
+  const stale = Number.isFinite(ageMs) && Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && ageMs > maxAgeMs;
+
+  return {
+    supplied,
+    valid,
+    observedAt: supplied && valid ? new Date(timestampMs).toISOString() : null,
+    ageMs: Number.isFinite(ageMs) ? Math.max(0, ageMs) : null,
+    maxAgeMs: Number.isFinite(maxAgeMs) && maxAgeMs >= 0 ? maxAgeMs : null,
+    future,
+    stale,
+    current: valid && !future && !stale,
+    status: !valid
+      ? "invalid"
+      : future
+        ? "future"
+        : stale
+          ? "stale"
+          : supplied
+            ? "fresh"
+            : "missing"
+  };
+}
+
+function providerSyncFreshness(contract, policy, now) {
+  const maxAgeMs = Number.isFinite(policy.maxSyncLagMs)
+    ? policy.maxSyncLagMs
+    : Number.isFinite(contract.sync.lagMs)
+      ? contract.sync.lagMs
+      : null;
+  const updatedAtFreshness = timestampFreshness(contract.sync.updatedAt, now, maxAgeMs);
+  const lagExceeded = Number.isFinite(policy.maxSyncLagMs) &&
+    Number.isFinite(contract.sync.lagMs) &&
+    contract.sync.lagMs > policy.maxSyncLagMs;
+  const blockers = [
+    contract.sync.updatedAt && !updatedAtFreshness.valid ? "provider_contract_sync_timestamp_invalid" : null,
+    updatedAtFreshness.future ? "provider_contract_sync_timestamp_future" : null,
+    lagExceeded || updatedAtFreshness.stale ? "provider_contract_sync_lag_exceeded" : null
+  ].filter(Boolean);
+  const nextAction = blockers.includes("provider_contract_sync_timestamp_invalid")
+    ? "repair_provider_sync_timestamp"
+    : blockers.includes("provider_contract_sync_timestamp_future")
+      ? "wait_for_provider_clock_or_resync"
+      : blockers.includes("provider_contract_sync_lag_exceeded")
+        ? "refresh_provider_contract_sync"
+        : "none";
+
+  return {
+    contract: "hosted-kernel.scope-matcher.provider-sync-freshness.v1",
+    providerId: contract.providerId,
+    contractId: contract.id,
+    syncState: contract.sync.state,
+    updatedAt: updatedAtFreshness.observedAt,
+    cursor: contract.sync.cursor,
+    lagMs: contract.sync.lagMs,
+    maxLagMs: Number.isFinite(policy.maxSyncLagMs) ? policy.maxSyncLagMs : null,
+    timestamp: updatedAtFreshness,
+    current: contract.sync.state === "current" && blockers.length === 0,
+    blockers,
+    nextAction
+  };
+}
+
+function mailchimpContractReadinessReasons({ requestedScope, contract, proof, missingRequiredScopes }) {
+  if (!isMailchimpScope(requestedScope) && !isMailchimpProviderContract(contract)) return [];
+  const mailchimpMissingScopes = mailchimpRequiredScopesFor(requestedScope)
+    .filter((requiredScope) => !contract.supportedScopes.some((scope) => scopeMatches(scope, requiredScope)));
+  const mutatingScope = mailchimpScopeMutates(requestedScope);
+
+  return [
+    contract.sync.state !== "current" ? "mailchimp_provider_sync_required" : null,
+    !proof ? "mailchimp_provider_proof_required" : null,
+    mutatingScope && !contract.handoff.target ? "mailchimp_provider_handoff_target_missing" : null,
+    mutatingScope && !contract.handoff.receiptId && !contract.handoff.webhookRoute ? "mailchimp_provider_webhook_receipt_missing" : null,
+    missingRequiredScopes.length > 0 || mailchimpMissingScopes.length > 0 ? "mailchimp_required_scope_missing" : null
+  ].filter(Boolean);
+}
+
 function buildProviderReadiness({
   requestedScopes,
   providerContracts,
@@ -237,17 +458,16 @@ function buildProviderReadiness({
       const missingRequiredScopes = contract.requiredScopes.filter((requiredScope) => (
         !requestedScopes.some((scope) => scopeMatches(scope, requiredScope) || scopeMatches(requiredScope, scope))
       ));
-      const syncLagExceeded = Number.isFinite(policy.maxSyncLagMs) &&
-        Number.isFinite(contract.sync.lagMs) &&
-        contract.sync.lagMs > policy.maxSyncLagMs;
+      const syncFreshness = providerSyncFreshness(contract, policy, now);
       const reasons = [
         contract.status === "disabled" || contract.status === "revoked" ? "provider_contract_unusable" : null,
         contract.status === "degraded" && !policy.allowDegradedContract ? "provider_contract_degraded" : null,
         policy.requireCurrentSync && contract.sync.state !== "current" ? "provider_contract_current_sync_required" : null,
         contract.sync.state === "failed" ? "provider_contract_sync_failed" : null,
-        syncLagExceeded ? "provider_contract_sync_lag_exceeded" : null,
+        ...syncFreshness.blockers,
         policy.requireProofReceipt && !proof ? "provider_contract_proof_missing" : null,
-        missingRequiredScopes.length > 0 ? "provider_contract_required_scopes_missing" : null
+        missingRequiredScopes.length > 0 ? "provider_contract_required_scopes_missing" : null,
+        ...mailchimpContractReadinessReasons({ requestedScope, contract, proof, missingRequiredScopes })
       ].filter(Boolean);
 
       return {
@@ -257,7 +477,17 @@ function buildProviderReadiness({
         status: contract.status,
         syncState: contract.sync.state,
         syncLagMs: contract.sync.lagMs,
+        syncFreshness,
         handoffState: contract.handoff.state,
+        productSurface: isMailchimpProviderContract(contract) ? "mailchimp" : contract.productSurface || "generic-provider",
+        mailchimp: isMailchimpProviderContract(contract)
+          ? {
+              mutatingScope: mailchimpScopeMutates(requestedScope),
+              requiredReadScopes: mailchimpRequiredScopesFor(requestedScope),
+              webhookRoute: contract.handoff.webhookRoute || null,
+              receiptId: contract.handoff.receiptId || null
+            }
+          : null,
         requiredScopes: contract.requiredScopes,
         missingRequiredScopes,
         proof,
@@ -294,6 +524,14 @@ function buildProviderReadiness({
     readyScopeCount: evaluatedScopes.filter((scope) => scope.state === "ready").length,
     warningScopeCount: evaluatedScopes.filter((scope) => scope.state === "warning").length,
     blockedScopeCount: evaluatedScopes.filter((scope) => scope.state === "blocked").length,
+    staleContractCount: evaluatedScopes.reduce((count, scope) => (
+      count + scope.contracts.filter((contract) => contract.syncFreshness.blockers.length > 0).length
+    ), 0),
+    syncFreshnessActions: Array.from(new Set(evaluatedScopes.flatMap((scope) => (
+      scope.contracts
+        .map((contract) => contract.syncFreshness.nextAction)
+        .filter((action) => action && action !== "none")
+    )))),
     proofReceiptCount: evaluatedScopes.reduce((count, scope) => (
       count + scope.contracts.filter((contract) => contract.proof).length
     ), 0)
@@ -2198,6 +2436,7 @@ function buildAnalyticsExportManifest({
   statePersistence,
   previewReadiness,
   previewAcceptance,
+  mailchimpReadinessExportDataset,
   now
 }) {
   const nextHistorySnapshot = {
@@ -2252,6 +2491,23 @@ function buildAnalyticsExportManifest({
       previewRevision: previewReadiness.previewRevision,
       acceptanceState: previewAcceptance.state,
       accepted: previewAcceptance.accepted
+    },
+    mailchimpReadiness: {
+      contract: mailchimpReadinessExportDataset.contract,
+      dataset: mailchimpReadinessExportDataset.dataset,
+      detected: mailchimpReadinessExportDataset.detected,
+      state: mailchimpReadinessExportDataset.state,
+      canAccept: mailchimpReadinessExportDataset.canAccept,
+      counters: {
+        rowCount: mailchimpReadinessExportDataset.rowCount,
+        readyScopeCount: mailchimpReadinessExportDataset.readyScopeCount,
+        blockedScopeCount: mailchimpReadinessExportDataset.blockedScopeCount,
+        mutatingScopeCount: mailchimpReadinessExportDataset.mutatingScopeCount,
+        syncBlockedScopeCount: mailchimpReadinessExportDataset.syncBlockedScopeCount,
+        webhookBlockedScopeCount: mailchimpReadinessExportDataset.webhookBlockedScopeCount,
+        proofBlockedScopeCount: mailchimpReadinessExportDataset.proofBlockedScopeCount
+      },
+      rows: mailchimpReadinessExportDataset.exportRows
     },
     persistence: {
       restartSafeStatus: statePersistence.restartSafeStatus,
@@ -2314,7 +2570,9 @@ function buildAnalyticsExportManifest({
     reportIndexes: {
       byDeniedScope: analyticsReport.topDeniedScopes.map((entry) => entry.key),
       byDeniedReason: Object.keys(analyticsReport.deniedReasonCounts),
-      byErrorCode: Object.keys(analyticsReport.errorCodeCounts)
+      byErrorCode: Object.keys(analyticsReport.errorCodeCounts),
+      byMailchimpBlockedReason: Object.keys(mailchimpReadinessExportDataset.reasonCounts),
+      mailchimpNextActions: mailchimpReadinessExportDataset.nextActions
     }
   };
 }
@@ -2456,7 +2714,16 @@ function providerContractNegotiationMetadata(contract) {
       state: contract.handoff.state,
       target: contract.handoff.target,
       mode: contract.handoff.mode,
+      receiptId: contract.handoff.receiptId,
+      webhookRoute: contract.handoff.webhookRoute,
       actionRequired: action !== "none" || contract.handoff.state === "pending" || contract.handoff.state === "blocked"
+    },
+    productSurface: {
+      serviceKey: contract.serviceKey,
+      integrationKind: contract.integrationKind,
+      name: isMailchimpProviderContract(contract) ? "mailchimp" : contract.productSurface || "generic-provider",
+      requiresExternalHandoff: isMailchimpProviderContract(contract) &&
+        contract.supportedScopes.some(mailchimpScopeMutates)
     }
   };
 }
@@ -2562,12 +2829,16 @@ function buildCapabilityNegotiation({ requestedScopes, matches, providerContract
         providerContractId: selectedContract.id,
         providerId: selectedContract.providerId,
         capabilityId: selectedContract.capabilityId,
+        productSurface: isMailchimpProviderContract(selectedContract) ? "mailchimp" : selectedContract.productSurface || "generic-provider",
+        serviceKey: selectedContract.serviceKey,
         version: selectedContract.version,
         proofId: selectedContract.proof?.proofId || null,
         syncCursor: selectedContract.sync.cursor,
         syncState: selectedContract.sync.state,
         handoffState: selectedContract.handoff.state,
         handoffTarget: selectedContract.handoff.target,
+        webhookRoute: selectedContract.handoff.webhookRoute || null,
+        receiptId: selectedContract.handoff.receiptId || null,
         resumeWhen: accepted
           ? null
           : missingRequiredScopes.length > 0
@@ -2664,21 +2935,935 @@ function buildExternalHandoffState({ negotiation, deniedScopes, upstreamFailures
   };
 }
 
-function syncWatermarkForProviderContracts(contracts) {
+function mailchimpRequiredHandoffEvents(scope) {
+  if (!isMailchimpScope(scope)) return [];
+  const resource = mailchimpScopeResource(scope);
+  const mutating = mailchimpScopeMutates(scope);
+  if (resource === "campaign" && mutating) return ["campaign.send"];
+  if (resource === "webhook") return ["webhook.replay"];
+  if (resource === "audience" && mutating) return ["audience.sync"];
+  return [];
+}
+
+function buildMailchimpScopeHandoffRequirement({ requestedScope, mailchimpContractRows, providerContractById, now }) {
+  const mutatingScope = mailchimpScopeMutates(requestedScope);
+  const requiredEvents = mailchimpRequiredHandoffEvents(requestedScope);
+  const providerStates = mailchimpContractRows.map((row) => {
+    const providerContract = providerContractById.get(row.contractId) || {};
+    const handoff = providerContract.handoff || {};
+    const targetPresent = Boolean(handoff.target);
+    const receiptPresent = Boolean(handoff.receiptId || handoff.webhookRoute);
+    const supportsRequiredEvents = requiredEvents.length === 0 ||
+      handoff.mode === "mailchimp-events" ||
+      handoff.mode === "webhook" ||
+      handoff.mode === "provider-webhook" ||
+      receiptPresent;
+    const blockers = [
+      row.syncState === "current" ? null : "mailchimp_scope_sync_not_current",
+      row.proof ? null : "mailchimp_scope_proof_missing",
+      mutatingScope && !targetPresent ? "mailchimp_scope_handoff_target_missing" : null,
+      (mutatingScope || requiredEvents.length > 0) && !receiptPresent ? "mailchimp_scope_handoff_receipt_missing" : null,
+      !supportsRequiredEvents ? "mailchimp_scope_handoff_event_not_supported" : null
+    ].filter(Boolean);
+
+    return {
+      providerId: row.providerId,
+      contractId: row.contractId,
+      handoffState: row.handoffState,
+      syncState: row.syncState,
+      target: handoff.target || null,
+      receiptId: handoff.receiptId || null,
+      webhookRoute: handoff.webhookRoute || null,
+      supportsRequiredEvents,
+      blockers
+    };
+  });
+  const readyProvider = providerStates.find((provider) => provider.blockers.length === 0);
+  const blockers = Array.from(new Set(providerStates.flatMap((provider) => provider.blockers))).sort();
+
+  return {
+    contract: "hosted-kernel.scope-matcher.mailchimp-scope-handoff-requirement.v1",
+    requestedScope,
+    requiredEvents,
+    mutatingScope,
+    required: mutatingScope || requiredEvents.length > 0,
+    state: providerStates.length === 0
+      ? "provider_missing"
+      : readyProvider
+        ? "ready"
+        : blockers.length
+          ? "blocked"
+          : "not_required",
+    readyProviderId: readyProvider?.providerId || null,
+    readyContractId: readyProvider?.contractId || null,
+    blockers,
+    providerStates,
+    dispatchIdentity: {
+      idempotencyKey: [
+        "mailchimp-scope-handoff",
+        requestedScope,
+        readyProvider?.providerId || providerStates[0]?.providerId || "provider",
+        requiredEvents.join(",") || "read",
+        now
+      ].join(":"),
+      dedupeKey: scopesFingerprint([requestedScope, ...(requiredEvents.length ? requiredEvents : ["read"])]),
+      generatedAt: now
+    },
+    resumeWhen: readyProvider
+      ? "mailchimp_scope_handoff_dispatched"
+      : blockers.includes("mailchimp_scope_sync_not_current")
+        ? "mailchimp_provider_sync_current"
+        : blockers.includes("mailchimp_scope_proof_missing")
+          ? "mailchimp_provider_proof_available"
+          : blockers.includes("mailchimp_scope_handoff_target_missing")
+            ? "mailchimp_handoff_target_configured"
+            : blockers.includes("mailchimp_scope_handoff_receipt_missing")
+              ? "mailchimp_webhook_receipt_configured"
+              : "mailchimp_provider_contract_ready"
+  };
+}
+
+function buildMailchimpAcceptanceBoundary({ readinessRows, providerContracts, securityBoundary, previewAcceptance, now }) {
+  const mailchimpContracts = providerContracts.filter(isMailchimpProviderContract);
+  const tenantIds = Array.from(new Set(mailchimpContracts
+    .map((contract) => normalizeIdentity(
+      contract.tenantId ||
+        contract.tenant ||
+        contract.accountId ||
+        contract.owner?.tenantId
+    ))
+    .filter(Boolean))).sort();
+  const workspaceIds = Array.from(new Set(mailchimpContracts
+    .map((contract) => normalizeIdentity(
+      contract.workspaceId ||
+        contract.workspace ||
+        contract.projectId ||
+        contract.owner?.workspaceId
+    ))
+    .filter(Boolean))).sort();
+  const scopeTenantIds = Array.from(new Set(readinessRows
+    .map((row) => scopeBoundaryParts(row.requestedScope).tenantId)
+    .map(normalizeIdentity)
+    .filter(Boolean))).sort();
+  const scopeWorkspaceIds = Array.from(new Set(readinessRows
+    .map((row) => scopeBoundaryParts(row.requestedScope).workspaceId)
+    .map(normalizeIdentity)
+    .filter(Boolean))).sort();
+  const allTenantIds = Array.from(new Set([...tenantIds, ...scopeTenantIds])).sort();
+  const allWorkspaceIds = Array.from(new Set([...workspaceIds, ...scopeWorkspaceIds])).sort();
+  const tenantBlocked = allTenantIds.filter((tenantId) => {
+    if (!tenantId) return securityBoundary.policy.requireTenant;
+    if (securityBoundary.policy.deniedTenantIds.includes(tenantId)) return true;
+    if (securityBoundary.policy.allowedTenantIds.length > 0) {
+      return !securityBoundary.policy.allowedTenantIds.includes(tenantId);
+    }
+    return !securityBoundary.policy.allowCrossTenant &&
+      securityBoundary.tenantId &&
+      tenantId !== securityBoundary.tenantId;
+  });
+  const workspaceBlocked = allWorkspaceIds.filter((workspaceId) => {
+    if (!workspaceId) return securityBoundary.policy.requireWorkspace;
+    if (securityBoundary.policy.deniedWorkspaceIds.includes(workspaceId)) return true;
+    if (securityBoundary.policy.allowedWorkspaceIds.length > 0) {
+      return !securityBoundary.policy.allowedWorkspaceIds.includes(workspaceId);
+    }
+    return !securityBoundary.policy.allowCrossWorkspace &&
+      securityBoundary.workspaceId &&
+      workspaceId !== securityBoundary.workspaceId;
+  });
+  const missingRequiredPermissions = Array.from(new Set(readinessRows.flatMap((row) => (
+    requiredPermissionsForScope(row.requestedScope, securityBoundary.policy)
+      .filter((permission) => !securityBoundary.actor.permissions.some((granted) => permissionMatches(granted, permission)))
+  )))).sort();
+  const mutatingRows = readinessRows.filter((row) => row.mutatingScope);
+  const handoffBlockedRows = mutatingRows.filter((row) => row.handoffRequirement.state !== "ready");
+  const acceptedBlocked = previewAcceptance.accepted === false && previewAcceptance.supplied;
+  const blockers = [
+    ...(securityBoundary.policy.requireTenant && !securityBoundary.tenantId ? ["mailchimp_acceptance_missing_tenant_boundary"] : []),
+    ...(securityBoundary.policy.requireWorkspace && !securityBoundary.workspaceId ? ["mailchimp_acceptance_missing_workspace_boundary"] : []),
+    ...(tenantBlocked.length ? ["mailchimp_acceptance_tenant_outside_boundary"] : []),
+    ...(workspaceBlocked.length ? ["mailchimp_acceptance_workspace_outside_boundary"] : []),
+    ...(missingRequiredPermissions.length ? ["mailchimp_acceptance_actor_permission_missing"] : []),
+    ...(handoffBlockedRows.length ? ["mailchimp_mutating_scope_handoff_not_ready"] : []),
+    ...(acceptedBlocked ? ["mailchimp_preview_acceptance_rejected"] : [])
+  ];
+
+  return {
+    contract: "hosted-kernel.scope-matcher.mailchimp-acceptance-boundary.v1",
+    generatedAt: now,
+    state: blockers.length
+      ? "blocked"
+      : readinessRows.some((row) => row.state === "warning")
+        ? "ready_with_warnings"
+        : readinessRows.length
+          ? "ready"
+          : "not_required",
+    tenantId: securityBoundary.tenantId,
+    workspaceId: securityBoundary.workspaceId,
+    actorId: securityBoundary.actor.id,
+    actorRoles: securityBoundary.actor.roles,
+    actorPermissionCount: securityBoundary.actor.permissions.length,
+    tenantIds: allTenantIds,
+    workspaceIds: allWorkspaceIds,
+    tenantBlockedIds: tenantBlocked,
+    workspaceBlockedIds: workspaceBlocked,
+    missingRequiredPermissions,
+    mutatingScopeCount: mutatingRows.length,
+    handoffBlockedScopeCount: handoffBlockedRows.length,
+    blockers: Array.from(new Set(blockers)).sort(),
+    acceptanceState: previewAcceptance.state,
+    canAccept: blockers.length === 0,
+    nextAction: blockers.includes("mailchimp_acceptance_missing_tenant_boundary") ||
+      blockers.includes("mailchimp_acceptance_tenant_outside_boundary")
+      ? "repair_mailchimp_tenant_boundary"
+      : blockers.includes("mailchimp_acceptance_missing_workspace_boundary") ||
+        blockers.includes("mailchimp_acceptance_workspace_outside_boundary")
+        ? "repair_mailchimp_workspace_boundary"
+        : blockers.includes("mailchimp_acceptance_actor_permission_missing")
+          ? "grant_mailchimp_acceptance_permission"
+          : blockers.includes("mailchimp_mutating_scope_handoff_not_ready")
+            ? "prepare_mailchimp_mutating_scope_handoff"
+            : blockers.includes("mailchimp_preview_acceptance_rejected")
+              ? "resubmit_mailchimp_preview_acceptance"
+              : "accept_mailchimp_preview"
+  };
+}
+
+function buildMailchimpPreviewHandoffContract({ providerContracts, providerReadiness, externalHandoff, providerServiceRegistry, previewAcceptance, securityBoundary, now }) {
+  const mailchimpContracts = providerContracts.filter(isMailchimpProviderContract);
+  const providerContractById = new Map(mailchimpContracts.map((contract) => [contract.id, contract]));
+  const providerEntries = providerServiceRegistry.providers.filter((provider) => provider.mailchimp);
+  const readinessRows = providerReadiness.evaluatedScopes
+    .filter((scope) => scope.contracts.some((contract) => contract.productSurface === "mailchimp"))
+    .map((scope) => {
+      const mailchimpContractRows = scope.contracts.filter((contract) => contract.productSurface === "mailchimp");
+      const handoffRequirement = buildMailchimpScopeHandoffRequirement({
+        requestedScope: scope.requestedScope,
+        mailchimpContractRows,
+        providerContractById,
+        now
+      });
+      const reasons = Array.from(new Set([
+        ...scope.reasons,
+        ...mailchimpContractRows.flatMap((contract) => contract.reasons),
+        ...handoffRequirement.blockers
+      ])).sort();
+
+      return {
+        requestedScope: scope.requestedScope,
+        state: scope.state === "ready" && handoffRequirement.state === "blocked" ? "blocked" : scope.state,
+        accepted: scope.accepted && handoffRequirement.state !== "blocked",
+        mutatingScope: mailchimpScopeMutates(scope.requestedScope),
+        requiredReadScopes: mailchimpRequiredScopesFor(scope.requestedScope),
+        handoffRequirement,
+        requiredHandoffEvents: handoffRequirement.requiredEvents,
+        dispatchIdempotencyKey: handoffRequirement.dispatchIdentity.idempotencyKey,
+        providerIds: mailchimpContractRows.map((contract) => contract.providerId),
+        contractIds: mailchimpContractRows.map((contract) => contract.contractId),
+        webhookReady: mailchimpContractRows.some((contract) => Boolean(contract.mailchimp?.webhookRoute || contract.mailchimp?.receiptId)),
+        proofReady: mailchimpContractRows.some((contract) => Boolean(contract.proof)),
+        syncCurrent: mailchimpContractRows.some((contract) => contract.syncState === "current"),
+        reasons,
+        nextAction: reasons.includes("mailchimp_scope_sync_not_current") ||
+          reasons.includes("mailchimp_provider_sync_required") ||
+          reasons.includes("provider_contract_current_sync_required")
+          ? "refresh_mailchimp_provider_sync"
+          : reasons.includes("mailchimp_scope_proof_missing") ||
+            reasons.includes("mailchimp_provider_proof_required") ||
+            reasons.includes("provider_contract_proof_missing")
+            ? "collect_mailchimp_provider_proof"
+            : reasons.includes("mailchimp_scope_handoff_target_missing") ||
+              reasons.includes("mailchimp_provider_handoff_target_missing")
+              ? "configure_mailchimp_handoff_target"
+              : reasons.includes("mailchimp_scope_handoff_receipt_missing") ||
+                reasons.includes("mailchimp_provider_webhook_receipt_missing")
+                ? "configure_mailchimp_webhook_receipt"
+                : reasons.includes("mailchimp_scope_handoff_event_not_supported")
+                  ? "enable_mailchimp_handoff_event"
+                : reasons.includes("mailchimp_required_scope_missing")
+                  ? "grant_mailchimp_required_read_scope"
+                  : scope.accepted
+                    ? "accept_mailchimp_preview"
+                    : "review_mailchimp_provider_contract"
+      };
+    });
+  const handoffTickets = externalHandoff.tickets.filter((ticket) => (
+    mailchimpContracts.some((contract) => contract.id === ticket.providerContractId || contract.providerId === ticket.providerId)
+  ));
+  const blockedRows = readinessRows.filter((row) => row.state === "blocked");
+  const warningRows = readinessRows.filter((row) => row.state === "warning");
+  const readyRows = readinessRows.filter((row) => row.state === "ready");
+  const acceptanceBoundary = buildMailchimpAcceptanceBoundary({
+    readinessRows,
+    providerContracts,
+    securityBoundary,
+    previewAcceptance,
+    now
+  });
+  const nextActions = Array.from(new Set([
+    ...readinessRows.map((row) => row.nextAction),
+    acceptanceBoundary.nextAction,
+    ...providerEntries.flatMap((entry) => [
+      entry.mailchimp.webhookReady ? null : "configure_mailchimp_webhook_receipt",
+      entry.mailchimp.syncReady ? null : "refresh_mailchimp_provider_sync"
+    ]),
+    ...handoffTickets.map((ticket) => ticket.action)
+  ].filter(Boolean)));
+  const blockedReasonCodes = Array.from(new Set(blockedRows.flatMap((row) => row.reasons))).sort();
+
+  return {
+    contract: "hosted-kernel.scope-matcher.mailchimp-preview-handoff.v1",
+    generatedAt: now,
+    detected: mailchimpContracts.length > 0 || readinessRows.length > 0,
+    state: acceptanceBoundary.state === "blocked" || blockedRows.length > 0
+      ? "blocked"
+      : warningRows.length > 0 || handoffTickets.some((ticket) => ticket.state !== "dispatchable")
+        ? "needs_attention"
+        : readyRows.length > 0 || providerEntries.some((entry) => entry.mailchimp.webhookReady && entry.mailchimp.syncReady)
+          ? "ready"
+          : "not_required",
+    acceptanceState: previewAcceptance.state,
+    canAccept: blockedRows.length === 0 && acceptanceBoundary.canAccept && previewAcceptance.accepted !== false,
+    acceptanceBoundary,
+    providerCount: providerEntries.length,
+    contractCount: mailchimpContracts.length,
+    readyScopeCount: readyRows.length,
+    warningScopeCount: warningRows.length,
+    blockedScopeCount: blockedRows.length,
+    mutatingScopeCount: readinessRows.filter((row) => row.mutatingScope).length,
+    requiredHandoffEventCount: readinessRows.reduce((count, row) => count + row.requiredHandoffEvents.length, 0),
+    dispatchReadyScopeCount: readinessRows.filter((row) => row.handoffRequirement.state === "ready").length,
+    webhookReadyProviderIds: providerEntries
+      .filter((entry) => entry.mailchimp.webhookReady)
+      .map((entry) => entry.providerId),
+    syncReadyProviderIds: providerEntries
+      .filter((entry) => entry.mailchimp.syncReady)
+      .map((entry) => entry.providerId),
+    blockedReasonCodes: Array.from(new Set([
+      ...blockedReasonCodes,
+      ...acceptanceBoundary.blockers
+    ])).sort(),
+    nextActions,
+    readinessRows,
+    handoffTickets: handoffTickets.map((ticket) => ({
+      ticketId: ticket.ticketId,
+      providerId: ticket.providerId,
+      providerContractId: ticket.providerContractId,
+      requestedScope: ticket.requestedScope,
+      state: ticket.state,
+      target: ticket.target,
+      action: ticket.action,
+      resumeWhen: ticket.resumeWhen
+    })),
+    routePayload: {
+      route: `${surfaceGroup}/${surfaceName}/mailchimp-preview-handoff`,
+      method: "POST",
+      previewRevision: previewAcceptance.previewRevision || null,
+      requiredFields: ["providerId", "providerContractId", "requestedScope", "action"],
+      blocked: blockedRows.length > 0 || acceptanceBoundary.state === "blocked",
+      blockedReasonCodes: Array.from(new Set([
+        ...blockedReasonCodes,
+        ...acceptanceBoundary.blockers
+      ])).sort(),
+      boundary: {
+        tenantId: acceptanceBoundary.tenantId,
+        workspaceId: acceptanceBoundary.workspaceId,
+        actorId: acceptanceBoundary.actorId,
+        state: acceptanceBoundary.state,
+        canAccept: acceptanceBoundary.canAccept
+      },
+      dispatchIdentities: readinessRows.map((row) => ({
+        requestedScope: row.requestedScope,
+        idempotencyKey: row.dispatchIdempotencyKey,
+        requiredEvents: row.requiredHandoffEvents,
+        readyProviderId: row.handoffRequirement.readyProviderId
+      }))
+    }
+  };
+}
+
+function buildMailchimpReadinessExportDataset({ mailchimpPreviewHandoff, analyticsReport, exportSettings, now }) {
+  const readinessRows = mailchimpPreviewHandoff.readinessRows || [];
+  const rowByScope = new Map(analyticsReport.exportRows.map((row) => [row.requestedScope, row]));
+  const exportRows = readinessRows.map((row) => {
+    const analyticsRow = rowByScope.get(row.requestedScope) || {};
+    const handoffRequirement = row.handoffRequirement || {};
+    const providerStates = handoffRequirement.providerStates || [];
+    const readyProviderIds = providerStates
+      .filter((provider) => provider.blockers.length === 0)
+      .map((provider) => provider.providerId);
+    const blockedProviderIds = providerStates
+      .filter((provider) => provider.blockers.length > 0)
+      .map((provider) => provider.providerId);
+
+    return {
+      contract: "hosted-kernel.scope-matcher.mailchimp-readiness-export-row.v1",
+      generatedAt: now,
+      surfaceId,
+      requestedScope: row.requestedScope,
+      decision: row.accepted ? "allow" : "deny",
+      scopeState: row.state,
+      mutatingScope: row.mutatingScope,
+      requiredReadScopes: row.requiredReadScopes,
+      requiredHandoffEvents: row.requiredHandoffEvents,
+      providerIds: row.providerIds,
+      contractIds: row.contractIds,
+      readyProviderIds,
+      blockedProviderIds,
+      webhookReady: row.webhookReady,
+      proofReady: row.proofReady,
+      syncCurrent: row.syncCurrent,
+      handoffRequired: handoffRequirement.required === true,
+      handoffState: handoffRequirement.state || "not_required",
+      dispatchIdempotencyKey: row.dispatchIdempotencyKey,
+      nextAction: row.nextAction,
+      resumeWhen: handoffRequirement.resumeWhen || null,
+      deniedReasons: row.accepted ? [] : row.reasons,
+      baseDecision: analyticsRow.decision || null,
+      tenantId: analyticsRow.tenantId || null,
+      workspaceId: analyticsRow.workspaceId || null,
+      clientId: analyticsRow.clientId || null,
+      requestId: analyticsRow.requestId || null
+    };
+  });
+  const blockedRows = exportRows.filter((row) => row.decision === "deny" || row.handoffState === "blocked");
+  const syncBlockedRows = exportRows.filter((row) => !row.syncCurrent);
+  const webhookBlockedRows = exportRows.filter((row) => !row.webhookReady && row.handoffRequired);
+  const proofBlockedRows = exportRows.filter((row) => !row.proofReady);
+  const mutatingRows = exportRows.filter((row) => row.mutatingScope);
+  const reasonCounts = countBy(blockedRows.flatMap((row) => row.deniedReasons));
+  const nextActions = Array.from(new Set([
+    ...mailchimpPreviewHandoff.nextActions,
+    ...blockedRows.map((row) => row.nextAction)
+  ].filter(Boolean))).sort();
+  const csvHeaders = [
+    "generatedAt",
+    "surfaceId",
+    "requestedScope",
+    "decision",
+    "scopeState",
+    "mutatingScope",
+    "handoffState",
+    "providerIds",
+    "readyProviderIds",
+    "blockedProviderIds",
+    "webhookReady",
+    "proofReady",
+    "syncCurrent",
+    "nextAction",
+    "tenantId",
+    "workspaceId",
+    "clientId",
+    "requestId"
+  ];
+
+  return {
+    contract: "hosted-kernel.scope-matcher.mailchimp-readiness-export-dataset.v1",
+    generatedAt: now,
+    dataset: `${exportSettings.sink.dataset}_mailchimp_readiness`,
+    partitionKey: exportSettings.sink.partitionKey,
+    detected: mailchimpPreviewHandoff.detected,
+    state: mailchimpPreviewHandoff.state,
+    canAccept: mailchimpPreviewHandoff.canAccept,
+    acceptanceState: mailchimpPreviewHandoff.acceptanceState,
+    providerCount: mailchimpPreviewHandoff.providerCount,
+    rowCount: exportRows.length,
+    readyScopeCount: exportRows.filter((row) => row.decision === "allow" && row.handoffState !== "blocked").length,
+    blockedScopeCount: blockedRows.length,
+    mutatingScopeCount: mutatingRows.length,
+    syncBlockedScopeCount: syncBlockedRows.length,
+    webhookBlockedScopeCount: webhookBlockedRows.length,
+    proofBlockedScopeCount: proofBlockedRows.length,
+    requiredHandoffEventCount: exportRows.reduce((count, row) => count + row.requiredHandoffEvents.length, 0),
+    reasonCounts,
+    nextActions,
+    resumeWhen: mailchimpPreviewHandoff.canAccept
+      ? "mailchimp_preview_accepted"
+      : nextActions.includes("refresh_mailchimp_provider_sync")
+        ? "mailchimp_provider_sync_current"
+        : nextActions.includes("configure_mailchimp_webhook_receipt")
+          ? "mailchimp_webhook_receipt_configured"
+          : nextActions.includes("configure_mailchimp_handoff_target")
+            ? "mailchimp_handoff_target_configured"
+            : mailchimpPreviewHandoff.detected
+              ? "mailchimp_readiness_rechecked"
+              : null,
+    exportRows,
+    ndjsonPreview: exportRows.map((row) => JSON.stringify(row)),
+    csv: {
+      headers: csvHeaders,
+      previewLines: [
+        csvHeaders.join(","),
+        ...exportRows.map((row) => csvHeaders.map((header) => csvCell(row[header])).join(","))
+      ]
+    }
+  };
+}
+
+function normalizeMailchimpAcknowledgementReceiptSource(input) {
+  const clientState = input.clientState && typeof input.clientState === "object" ? input.clientState : {};
+  const source = input.mailchimpProviderAcknowledgements && typeof input.mailchimpProviderAcknowledgements === "object"
+    ? input.mailchimpProviderAcknowledgements
+    : clientState.mailchimpProviderAcknowledgements && typeof clientState.mailchimpProviderAcknowledgements === "object"
+      ? clientState.mailchimpProviderAcknowledgements
+      : {};
+  const rows = Array.isArray(source.receipts)
+    ? source.receipts
+    : Array.isArray(source.rows)
+      ? source.rows
+      : Array.isArray(input.mailchimpProviderAcknowledgementReceipts)
+        ? input.mailchimpProviderAcknowledgementReceipts
+        : Array.isArray(clientState.mailchimpProviderAcknowledgementReceipts)
+          ? clientState.mailchimpProviderAcknowledgementReceipts
+          : [];
+
+  return { source, rows };
+}
+
+function normalizeMailchimpAcknowledgementReceipts(input, now) {
+  const { source, rows } = normalizeMailchimpAcknowledgementReceiptSource(input);
+  const normalizedRows = rows
+    .filter((row) => row && typeof row === "object")
+    .map((row, index) => {
+      const providerId = normalizeIdentity(row.providerId || row.provider);
+      const providerContractId = String(row.providerContractId || row.contractId || "").trim() || null;
+      const requestedScope = normalizeScope(row.requestedScope || row.scope);
+      const rawState = String(row.state || row.status || "pending").trim().toLowerCase();
+      const state = ["accepted", "completed", "acknowledged"].includes(rawState)
+        ? "accepted"
+        : ["failed", "rejected", "blocked"].includes(rawState)
+          ? "blocked"
+          : "pending";
+      const receiptId = String(row.receiptId || row.id || "").trim();
+      const idempotencyKey = String(row.idempotencyKey || row.key || "").trim();
+      const receivedAt = row.receivedAt || row.at || row.timestamp || now;
+      const timestamp = timestampState(receivedAt, now);
+      const proofRef = String(row.proofRef || row.proof || "").trim();
+      const blockers = [
+        providerId ? null : "mailchimp_ack_provider_missing",
+        requestedScope ? null : "mailchimp_ack_scope_missing",
+        receiptId || idempotencyKey ? null : "mailchimp_ack_receipt_identity_missing",
+        timestamp.valid ? null : "mailchimp_ack_timestamp_invalid",
+        timestamp.future ? "mailchimp_ack_timestamp_future" : null,
+        state === "blocked" ? "mailchimp_ack_receipt_blocked" : null
+      ].filter(Boolean);
+
+      return {
+        contract: "hosted-kernel.scope-matcher.mailchimp-acknowledgement-receipt-row.v1",
+        index,
+        providerId,
+        providerContractId,
+        requestedScope,
+        receiptId: receiptId || null,
+        idempotencyKey: idempotencyKey || null,
+        state,
+        accepted: state === "accepted" && blockers.length === 0,
+        supplied: true,
+        receivedAt: timestamp.valid ? new Date(timestamp.epochMs).toISOString() : String(receivedAt),
+        proofRef: proofRef || null,
+        blockers,
+        matchKeys: [
+          [providerId || "", requestedScope || "", idempotencyKey || ""].join("|"),
+          [providerId || "", requestedScope || "", receiptId || ""].join("|")
+        ].filter((key) => !key.endsWith("|"))
+      };
+    });
+  const acceptedRows = normalizedRows.filter((row) => row.accepted);
+  const blockedRows = normalizedRows.filter((row) => row.blockers.length > 0 || row.state === "blocked");
+  const pendingRows = normalizedRows.filter((row) => row.state === "pending" && row.blockers.length === 0);
+
+  return {
+    contract: "hosted-kernel.scope-matcher.mailchimp-acknowledgement-receipts.v1",
+    supplied: Object.keys(source).length > 0 || rows.length > 0,
+    generatedAt: now,
+    acceptedCount: acceptedRows.length,
+    blockedCount: blockedRows.length,
+    pendingCount: pendingRows.length,
+    status: blockedRows.length
+      ? "blocked"
+      : pendingRows.length
+        ? "pending"
+        : acceptedRows.length
+          ? "accepted"
+          : "not_supplied",
+    blockers: Array.from(new Set(blockedRows.flatMap((row) => row.blockers))).sort(),
+    receiptDigest: normalizedRows
+      .map((row) => [row.providerId, row.requestedScope, row.receiptId || row.idempotencyKey, row.state].join(":"))
+      .sort()
+      .join("|"),
+    rows: normalizedRows
+  };
+}
+
+function applyMailchimpAcknowledgementReceipts(acknowledgementRows, acknowledgementReceipts) {
+  const receiptByKey = new Map();
+  for (const receipt of acknowledgementReceipts.rows) {
+    for (const key of receipt.matchKeys) {
+      if (key) receiptByKey.set(key, receipt);
+    }
+  }
+
+  return acknowledgementRows.map((row) => {
+    const expected = row.expectedReceipt || {};
+    const matchKeys = [
+      [row.providerId || expected.providerId || "", row.requestedScope || expected.requestedScope || "", row.idempotencyKey || expected.idempotencyKey || ""].join("|"),
+      [row.providerId || expected.providerId || "", row.requestedScope || expected.requestedScope || "", expected.receiptId || row.receiptId || ""].join("|")
+    ];
+    const receipt = matchKeys.map((key) => receiptByKey.get(key)).find(Boolean) || null;
+    const receiptBlockers = receipt?.blockers || [];
+    const receiptAccepted = Boolean(receipt?.accepted);
+    const dispatchState = receiptAccepted
+      ? "acknowledged"
+      : receiptBlockers.length
+        ? "blocked"
+        : row.dispatchState;
+
+    return {
+      ...row,
+      dispatchState,
+      receiptStatus: receipt?.state || "missing",
+      receiptAccepted,
+      receiptReceivedAt: receipt?.receivedAt || null,
+      submittedReceiptId: receipt?.receiptId || null,
+      suppliedReceiptProofRef: receipt?.proofRef || null,
+      blockers: Array.from(new Set([...row.blockers, ...receiptBlockers])).sort(),
+      nextAction: receiptAccepted
+        ? "continue_mailchimp_client_adoption"
+        : receiptBlockers.length
+          ? "repair_mailchimp_provider_acknowledgement_receipt"
+          : row.nextAction,
+      resumeWhen: receiptAccepted
+        ? "mailchimp_provider_acknowledgement_committed"
+        : receiptBlockers.length
+          ? "mailchimp_provider_acknowledgement_receipt_repaired"
+          : row.resumeWhen
+    };
+  });
+}
+
+function buildMailchimpClientAdoptionBridge({
+  mailchimpPreviewHandoff,
+  clientRuntime,
+  clientWorkflowHandoff,
+  clientAdoptionPlan,
+  clientRuntimeAdoptionCommit,
+  validationSummary,
+  acknowledgementReceipts,
+  now
+}) {
+  const mailchimpRows = mailchimpPreviewHandoff.readinessRows || [];
+  const blockedRows = mailchimpRows.filter((row) => row.state === "blocked");
+  const mutatingRows = mailchimpRows.filter((row) => row.mutatingScope);
+  const webhookBlockedRows = mailchimpRows.filter((row) => !row.webhookReady);
+  const proofBlockedRows = mailchimpRows.filter((row) => !row.proofReady);
+  const syncBlockedRows = mailchimpRows.filter((row) => !row.syncCurrent);
+  const acceptedScopeSet = new Set(validationSummary.acceptedScopes || []);
+  const deniedScopeSet = new Set(validationSummary.deniedScopes || []);
+  const requestedAcknowledgementRows = mailchimpRows
+    .filter((row) => row.handoffRequirement.required || row.mutatingScope)
+    .map((row) => {
+      const providerStates = row.handoffRequirement.providerStates || [];
+      const readyProvider = providerStates.find((provider) => provider.providerId === row.handoffRequirement.readyProviderId) ||
+        providerStates.find((provider) => provider.blockers.length === 0) ||
+        providerStates[0] ||
+        {};
+      const blocked = row.state === "blocked" || row.handoffRequirement.state === "blocked";
+      const receiptRoute = readyProvider.webhookRoute ||
+        mailchimpPreviewHandoff.routePayload.route ||
+        `${surfaceGroup}/${surfaceName}/mailchimp-preview-handoff`;
+
+      return {
+        contract: "hosted-kernel.scope-matcher.mailchimp-provider-acknowledgement-row.v1",
+        requestedScope: row.requestedScope,
+        providerId: readyProvider.providerId || row.providerIds[0] || null,
+        providerContractId: readyProvider.contractId || row.contractIds[0] || null,
+        requiredEvents: row.requiredHandoffEvents,
+        mutatingScope: row.mutatingScope,
+        dispatchState: blocked
+          ? "blocked"
+          : row.handoffRequirement.state === "ready"
+            ? "ready"
+            : "not_required",
+        receiptRoute,
+        receiptId: readyProvider.receiptId || null,
+        idempotencyKey: row.dispatchIdempotencyKey,
+        expectedReceipt: blocked
+          ? null
+          : {
+              receiptId: [
+                "mailchimp-scope-ack",
+                readyProvider.providerId || row.providerIds[0] || "provider",
+                scopesFingerprint([row.requestedScope]),
+                mailchimpPreviewHandoff.routePayload.previewRevision || "preview"
+              ].join(":"),
+              providerId: readyProvider.providerId || row.providerIds[0] || null,
+              providerContractId: readyProvider.contractId || row.contractIds[0] || null,
+              requestedScope: row.requestedScope,
+              acceptedStates: ["accepted", "completed", "failed"],
+              requiredEvents: row.requiredHandoffEvents,
+              idempotencyKey: row.dispatchIdempotencyKey,
+              proofRef: row.handoffRequirement.dispatchIdentity.idempotencyKey
+            },
+        blockers: blocked ? row.reasons : [],
+        nextAction: blocked ? row.nextAction : "await_mailchimp_provider_acknowledgement",
+        resumeWhen: blocked ? row.handoffRequirement.resumeWhen : "mailchimp_provider_acknowledged"
+      };
+    });
+  const acknowledgementRows = applyMailchimpAcknowledgementReceipts(
+    requestedAcknowledgementRows,
+    acknowledgementReceipts
+  );
+  const acknowledgementBlockedRows = acknowledgementRows.filter((row) => row.dispatchState === "blocked");
+  const acknowledgementReadyRows = acknowledgementRows.filter((row) => row.dispatchState === "ready");
+  const acknowledgementAcceptedRows = acknowledgementRows.filter((row) => row.dispatchState === "acknowledged");
+  const adoptionRows = mailchimpRows.map((row) => {
+    const commitRow = clientRuntimeAdoptionCommit.rows.find((item) => item.requestedScope === row.requestedScope);
+    const acknowledgement = acknowledgementRows.find((item) => item.requestedScope === row.requestedScope) || null;
+    const clientAction = row.state === "blocked"
+      ? row.nextAction
+      : commitRow?.routeAction && commitRow.routeAction !== "none"
+        ? commitRow.routeAction
+        : acknowledgement?.dispatchState === "acknowledged"
+          ? "continue_mailchimp_client_adoption"
+        : acknowledgement?.dispatchState === "ready"
+          ? "dispatch_mailchimp_provider_acknowledgement"
+          : "accept_mailchimp_preview";
+
+    return {
+      contract: "hosted-kernel.scope-matcher.mailchimp-client-adoption-row.v1",
+      requestedScope: row.requestedScope,
+      state: row.state,
+      acceptedByScopeMatcher: acceptedScopeSet.has(row.requestedScope),
+      deniedByScopeMatcher: deniedScopeSet.has(row.requestedScope),
+      mutatingScope: row.mutatingScope,
+      providerIds: row.providerIds,
+      contractIds: row.contractIds,
+      webhookReady: row.webhookReady,
+      proofReady: row.proofReady,
+      syncCurrent: row.syncCurrent,
+      requiredReadScopes: row.requiredReadScopes,
+      providerAcknowledgement: acknowledgement
+        ? {
+            dispatchState: acknowledgement.dispatchState,
+            receiptStatus: acknowledgement.receiptStatus,
+            receiptAccepted: acknowledgement.receiptAccepted,
+            submittedReceiptId: acknowledgement.submittedReceiptId,
+            providerId: acknowledgement.providerId,
+            providerContractId: acknowledgement.providerContractId,
+            receiptRoute: acknowledgement.receiptRoute,
+            expectedReceipt: acknowledgement.expectedReceipt,
+            nextAction: acknowledgement.nextAction,
+            resumeWhen: acknowledgement.resumeWhen
+          }
+        : null,
+      clientAdoptionState: commitRow?.state || "not_evaluated",
+      clientRouteAction: clientAction,
+      handoffRequired: row.state !== "ready" || row.mutatingScope || acknowledgement?.dispatchState === "ready",
+      blockers: row.reasons,
+      resumeWhen: row.state === "ready"
+        ? acknowledgement?.resumeWhen || clientRuntimeAdoptionCommit.resumeWhen
+        : row.nextAction === "refresh_mailchimp_provider_sync"
+          ? "mailchimp_provider_sync_current"
+          : row.nextAction === "collect_mailchimp_provider_proof"
+            ? "mailchimp_provider_proof_available"
+            : row.nextAction === "configure_mailchimp_webhook_receipt"
+              ? "mailchimp_webhook_receipt_configured"
+              : row.nextAction === "configure_mailchimp_handoff_target"
+                ? "mailchimp_handoff_target_configured"
+                : "mailchimp_provider_contract_ready"
+    };
+  });
+  const dispatchable = mailchimpPreviewHandoff.state === "ready" &&
+    clientRuntimeAdoptionCommit.dispatch.ready &&
+    clientAdoptionPlan.state !== "blocked";
+  const acknowledgementDispatchable = dispatchable && acknowledgementReadyRows.length > 0 && acknowledgementBlockedRows.length === 0;
+  const route = {
+    contract: "hosted-kernel.scope-matcher.mailchimp-client-adoption-route.v1",
+    route: `${surfaceGroup}/${surfaceName}/mailchimp-client-adoption`,
+    method: "POST",
+    clientId: clientRuntime.clientId,
+    requestId: clientRuntime.requestId,
+    workflowId: clientRuntime.workflowId,
+    idempotencyKey: [
+      "mailchimp-client-adoption",
+      clientRuntime.clientId,
+      clientRuntime.requestId || "request",
+      mailchimpPreviewHandoff.acceptanceState,
+      mailchimpPreviewHandoff.blockedScopeCount
+    ].join(":"),
+    target: clientWorkflowHandoff.target || mailchimpPreviewHandoff.routePayload.route,
+    returnTo: clientRuntime.handoff.returnTo,
+    requiredFields: [
+      "clientId",
+      "requestId",
+      "providerId",
+      "requestedScope",
+      "clientRouteAction",
+      "expectedReceipt"
+    ],
+    payload: {
+      previewRevision: mailchimpPreviewHandoff.routePayload.previewRevision,
+      acceptedActions: clientRuntime.handoff.acceptedActions,
+      suppressedActions: clientRuntime.handoff.suppressedActions,
+      rows: adoptionRows.map((row) => ({
+        requestedScope: row.requestedScope,
+        providerIds: row.providerIds,
+        clientRouteAction: row.clientRouteAction,
+        expectedReceipt: row.providerAcknowledgement?.expectedReceipt || null,
+        resumeWhen: row.resumeWhen
+      }))
+    }
+  };
+  const providerAcknowledgements = {
+    contract: "hosted-kernel.scope-matcher.mailchimp-provider-acknowledgements.v1",
+    generatedAt: now,
+    required: acknowledgementRows.length > 0,
+    state: acknowledgementRows.length === 0
+      ? "not_required"
+      : acknowledgementBlockedRows.length > 0
+        ? "blocked"
+        : acknowledgementAcceptedRows.length === acknowledgementRows.length
+          ? "accepted"
+        : acknowledgementDispatchable
+          ? "dispatch_ready"
+          : "waiting_for_client_commit",
+    dispatchable: acknowledgementDispatchable,
+    receiptContract: acknowledgementReceipts,
+    requiredCount: acknowledgementRows.length,
+    readyCount: acknowledgementReadyRows.length,
+    acceptedCount: acknowledgementAcceptedRows.length,
+    blockedCount: acknowledgementBlockedRows.length,
+    expectedReceiptCount: acknowledgementRows.filter((row) => row.expectedReceipt).length,
+    nextAction: acknowledgementBlockedRows.length
+      ? acknowledgementBlockedRows[0].nextAction
+      : acknowledgementAcceptedRows.length === acknowledgementRows.length && acknowledgementRows.length > 0
+        ? "continue_mailchimp_client_adoption"
+      : acknowledgementDispatchable
+        ? "dispatch_mailchimp_provider_acknowledgements"
+        : acknowledgementRows.length
+          ? "commit_client_runtime_before_provider_acknowledgement"
+          : "none",
+    route: {
+      contract: "hosted-kernel.scope-matcher.mailchimp-provider-acknowledgement-route.v1",
+      route: `${surfaceGroup}/${surfaceName}/mailchimp-provider-acknowledgements`,
+      method: "POST",
+      clientId: clientRuntime.clientId,
+      requestId: clientRuntime.requestId,
+      workflowId: clientRuntime.workflowId,
+      idempotencyKey: [
+        "mailchimp-provider-acknowledgements",
+        clientRuntime.clientId,
+        clientRuntime.requestId || "request",
+        acknowledgementRows.length,
+        mailchimpPreviewHandoff.acceptanceState
+      ].join(":"),
+      requiredFields: ["providerId", "providerContractId", "requestedScope", "receiptId", "state", "idempotencyKey"],
+      rows: acknowledgementRows.map((row) => ({
+        providerId: row.providerId,
+        providerContractId: row.providerContractId,
+        requestedScope: row.requestedScope,
+        receiptRoute: row.receiptRoute,
+        expectedReceipt: row.expectedReceipt,
+        dispatchState: row.dispatchState,
+        receiptStatus: row.receiptStatus,
+        submittedReceiptId: row.submittedReceiptId,
+        resumeWhen: row.resumeWhen
+      }))
+    },
+    rows: acknowledgementRows,
+    resumeWhen: acknowledgementBlockedRows.length
+      ? acknowledgementBlockedRows[0].resumeWhen
+      : acknowledgementRows.length
+        ? "mailchimp_provider_acknowledged"
+        : null
+  };
+  const nextActions = Array.from(new Set([
+    ...mailchimpPreviewHandoff.nextActions,
+    ...adoptionRows.map((row) => row.clientRouteAction),
+    providerAcknowledgements.nextAction,
+    dispatchable ? clientRuntimeAdoptionCommit.dispatch.action : null
+  ].filter(Boolean))).sort();
+
+  return {
+    contract: "hosted-kernel.scope-matcher.mailchimp-client-adoption-bridge.v1",
+    generatedAt: now,
+    detected: mailchimpPreviewHandoff.detected,
+    state: !mailchimpPreviewHandoff.detected
+      ? "not_required"
+      : blockedRows.length > 0
+        ? "blocked"
+        : dispatchable
+          ? "dispatchable"
+          : clientAdoptionPlan.state === "blocked"
+            ? "client_blocked"
+            : mailchimpPreviewHandoff.state === "needs_attention"
+              ? "provider_attention_required"
+              : "ready",
+    dispatchable,
+    clientId: clientRuntime.clientId,
+    requestId: clientRuntime.requestId,
+    workflowId: clientRuntime.workflowId,
+    acceptanceState: mailchimpPreviewHandoff.acceptanceState,
+    clientAdoptionState: clientAdoptionPlan.state,
+    clientRuntimeCommitState: clientRuntimeAdoptionCommit.state,
+    providerAcknowledgements,
+    counters: {
+      rows: adoptionRows.length,
+      mutatingScopes: mutatingRows.length,
+      blockedScopes: blockedRows.length,
+      webhookBlockedScopes: webhookBlockedRows.length,
+      proofBlockedScopes: proofBlockedRows.length,
+      syncBlockedScopes: syncBlockedRows.length,
+      providerAcknowledgements: acknowledgementRows.length,
+      providerAcknowledgementsReady: acknowledgementReadyRows.length,
+      providerAcknowledgementsAccepted: acknowledgementAcceptedRows.length,
+      providerAcknowledgementsBlocked: acknowledgementBlockedRows.length,
+      submittedAcknowledgementReceipts: acknowledgementReceipts.rows.length,
+      dispatchableActions: dispatchable ? 1 : 0,
+      acknowledgementDispatchableActions: acknowledgementDispatchable ? acknowledgementReadyRows.length : 0
+    },
+    blockers: Array.from(new Set([
+      ...mailchimpPreviewHandoff.blockedReasonCodes,
+      ...clientAdoptionPlan.blockers,
+      ...adoptionRows.flatMap((row) => row.blockers),
+      ...acknowledgementBlockedRows.flatMap((row) => row.blockers)
+    ])).sort(),
+    nextActions,
+    route,
+    rows: adoptionRows,
+    resumeWhen: dispatchable
+      ? "mailchimp_client_handoff_dispatched"
+      : blockedRows.length > 0
+        ? adoptionRows.find((row) => row.state === "blocked")?.resumeWhen || "mailchimp_provider_contract_ready"
+        : clientRuntimeAdoptionCommit.resumeWhen
+  };
+}
+
+function syncWatermarkForProviderContracts(contracts, now) {
   const cursors = contracts.map((contract) => contract.sync.cursor).filter(Boolean);
-  const updatedAtValues = contracts
-    .map((contract) => contract.sync.updatedAt)
-    .filter((value) => Number.isFinite(Date.parse(value)))
+  const updatedAtFreshness = contracts.map((contract) => timestampFreshness(contract.sync.updatedAt, now));
+  const updatedAtValues = updatedAtFreshness
+    .filter((freshness) => freshness.valid && freshness.observedAt)
+    .map((freshness) => freshness.observedAt)
     .sort((left, right) => Date.parse(right) - Date.parse(left));
   const lagValues = contracts
     .map((contract) => contract.sync.lagMs)
     .filter((lagMs) => Number.isFinite(lagMs));
+  const invalidTimestampCount = updatedAtFreshness.filter((freshness) => freshness.supplied && !freshness.valid).length;
+  const futureTimestampCount = updatedAtFreshness.filter((freshness) => freshness.future).length;
+  const missingTimestampCount = updatedAtFreshness.filter((freshness) => !freshness.supplied).length;
 
   return {
     cursor: cursors.at(-1) || null,
     latestUpdatedAt: updatedAtValues[0] || null,
     maxLagMs: lagValues.length > 0 ? Math.max(...lagValues) : null,
-    current: contracts.length > 0 && contracts.every((contract) => contract.sync.state === "current")
+    invalidTimestampCount,
+    futureTimestampCount,
+    missingTimestampCount,
+    current: contracts.length > 0 &&
+      contracts.every((contract) => contract.sync.state === "current") &&
+      invalidTimestampCount === 0 &&
+      futureTimestampCount === 0
   };
 }
 
@@ -2695,9 +3880,10 @@ function providerServiceContractState({ providerId, contracts, negotiation, now 
       resumeWhen: item.serviceContract?.resumeWhen || "provider_contract_available"
     }));
   const handoffTickets = negotiation.handoffQueue.filter((ticket) => ticket.providerId === providerId);
-  const syncWatermark = syncWatermarkForProviderContracts(contracts);
+  const syncWatermark = syncWatermarkForProviderContracts(contracts, now);
   const statuses = new Set(contracts.map((contract) => contract.status));
   const syncStates = new Set(contracts.map((contract) => contract.sync.state));
+  const mailchimpContracts = contracts.filter(isMailchimpProviderContract);
   const blocked = blockedScopes.length > 0 ||
     statuses.has("disabled") ||
     statuses.has("revoked") ||
@@ -2711,6 +3897,9 @@ function providerServiceContractState({ providerId, contracts, negotiation, now 
     state: blocked ? "blocked" : warning ? "warning" : "ready",
     providerContractIds: contracts.map((contract) => contract.id),
     capabilityIds: Array.from(new Set(contracts.map((contract) => contract.capabilityId).filter(Boolean))),
+    productSurfaces: Array.from(new Set(contracts.map((contract) => (
+      isMailchimpProviderContract(contract) ? "mailchimp" : contract.productSurface || "generic-provider"
+    )))).sort(),
     versions: Array.from(new Set(contracts.map((contract) => contract.version).filter(Boolean))),
     supportedScopes: Array.from(new Set(contracts.flatMap((contract) => contract.supportedScopes))).sort(),
     requiredScopes: Array.from(new Set(contracts.flatMap((contract) => contract.requiredScopes))).sort(),
@@ -2726,6 +3915,18 @@ function providerServiceContractState({ providerId, contracts, negotiation, now 
       modes: Array.from(new Set(contracts.map((contract) => contract.handoff.mode).filter(Boolean))),
       resumeWhen: blockedScopes[0]?.resumeWhen || (syncWatermark.current ? null : "provider_contract_sync_current")
     },
+    mailchimp: mailchimpContracts.length > 0
+      ? {
+          providerContractIds: mailchimpContracts.map((contract) => contract.id),
+          mutatingScopeCount: Array.from(new Set(mailchimpContracts.flatMap((contract) => contract.supportedScopes)))
+            .filter(mailchimpScopeMutates).length,
+          webhookReady: mailchimpContracts.some((contract) => Boolean(contract.handoff.webhookRoute || contract.handoff.receiptId)),
+          syncReady: mailchimpContracts.every((contract) => contract.sync.state === "current"),
+          requiredReadScopes: Array.from(new Set(mailchimpContracts.flatMap((contract) => (
+            contract.supportedScopes.flatMap(mailchimpRequiredScopesFor)
+          )))).sort()
+        }
+      : null,
     lease: {
       leaseId: `${surfaceId}:${providerId}:${syncWatermark.cursor || "no-cursor"}`,
       idempotencyKey: `${providerId}:${acceptedScopes.join(",") || "no-accepted-scope"}:${blockedScopes.length}`,
@@ -2771,6 +3972,11 @@ function buildProviderServiceContractRegistry({ providerContracts, negotiation, 
     acceptedScopeCount: providers.reduce((count, provider) => count + provider.acceptedScopes.length, 0),
     blockedScopeCount: providers.reduce((count, provider) => count + provider.blockedScopes.length, 0),
     syncCurrentProviderCount: providers.filter((provider) => provider.syncWatermark.current).length,
+    syncTimestampIssueCount: providers.reduce((count, provider) => (
+      count +
+      provider.syncWatermark.invalidTimestampCount +
+      provider.syncWatermark.futureTimestampCount
+    ), 0),
     maxSyncLagMs: providers
       .map((provider) => provider.syncWatermark.maxLagMs)
       .filter((lagMs) => Number.isFinite(lagMs))
@@ -3242,6 +4448,10 @@ function buildValidationSummary({ errors, matches, requestedScopes, providerRead
     providerReadinessState: providerReadiness.blockedScopeCount > 0
       ? "blocked"
       : providerReadiness.warningScopeCount > 0 ? "warning" : "ready",
+    providerSyncFreshness: {
+      staleContractCount: providerReadiness.staleContractCount,
+      nextActions: providerReadiness.syncFreshnessActions
+    },
     clientRuntimeState: clientRuntime.state,
     persistenceRestartSafeStatus: statePersistence.restartSafeStatus,
     perScope
@@ -3564,9 +4774,8 @@ function buildClientPreviewRouteContract({
 export function describeScopeMatcherSurface(input = {}) {
   const now = input.now || new Date().toISOString();
   const evidence = Array.isArray(input.evidence) ? input.evidence : [];
-  const requestedScopes = asArray(input.requestedScopes || input.requiredScopes || input.scope)
-    .map(normalizeScope)
-    .filter(Boolean);
+  const requestedScopeContract = normalizeRequestedScopeContract(input, now);
+  const requestedScopes = requestedScopeContract.requestedScopes;
   const securityBoundary = normalizeSecurityBoundary(input, requestedScopes, now);
   const capabilityClaims = asArray(input.capabilityClaims || input.capabilities)
     .map(normalizeCapabilityClaim);
@@ -3657,6 +4866,14 @@ export function describeScopeMatcherSurface(input = {}) {
       code: "missing_requested_scopes",
       message: "Scope matcher requires at least one requested scope.",
       remediation: "Pass requestedScopes as a non-empty string array before asking for a capability decision."
+    }));
+  }
+
+  if (requestedScopeContract.rejectedCount > 0) {
+    validationErrors.push(buildActionableError({
+      code: "invalid_requested_scopes",
+      message: `${requestedScopeContract.rejectedCount} requested scope input(s) were rejected before matching.`,
+      remediation: "Pass requested scopes as non-empty strings without wildcard selectors, empty path segments, or unsupported characters."
     }));
   }
 
@@ -3872,6 +5089,9 @@ export function describeScopeMatcherSurface(input = {}) {
         providerContractIds: scope.contracts.map((contract) => contract.contractId)
       })),
     providerProofReceiptCount: providerReadiness.proofReceiptCount,
+    requestedScopeContractState: requestedScopeContract.state,
+    rejectedRequestedScopeCount: requestedScopeContract.rejectedCount,
+    rejectedRequestedScopes: requestedScopeContract.rejectedScopes,
     scheduleMode: schedule.mode,
     scheduleActive: lifecycleControlPlan.scheduleActive,
     persistedStateRevision: persistedState.revision,
@@ -3939,6 +5159,9 @@ export function describeScopeMatcherSurface(input = {}) {
     exportWindow: analyticsExportSettings.window,
     exportFormats: analyticsExportSettings.exportFormats,
     requestedScopeCount: analytics.requestedScopeCount,
+    requestedScopeContractState: requestedScopeContract.state,
+    rejectedRequestedScopeCount: requestedScopeContract.rejectedCount,
+    duplicateRequestedScopes: requestedScopeContract.duplicateScopes,
     grantedScopeCount: analytics.grantedScopeCount,
     deniedScopeCount: analytics.deniedScopeCount,
     deniedScopes,
@@ -4187,6 +5410,39 @@ export function describeScopeMatcherSurface(input = {}) {
     clientRuntimeAdoptionSnapshotRefreshScopeCount: clientRuntimeAdoptionCommit.counts.snapshotRefreshScopeCount,
     clientRuntimeAdoptionAcknowledgementScopeCount: clientRuntimeAdoptionCommit.counts.acknowledgementScopeCount
   });
+  const mailchimpPreviewHandoff = buildMailchimpPreviewHandoffContract({
+    providerContracts,
+    providerReadiness,
+    externalHandoff,
+    providerServiceRegistry,
+    previewAcceptance,
+    securityBoundary,
+    now
+  });
+  const mailchimpReadinessExportDataset = buildMailchimpReadinessExportDataset({
+    mailchimpPreviewHandoff,
+    analyticsReport,
+    exportSettings: analyticsExportSettings,
+    now
+  });
+  const mailchimpAcknowledgementReceipts = normalizeMailchimpAcknowledgementReceipts(input, now);
+  Object.assign(audit, {
+    mailchimpPreviewHandoffState: mailchimpPreviewHandoff.state,
+    mailchimpPreviewHandoffBlockedScopeCount: mailchimpPreviewHandoff.blockedScopeCount,
+    mailchimpPreviewHandoffNextActions: mailchimpPreviewHandoff.nextActions,
+    mailchimpReadinessExportRowCount: mailchimpReadinessExportDataset.rowCount,
+    mailchimpReadinessExportBlockedScopeCount: mailchimpReadinessExportDataset.blockedScopeCount
+  });
+  Object.assign(exportSummary, {
+    mailchimpPreviewHandoffState: mailchimpPreviewHandoff.state,
+    mailchimpPreviewHandoffDetected: mailchimpPreviewHandoff.detected,
+    mailchimpPreviewHandoffProviderCount: mailchimpPreviewHandoff.providerCount,
+    mailchimpPreviewHandoffBlockedScopeCount: mailchimpPreviewHandoff.blockedScopeCount,
+    mailchimpReadinessExportDataset: mailchimpReadinessExportDataset.dataset,
+    mailchimpReadinessExportRowCount: mailchimpReadinessExportDataset.rowCount,
+    mailchimpReadinessExportBlockedScopeCount: mailchimpReadinessExportDataset.blockedScopeCount,
+    mailchimpReadinessExportNextActions: mailchimpReadinessExportDataset.nextActions
+  });
   const explainableNextSteps = buildExplainableNextSteps({
     previewReadiness,
     validationSummary,
@@ -4207,6 +5463,29 @@ export function describeScopeMatcherSurface(input = {}) {
     clientRuntime,
     now
   });
+  const mailchimpClientAdoptionBridge = buildMailchimpClientAdoptionBridge({
+    mailchimpPreviewHandoff,
+    clientRuntime,
+    clientWorkflowHandoff,
+    clientAdoptionPlan,
+    clientRuntimeAdoptionCommit,
+    validationSummary,
+    acknowledgementReceipts: mailchimpAcknowledgementReceipts,
+    now
+  });
+  Object.assign(audit, {
+    mailchimpClientAdoptionState: mailchimpClientAdoptionBridge.state,
+    mailchimpClientAdoptionDispatchable: mailchimpClientAdoptionBridge.dispatchable,
+    mailchimpClientAdoptionBlockers: mailchimpClientAdoptionBridge.blockers
+  });
+  Object.assign(exportSummary, {
+    mailchimpClientAdoptionState: mailchimpClientAdoptionBridge.state,
+    mailchimpClientAdoptionDispatchable: mailchimpClientAdoptionBridge.dispatchable,
+    mailchimpClientAdoptionRowCount: mailchimpClientAdoptionBridge.counters.rows,
+    mailchimpClientAdoptionBlockedScopes: mailchimpClientAdoptionBridge.counters.blockedScopes,
+    mailchimpAcknowledgementReceiptStatus: mailchimpAcknowledgementReceipts.status,
+    mailchimpAcknowledgementReceiptCount: mailchimpAcknowledgementReceipts.rows.length
+  });
   const timeline = buildTimeline({ now, requestedScopes, matches, upstreamFailures, historySnapshots });
   const analyticsExportManifest = buildAnalyticsExportManifest({
     analyticsReport,
@@ -4224,6 +5503,7 @@ export function describeScopeMatcherSurface(input = {}) {
     statePersistence,
     previewReadiness,
     previewAcceptance,
+    mailchimpReadinessExportDataset,
     now
   });
   const reporting = {
@@ -4244,11 +5524,21 @@ export function describeScopeMatcherSurface(input = {}) {
     exportBlockedReason: analyticsExportManifest.blockedReason,
     nextHistorySnapshot: analyticsExportManifest.nextHistorySnapshot,
     counters: analytics,
+    requestedScopeContract,
     trends: analyticsReport.trend,
     topDeniedScopes: analyticsReport.topDeniedScopes,
     deniedReasonCounts: analyticsReport.deniedReasonCounts,
     errorCodeCounts: analyticsReport.errorCodeCounts,
     healthFlags: analyticsReport.healthFlags,
+    mailchimpReadinessExport: {
+      contract: mailchimpReadinessExportDataset.contract,
+      dataset: mailchimpReadinessExportDataset.dataset,
+      state: mailchimpReadinessExportDataset.state,
+      rowCount: mailchimpReadinessExportDataset.rowCount,
+      blockedScopeCount: mailchimpReadinessExportDataset.blockedScopeCount,
+      nextActions: mailchimpReadinessExportDataset.nextActions,
+      resumeWhen: mailchimpReadinessExportDataset.resumeWhen
+    },
     operationalFailureState: {
       state: operationalFailureState.state,
       nextAction: operationalFailureState.nextAction,
@@ -4334,6 +5624,27 @@ export function describeScopeMatcherSurface(input = {}) {
       maxSyncLagMs: providerServiceRegistry.maxSyncLagMs,
       handoffLeaseCount: providerServiceRegistry.handoffLeases.length
     },
+    mailchimpPreviewHandoff: {
+      contract: mailchimpPreviewHandoff.contract,
+      detected: mailchimpPreviewHandoff.detected,
+      state: mailchimpPreviewHandoff.state,
+      canAccept: mailchimpPreviewHandoff.canAccept,
+      providerCount: mailchimpPreviewHandoff.providerCount,
+      blockedScopeCount: mailchimpPreviewHandoff.blockedScopeCount,
+      mutatingScopeCount: mailchimpPreviewHandoff.mutatingScopeCount,
+      nextActions: mailchimpPreviewHandoff.nextActions,
+      route: mailchimpPreviewHandoff.routePayload.route
+    },
+    mailchimpClientAdoptionBridge: {
+      contract: mailchimpClientAdoptionBridge.contract,
+      detected: mailchimpClientAdoptionBridge.detected,
+      state: mailchimpClientAdoptionBridge.state,
+      dispatchable: mailchimpClientAdoptionBridge.dispatchable,
+      counters: mailchimpClientAdoptionBridge.counters,
+      nextActions: mailchimpClientAdoptionBridge.nextActions,
+      route: mailchimpClientAdoptionBridge.route.route,
+      resumeWhen: mailchimpClientAdoptionBridge.resumeWhen
+    },
     nextSteps: explainableNextSteps,
     summary: exportSummary,
     timeline,
@@ -4359,6 +5670,7 @@ export function describeScopeMatcherSurface(input = {}) {
     health,
     degraded,
     requestedScopes,
+    requestedScopeContract,
     operationalHealth,
     operationalScopeGate,
     operationalRecovery,
@@ -4390,6 +5702,7 @@ export function describeScopeMatcherSurface(input = {}) {
     analyticsExportSettings,
     analyticsReport,
     analyticsExportManifest,
+    mailchimpReadinessExportDataset,
     history: historySnapshots,
     nextHistorySnapshot: analyticsExportManifest.nextHistorySnapshot,
     providerContracts,
@@ -4397,6 +5710,8 @@ export function describeScopeMatcherSurface(input = {}) {
     negotiation,
     externalHandoff,
     providerServiceRegistry,
+    mailchimpPreviewHandoff,
+    mailchimpClientAdoptionBridge,
     clientWorkflowHandoff,
     clientAdoptionPlan,
     clientRuntimeAdoptionCommit,

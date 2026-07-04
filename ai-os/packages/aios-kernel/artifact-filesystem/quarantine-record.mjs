@@ -96,10 +96,16 @@ const ACTION_PROVIDER_CAPABILITIES = {
   release: ['quarantine.release.write', 'audit.event.emit'],
   handoff: ['audit.handoff.write', 'external.handoff.track']
 };
+const MAILCHIMP_PROVIDER_ALIASES = new Set(['mailchimp', 'mailchimp-marketing', 'mailchimp-transactional']);
+const MAILCHIMP_REQUIRED_CAPABILITIES = ['mailchimp.campaign.asset.export', 'mailchimp.audience.metadata.sync'];
+const MAILCHIMP_ALLOWED_HANDOFF_STATES = new Set(['ready', 'pending', 'accepted']);
+const MAILCHIMP_RESTRICTED_MERGE_FIELDS = new Set(['email', 'email_address', 'phone', 'address', 'birthday']);
 const DEFAULT_PROVIDER_CAPABILITIES = [...new Set(Object.values(ACTION_PROVIDER_CAPABILITIES).flat())];
 const DEFAULT_RETENTION_DAYS = 30;
 const MIN_RETENTION_DAYS = 1;
 const MAX_RETENTION_DAYS = 365;
+const EVIDENCE_DIGEST_PATTERN = /^(?:[a-z0-9][a-z0-9+.-]{1,31}:)?[a-f0-9]{32,128}$/i;
+const DIGESTED_EVIDENCE_KINDS = new Set(['scanner-result', 'release-authorization', 'operator-approval', 'audit-proof']);
 const MIN_REVIEW_INTERVAL_MINUTES = 5;
 const MAX_REVIEW_INTERVAL_MINUTES = 10080;
 const MAX_DELAYED_SCHEDULE_DAYS = 30;
@@ -291,7 +297,7 @@ function normalizeEvidence(evidence) {
   return (Array.isArray(evidence) ? evidence : [])
     .map((entry, index) => {
       if (typeof entry === 'string') {
-        return { id: `evidence-${index + 1}`, kind: 'note', summary: entry };
+        return { id: `evidence-${index + 1}`, kind: 'note', summary: entry, digest: null, observedAt: null };
       }
 
       if (!entry || typeof entry !== 'object') {
@@ -302,10 +308,176 @@ function normalizeEvidence(evidence) {
       const kind = textOrNull(entry.kind) || textOrNull(entry.type) || 'artifact-signal';
       const summary = textOrNull(entry.summary) || textOrNull(entry.reason) || textOrNull(entry.message);
       const digest = textOrNull(entry.digest) || textOrNull(entry.sha256);
+      const observedAt = textOrNull(entry.observedAt) || textOrNull(entry.capturedAt) || textOrNull(entry.createdAt);
 
-      return { id, kind, summary, digest };
+      return { id, kind, summary, digest, observedAt };
     })
     .filter(Boolean);
+}
+
+function normalizeEvidenceDigest(digest) {
+  const value = textOrNull(digest);
+  if (!value) {
+    return {
+      value: null,
+      algorithm: null,
+      valid: false,
+      format: 'missing'
+    };
+  }
+
+  const normalized = value.toLowerCase();
+  const separatorIndex = normalized.indexOf(':');
+  const algorithm = separatorIndex > 0 ? normalized.slice(0, separatorIndex) : 'sha256';
+  const hex = separatorIndex > 0 ? normalized.slice(separatorIndex + 1) : normalized;
+
+  return {
+    value: separatorIndex > 0 ? `${algorithm}:${hex}` : hex,
+    algorithm,
+    valid: EVIDENCE_DIGEST_PATTERN.test(normalized),
+    format: separatorIndex > 0 ? 'algorithm-prefixed-hex' : 'sha256-hex'
+  };
+}
+
+function buildEvidenceQualityContract(evidence, action, now) {
+  const duplicateIds = evidence
+    .map((item) => item.id)
+    .filter((id, index, ids) => ids.indexOf(id) !== index);
+  const uniqueDuplicateIds = [...new Set(duplicateIds)];
+  const rows = evidence.map((item, index) => {
+    const digest = normalizeEvidenceDigest(item.digest);
+    const digestRequired = action === 'release'
+      ? item.kind === 'release-authorization' || item.kind === 'operator-approval'
+      : DIGESTED_EVIDENCE_KINDS.has(item.kind);
+    const missingSummary = !textOrNull(item.summary);
+    const observedAt = textOrNull(item.observedAt);
+    const observedAtValid = !observedAt || Number.isFinite(Date.parse(observedAt));
+    const weakReasons = [
+      ...(digestRequired && !digest.value ? ['digest-required'] : []),
+      ...(digest.value && !digest.valid ? ['digest-invalid'] : []),
+      ...(missingSummary ? ['summary-missing'] : []),
+      ...(!observedAtValid ? ['observed-at-invalid'] : []),
+      ...(uniqueDuplicateIds.includes(item.id) ? ['duplicate-evidence-id'] : [])
+    ];
+
+    return {
+      ordinal: index + 1,
+      id: item.id,
+      kind: item.kind,
+      digest: digest.value,
+      digestAlgorithm: digest.algorithm,
+      digestValid: digest.value ? digest.valid : null,
+      digestRequired,
+      summaryPresent: !missingSummary,
+      observedAt,
+      observedAtValid,
+      weakReasons,
+      auditReady: weakReasons.length === 0 || weakReasons.every((reason) => reason === 'summary-missing')
+    };
+  });
+  const invalidDigestIds = rows
+    .filter((row) => row.digest && row.digestValid === false)
+    .map((row) => row.id);
+  const missingRequiredDigestIds = rows
+    .filter((row) => row.digestRequired && !row.digest)
+    .map((row) => row.id);
+  const missingSummaryIds = rows
+    .filter((row) => !row.summaryPresent)
+    .map((row) => row.id);
+  const invalidObservedAtIds = rows
+    .filter((row) => !row.observedAtValid)
+    .map((row) => row.id);
+  const releaseAuthorizationRows = rows
+    .filter((row) => row.kind === 'release-authorization' || row.kind === 'operator-approval');
+  const releaseAuthorizationReady = action !== 'release'
+    || releaseAuthorizationRows.some((row) => row.digest && row.digestValid === true);
+  const blockingCodes = [
+    ...(uniqueDuplicateIds.length ? ['duplicate-evidence-id'] : []),
+    ...(invalidDigestIds.length ? ['invalid-evidence-digest'] : []),
+    ...(missingRequiredDigestIds.length ? ['missing-required-evidence-digest'] : []),
+    ...(invalidObservedAtIds.length ? ['invalid-evidence-observed-at'] : []),
+    ...(!releaseAuthorizationReady ? ['release-authorization-digest-missing'] : [])
+  ];
+  const warningCodes = [
+    ...(missingSummaryIds.length ? ['evidence-summary-missing'] : [])
+  ];
+
+  return {
+    schema: 'artifact-filesystem.quarantine-record.evidence-quality.v1',
+    generatedAt: now,
+    action,
+    status: blockingCodes.length
+      ? 'blocked'
+      : warningCodes.length
+        ? 'attention'
+        : 'ready',
+    ready: blockingCodes.length === 0,
+    evidenceCount: evidence.length,
+    digestedEvidenceCount: rows.filter((row) => row.digest && row.digestValid === true).length,
+    digestCoverage: evidence.length
+      ? Number((rows.filter((row) => row.digest && row.digestValid === true).length / evidence.length).toFixed(4))
+      : 1,
+    duplicateIds: uniqueDuplicateIds,
+    invalidDigestIds,
+    missingRequiredDigestIds,
+    missingSummaryIds,
+    invalidObservedAtIds,
+    releaseAuthorizationReady,
+    blockingCodes,
+    warningCodes,
+    rows,
+    digest: exportLineageKey(
+      action,
+      evidence.length,
+      rows.map((row) => `${row.id}:${row.digest || 'missing'}:${row.weakReasons.join('+')}`).join('|')
+    )
+  };
+}
+
+function validateEvidenceQualityContract(evidenceQuality) {
+  const errors = [];
+
+  for (const id of evidenceQuality.duplicateIds) {
+    errors.push({
+      code: 'duplicate-evidence-id',
+      field: 'evidence.id',
+      message: `Evidence id "${id}" is duplicated; quarantine evidence must have stable unique ids.`
+    });
+  }
+
+  for (const id of evidenceQuality.invalidDigestIds) {
+    errors.push({
+      code: 'invalid-evidence-digest',
+      field: 'evidence.digest',
+      message: `Evidence "${id}" has a malformed digest; expected sha256 hex or an algorithm-prefixed hex digest.`
+    });
+  }
+
+  for (const id of evidenceQuality.missingRequiredDigestIds) {
+    errors.push({
+      code: 'missing-required-evidence-digest',
+      field: 'evidence.digest',
+      message: `Evidence "${id}" requires a digest before this quarantine action can be accepted.`
+    });
+  }
+
+  for (const id of evidenceQuality.invalidObservedAtIds) {
+    errors.push({
+      code: 'invalid-evidence-observed-at',
+      field: 'evidence.observedAt',
+      message: `Evidence "${id}" has an invalid observedAt timestamp.`
+    });
+  }
+
+  if (!evidenceQuality.releaseAuthorizationReady) {
+    errors.push({
+      code: 'release-authorization-digest-missing',
+      field: 'evidence',
+      message: 'Release actions require at least one digest-backed release-authorization or operator-approval evidence item.'
+    });
+  }
+
+  return errors;
 }
 
 function normalizeDependencyHealth(input = {}, action = DEFAULT_ACTION, now = new Date().toISOString()) {
@@ -508,6 +680,630 @@ function normalizeProviderSyncMetadata(source = {}, input = {}, now) {
   };
 }
 
+function normalizeProviderKind(source = {}, declaredCapabilities = []) {
+  const candidates = [
+    textOrNull(source.kind),
+    textOrNull(source.providerKind),
+    textOrNull(source.serviceName),
+    textOrNull(source.name),
+    textOrNull(source.providerId),
+    textOrNull(source.id)
+  ].filter(Boolean).map((value) => value.toLowerCase());
+  const hasMailchimpCapability = declaredCapabilities.some((capability) => capability.startsWith('mailchimp.'));
+
+  return candidates.some((candidate) => MAILCHIMP_PROVIDER_ALIASES.has(candidate)) || hasMailchimpCapability
+    ? 'mailchimp'
+    : 'generic';
+}
+
+function normalizeMailchimpMergeFields(value) {
+  const rawFields = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? Object.keys(value)
+      : [];
+
+  return uniqueStrings(rawFields)
+    .map((field) => field.toLowerCase().replace(/[^a-z0-9_]+/g, '_'))
+    .filter(Boolean)
+    .slice(0, 50);
+}
+
+function normalizeMailchimpQuarantineContract({ source = {}, input = {}, externalHandoff = {}, declaredCapabilities = [], action }) {
+  const providerKind = normalizeProviderKind(source, declaredCapabilities);
+  if (providerKind !== 'mailchimp') {
+    return {
+      schema: 'artifact-filesystem.quarantine-record.mailchimp-contract.v1',
+      applicable: false,
+      providerKind,
+      state: 'not-applicable',
+      violations: [],
+      warnings: []
+    };
+  }
+
+  const mailchimpSource = source.mailchimp && typeof source.mailchimp === 'object'
+    ? source.mailchimp
+    : input.mailchimp && typeof input.mailchimp === 'object'
+      ? input.mailchimp
+      : {};
+  const audienceId = textOrNull(mailchimpSource.audienceId) || textOrNull(mailchimpSource.listId);
+  const campaignId = textOrNull(mailchimpSource.campaignId);
+  const storeId = textOrNull(mailchimpSource.storeId);
+  const mergeFields = normalizeMailchimpMergeFields(
+    mailchimpSource.mergeFields
+      || mailchimpSource.audienceMergeFields
+      || input.mergeFields
+  );
+  const restrictedMergeFields = mergeFields.filter((field) => MAILCHIMP_RESTRICTED_MERGE_FIELDS.has(field));
+  const declaredAudienceSync = declaredCapabilities.includes('mailchimp.audience.metadata.sync');
+  const declaredCampaignExport = declaredCapabilities.includes('mailchimp.campaign.asset.export');
+  const handoffState = textOrNull(externalHandoff.state) || textOrNull(externalHandoff.status) || 'not-required';
+  const handoffReady = MAILCHIMP_ALLOWED_HANDOFF_STATES.has(handoffState);
+  const audienceRequired = action === 'release' || action === 'handoff' || handoffReady;
+  const violations = [
+    ...(audienceRequired && !audienceId ? ['mailchimp-audience-id-required'] : []),
+    ...(!declaredAudienceSync ? ['mailchimp-audience-sync-capability-missing'] : []),
+    ...(!declaredCampaignExport ? ['mailchimp-campaign-export-capability-missing'] : []),
+    ...(restrictedMergeFields.length ? ['mailchimp-restricted-merge-fields'] : [])
+  ];
+  const warnings = [
+    ...(!campaignId ? ['mailchimp-campaign-id-not-declared'] : []),
+    ...(!storeId ? ['mailchimp-store-id-not-declared'] : []),
+    ...(mergeFields.length === 0 ? ['mailchimp-merge-fields-not-declared'] : [])
+  ];
+
+  return {
+    schema: 'artifact-filesystem.quarantine-record.mailchimp-contract.v1',
+    applicable: true,
+    providerKind,
+    state: violations.length ? 'blocked' : warnings.length ? 'ready-with-warnings' : 'ready',
+    audienceId,
+    campaignId,
+    storeId,
+    mergeFields,
+    restrictedMergeFields,
+    requiredCapabilities: MAILCHIMP_REQUIRED_CAPABILITIES,
+    declaredAudienceSync,
+    declaredCampaignExport,
+    handoffState,
+    handoffReady,
+    audienceRequired,
+    violations,
+    warnings,
+    preview: {
+      subject: 'mailchimp-campaign-artifact',
+      acceptanceLabel: audienceId
+        ? `Confirm Mailchimp audience ${audienceId}`
+        : 'Add Mailchimp audience before acceptance',
+      requiresOperatorReview: restrictedMergeFields.length > 0,
+      safeToRelease: violations.length === 0
+    }
+  };
+}
+
+function normalizePathPolicyMailchimpAcceptance({ source = {}, input = {}, mailchimpContract, scope }) {
+  const policySource = input.pathPolicy && typeof input.pathPolicy === 'object'
+    ? input.pathPolicy
+    : input.pathPolicyPreview && typeof input.pathPolicyPreview === 'object'
+      ? input.pathPolicyPreview
+      : input.policyPreview && typeof input.policyPreview === 'object'
+        ? input.policyPreview
+        : {};
+  const directSource = source.mailchimpAcceptanceHandoff && typeof source.mailchimpAcceptanceHandoff === 'object'
+    ? source.mailchimpAcceptanceHandoff
+    : input.mailchimpAcceptanceHandoff && typeof input.mailchimpAcceptanceHandoff === 'object'
+      ? input.mailchimpAcceptanceHandoff
+      : policySource.mailchimpAcceptanceHandoff && typeof policySource.mailchimpAcceptanceHandoff === 'object'
+        ? policySource.mailchimpAcceptanceHandoff
+        : policySource.serviceContract?.mailchimpAcceptanceHandoff
+          && typeof policySource.serviceContract.mailchimpAcceptanceHandoff === 'object'
+          ? policySource.serviceContract.mailchimpAcceptanceHandoff
+          : policySource.externalHandoffEnvelope?.mailchimpAcceptance
+            && typeof policySource.externalHandoffEnvelope.mailchimpAcceptance === 'object'
+            ? policySource.externalHandoffEnvelope.mailchimpAcceptance
+            : {};
+  const payload = directSource.routePayload && typeof directSource.routePayload === 'object'
+    ? directSource.routePayload
+    : directSource.payload && typeof directSource.payload === 'object'
+      ? directSource.payload
+      : directSource;
+  const applicable = mailchimpContract.applicable || textOrNull(payload.providerKind) === 'mailchimp';
+
+  if (!applicable) {
+    return {
+      schema: 'artifact-filesystem.quarantine-record.path-policy-mailchimp-acceptance.v1',
+      applicable: false,
+      state: 'not-applicable',
+      adopted: false,
+      conflicts: [],
+      warnings: []
+    };
+  }
+
+  const payloadMergeFields = normalizeMailchimpMergeFields(payload.mergeFields);
+  const payloadAcknowledgementCodes = uniqueStrings(payload.acknowledgementCodes || directSource.acknowledgementCodes);
+  const payloadTenantId = textOrNull(payload.tenantId);
+  const payloadWorkspaceId = textOrNull(payload.workspaceId);
+  const payloadAudienceId = textOrNull(payload.audienceId);
+  const payloadCampaignId = textOrNull(payload.campaignId);
+  const payloadStoreId = textOrNull(payload.storeId);
+  const acceptanceToken = textOrNull(payload.acceptanceToken)
+    || textOrNull(directSource.acceptanceToken)
+    || textOrNull(directSource.proof?.acceptanceToken);
+  const quarantineAdoptionSource = payload.quarantineAdoption && typeof payload.quarantineAdoption === 'object'
+    ? payload.quarantineAdoption
+    : directSource.quarantineAdoption && typeof directSource.quarantineAdoption === 'object'
+      ? directSource.quarantineAdoption
+      : {};
+  const adoptionStateContract = payload.adoptionStateContract && typeof payload.adoptionStateContract === 'object'
+    ? payload.adoptionStateContract
+    : quarantineAdoptionSource.adoptionStateContract && typeof quarantineAdoptionSource.adoptionStateContract === 'object'
+      ? quarantineAdoptionSource.adoptionStateContract
+      : {};
+  const handoffEnvelope = payload.handoffEnvelope && typeof payload.handoffEnvelope === 'object'
+    ? payload.handoffEnvelope
+    : directSource.handoffEnvelope && typeof directSource.handoffEnvelope === 'object'
+      ? directSource.handoffEnvelope
+      : {};
+  const adoptionAcknowledgementCodes = uniqueStrings(quarantineAdoptionSource.acknowledgementCodes);
+  const stateContractAcknowledgementCodes = uniqueStrings(adoptionStateContract.requiredAcknowledgementCodes);
+  const envelopePartitionKey = textOrNull(handoffEnvelope.partitionKey);
+  const envelopeScopedKey = textOrNull(handoffEnvelope.scopedKey);
+  const envelopeRoute = textOrNull(handoffEnvelope.route);
+  const envelopeCommand = textOrNull(handoffEnvelope.command);
+  const envelopeReplayKey = textOrNull(handoffEnvelope.replayKey);
+  const adoptionTenantId = textOrNull(quarantineAdoptionSource.tenantId);
+  const adoptionWorkspaceId = textOrNull(quarantineAdoptionSource.workspaceId);
+  const adoptionArtifactId = textOrNull(quarantineAdoptionSource.artifactId);
+  const adoptionAudienceId = textOrNull(quarantineAdoptionSource.audienceId);
+  const adoptionCampaignId = textOrNull(quarantineAdoptionSource.campaignId);
+  const adoptionStoreId = textOrNull(quarantineAdoptionSource.storeId);
+  const adoptionMergeFields = normalizeMailchimpMergeFields(quarantineAdoptionSource.mergeFields);
+  const adoptionReplay = quarantineAdoptionSource.replay && typeof quarantineAdoptionSource.replay === 'object'
+    ? quarantineAdoptionSource.replay
+    : {};
+  const adoptionReplayKey = textOrNull(adoptionReplay.key)
+    || textOrNull(adoptionReplay.idempotencyKey)
+    || textOrNull(adoptionStateContract.replayKey)
+    || textOrNull(adoptionStateContract.idempotencyKey)
+    || envelopeReplayKey;
+  const adoptionContractExpectedState = textOrNull(adoptionStateContract.expectedState);
+  const adoptionContractPersistBeforeHandoff = adoptionStateContract.persistBeforeProviderHandoff === true;
+  const adoptionContractRestartSafe = adoptionStateContract.restartSafe !== false && Boolean(adoptionReplayKey);
+  const adoptionContractProviderTicketRequired = adoptionStateContract.providerTicketRequired === true
+    || handoffEnvelope.providerTicketRequired === true;
+  const adoptionContractProviderReceiptRequired = adoptionStateContract.providerReceiptRequired === true
+    || handoffEnvelope.providerReceiptRequired === true;
+  const adoptionState = textOrNull(quarantineAdoptionSource.state) || 'missing';
+  const adoptionRequired = quarantineAdoptionSource.requiredForQuarantine === true;
+  const adoptionReplaySafe = quarantineAdoptionSource.replaySafe !== false
+    && adoptionReplay.restartSafe !== false
+    && adoptionContractRestartSafe;
+  const missingPayload = !acceptanceToken && !payloadAudienceId && payloadMergeFields.length === 0;
+  const mergeFieldMismatch = payloadMergeFields.length > 0
+    && payloadMergeFields.join('|') !== mailchimpContract.mergeFields.join('|');
+  const adoptionMergeFieldMismatch = adoptionMergeFields.length > 0
+    && adoptionMergeFields.join('|') !== mailchimpContract.mergeFields.join('|');
+  const requiredStateContractAcknowledgementsMissing = stateContractAcknowledgementCodes
+    .filter((code) => !adoptionAcknowledgementCodes.includes(code) && !payloadAcknowledgementCodes.includes(code));
+  const expectedPartitionKey = `${scope.tenantId || 'missing-tenant'}/${scope.workspaceId || 'missing-workspace'}`;
+  const expectedScopedKey = `${scope.tenantId || 'missing-tenant'}:${scope.workspaceId || 'missing-workspace'}:${scope.artifactId || 'missing-artifact'}`;
+  const conflicts = [
+    missingPayload ? 'path-policy-mailchimp-acceptance-missing' : null,
+    payloadTenantId && scope.tenantId && payloadTenantId !== scope.tenantId ? 'path-policy-mailchimp-tenant-mismatch' : null,
+    payloadWorkspaceId && scope.workspaceId && payloadWorkspaceId !== scope.workspaceId ? 'path-policy-mailchimp-workspace-mismatch' : null,
+    adoptionTenantId && scope.tenantId && adoptionTenantId !== scope.tenantId ? 'path-policy-mailchimp-adoption-tenant-mismatch' : null,
+    adoptionWorkspaceId && scope.workspaceId && adoptionWorkspaceId !== scope.workspaceId
+      ? 'path-policy-mailchimp-adoption-workspace-mismatch'
+      : null,
+    adoptionArtifactId && scope.artifactId && adoptionArtifactId !== scope.artifactId
+      ? 'path-policy-mailchimp-adoption-artifact-mismatch'
+      : null,
+    payloadAudienceId && mailchimpContract.audienceId && payloadAudienceId !== mailchimpContract.audienceId
+      ? 'path-policy-mailchimp-audience-mismatch'
+      : null,
+    adoptionAudienceId && mailchimpContract.audienceId && adoptionAudienceId !== mailchimpContract.audienceId
+      ? 'path-policy-mailchimp-adoption-audience-mismatch'
+      : null,
+    payloadCampaignId && mailchimpContract.campaignId && payloadCampaignId !== mailchimpContract.campaignId
+      ? 'path-policy-mailchimp-campaign-mismatch'
+      : null,
+    adoptionCampaignId && mailchimpContract.campaignId && adoptionCampaignId !== mailchimpContract.campaignId
+      ? 'path-policy-mailchimp-adoption-campaign-mismatch'
+      : null,
+    payloadStoreId && mailchimpContract.storeId && payloadStoreId !== mailchimpContract.storeId
+      ? 'path-policy-mailchimp-store-mismatch'
+      : null,
+    adoptionStoreId && mailchimpContract.storeId && adoptionStoreId !== mailchimpContract.storeId
+      ? 'path-policy-mailchimp-adoption-store-mismatch'
+      : null,
+    mergeFieldMismatch ? 'path-policy-mailchimp-merge-fields-mismatch' : null,
+    adoptionMergeFieldMismatch ? 'path-policy-mailchimp-adoption-merge-fields-mismatch' : null,
+    adoptionRequired && adoptionState === 'blocked' ? 'path-policy-mailchimp-adoption-blocked' : null,
+    adoptionRequired && Object.keys(adoptionStateContract).length === 0
+      ? 'path-policy-mailchimp-adoption-state-contract-missing'
+      : null,
+    adoptionContractExpectedState && adoptionState !== 'missing' && adoptionState !== adoptionContractExpectedState
+      ? 'path-policy-mailchimp-adoption-state-contract-mismatch'
+      : null,
+    adoptionRequired && !adoptionContractPersistBeforeHandoff
+      ? 'path-policy-mailchimp-adoption-persist-intent-disabled'
+      : null,
+    envelopePartitionKey && envelopePartitionKey !== expectedPartitionKey
+      ? 'path-policy-mailchimp-envelope-partition-mismatch'
+      : null,
+    envelopeScopedKey && envelopeScopedKey !== expectedScopedKey
+      ? 'path-policy-mailchimp-envelope-scoped-key-mismatch'
+      : null,
+    envelopeRoute && envelopeRoute !== 'artifact-filesystem/quarantine-record/mailchimp-acceptance'
+      ? 'path-policy-mailchimp-envelope-route-mismatch'
+      : null,
+    envelopeCommand && envelopeCommand !== 'quarantine.mailchimp.acceptance.attach'
+      ? 'path-policy-mailchimp-envelope-command-mismatch'
+      : null,
+    handoffEnvelope.absolutePathExposed === true
+      ? 'path-policy-mailchimp-envelope-absolute-path-exposed'
+      : null,
+    requiredStateContractAcknowledgementsMissing.length
+      ? 'path-policy-mailchimp-adoption-state-acknowledgements-missing'
+      : null
+  ].filter(Boolean);
+  const warnings = [
+    !acceptanceToken ? 'path-policy-mailchimp-acceptance-token-missing' : null,
+    payloadAcknowledgementCodes.length === 0 ? 'path-policy-mailchimp-acknowledgements-missing' : null,
+    !textOrNull(payload.proofReference) && !textOrNull(payload.pathProofReference)
+      ? 'path-policy-mailchimp-proof-reference-missing'
+      : null,
+    adoptionRequired && !adoptionReplayKey ? 'path-policy-mailchimp-adoption-replay-key-missing' : null,
+    adoptionRequired && !adoptionReplaySafe ? 'path-policy-mailchimp-adoption-not-restart-safe' : null,
+    adoptionAcknowledgementCodes.length === 0 && adoptionRequired
+      ? 'path-policy-mailchimp-adoption-acknowledgements-missing'
+      : null,
+    adoptionContractProviderTicketRequired && textOrNull(handoffEnvelope.deliveryMode) !== 'provider-ticket'
+      ? 'path-policy-mailchimp-provider-ticket-envelope-missing'
+      : null,
+    adoptionContractProviderReceiptRequired && !handoffEnvelope.replayKey && !adoptionReplayKey
+      ? 'path-policy-mailchimp-provider-receipt-replay-key-missing'
+      : null
+  ].filter(Boolean);
+  const adoptionConflicts = conflicts.filter((conflict) => conflict.includes('-adoption-'));
+  const adoptionWarnings = warnings.filter((warning) => warning.includes('-adoption-'));
+  const adoptionScopeKey = `${adoptionTenantId || payloadTenantId || scope.tenantId || 'missing-tenant'}:${adoptionWorkspaceId || payloadWorkspaceId || scope.workspaceId || 'missing-workspace'}:${adoptionArtifactId || scope.artifactId || 'missing-artifact'}`;
+  const adoptionValidation = buildMailchimpAdoptionValidation({
+    adoptionSource: quarantineAdoptionSource,
+    mailchimpContract,
+    scope,
+    adoptionScopeKey,
+    adoptionRequired,
+    adoptionReplaySafe,
+    adoptionReplayKey,
+    adoptionStateContract,
+    handoffEnvelope,
+    adoptionAcknowledgementCodes,
+    payloadAcknowledgementCodes,
+    stateContractAcknowledgementCodes,
+    requiredStateContractAcknowledgementsMissing,
+    adoptionConflicts,
+    adoptionWarnings
+  });
+
+  return {
+    schema: 'artifact-filesystem.quarantine-record.path-policy-mailchimp-acceptance.v1',
+    applicable: true,
+    state: conflicts.length || adoptionValidation.blockers.length
+      ? 'conflict'
+      : warnings.length || adoptionValidation.warnings.length
+        ? 'adopted-with-warnings'
+        : 'adopted',
+    adopted: conflicts.length === 0 && adoptionValidation.blockers.length === 0,
+    conflicts: [...new Set([...conflicts, ...adoptionValidation.blockers])],
+    warnings: [...new Set([...warnings, ...adoptionValidation.warnings])],
+    acceptanceToken,
+    acknowledgementCodes: payloadAcknowledgementCodes,
+    route: textOrNull(directSource.route) || 'artifact-filesystem/quarantine-record/mailchimp-acceptance',
+    command: textOrNull(directSource.command) || 'quarantine.mailchimp.acceptance.attach',
+    payload: {
+      providerKind: 'mailchimp',
+      providerId: textOrNull(payload.providerId) || null,
+      schema: textOrNull(payload.schema),
+      tenantId: payloadTenantId,
+      workspaceId: payloadWorkspaceId,
+      audienceId: payloadAudienceId,
+      campaignId: payloadCampaignId,
+      storeId: payloadStoreId,
+      mergeFields: payloadMergeFields,
+      proofReference: textOrNull(payload.proofReference),
+      pathProofReference: textOrNull(payload.pathProofReference),
+      handoffSubjectType: textOrNull(payload.handoffSubjectType),
+      handoffEnvelope: {
+        declared: Object.keys(handoffEnvelope).length > 0,
+        schema: textOrNull(handoffEnvelope.schema),
+        contentType: textOrNull(handoffEnvelope.contentType),
+        deliveryMode: textOrNull(handoffEnvelope.deliveryMode),
+        providerTicketRequired: handoffEnvelope.providerTicketRequired === true,
+        providerReceiptRequired: handoffEnvelope.providerReceiptRequired === true,
+        route: envelopeRoute,
+        command: envelopeCommand,
+        replayKey: envelopeReplayKey,
+        partitionKey: envelopePartitionKey,
+        scopedKey: envelopeScopedKey,
+        absolutePathExposed: handoffEnvelope.absolutePathExposed === true
+      }
+    },
+    quarantineAdoption: {
+      schema: 'artifact-filesystem.quarantine-record.mailchimp-quarantine-adoption.v1',
+      declared: Object.keys(quarantineAdoptionSource).length > 0,
+      required: adoptionRequired,
+      state: adoptionConflicts.length
+        ? 'conflict'
+        : adoptionWarnings.length
+          ? 'adopted-with-warnings'
+          : adoptionRequired
+            ? 'adopted'
+            : 'optional',
+      upstreamState: adoptionState,
+      replaySafe: adoptionReplaySafe,
+      scopeKey: adoptionScopeKey,
+      tenantId: adoptionTenantId || payloadTenantId,
+      workspaceId: adoptionWorkspaceId || payloadWorkspaceId,
+      artifactId: adoptionArtifactId || scope.artifactId,
+      audienceId: adoptionAudienceId || payloadAudienceId,
+      campaignId: adoptionCampaignId || payloadCampaignId,
+      storeId: adoptionStoreId || payloadStoreId,
+      mergeFields: adoptionMergeFields.length ? adoptionMergeFields : payloadMergeFields,
+      proofReference: textOrNull(quarantineAdoptionSource.proofReference) || textOrNull(payload.proofReference),
+      pathProofReference: textOrNull(quarantineAdoptionSource.pathProofReference) || textOrNull(payload.pathProofReference),
+      deliveryMode: textOrNull(quarantineAdoptionSource.deliveryMode),
+      partitionKey: textOrNull(quarantineAdoptionSource.partitionKey) || textOrNull(quarantineAdoptionSource.custody?.partitionKey),
+      custody: adoptionValidation.custody,
+      auditHandoff: adoptionValidation.auditHandoff,
+      acknowledgementCodes: adoptionAcknowledgementCodes.length
+        ? adoptionAcknowledgementCodes
+        : payloadAcknowledgementCodes,
+      stateContract: {
+        declared: Object.keys(adoptionStateContract).length > 0,
+        schema: textOrNull(adoptionStateContract.schema),
+        commandState: textOrNull(adoptionStateContract.commandState),
+        persistBeforeProviderHandoff: adoptionContractPersistBeforeHandoff,
+        restartSafe: adoptionContractRestartSafe,
+        replayKey: textOrNull(adoptionStateContract.replayKey) || adoptionReplayKey,
+        idempotencyKey: textOrNull(adoptionStateContract.idempotencyKey) || adoptionReplayKey,
+        expectedState: adoptionContractExpectedState,
+        providerTicketRequired: adoptionContractProviderTicketRequired,
+        providerReceiptRequired: adoptionContractProviderReceiptRequired,
+        providerReceiptState: textOrNull(adoptionStateContract.providerReceiptState),
+        nextAction: textOrNull(adoptionStateContract.nextAction),
+        requiredAcknowledgementCodes: stateContractAcknowledgementCodes,
+        missingAcknowledgementCodes: requiredStateContractAcknowledgementsMissing
+      },
+      replay: {
+        key: adoptionReplayKey,
+        idempotencyKey: textOrNull(adoptionReplay.idempotencyKey) || adoptionReplayKey,
+        command: textOrNull(adoptionReplay.command) || 'quarantine.mailchimp.acceptance.attach',
+        route: textOrNull(adoptionReplay.route) || 'artifact-filesystem/quarantine-record/mailchimp-acceptance',
+        expectedState: textOrNull(adoptionReplay.expectedState) || (adoptionConflicts.length ? 'blocked' : 'adopted'),
+        restartSafe: adoptionReplaySafe
+      },
+      conflicts: [...new Set([...adoptionConflicts, ...adoptionValidation.blockers])],
+      warnings: [...new Set([...adoptionWarnings, ...adoptionValidation.warnings])],
+      validation: adoptionValidation,
+      proof: {
+        upstreamAdoptionKey: textOrNull(quarantineAdoptionSource.proof?.adoptionKey) || adoptionReplayKey,
+        acceptanceToken,
+        lineageKey: exportLineageKey(adoptionScopeKey, adoptionReplayKey, acceptanceToken, adoptionState)
+      }
+    },
+    expected: {
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      audienceId: mailchimpContract.audienceId,
+      campaignId: mailchimpContract.campaignId,
+      storeId: mailchimpContract.storeId,
+      mergeFields: mailchimpContract.mergeFields
+    }
+  };
+}
+
+function buildMailchimpAdoptionValidation({
+  adoptionSource = {},
+  mailchimpContract,
+  scope,
+  adoptionScopeKey,
+  adoptionRequired,
+  adoptionReplaySafe,
+  adoptionReplayKey,
+  adoptionStateContract = {},
+  handoffEnvelope = {},
+  adoptionAcknowledgementCodes,
+  payloadAcknowledgementCodes,
+  stateContractAcknowledgementCodes = [],
+  requiredStateContractAcknowledgementsMissing = [],
+  adoptionConflicts,
+  adoptionWarnings
+}) {
+  const custodySource = adoptionSource.custody && typeof adoptionSource.custody === 'object'
+    ? adoptionSource.custody
+    : {};
+  const auditHandoffSource = adoptionSource.auditHandoff && typeof adoptionSource.auditHandoff === 'object'
+    ? adoptionSource.auditHandoff
+    : {};
+  const expectedPartitionKey = `${scope.tenantId || 'missing-tenant'}/${scope.workspaceId || 'missing-workspace'}`;
+  const expectedScopedKey = `${scope.tenantId || 'missing-tenant'}:${scope.workspaceId || 'missing-workspace'}:${scope.artifactId || 'missing-artifact'}`;
+  const declaredPartitionKey = textOrNull(adoptionSource.partitionKey) || textOrNull(custodySource.partitionKey);
+  const declaredScopedKey = textOrNull(adoptionSource.scopedKey) || textOrNull(custodySource.scopedKey);
+  const declaredRoute = textOrNull(auditHandoffSource.route) || textOrNull(adoptionSource.replay?.route);
+  const declaredCommand = textOrNull(auditHandoffSource.command) || textOrNull(adoptionSource.replay?.command);
+  const declaredReplayKey = textOrNull(auditHandoffSource.replayKey) || adoptionReplayKey;
+  const requiredCodes = uniqueStrings(custodySource.requiredAcknowledgementCodes || adoptionSource.requiredAcknowledgementCodes);
+  const suppliedCodes = uniqueStrings([...adoptionAcknowledgementCodes, ...payloadAcknowledgementCodes]);
+  const missingRequiredAcknowledgements = requiredCodes.filter((code) => !suppliedCodes.includes(code));
+  const boundaryState = textOrNull(custodySource.boundaryState);
+  const adoptionWriteMode = textOrNull(custodySource.adoptionWriteMode);
+  const absolutePathExposed = custodySource.absolutePathExposed === true;
+  const providerKind = textOrNull(adoptionSource.providerKind) || textOrNull(custodySource.expectedProviderKind);
+  const deliveryMode = textOrNull(adoptionSource.deliveryMode) || textOrNull(custodySource.expectedDeliveryMode);
+  const providerId = textOrNull(adoptionSource.providerId) || textOrNull(custodySource.expectedProviderId);
+  const expectedProviderId = textOrNull(custodySource.expectedProviderId);
+  const custodyRoute = textOrNull(custodySource.route);
+  const auditRouteMatches = !declaredRoute || declaredRoute === 'artifact-filesystem/quarantine-record/mailchimp-acceptance';
+  const auditCommandMatches = !declaredCommand || declaredCommand === 'quarantine.mailchimp.acceptance.attach';
+  const partitionMatches = !declaredPartitionKey || declaredPartitionKey === expectedPartitionKey;
+  const scopedKeyMatches = !declaredScopedKey || declaredScopedKey === expectedScopedKey || declaredScopedKey === adoptionScopeKey;
+  const providerMatches = !expectedProviderId || !providerId || expectedProviderId === providerId;
+  const custodyRouteMatches = !custodyRoute || custodyRoute === 'artifact-filesystem/quarantine-record/mailchimp-acceptance';
+  const stateContractReplayKey = textOrNull(adoptionStateContract.replayKey) || textOrNull(adoptionStateContract.idempotencyKey);
+  const stateContractExpectedState = textOrNull(adoptionStateContract.expectedState);
+  const stateContractPersistIntent = adoptionStateContract.persistBeforeProviderHandoff === true;
+  const stateContractRoute = textOrNull(adoptionStateContract.requiredCustody?.route);
+  const stateContractCommand = textOrNull(adoptionStateContract.requiredCustody?.command);
+  const stateContractPartitionKey = textOrNull(adoptionStateContract.requiredCustody?.partitionKey);
+  const stateContractScopedKey = textOrNull(adoptionStateContract.requiredCustody?.scopedKey);
+  const stateContractAbsolutePathExposed = adoptionStateContract.requiredCustody?.absolutePathExposed === true;
+  const envelopeRoute = textOrNull(handoffEnvelope.route);
+  const envelopeCommand = textOrNull(handoffEnvelope.command);
+  const envelopeReplayKey = textOrNull(handoffEnvelope.replayKey);
+  const envelopePartitionKey = textOrNull(handoffEnvelope.partitionKey);
+  const envelopeScopedKey = textOrNull(handoffEnvelope.scopedKey);
+  const envelopeProviderKind = textOrNull(handoffEnvelope.expectedProviderKind);
+  const envelopeProviderId = textOrNull(handoffEnvelope.expectedProviderId);
+  const envelopeAbsolutePathExposed = handoffEnvelope.absolutePathExposed === true;
+  const stateContractRouteMatches = !stateContractRoute || stateContractRoute === 'artifact-filesystem/quarantine-record/mailchimp-acceptance';
+  const stateContractCommandMatches = !stateContractCommand || stateContractCommand === 'quarantine.mailchimp.acceptance.attach';
+  const stateContractPartitionMatches = !stateContractPartitionKey || stateContractPartitionKey === expectedPartitionKey;
+  const stateContractScopedKeyMatches = !stateContractScopedKey || stateContractScopedKey === expectedScopedKey || stateContractScopedKey === adoptionScopeKey;
+  const envelopeRouteMatches = !envelopeRoute || envelopeRoute === 'artifact-filesystem/quarantine-record/mailchimp-acceptance';
+  const envelopeCommandMatches = !envelopeCommand || envelopeCommand === 'quarantine.mailchimp.acceptance.attach';
+  const envelopePartitionMatches = !envelopePartitionKey || envelopePartitionKey === expectedPartitionKey;
+  const envelopeScopedKeyMatches = !envelopeScopedKey || envelopeScopedKey === expectedScopedKey || envelopeScopedKey === adoptionScopeKey;
+  const envelopeProviderMatches = !envelopeProviderId || !providerId || envelopeProviderId === providerId;
+  const blockers = [
+    ...(adoptionConflicts || []),
+    ...(adoptionRequired && !Object.keys(adoptionSource).length ? ['mailchimp-adoption-contract-missing'] : []),
+    ...(adoptionRequired && !Object.keys(adoptionStateContract).length ? ['mailchimp-adoption-state-contract-missing'] : []),
+    ...(adoptionRequired && !adoptionReplayKey ? ['mailchimp-adoption-replay-key-missing'] : []),
+    ...(adoptionRequired && !adoptionReplaySafe ? ['mailchimp-adoption-replay-unsafe'] : []),
+    ...(adoptionRequired && !stateContractPersistIntent ? ['mailchimp-adoption-persist-intent-disabled'] : []),
+    ...(stateContractReplayKey && adoptionReplayKey && stateContractReplayKey !== adoptionReplayKey
+      ? ['mailchimp-adoption-state-replay-key-mismatch']
+      : []),
+    ...(stateContractExpectedState && !['adopted', 'blocked'].includes(stateContractExpectedState)
+      ? ['mailchimp-adoption-state-expected-state-invalid']
+      : []),
+    ...(!stateContractRouteMatches ? ['mailchimp-adoption-state-route-mismatch'] : []),
+    ...(!stateContractCommandMatches ? ['mailchimp-adoption-state-command-mismatch'] : []),
+    ...(!stateContractPartitionMatches ? ['mailchimp-adoption-state-partition-mismatch'] : []),
+    ...(!stateContractScopedKeyMatches ? ['mailchimp-adoption-state-scoped-key-mismatch'] : []),
+    ...(stateContractAbsolutePathExposed ? ['mailchimp-adoption-state-absolute-path-exposed'] : []),
+    ...(!envelopeRouteMatches ? ['mailchimp-adoption-envelope-route-mismatch'] : []),
+    ...(!envelopeCommandMatches ? ['mailchimp-adoption-envelope-command-mismatch'] : []),
+    ...(!envelopePartitionMatches ? ['mailchimp-adoption-envelope-partition-mismatch'] : []),
+    ...(!envelopeScopedKeyMatches ? ['mailchimp-adoption-envelope-scoped-key-mismatch'] : []),
+    ...(envelopeProviderKind && envelopeProviderKind !== 'mailchimp' ? ['mailchimp-adoption-envelope-provider-kind-mismatch'] : []),
+    ...(!envelopeProviderMatches ? ['mailchimp-adoption-envelope-provider-id-mismatch'] : []),
+    ...(envelopeAbsolutePathExposed ? ['mailchimp-adoption-envelope-absolute-path-exposed'] : []),
+    ...(!partitionMatches ? ['mailchimp-adoption-partition-mismatch'] : []),
+    ...(!scopedKeyMatches ? ['mailchimp-adoption-scoped-key-mismatch'] : []),
+    ...(absolutePathExposed ? ['mailchimp-adoption-absolute-path-exposed'] : []),
+    ...(providerKind && providerKind !== 'mailchimp' ? ['mailchimp-adoption-provider-kind-mismatch'] : []),
+    ...(!providerMatches ? ['mailchimp-adoption-provider-id-mismatch'] : []),
+    ...(!auditRouteMatches || !custodyRouteMatches ? ['mailchimp-adoption-route-mismatch'] : []),
+    ...(!auditCommandMatches ? ['mailchimp-adoption-command-mismatch'] : []),
+    ...(missingRequiredAcknowledgements.length ? ['mailchimp-adoption-acknowledgements-missing'] : []),
+    ...(requiredStateContractAcknowledgementsMissing.length ? ['mailchimp-adoption-state-acknowledgements-missing'] : []),
+    ...(mailchimpContract.restrictedMergeFields.length ? ['mailchimp-adoption-restricted-merge-fields'] : []),
+    ...(boundaryState === 'blocked' ? ['mailchimp-adoption-custody-boundary-blocked'] : []),
+    ...(adoptionWriteMode === 'deny' ? ['mailchimp-adoption-write-mode-deny'] : [])
+  ];
+  const warnings = [
+    ...(adoptionWarnings || []),
+    ...(adoptionRequired && !declaredPartitionKey ? ['mailchimp-adoption-partition-not-declared'] : []),
+    ...(adoptionRequired && !declaredScopedKey ? ['mailchimp-adoption-scoped-key-not-declared'] : []),
+    ...(adoptionRequired && !deliveryMode ? ['mailchimp-adoption-delivery-mode-not-declared'] : []),
+    ...(deliveryMode && deliveryMode !== 'provider-ticket' ? ['mailchimp-adoption-provider-ticket-not-declared'] : []),
+    ...(adoptionStateContract.providerTicketRequired === true && textOrNull(handoffEnvelope.deliveryMode) !== 'provider-ticket'
+      ? ['mailchimp-adoption-envelope-provider-ticket-not-declared']
+      : []),
+    ...(stateContractAcknowledgementCodes.length === 0 && adoptionRequired
+      ? ['mailchimp-adoption-state-acknowledgement-contract-empty']
+      : []),
+    ...(declaredReplayKey && adoptionReplayKey && declaredReplayKey !== adoptionReplayKey ? ['mailchimp-adoption-audit-replay-key-differs'] : [])
+  ];
+
+  return {
+    schema: 'artifact-filesystem.quarantine-record.mailchimp-adoption-validation.v1',
+    status: blockers.length ? 'blocked' : warnings.length ? 'attention' : 'ready',
+    ready: blockers.length === 0,
+    expectedPartitionKey,
+    expectedScopedKey,
+    declaredPartitionKey,
+    declaredScopedKey,
+    partitionMatches,
+    scopedKeyMatches,
+    providerMatches,
+    routeMatches: auditRouteMatches && custodyRouteMatches,
+    commandMatches: auditCommandMatches,
+    replayKey: adoptionReplayKey,
+    declaredReplayKey,
+    replaySafe: adoptionReplaySafe,
+    stateContract: {
+      declared: Object.keys(adoptionStateContract).length > 0,
+      commandState: textOrNull(adoptionStateContract.commandState),
+      persistBeforeProviderHandoff: stateContractPersistIntent,
+      expectedState: stateContractExpectedState,
+      replayKey: stateContractReplayKey,
+      requiredAcknowledgementCodes: stateContractAcknowledgementCodes,
+      missingAcknowledgementCodes: requiredStateContractAcknowledgementsMissing,
+      routeMatches: stateContractRouteMatches,
+      commandMatches: stateContractCommandMatches,
+      partitionMatches: stateContractPartitionMatches,
+      scopedKeyMatches: stateContractScopedKeyMatches,
+      absolutePathExposed: stateContractAbsolutePathExposed
+    },
+    handoffEnvelope: {
+      declared: Object.keys(handoffEnvelope).length > 0,
+      route: envelopeRoute,
+      command: envelopeCommand,
+      replayKey: envelopeReplayKey,
+      partitionKey: envelopePartitionKey,
+      scopedKey: envelopeScopedKey,
+      providerKind: envelopeProviderKind,
+      providerId: envelopeProviderId,
+      deliveryMode: textOrNull(handoffEnvelope.deliveryMode),
+      routeMatches: envelopeRouteMatches,
+      commandMatches: envelopeCommandMatches,
+      partitionMatches: envelopePartitionMatches,
+      scopedKeyMatches: envelopeScopedKeyMatches,
+      providerMatches: envelopeProviderMatches,
+      absolutePathExposed: envelopeAbsolutePathExposed
+    },
+    missingRequiredAcknowledgements,
+    blockers: [...new Set(blockers)],
+    warnings: [...new Set(warnings)],
+    custody: {
+      declared: Object.keys(custodySource).length > 0,
+      partitionKey: declaredPartitionKey,
+      scopedKey: declaredScopedKey,
+      auditStream: textOrNull(custodySource.auditStream) || 'artifact-filesystem.quarantine-record',
+      route: custodyRoute || 'artifact-filesystem/quarantine-record/mailchimp-acceptance',
+      boundaryState: boundaryState || 'not-declared',
+      adoptionWriteMode: adoptionWriteMode || 'persist-intent-before-provider-handoff',
+      absolutePathExposed,
+      requiredAcknowledgementCodes: requiredCodes
+    },
+    auditHandoff: {
+      declared: Object.keys(auditHandoffSource).length > 0,
+      route: declaredRoute || 'artifact-filesystem/quarantine-record/mailchimp-acceptance',
+      command: declaredCommand || 'quarantine.mailchimp.acceptance.attach',
+      partitionKey: textOrNull(auditHandoffSource.partitionKey),
+      scopedKey: textOrNull(auditHandoffSource.scopedKey),
+      replayKey: declaredReplayKey,
+      requiresProviderReceipt: auditHandoffSource.requiresProviderReceipt === true,
+      requiresCustodyMatch: auditHandoffSource.requiresCustodyMatch !== false
+    }
+  };
+}
+
 function normalizeProviderContract(input = {}, action, now) {
   const hasExplicitProvider = (input.provider && typeof input.provider === 'object')
     || (input.integrationProvider && typeof input.integrationProvider === 'object')
@@ -526,7 +1322,24 @@ function normalizeProviderContract(input = {}, action, now) {
       : {};
   const declaredCapabilities = uniqueStrings(source.capabilities || source.capabilityIds || source.supportedCapabilities)
     .map((capability) => capability.toLowerCase());
-  const requiredCapabilities = ACTION_PROVIDER_CAPABILITIES[action] || ACTION_PROVIDER_CAPABILITIES[DEFAULT_ACTION];
+  const mailchimpContract = normalizeMailchimpQuarantineContract({
+    source,
+    input,
+    externalHandoff: externalSource,
+    declaredCapabilities,
+    action
+  });
+  const scope = normalizeScope(input);
+  const mailchimpAcceptanceHandoff = normalizePathPolicyMailchimpAcceptance({
+    source,
+    input,
+    mailchimpContract,
+    scope
+  });
+  const requiredCapabilities = uniqueStrings([
+    ...(ACTION_PROVIDER_CAPABILITIES[action] || ACTION_PROVIDER_CAPABILITIES[DEFAULT_ACTION]),
+    ...(mailchimpContract.applicable ? MAILCHIMP_REQUIRED_CAPABILITIES : [])
+  ]);
   const effectiveCapabilities = declaredCapabilities.length
     ? declaredCapabilities
     : hasExplicitProvider
@@ -550,6 +1363,7 @@ function normalizeProviderContract(input = {}, action, now) {
   return {
     schema: 'artifact-filesystem.quarantine-record.provider-contract.v1',
     providerId: textOrNull(source.providerId) || textOrNull(source.id) || 'hosted-kernel',
+    providerKind: mailchimpContract.providerKind,
     serviceName: textOrNull(source.serviceName) || textOrNull(source.name) || 'artifact-quarantine-provider',
     contractVersion: textOrNull(source.contractVersion) || textOrNull(source.version) || 'v1',
     required: Boolean(providerRequired),
@@ -559,6 +1373,8 @@ function normalizeProviderContract(input = {}, action, now) {
     missingCapabilities,
     serviceEndpoints,
     syncMetadata,
+    mailchimpContract,
+    mailchimpAcceptanceHandoff,
     negotiation: {
       status: missingCapabilities.length ? 'blocked' : declaredCapabilities.length ? 'satisfied' : 'implicit-hosted-kernel',
       requestedAction: action,
@@ -716,6 +1532,52 @@ function normalizePersistedState(input = {}, scope, action, clientRequestState, 
         ? input.stateStore
         : {};
   const commandSource = source.command && typeof source.command === 'object' ? source.command : source;
+  const pathPolicySource = input.pathPolicy && typeof input.pathPolicy === 'object'
+    ? input.pathPolicy
+    : input.pathPolicyPreview && typeof input.pathPolicyPreview === 'object'
+      ? input.pathPolicyPreview
+      : {};
+  const mailchimpAcceptanceSource = input.mailchimpAcceptanceHandoff && typeof input.mailchimpAcceptanceHandoff === 'object'
+    ? input.mailchimpAcceptanceHandoff
+    : pathPolicySource.mailchimpAcceptanceHandoff && typeof pathPolicySource.mailchimpAcceptanceHandoff === 'object'
+      ? pathPolicySource.mailchimpAcceptanceHandoff
+      : pathPolicySource.serviceContract?.mailchimpAcceptanceHandoff
+        && typeof pathPolicySource.serviceContract.mailchimpAcceptanceHandoff === 'object'
+        ? pathPolicySource.serviceContract.mailchimpAcceptanceHandoff
+        : {};
+  const mailchimpAdoptionSource = mailchimpAcceptanceSource.quarantineAdoption
+    && typeof mailchimpAcceptanceSource.quarantineAdoption === 'object'
+    ? mailchimpAcceptanceSource.quarantineAdoption
+    : mailchimpAcceptanceSource.routePayload?.quarantineAdoption
+      && typeof mailchimpAcceptanceSource.routePayload.quarantineAdoption === 'object'
+      ? mailchimpAcceptanceSource.routePayload.quarantineAdoption
+      : {};
+  const mailchimpRoutePayload = mailchimpAcceptanceSource.routePayload && typeof mailchimpAcceptanceSource.routePayload === 'object'
+    ? mailchimpAcceptanceSource.routePayload
+    : {};
+  const mailchimpAdoptionStateContract = mailchimpRoutePayload.adoptionStateContract
+    && typeof mailchimpRoutePayload.adoptionStateContract === 'object'
+    ? mailchimpRoutePayload.adoptionStateContract
+    : mailchimpAdoptionSource.adoptionStateContract && typeof mailchimpAdoptionSource.adoptionStateContract === 'object'
+      ? mailchimpAdoptionSource.adoptionStateContract
+      : {};
+  const mailchimpHandoffEnvelope = mailchimpRoutePayload.handoffEnvelope && typeof mailchimpRoutePayload.handoffEnvelope === 'object'
+    ? mailchimpRoutePayload.handoffEnvelope
+    : {};
+  const mailchimpAdoptionReplay = mailchimpAdoptionSource.replay && typeof mailchimpAdoptionSource.replay === 'object'
+    ? mailchimpAdoptionSource.replay
+    : {};
+  const mailchimpAdoptionReplayKey = textOrNull(mailchimpAdoptionReplay.key)
+    || textOrNull(mailchimpAdoptionReplay.idempotencyKey)
+    || textOrNull(mailchimpAdoptionStateContract.replayKey)
+    || textOrNull(mailchimpAdoptionStateContract.idempotencyKey)
+    || textOrNull(mailchimpHandoffEnvelope.replayKey);
+  const mailchimpAdoptionExpectedState = textOrNull(mailchimpAdoptionReplay.expectedState)
+    || textOrNull(mailchimpAdoptionStateContract.expectedState);
+  const mailchimpAdoptionPersistBeforeHandoff = mailchimpAdoptionStateContract.persistBeforeProviderHandoff === true;
+  const mailchimpAdoptionStateRestartSafe = mailchimpAdoptionStateContract.restartSafe !== false
+    && mailchimpAdoptionReplay.restartSafe !== false
+    && Boolean(mailchimpAdoptionReplayKey);
   const storedScope = source.scope && typeof source.scope === 'object' ? source.scope : source;
   const storedCommandState = textOrNull(commandSource.state)
     || textOrNull(commandSource.status)
@@ -742,9 +1604,30 @@ function normalizePersistedState(input = {}, scope, action, clientRequestState, 
     && (!storedWorkspaceId || storedWorkspaceId === scope.workspaceId)
     && (!storedArtifactId || storedArtifactId === scope.artifactId);
   const idempotencyMatches = Boolean(storedIdempotencyKey && storedIdempotencyKey === clientRequestState.idempotencyKey);
+  const mailchimpAdoptionReplayMatches = Boolean(
+    mailchimpAdoptionReplayKey
+      && (mailchimpAdoptionReplayKey === clientRequestState.idempotencyKey
+        || mailchimpAdoptionReplayKey === storedIdempotencyKey)
+  );
   const actionMatches = !storedAction || storedAction === action;
   const revisionMatches = !storedRevision || !artifactState.revision || storedRevision === artifactState.revision;
-  const sameCommand = idempotencyMatches && scopeMatches && actionMatches;
+  const requestedTransition = artifactState.transition;
+  const transitionMatches = !storedTransition || storedTransition === requestedTransition;
+  const transitionContract = buildPersistedTransitionContract({
+    action,
+    state,
+    replayStateDeclared: state !== 'missing',
+    requestedTransition,
+    storedTransition,
+    actionMatches,
+    revisionMatches,
+    transitionMatches,
+    storedRevision,
+    artifactRevision: artifactState.revision,
+    storedRecordId,
+    storedRecordDigest
+  });
+  const sameCommand = idempotencyMatches && scopeMatches && actionMatches && transitionMatches;
   const replayStatus = state === 'missing'
     ? 'new-command'
     : sameCommand && state === 'committed'
@@ -770,6 +1653,8 @@ function normalizePersistedState(input = {}, scope, action, clientRequestState, 
     storedRecordId,
     storedRecordDigest,
     storedTransition,
+    transitionMatches,
+    transitionContract,
     lastCommittedAt,
     recoveredAt,
     scopeMatches,
@@ -791,7 +1676,38 @@ function normalizePersistedState(input = {}, scope, action, clientRequestState, 
     idempotency: {
       requestedKey: clientRequestState.idempotencyKey,
       storedKey: storedIdempotencyKey,
-      matches: idempotencyMatches
+      matches: idempotencyMatches,
+      mailchimpAdoptionReplayKey,
+      mailchimpAdoptionReplayMatches,
+      mailchimpAdoptionExpectedState,
+      mailchimpAdoptionPersistBeforeHandoff,
+      mailchimpAdoptionStateRestartSafe
+    },
+    mailchimpAdoptionReplay: {
+      declared: Boolean(mailchimpAdoptionReplayKey),
+      key: mailchimpAdoptionReplayKey,
+      command: textOrNull(mailchimpAdoptionReplay.command),
+      route: textOrNull(mailchimpAdoptionReplay.route),
+      expectedState: mailchimpAdoptionExpectedState,
+      persistBeforeProviderHandoff: mailchimpAdoptionPersistBeforeHandoff,
+      restartSafe: mailchimpAdoptionStateRestartSafe,
+      matchesStoredCommand: mailchimpAdoptionReplayMatches,
+      replaySource: textOrNull(mailchimpAdoptionReplay.key) || textOrNull(mailchimpAdoptionReplay.idempotencyKey)
+        ? 'quarantine-adoption-replay'
+        : textOrNull(mailchimpAdoptionStateContract.replayKey) || textOrNull(mailchimpAdoptionStateContract.idempotencyKey)
+          ? 'adoption-state-contract'
+          : textOrNull(mailchimpHandoffEnvelope.replayKey)
+            ? 'handoff-envelope'
+            : 'not-declared',
+      state: !mailchimpAdoptionReplayKey
+        ? 'not-declared'
+        : !mailchimpAdoptionStateRestartSafe
+          ? 'replay-unsafe'
+        : mailchimpAdoptionReplayMatches
+          ? 'replay-bound'
+        : storedIdempotencyKey
+            ? 'replay-conflict'
+            : 'replay-ready'
     },
     storedCommand: {
       requestId: storedRequestId,
@@ -799,8 +1715,11 @@ function normalizePersistedState(input = {}, scope, action, clientRequestState, 
       actionMatches,
       scopeMatches,
       revision: storedRevision,
-      revisionMatches
+      revisionMatches,
+      transition: storedTransition,
+      transitionMatches
     },
+    transition: transitionContract,
     storedScope: {
       tenantId: storedTenantId,
       workspaceId: storedWorkspaceId,
@@ -815,6 +1734,61 @@ function normalizePersistedState(input = {}, scope, action, clientRequestState, 
     },
     restartRecovery,
     normalizedAt: now
+  };
+}
+
+function buildPersistedTransitionContract({
+  action,
+  state,
+  replayStateDeclared,
+  requestedTransition,
+  storedTransition,
+  actionMatches,
+  revisionMatches,
+  transitionMatches,
+  storedRevision,
+  artifactRevision,
+  storedRecordId,
+  storedRecordDigest
+}) {
+  const storedTransitionDeclared = Boolean(storedTransition);
+  const conflictFields = [
+    ...(!actionMatches ? ['action'] : []),
+    ...(!revisionMatches ? ['artifactRevision'] : []),
+    ...(storedTransitionDeclared && !transitionMatches ? ['transition'] : [])
+  ];
+  const replaySafe = replayStateDeclared
+    ? conflictFields.length === 0
+    : true;
+  const status = !replayStateDeclared
+    ? 'new-transition'
+    : replaySafe
+      ? storedTransitionDeclared
+        ? 'matched'
+        : 'transition-not-recorded'
+      : 'conflict';
+
+  return {
+    schema: 'artifact-filesystem.quarantine-record.persisted-transition.v1',
+    status,
+    action,
+    requestedTransition,
+    storedTransition,
+    storedTransitionDeclared,
+    matches: transitionMatches,
+    replaySafe,
+    conflictFields,
+    artifactRevision,
+    storedRevision,
+    storedRecordId,
+    storedRecordDigest,
+    recoveryExpectation: replaySafe
+      ? state === 'committed'
+        ? 'return-existing-receipt'
+        : state === 'missing'
+          ? 'persist-new-intent'
+          : 'resume-same-transition'
+      : 'block-and-reconcile-persisted-command'
   };
 }
 
@@ -861,6 +1835,8 @@ function buildRestartRecoveryState({
   storedRecordId,
   storedRecordDigest,
   storedTransition,
+  transitionMatches,
+  transitionContract,
   lastCommittedAt,
   recoveredAt,
   scopeMatches,
@@ -981,7 +1957,8 @@ function buildRestartRecoveryState({
       scopeMatches,
       actionMatches,
       revisionMatches,
-      transitionMatches: !storedTransition || storedTransition === requestedTransition
+      transitionMatches,
+      transitionReplaySafe: transitionContract.replaySafe
     },
     commands,
     nextCommand: commands.find((command) => command.enabled)?.name || resumeFromStep,
@@ -1009,11 +1986,46 @@ function validatePersistedState(persistedState) {
     });
   }
 
+  if (persistedState.transition.status === 'conflict') {
+    errors.push({
+      code: 'persisted-transition-conflict',
+      field: 'persistedState.transition',
+      message: `Persisted quarantine transition "${persistedState.transition.storedTransition || 'missing'}" does not match requested transition "${persistedState.transition.requestedTransition}".`,
+      expected: [persistedState.transition.requestedTransition],
+      actual: persistedState.transition.storedTransition,
+      conflictFields: persistedState.transition.conflictFields
+    });
+  }
+
   if (persistedState.replayStatus === 'stored-revision-stale') {
     errors.push({
       code: 'stale-persisted-artifact-revision',
       field: 'persistedState.artifactRevision',
       message: 'Persisted quarantine state was written for a different artifact revision and must be reconciled before committing.'
+    });
+  }
+
+  if (persistedState.mailchimpAdoptionReplay.declared && persistedState.mailchimpAdoptionReplay.state === 'replay-unsafe') {
+    errors.push({
+      code: 'mailchimp-adoption-replay-unsafe',
+      field: 'pathPolicy.mailchimpAcceptanceHandoff.quarantineAdoption.replay',
+      message: 'Mailchimp adoption replay is missing a restart-safe replay key or was explicitly marked unsafe by the path-policy handoff.'
+    });
+  }
+
+  if (persistedState.mailchimpAdoptionReplay.declared && persistedState.mailchimpAdoptionReplay.state === 'replay-conflict') {
+    errors.push({
+      code: 'mailchimp-adoption-replay-conflict',
+      field: 'persistedState.idempotencyKey',
+      message: 'Mailchimp adoption replay key conflicts with the persisted quarantine command idempotency key.'
+    });
+  }
+
+  if (persistedState.mailchimpAdoptionReplay.declared && !persistedState.mailchimpAdoptionReplay.persistBeforeProviderHandoff) {
+    errors.push({
+      code: 'mailchimp-adoption-persist-intent-missing',
+      field: 'pathPolicy.mailchimpAcceptanceHandoff.quarantineAdoption.stateContract',
+      message: 'Mailchimp adoption handoff must persist quarantine intent before waiting for provider acknowledgement.'
     });
   }
 
@@ -1062,7 +2074,7 @@ function validateArtifactStateContract(artifactState, action) {
   return errors;
 }
 
-function buildArtifactTransitionProof({ scope, actorId, action, allowed, artifactState, evidence, providerSyncState, clientRequestState, persistedState, now }) {
+function buildArtifactTransitionProof({ scope, actorId, action, allowed, artifactState, evidence, evidenceQuality, providerSyncState, clientRequestState, persistedState, now }) {
   return {
     schema: 'artifact-filesystem.quarantine-record.transition-proof.v1',
     generatedAt: now,
@@ -1081,6 +2093,8 @@ function buildArtifactTransitionProof({ scope, actorId, action, allowed, artifac
     persistedRecordDigest: persistedState.record.digest,
     persistedReplayStatus: persistedState.replayStatus,
     restartSafe: persistedState.restartSafe,
+    persistedTransitionStatus: persistedState.transition.status,
+    persistedTransitionReplaySafe: persistedState.transition.replaySafe,
     restartRecoveryStatus: persistedState.restartRecovery.status,
     restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
     commandFingerprint: persistedState.restartRecovery.commandFingerprint,
@@ -1090,10 +2104,19 @@ function buildArtifactTransitionProof({ scope, actorId, action, allowed, artifac
       kind: item.kind,
       digest: item.digest || null
     })),
+    evidenceQuality: {
+      status: evidenceQuality.status,
+      digestCoverage: evidenceQuality.digestCoverage,
+      blockingCodes: evidenceQuality.blockingCodes,
+      warningCodes: evidenceQuality.warningCodes
+    },
     providerSyncStatus: providerSyncState.syncStatus,
     providerSyncState: providerSyncState.syncMetadata.state,
     providerSyncCheckpointId: providerSyncState.syncMetadata.checkpointId,
     selectedHandoffEndpointId: providerSyncState.selectedHandoffEndpoint?.id || null,
+    mailchimpAdoptionValidationStatus: providerSyncState.mailchimpAcceptanceHandoff?.quarantineAdoption?.validation?.status || null,
+    mailchimpAdoptionReplayKey: providerSyncState.mailchimpAcceptanceHandoff?.quarantineAdoption?.replay?.key || null,
+    mailchimpAdoptionCustodyPartition: providerSyncState.mailchimpAcceptanceHandoff?.quarantineAdoption?.custody?.partitionKey || null,
     clientRequestId: clientRequestState.requestId
   };
 }
@@ -1230,6 +2253,29 @@ function validateProviderContract(providerContract, now) {
       message: 'Provider contract does not advertise every capability required for this quarantine action.',
       expected: providerContract.requiredCapabilities,
       missing: providerContract.missingCapabilities
+    });
+  }
+
+  if (providerContract.mailchimpContract?.applicable && providerContract.mailchimpContract.violations.length) {
+    errors.push({
+      code: 'mailchimp-provider-contract-blocked',
+      field: 'provider.mailchimp',
+      message: 'Mailchimp quarantine handoff requires an audience id, campaign export capability, audience metadata sync capability, and safe merge fields.',
+      expected: {
+        requiredCapabilities: providerContract.mailchimpContract.requiredCapabilities,
+        allowedHandoffStates: [...MAILCHIMP_ALLOWED_HANDOFF_STATES].sort()
+      },
+      missing: providerContract.mailchimpContract.violations
+    });
+  }
+
+  if (providerContract.mailchimpAcceptanceHandoff?.applicable && providerContract.mailchimpAcceptanceHandoff.conflicts.length) {
+    errors.push({
+      code: 'mailchimp-path-policy-acceptance-conflict',
+      field: 'pathPolicy.mailchimpAcceptanceHandoff',
+      message: 'Mailchimp acceptance handoff from path-policy does not match the quarantine record provider contract.',
+      expected: providerContract.mailchimpAcceptanceHandoff.expected,
+      missing: providerContract.mailchimpAcceptanceHandoff.conflicts
     });
   }
 
@@ -1403,6 +2449,8 @@ function buildProviderSyncState({ providerContract, allowed, health, retryPlan, 
     serviceEndpoints: providerContract.serviceEndpoints,
     selectedHandoffEndpoint: handoffEndpoint,
     externalHandoff: handoff,
+    mailchimpContract: providerContract.mailchimpContract,
+    mailchimpAcceptanceHandoff: providerContract.mailchimpAcceptanceHandoff,
     metadata: {
       negotiatedCapabilityCount: providerContract.effectiveCapabilities.length,
       requiredCapabilityCount: providerContract.requiredCapabilities.length,
@@ -1411,13 +2459,168 @@ function buildProviderSyncState({ providerContract, allowed, health, retryPlan, 
       validEndpointCount: providerContract.serviceEndpoints.filter((endpoint) => endpoint.validPurpose && endpoint.validProtocol && endpoint.url).length,
       syncDirty: syncMetadata.dirty,
       syncCheckpointId: syncMetadata.checkpointId,
+      providerKind: providerContract.providerKind,
+      mailchimpState: providerContract.mailchimpContract.state,
+      mailchimpAcceptanceState: providerContract.mailchimpAcceptanceHandoff.state,
+      mailchimpAdoptionValidationStatus: providerContract.mailchimpAcceptanceHandoff.quarantineAdoption?.validation?.status || null,
+      mailchimpAdoptionValidationBlockerCount: providerContract.mailchimpAcceptanceHandoff.quarantineAdoption?.validation?.blockers?.length || 0,
+      mailchimpAdoptionCustodyPartition: providerContract.mailchimpAcceptanceHandoff.quarantineAdoption?.custody?.partitionKey || null,
+      mailchimpAdoptionAuditRoute: providerContract.mailchimpAcceptanceHandoff.quarantineAdoption?.auditHandoff?.route || null,
+      mailchimpAudienceId: providerContract.mailchimpContract.audienceId || null,
+      mailchimpCampaignId: providerContract.mailchimpContract.campaignId || null,
       generatedAt: now,
       nextSyncAfter: retryPlan.nextAttemptNotBefore
     }
   };
 }
 
-function buildAnalyticsCounters({ allowed, action, reasons, evidence, health, deniedReasons, validationErrors, historySnapshots, persistedState }) {
+function buildMailchimpAdoptionExportPackage({
+  scope,
+  actorId,
+  providerSyncState,
+  clientRequestState,
+  custodyBoundary,
+  artifactTransitionProof,
+  persistedState,
+  previewAcceptance,
+  workflowHandoff,
+  now
+}) {
+  const mailchimpContract = providerSyncState.mailchimpContract || {};
+  const acceptanceHandoff = providerSyncState.mailchimpAcceptanceHandoff || {};
+  const adoption = acceptanceHandoff.quarantineAdoption || {};
+  const validation = adoption.validation || {};
+  const applicable = Boolean(mailchimpContract.applicable || acceptanceHandoff.applicable);
+  const blockerCodes = uniqueStrings([
+    ...(mailchimpContract.violations || []),
+    ...(acceptanceHandoff.conflicts || []),
+    ...(validation.blockers || []),
+    ...(custodyBoundary.violations || [])
+  ]);
+  const warningCodes = uniqueStrings([
+    ...(mailchimpContract.warnings || []),
+    ...(acceptanceHandoff.warnings || []),
+    ...(validation.warnings || [])
+  ]);
+  const state = !applicable
+    ? 'not-applicable'
+    : blockerCodes.length
+      ? 'blocked'
+      : warningCodes.length
+        ? 'export-ready-with-warnings'
+        : 'export-ready';
+  const partitionKey = `${scope.tenantId || 'missing-tenant'}/${scope.workspaceId || 'missing-workspace'}`;
+  const scopedKey = `${scope.tenantId || 'missing-tenant'}:${scope.workspaceId || 'missing-workspace'}:${scope.artifactId || 'missing-artifact'}`;
+  const adoptionKey = adoption.proof?.lineageKey
+    || adoption.replay?.key
+    || exportLineageKey(scopedKey, clientRequestState.requestId, 'mailchimp-adoption', state);
+  const eventRows = [
+    {
+      ordinal: 1,
+      at: now,
+      type: 'mailchimp.contract.evaluated',
+      state: mailchimpContract.state || 'not-applicable',
+      code: blockerCodes[0] || warningCodes[0] || null
+    },
+    acceptanceHandoff.applicable ? {
+      ordinal: 2,
+      at: now,
+      type: 'mailchimp.path-policy-acceptance.evaluated',
+      state: acceptanceHandoff.state,
+      code: acceptanceHandoff.conflicts?.[0] || acceptanceHandoff.warnings?.[0] || null
+    } : null,
+    adoption.declared ? {
+      ordinal: 3,
+      at: now,
+      type: 'mailchimp.quarantine-adoption.evaluated',
+      state: adoption.state,
+      code: validation.blockers?.[0] || validation.warnings?.[0] || null
+    } : null,
+    workflowHandoff?.status ? {
+      ordinal: 4,
+      at: now,
+      type: 'mailchimp.workflow-handoff.linked',
+      state: workflowHandoff.status,
+      code: workflowHandoff.userVisibleState?.disabledReason || null
+    } : null
+  ].filter(Boolean);
+
+  return {
+    schema: 'artifact-filesystem.quarantine-record.mailchimp-adoption-export.v1',
+    generatedAt: now,
+    applicable,
+    state,
+    ready: applicable && blockerCodes.length === 0,
+    partitionKey,
+    scopedKey,
+    adoptionKey,
+    provider: {
+      providerId: providerSyncState.providerId,
+      syncStatus: providerSyncState.syncStatus,
+      externalHandoffState: providerSyncState.externalHandoff.state,
+      selectedHandoffEndpointId: providerSyncState.selectedHandoffEndpoint?.id || null
+    },
+    mailchimp: {
+      audienceId: mailchimpContract.audienceId || adoption.audienceId || null,
+      campaignId: mailchimpContract.campaignId || adoption.campaignId || null,
+      storeId: mailchimpContract.storeId || adoption.storeId || null,
+      mergeFields: mailchimpContract.mergeFields || adoption.mergeFields || [],
+      restrictedMergeFields: mailchimpContract.restrictedMergeFields || [],
+      acceptanceToken: acceptanceHandoff.acceptanceToken || adoption.proof?.acceptanceToken || null,
+      acknowledgementCodes: acceptanceHandoff.acknowledgementCodes || adoption.acknowledgementCodes || []
+    },
+    custody: {
+      partitionKey: adoption.custody?.partitionKey || custodyBoundary.expected.partitionKey,
+      scopedKey: adoption.custody?.scopedKey || custodyBoundary.expected.scopedKey,
+      auditStream: adoption.custody?.auditStream || 'artifact-filesystem.quarantine-record',
+      auditRoute: adoption.auditHandoff?.route || acceptanceHandoff.route || null,
+      auditCommand: adoption.auditHandoff?.command || acceptanceHandoff.command || null,
+      boundaryStatus: custodyBoundary.status,
+      violationCount: custodyBoundary.violations.length
+    },
+    replay: {
+      key: adoption.replay?.key || null,
+      idempotencyKey: adoption.replay?.idempotencyKey || clientRequestState.idempotencyKey,
+      command: adoption.replay?.command || acceptanceHandoff.command || 'quarantine.mailchimp.acceptance.attach',
+      route: adoption.replay?.route || acceptanceHandoff.route || 'artifact-filesystem/quarantine-record/mailchimp-acceptance',
+      restartSafe: adoption.replay?.restartSafe !== false && persistedState.restartSafe,
+      persistedReplayStatus: persistedState.replayStatus,
+      restartRecoveryStatus: persistedState.restartRecovery.status
+    },
+    preview: {
+      previewStatus: previewAcceptance?.preview?.status || null,
+      nextAction: previewAcceptance?.nextStep?.action || null,
+      workflowStatus: workflowHandoff?.status || null,
+      submitEnabled: workflowHandoff?.routeHandoff?.submitEnabled || false
+    },
+    transition: {
+      action: scope.action,
+      actorId,
+      decision: artifactTransitionProof.decision,
+      transition: artifactTransitionProof.transition,
+      fromState: artifactTransitionProof.fromState,
+      toState: artifactTransitionProof.toState
+    },
+    counters: {
+      blockerCount: blockerCodes.length,
+      warningCount: warningCodes.length,
+      acknowledgementCount: (acceptanceHandoff.acknowledgementCodes || adoption.acknowledgementCodes || []).length,
+      restrictedMergeFieldCount: (mailchimpContract.restrictedMergeFields || []).length,
+      eventCount: eventRows.length
+    },
+    blockers: blockerCodes,
+    warnings: warningCodes,
+    rows: eventRows.map((row) => ({
+      ...row,
+      partitionKey,
+      scopedKey,
+      requestId: clientRequestState.requestId,
+      exportKey: exportLineageKey(scopedKey, clientRequestState.requestId, row.type, row.state)
+    }))
+  };
+}
+
+function buildAnalyticsCounters({ allowed, action, reasons, evidence, evidenceQuality, health, deniedReasons, validationErrors, historySnapshots, persistedState }) {
   const reasonCounts = Object.fromEntries(reasons.map((reason) => [reason, 1]));
   const denialCounts = Object.fromEntries(deniedReasons.map((reason) => [reason, 1]));
 
@@ -1436,6 +2639,9 @@ function buildAnalyticsCounters({ allowed, action, reasons, evidence, health, de
     deniedRecords: historySnapshots.filter((snapshot) => snapshot.decision === 'deny').length + (allowed ? 0 : 1),
     currentAction: action,
     currentEvidenceCount: evidence.length,
+    currentEvidenceDigestCoverage: evidenceQuality.digestCoverage,
+    weakEvidenceCount: evidenceQuality.rows.filter((row) => row.weakReasons.length > 0).length,
+    evidenceQualityBlocked: evidenceQuality.ready ? 0 : 1,
     currentReasonCount: reasons.length,
     currentDeniedReasonCount: deniedReasons.length,
     validationErrorCount: validationErrors.length,
@@ -1591,7 +2797,7 @@ function exportLineageKey(...parts) {
     .join(':');
 }
 
-function buildAnalyticsExportManifest({ now, scope, actorId, allowed, reasons, evidence, deniedReasons, timeline, historySnapshots, analyticsCounters, clientRequestState, providerSyncState, persistedState, custodyBoundary, artifactTransitionProof, operationalIncident }) {
+function buildAnalyticsExportManifest({ now, scope, actorId, allowed, reasons, evidence, evidenceQuality, deniedReasons, timeline, historySnapshots, analyticsCounters, clientRequestState, providerSyncState, persistedState, custodyBoundary, artifactTransitionProof, operationalIncident }) {
   const partitionKey = `${scope.tenantId || 'missing-tenant'}/${scope.workspaceId || 'missing-workspace'}`;
   const scopedKey = `${scope.tenantId || 'missing-tenant'}:${scope.workspaceId || 'missing-workspace'}:${scope.artifactId || 'missing-artifact'}`;
   const snapshotFingerprints = [
@@ -1639,8 +2845,12 @@ function buildAnalyticsExportManifest({ now, scope, actorId, allowed, reasons, e
     quality: {
       ready: custodyBoundary.status === 'satisfied' && persistedState.restartSafe,
       decisionComplete: typeof allowed === 'boolean' && Boolean(artifactTransitionProof.decision),
-      evidenceDigestCoverage: evidence.length ? evidenceDigestCount / evidence.length : 1,
+      evidenceQualityStatus: evidenceQuality.status,
+      evidenceDigestCoverage: evidenceQuality.digestCoverage,
       missingDigestCount: Math.max(0, evidence.length - evidenceDigestCount),
+      weakEvidenceCount: evidenceQuality.rows.filter((row) => row.weakReasons.length > 0).length,
+      evidenceBlockingCodes: evidenceQuality.blockingCodes,
+      evidenceWarningCodes: evidenceQuality.warningCodes,
       deniedReasonRows: deniedReasonFingerprints.length,
       historyFingerprintCount: snapshotFingerprints.filter(Boolean).length,
       duplicateHistoryFingerprintCount: snapshotFingerprints.length - new Set(snapshotFingerprints.filter(Boolean)).size,
@@ -1666,6 +2876,10 @@ function buildAnalyticsExportManifest({ now, scope, actorId, allowed, reasons, e
         evidenceId: item.id,
         kind: item.kind,
         digest: item.digest || null,
+        qualityStatus: evidenceQuality.rows.find((row) => row.id === item.id)?.weakReasons.length
+          ? 'attention'
+          : 'ready',
+        weakReasons: evidenceQuality.rows.find((row) => row.id === item.id)?.weakReasons || [],
         exportKey: exportLineageKey(scopedKey, clientRequestState.requestId, item.id, item.digest || item.kind)
       })),
       historyFingerprints: snapshotFingerprints.filter(Boolean).map((fingerprint, index) => ({
@@ -1701,6 +2915,7 @@ function buildReportingState({ now, scope, actorId, allowed, reasons, evidence, 
     evidenceCount: evidence.length,
     providerSyncStatus: providerSyncState.syncStatus,
     persistedReplayStatus: persistedState.replayStatus,
+    persistedTransitionStatus: persistedState.transition.status,
     artifactTransition: artifactTransitionProof.transition,
     exportFingerprint: analyticsExportManifest.lineage.currentSnapshotFingerprint,
     source: 'current-request',
@@ -1769,6 +2984,8 @@ function buildReportingState({ now, scope, actorId, allowed, reasons, evidence, 
     persistedState: persistedState.state,
     persistedReplayStatus: persistedState.replayStatus,
     restartSafe: persistedState.restartSafe,
+    persistedTransitionStatus: persistedState.transition.status,
+    persistedTransitionReplaySafe: persistedState.transition.replaySafe,
     restartRecoveryStatus: persistedState.restartRecovery.status,
     restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
     commandFingerprint: persistedState.restartRecovery.commandFingerprint,
@@ -1857,7 +3074,7 @@ function buildReportingState({ now, scope, actorId, allowed, reasons, evidence, 
   };
 }
 
-function buildExportSummary({ scope, actorId, allowed, reasons, evidence, health, deniedReasons, retryPlan, analyticsCounters, analyticsExportManifest, timeline, lifecycleControl, providerSyncState, clientRequestState, persistedState, workflowHandoff, actorBoundary, custodyBoundary, artifactTransitionProof, clientRouteCommand, operationalIncident }) {
+function buildExportSummary({ scope, actorId, allowed, reasons, evidence, evidenceQuality, health, deniedReasons, retryPlan, analyticsCounters, analyticsExportManifest, timeline, lifecycleControl, providerSyncState, clientRequestState, persistedState, workflowHandoff, actorBoundary, custodyBoundary, artifactTransitionProof, clientRouteCommand, operationalIncident }) {
   const reportStatus = allowed
     ? 'export-ready'
     : retryPlan.retryable
@@ -1874,6 +3091,7 @@ function buildExportSummary({ scope, actorId, allowed, reasons, evidence, health
     deniedReasons,
     quarantineReasons: reasons,
     evidenceDigests: evidence.map((item) => item.digest).filter(Boolean),
+    evidenceQuality,
     analyticsExportManifest,
     exportLineage: analyticsExportManifest.lineage,
     exportQuality: analyticsExportManifest.quality,
@@ -2629,11 +3847,13 @@ function buildActionableErrors({ deniedReasons, validationErrors, health, requir
               ? 'Refresh the artifact quarantine state and choose a lifecycle action valid for the current state.'
               : error.code === 'missing-release-authorization'
                 ? 'Attach release-authorization or operator-approval evidence before releasing the artifact.'
-                : error.code === 'idempotency-conflict'
-                  ? 'Generate a new idempotency key for the new command, or replay the original quarantine command unchanged.'
-                  : error.code === 'stale-persisted-artifact-revision'
-                    ? 'Recover or roll forward the persisted quarantine record before committing another transition.'
-                    : 'Correct the request field and resubmit the quarantine record operation.'
+            : error.code === 'idempotency-conflict'
+              ? 'Generate a new idempotency key for the new command, or replay the original quarantine command unchanged.'
+              : error.code === 'stale-persisted-artifact-revision'
+                ? 'Recover or roll forward the persisted quarantine record before committing another transition.'
+                : error.code === 'persisted-transition-conflict'
+                  ? 'Reconcile the stored quarantine command transition before replaying this idempotency key.'
+                : 'Correct the request field and resubmit the quarantine record operation.'
   }));
 
   for (const reason of deniedReasons) {
@@ -3032,7 +4252,7 @@ function buildOperationalIncidentContract({ scope, allowed, deniedReasons, valid
   };
 }
 
-function buildValidationSummary({ scope, evidence, validationErrors, deniedReasons, requiredPermission, permissions, lifecycleControl, providerSyncState, clientRequestState, persistedState, health, actorBoundary, custodyBoundary, artifactState, operationalIncident }) {
+function buildValidationSummary({ scope, evidence, evidenceQuality, validationErrors, deniedReasons, requiredPermission, permissions, lifecycleControl, providerSyncState, clientRequestState, persistedState, health, actorBoundary, custodyBoundary, artifactState, operationalIncident }) {
   const scopeMissing = [
     ['tenantId', scope.tenantId],
     ['workspaceId', scope.workspaceId],
@@ -3089,7 +4309,18 @@ function buildValidationSummary({ scope, evidence, validationErrors, deniedReaso
     },
     evidence: {
       count: evidence.length,
-      releaseReady: scope.action !== 'release' || (evidence.length > 0 && artifactState.releaseAuthorizationIds.length > 0),
+      status: evidenceQuality.status,
+      ready: evidenceQuality.ready,
+      digestCoverage: evidenceQuality.digestCoverage,
+      digestedEvidenceCount: evidenceQuality.digestedEvidenceCount,
+      weakEvidenceCount: evidenceQuality.rows.filter((row) => row.weakReasons.length > 0).length,
+      blockingCodes: evidenceQuality.blockingCodes,
+      warningCodes: evidenceQuality.warningCodes,
+      missingRequiredDigestIds: evidenceQuality.missingRequiredDigestIds,
+      invalidDigestIds: evidenceQuality.invalidDigestIds,
+      duplicateIds: evidenceQuality.duplicateIds,
+      releaseReady: scope.action !== 'release'
+        || (evidence.length > 0 && artifactState.releaseAuthorizationIds.length > 0 && evidenceQuality.releaseAuthorizationReady),
       releaseAuthorizationIds: artifactState.releaseAuthorizationIds
     },
     artifactState: {
@@ -3153,6 +4384,11 @@ function buildValidationSummary({ scope, evidence, validationErrors, deniedReaso
       state: persistedState.state,
       replayStatus: persistedState.replayStatus,
       restartSafe: persistedState.restartSafe,
+      transitionStatus: persistedState.transition.status,
+      transitionReplaySafe: persistedState.transition.replaySafe,
+      requestedTransition: persistedState.transition.requestedTransition,
+      storedTransition: persistedState.transition.storedTransition,
+      transitionConflictFields: persistedState.transition.conflictFields,
       restartRecoveryStatus: persistedState.restartRecovery.status,
       restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
       commandFingerprint: persistedState.restartRecovery.commandFingerprint,
@@ -3200,6 +4436,10 @@ function buildReadinessContract({ allowed, validationSummary, health, lifecycleC
     readinessGate('request-validation', validationSummary.validationErrorCodes.length === 0, {
       code: 'request-invalid',
       message: `Request validation failed: ${validationSummary.validationErrorCodes.join(', ')}.`
+    }),
+    readinessGate('evidence-quality', validationSummary.evidence.ready, {
+      code: validationSummary.evidence.blockingCodes[0] || 'evidence-quality-blocked',
+      message: `Evidence quality is ${validationSummary.evidence.status}; blockers: ${validationSummary.evidence.blockingCodes.join(', ')}.`
     }),
     readinessGate('artifact-transition', validationSummary.artifactState.ready, {
       code: 'artifact-transition-blocked',
@@ -3250,6 +4490,42 @@ function buildReadinessContract({ allowed, validationSummary, health, lifecycleC
 function buildPreviewAcceptanceContract({ scope, actorId, allowed, reasons, evidence, deniedReasons, retryPlan, lifecycleControl, providerSyncState, validationSummary, readiness, actionableErrors, artifactTransitionProof, persistedState, now }) {
   const canAccept = readiness.ready && allowed;
   const alreadyCommitted = persistedState.replayStatus === 'idempotent-committed-replay';
+  const mailchimpContract = providerSyncState.mailchimpContract || providerSyncState.externalHandoff.mailchimpContract || null;
+  const mailchimpAcceptanceHandoff = providerSyncState.mailchimpAcceptanceHandoff || null;
+  const mailchimpRequirements = mailchimpContract?.applicable
+    ? [
+        !mailchimpContract.audienceId ? {
+          code: 'mailchimp-audience-id-required',
+          field: 'provider.mailchimp.audienceId',
+          message: 'Select the Mailchimp audience that owns this quarantine release or handoff.',
+          remediation: 'Provide provider.mailchimp.audienceId before accepting the quarantine action.'
+        } : null,
+        mailchimpContract.restrictedMergeFields?.length ? {
+          code: 'mailchimp-restricted-merge-fields',
+          field: 'provider.mailchimp.mergeFields',
+          message: 'Restricted Mailchimp merge fields cannot be included in quarantine handoff metadata.',
+          remediation: 'Remove restricted merge fields before accepting the quarantine action.'
+        } : null,
+        mailchimpContract.declaredAudienceSync === false ? {
+          code: 'mailchimp-audience-sync-capability-missing',
+          field: 'provider.capabilities',
+          message: 'The Mailchimp provider must advertise audience metadata sync before this action can be accepted.',
+          remediation: 'Negotiate mailchimp.audience.metadata.sync with the provider contract.'
+        } : null,
+        mailchimpContract.declaredCampaignExport === false ? {
+          code: 'mailchimp-campaign-export-capability-missing',
+          field: 'provider.capabilities',
+          message: 'The Mailchimp provider must advertise campaign asset export before this action can be accepted.',
+          remediation: 'Negotiate mailchimp.campaign.asset.export with the provider contract.'
+        } : null,
+        mailchimpAcceptanceHandoff?.conflicts?.length ? {
+          code: 'mailchimp-path-policy-acceptance-conflict',
+          field: 'pathPolicy.mailchimpAcceptanceHandoff',
+          message: 'The Mailchimp acceptance payload from path-policy no longer matches this quarantine action.',
+          remediation: 'Refresh the path-policy preview and resubmit the Mailchimp acceptance handoff.'
+        } : null
+      ].filter(Boolean)
+    : [];
   const nextAction = canAccept
     ? lifecycleControl.nextAction.state
     : retryPlan.retryable
@@ -3277,7 +4553,32 @@ function buildPreviewAcceptanceContract({ scope, actorId, allowed, reasons, evid
         : primaryError?.message || 'The quarantine request is blocked by validation, permission, provider, or dependency state.',
       reasonChips: reasons,
       evidenceCount: evidence.length,
-      blockingCodes: deniedReasons
+      blockingCodes: deniedReasons,
+      providerPreview: mailchimpContract?.applicable
+        ? {
+            providerKind: 'mailchimp',
+            state: mailchimpContract.state,
+            audienceId: mailchimpContract.audienceId,
+            campaignId: mailchimpContract.campaignId,
+            storeId: mailchimpContract.storeId,
+            mergeFields: mailchimpContract.mergeFields,
+            restrictedMergeFields: mailchimpContract.restrictedMergeFields,
+            acceptanceLabel: mailchimpContract.preview.acceptanceLabel,
+            safeToRelease: mailchimpContract.preview.safeToRelease,
+            pathPolicyAcceptance: mailchimpAcceptanceHandoff?.applicable
+              ? {
+                  state: mailchimpAcceptanceHandoff.state,
+                  adopted: mailchimpAcceptanceHandoff.adopted,
+                  conflicts: mailchimpAcceptanceHandoff.conflicts,
+                  warnings: mailchimpAcceptanceHandoff.warnings,
+                  route: mailchimpAcceptanceHandoff.route,
+                  command: mailchimpAcceptanceHandoff.command,
+                  acknowledgementCodes: mailchimpAcceptanceHandoff.acknowledgementCodes,
+                  acceptanceToken: mailchimpAcceptanceHandoff.acceptanceToken
+                }
+              : null
+          }
+        : null
     },
     acceptance: {
       accepted: canAccept,
@@ -3286,12 +4587,12 @@ function buildPreviewAcceptanceContract({ scope, actorId, allowed, reasons, evid
       disabledReason: canAccept ? null : primaryError?.code || deniedReasons[0] || 'not-ready',
       requiredBeforeAccept: canAccept
         ? []
-        : actionableErrors.map((error) => ({
+        : [...actionableErrors.map((error) => ({
           code: error.code,
           field: error.field,
           message: error.message,
           remediation: error.remediation
-        }))
+        })), ...mailchimpRequirements]
     },
     readiness,
     validationSummary,
@@ -3317,11 +4618,36 @@ function buildPreviewAcceptanceContract({ scope, actorId, allowed, reasons, evid
         providerSyncState: providerSyncState.syncMetadata.state,
         providerSyncCheckpointId: providerSyncState.syncMetadata.checkpointId,
         selectedHandoffEndpointId: providerSyncState.selectedHandoffEndpoint?.id || null,
+        mailchimp: mailchimpContract?.applicable
+          ? {
+              state: mailchimpContract.state,
+              audienceId: mailchimpContract.audienceId,
+              campaignId: mailchimpContract.campaignId,
+              storeId: mailchimpContract.storeId,
+              mergeFields: mailchimpContract.mergeFields,
+              restrictedMergeFields: mailchimpContract.restrictedMergeFields,
+              violations: mailchimpContract.violations,
+              warnings: mailchimpContract.warnings,
+              pathPolicyAcceptance: mailchimpAcceptanceHandoff?.applicable
+                ? {
+                    state: mailchimpAcceptanceHandoff.state,
+                    adopted: mailchimpAcceptanceHandoff.adopted,
+                    conflicts: mailchimpAcceptanceHandoff.conflicts,
+                    warnings: mailchimpAcceptanceHandoff.warnings,
+                    route: mailchimpAcceptanceHandoff.route,
+                    command: mailchimpAcceptanceHandoff.command,
+                    acceptanceToken: mailchimpAcceptanceHandoff.acceptanceToken
+                  }
+                : null
+            }
+          : null,
         artifactTransition: artifactTransitionProof.transition,
         artifactFromState: artifactTransitionProof.fromState,
         artifactToState: artifactTransitionProof.toState,
         persistedReplayStatus: persistedState.replayStatus,
         restartSafe: persistedState.restartSafe,
+        persistedTransitionStatus: persistedState.transition.status,
+        persistedTransitionReplaySafe: persistedState.transition.replaySafe,
         restartRecoveryStatus: persistedState.restartRecovery.status,
         restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
         commandFingerprint: persistedState.restartRecovery.commandFingerprint,
@@ -3439,6 +4765,9 @@ function buildClientRouteCommandContract({ scope, actorId, clientRequestState, p
       lifecycleControlAuditKey: lifecycleControl.controlPlane.auditKey,
       lifecycleControlChangeTicket: lifecycleControl.controlPlane.changeTicket,
       persistedReplayStatus: persistedState.replayStatus,
+      persistedTransitionStatus: persistedState.transition.status,
+      persistedTransitionReplaySafe: persistedState.transition.replaySafe,
+      persistedStoredTransition: persistedState.transition.storedTransition,
       restartRecoveryStatus: persistedState.restartRecovery.status,
       restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
       commandFingerprint: persistedState.restartRecovery.commandFingerprint,
@@ -3465,6 +4794,8 @@ function buildClientRouteCommandContract({ scope, actorId, clientRequestState, p
       persistedRecordId: persistedState.record.recordId,
       persistedRecordDigest: persistedState.record.digest,
       restartSafe: persistedState.restartSafe,
+      persistedTransitionStatus: persistedState.transition.status,
+      persistedTransitionReplaySafe: persistedState.transition.replaySafe,
       restartRecoveryStatus: persistedState.restartRecovery.status,
       restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
       commandFingerprint: persistedState.restartRecovery.commandFingerprint
@@ -3621,6 +4952,8 @@ function buildWorkflowHandoffContract({ scope, actorId, clientRequestState, prev
       artifactToState: artifactTransitionProof.toState,
       persistedReplayStatus: persistedState.replayStatus,
       restartSafe: persistedState.restartSafe,
+      persistedTransitionStatus: persistedState.transition.status,
+      persistedTransitionReplaySafe: persistedState.transition.replaySafe,
       restartRecoveryStatus: persistedState.restartRecovery.status,
       restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
       commandFingerprint: persistedState.restartRecovery.commandFingerprint,
@@ -3718,6 +5051,11 @@ function buildAuditHandoff({ scope, actorId, allowed, deniedReasons, reasons, ev
         state: persistedState.state,
         replayStatus: persistedState.replayStatus,
         restartSafe: persistedState.restartSafe,
+        transitionStatus: persistedState.transition.status,
+        transitionReplaySafe: persistedState.transition.replaySafe,
+        requestedTransition: persistedState.transition.requestedTransition,
+        storedTransition: persistedState.transition.storedTransition,
+        transitionConflictFields: persistedState.transition.conflictFields,
         restartRecoveryStatus: persistedState.restartRecovery.status,
         restartRecoveryStep: persistedState.restartRecovery.resumeFromStep,
         commandFingerprint: persistedState.restartRecovery.commandFingerprint,
@@ -3753,6 +5091,7 @@ export function describeQuarantineRecordSurface(input = {}) {
   const actorBoundary = normalizeActorBoundary(actor, input, scope);
   const reasons = classifyReasons(input);
   const evidence = normalizeEvidence(input.evidence);
+  const evidenceQuality = buildEvidenceQualityContract(evidence, scope.action, now);
   const health = normalizeDependencyHealth(input, scope.action, now);
   const lifecycle = normalizeLifecycleSettings(input, now);
   const lifecycleErrors = validateLifecycleSettings(lifecycle, now, scope.action, scope);
@@ -3778,6 +5117,7 @@ export function describeQuarantineRecordSurface(input = {}) {
   const custodyErrors = validateCustodyBoundary(custodyBoundary);
   const validationErrors = [
     ...validateRequest({ scope, actorId, action: scope.action, evidence }),
+    ...validateEvidenceQualityContract(evidenceQuality),
     ...lifecycleErrors,
     ...providerErrors,
     ...clientErrors,
@@ -3848,6 +5188,7 @@ export function describeQuarantineRecordSurface(input = {}) {
     allowed,
     artifactState,
     evidence,
+    evidenceQuality,
     providerSyncState,
     clientRequestState,
     persistedState,
@@ -3883,6 +5224,7 @@ export function describeQuarantineRecordSurface(input = {}) {
     action: scope.action,
     reasons,
     evidence,
+    evidenceQuality,
     health,
     deniedReasons: uniqueDeniedReasons,
     validationErrors,
@@ -3931,6 +5273,7 @@ export function describeQuarantineRecordSurface(input = {}) {
   const validationSummary = buildValidationSummary({
     scope,
     evidence,
+    evidenceQuality,
     validationErrors,
     deniedReasons: uniqueDeniedReasons,
     requiredPermission,
@@ -3959,6 +5302,7 @@ export function describeQuarantineRecordSurface(input = {}) {
     allowed,
     reasons,
     evidence,
+    evidenceQuality,
     deniedReasons: uniqueDeniedReasons,
     retryPlan,
     lifecycleControl,
@@ -4000,6 +5344,18 @@ export function describeQuarantineRecordSurface(input = {}) {
     clientRouteCommand,
     now
   });
+  const mailchimpAdoptionExport = buildMailchimpAdoptionExportPackage({
+    scope,
+    actorId,
+    providerSyncState,
+    clientRequestState,
+    custodyBoundary,
+    artifactTransitionProof,
+    persistedState,
+    previewAcceptance,
+    workflowHandoff,
+    now
+  });
   const analyticsExportManifest = buildAnalyticsExportManifest({
     now,
     scope,
@@ -4007,6 +5363,7 @@ export function describeQuarantineRecordSurface(input = {}) {
     allowed,
     reasons,
     evidence,
+    evidenceQuality,
     deniedReasons: uniqueDeniedReasons,
     timeline,
     historySnapshots,
@@ -4024,6 +5381,7 @@ export function describeQuarantineRecordSurface(input = {}) {
     allowed,
     reasons,
     evidence,
+    evidenceQuality,
     health,
     deniedReasons: uniqueDeniedReasons,
     retryPlan,
@@ -4048,6 +5406,7 @@ export function describeQuarantineRecordSurface(input = {}) {
     allowed,
     reasons,
     evidence,
+    evidenceQuality,
     health,
     deniedReasons: uniqueDeniedReasons,
     analyticsCounters,
@@ -4112,6 +5471,7 @@ export function describeQuarantineRecordSurface(input = {}) {
       status: quarantineStatus,
       reasons,
       evidence,
+      evidenceQuality,
       history: historySnapshots,
       lifecycle: lifecycleControl,
       persistedState
@@ -4130,6 +5490,7 @@ export function describeQuarantineRecordSurface(input = {}) {
       artifactTransitionProof,
       custodyBoundary,
       operationalIncident,
+      mailchimpAdoptionExport,
       readiness,
       validationSummary,
       errors: actionableErrors
@@ -4148,6 +5509,7 @@ export function describeQuarantineRecordSurface(input = {}) {
       analyticsCounters,
       reportingState,
       exportSummary,
+      mailchimpAdoptionExport,
       timeline,
       lifecycleProof,
       persistedState,

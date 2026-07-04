@@ -151,6 +151,122 @@ function lowerToken(value) {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : "";
 }
 
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(asObject(object), key);
+}
+
+function requestFieldSupplied(object, key) {
+  return hasOwn(object, key) && object[key] !== null && object[key] !== undefined && object[key] !== "";
+}
+
+function suppliedFieldValue(object, key) {
+  const value = asObject(object)[key];
+  return typeof value === "string" ? value.trim() : value;
+}
+
+function buildRequestNormalizationReport(input, request, normalizedRequest) {
+  const issues = [];
+  const rawCommand = suppliedFieldValue(request, "command");
+  const rawReason = suppliedFieldValue(request, "reason");
+  const rawProofMode = suppliedFieldValue(request, "proofMode");
+  const rawScheduleAt = suppliedFieldValue(request, "scheduleAt");
+  const rawTenantId = suppliedFieldValue(request, "tenantId");
+  const rawWorkspaceId = suppliedFieldValue(request, "workspaceId");
+  const rootTenantId = suppliedFieldValue(input, "tenantId");
+  const rootWorkspaceId = suppliedFieldValue(input, "workspaceId");
+
+  if (requestFieldSupplied(request, "command") && !lifecycleCommands.has(rawCommand)) {
+    issues.push({
+      severity: "error",
+      code: "unsupported_revocation_command",
+      field: "request.command",
+      suppliedValue: rawCommand,
+      normalizedValue: normalizedRequest.command,
+      message: `Unsupported revocation command '${rawCommand}' was normalized to inspect for preview only`
+    });
+  }
+  if (!requestFieldSupplied(request, "command")) {
+    issues.push({
+      severity: "info",
+      code: "defaulted_revocation_command",
+      field: "request.command",
+      suppliedValue: null,
+      normalizedValue: normalizedRequest.command,
+      message: "No command was supplied; inspect is used as the read-only default"
+    });
+  }
+  if (requestFieldSupplied(request, "reason") && !revocationReasons.has(rawReason)) {
+    issues.push({
+      severity: "error",
+      code: "unsupported_revocation_reason",
+      field: "request.reason",
+      suppliedValue: rawReason,
+      normalizedValue: normalizedRequest.reason,
+      message: `Unsupported revocation reason '${rawReason}' was not accepted`
+    });
+  }
+  if (requestFieldSupplied(request, "proofMode") && !providerProofModes.has(rawProofMode)) {
+    issues.push({
+      severity: "warning",
+      code: "unsupported_provider_proof_mode",
+      field: "request.proofMode",
+      suppliedValue: rawProofMode,
+      normalizedValue: normalizedRequest.proofMode,
+      message: `Unsupported proof mode '${rawProofMode}' was normalized from proof presence`
+    });
+  }
+  if (requestFieldSupplied(request, "scheduleAt") && !normalizedRequest.scheduleAt) {
+    issues.push({
+      severity: normalizedRequest.command === "schedule" ? "error" : "warning",
+      code: "invalid_schedule_timestamp",
+      field: "request.scheduleAt",
+      suppliedValue: rawScheduleAt,
+      normalizedValue: normalizedRequest.scheduleAt,
+      message: "scheduleAt must be a parseable timestamp before it can drive revocation scheduling"
+    });
+  }
+  if (!rawTenantId && rootTenantId) {
+    issues.push({
+      severity: "info",
+      code: "inherited_tenant_boundary",
+      field: "request.tenantId",
+      suppliedValue: null,
+      normalizedValue: normalizedRequest.tenantId,
+      message: "tenantId was inherited from the root request boundary"
+    });
+  }
+  if (!rawWorkspaceId && rootWorkspaceId) {
+    issues.push({
+      severity: "info",
+      code: "inherited_workspace_boundary",
+      field: "request.workspaceId",
+      suppliedValue: null,
+      normalizedValue: normalizedRequest.workspaceId,
+      message: "workspaceId was inherited from the root request boundary"
+    });
+  }
+
+  return {
+    contractVersion: "revocation-request-normalization-v1",
+    acceptedCommands: [...lifecycleCommands],
+    acceptedReasons: [...revocationReasons],
+    acceptedProofModes: [...providerProofModes],
+    issueCount: issues.length,
+    errorCount: issues.filter((issue) => issue.severity === "error").length,
+    warningCount: issues.filter((issue) => issue.severity === "warning").length,
+    defaultedCommand: !requestFieldSupplied(request, "command"),
+    commandWasCoerced: requestFieldSupplied(request, "command") && rawCommand !== normalizedRequest.command,
+    reasonWasRejected: requestFieldSupplied(request, "reason") && rawReason !== normalizedRequest.reason,
+    proofModeWasCoerced: requestFieldSupplied(request, "proofMode") && rawProofMode !== normalizedRequest.proofMode,
+    scheduleAtWasRejected: requestFieldSupplied(request, "scheduleAt") && !normalizedRequest.scheduleAt,
+    boundaryInheritedFromRoot: {
+      tenantId: !rawTenantId && Boolean(rootTenantId),
+      workspaceId: !rawWorkspaceId && Boolean(rootWorkspaceId)
+    },
+    issues
+  };
+}
+
 function normalizeWorkspacePermissionGrants(value, actorRoles, fallbackWorkspaceIds) {
   const objectGrants = asObject(value);
   const source = Array.isArray(value)
@@ -783,8 +899,7 @@ function normalizeRequest(input, now) {
     ? request.capabilityId.trim()
     : null;
   const scheduleAt = asIso(request.scheduleAt, null);
-
-  return {
+  const normalizedRequest = {
     command,
     capabilityId,
     tenantId: typeof request.tenantId === "string" && request.tenantId.trim()
@@ -812,6 +927,11 @@ function normalizeRequest(input, now) {
     externalCorrelationId: typeof request.externalCorrelationId === "string" && request.externalCorrelationId.trim()
       ? request.externalCorrelationId.trim()
       : `${surfaceId}:${command}:${capabilityId || "global"}:${asIso(request.requestedAt, now)}`
+  };
+
+  return {
+    ...normalizedRequest,
+    normalization: buildRequestNormalizationReport(input, request, normalizedRequest)
   };
 }
 
@@ -1178,6 +1298,13 @@ function validateLifecycle({ request, settings, now }) {
   const scheduledMs = request.scheduleAt ? Date.parse(request.scheduleAt) : null;
   const nowMs = Date.parse(now);
 
+  for (const issue of request.normalization?.issues || []) {
+    if (issue.severity === "error") {
+      errors.push(issue.message);
+    } else if (issue.severity === "warning") {
+      warnings.push(issue.message);
+    }
+  }
   if (["schedule", "revoke", "restore"].includes(request.command) && !request.capabilityId) {
     errors.push("capabilityId is required for lifecycle mutation commands");
   }
@@ -2044,6 +2171,18 @@ function buildValidationSummary({ request, validation, providerIntegration, cont
     canPreview: true,
     canAccept: validation.ok,
     providerReady,
+    requestNormalization: {
+      contractVersion: request.normalization?.contractVersion || "revocation-request-normalization-v1",
+      status: request.normalization?.errorCount ? "invalid" : request.normalization?.warningCount ? "normalized-with-warnings" : "accepted",
+      issueCount: request.normalization?.issueCount || 0,
+      errorCount: request.normalization?.errorCount || 0,
+      warningCount: request.normalization?.warningCount || 0,
+      commandWasCoerced: request.normalization?.commandWasCoerced === true,
+      reasonWasRejected: request.normalization?.reasonWasRejected === true,
+      proofModeWasCoerced: request.normalization?.proofModeWasCoerced === true,
+      scheduleAtWasRejected: request.normalization?.scheduleAtWasRejected === true,
+      issues: request.normalization?.issues || []
+    },
     requiredScopes: request.requiredScopes,
     proofMode: request.proofMode,
     missingProviderScopes: [...new Set(scopeGaps)],
@@ -2060,6 +2199,14 @@ function buildValidationSummary({ request, validation, providerIntegration, cont
         status: validation.errors.some((message) => message.includes("capabilityId") || message.includes("scheduleAt"))
           ? "fail"
           : "pass"
+      },
+      {
+        check: "request_normalization",
+        status: request.normalization?.errorCount
+          ? "fail"
+          : request.normalization?.warningCount
+            ? "needs_review"
+            : "pass"
       },
       {
         check: "policy_controls",
@@ -2243,7 +2390,7 @@ function buildPreviewAcceptance({ request, settings, validation, validationSumma
       previewFields: ["title", "impactRows", "reviewChecklist", "route"],
       acceptanceFields: ["state", "acceptanceToken", "gates", "formContract"],
       readinessFields: ["lifecycleReady", "externalHandoffReady", "localCommitReady", "nextAction"],
-      validationSummaryFields: ["status", "blockerCount", "advisoryCount", "checks"]
+      validationSummaryFields: ["status", "requestNormalization", "blockerCount", "advisoryCount", "checks"]
     },
     preview: {
       title: request.command === "inspect"
@@ -2314,6 +2461,7 @@ function buildPreviewAcceptance({ request, settings, validation, validationSumma
       },
       validationSummary: {
         status: validationSummary.status,
+        requestNormalization: validationSummary.requestNormalization,
         blockerCount: validationSummary.blockerCount,
         advisoryCount: validationSummary.advisoryCount,
         checks: validationSummary.checks
@@ -2745,6 +2893,7 @@ function buildNextStepContracts({ request, validation, validationSummary, state,
         validationSummary: {
           status: validationSummary.status,
           providerReady: validationSummary.providerReady,
+          requestNormalization: validationSummary.requestNormalization,
           blockerCount: validationSummary.blockerCount,
           advisoryCount: validationSummary.advisoryCount,
           checks: validationSummary.checks
@@ -3323,6 +3472,151 @@ function snapshotCounterDelta(currentSnapshot, previousSnapshot) {
   ]));
 }
 
+function buildRevocationExportReadiness({
+  exportRequest,
+  exportRows,
+  exportedHistorySnapshots,
+  timeline,
+  retainedSnapshots,
+  validation,
+  providerIntegration,
+  operationalHealth,
+  state,
+  clientRuntime,
+  now
+}) {
+  const requestedWindow = exportRequest.window || {};
+  const requestedFromMs = requestedWindow.from ? Date.parse(requestedWindow.from) : null;
+  const requestedToMs = requestedWindow.to ? Date.parse(requestedWindow.to) : null;
+  const invalidWindow = Boolean(
+    (requestedWindow.from && !Number.isFinite(requestedFromMs)) ||
+    (requestedWindow.to && !Number.isFinite(requestedToMs)) ||
+    (Number.isFinite(requestedFromMs) && Number.isFinite(requestedToMs) && requestedFromMs > requestedToMs)
+  );
+  const missingRequestedColumns = exportRequest.columns.filter((column) => !analyticsExportColumns.has(column));
+  const selectedProviderId = providerIntegration.negotiation.selectedProviderId || providerIntegration.handoff.providerId || "local";
+  const handoffBlocked = providerIntegration.handoff.required && providerIntegration.handoff.state === "blocked";
+  const healthBlocksExport = operationalHealth.status === "unhealthy" && operationalHealth.degradedMode.active !== true;
+  const containsCurrentRequest = timeline.some((entry) => entry.type === "current_request");
+  const redactionReady = exportRequest.redactionMode === "operator"
+    || exportRequest.redactionMode === "summary"
+    || exportRequest.redactionMode === "none";
+  const emptyExport = exportRequest.includeTimelineRows && exportRows.length === 0;
+  const boundedByMaxRows = exportRows.length === exportRequest.maxRows && timeline.length > exportRows.length;
+  const blockers = [
+    ...(!validation.ok ? [{
+      code: "validation_not_accepted",
+      message: "Revocation analytics export is blocked until request validation passes.",
+      action: "repair_revocation_request",
+      route: "/capability-security/revocation/validate"
+    }] : []),
+    ...(invalidWindow ? [{
+      code: "invalid_export_window",
+      message: "Analytics export window must use parseable timestamps and from must not be after to.",
+      action: "repair_export_window",
+      route: exportRequest.destination.route
+    }] : []),
+    ...(missingRequestedColumns.length ? [{
+      code: "unsupported_export_columns",
+      message: `Unsupported analytics export columns requested: ${missingRequestedColumns.join(", ")}.`,
+      action: "select_supported_export_columns",
+      route: exportRequest.destination.route
+    }] : []),
+    ...(handoffBlocked ? [{
+      code: "provider_handoff_blocked",
+      message: `Provider ${selectedProviderId} handoff is blocked; export would not include a durable external state.`,
+      action: providerIntegration.handoff.healthGate?.operatorAction || "repair_provider_handoff",
+      route: providerIntegration.handoff.healthGate?.operatorRoute || "/capability-security/revocation/providers"
+    }] : []),
+    ...(healthBlocksExport ? [{
+      code: "operational_health_unhealthy",
+      message: "Operational health is unhealthy and no degraded checkpoint export is active.",
+      action: operationalHealth.selectedFailure.operatorAction,
+      route: operationalHealth.selectedFailure.route
+    }] : [])
+  ];
+  const warnings = [
+    ...(emptyExport ? [{
+      code: "empty_timeline_export",
+      message: "Export window produced no timeline rows.",
+      action: "widen_export_window"
+    }] : []),
+    ...(boundedByMaxRows ? [{
+      code: "export_rows_truncated",
+      message: `Export rows were bounded by maxRows=${exportRequest.maxRows}.`,
+      action: "increase_max_rows_or_page_export"
+    }] : []),
+    ...(!containsCurrentRequest ? [{
+      code: "current_request_not_in_timeline",
+      message: "Current request is outside the export window.",
+      action: "include_current_request_window"
+    }] : []),
+    ...(operationalHealth.degradedMode.active ? [{
+      code: "degraded_checkpoint_export",
+      message: "Export is generated from a local degraded checkpoint while provider recovery is pending.",
+      action: "reconcile_provider_after_recovery"
+    }] : []),
+    ...(!redactionReady ? [{
+      code: "unknown_redaction_mode",
+      message: `Redaction mode ${exportRequest.redactionMode} is not recognized by this surface.`,
+      action: "use_operator_or_summary_redaction"
+    }] : [])
+  ];
+  const requiredActions = [
+    ...blockers.map((blocker, index) => ({
+      id: `revocation-export-blocker-${index + 1}`,
+      severity: "blocker",
+      code: blocker.code,
+      action: blocker.action,
+      route: blocker.route || exportRequest.destination.route
+    })),
+    ...warnings.slice(0, 3).map((warning, index) => ({
+      id: `revocation-export-warning-${index + 1}`,
+      severity: "warning",
+      code: warning.code,
+      action: warning.action,
+      route: exportRequest.destination.route
+    }))
+  ];
+  const readinessStatus = blockers.length
+    ? "blocked"
+    : warnings.length
+      ? "ready-with-warnings"
+      : "ready";
+
+  return {
+    contractVersion: "revocation-analytics-export-readiness-v1",
+    generatedAt: now,
+    status: readinessStatus,
+    ready: blockers.length === 0,
+    exportable: blockers.length === 0 && (exportRows.length > 0 || exportedHistorySnapshots.length > 0),
+    clientRequestId: clientRuntime.requestId,
+    workflowId: clientRuntime.workflowId,
+    selectedProviderId,
+    lifecycleNextAction: state.nextAction,
+    format: exportRequest.format,
+    redactionMode: exportRequest.redactionMode,
+    requestedWindow,
+    rowCount: exportRows.length,
+    historySnapshotCount: exportedHistorySnapshots.length,
+    retainedSnapshotCount: retainedSnapshots.length,
+    timelineEntryCount: timeline.length,
+    boundedByMaxRows,
+    blockers,
+    warnings,
+    requiredActions,
+    nextAction: requiredActions[0]?.action || (readinessStatus === "ready" ? "download_export" : "review_export_warnings"),
+    manifestPatch: {
+      exportReady: blockers.length === 0,
+      readinessStatus,
+      generatedAt: now,
+      validationOk: validation.ok,
+      operationalHealthStatus: operationalHealth.status,
+      providerHandoffState: providerIntegration.handoff.state
+    }
+  };
+}
+
 function buildRevocationAnalyticsReporting({
   input,
   request,
@@ -3479,6 +3773,19 @@ function buildRevocationAnalyticsReporting({
     externalHandoffs: 0,
     degradedCheckpoints: 0
   });
+  const exportReadiness = buildRevocationExportReadiness({
+    exportRequest,
+    exportRows,
+    exportedHistorySnapshots,
+    timeline,
+    retainedSnapshots,
+    validation,
+    providerIntegration,
+    operationalHealth,
+    state,
+    clientRuntime,
+    now
+  });
 
   return {
     contract: {
@@ -3520,7 +3827,8 @@ function buildRevocationAnalyticsReporting({
     exportSummary: {
       generatedAt: now,
       exportId: `${surfaceId}:${clientRuntime.requestId}:export`,
-      formatReady: true,
+      formatReady: exportReadiness.ready,
+      readiness: exportReadiness,
       request: exportRequest,
       rowCount: exportRows.length,
       historySnapshotCount: exportedHistorySnapshots.length,
@@ -3535,17 +3843,27 @@ function buildRevocationAnalyticsReporting({
         redactionMode: exportRequest.redactionMode,
         maxRows: exportRequest.maxRows,
         boundedByMaxRows: exportTimeline.length === exportRequest.maxRows && timeline.length > exportTimeline.length,
-        generatedForRequestId: clientRuntime.requestId
+        generatedForRequestId: clientRuntime.requestId,
+        readinessStatus: exportReadiness.status,
+        exportReady: exportReadiness.ready,
+        requiredActions: exportReadiness.requiredActions,
+        readinessPatch: exportReadiness.manifestPatch
       }
     },
     reportingState: {
-      status: operationalHealth.status === "unhealthy" || !validation.ok ? "attention-required" : "ready",
+      status: exportReadiness.ready
+        ? operationalHealth.status === "unhealthy" ? "attention-required" : "ready"
+        : exportReadiness.status,
       route: "/capability-security/revocation/analytics",
       exportRoute: exportRequest.destination.route,
       refreshAfterSeconds: state.mutationCommand ? 30 : 300,
       staleAfter: new Date(Date.parse(now) + (state.mutationCommand ? 30 : 300) * 1000).toISOString(),
       clientRequestId: clientRuntime.requestId,
-      workflowId: clientRuntime.workflowId
+      workflowId: clientRuntime.workflowId,
+      nextAction: exportReadiness.nextAction,
+      exportReady: exportReadiness.ready,
+      blockerCount: exportReadiness.blockers.length,
+      warningCount: exportReadiness.warnings.length
     }
   };
 }
@@ -3597,6 +3915,20 @@ function buildAudit({ request, settings, validation, state, now, evidence, provi
     },
     proofMode: request.proofMode,
     externalCorrelationId: request.externalCorrelationId,
+    requestNormalization: {
+      status: request.normalization?.errorCount
+        ? "invalid"
+        : request.normalization?.warningCount
+          ? "normalized-with-warnings"
+          : "accepted",
+      issueCount: request.normalization?.issueCount || 0,
+      errorCount: request.normalization?.errorCount || 0,
+      warningCount: request.normalization?.warningCount || 0,
+      commandWasCoerced: request.normalization?.commandWasCoerced === true,
+      reasonWasRejected: request.normalization?.reasonWasRejected === true,
+      proofModeWasCoerced: request.normalization?.proofModeWasCoerced === true,
+      scheduleAtWasRejected: request.normalization?.scheduleAtWasRejected === true
+    },
     handoffRequired: providerIntegration.handoff.required,
     handoffIdempotencyKey: providerIntegration.handoff.idempotencyKey,
     handoffLeaseExpiresAt: providerIntegration.handoff.externalState?.leaseExpiresAt || null,

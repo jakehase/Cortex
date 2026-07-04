@@ -186,6 +186,8 @@ const PRINCIPAL_ROLE_PERMISSIONS = Object.freeze({
   service: ['projectMemory.read']
 });
 
+const WRITE_LIKE_MEMORY_OPERATIONS = Object.freeze(['write', 'flush', 'sync']);
+
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -633,6 +635,140 @@ function normalizeEntryValue(entry) {
   return null;
 }
 
+function selectRequestSource(input = {}) {
+  return isObject(input.request)
+    ? input.request
+    : isObject(input.memoryRequest)
+      ? input.memoryRequest
+      : {};
+}
+
+function deriveMemoryEntryRequestShape(input = {}, { lifecycleCommand } = {}) {
+  const requestSource = selectRequestSource(input);
+  const clientSource = isObject(input.clientState)
+    ? input.clientState
+    : isObject(input.client)
+      ? input.client
+      : {};
+  const requestedOperation = firstString(
+    requestSource.operation,
+    input.operation,
+    lifecycleCommand === 'snapshot' || lifecycleCommand === 'flush' ? lifecycleCommand : null
+  ) || 'inspect';
+  const pendingMutations = Array.isArray(clientSource.pendingMutations)
+    ? clientSource.pendingMutations.length
+    : Number.isInteger(clientSource.pendingMutationCount) && clientSource.pendingMutationCount > 0
+      ? clientSource.pendingMutationCount
+      : 0;
+  const hasMutationEnvelope = isObject(requestSource.mutation)
+    || isObject(requestSource.patch)
+    || Array.isArray(requestSource.mutations)
+    || Array.isArray(requestSource.patches)
+    || Array.isArray(input.mutations)
+    || Array.isArray(input.patches);
+  const expectsWriteAck = clientSource.expectsWriteAck === true
+    || clientSource.expectWriteAck === true
+    || requestSource.expectsWriteAck === true;
+  const writeLikeOperation = WRITE_LIKE_MEMORY_OPERATIONS.includes(requestedOperation)
+    || pendingMutations > 0
+    || hasMutationEnvelope
+    || expectsWriteAck;
+
+  return {
+    contract: 'aios.projectMemoryAdapter.memoryEntryRequestShape.v1',
+    operation: WRITE_LIKE_MEMORY_OPERATIONS.includes(requestedOperation) || ['read', 'snapshot', 'inspect'].includes(requestedOperation)
+      ? requestedOperation
+      : 'inspect',
+    rawOperation: requestedOperation,
+    writeLikeOperation,
+    pendingMutationCount: pendingMutations,
+    hasMutationEnvelope,
+    expectsWriteAck,
+    lifecycleCommand: lifecycleCommand || null
+  };
+}
+
+function deriveProjectMemoryWriteIntent({ operation, pendingMutationCount = 0, requestShape = null, requestSource = {}, clientSource = {} }) {
+  const writeOperationRequested = WRITE_LIKE_MEMORY_OPERATIONS.includes(operation);
+  const mutationEnvelopePresent = requestShape?.hasMutationEnvelope === true;
+  const writeAckRequested = requestShape?.expectsWriteAck === true
+    || clientSource.expectsWriteAck === true
+    || clientSource.expectWriteAck === true
+    || requestSource.expectsWriteAck === true
+    || requestSource.expectWriteAck === true;
+  const requestShapeWriteLike = requestShape?.writeLikeOperation === true;
+  const reasons = [
+    writeOperationRequested ? `operation:${operation}` : null,
+    pendingMutationCount > 0 ? 'pending-mutations' : null,
+    mutationEnvelopePresent ? 'mutation-envelope' : null,
+    writeAckRequested ? 'write-ack-requested' : null,
+    requestShapeWriteLike && !writeOperationRequested && pendingMutationCount === 0 && !mutationEnvelopePresent && !writeAckRequested
+      ? 'entry-request-shape'
+      : null
+  ].filter(Boolean);
+  const writeLike = reasons.length > 0;
+
+  return {
+    contract: 'aios.projectMemoryAdapter.writeIntent.v1',
+    state: writeLike ? 'write-intent' : 'read-intent',
+    writeLike,
+    operation,
+    routePreference: writeLike ? 'write' : 'read',
+    writeOperationRequested,
+    pendingMutationCount,
+    mutationEnvelopePresent,
+    writeAckRequested,
+    requestShapeWriteLike,
+    requiresMemoryEntries: requestShapeWriteLike || mutationEnvelopePresent || writeOperationRequested,
+    reasons
+  };
+}
+
+function buildMemoryEntryWriteRequirement({ requestShape, requestedEntryCount, validEntryCount, acceptedEntryCount, duplicateReport }) {
+  const writeLike = requestShape.writeLikeOperation;
+  const conflictCount = duplicateReport.conflictKeyCount;
+  const noEntriesSubmitted = requestedEntryCount === 0;
+  const noAcceptedEntries = acceptedEntryCount === 0;
+  const blockedReasons = [
+    writeLike && noEntriesSubmitted ? 'no-memory-entries' : null,
+    writeLike && requestedEntryCount > 0 && validEntryCount === 0 ? 'no-valid-memory-entries' : null,
+    writeLike && conflictCount > 0 ? 'memory-entry-key-conflict' : null,
+    writeLike && requestedEntryCount > 0 && validEntryCount > 0 && noAcceptedEntries && conflictCount === 0
+      ? 'no-accepted-memory-entries'
+      : null
+  ].filter(Boolean);
+
+  return {
+    contract: 'aios.projectMemoryAdapter.memoryEntryWriteRequirement.v1',
+    state: !writeLike
+      ? 'not-required'
+      : blockedReasons.length === 0
+        ? 'satisfied'
+        : 'blocked',
+    required: writeLike,
+    operation: requestShape.operation,
+    rawOperation: requestShape.rawOperation,
+    requestedEntryCount,
+    validEntryCount,
+    acceptedEntryCount,
+    pendingMutationCount: requestShape.pendingMutationCount,
+    hasMutationEnvelope: requestShape.hasMutationEnvelope,
+    expectsWriteAck: requestShape.expectsWriteAck,
+    blockedReasons,
+    findings: blockedReasons.map((reason) => ({
+      code: 'invalid_memory_entry',
+      severity: reason === 'memory-entry-key-conflict' ? 'error' : 'warning',
+      message: reason === 'no-memory-entries'
+        ? 'Write-like project memory requests must include at least one memory entry to apply.'
+        : reason === 'no-valid-memory-entries'
+          ? 'Write-like project memory requests did not include any valid memory entries.'
+          : reason === 'memory-entry-key-conflict'
+            ? 'Write-like project memory requests contain conflicting duplicate memory entry keys.'
+            : 'Write-like project memory requests did not produce any accepted memory entries.'
+    }))
+  };
+}
+
 function normalizeMemoryEntry(entry, index, { now, projectRef }) {
   if (!isObject(entry)) {
     return {
@@ -783,12 +919,8 @@ function coalesceIdempotentMemoryEntries(entries, duplicateReport) {
   });
 }
 
-function normalizeMemoryEntries(input = {}, { now, projectRef }) {
-  const requestSource = isObject(input.request)
-    ? input.request
-    : isObject(input.memoryRequest)
-      ? input.memoryRequest
-      : {};
+function normalizeMemoryEntries(input = {}, { now, projectRef, requestShape = null }) {
+  const requestSource = selectRequestSource(input);
   const rawEntries = Array.isArray(input.entries)
     ? input.entries
     : Array.isArray(input.memoryEntries)
@@ -800,9 +932,19 @@ function normalizeMemoryEntries(input = {}, { now, projectRef }) {
   const validEntries = normalized.map((result) => result.entry).filter(Boolean);
   const duplicateReport = buildMemoryEntryDuplicateReport(validEntries);
   const entries = coalesceIdempotentMemoryEntries(validEntries, duplicateReport);
+  const effectiveRequestShape = requestShape || deriveMemoryEntryRequestShape(input);
+  const writeRequirement = buildMemoryEntryWriteRequirement({
+    requestShape: effectiveRequestShape,
+    requestedEntryCount: rawEntries.length,
+    validEntryCount: validEntries.length,
+    acceptedEntryCount: entries.length,
+    duplicateReport
+  });
 
   return {
     contract: 'aios.projectMemoryAdapter.memoryEntrySet.v1',
+    requestShape: effectiveRequestShape,
+    writeRequirement,
     requestedEntryCount: rawEntries.length,
     entries,
     rawValidEntryCount: validEntries.length,
@@ -811,6 +953,7 @@ function normalizeMemoryEntries(input = {}, { now, projectRef }) {
     findings: normalized
       .flatMap((result) => result.findings || (result.finding ? [result.finding] : []))
       .concat(duplicateReport.findings)
+      .concat(writeRequirement.findings)
   };
 }
 
@@ -819,6 +962,8 @@ function buildOperationAcceptanceActions(blockedReasons) {
     'invalid-memory-entry': 'Fix invalid memory entries before applying this request.',
     'memory-entry-key-conflict': 'Resolve duplicate project memory keys so each write has one canonical value.',
     'no-memory-entries': 'Add at least one project memory entry or switch the request to inspect mode.',
+    'no-valid-memory-entries': 'Correct the submitted entries so at least one valid project memory entry can be applied.',
+    'no-accepted-memory-entries': 'Review entry validation and duplicate-key handling before applying this write.',
     'write-route-not-available': 'Use read-only preview until a writable hosted-kernel route is available.',
     'tenant-boundary-not-accepted': 'Resolve tenant, workspace, project, and principal scope before applying memory changes.',
     'permission-grant-denied': 'Use a principal or hosted-kernel grant that does not deny this project-memory operation.',
@@ -939,7 +1084,12 @@ function summarizeEntryAcceptance(rows) {
 }
 
 function buildMemoryOperationPlan({ now, clientState, entries, lifecycle, tenantBoundary, providerNegotiation, externalHandoff, failureRecovery }) {
-  const writeLikeOperation = clientState.operation === 'write' || clientState.pendingMutationCount > 0;
+  const writeIntent = deriveProjectMemoryWriteIntent({
+    operation: clientState.operation,
+    pendingMutationCount: clientState.pendingMutationCount,
+    requestShape: entries.requestShape
+  });
+  const writeLikeOperation = writeIntent.writeLike;
   const route = writeLikeOperation ? providerNegotiation.writeRoute : providerNegotiation.readRoute;
   const entryShapeFindings = entries.findings.filter((finding) => finding.code !== 'memory_entry_conflict');
   const conflictFindings = entries.findings.filter((finding) => finding.code === 'memory_entry_conflict');
@@ -947,12 +1097,18 @@ function buildMemoryOperationPlan({ now, clientState, entries, lifecycle, tenant
 
   if (entryShapeFindings.length > 0) blockedReasons.push('invalid-memory-entry');
   if (conflictFindings.length > 0) blockedReasons.push('memory-entry-key-conflict');
-  if (writeLikeOperation && entries.entries.length === 0) blockedReasons.push('no-memory-entries');
+  if (writeLikeOperation && entries.entries.length === 0) {
+    const requirementReasons = entries.writeRequirement?.blockedReasons?.length > 0
+      ? entries.writeRequirement.blockedReasons
+      : ['no-memory-entries'];
+    blockedReasons.push(...requirementReasons);
+  }
   if (writeLikeOperation && !lifecycle.canWrite) blockedReasons.push('write-route-not-available');
   if (!tenantBoundary.allowed) blockedReasons.push('tenant-boundary-not-accepted');
   if (tenantBoundary.deniedPermissions.length > 0) blockedReasons.push('permission-grant-denied');
   if (externalHandoff.blocksWrites && writeLikeOperation) blockedReasons.push('external-handoff-blocks-write');
   if (failureRecovery.writeAdmission !== 'open' && writeLikeOperation) blockedReasons.push('recovery-gate-blocks-write');
+  const uniqueBlockedReasons = [...new Set(blockedReasons)];
 
   const batches = entries.entries.reduce((groups, entry, index) => {
     const batchIndex = Math.floor(index / 50);
@@ -978,7 +1134,7 @@ function buildMemoryOperationPlan({ now, clientState, entries, lifecycle, tenant
     entrySet: entries,
     writeLikeOperation,
     route,
-    blockedReasons,
+    blockedReasons: uniqueBlockedReasons,
     tenantBoundary,
     lifecycle,
     failureRecovery,
@@ -991,25 +1147,20 @@ function buildMemoryOperationPlan({ now, clientState, entries, lifecycle, tenant
     generatedAt: now,
     projectRef: clientState.projectRef,
     operation: clientState.operation,
+    writeIntent,
+    requestShape: entries.requestShape,
+    writeRequirement: entries.writeRequirement,
     requestedEntryCount: entries.requestedEntryCount,
     rawValidEntryCount: entries.rawValidEntryCount,
     coalescedDuplicateEntryCount: entries.coalescedDuplicateEntryCount,
     duplicateReport: entries.duplicateReport,
-    state: blockedReasons.length === 0 ? 'ready' : writeLikeOperation ? 'blocked' : 'inspect-only',
+    state: uniqueBlockedReasons.length === 0 ? 'ready' : writeLikeOperation ? 'blocked' : 'inspect-only',
     route,
     isolationKey: tenantBoundary.isolationKey,
     writeAdmission: failureRecovery.writeAdmission,
-    blockedReasons,
+    blockedReasons: uniqueBlockedReasons,
     entries: entries.entries,
-    findings: entries.findings.concat(
-      writeLikeOperation && entries.requestedEntryCount === 0
-        ? [{
-            code: 'invalid_memory_entry',
-            severity: 'warning',
-            message: 'Write-like project memory request did not include entries to apply.'
-          }]
-        : []
-    ),
+    findings: entries.findings,
     batches,
     entryAcceptance: {
       contract: 'aios.projectMemoryAdapter.entryAcceptance.v1',
@@ -1018,7 +1169,7 @@ function buildMemoryOperationPlan({ now, clientState, entries, lifecycle, tenant
       route,
       summary: entryAcceptanceSummary,
       rows: entryAcceptanceRows,
-      actions: buildOperationAcceptanceActions(blockedReasons)
+      actions: buildOperationAcceptanceActions(uniqueBlockedReasons)
     },
     proofRequirements: [
       'entry-key-validation',
@@ -2888,27 +3039,85 @@ function normalizeAnalyticsExportRequest(input = {}, now) {
   const requestedFormats = normalizeStringList(source.formats || source.format);
   const allowedFormats = new Set(['jsonl', 'summary-json', 'timeline-json', 'audit-manifest-json']);
   const formats = requestedFormats.filter((format) => allowedFormats.has(format));
+  const rejectedFormats = requestedFormats.filter((format) => !allowedFormats.has(format));
   const maxEvents = Number.isInteger(source.maxEvents) && source.maxEvents > 0
     ? Math.min(source.maxEvents, 5_000)
     : 250;
+  const windowFrom = firstString(source.from, source.windowFrom, source.since);
+  const windowTo = firstString(source.to, source.windowTo, source.until);
+  const fromEpoch = toEpochMs(windowFrom);
+  const toEpoch = toEpochMs(windowTo);
+  const invalidWindowFrom = windowFrom && fromEpoch === null;
+  const invalidWindowTo = windowTo && toEpoch === null;
+  const invertedWindow = fromEpoch !== null && toEpoch !== null && fromEpoch > toEpoch;
+  const requested = Object.keys(source).length > 0;
+  const destinationRequired = requested
+    && Boolean(source.requireDestination === true || source.destinationRequired === true);
+  const destinationRef = firstString(source.destinationRef, source.destination, source.bucketRef);
+  const findings = [
+    rejectedFormats.length > 0
+      ? {
+          code: 'unsupported-export-format',
+          severity: 'warning',
+          message: `Unsupported analytics export formats were ignored: ${rejectedFormats.join(', ')}.`,
+          formats: rejectedFormats
+        }
+      : null,
+    invalidWindowFrom
+      ? {
+          code: 'invalid-export-window',
+          severity: 'error',
+          message: 'analyticsExport.from must be an ISO-compatible timestamp when provided.',
+          field: 'from'
+        }
+      : null,
+    invalidWindowTo
+      ? {
+          code: 'invalid-export-window',
+          severity: 'error',
+          message: 'analyticsExport.to must be an ISO-compatible timestamp when provided.',
+          field: 'to'
+        }
+      : null,
+    invertedWindow
+      ? {
+          code: 'invalid-export-window',
+          severity: 'error',
+          message: 'analyticsExport.from must be earlier than or equal to analyticsExport.to.'
+        }
+      : null,
+    destinationRequired && !destinationRef
+      ? {
+          code: 'missing-export-destination',
+          severity: 'error',
+          message: 'analyticsExport.destinationRef is required when destinationRequired is true.'
+        }
+      : null
+  ].filter(Boolean);
 
   return {
     contract: 'aios.projectMemoryAdapter.analyticsExportRequest.v1',
-    requested: Object.keys(source).length > 0,
+    requested,
     requestedAt: firstString(source.requestedAt, input.requestedAt) || now,
     requestedBy: firstString(source.requestedBy, source.actorId, input.principalId),
-    destinationRef: firstString(source.destinationRef, source.destination, source.bucketRef),
+    destinationRef,
     formats: formats.length > 0 ? formats : ['summary-json'],
+    requestedFormats,
+    rejectedFormats,
     window: {
-      from: firstString(source.from, source.windowFrom, source.since),
-      to: firstString(source.to, source.windowTo, source.until)
+      from: windowFrom,
+      to: windowTo,
+      valid: !invalidWindowFrom && !invalidWindowTo && !invertedWindow,
+      inverted: invertedWindow
     },
     includeTimeline: source.includeTimeline !== false,
     includeProofManifest: source.includeProofManifest !== false,
     redactProofIds: source.redactProofIds === true,
     maxEvents,
     statusFilter: normalizeStringList(source.status || source.statuses),
-    operationFilter: normalizeStringList(source.operation || source.operations)
+    operationFilter: normalizeStringList(source.operation || source.operations),
+    destinationRequired,
+    findings
   };
 }
 
@@ -2987,18 +3196,22 @@ function buildAnalyticsReportingState({ now, projectRef, mode, history, evidence
     : [];
   const lastExportableEvent = exportableEvents[exportableEvents.length - 1] || null;
   const blockedReasons = [];
+  const exportRequestErrors = exportRequest.findings.filter((finding) => finding.severity === 'error');
 
   if (mode === 'failed') blockedReasons.push('adapter-validation-failed');
+  if (exportRequestErrors.length > 0) blockedReasons.push(...exportRequestErrors.map((finding) => finding.code));
   if (exportableEvents.length === 0) blockedReasons.push('no-events-in-export-window');
   if (!providerNegotiation.auditRoute) blockedReasons.push('audit-route-unavailable');
+  const uniqueBlockedReasons = [...new Set(blockedReasons)];
 
   return {
     contract: 'aios.projectMemoryAdapter.reportingState.v1',
     generatedAt: now,
     projectRef,
-    state: blockedReasons.length === 0 ? 'export-ready' : exportRequest.requested ? 'blocked' : 'idle',
+    state: uniqueBlockedReasons.length === 0 ? 'export-ready' : exportRequest.requested ? 'blocked' : 'idle',
     request: exportRequest,
-    blockedReasons,
+    blockedReasons: uniqueBlockedReasons,
+    requestFindings: exportRequest.findings,
     watermarks: {
       historyEventCount: history.length,
       exportableEventCount: exportableEvents.length,
@@ -3013,7 +3226,7 @@ function buildAnalyticsReportingState({ now, projectRef, mode, history, evidence
       destinationRef: exportRequest.destinationRef,
       eventCount: format === 'summary-json' ? 1 : exportableEvents.length,
       byteEstimate: exportCounters.exportedBytes,
-      ready: blockedReasons.length === 0,
+      ready: uniqueBlockedReasons.length === 0,
       cursor: lastExportableEvent?.id || null
     })),
     timeline: timelineEvents,
@@ -3026,6 +3239,177 @@ function buildAnalyticsReportingState({ now, projectRef, mode, history, evidence
           tenantBoundary
         })
       : null
+  };
+}
+
+function buildAnalyticsExportManifest({
+  now,
+  projectRef,
+  exportSummary,
+  reportingState,
+  historySnapshots,
+  timeline,
+  analyticsCounters,
+  providerNegotiation,
+  tenantBoundary,
+  clientState,
+  memoryOperationPlan,
+  projectStatus,
+  operationalHealth
+}) {
+  const request = reportingState.request;
+  const reportingReady = reportingState.state === 'export-ready';
+  const latestSnapshot = historySnapshots[historySnapshots.length - 1] || null;
+  const proofManifest = reportingState.proofManifest;
+  const proofEventCount = proofManifest?.proofEventCount || 0;
+  const evidenceCount = proofManifest?.evidenceCount || 0;
+  const timelineWindow = request.includeTimeline ? reportingState.timeline : [];
+  const sourceContracts = [
+    exportSummary.schema,
+    reportingState.contract,
+    proofManifest?.contract,
+    memoryOperationPlan.contract,
+    memoryOperationPlan.entryAcceptance.contract,
+    projectStatus.contract,
+    projectStatus.analytics.contract,
+    operationalHealth.contract
+  ].filter(Boolean);
+  const batchDescriptors = reportingState.batches.map((batch, index) => ({
+    contract: 'aios.projectMemoryAdapter.analyticsExportBatch.v1',
+    batchId: stableProjectMemoryHash({
+      surfaceId,
+      projectRef,
+      requestId: clientState.requestId,
+      format: batch.format,
+      cursor: batch.cursor,
+      index
+    }),
+    order: index + 1,
+    format: batch.format,
+    destinationRef: batch.destinationRef,
+    state: reportingReady && batch.ready ? 'ready' : 'blocked',
+    eventCount: batch.eventCount,
+    byteEstimate: batch.byteEstimate,
+    cursor: batch.cursor,
+    includesTimeline: batch.format === 'timeline-json' || (batch.format === 'summary-json' && request.includeTimeline),
+    includesProofManifest: batch.format === 'audit-manifest-json' || (batch.format === 'summary-json' && request.includeProofManifest),
+    blockedReasons: batch.ready ? [] : reportingState.blockedReasons
+  }));
+  const blockedReasons = [
+    ...reportingState.blockedReasons,
+    memoryOperationPlan.state === 'blocked' ? 'memory-operation-blocked' : null,
+    projectStatus.state === 'write-blocked' || projectStatus.state === 'read-blocked' ? 'project-status-blocked' : null,
+    operationalHealth.state === 'blocked' ? 'operational-health-blocked' : null
+  ].filter(Boolean);
+  const uniqueBlockedReasons = [...new Set(blockedReasons)];
+  const manifestId = stableProjectMemoryHash({
+    surfaceId,
+    projectRef,
+    requestId: clientState.requestId,
+    generatedAt: now,
+    formats: request.formats,
+    window: request.window,
+    watermarks: reportingState.watermarks,
+    blockedReasons: uniqueBlockedReasons
+  });
+  const statusProofIds = projectStatus.analytics.exportSummary.proofIds;
+  const latestProofId = exportSummary.latestProofId || statusProofIds[statusProofIds.length - 1] || null;
+
+  return {
+    contract: 'aios.projectMemoryAdapter.analyticsExportManifest.v1',
+    manifestId,
+    generatedAt: now,
+    projectRef,
+    requestId: clientState.requestId,
+    state: reportingReady && uniqueBlockedReasons.length === 0 ? 'ready' : request.requested ? 'blocked' : 'idle',
+    destinationRef: request.destinationRef,
+    formats: request.formats,
+    redaction: {
+      proofIdsRedacted: request.redactProofIds,
+      auditSubjectIncluded: !request.redactProofIds,
+      evidenceIdsIncluded: request.includeProofManifest
+    },
+    lineage: {
+      surfaceId,
+      isolationKey: tenantBoundary.isolationKey,
+      auditSubject: request.redactProofIds ? null : tenantBoundary.auditSubject,
+      sourceContracts: [...new Set(sourceContracts)].sort(),
+      readRoute: providerNegotiation.readRoute,
+      auditRoute: providerNegotiation.auditRoute,
+      externalSyncProviderId: providerNegotiation.selected.externalSyncProviderId,
+      latestSnapshotId: latestSnapshot?.snapshotId || null,
+      latestProofId
+    },
+    window: {
+      from: request.window.from || reportingState.watermarks.firstExportableAt,
+      to: request.window.to || reportingState.watermarks.lastExportableAt,
+      valid: request.window.valid,
+      eventCount: reportingState.watermarks.exportableEventCount,
+      firstEventAt: reportingState.watermarks.firstExportableAt,
+      lastEventAt: reportingState.watermarks.lastExportableAt,
+      lastEventId: reportingState.watermarks.lastExportableEventId
+    },
+    counters: {
+      events: analyticsCounters.totalEvents,
+      exportableEvents: reportingState.watermarks.exportableEventCount,
+      reads: analyticsCounters.reads,
+      writes: analyticsCounters.writes,
+      snapshots: analyticsCounters.snapshots,
+      failures: analyticsCounters.failures,
+      warnings: analyticsCounters.warnings,
+      evidence: evidenceCount,
+      proofEvents: proofEventCount,
+      statusTimelineEvents: projectStatus.analytics.counters.timelineEventCount,
+      acceptedMemoryEntries: memoryOperationPlan.entryAcceptance.summary.acceptedEntries,
+      blockedMemoryEntries: memoryOperationPlan.entryAcceptance.summary.blockedEntries,
+      rejectedMemoryEntries: memoryOperationPlan.entryAcceptance.summary.rejectedEntries
+    },
+    readiness: {
+      reportingState: reportingState.state,
+      operationalHealth: operationalHealth.state,
+      memoryOperationState: memoryOperationPlan.state,
+      projectStatusState: projectStatus.state,
+      auditRouteReady: Boolean(providerNegotiation.auditRoute),
+      exportRequestValid: request.findings.every((finding) => finding.severity !== 'error'),
+      blockedReasons: uniqueBlockedReasons,
+      requestFindings: request.findings
+    },
+    batches: batchDescriptors,
+    proofManifest: request.includeProofManifest
+      ? {
+          state: proofManifest ? 'included' : 'unavailable',
+          redacted: request.redactProofIds,
+          proofEventCount,
+          evidenceCount,
+          latestSnapshotId: proofManifest?.latestSnapshotId || null
+        }
+      : {
+          state: 'excluded-by-request',
+          redacted: request.redactProofIds,
+          proofEventCount: 0,
+          evidenceCount: 0,
+          latestSnapshotId: null
+        },
+    timeline: {
+      included: request.includeTimeline,
+      eventCount: timelineWindow.length,
+      firstEventAt: timelineWindow[0]?.at || null,
+      lastEventAt: timelineWindow[timelineWindow.length - 1]?.at || null,
+      latestKinds: [...new Set(timeline.slice(-10).map((event) => event.kind))].sort()
+    },
+    integrity: {
+      hash: stableProjectMemoryHash({
+        manifestId,
+        batches: batchDescriptors.map((batch) => `${batch.batchId}:${batch.state}:${batch.cursor}`),
+        proofEventCount,
+        evidenceCount,
+        latestSnapshotId: latestSnapshot?.snapshotId || null,
+        latestProofId
+      }),
+      idempotencyKey: `${surfaceId}:${tenantBoundary.isolationKey || 'unscoped'}:${clientState.requestId}:analytics-export`,
+      checkpointKey: `${surfaceId}:${tenantBoundary.isolationKey || projectRef || 'unscoped'}:analytics-export-manifest`,
+      persistRequired: request.requested && reportingReady && uniqueBlockedReasons.length === 0
+    }
   };
 }
 
@@ -3205,11 +3589,7 @@ function buildProviderFindings(providerNegotiation, externalHandoff) {
 function buildOperationalFindings(input, hostCapabilities, storeHealth, lifecycleSettings, lifecycleCommand, providerNegotiation, externalHandoff, tenantBoundary, failureRecovery, memoryOperationPlan) {
   const findings = [];
   const projectRef = input.projectId || input.projectRoot;
-  const requestSource = isObject(input.request)
-    ? input.request
-    : isObject(input.memoryRequest)
-      ? input.memoryRequest
-      : {};
+  const requestSource = selectRequestSource(input);
   const requestedOperation = firstString(
     requestSource.operation,
     input.operation,
@@ -3271,15 +3651,6 @@ function buildOperationalFindings(input, hostCapabilities, storeHealth, lifecycl
     });
   }
 
-  if ((requestedOperation === 'write' || requestedOperation === 'sync' || requestedOperation === 'flush')
-    && memoryOperationPlan?.requestedEntryCount === 0) {
-    findings.push({
-      code: 'invalid_memory_entry',
-      severity: 'warning',
-      message: 'Project memory write-like requests should include entries or pending mutations to apply.'
-    });
-  }
-
   return findings
     .concat(buildTenantBoundaryFindings(tenantBoundary))
     .concat(buildProviderFindings(providerNegotiation, externalHandoff))
@@ -3313,9 +3684,8 @@ function buildActionableErrors(findings) {
 }
 
 function buildOperationalHealthEnvelope({ now, mode, clientState, lifecycle, providerNegotiation, tenantBoundary, externalHandoff, storeHealth, failureRecovery, memoryOperationPlan, findings, actionableErrors }) {
-  const writeRequested = clientState.operation === 'write'
-    || clientState.operation === 'sync'
-    || clientState.operation === 'flush'
+  const writeRequested = memoryOperationPlan.writeIntent?.writeLike === true
+    || clientState.writeIntent?.writeLike === true
     || clientState.expectsWriteAck;
   const validationFailures = findings
     .filter((finding) => finding.severity === 'error' || finding.severity === 'warning')
@@ -4202,11 +4572,7 @@ function normalizeTenantWorkspaceBoundary({ input, now, projectRef, lifecycleCom
         : isObject(kernelHost.principal)
           ? kernelHost.principal
           : {};
-  const requestSource = isObject(input.request)
-    ? input.request
-    : isObject(input.memoryRequest)
-      ? input.memoryRequest
-      : {};
+  const requestSource = selectRequestSource(input);
   const tenantId = firstString(input.tenantId, tenantSource.id, tenantSource.tenantId, kernelHost.tenantId);
   const workspaceId = firstString(input.workspaceId, workspaceSource.id, workspaceSource.workspaceId, kernelHost.workspaceId);
   const principalId = firstString(principalSource.id, principalSource.principalId, principalSource.userId, clientSource.userId, input.principalId);
@@ -4215,7 +4581,18 @@ function normalizeTenantWorkspaceBoundary({ input, now, projectRef, lifecycleCom
     input.operation,
     lifecycleCommand === 'snapshot' || lifecycleCommand === 'flush' ? lifecycleCommand : null
   ) || 'inspect';
-  const operation = MEMORY_OPERATION_PERMISSIONS[requestedOperation] ? requestedOperation : 'inspect';
+  const normalizedOperation = MEMORY_OPERATION_PERMISSIONS[requestedOperation] ? requestedOperation : 'inspect';
+  const boundaryRequestShape = deriveMemoryEntryRequestShape(input, { lifecycleCommand });
+  const writeIntent = deriveProjectMemoryWriteIntent({
+    operation: normalizedOperation,
+    pendingMutationCount: boundaryRequestShape.pendingMutationCount,
+    requestShape: boundaryRequestShape,
+    requestSource,
+    clientSource
+  });
+  const operation = writeIntent.writeLike && !WRITE_LIKE_MEMORY_OPERATIONS.includes(normalizedOperation)
+    ? 'write'
+    : normalizedOperation;
   const allowedTenants = normalizeStringList(kernelHost.allowedTenants || tenantSource.allowedTenants);
   const allowedWorkspaces = normalizeStringList(kernelHost.allowedWorkspaces || tenantSource.allowedWorkspaces);
   const allowedProjects = normalizeStringList(workspaceSource.projectRefs || workspaceSource.projects || kernelHost.allowedProjects);
@@ -4285,6 +4662,8 @@ function normalizeTenantWorkspaceBoundary({ input, now, projectRef, lifecycleCom
       }
     },
     operation,
+    requestedOperation: normalizedOperation,
+    writeIntent,
     requiredPermissions,
     missingPermissions,
     deniedPermissions: deniedRequiredPermissions,
@@ -4366,17 +4745,13 @@ function buildTenantBoundaryFindings(tenantBoundary) {
   return findings;
 }
 
-function normalizeClientRequestState({ input, now, projectRef, lifecycleCommand }) {
+function normalizeClientRequestState({ input, now, projectRef, lifecycleCommand, requestShape = null }) {
   const clientSource = isObject(input.clientState)
     ? input.clientState
     : isObject(input.client)
       ? input.client
       : {};
-  const requestSource = isObject(input.request)
-    ? input.request
-    : isObject(input.memoryRequest)
-      ? input.memoryRequest
-      : {};
+  const requestSource = selectRequestSource(input);
   const allowedOperations = new Set(['read', 'write', 'snapshot', 'flush', 'sync', 'inspect']);
   const requestedOperation = firstString(
     requestSource.operation,
@@ -4392,6 +4767,14 @@ function normalizeClientRequestState({ input, now, projectRef, lifecycleCommand 
   const requestedHandoff = clientSource.requestExternalHandoff === true
     || requestSource.handoff === 'external'
     || requestSource.target === 'external-sync';
+  const effectiveRequestShape = requestShape || deriveMemoryEntryRequestShape(input, { lifecycleCommand });
+  const writeIntent = deriveProjectMemoryWriteIntent({
+    operation,
+    pendingMutationCount: pendingMutations,
+    requestShape: effectiveRequestShape,
+    requestSource,
+    clientSource
+  });
 
   return {
     contract: 'aios.projectMemoryAdapter.clientRequestState.v1',
@@ -4406,8 +4789,10 @@ function normalizeClientRequestState({ input, now, projectRef, lifecycleCommand 
     lastSeenProofId: firstString(clientSource.lastSeenProofId, requestSource.lastSeenProofId),
     lastAcceptedSnapshotId: firstString(clientSource.lastAcceptedSnapshotId, requestSource.lastAcceptedSnapshotId),
     pendingMutationCount: pendingMutations,
+    hasMutationEnvelope: writeIntent.mutationEnvelopePresent,
+    writeIntent,
     requestedHandoff,
-    expectsWriteAck: operation === 'write' || pendingMutations > 0,
+    expectsWriteAck: writeIntent.writeAckRequested || writeIntent.writeLike,
     wantsFreshSnapshot: operation === 'snapshot' || requestSource.freshSnapshot === true
   };
 }
@@ -4748,7 +5133,7 @@ function buildPersistedStateEnvelope({ now, mode, projectRef, persistedState, re
 function deriveWorkflowHandoff({ now, clientState, lifecycle, readiness, providerNegotiation, externalHandoff, tenantBoundary, syncMetadata, nextAction, actionableErrors }) {
   const firstBlockingError = actionableErrors.find((error) => error.severity === 'error') || null;
   const externalProviderId = externalHandoff.providerId || providerNegotiation.selected.externalSyncProviderId;
-  const writeRequested = clientState.operation === 'write' || clientState.expectsWriteAck;
+  const writeRequested = clientState.writeIntent?.writeLike === true || clientState.expectsWriteAck;
   const snapshotRequested = clientState.operation === 'snapshot' || clientState.wantsFreshSnapshot;
   const readAllowed = lifecycle.canRead && readiness.acceptedOperations.read;
   const writeAllowed = lifecycle.canWrite && readiness.acceptedOperations.write;
@@ -4832,9 +5217,8 @@ function deriveWorkflowHandoff({ now, clientState, lifecycle, readiness, provide
 }
 
 function buildClientRuntimeBridge({ now, clientState, workflowHandoff, memoryOperationPlan, lifecycle, providerNegotiation, tenantBoundary, externalHandoff, restartStatus, persistedEnvelope, failureRecovery, commandJournal }) {
-  const writeLikeOperation = memoryOperationPlan.operation === 'write'
-    || memoryOperationPlan.operation === 'flush'
-    || memoryOperationPlan.operation === 'sync'
+  const writeLikeOperation = memoryOperationPlan.writeIntent?.writeLike === true
+    || clientState.writeIntent?.writeLike === true
     || clientState.expectsWriteAck;
   const acceptedEntries = memoryOperationPlan.entryAcceptance.rows.filter((row) => row.accepted);
   const blockedEntries = memoryOperationPlan.entryAcceptance.rows.filter((row) => !row.accepted);
@@ -4946,6 +5330,7 @@ function buildClientRuntimeBridge({ now, clientState, workflowHandoff, memoryOpe
       blockedEntryCount: blockedEntries.length,
       route,
       writeAckExpected: clientState.expectsWriteAck,
+      writeIntent: memoryOperationPlan.writeIntent || clientState.writeIntent || null,
       handoffToken: workflowHandoff.handoffToken,
       idempotencyKey: restartStatus.idempotencyKey,
       checkpointId: persistedEnvelope.checkpointId
@@ -4978,6 +5363,8 @@ function buildClientRuntimeBridge({ now, clientState, workflowHandoff, memoryOpe
       lastRoute: route,
       lastWorkflowHandoffState: workflowHandoff.state,
       pendingMutationCount: ackState === 'write-accepted' ? 0 : clientState.pendingMutationCount,
+      writeIntentState: memoryOperationPlan.writeIntent?.state || clientState.writeIntent?.state || null,
+      writeIntentReasons: memoryOperationPlan.writeIntent?.reasons || clientState.writeIntent?.reasons || [],
       writeDisabled: workflowHandoff.disabledOperations.write,
       snapshotDisabled: workflowHandoff.disabledOperations.snapshot,
       recoveryGate: failureRecovery.recoveryGate
@@ -5111,6 +5498,8 @@ function buildClientPreviewAcceptance({ now, input, projectRef, mode, lifecycle,
       memoryOperation: {
         state: memoryOperationPlan.state,
         operation: memoryOperationPlan.operation,
+        writeRequirementState: memoryOperationPlan.writeRequirement.state,
+        writeRequirementBlockedReasons: memoryOperationPlan.writeRequirement.blockedReasons,
         route: memoryOperationPlan.route,
         requestedEntryCount: memoryOperationPlan.requestedEntryCount,
         rawValidEntryCount: memoryOperationPlan.rawValidEntryCount,
@@ -5281,6 +5670,8 @@ function buildClientPreviewAcceptance({ now, input, projectRef, mode, lifecycle,
       memoryOperation: {
         state: memoryOperationPlan.state,
         acceptanceState: memoryOperationPlan.entryAcceptance.summary.state,
+        writeRequirementState: memoryOperationPlan.writeRequirement.state,
+        writeRequirementBlockedReasons: memoryOperationPlan.writeRequirement.blockedReasons,
         acceptedEntries: memoryOperationPlan.entryAcceptance.summary.acceptedEntries,
         rejectedEntries: memoryOperationPlan.entryAcceptance.summary.rejectedEntries,
         blockedEntries: memoryOperationPlan.entryAcceptance.summary.blockedEntries,
@@ -5319,7 +5710,12 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
     projectRef,
     lifecycleCommand
   });
-  const memoryEntries = normalizeMemoryEntries(input, { now, projectRef });
+  const memoryEntryRequestShape = deriveMemoryEntryRequestShape(input, { lifecycleCommand });
+  const memoryEntries = normalizeMemoryEntries(input, {
+    now,
+    projectRef,
+    requestShape: memoryEntryRequestShape
+  });
   const provisionalFailureRecovery = deriveFailureRecoveryState({
     now,
     history,
@@ -5428,7 +5824,8 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
     input,
     now,
     projectRef,
-    lifecycleCommand
+    lifecycleCommand,
+    requestShape: memoryEntryRequestShape
   });
   const memoryOperationPlan = buildMemoryOperationPlan({
     now,
@@ -5543,6 +5940,21 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
     failureRecovery,
     commandJournal
   });
+  const analyticsExportManifest = buildAnalyticsExportManifest({
+    now,
+    projectRef,
+    exportSummary,
+    reportingState,
+    historySnapshots,
+    timeline,
+    analyticsCounters,
+    providerNegotiation,
+    tenantBoundary,
+    clientState,
+    memoryOperationPlan,
+    projectStatus,
+    operationalHealth
+  });
   const clientContracts = buildClientPreviewAcceptance({
     now,
     input,
@@ -5618,6 +6030,7 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
         state: memoryOperationPlan.state,
         route: memoryOperationPlan.route,
         blockedReasons: memoryOperationPlan.blockedReasons,
+        writeRequirement: memoryOperationPlan.writeRequirement,
         batchCount: memoryOperationPlan.batches.length,
         acceptance: memoryOperationPlan.entryAcceptance.summary
       }
@@ -5639,7 +6052,17 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
         state: reportingState.state,
         blockedReasons: reportingState.blockedReasons,
         watermarks: reportingState.watermarks,
-        batches: reportingState.batches
+        batches: reportingState.batches,
+        requestFindings: reportingState.requestFindings
+      },
+      exportManifest: {
+        manifestId: analyticsExportManifest.manifestId,
+        state: analyticsExportManifest.state,
+        destinationRef: analyticsExportManifest.destinationRef,
+        formats: analyticsExportManifest.formats,
+        batchCount: analyticsExportManifest.batches.length,
+        blockedReasons: analyticsExportManifest.readiness.blockedReasons,
+        persistRequired: analyticsExportManifest.integrity.persistRequired
       }
     },
     providerContracts: providerNegotiation,
@@ -5654,7 +6077,8 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
       timeline,
       exportSummary,
       exportRequest,
-      state: reportingState
+      state: reportingState,
+      exportManifest: analyticsExportManifest
     },
     lifecycle,
     settings: {
@@ -5756,6 +6180,7 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
         state: memoryOperationPlan.state,
         operation: memoryOperationPlan.operation,
         route: memoryOperationPlan.route,
+        writeRequirement: memoryOperationPlan.writeRequirement,
         requestedEntryCount: memoryOperationPlan.requestedEntryCount,
         rawValidEntryCount: memoryOperationPlan.rawValidEntryCount,
         entryCount: memoryOperationPlan.entries.length,
@@ -5876,7 +6301,15 @@ export function describeProjectMemoryAdapterSurface(input = {}) {
         destinationRef: reportingState.request.destinationRef,
         formats: reportingState.request.formats,
         watermarks: reportingState.watermarks,
-        proofManifest: reportingState.proofManifest
+        proofManifest: reportingState.proofManifest,
+        exportManifest: {
+          manifestId: analyticsExportManifest.manifestId,
+          state: analyticsExportManifest.state,
+          batchCount: analyticsExportManifest.batches.length,
+          integrityHash: analyticsExportManifest.integrity.hash,
+          persistRequired: analyticsExportManifest.integrity.persistRequired,
+          blockedReasons: analyticsExportManifest.readiness.blockedReasons
+        }
       },
       operationalHealth: {
         state: operationalHealth.state,

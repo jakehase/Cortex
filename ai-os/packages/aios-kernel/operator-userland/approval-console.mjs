@@ -82,7 +82,7 @@ const PROVIDER_CAPABILITY_ALIASES = {
 const PROVIDER_IMPACT_RULES = {
   external_write: {
     providerCapability: 'external:write',
-    proofRefs: ['approvalImpactProof', 'proofBundleProof'],
+    proofRefs: ['approvalImpactProof', 'proofBundleProof', 'externalReceiptProof'],
     allowedHandoffModes: ['proofed-external-call', 'queued-dispatch'],
     allowedDispatchLanes: ['interactive', 'background', 'operator-mediated'],
     barrier: 'external-egress-ledger'
@@ -602,13 +602,45 @@ function collectApprovalImpactInputs(raw, request) {
 
 function normalizeExternalWriteContract(raw, request, impactInputs) {
   const endpointProof = asString(raw.endpointProof || raw.destinationProof || raw.externalTargetProof);
+  const receiptProof = asString(raw.receiptProof || raw.externalReceiptProof || raw.providerReceiptProof);
+  const rawReceipt = asObject(raw.receipt || raw.externalReceipt || raw.providerReceipt);
+  const rawDispatch = asObject(raw.externalDispatch || raw.dispatch || raw.delivery);
+  const acknowledgementRequired = normalizeBoolean(
+    raw.requireReceipt || raw.requiresReceipt || raw.acknowledgementRequired,
+    true
+  );
+  const expectedReceiptId = asString(
+    raw.expectedReceiptId || raw.receiptId,
+    `${request.id}:external-write:receipt`
+  );
+  const receiptState = asString(rawReceipt.state || rawReceipt.status, acknowledgementRequired ? 'pending' : 'not_required')
+    .toLowerCase();
+  const receiptAccepted = receiptState === 'accepted' || rawReceipt.accepted === true;
+  const dispatchLane = asString(rawDispatch.lane || raw.dispatchLane, 'interactive').toLowerCase();
+  const retryTopic = asString(rawDispatch.retryTopic || rawDispatch.topic, 'approval-console.provider-dispatch');
+  const dedupeWindowMs = normalizePositiveNumber(rawDispatch.dedupeWindowMs || raw.idempotencyWindowMs, 10 * 60_000);
   const validation = [];
 
   if (impactInputs.categories.includes('external_write') && impactInputs.externalTargets.length === 0) {
     validation.push('approval.impact.external_write.targets_required');
   }
+  if (impactInputs.categories.includes('external_write') && acknowledgementRequired && !receiptProof) {
+    validation.push('approval.impact.external_write.receipt_proof_required');
+  }
   if (endpointProof && !DIGEST_PATTERN.test(endpointProof)) {
     validation.push('approval.impact.external_write.endpoint_proof.sha256_required');
+  }
+  if (receiptProof && !DIGEST_PATTERN.test(receiptProof)) {
+    validation.push('approval.impact.external_write.receipt_proof.sha256_required');
+  }
+  if (receiptState !== 'not_required' && !PROVIDER_ACK_STATES.has(receiptState)) {
+    validation.push('approval.impact.external_write.receipt_state.unsupported');
+  }
+  if (dispatchLane && !PROVIDER_DISPATCH_LANES.has(dispatchLane)) {
+    validation.push('approval.impact.external_write.dispatch_lane.unsupported');
+  }
+  if (dedupeWindowMs < 1_000) {
+    validation.push('approval.impact.external_write.dedupe_window_too_short');
   }
 
   return {
@@ -617,11 +649,115 @@ function normalizeExternalWriteContract(raw, request, impactInputs) {
     writeMode: asString(raw.writeMode || raw.externalWriteMode || raw.deliveryMode, 'unspecified'),
     payloadClass: asString(raw.payloadClass || raw.dataClass || raw.egressClass, 'unspecified'),
     endpointProof,
+    receiptProof,
+    acknowledgement: {
+      required: acknowledgementRequired,
+      expectedReceiptId,
+      state: PROVIDER_ACK_STATES.has(receiptState) ? receiptState : acknowledgementRequired ? 'pending' : 'not_required',
+      accepted: acknowledgementRequired ? receiptAccepted && Boolean(receiptProof) : true,
+      providerId: asString(rawReceipt.providerId || raw.providerId),
+      acknowledgedAt: asString(rawReceipt.acknowledgedAt || rawReceipt.acceptedAt || rawReceipt.receivedAt),
+      rejectionReason: asString(rawReceipt.rejectionReason || rawReceipt.reason)
+    },
+    dispatchContract: {
+      lane: PROVIDER_DISPATCH_LANES.has(dispatchLane) ? dispatchLane : 'operator-mediated',
+      retryTopic,
+      dedupeWindowMs,
+      requiresIdempotencyKey: rawDispatch.requireIdempotencyKey === false ? false : true,
+      receiptRequiredBeforeSettlement: acknowledgementRequired,
+      barrier: PROVIDER_IMPACT_RULES.external_write.barrier
+    },
     idempotencyKey: asString(
       raw.idempotencyKey || raw.externalIdempotencyKey,
       `${request.id}:external-write:${impactInputs.externalTargets.join('|') || 'unspecified'}`
     ),
     validation
+  };
+}
+
+function buildExternalWriteSettlementContract(request, externalWriteContract) {
+  const applies = externalWriteContract.applies;
+  const validation = [];
+  const acknowledgement = externalWriteContract.acknowledgement;
+  const dispatchContract = externalWriteContract.dispatchContract;
+  const targetDigest = `sha256:${proofFor({
+    requestId: request.id,
+    targets: externalWriteContract.targets,
+    writeMode: externalWriteContract.writeMode,
+    payloadClass: externalWriteContract.payloadClass,
+    endpointProof: externalWriteContract.endpointProof
+  })}`;
+  const commandDigest = `sha256:${proofFor({
+    requestId: request.id,
+    idempotencyKey: externalWriteContract.idempotencyKey,
+    targetDigest,
+    expectedReceiptId: acknowledgement.expectedReceiptId,
+    receiptProof: externalWriteContract.receiptProof,
+    barrier: dispatchContract.barrier
+  })}`;
+  const settlementReady = !applies
+    ? true
+    : externalWriteContract.validation.length === 0
+      && (!acknowledgement.required || acknowledgement.accepted);
+  const blockedReasons = !applies
+    ? []
+    : [
+      ...externalWriteContract.validation,
+      ...(dispatchContract.requiresIdempotencyKey && !externalWriteContract.idempotencyKey
+        ? ['approval.impact.external_write.idempotency_key_required']
+        : []),
+      ...(acknowledgement.required && acknowledgement.state === 'rejected'
+        ? [acknowledgement.rejectionReason || 'approval.impact.external_write.receipt_rejected']
+        : []),
+      ...(acknowledgement.required && !acknowledgement.accepted
+        ? ['approval.impact.external_write.receipt_not_accepted']
+        : [])
+    ];
+
+  validation.push(...blockedReasons);
+
+  return {
+    format: 'approval-console.external-write-settlement.v1',
+    applies,
+    status: !applies
+      ? 'not_required'
+      : settlementReady
+        ? 'settlement_ready'
+        : acknowledgement.state === 'rejected'
+          ? 'receipt_rejected'
+          : acknowledgement.required
+            ? 'awaiting_receipt'
+            : 'contract_blocked',
+    settlementReady,
+    idempotencyKey: externalWriteContract.idempotencyKey,
+    expectedReceiptId: acknowledgement.expectedReceiptId,
+    receiptProof: externalWriteContract.receiptProof,
+    receiptRequired: acknowledgement.required,
+    receiptAccepted: acknowledgement.accepted,
+    receiptState: acknowledgement.state,
+    targetDigest,
+    commandDigest,
+    dispatchContract,
+    blockedReasons,
+    validation,
+    operatorAction: !applies
+      ? 'no-external-write'
+      : settlementReady
+        ? 'stage-external-write-handoff'
+        : blockedReasons.includes('approval.impact.external_write.receipt_proof_required')
+          ? 'attach-provider-receipt-proof'
+          : acknowledgement.state === 'rejected'
+            ? 'repair-provider-rejection-before-dispatch'
+            : 'wait-for-provider-receipt',
+    proof: `sha256:${proofFor({
+      requestId: request.id,
+      idempotencyKey: externalWriteContract.idempotencyKey,
+      expectedReceiptId: acknowledgement.expectedReceiptId,
+      receiptProof: externalWriteContract.receiptProof,
+      targetDigest,
+      commandDigest,
+      blockedReasons
+    })}`
   };
 }
 
@@ -714,6 +850,7 @@ function buildApprovalImpactContract(raw, request) {
   const impactInputs = collectApprovalImpactInputs(raw, request);
   const requirements = impactInputs.categories.map((category) => IMPACT_REQUIREMENTS[category]);
   const externalWriteContract = normalizeExternalWriteContract(raw, request, impactInputs);
+  const externalWriteSettlement = buildExternalWriteSettlementContract(request, externalWriteContract);
   const destructiveActionContract = normalizeDestructiveActionContract(raw, request, impactInputs);
   const privilegedKernelChangeContract = normalizeKernelChangeContract(raw, request, impactInputs);
   const requiredScopes = [...new Set(requirements.flatMap((requirement) => requirement.requiredScopes))];
@@ -730,6 +867,7 @@ function buildApprovalImpactContract(raw, request) {
     ...(RISK_ORDER[request.risk] < RISK_ORDER[minimumRisk] ? [`approval.impact.risk.${minimumRisk}_required`] : []),
     ...missingScopeContracts.map((scopeEntry) => `approval.impact.scope_required:${scopeEntry}`),
     ...externalWriteContract.validation,
+    ...externalWriteSettlement.validation,
     ...destructiveActionContract.validation,
     ...privilegedKernelChangeContract.validation
   ];
@@ -745,6 +883,7 @@ function buildApprovalImpactContract(raw, request) {
     externalTargets: impactInputs.externalTargets,
     destructiveTargets: impactInputs.destructiveTargets,
     externalWriteContract,
+    externalWriteSettlement,
     destructiveActionContract,
     privilegedKernelChangeContract,
     requiredRole,
@@ -761,6 +900,7 @@ function buildApprovalImpactContract(raw, request) {
       target: request.target,
       categories: impactInputs.categories,
       externalWriteContract,
+      externalWriteSettlement,
       destructiveActionContract,
       privilegedKernelChangeContract,
       requiredRole,
@@ -1224,6 +1364,10 @@ function approvalPreviewReviewSections(approval) {
         writeMode: contract.writeMode,
         payloadClass: contract.payloadClass,
         endpointProof: contract.endpointProof,
+        receiptProof: contract.receiptProof,
+        expectedReceiptId: contract.acknowledgement.expectedReceiptId,
+        receiptState: contract.acknowledgement.state,
+        receiptAccepted: contract.acknowledgement.accepted,
         idempotencyKey: contract.idempotencyKey
       }
     });
@@ -2902,6 +3046,8 @@ function buildImpactProviderObligations(approvals) {
         impactProof: approval.impact.proof,
         proofBundleProof: approval.proofBundle.proof,
         boundaryTransitionProof: approval.boundaryTransition.proof,
+        externalReceiptProof: approval.impact.externalWriteContract.receiptProof,
+        externalSettlementProof: approval.impact.externalWriteSettlement.proof,
         rollbackProof: approval.impact.destructiveActionContract.backupProof,
         kernelConfigDigest: approval.impact.privilegedKernelChangeContract.configDigest
       };
@@ -3440,13 +3586,17 @@ function impactCommandPlanForApproval(approval) {
         targets: contract.targets,
         writeMode: contract.writeMode,
         payloadClass: contract.payloadClass,
-        endpointProof: contract.endpointProof
+        endpointProof: contract.endpointProof,
+        receiptProof: contract.receiptProof,
+        expectedReceiptId: contract.acknowledgement.expectedReceiptId,
+        settlementProof: approval.impact.externalWriteSettlement.proof
       })}`,
       barrier: PROVIDER_IMPACT_RULES.external_write.barrier,
       proofRefs: {
         approvalImpactProof: approval.impact.proof,
         proofBundleProof: approval.proofBundle.proof,
         boundaryTransitionProof: approval.boundaryTransition.proof,
+        externalReceiptProof: contract.receiptProof,
         rollbackProof: '',
         kernelConfigDigest: ''
       }
@@ -5084,6 +5234,570 @@ function buildImpactAnalyticsSummary(approvals, persistedStateUpdate, providerIn
   };
 }
 
+function buildMailchimpApprovalAnalytics({ now, clientState, approvals, input, providerIntegration, operationalHealth }) {
+  const workflow = asObject(input.productWorkflow || input.mailchimp || asObject(input.clientState).productWorkflow);
+  const trustSource = asObject(
+    workflow.trustMetadata
+    || input.trustMetadata
+    || asObject(input.memoryTrust).mailchimpCampaignContinuity
+    || asObject(input.mailchimpTrustMetadata)
+  );
+  const trustContinuity = asObject(trustSource.mailchimpCampaignContinuity || trustSource.continuity || trustSource);
+  const trustDispatchReadiness = asObject(trustContinuity.dispatchReadiness || trustSource.dispatchReadiness);
+  const factSource = asObject(
+    workflow.volatileFactCheck
+    || input.volatileFactCheck
+    || asObject(input.factCheck).mailchimpFactAnalytics
+    || asObject(input.mailchimpFactCheck)
+  );
+  const factAnalytics = asObject(factSource.mailchimpFactAnalytics || factSource.analytics || factSource);
+  const writebackSource = asObject(
+    workflow.writebackPolicy
+    || input.writebackPolicy
+    || asObject(input.memoryWriteback).mailchimpCampaignDispatchGuard
+    || asObject(input.mailchimpWriteback)
+  );
+  const writebackContext = asObject(writebackSource.mailchimpWritebackContext || writebackSource.context || writebackSource);
+  const writebackDispatchGuard = asObject(writebackSource.mailchimpCampaignDispatchGuard || writebackSource.dispatchGuard);
+  const writebackWorkflowAcceptance = asObject(
+    writebackSource.mailchimpWorkflowAcceptance
+    || writebackSource.workflowAcceptance
+    || writebackDispatchGuard.workflowAcceptance
+  );
+  const campaign = asObject(workflow.campaign);
+  const audience = asObject(workflow.audience);
+  const segment = asObject(workflow.segment);
+  const provider = asString(workflow.provider, asString(workflow.campaignId || workflow.audienceId, '') ? 'mailchimp' : 'hosted-kernel');
+  const applies = provider === 'mailchimp';
+  const campaignId = asString(workflow.campaignId || campaign.id);
+  const audienceId = asString(workflow.audienceId || workflow.listId || audience.id);
+  const segmentId = asString(workflow.segmentId || segment.id);
+  const workflowId = asString(workflow.workflowId || workflow.journeyId || workflow.automationId, campaignId ? `mailchimp:${campaignId}` : '');
+  const stage = ['draft', 'preview', 'approval', 'sync', 'sent', 'archived'].includes(asString(workflow.stage))
+    ? asString(workflow.stage)
+    : approvals.some((approval) => approval.state === 'approved')
+      ? 'approval'
+      : 'preview';
+  const stateKey = [
+    provider,
+    workflowId || 'no-workflow',
+    campaignId || 'no-campaign',
+    audienceId || 'no-audience',
+    segmentId || 'no-segment'
+  ].join(':');
+  const relatedApprovals = applies
+    ? approvals.filter((approval) => {
+      const searchable = [
+        approval.id,
+        approval.target,
+        approval.intent,
+        ...approval.scope,
+        ...(approval.impact.externalTargets || [])
+      ].join(' ');
+      return [campaignId, audienceId, segmentId, workflowId]
+        .filter(Boolean)
+        .some((value) => searchable.includes(value));
+    })
+    : [];
+  const candidateApprovals = relatedApprovals.length > 0 || !applies
+    ? relatedApprovals
+    : approvals.filter((approval) => approval.impact.externalWrite || approval.scope.includes('external:write'));
+  const missingIdentifiers = applies
+    ? [
+      ...(!campaignId ? ['campaignId'] : []),
+      ...(!audienceId ? ['audienceId'] : [])
+    ]
+    : [];
+  const blockedApprovalIds = candidateApprovals
+    .filter((approval) => !approval.valid || approval.workflowHandoff.displayState === 'blocked')
+    .map((approval) => approval.id);
+  const approvedIds = candidateApprovals
+    .filter((approval) => approval.state === 'approved')
+    .map((approval) => approval.id);
+  const providerBlocked = providerIntegration.negotiation.blockedProviderIds.length > 0
+    || providerIntegration.negotiation.impactBlockedRequestIds.some((requestId) => candidateApprovals.some((approval) => approval.id === requestId));
+  const upstreamReadiness = {
+    trustMetadata: {
+      observed: trustDispatchReadiness.applies === true || trustContinuity.applies === true,
+      ready: trustDispatchReadiness.ready === true
+        || (trustContinuity.restartSafe === true && trustContinuity.auditDisposition === 'ready_for_campaign_handoff'),
+      status: asString(trustDispatchReadiness.status, asString(trustContinuity.auditDisposition, 'not_observed')),
+      nextAction: asString(trustDispatchReadiness.nextAction),
+      proof: asString(trustDispatchReadiness.proof || trustContinuity.proof),
+      blockedReasons: normalizeScope(trustDispatchReadiness.blockedReasons || asObject(trustContinuity.handoff).blockedReasons)
+    },
+    volatileFactCheck: {
+      observed: factAnalytics.applies === true || factAnalytics.provider === 'mailchimp',
+      ready: factAnalytics.readyForAnalyticsExport === true,
+      status: factAnalytics.readyForAnalyticsExport === true ? 'ready' : asString(factAnalytics.nextAction, 'not_observed'),
+      nextAction: asString(factAnalytics.nextAction),
+      proof: asString(factAnalytics.proofDigest || factAnalytics.proof),
+      blockedReasons: normalizeScope(factAnalytics.blockedReasons)
+    },
+    writebackPolicy: {
+      observed: writebackContext.applies === true
+        || writebackDispatchGuard.applies === true
+        || writebackWorkflowAcceptance.applies === true,
+      ready: (writebackContext.readyForExternalDispatch === true
+          || writebackDispatchGuard.ready === true
+          || writebackWorkflowAcceptance.ready === true)
+        && (writebackWorkflowAcceptance.applies !== true || writebackWorkflowAcceptance.ready === true),
+      status: writebackWorkflowAcceptance.applies === true && writebackWorkflowAcceptance.ready !== true
+        ? asString(writebackWorkflowAcceptance.status, 'workflow_acceptance_blocked')
+        : asString(writebackDispatchGuard.status, writebackContext.readyForExternalDispatch === true ? 'ready' : 'not_observed'),
+      nextAction: writebackWorkflowAcceptance.applies === true && writebackWorkflowAcceptance.ready !== true
+        ? asString(writebackWorkflowAcceptance.nextAction, 'accept-mailchimp-preview-sections')
+        : asString(writebackDispatchGuard.nextAction),
+      proof: asString(writebackWorkflowAcceptance.proof || writebackDispatchGuard.proof || writebackContext.proof),
+      blockedReasons: normalizeScope([
+        ...(Array.isArray(writebackDispatchGuard.blockedReasons) ? writebackDispatchGuard.blockedReasons : []),
+        ...(Array.isArray(writebackContext.blockedReasons) ? writebackContext.blockedReasons : []),
+        ...(writebackWorkflowAcceptance.applies === true && writebackWorkflowAcceptance.ready !== true
+          ? (Array.isArray(writebackWorkflowAcceptance.blockedReasons) && writebackWorkflowAcceptance.blockedReasons.length
+              ? writebackWorkflowAcceptance.blockedReasons.map((reason) => `workflowAcceptance:${reason}`)
+              : ['workflowAcceptance:mailchimp_workflow_acceptance_blocked'])
+          : [])
+      ])
+    }
+  };
+  const upstreamBlockedReasons = Object.entries(upstreamReadiness).flatMap(([source, readiness]) => (
+    readiness.observed && !readiness.ready
+      ? (readiness.blockedReasons.length
+          ? readiness.blockedReasons.map((reason) => `${source}:${reason}`)
+          : [`${source}:mailchimp_readiness_blocked`])
+      : []
+  ));
+  const readyForExport = !applies
+    || (missingIdentifiers.length === 0
+      && blockedApprovalIds.length === 0
+      && !providerBlocked
+      && upstreamBlockedReasons.length === 0
+      && operationalHealth.status !== 'critical');
+
+  return {
+    format: 'approval-console.mailchimp-campaign-analytics.v1',
+    generatedAt: now,
+    applies,
+    provider,
+    stage,
+    campaignId: campaignId || null,
+    audienceId: audienceId || null,
+    segmentId: segmentId || null,
+    workflowId: workflowId || null,
+    stateKey,
+    tenantId: clientState.boundary.tenantId,
+    workspaceId: clientState.boundary.workspaceId,
+    requestIds: candidateApprovals.map((approval) => approval.id),
+    approvedIds,
+    blockedApprovalIds,
+    missingIdentifiers,
+    providerBlocked,
+    upstreamReadiness,
+    upstreamBlockedReasons,
+    workflowAcceptance: {
+      observed: writebackWorkflowAcceptance.applies === true,
+      ready: writebackWorkflowAcceptance.applies === true ? writebackWorkflowAcceptance.ready === true : true,
+      status: asString(writebackWorkflowAcceptance.status, writebackWorkflowAcceptance.applies === true ? 'blocked' : 'not_observed'),
+      nextAction: asString(writebackWorkflowAcceptance.nextAction),
+      proof: asString(writebackWorkflowAcceptance.proof || asObject(writebackWorkflowAcceptance.acceptance).proof),
+      missingPreviewTokens: normalizeIdList(asObject(writebackWorkflowAcceptance.acceptance).missingPreviewTokens),
+      blockedReasons: normalizeScope(writebackWorkflowAcceptance.blockedReasons)
+    },
+    readyForExport,
+    counters: {
+      approvalCount: candidateApprovals.length,
+      approvedCount: approvedIds.length,
+      blockedCount: blockedApprovalIds.length,
+      externalWriteCount: candidateApprovals.filter((approval) => approval.impact.externalWrite).length,
+      proofSatisfiedCount: candidateApprovals.filter((approval) => approval.proofBundle.status === 'satisfied').length,
+      upstreamBlockedCount: upstreamBlockedReasons.length
+    },
+    exportColumns: [
+      'mailchimpCampaignId',
+      'mailchimpAudienceId',
+      'mailchimpSegmentId',
+      'mailchimpWorkflowId',
+      'mailchimpStateKey',
+      'mailchimpReadyForExport'
+    ],
+    proof: `sha256:${proofFor({
+      provider,
+      stateKey,
+      requestIds: candidateApprovals.map((approval) => approval.id),
+      blockedApprovalIds,
+      missingIdentifiers,
+      providerBlocked,
+      upstreamBlockedReasons,
+      status: operationalHealth.status
+    })}`
+  };
+}
+
+function buildMailchimpCampaignApprovalDispatch({
+  now,
+  clientState,
+  mailchimpCampaignAnalytics,
+  approvals,
+  providerIntegration,
+  clientRuntimeHandoff,
+  previewAcceptance,
+  operationalHealth
+}) {
+  const campaignApprovals = approvals.filter((approval) => (
+    mailchimpCampaignAnalytics.requestIds.includes(approval.id)
+  ));
+  const approvedApprovals = campaignApprovals.filter((approval) => approval.state === 'approved' && approval.valid);
+  const resumeIntents = Array.isArray(clientRuntimeHandoff.resumeIntents) ? clientRuntimeHandoff.resumeIntents : [];
+  const resumeIntentsByRequestId = new Map(resumeIntents.map((intent) => [intent.requestId, intent]));
+  const acceptedPreviewIds = new Set(previewAcceptance.acceptance.acceptedPreviewIds);
+  const missingPreviewIds = approvedApprovals
+    .map((approval) => `approval:${approval.id}`)
+    .filter((previewId) => !acceptedPreviewIds.has(previewId));
+  const missingProofRequestIds = approvedApprovals
+    .filter((approval) => approval.requiresProof && approval.proofBundle.status !== 'satisfied')
+    .map((approval) => approval.id);
+  const missingWorkflowAcceptanceIds = approvedApprovals
+    .filter((approval) => approval.workflowAcceptance.required && !approval.workflowAcceptance.accepted)
+    .map((approval) => approval.id);
+  const missingRuntimeIntentIds = approvedApprovals
+    .filter((approval) => !resumeIntentsByRequestId.has(approval.id))
+    .map((approval) => approval.id);
+  const writebackApprovalBridge = buildMailchimpWritebackApprovalBridge({
+    now,
+    clientState,
+    mailchimpCampaignAnalytics,
+    campaignApprovals,
+    approvedApprovals,
+    previewAcceptance,
+    clientRuntimeHandoff
+  });
+  const providerBlockedReasons = [
+    ...providerIntegration.negotiation.missingCapabilities.map((capability) => `provider.capability:${capability}`),
+    ...providerIntegration.negotiation.impactBlockedRequestIds
+      .filter((requestId) => mailchimpCampaignAnalytics.requestIds.includes(requestId))
+      .map((requestId) => `provider.impact:${requestId}`),
+    ...providerIntegration.negotiation.syncRequiredProviderIds.map((providerId) => `provider.sync:${providerId}`),
+    ...providerIntegration.negotiation.ackRequiredProviderIds.map((providerId) => `provider.ack:${providerId}`)
+  ];
+  const upstreamBlockedReasons = mailchimpCampaignAnalytics.upstreamBlockedReasons || [];
+  const dispatchBlockedReasons = !mailchimpCampaignAnalytics.applies
+    ? []
+    : [
+      ...mailchimpCampaignAnalytics.missingIdentifiers.map((field) => `mailchimp.${field}.required`),
+      ...upstreamBlockedReasons.map((reason) => `upstream.${reason}`),
+      ...(campaignApprovals.length === 0 ? ['mailchimp.approval.required'] : []),
+      ...(approvedApprovals.length === 0 ? ['mailchimp.approval.approved_required'] : []),
+      ...mailchimpCampaignAnalytics.blockedApprovalIds.map((requestId) => `mailchimp.approval.blocked:${requestId}`),
+      ...missingProofRequestIds.map((requestId) => `mailchimp.approval.proof_required:${requestId}`),
+      ...missingWorkflowAcceptanceIds.map((requestId) => `mailchimp.workflow.acceptance_required:${requestId}`),
+      ...missingPreviewIds.map((previewId) => `mailchimp.preview.acceptance_required:${previewId}`),
+      ...missingRuntimeIntentIds.map((requestId) => `mailchimp.runtime.intent_missing:${requestId}`),
+      ...providerBlockedReasons,
+      ...(clientRuntimeHandoff.ready ? [] : clientRuntimeHandoff.blockedReasons.map((reason) => `runtime:${reason}`)),
+      ...(operationalHealth.degradedMode.runtimeHandoffPaused ? ['mailchimp.operational_handoff_paused'] : [])
+    ];
+  const ready = mailchimpCampaignAnalytics.applies
+    && dispatchBlockedReasons.length === 0
+    && providerIntegration.externalHandoff.state === 'ready_for_external_handoff'
+    && clientRuntimeHandoff.ready
+    && previewAcceptance.acceptance.accepted;
+  const nextAction = !mailchimpCampaignAnalytics.applies
+    ? 'not-applicable'
+    : ready
+      ? 'handoff-mailchimp-campaign-dispatch'
+      : missingProofRequestIds.length
+        ? 'attach-mailchimp-approval-proof'
+        : upstreamBlockedReasons.some((reason) => reason.startsWith('trustMetadata:'))
+          ? mailchimpCampaignAnalytics.upstreamReadiness.trustMetadata.nextAction || 'repair-mailchimp-trust-readiness'
+          : upstreamBlockedReasons.some((reason) => reason.startsWith('volatileFactCheck:'))
+            ? mailchimpCampaignAnalytics.upstreamReadiness.volatileFactCheck.nextAction || 'repair-mailchimp-fact-readiness'
+            : upstreamBlockedReasons.some((reason) => reason.startsWith('writebackPolicy:'))
+              ? mailchimpCampaignAnalytics.upstreamReadiness.writebackPolicy.nextAction || 'repair-mailchimp-writeback-readiness'
+        : missingWorkflowAcceptanceIds.length
+          ? 'accept-mailchimp-workflow-handoff'
+          : missingPreviewIds.length
+            ? 'accept-mailchimp-preview-sections'
+            : providerBlockedReasons.some((reason) => reason.startsWith('provider.sync'))
+              ? 'refresh-mailchimp-provider-sync'
+              : providerBlockedReasons.some((reason) => reason.startsWith('provider.ack'))
+                ? 'obtain-mailchimp-provider-ack'
+                : operationalHealth.degradedMode.runtimeHandoffPaused
+                  ? operationalHealth.remediationPlan.steps[0]?.nextStep || 'repair-mailchimp-operational-health'
+                  : 'repair-mailchimp-campaign-dispatch';
+  const dispatchPacket = mailchimpCampaignAnalytics.applies
+    ? {
+      packetType: 'approval-console.mailchimp-campaign-dispatch-packet.v1',
+      packetId: `${clientState.boundary.isolationKey}:${mailchimpCampaignAnalytics.stateKey}:dispatch`,
+      generatedAt: now,
+      destination: providerIntegration.externalHandoff.destination,
+      providerId: providerIntegration.selectedProviderId,
+      syncCursor: providerIntegration.externalHandoff.syncCursor,
+      syncGeneration: providerIntegration.externalHandoff.syncGeneration,
+      campaign: {
+        campaignId: mailchimpCampaignAnalytics.campaignId,
+        audienceId: mailchimpCampaignAnalytics.audienceId,
+        segmentId: mailchimpCampaignAnalytics.segmentId,
+        workflowId: mailchimpCampaignAnalytics.workflowId,
+        stateKey: mailchimpCampaignAnalytics.stateKey,
+        stage: mailchimpCampaignAnalytics.stage
+      },
+      approvalRequestIds: campaignApprovals.map((approval) => approval.id),
+      approvedRequestIds: approvedApprovals.map((approval) => approval.id),
+      resumeIntentIds: approvedApprovals
+        .filter((approval) => resumeIntentsByRequestId.has(approval.id))
+        .map((approval) => approval.id),
+      acceptedPreviewIds: previewAcceptance.acceptance.acceptedPreviewIds
+        .filter((previewId) => approvedApprovals.some((approval) => previewId === `approval:${approval.id}`)),
+      proofRefs: Object.fromEntries(approvedApprovals.map((approval) => [
+        approval.id,
+        {
+          approvalImpactProof: approval.impact.proof,
+          proofBundleProof: approval.proofBundle.proof,
+          workflowAcceptanceProof: approval.workflowAcceptance.acceptanceProof,
+          runtimeHandoffProof: approval.workflowHandoff.proof
+        }
+      ])),
+      upstreamReadiness: mailchimpCampaignAnalytics.upstreamReadiness,
+      workflowAcceptance: mailchimpCampaignAnalytics.workflowAcceptance,
+      writebackApprovalBridge,
+      blockedReasons: dispatchBlockedReasons
+    }
+    : null;
+
+  return {
+    format: 'approval-console.mailchimp-campaign-dispatch-readiness.v1',
+    generatedAt: now,
+    applies: mailchimpCampaignAnalytics.applies,
+    status: !mailchimpCampaignAnalytics.applies ? 'not_applicable' : ready ? 'ready' : 'blocked',
+    ready,
+    nextAction,
+    tenantId: clientState.boundary.tenantId,
+    workspaceId: clientState.boundary.workspaceId,
+    stateKey: mailchimpCampaignAnalytics.stateKey,
+    campaignId: mailchimpCampaignAnalytics.campaignId,
+    audienceId: mailchimpCampaignAnalytics.audienceId,
+    segmentId: mailchimpCampaignAnalytics.segmentId,
+    workflowId: mailchimpCampaignAnalytics.workflowId,
+    requestIds: campaignApprovals.map((approval) => approval.id),
+    approvedRequestIds: approvedApprovals.map((approval) => approval.id),
+    blockedRequestIds: mailchimpCampaignAnalytics.blockedApprovalIds,
+    missingProofRequestIds,
+    missingWorkflowAcceptanceIds,
+    missingPreviewIds,
+    missingRuntimeIntentIds,
+    provider: {
+      selectedProviderId: providerIntegration.selectedProviderId,
+      state: providerIntegration.externalHandoff.state,
+      destination: providerIntegration.externalHandoff.destination,
+      syncCursor: providerIntegration.externalHandoff.syncCursor,
+      syncGeneration: providerIntegration.externalHandoff.syncGeneration,
+      blockedReasons: providerBlockedReasons
+    },
+    upstreamReadiness: mailchimpCampaignAnalytics.upstreamReadiness,
+    upstreamBlockedReasons,
+    writebackApprovalBridge,
+    runtime: {
+      ready: clientRuntimeHandoff.ready,
+      nextAction: clientRuntimeHandoff.nextAction,
+      destination: clientRuntimeHandoff.destination,
+      proof: clientRuntimeHandoff.proof
+    },
+    previewAcceptance: {
+      accepted: previewAcceptance.acceptance.accepted,
+      acceptedPreviewIds: previewAcceptance.acceptance.acceptedPreviewIds,
+      missingRequiredSectionIds: previewAcceptance.acceptance.missingRequiredSectionIds,
+      proof: previewAcceptance.proof
+    },
+    workflowAcceptance: mailchimpCampaignAnalytics.workflowAcceptance,
+    auditHandoff: {
+      destination: 'operator-userland/mailchimp-campaign-dispatch',
+      safeToAppend: mailchimpCampaignAnalytics.applies,
+      requiredProofRefs: ['approvalImpactProof', 'proofBundleProof', 'workflowAcceptanceProof', 'runtimeHandoffProof'],
+      upstreamProofRefs: {
+        trustMetadataProof: mailchimpCampaignAnalytics.upstreamReadiness?.trustMetadata?.proof || '',
+        volatileFactProof: mailchimpCampaignAnalytics.upstreamReadiness?.volatileFactCheck?.proof || '',
+        writebackProof: mailchimpCampaignAnalytics.upstreamReadiness?.writebackPolicy?.proof || '',
+        workflowAcceptanceProof: mailchimpCampaignAnalytics.workflowAcceptance?.proof || ''
+      },
+      blockedReasons: dispatchBlockedReasons
+    },
+    dispatchPacket,
+    blockedReasons: [...new Set(dispatchBlockedReasons)],
+    proof: `sha256:${proofFor({
+      ready,
+      nextAction,
+      tenantId: clientState.boundary.tenantId,
+      workspaceId: clientState.boundary.workspaceId,
+      stateKey: mailchimpCampaignAnalytics.stateKey,
+      requestIds: campaignApprovals.map((approval) => approval.id),
+      approvedRequestIds: approvedApprovals.map((approval) => approval.id),
+      blockedReasons: dispatchBlockedReasons,
+      upstreamBlockedReasons,
+      writebackApprovalBridgeProof: writebackApprovalBridge.proof,
+      providerState: providerIntegration.externalHandoff.state,
+      runtimeReady: clientRuntimeHandoff.ready,
+      previewAccepted: previewAcceptance.acceptance.accepted
+    })}`
+  };
+}
+
+function buildMailchimpWritebackApprovalBridge({
+  now,
+  clientState,
+  mailchimpCampaignAnalytics,
+  campaignApprovals,
+  approvedApprovals,
+  previewAcceptance,
+  clientRuntimeHandoff
+}) {
+  const acceptedPreviewIds = new Set(previewAcceptance.acceptance.acceptedPreviewIds);
+  const resumeIntents = Array.isArray(clientRuntimeHandoff.resumeIntents) ? clientRuntimeHandoff.resumeIntents : [];
+  const resumeIntentsByRequestId = new Map(resumeIntents.map((intent) => [intent.requestId, intent]));
+  const approvalSnapshots = campaignApprovals.map((approval) => {
+    const previewId = `approval:${approval.id}`;
+    const resumeIntent = resumeIntentsByRequestId.get(approval.id);
+    const proofBundleSatisfied = approval.proofBundle.required
+      ? approval.proofBundle.status === 'satisfied'
+      : true;
+    const workflowAccepted = approval.workflowAcceptance.required
+      ? approval.workflowAcceptance.accepted
+      : true;
+    const previewAccepted = acceptedPreviewIds.has(previewId);
+    const runtimeIntentReady = Boolean(resumeIntent);
+    const blockedReasons = [
+      ...(!approval.valid ? approval.validation.map((reason) => `approval:${reason}`) : []),
+      ...(approval.state !== 'approved' ? [`approval.state.${approval.state}`] : []),
+      ...(!proofBundleSatisfied ? ['approval.proof_bundle_unsatisfied'] : []),
+      ...(!workflowAccepted ? ['approval.workflow_acceptance_missing'] : []),
+      ...(!previewAccepted ? [`approval.preview_not_accepted:${previewId}`] : []),
+      ...(!runtimeIntentReady ? ['approval.runtime_intent_missing'] : []),
+      ...(!approval.workflowHandoff.resumeCandidate ? approval.workflowHandoff.handoffBlocks.map((reason) => `handoff:${reason}`) : [])
+    ];
+
+    return {
+      requestId: approval.id,
+      clientRequestId: approval.clientRequestId,
+      previewId,
+      action: approval.action,
+      target: approval.target,
+      risk: approval.risk,
+      state: approval.state,
+      approved: approval.state === 'approved' && approval.valid,
+      readyForWriteback: blockedReasons.length === 0,
+      proofBundleSatisfied,
+      workflowAccepted,
+      previewAccepted,
+      runtimeIntentReady,
+      resumeIntentId: resumeIntent ? resumeIntent.intentId || resumeIntent.id || approval.id : null,
+      impactCategories: approval.impact.categories,
+      externalTargets: approval.impact.externalTargets,
+      proofRefs: {
+        approvalImpactProof: approval.impact.proof,
+        proofBundleProof: approval.proofBundle.proof,
+        workflowAcceptanceProof: approval.workflowAcceptance.acceptanceProof,
+        runtimeHandoffProof: approval.workflowHandoff.proof,
+        workspaceScopeProof: approval.boundaryPolicy.workspaceScope.proof
+      },
+      blockedReasons,
+      proof: `sha256:${proofFor({
+        requestId: approval.id,
+        previewId,
+        approved: approval.state === 'approved' && approval.valid,
+        proofBundleSatisfied,
+        workflowAccepted,
+        previewAccepted,
+        runtimeIntentReady,
+        proofBundleProof: approval.proofBundle.proof,
+        workflowAcceptanceProof: approval.workflowAcceptance.acceptanceProof,
+        runtimeHandoffProof: approval.workflowHandoff.proof
+      })}`
+    };
+  });
+  const readyApprovalIds = approvalSnapshots
+    .filter((snapshot) => snapshot.readyForWriteback)
+    .map((snapshot) => snapshot.requestId);
+  const blockedApprovalIds = approvalSnapshots
+    .filter((snapshot) => !snapshot.readyForWriteback)
+    .map((snapshot) => snapshot.requestId);
+  const blockedReasons = [
+    ...mailchimpCampaignAnalytics.missingIdentifiers.map((field) => `mailchimp.${field}.required`),
+    ...(campaignApprovals.length === 0 ? ['mailchimp.approval.required'] : []),
+    ...(approvedApprovals.length === 0 ? ['mailchimp.approval.approved_required'] : []),
+    ...approvalSnapshots.flatMap((snapshot) => (
+      snapshot.blockedReasons.map((reason) => `${snapshot.requestId}:${reason}`)
+    ))
+  ];
+  const ready = mailchimpCampaignAnalytics.applies
+    && blockedReasons.length === 0
+    && readyApprovalIds.length > 0;
+  const requiredProofRefs = ['approvalImpactProof', 'proofBundleProof', 'workflowAcceptanceProof', 'runtimeHandoffProof', 'workspaceScopeProof'];
+  const writebackPatch = {
+    approval: {
+      id: readyApprovalIds[0] || approvedApprovals[0]?.id || campaignApprovals[0]?.id || null,
+      state: ready ? 'approved' : 'requested',
+      proofBundle: {
+        proof: approvalSnapshots.find((snapshot) => readyApprovalIds.includes(snapshot.requestId))?.proofRefs.proofBundleProof || ''
+      },
+      workflowAcceptance: {
+        accepted: ready,
+        acceptanceProof: approvalSnapshots.find((snapshot) => readyApprovalIds.includes(snapshot.requestId))?.proofRefs.workflowAcceptanceProof || ''
+      }
+    },
+    mailchimpDispatchGuard: {
+      requireApprovalProof: true,
+      requireWorkflowAcceptance: true,
+      approvalBridgeRequired: true,
+      acceptedApprovalIds: readyApprovalIds,
+      bridgeProof: ''
+    }
+  };
+  const proof = `sha256:${proofFor({
+    stateKey: mailchimpCampaignAnalytics.stateKey,
+    tenantId: clientState.boundary.tenantId,
+    workspaceId: clientState.boundary.workspaceId,
+    readyApprovalIds,
+    blockedApprovalIds,
+    blockedReasons,
+    previewProof: previewAcceptance.proof,
+    runtimeHandoffProof: clientRuntimeHandoff.proof
+  })}`;
+
+  writebackPatch.mailchimpDispatchGuard.bridgeProof = proof;
+
+  return {
+    format: 'approval-console.mailchimp-writeback-approval-bridge.v1',
+    generatedAt: now,
+    applies: mailchimpCampaignAnalytics.applies,
+    ready,
+    status: !mailchimpCampaignAnalytics.applies ? 'not_applicable' : ready ? 'ready' : 'blocked',
+    nextAction: ready
+      ? 'submit-mailchimp-writeback-approval-bridge'
+      : blockedReasons.some((reason) => reason.includes('proof'))
+        ? 'attach-mailchimp-approval-proof'
+        : blockedReasons.some((reason) => reason.includes('preview_not_accepted'))
+          ? 'accept-mailchimp-preview-sections'
+          : blockedReasons.some((reason) => reason.includes('runtime_intent_missing'))
+            ? 'rebuild-mailchimp-runtime-handoff'
+            : 'repair-mailchimp-approval-bridge',
+    tenantId: clientState.boundary.tenantId,
+    workspaceId: clientState.boundary.workspaceId,
+    campaign: {
+      campaignId: mailchimpCampaignAnalytics.campaignId,
+      audienceId: mailchimpCampaignAnalytics.audienceId,
+      segmentId: mailchimpCampaignAnalytics.segmentId,
+      workflowId: mailchimpCampaignAnalytics.workflowId,
+      stateKey: mailchimpCampaignAnalytics.stateKey
+    },
+    requiredProofRefs,
+    readyApprovalIds,
+    blockedApprovalIds,
+    approvalSnapshots,
+    blockedReasons: [...new Set(blockedReasons)],
+    writebackPatch,
+    proof
+  };
+}
+
 function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, input, lifecycleState, providerIntegration, persistedState, previewAcceptance, persistedStateUpdate, operationalHealth) {
   const stateCounts = {};
   const riskCounts = {};
@@ -5098,6 +5812,24 @@ function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, 
   let decidedWithLatency = 0;
   let proofRequiredCount = 0;
   let proofReadyCount = 0;
+  const mailchimpCampaignAnalytics = buildMailchimpApprovalAnalytics({
+    now,
+    clientState,
+    approvals,
+    input,
+    providerIntegration,
+    operationalHealth
+  });
+  const mailchimpCampaignDispatch = buildMailchimpCampaignApprovalDispatch({
+    now,
+    clientState,
+    mailchimpCampaignAnalytics,
+    approvals,
+    providerIntegration,
+    clientRuntimeHandoff: handoff.clientRuntimeHandoff,
+    previewAcceptance,
+    operationalHealth
+  });
 
   for (const approval of approvals) {
     incrementCounter(stateCounts, approval.state);
@@ -5162,6 +5894,15 @@ function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, 
       workflowDecisionRequired: approval.workflowHandoff.decisionRequired,
       workflowHandoffBlocks: approval.workflowHandoff.handoffBlocks,
       workflowProof: approval.workflowHandoff.proof,
+      mailchimpCampaignId: mailchimpCampaignAnalytics.applies ? mailchimpCampaignAnalytics.campaignId : null,
+      mailchimpAudienceId: mailchimpCampaignAnalytics.applies ? mailchimpCampaignAnalytics.audienceId : null,
+      mailchimpSegmentId: mailchimpCampaignAnalytics.applies ? mailchimpCampaignAnalytics.segmentId : null,
+      mailchimpWorkflowId: mailchimpCampaignAnalytics.applies ? mailchimpCampaignAnalytics.workflowId : null,
+      mailchimpStateKey: mailchimpCampaignAnalytics.applies ? mailchimpCampaignAnalytics.stateKey : null,
+      mailchimpReadyForExport: mailchimpCampaignAnalytics.readyForExport,
+      mailchimpDispatchReady: mailchimpCampaignDispatch.ready,
+      mailchimpDispatchNextAction: mailchimpCampaignDispatch.nextAction,
+      mailchimpDispatchBlockedReasons: mailchimpCampaignDispatch.blockedReasons.filter((reason) => reason.includes(approval.id)),
       validation: approval.validation,
       scope: approval.scope,
       proofRequired: approval.requiresProof,
@@ -5313,7 +6054,8 @@ function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, 
     'scope',
     'proofRequired',
     'proofStatus',
-    'proof'
+    'proof',
+    ...mailchimpCampaignAnalytics.exportColumns
   ];
   const exportPayload = {
     format: 'approval-console.analytics.v1',
@@ -5391,6 +6133,13 @@ function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, 
       previewRequiredSectionCount: previewAcceptance.summary.requiredSectionCount,
       previewAcceptedRequiredSectionCount: previewAcceptance.summary.acceptedRequiredSectionCount,
       previewMissingRequiredSectionCount: previewAcceptance.summary.missingRequiredSectionCount,
+      mailchimpCampaignApprovalCount: mailchimpCampaignAnalytics.counters.approvalCount,
+      mailchimpCampaignApprovedCount: mailchimpCampaignAnalytics.counters.approvedCount,
+      mailchimpCampaignBlockedCount: mailchimpCampaignAnalytics.counters.blockedCount,
+      mailchimpCampaignExternalWriteCount: mailchimpCampaignAnalytics.counters.externalWriteCount,
+      mailchimpCampaignProofSatisfiedCount: mailchimpCampaignAnalytics.counters.proofSatisfiedCount,
+      mailchimpDispatchReady: mailchimpCampaignDispatch.ready ? 1 : 0,
+      mailchimpDispatchBlockedCount: mailchimpCampaignDispatch.blockedReasons.length,
       operationalFailureCount: operationalHealth.metrics.failureCount,
       operationalRetryableCount: operationalHealth.metrics.retryableCount,
       operationalExhaustedRetryCount: operationalHealth.metrics.exhaustedRetryCount,
@@ -5400,10 +6149,14 @@ function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, 
     historyRollup,
     currentSnapshot,
     impactAnalyticsSummary,
+    mailchimpCampaignAnalytics,
+    mailchimpCampaignDispatch,
     exportSummary: {
       ...exportPayload,
       impactSummaryProof: impactAnalyticsSummary.proof,
-      proof: `sha256:${proofFor({ exportPayload, handoff, currentSnapshot, historyRollup, impactSummaryProof: impactAnalyticsSummary.proof })}`
+      mailchimpCampaignProof: mailchimpCampaignAnalytics.proof,
+      mailchimpDispatchProof: mailchimpCampaignDispatch.proof,
+      proof: `sha256:${proofFor({ exportPayload, handoff, currentSnapshot, historyRollup, impactSummaryProof: impactAnalyticsSummary.proof, mailchimpCampaignProof: mailchimpCampaignAnalytics.proof, mailchimpDispatchProof: mailchimpCampaignDispatch.proof })}`
     },
     exportManifest: {
       format: 'approval-console.analytics-export-manifest.v1',
@@ -5416,14 +6169,23 @@ function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, 
       contentDigest: exportDigest,
       historyProof: historyRollup.proof,
       impactSummaryProof: impactAnalyticsSummary.proof,
+      mailchimpCampaignProof: mailchimpCampaignAnalytics.proof,
+      mailchimpDispatchProof: mailchimpCampaignDispatch.proof,
       operationalHealthProof: operationalHealth.proof,
-      ready: reportRows.length > 0 && historyRollup.valid && impactAnalyticsSummary.readyForExport && operationalHealth.status !== 'critical',
+      ready: reportRows.length > 0
+        && historyRollup.valid
+        && impactAnalyticsSummary.readyForExport
+        && mailchimpCampaignAnalytics.readyForExport
+        && (!mailchimpCampaignDispatch.applies || mailchimpCampaignDispatch.ready)
+        && operationalHealth.status !== 'critical',
       blockedReasons: [
         ...historyRollup.validation,
         ...(!impactAnalyticsSummary.readyForExport ? ['analytics.export.impact_summary_blocked'] : []),
+        ...(mailchimpCampaignAnalytics.applies && !mailchimpCampaignAnalytics.readyForExport ? ['analytics.export.mailchimp_campaign_blocked'] : []),
+        ...(mailchimpCampaignDispatch.applies && !mailchimpCampaignDispatch.ready ? ['analytics.export.mailchimp_dispatch_blocked'] : []),
         ...(operationalHealth.status === 'critical' ? ['analytics.export.operational_health_critical'] : [])
       ],
-      proof: `sha256:${proofFor({ exportDigest, historyProof: historyRollup.proof, impactSummaryProof: impactAnalyticsSummary.proof, rowCount: reportRows.length })}`
+      proof: `sha256:${proofFor({ exportDigest, historyProof: historyRollup.proof, impactSummaryProof: impactAnalyticsSummary.proof, mailchimpCampaignProof: mailchimpCampaignAnalytics.proof, mailchimpDispatchProof: mailchimpCampaignDispatch.proof, rowCount: reportRows.length })}`
     },
     timeline,
     reportingState: {
@@ -5438,6 +6200,12 @@ function buildApprovalAnalytics(now, clientState, approvals, handoff, evidence, 
       historyTrend: historyRollup.trend,
       impactExportReady: impactAnalyticsSummary.readyForExport,
       impactExportDispositionCounts: impactAnalyticsSummary.counters.byDisposition,
+      mailchimpCampaignStateKey: mailchimpCampaignAnalytics.applies ? mailchimpCampaignAnalytics.stateKey : null,
+      mailchimpCampaignReadyForExport: mailchimpCampaignAnalytics.readyForExport,
+      mailchimpCampaignBlockedApprovalIds: mailchimpCampaignAnalytics.blockedApprovalIds,
+      mailchimpDispatchReady: mailchimpCampaignDispatch.ready,
+      mailchimpDispatchNextAction: mailchimpCampaignDispatch.nextAction,
+      mailchimpDispatchBlockedReasons: mailchimpCampaignDispatch.blockedReasons,
       nextReportDestination: 'operator-userland/analytics-ledger'
     },
     operationalHealthState: {

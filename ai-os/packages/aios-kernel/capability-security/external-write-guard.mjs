@@ -25,6 +25,15 @@ const LIFECYCLE_COMMAND_TYPES = [
 ];
 const LIFECYCLE_MODES = ['enforce', 'monitor', 'disabled'];
 const WRITE_REVIEW_STAGES = ['draft', 'send'];
+const DEFAULT_WRITE_OPERATION = 'write';
+const WRITE_OPERATION_ALIASES = {
+  add: 'create',
+  append: 'update',
+  modify: 'update',
+  remove: 'delete',
+  rm: 'delete',
+  unlink: 'delete'
+};
 const COMMIT_APPROVAL_INTENTS = ['commit-guarded-writes', 'commit', 'send-and-commit'];
 const ACCEPTANCE_APPROVAL_INTENTS = ['accept-preview', 'accept', 'preview-acceptance'];
 const PERSISTED_STATE_VERSION = 1;
@@ -32,6 +41,8 @@ const DEFAULT_ACCEPTANCE_TTL_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SCHEDULE_HORIZON_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_HEALTH_BACKOFF_MS = [1000, 5000, 15000, 60000];
 const DEFAULT_HEALTH_CHECK_STALE_MS = 5 * 60 * 1000;
+const TARGET_CLAIM_SCHEMA = 'aios.capabilitySecurity.externalWriteGuard.targetClaim.v1';
+const CLIENT_RUNTIME_ADOPTION_SCHEMA = 'aios.capabilitySecurity.externalWriteGuard.clientRuntimeAdoption.v1';
 const CLIENT_CHANNEL_PROFILES = {
   'hosted-kernel': {
     surface: 'kernel.review',
@@ -91,6 +102,20 @@ function normalizeStringList(value) {
 function normalizeStringEntries(value) {
   if (typeof value === 'string') return value.trim() ? [value.trim()] : [];
   return normalizeStringList(value);
+}
+
+function normalizeToken(value) {
+  return nonEmptyString(value).toLowerCase();
+}
+
+function normalizeWriteOperation(value) {
+  const token = normalizeToken(value);
+  return WRITE_OPERATION_ALIASES[token] || token || DEFAULT_WRITE_OPERATION;
+}
+
+function normalizeWriteReviewStage(value) {
+  const stage = normalizeToken(value);
+  return WRITE_REVIEW_STAGES.includes(stage) ? stage : 'draft';
 }
 
 function normalizeStringRecord(value) {
@@ -408,6 +433,7 @@ function normalizeWorkflowState(input, request, client, route, requestId) {
 
 function normalizeClientRuntimeState(input, request, client) {
   const runtime = objectValue(client.runtime, client.clientRuntime, input.clientRuntime, input.runtime);
+  const adoption = objectValue(runtime.adoption, client.runtimeAdoption, input.clientRuntimeAdoption);
   const capabilities = normalizeStringList(runtime.capabilities || client.capabilities || input.clientCapabilities);
   const capabilitySet = new Set(capabilities);
   const declaredRuntime = Object.keys(runtime).length > 0 || capabilities.length > 0;
@@ -454,8 +480,73 @@ function normalizeClientRuntimeState(input, request, client) {
       runtime.supportsInlineReview ?? client.supportsInlineReview,
       !declaredRuntime || capabilitySet.has('external-write-guard.inline-review') || capabilitySet.has('review.inline')
     ),
+    adoptionRequired: normalizeBoolean(
+      adoption.required ?? runtime.adoptionRequired ?? client.adoptionRequired ?? input.requireClientRuntimeAdoption,
+      Boolean(adoption.token || runtime.adoptionToken || runtime.token || client.adoptionToken || input.clientRuntimeAdoptionToken)
+    ),
+    adoptionRequestId: firstString(adoption.requestId, runtime.requestId, client.requestId, request.id, input.requestId),
+    adoptionRevision: normalizePositiveInteger(adoption.revision ?? runtime.revision ?? client.revision, 0),
+    adoptionCursor: firstString(adoption.cursor, adoption.handoffCursor, runtime.handoffCursor, client.handoffCursor),
+    adoptionCheckpointPath: firstString(
+      adoption.checkpointPath,
+      runtime.adoptionCheckpointPath,
+      `${statePathPrefix}.runtimeAdoption`
+    ),
+    adoptionStrict: normalizeBoolean(adoption.strict ?? runtime.adoptionStrict, declaredRuntime),
     requestedHandoffMode: firstString(runtime.handoffMode, runtime.mode, client.handoffMode, input.handoffMode),
-    adoptionToken: firstString(runtime.adoptionToken, runtime.token, client.adoptionToken, input.clientRuntimeAdoptionToken)
+    adoptionToken: firstString(adoption.token, runtime.adoptionToken, runtime.token, client.adoptionToken, input.clientRuntimeAdoptionToken)
+  };
+}
+
+function buildClientRuntimeAdoptionBinding(requestContext, actionId, requiredRuntimeCapabilities, missingRuntimeCapabilities) {
+  const runtime = requestContext.clientRuntime;
+  const requestIdMatches = !runtime.adoptionRequestId || !requestContext.requestId || runtime.adoptionRequestId === requestContext.requestId;
+  const missingBindingReasons = [
+    ...(runtime.adoptionRequired && !runtime.adoptionToken ? ['missing-adoption-token'] : []),
+    ...(runtime.adoptionRequired && runtime.adoptionStrict && !runtime.runtimeId ? ['missing-runtime-id'] : []),
+    ...(runtime.adoptionRequired && !requestIdMatches ? ['request-id-mismatch'] : []),
+    ...(missingRuntimeCapabilities.length ? ['missing-runtime-capabilities'] : [])
+  ];
+  const canAdopt = missingBindingReasons.length === 0;
+  const checkpoint = {
+    schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+    runtimeId: runtime.runtimeId,
+    runtimeVersion: runtime.runtimeVersion,
+    requestId: requestContext.requestId,
+    actionId,
+    revision: runtime.adoptionRevision,
+    cursor: runtime.adoptionCursor,
+    checkpointPath: runtime.adoptionCheckpointPath,
+    requiredCapabilities: requiredRuntimeCapabilities,
+    missingCapabilities: missingRuntimeCapabilities,
+    tokenPresent: Boolean(runtime.adoptionToken),
+    stateFingerprint: stableStringify({
+      schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+      runtimeId: runtime.runtimeId,
+      requestId: requestContext.requestId,
+      actionId,
+      revision: runtime.adoptionRevision,
+      cursor: runtime.adoptionCursor,
+      requiredRuntimeCapabilities
+    })
+  };
+
+  return {
+    schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+    required: runtime.adoptionRequired,
+    strict: runtime.adoptionStrict,
+    state: canAdopt ? runtime.adoptionRequired ? 'adopted' : 'optional' : 'blocked',
+    canAdopt,
+    requestIdMatches,
+    missingBindingReasons,
+    userVisibleNextAction: canAdopt
+      ? 'persist-runtime-adoption-checkpoint'
+      : missingBindingReasons.includes('request-id-mismatch')
+        ? 'refresh-client-runtime-request-binding'
+        : missingBindingReasons.includes('missing-runtime-capabilities')
+          ? 'upgrade-client-runtime-capabilities'
+          : 'attach-client-runtime-adoption-token',
+    checkpoint
   };
 }
 
@@ -505,6 +596,7 @@ function buildWorkflowDestination(requestContext, action, visibleWriteIds, readi
   const canQueueCommand = runtime.supportsCommandQueue && (
     !runtime.capabilityStrict || (CLIENT_RUNTIME_CAPABILITY_REQUIREMENTS[actionId] || []).every((capability) => runtimeCapabilitySet.has(capability))
   );
+  const adoptionBinding = buildClientRuntimeAdoptionBinding(requestContext, actionId, requiredRuntimeCapabilities, missingRuntimeCapabilities);
   const runtimeHandoffMode = runtime.requestedHandoffMode || (
     canInlineAccept
       ? 'inline-acceptance'
@@ -533,13 +625,17 @@ function buildWorkflowDestination(requestContext, action, visibleWriteIds, readi
       statePathPrefix: runtime.statePathPrefix,
       routePatchPath: runtime.routePatchPath,
       commandQueuePath: runtime.commandQueuePath,
+      adoptionCheckpointPath: runtime.adoptionCheckpointPath,
       requiredCapabilities: requiredRuntimeCapabilities,
       missingCapabilities: missingRuntimeCapabilities,
+      binding: adoptionBinding,
       canApplyRoutePatch,
       canQueueCommand,
       supportsWorkflowHandoff: runtime.supportsWorkflowHandoff,
       adoptionToken: runtime.adoptionToken,
-      blockedReason: missingRuntimeCapabilities.length
+      blockedReason: !adoptionBinding.canAdopt
+        ? adoptionBinding.missingBindingReasons[0] || 'client-runtime-adoption-blocked'
+        : missingRuntimeCapabilities.length
         ? 'missing-client-runtime-capabilities'
         : !canApplyRoutePatch && !runtime.supportsWorkflowHandoff
           ? 'client-runtime-handoff-unsupported'
@@ -645,7 +741,7 @@ function normalizeScopedPermissionGrant(value, index, source = 'direct') {
     permissions,
     tenantIds: normalizeStringEntries(value.tenantIds || value.tenants || value.tenantId),
     workspaceIds: normalizeStringEntries(value.workspaceIds || value.workspaces || value.workspaceId),
-    operations: normalizeStringEntries(value.operations || value.operation),
+    operations: normalizeStringEntries(value.operations || value.operation).map(normalizeWriteOperation),
     schemes: normalizeStringEntries(value.schemes || value.scheme).map((scheme) => scheme.toLowerCase()),
     rootPaths
   };
@@ -755,6 +851,114 @@ function buildWriteScopeEvidence(write, boundary) {
   };
 }
 
+function localTargetClassFor(write) {
+  if (!['file', 'workspace', 'relative'].includes(write.scheme)) return 'external';
+  if (write.scheme === 'workspace') return 'workspace-uri';
+  if (write.scheme === 'relative') return 'workspace-relative';
+  if (write.targetPath?.addressing?.unc) return 'unc-file';
+  if (write.targetPath?.addressing?.windowsDrive) return 'windows-file';
+  if (write.targetPath?.addressing?.absolute) return 'absolute-file';
+  return 'file-uri';
+}
+
+function targetClaimRiskLevel(reasonCodes, decision) {
+  if (decision === 'blocked' || reasonCodes.some((code) => code.startsWith('target.blocking.'))) return 'blocking';
+  if (reasonCodes.some((code) => code.startsWith('target.review.'))) return 'review';
+  if (reasonCodes.some((code) => code.startsWith('target.info.'))) return 'informational';
+  return 'none';
+}
+
+function buildExternalWriteTargetClaim(write, boundary) {
+  const scopeEvidence = write.scopeEvidence || {};
+  const addressing = scopeEvidence.targetAddressing || {};
+  const localTarget = addressing.localTarget === true || ['file', 'workspace', 'relative'].includes(write.scheme);
+  const targetPath = write.targetPath?.path || '';
+  const canonicalTarget = localTarget
+    ? targetPath
+    : write.uri || '';
+  const rootScoped = !localTarget
+    || scopeEvidence.requiredRootCount === 0
+    || scopeEvidence.matchingRoots?.length > 0;
+  const declaredScopeSatisfied = (!boundary.requireDeclaredTenantId || Boolean(write.declaredTenantId))
+    && (!boundary.requireDeclaredWorkspaceId || Boolean(write.declaredWorkspaceId));
+  const tenantSatisfied = !write.declaredTenantId
+    || !boundary.tenantId
+    || write.declaredTenantId === boundary.tenantId
+    || !isolationAppliesToTenant(boundary);
+  const workspaceSatisfied = !write.declaredWorkspaceId
+    || !boundary.workspaceId
+    || write.declaredWorkspaceId === boundary.workspaceId
+    || !isolationAppliesToWorkspace(boundary);
+  const scopedPermissionSatisfied = write.permissionEvidence?.scopedAuthorizationSatisfied !== false;
+  const reasonCodes = [
+    !write.uri ? 'target.blocking.missing-uri' : null,
+    localTarget && !targetPath ? 'target.blocking.missing-canonical-path' : null,
+    write.targetPath?.escapedAboveRoot ? 'target.blocking.path-escapes-root' : null,
+    !declaredScopeSatisfied ? 'target.blocking.missing-declared-scope' : null,
+    !tenantSatisfied ? 'target.blocking.cross-tenant' : null,
+    !workspaceSatisfied ? 'target.blocking.cross-workspace' : null,
+    localTarget && !rootScoped ? 'target.blocking.workspace-root-miss' : null,
+    boundary.enforceActorPermissions && !scopedPermissionSatisfied ? 'target.blocking.missing-scoped-permission' : null,
+    addressing.anchorState === 'unanchored-host-absolute' && boundary.requireAnchoredLocalTargets
+      ? 'target.blocking.unanchored-host-absolute'
+      : null,
+    addressing.hostAbsolute && !addressing.anchoredToWorkspaceRoot ? 'target.review.host-absolute' : null,
+    addressing.fileUriAbsolute && !addressing.anchoredToWorkspaceRoot ? 'target.review.file-uri-absolute' : null,
+    addressing.unc ? 'target.review.unc-path' : null,
+    addressing.windowsDrive ? 'target.review.windows-drive-path' : null,
+    scopeEvidence.tenantInheritedFromBoundary ? 'target.info.tenant-inherited' : null,
+    scopeEvidence.workspaceInheritedFromBoundary ? 'target.info.workspace-inherited' : null
+  ].filter(Boolean);
+  const blockingReasonCodes = reasonCodes.filter((code) => code.startsWith('target.blocking.'));
+  const reviewReasonCodes = reasonCodes.filter((code) => code.startsWith('target.review.'));
+  const decision = blockingReasonCodes.length
+    ? 'blocked'
+    : reviewReasonCodes.length
+      ? 'review'
+      : 'allowed';
+  return {
+    schema: TARGET_CLAIM_SCHEMA,
+    writeId: write.id,
+    uri: write.uri,
+    scheme: write.scheme,
+    operation: write.operation,
+    rawOperation: write.rawOperation,
+    rawReviewStage: write.rawReviewStage,
+    normalizedFields: write.normalizedFields || [],
+    targetClass: localTargetClassFor(write),
+    canonicalTarget,
+    localTarget,
+    targetPath,
+    anchorState: addressing.anchorState || (localTarget ? 'unknown-local' : 'external'),
+    tenantId: write.tenantId,
+    workspaceId: write.workspaceId,
+    declaredTenantId: write.declaredTenantId,
+    declaredWorkspaceId: write.declaredWorkspaceId,
+    rootScoped,
+    matchingRoots: scopeEvidence.matchingRoots || [],
+    declaredScopeSatisfied,
+    tenantSatisfied,
+    workspaceSatisfied,
+    scopedPermissionSatisfied,
+    routeable: Boolean(write.uri && (!localTarget || targetPath)),
+    decision,
+    riskLevel: targetClaimRiskLevel(reasonCodes, decision),
+    reasonCodes,
+    blockingReasonCodes,
+    reviewReasonCodes,
+    fingerprint: stableStringify({
+      schema: TARGET_CLAIM_SCHEMA,
+      writeId: write.id,
+      scheme: write.scheme,
+      operation: write.operation,
+      canonicalTarget,
+      tenantId: write.tenantId,
+      workspaceId: write.workspaceId,
+      reasonCodes
+    })
+  };
+}
+
 function buildTargetAddressingEvidence(write, roots, matchingRoots) {
   const pathAddressing = write.targetPath?.addressing || {};
   const hasWorkspaceRootPolicy = roots.length > 0;
@@ -802,13 +1006,19 @@ function buildTargetAddressingEvidence(write, roots, matchingRoots) {
 function normalizeWrite(write, index) {
   const uri = normalizeUri(write?.uri || write?.target || write?.path);
   const bytes = Number.isFinite(write?.bytes) && write.bytes >= 0 ? Math.trunc(write.bytes) : null;
-  const declaredCapability = typeof write?.capability === 'string' ? write.capability.trim() : '';
+  const rawCapability = typeof write?.capability === 'string' ? write.capability.trim() : '';
+  const declaredCapability = rawCapability;
+  const rawOperation = typeof write?.operation === 'string' ? write.operation.trim() : '';
+  const operation = normalizeWriteOperation(rawOperation);
   const boundary = write?.boundary && typeof write.boundary === 'object' ? write.boundary : {};
   const tenantId = firstString(write?.tenantId, write?.tenant, boundary.tenantId);
   const workspaceId = firstString(write?.workspaceId, write?.workspace, boundary.workspaceId);
-  const reviewStage = WRITE_REVIEW_STAGES.includes(nonEmptyString(write?.reviewStage || write?.stage || write?.phase))
-    ? nonEmptyString(write?.reviewStage || write?.stage || write?.phase)
-    : 'draft';
+  const rawReviewStage = nonEmptyString(write?.reviewStage || write?.stage || write?.phase);
+  const reviewStage = normalizeWriteReviewStage(rawReviewStage);
+  const normalizedFields = [
+    ...(rawOperation && rawOperation !== operation ? ['operation'] : []),
+    ...(rawReviewStage && rawReviewStage !== reviewStage ? ['reviewStage'] : [])
+  ];
   const draftFingerprint = firstString(
     write?.draftFingerprint,
     write?.contentFingerprint,
@@ -829,15 +1039,19 @@ function normalizeWrite(write, index) {
     id: typeof write?.id === 'string' && write.id.trim() ? write.id.trim() : `write-${index + 1}`,
     uri,
     scheme: uri ? schemeFor(uri) : 'missing',
-    operation: typeof write?.operation === 'string' && write.operation.trim() ? write.operation.trim() : 'write',
+    operation,
+    rawOperation,
     bytes,
     capability: declaredCapability,
+    rawCapability,
     reason: typeof write?.reason === 'string' ? write.reason.trim() : '',
     tenantId,
     declaredTenantId: tenantId,
     workspaceId,
     declaredWorkspaceId: workspaceId,
     reviewStage,
+    rawReviewStage,
+    normalizedFields,
     draftVersion,
     draftFingerprint,
     draftPayloadFingerprint: draftPayload ? `payload:${draftPayload.length}:${draftPayload}` : ''
@@ -1373,6 +1587,20 @@ function buildSecurityBoundary(input, policy, requestContext) {
     boundary.writeOperationPermissions,
     input.policy?.operationPermissionMap
   );
+  const normalizedOperationPermissionMap = Object.fromEntries(
+    Object.entries(operationPermissionMap)
+      .map(([key, value]) => {
+        const rawKey = nonEmptyString(key);
+        const normalizedKey = rawKey === 'default'
+          ? rawKey
+          : rawKey
+            .split(':')
+            .map((part, index, parts) => index === parts.length - 1 ? normalizeWriteOperation(part) : part.toLowerCase())
+            .join(':');
+        return [normalizedKey, value];
+      })
+      .filter(([key]) => key)
+  );
   const writePermissionMode = ['global', 'scoped', 'hybrid'].includes(nonEmptyString(boundary.writePermissionMode || input.writePermissionMode))
     ? nonEmptyString(boundary.writePermissionMode || input.writePermissionMode)
     : 'hybrid';
@@ -1413,7 +1641,7 @@ function buildSecurityBoundary(input, policy, requestContext) {
     actorPermissions: [...effectivePermissions],
     requiredPermissions,
     scopedPermissionGrants: [...directScopedGrants, ...requestScopedGrants, ...roleScopedGrants],
-    operationPermissionMap,
+    operationPermissionMap: normalizedOperationPermissionMap,
     writePermissionMode,
     requireScopedWritePermissions,
     enforceActorPermissions,
@@ -1430,14 +1658,26 @@ function applyHostedBoundary(write, boundary) {
       ? normalizePathBoundary(write.uri)
       : null
   };
-  return {
+  const scopeEvidence = buildWriteScopeEvidence(scopedWrite, boundary);
+  const permissionEvidence = buildWritePermissionEvidence(scopedWrite, boundary);
+  const writeWithEvidence = {
     ...scopedWrite,
-    scopeEvidence: buildWriteScopeEvidence(scopedWrite, boundary),
-    permissionEvidence: buildWritePermissionEvidence(scopedWrite, boundary)
+    scopeEvidence,
+    permissionEvidence
+  };
+  return {
+    ...writeWithEvidence,
+    targetClaim: buildExternalWriteTargetClaim(writeWithEvidence, boundary)
   };
 }
 
 function boundaryDecisionForWrite(write, boundary) {
+  if (write.targetClaim?.blockingReasonCodes?.includes('target.blocking.missing-uri')) {
+    return { decision: 'blocked', severity: 'error', reason: 'missing-target-uri' };
+  }
+  if (write.targetClaim?.blockingReasonCodes?.includes('target.blocking.missing-canonical-path')) {
+    return { decision: 'blocked', severity: 'error', reason: 'missing-canonical-target-path' };
+  }
   if (boundary.missingPermissions.length) {
     return { decision: 'blocked', severity: 'error', reason: 'missing-required-permissions' };
   }
@@ -1551,6 +1791,7 @@ function buildDataContract(previewWrites, validationSummary, policy, requestCont
       boundaryScope: 'capabilitySecurity.externalWriteGuard.boundary.scope',
       boundaryScopeEvidence: 'capabilitySecurity.externalWriteGuard.boundary.scopeEvidenceByWriteId',
       boundaryPermissionEvidence: 'capabilitySecurity.externalWriteGuard.boundary.permissionEvidenceByWriteId',
+      boundaryTargetClaims: 'capabilitySecurity.externalWriteGuard.boundary.targetClaimsByWriteId',
       analyticsHistory: 'capabilitySecurity.externalWriteGuard.analytics.history',
       analyticsCounters: 'capabilitySecurity.externalWriteGuard.analytics.counters',
       exportSummary: 'capabilitySecurity.externalWriteGuard.analytics.exportSummary',
@@ -1600,10 +1841,16 @@ function buildDataContract(previewWrites, validationSummary, policy, requestCont
       statePathPrefix: requestContext.clientRuntime.statePathPrefix,
       routePatchPath: requestContext.clientRuntime.routePatchPath,
       commandQueuePath: requestContext.clientRuntime.commandQueuePath,
+      adoptionCheckpointPath: requestContext.clientRuntime.adoptionCheckpointPath,
       supportsRoutePatch: requestContext.clientRuntime.supportsRoutePatch,
       supportsCommandQueue: requestContext.clientRuntime.supportsCommandQueue,
       supportsWorkflowHandoff: requestContext.clientRuntime.supportsWorkflowHandoff,
       supportsInlineReview: requestContext.clientRuntime.supportsInlineReview,
+      adoptionRequired: requestContext.clientRuntime.adoptionRequired,
+      adoptionStrict: requestContext.clientRuntime.adoptionStrict,
+      adoptionRequestId: requestContext.clientRuntime.adoptionRequestId,
+      adoptionRevision: requestContext.clientRuntime.adoptionRevision,
+      adoptionCursor: requestContext.clientRuntime.adoptionCursor,
       declaredCapabilities: requestContext.clientRuntime.capabilities
     },
     acceptanceSnapshot: {
@@ -1713,7 +1960,123 @@ function buildDataContract(previewWrites, validationSummary, policy, requestCont
       operationPermissionMap: boundary.operationPermissionMap,
       permissionEvidenceByWriteId: Object.fromEntries(
         previewWrites.map((write) => [write.id, write.permissionEvidence])
-      )
+      ),
+      targetClaimsByWriteId: Object.fromEntries(
+        previewWrites.map((write) => [write.id, write.targetClaim])
+      ),
+      targetClaimSummary: {
+        schema: TARGET_CLAIM_SCHEMA,
+        total: previewWrites.length,
+        allowed: previewWrites.filter((write) => write.targetClaim?.decision === 'allowed').length,
+        review: previewWrites.filter((write) => write.targetClaim?.decision === 'review').length,
+        blocked: previewWrites.filter((write) => write.targetClaim?.decision === 'blocked').length,
+        reasonCounts: countBy(previewWrites.flatMap((write) => write.targetClaim?.reasonCodes || [])),
+        blockingReasonCounts: countBy(previewWrites.flatMap((write) => write.targetClaim?.blockingReasonCodes || [])),
+        reviewReasonCounts: countBy(previewWrites.flatMap((write) => write.targetClaim?.reviewReasonCodes || []))
+      },
+      normalizationSummary: {
+        normalizedWriteIds: previewWrites
+          .filter((write) => write.normalizedFields?.length)
+          .map((write) => write.id),
+        fieldsByWriteId: Object.fromEntries(
+          previewWrites
+            .filter((write) => write.normalizedFields?.length)
+            .map((write) => [write.id, write.normalizedFields])
+        ),
+        rawOperationByWriteId: Object.fromEntries(
+          previewWrites
+            .filter((write) => write.rawOperation && write.rawOperation !== write.operation)
+            .map((write) => [write.id, write.rawOperation])
+        ),
+        rawReviewStageByWriteId: Object.fromEntries(
+          previewWrites
+            .filter((write) => write.rawReviewStage && write.rawReviewStage !== write.reviewStage)
+            .map((write) => [write.id, write.rawReviewStage])
+        )
+      }
+    },
+    targetClaimSnapshot: {
+      schema: TARGET_CLAIM_SCHEMA,
+      claims: previewWrites.map((write) => ({
+        writeId: write.id,
+        decision: write.targetClaim?.decision || 'unknown',
+        riskLevel: write.targetClaim?.riskLevel || 'unknown',
+        targetClass: write.targetClaim?.targetClass || '',
+        anchorState: write.targetClaim?.anchorState || '',
+        routeable: write.targetClaim?.routeable === true,
+        canonicalTarget: write.targetClaim?.canonicalTarget || '',
+        reasonCodes: write.targetClaim?.reasonCodes || []
+      })),
+      blockedWriteIds: previewWrites
+        .filter((write) => write.targetClaim?.decision === 'blocked')
+        .map((write) => write.id),
+      reviewWriteIds: previewWrites
+        .filter((write) => write.targetClaim?.decision === 'review')
+        .map((write) => write.id)
+    },
+    boundaryTargetClaimContract: {
+      schema: TARGET_CLAIM_SCHEMA,
+      claimField: 'targetClaim',
+      claimMapField: 'boundarySnapshot.targetClaimsByWriteId',
+      canonicalTargetField: 'targetClaim.canonicalTarget',
+      normalizedFieldsField: 'targetClaim.normalizedFields',
+      routeableField: 'targetClaim.routeable',
+      decisionField: 'targetClaim.decision',
+      blockingReasonField: 'targetClaim.blockingReasonCodes',
+      reviewReasonField: 'targetClaim.reviewReasonCodes',
+      supportedDecisions: ['allowed', 'review', 'blocked'],
+      supportedRiskLevels: ['none', 'informational', 'review', 'blocking'],
+      normalizedInputFields: ['operation', 'reviewStage'],
+      writeOperationAliases: WRITE_OPERATION_ALIASES,
+      blockingReasons: [
+        'target.blocking.missing-uri',
+        'target.blocking.missing-canonical-path',
+        'target.blocking.path-escapes-root',
+        'target.blocking.missing-declared-scope',
+        'target.blocking.cross-tenant',
+        'target.blocking.cross-workspace',
+        'target.blocking.workspace-root-miss',
+        'target.blocking.missing-scoped-permission',
+        'target.blocking.unanchored-host-absolute'
+      ],
+      reviewReasons: [
+        'target.review.host-absolute',
+        'target.review.file-uri-absolute',
+        'target.review.unc-path',
+        'target.review.windows-drive-path'
+      ]
+    },
+    boundaryRuntimeAssertions: {
+      targetClaimsAreRouteable: previewWrites.every((write) => write.targetClaim?.routeable === true),
+      blockedClaimCount: previewWrites.filter((write) => write.targetClaim?.decision === 'blocked').length,
+      reviewClaimCount: previewWrites.filter((write) => write.targetClaim?.decision === 'review').length,
+      localClaimCount: previewWrites.filter((write) => write.targetClaim?.localTarget === true).length,
+      externalClaimCount: previewWrites.filter((write) => write.targetClaim?.localTarget === false).length,
+      unanchoredLocalClaimCount: previewWrites.filter((write) => (
+        write.targetClaim?.localTarget === true
+        && !['workspace-root', 'workspace-relative'].includes(write.targetClaim?.anchorState)
+      )).length
+    },
+    clientBoundaryDiagnostics: {
+      targetClaimsPath: 'clientReviewPacket.previewRows[].targetClaim',
+      routePatchClaimPath: 'clientReviewPacket.routePatch.set.capabilitySecurity.externalWriteGuard.targetClaimsByWriteId',
+      reviewPacketSummaryPath: 'clientReviewPacket.boundaryScope.targetClaimSummary',
+      recoveryClaimPath: 'persistedStatePatch.previewWrites[].targetClaim',
+      auditClaimPath: 'auditProof.reviewedTargets[].targetClaim'
+    },
+    boundaryClaimExports: {
+      jsonPointerPrefix: '/preview/writes',
+      csvColumns: [
+        'writeId',
+        'targetClaimDecision',
+        'targetClaimRiskLevel',
+        'targetClaimClass',
+        'targetClaimAnchorState',
+        'targetClaimCanonicalTarget',
+        'targetClaimReasonCodes'
+      ],
+      redactionSafeFields: ['writeId', 'decision', 'riskLevel', 'targetClass', 'anchorState', 'reasonCodes'],
+      sensitiveFields: ['canonicalTarget', 'uri', 'targetPath']
     },
     counters: {
       proposedWrites: validationSummary.total,
@@ -1912,6 +2275,9 @@ function buildProviderCapabilityNegotiation(provider, serviceContract, previewWr
     return {
       writeId: write.id,
       operation: write.operation,
+      rawOperation: write.rawOperation,
+      rawCapability: write.rawCapability,
+      normalizedFields: write.normalizedFields || [],
       scheme: write.scheme,
       requiredCapabilities,
       missingCapabilities,
@@ -2324,6 +2690,7 @@ function buildAnalyticsExportRows(previewWrites, acceptance, providerContract) {
       currentFingerprint: acceptance.currentWriteFingerprints[write.id] || '',
       acceptanceExpiresAt: acceptance.expiresAtByWriteId[write.id] || '',
       reviewStage: write.reviewStage,
+      rawReviewStage: write.rawReviewStage,
       acceptancePhase: approvalPhaseByWriteId[write.id]?.acceptancePhase || '',
       commitPhase: approvalPhaseByWriteId[write.id]?.commitPhase || '',
       approvalBoundaryState: '',
@@ -3812,12 +4179,15 @@ function buildClientPreviewRows(previewWrites, acceptance, providerContract) {
       target: write.uri || '(missing target)',
       targetScheme: write.scheme,
       operation: write.operation,
+      rawOperation: write.rawOperation,
       bytes: write.bytes,
       capability: write.capability,
+      rawCapability: write.rawCapability,
       tenantId: write.tenantId,
       workspaceId: write.workspaceId,
       targetPath: write.targetPath?.path || '',
       targetAddressing: write.scopeEvidence?.targetAddressing || null,
+      targetClaim: write.targetClaim || null,
       scopeEvidence: write.scopeEvidence,
       permissionEvidence: write.permissionEvidence,
       decision: write.decision,
@@ -3841,6 +4211,8 @@ function buildClientPreviewRows(previewWrites, acceptance, providerContract) {
       acceptanceExpired: expiredWriteIds.has(write.id),
       sendStageReady: write.reviewStage === 'send',
       reviewStage: write.reviewStage,
+      rawReviewStage: write.rawReviewStage,
+      normalizedFields: write.normalizedFields || [],
       draftVersion: write.draftVersion,
       draftFingerprint: write.draftFingerprint || write.draftPayloadFingerprint,
       providerHandoffState: providerHandoff?.state || providerContract.handoff.state,
@@ -3856,6 +4228,9 @@ function buildClientPreviewRows(previewWrites, acceptance, providerContract) {
         approvalPhaseByWriteId[write.id]?.acceptancePhase ? `acceptance-phase:${approvalPhaseByWriteId[write.id].acceptancePhase}` : '',
         approvalPhaseByWriteId[write.id]?.commitPhase ? `commit-phase:${approvalPhaseByWriteId[write.id].commitPhase}` : '',
         write.capability ? `capability:${write.capability}` : 'capability:missing',
+        write.targetClaim?.decision ? `target-claim:${write.targetClaim.decision}` : '',
+        write.targetClaim?.anchorState ? `target-anchor:${write.targetClaim.anchorState}` : '',
+        write.targetClaim?.blockingReasonCodes?.length ? `target-blockers:${write.targetClaim.blockingReasonCodes.join(',')}` : '',
         providerHandoff?.state ? `provider-handoff:${providerHandoff.state}` : '',
         providerHandoff?.dispatchBoundary?.blockerReason ? `provider-dispatch:${providerHandoff.dispatchBoundary.blockerReason}` : '',
         providerHandoff?.missingCapabilities?.length ? `provider-missing-capabilities:${providerHandoff.missingCapabilities.join(',')}` : '',
@@ -5403,11 +5778,17 @@ function buildPersistedStatePatch(now, requestContext, persistedState, recoveryS
       statePathPrefix: requestContext.clientRuntime.statePathPrefix,
       routePatchPath: requestContext.clientRuntime.routePatchPath,
       commandQueuePath: requestContext.clientRuntime.commandQueuePath,
+      adoptionCheckpointPath: requestContext.clientRuntime.adoptionCheckpointPath,
       supportsRoutePatch: requestContext.clientRuntime.supportsRoutePatch,
       supportsCommandQueue: requestContext.clientRuntime.supportsCommandQueue,
       supportsWorkflowHandoff: requestContext.clientRuntime.supportsWorkflowHandoff,
       supportsInlineReview: requestContext.clientRuntime.supportsInlineReview,
       capabilities: requestContext.clientRuntime.capabilities,
+      adoptionRequired: requestContext.clientRuntime.adoptionRequired,
+      adoptionStrict: requestContext.clientRuntime.adoptionStrict,
+      adoptionRequestId: requestContext.clientRuntime.adoptionRequestId,
+      adoptionRevision: requestContext.clientRuntime.adoptionRevision,
+      adoptionCursor: requestContext.clientRuntime.adoptionCursor,
       adoptionToken: requestContext.clientRuntime.adoptionToken
     },
     recoveryMode: recoveryStatus.mode,
@@ -6103,6 +6484,9 @@ function buildWorkflowHandoff(requestContext, previewWrites, acceptance, readine
       'capabilitySecurity.externalWriteGuard.workflowCanInlineAccept': destination.canInlineAccept,
       'capabilitySecurity.externalWriteGuard.runtimeAdoptionMode': destination.runtimeAdoption.mode,
       'capabilitySecurity.externalWriteGuard.runtimeAdoptionBlockedReason': destination.runtimeAdoption.blockedReason,
+      'capabilitySecurity.externalWriteGuard.runtimeAdoptionState': destination.runtimeAdoption.binding.state,
+      'capabilitySecurity.externalWriteGuard.runtimeAdoptionCheckpoint': destination.runtimeAdoption.binding.checkpoint,
+      'capabilitySecurity.externalWriteGuard.runtimeAdoptionNextAction': destination.runtimeAdoption.binding.userVisibleNextAction,
       'capabilitySecurity.externalWriteGuard.runtimeRequiredCapabilities': destination.runtimeAdoption.requiredCapabilities,
       'capabilitySecurity.externalWriteGuard.runtimeMissingCapabilities': destination.runtimeAdoption.missingCapabilities,
       'capabilitySecurity.externalWriteGuard.runtimeRoutePatchPath': destination.runtimeAdoption.routePatchPath,
@@ -6123,7 +6507,8 @@ function buildAuditProof(now, requestContext, policy, previewWrites, acceptance,
     workspaceId: write.workspaceId,
     targetPath: write.targetPath?.path || '',
     scopeEvidence: write.scopeEvidence,
-    permissionEvidence: write.permissionEvidence
+    permissionEvidence: write.permissionEvidence,
+    targetClaim: write.targetClaim
   }));
   return {
     type: 'external-write-guard.audit-proof',
@@ -6262,12 +6647,18 @@ function buildAuditProof(now, requestContext, policy, previewWrites, acceptance,
       statePathPrefix: requestContext.clientRuntime.statePathPrefix,
       routePatchPath: requestContext.clientRuntime.routePatchPath,
       commandQueuePath: requestContext.clientRuntime.commandQueuePath,
+      adoptionCheckpointPath: requestContext.clientRuntime.adoptionCheckpointPath,
       capabilities: requestContext.clientRuntime.capabilities,
       supportsRoutePatch: requestContext.clientRuntime.supportsRoutePatch,
       supportsCommandQueue: requestContext.clientRuntime.supportsCommandQueue,
       supportsWorkflowHandoff: requestContext.clientRuntime.supportsWorkflowHandoff,
       supportsInlineReview: requestContext.clientRuntime.supportsInlineReview,
       requestedHandoffMode: requestContext.clientRuntime.requestedHandoffMode,
+      adoptionRequired: requestContext.clientRuntime.adoptionRequired,
+      adoptionStrict: requestContext.clientRuntime.adoptionStrict,
+      adoptionRequestId: requestContext.clientRuntime.adoptionRequestId,
+      adoptionRevision: requestContext.clientRuntime.adoptionRevision,
+      adoptionCursor: requestContext.clientRuntime.adoptionCursor,
       adoptionTokenPresent: Boolean(requestContext.clientRuntime.adoptionToken)
     },
     boundaryEvidence: {

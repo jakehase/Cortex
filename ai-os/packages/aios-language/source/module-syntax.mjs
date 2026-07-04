@@ -1,44 +1,94 @@
 import {
   buildProfileActivationControlPanel,
+  buildProfileBoundaryReleaseDecision,
+  buildProfileTenantHandoffBoundaryPacket,
+  buildProfileTenantBoundaryIntentPacket,
+  buildProfileTenantLaunchGuardContract,
+  buildProfileTenantPermissionMatrix,
   buildProfileLifecycleControlState,
   buildProfileClientWorkflowHandoff,
   buildProfilePersistenceEnvelope,
   buildProfileClientRuntimeState,
   buildProfileExportSummary,
+  buildProfileAnalyticsExportLedger,
   buildProfileOperationalHealthExport,
+  buildProfileOperationalReadinessBrief,
+  buildProfileOperationalEscalationEnvelope,
+  buildProfileLaunchAcceptanceExport,
+  buildProfileClientPreviewRouteContract,
+  buildProfileStatusPublicationPacket,
   buildProfileOperationalFailureState,
   buildProfileBoundaryEvidencePacket,
   buildProfilePreviewAcceptanceState,
+  buildProfilePreviewNextStepDigest,
   buildProfileProviderServiceContract,
   buildProfileProviderAdoptionContract,
   buildProfileProviderSyncIntent,
+  buildProfileProviderSyncHandoffContract,
+  buildProfileProviderLaunchHandoffContract,
   buildProfilePrimaryExportPack,
   buildProfileAudienceExportLedger,
   buildProfileClientRuntimeAdoptionPack,
+  buildProfileClientResumeHandoffContract,
+  buildProfileClientResolutionBrief,
+  buildProfilePersistedStateRecoveryManifest,
   buildProfileRequestKernelBinding,
   buildProfileRestartRecoveryPacket,
+  buildProfileRestartReplayDecisionEnvelope,
+  buildProfileRestartStatusLedger,
+  buildProfileLifecycleClientControlPacket,
+  buildProfileLifecycleScheduleCheckpoint,
+  buildProfileLifecycleNextActionState,
+  buildProfileLifecycleSettingsControlContract,
+  buildProfileLaunchControlContract,
   compileProfileDeclaration,
   deriveProfileRuntimeContract
 } from './profile-declaration.mjs';
 import {
   buildFeatureGateAnalyticsReport,
+  buildFeatureGateAnalyticsPublicationSummary,
   buildFeatureGateClientAcceptancePackage,
+  buildFeatureGateClientActionQueue,
   buildFeatureGateClientWorkflowHandoff,
   buildFeatureGateBoundaryControlPlan,
+  buildFeatureGateBoundaryReleaseDecision,
+  buildFeatureGateTenantHandoffBoundaryPacket,
+  buildFeatureGateReleaseEvidencePack,
   buildFeatureGateLifecycleCommandPlan,
   buildFeatureGateLifecycleReadinessContract,
   buildFeatureGateKernelHandoffManifest,
+  buildFeatureGateOperationalLedger,
+  buildFeatureGateProviderSyncAcceptance,
+  buildFeatureGateProviderLaunchAcceptance,
+  buildFeatureGateProviderHandoffState,
+  buildFeatureGatePublicationTimeline,
   buildFeatureGateProviderPreviewAcceptance,
+  buildFeatureGateClientReadinessContract,
+  buildFeatureGateResumeStateEnvelope,
+  buildFeatureGateProviderControlPacket,
+  buildFeatureGateClientPreviewRouteContract,
+  buildFeatureGateLaunchPreviewContract,
+  buildFeatureGateClientNextStepDigest,
+  buildFeatureGateLaunchReadinessLedger,
+  buildFeatureGateOperationalControlPacket,
   buildFeatureGateStateSnapshot,
   deriveFeatureGateRecovery,
   evaluateFeatureGateContract
 } from './feature-gates.mjs';
 import {
   buildImportAnalyticsSnapshot,
+  buildImportAnalyticsRecoveryDigest,
+  buildImportOperationalEscalationEnvelope,
+  buildImportProviderOperationalBrief,
+  buildImportBoundaryReleaseDecision,
+  buildImportTenantHandoffBoundaryPacket,
   buildImportClientAcceptancePackage,
+  buildImportClientActionQueue,
   buildImportClientWorkflowHandoff,
   buildImportGateLifecycleControlPlan,
+  buildImportLifecycleCommandSurface,
   buildImportHistoryExport,
+  buildImportStatusJournal,
   buildImportTimelineReport,
   buildImportKernelHandoffManifest,
   buildImportLifecycleControlState,
@@ -48,8 +98,27 @@ import {
   buildImportProviderReadinessPlan,
   buildImportProviderAdoptionContract,
   buildImportProviderSyncCheckpoint,
+  buildImportProviderSyncBridge,
+  buildImportProviderSyncPublication,
+  buildImportProviderSyncStateEnvelope,
+  buildImportProviderLaunchGate,
+  buildImportProviderLaunchStateEnvelope,
+  buildImportTenantAuditReadinessContract,
   buildImportRuntimeAdoptionHandoff,
+  buildImportRuntimeClientContract,
+  buildImportRuntimeResumeEnvelope,
+  buildImportRuntimeHandoffState,
+  buildImportRuntimeClientControlPacket,
+  buildImportRuntimeRequestAdoptionCheckpoint,
   buildImportClientReadinessBrief,
+  buildImportClientPreviewDigest,
+  buildImportClientEvidenceManifest,
+  buildImportClientResolutionBrief,
+  buildImportClientLaunchReadinessLedger,
+  buildImportClientPreviewRouteContract,
+  buildImportTenantScopedPreviewRoute,
+  buildImportWorkspaceBoundaryManifest,
+  buildImportOperationalLedger,
   assessImportOperationalHealth,
   buildImportRecoveryHandoff,
   resolveImportSyntax
@@ -186,6 +255,28 @@ export function compileModuleSyntax(input = {}, options = {}) {
       requireExplicitAcceptance: options.requireImportBoundaryAcceptance === true,
       ...(options.importBoundaryAcceptance && typeof options.importBoundaryAcceptance === 'object'
         ? options.importBoundaryAcceptance
+      : {})
+    }
+  });
+  const importWorkspaceBoundaryManifest = buildImportWorkspaceBoundaryManifest(imports, {
+    ...options,
+    health: importHealth,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requestedPermissions: options.importRequestedPermissions ?? options.requestedPermissions,
+    importScopes: options.importScopes,
+    previousManifest: options.previousImportWorkspaceBoundaryManifest,
+    scope: {
+      tenantId: options.tenantId,
+      workspaceId: options.workspaceId,
+      requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+      requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+      role: options.role,
+      permissionMode: options.permissionMode
+    },
+    acceptance: {
+      requireExplicitAcceptance: options.requireImportBoundaryAcceptance === true,
+      ...(options.importBoundaryAcceptance && typeof options.importBoundaryAcceptance === 'object'
+        ? options.importBoundaryAcceptance
         : {})
     }
   });
@@ -213,6 +304,29 @@ export function compileModuleSyntax(input = {}, options = {}) {
     boundaryAcceptance: options.importBoundaryAcceptance,
     requiredAliases: options.requiredImportAliases,
     requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    importScopes: options.importScopes,
+    scope: {
+      tenantId: options.tenantId,
+      workspaceId: options.workspaceId,
+      requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+      requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+      role: options.role,
+      permissionMode: options.permissionMode
+    }
+  });
+  const importRuntimeClientContract = buildImportRuntimeClientContract(imports, {
+    ...options,
+    health: importHealth,
+    previousLifecycle: options.previousImportLifecycle,
+    previousAdoption: options.previousImportRuntimeAdoption,
+    previousClientContract: options.previousImportRuntimeClientContract,
+    command: options.importCommand,
+    settings: options.importSettings,
+    acceptance: options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    providerReadinessAcceptance: options.importProviderReadinessAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities,
     importScopes: options.importScopes,
     scope: {
       tenantId: options.tenantId,
@@ -282,6 +396,43 @@ export function compileModuleSyntax(input = {}, options = {}) {
     gateControlSettings: options.importGateControlSettings,
     requiredGateBySpecifier: options.importRequiredGateBySpecifier
   });
+  const profileBoundaryIntent = buildProfileTenantBoundaryIntentPacket(profileSource || options.profile || {}, {
+    ...options,
+    previousPacket: options.previousProfileTenantHandoffBoundary,
+    requestedCapabilities: options.profileRequestedCapabilities ?? options.requestedCapabilities,
+    requestedPermissions: options.profileRequestedPermissions,
+    acceptance: options.profileBoundaryIntentAcceptance,
+    tenantId: options.tenantId,
+    workspaceId: options.workspaceId,
+    requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+    requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+    role: options.role,
+    permissionMode: options.permissionMode
+  });
+  const featureOperationalControls = buildFeatureGateOperationalControlPacket(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousCheckpoint: options.previousFeatureGateRuntimeCheckpoint,
+    checkpointAcceptance: options.featureGateControlAcceptance,
+    providerService: profileProviderService.contract,
+    attempt: options.gateAttempt,
+    maxAttempts: options.maxGateAttempts
+  });
+  const importLifecycleCommandSurface = buildImportLifecycleCommandSurface(imports, {
+    ...options,
+    health: importHealth,
+    previousLifecycle: options.previousImportLifecycle,
+    command: options.importCommand,
+    settings: options.importSettings,
+    featureBoundary: {
+      ...featureBoundaryControls,
+      gates: gateState.gates
+    },
+    gateControlSettings: options.importGateControlSettings,
+    requiredAliases: options.requiredImportAliases
+  });
   const providerGatePreview = buildFeatureGateProviderPreviewAcceptance(gateSource || options.gates || {}, {
     operation,
     requestedEffects,
@@ -327,6 +478,17 @@ export function compileModuleSyntax(input = {}, options = {}) {
     requireExplicitAcceptance: options.requireFeatureClientAcceptance === true,
     requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities
   });
+  const featureClientActionQueue = buildFeatureGateClientActionQueue(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousAnalytics: options.previousGateAnalytics,
+    providerService: profileProviderService.contract,
+    acceptance: options.featureClientAcceptance ?? options.providerPreviewAcceptance,
+    providerPreviewAcceptance: options.providerPreviewAcceptance,
+    requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities
+  });
   const featureCommandPlan = buildFeatureGateLifecycleCommandPlan(gateSource || options.gates || {}, {
     ...options,
     operation,
@@ -351,6 +513,18 @@ export function compileModuleSyntax(input = {}, options = {}) {
     importGateLifecycle,
     providerPreview: providerGatePreview,
     readinessSettings: options.featureLifecycleReadinessSettings
+  });
+  const featureReleaseEvidence = buildFeatureGateReleaseEvidencePack(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousAnalytics: options.previousGateAnalytics,
+    previousEvidencePack: options.previousFeatureGateReleaseEvidence,
+    generation: options.gateGeneration,
+    commandPlan: featureCommandPlan,
+    lifecycleReadiness: featureLifecycleReadiness,
+    now: options.now ?? options.timestamp
   });
   const importClientWorkflow = buildImportClientWorkflowHandoff(imports, {
     ...options,
@@ -416,6 +590,75 @@ export function compileModuleSyntax(input = {}, options = {}) {
       permissionMode: options.permissionMode
     }
   });
+  const importClientPreviewDigest = buildImportClientPreviewDigest(importClientReadiness, {
+    ...options,
+    previousDigest: options.previousImportClientPreviewDigest,
+    requireExplicitAcceptance: options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true,
+    now: options.now ?? options.timestamp
+  });
+  const importClientResolutionBrief = buildImportClientResolutionBrief(imports, {
+    ...options,
+    health: importHealth,
+    previousBrief: options.previousImportClientReadinessBrief,
+    previousDigest: options.previousImportClientPreviewDigest,
+    previousResolutionBrief: options.previousImportClientResolutionBrief,
+    previousHistoryExport: options.previousImportHistoryExport,
+    previousAnalytics: options.previousImportAnalytics,
+    acceptance: options.importClientAcceptance ?? options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requireExplicitAcceptance: options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true,
+    now: options.now ?? options.timestamp
+  });
+  const importClientEvidenceManifest = buildImportClientEvidenceManifest(imports, {
+    ...options,
+    health: importHealth,
+    readinessBrief: importClientReadiness,
+    previewDigest: importClientPreviewDigest,
+    resolutionBrief: importClientResolutionBrief,
+    previousManifest: options.previousImportClientEvidenceManifest,
+    acceptance: options.importClientAcceptance ?? options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requireExplicitAcceptance: options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true,
+    now: options.now ?? options.timestamp
+  });
+  const importClientActionQueue = buildImportClientActionQueue(imports, {
+    ...options,
+    health: importHealth,
+    previousBrief: options.previousImportClientReadinessBrief,
+    previousDigest: options.previousImportClientPreviewDigest,
+    previousHistoryExport: options.previousImportHistoryExport,
+    previousAnalytics: options.previousImportAnalytics,
+    acceptance: options.importClientAcceptance ?? options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requireExplicitAcceptance: options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true
+  });
+  const importClientPreviewRoute = buildImportClientPreviewRouteContract(imports, {
+    ...options,
+    health: importHealth,
+    readinessBrief: importClientReadiness,
+    previewDigest: importClientPreviewDigest,
+    resolutionBrief: importClientResolutionBrief,
+    evidenceManifest: importClientEvidenceManifest,
+    actionQueue: importClientActionQueue,
+    previousRoute: options.previousImportClientPreviewRoute,
+    acceptance: options.importClientAcceptance ?? options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requireExplicitAcceptance: options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true,
+    now: options.now ?? options.timestamp
+  });
   const recovery = deriveFeatureGateRecovery({
     operation,
     requestedEffects: parsed.sections.effects,
@@ -453,6 +696,20 @@ export function compileModuleSyntax(input = {}, options = {}) {
     },
     requiredPreviewItems: options.requiredProfilePreviewItems
   });
+  const profileNextStepDigest = buildProfilePreviewNextStepDigest(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    persistedMemory: options.persistedMemory,
+    previousProviderState: options.previousProfileProviderState,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    acceptance: {
+      requireExplicitAcceptance: options.requireProfilePreviewAcceptance === true,
+      ...(options.profilePreviewAcceptance && typeof options.profilePreviewAcceptance === 'object'
+        ? options.profilePreviewAcceptance
+        : {})
+    },
+    requiredPreviewItems: options.requiredProfilePreviewItems
+  });
   const profileBoundaryEvidence = buildProfileBoundaryEvidencePacket(profileSource || options.profile || {}, {
     ...options,
     previousLifecycle: options.previousProfileLifecycle,
@@ -464,6 +721,36 @@ export function compileModuleSyntax(input = {}, options = {}) {
     profileCommand: options.profileCommand,
     settings: options.profileLifecycleSettings,
     now: options.now ?? options.timestamp
+  });
+  const profileTenantPermissionMatrix = buildProfileTenantPermissionMatrix(profileSource || options.profile || {}, {
+    ...options,
+    requestedPermissions: options.profileRequestedPermissions ?? options.requestedPermissions,
+    requestedCapabilities: options.profileRequestedCapabilities ?? options.requestedCapabilities,
+    requireStatusWrite: options.requireProfileStatusWrite
+  });
+  const profileTenantLaunchGuard = buildProfileTenantLaunchGuardContract(profileSource || options.profile || {}, {
+    ...options,
+    previousGuard: options.previousProfileTenantLaunchGuard,
+    previousPacket: options.previousProfileTenantHandoffBoundary,
+    previousEvidence: options.previousProfileBoundaryEvidence,
+    acceptance: options.profileBoundaryEvidenceAcceptance,
+    releaseAcceptance: options.profileBoundaryReleaseAcceptance,
+    handoffAcceptance: options.profileBoundaryHandoffAcceptance,
+    releasePolicy: options.profileBoundaryReleasePolicy,
+    requestedPermissions: options.profileRequestedPermissions ?? options.requestedPermissions,
+    requestedCapabilities: options.profileRequestedCapabilities ?? options.requestedCapabilities,
+    requireStatusWrite: options.requireProfileStatusWrite,
+    requireExplicitBoundaryRelease: options.requireProfileBoundaryLaunchRelease === true
+      || options.requireProfileBoundaryRelease === true,
+    now: options.now ?? options.timestamp
+  });
+  const moduleTenantLaunchGuard = buildModuleTenantLaunchGuardReport({
+    operation,
+    boundary,
+    profileTenantLaunchGuard,
+    previousReport: options.previousModuleTenantLaunchGuard,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleTenantLaunchGuardHistoryLimit ?? options.historyLimit
   });
   const profileOperationalHealth = buildProfileOperationalHealthExport(profileSource || options.profile || {}, {
     ...options,
@@ -504,6 +791,16 @@ export function compileModuleSyntax(input = {}, options = {}) {
     maxAttempts: options.maxProfileAttempts,
     now: options.now ?? options.timestamp
   });
+  const profileAnalyticsExportLedger = buildProfileAnalyticsExportLedger(profileSource || options.profile || {}, {
+    ...options,
+    previousExport: options.previousProfileExport,
+    previousHealthExport: options.previousProfileHealthExport,
+    previousPrimaryPack: options.previousProfilePrimaryPack,
+    previousLedger: options.previousProfileAnalyticsExportLedger,
+    healthExport: profileOperationalHealth,
+    primaryPack: profilePrimaryPack,
+    now: options.now ?? options.timestamp
+  });
   const profileAudienceLedger = buildProfileAudienceExportLedger(profileSource || options.profile || {}, {
     ...options,
     previousState: options.previousProfileState,
@@ -533,6 +830,30 @@ export function compileModuleSyntax(input = {}, options = {}) {
     previousHealthExport: options.previousProfileHealthExport,
     previousPrimaryPack: options.previousProfilePrimaryPack,
     previousRuntimeAdoption: options.previousProfileRuntimeAdoption,
+    previousProviderState: options.previousProfileProviderState,
+    previousAdoption: options.previousProfileProviderAdoption,
+    previousEvidence: options.previousProfileBoundaryEvidence,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    activationSettings: options.profileActivationSettings,
+    acceptance: options.profilePreviewAcceptance,
+    providerAcceptance: options.profileProviderAdoptionAcceptance,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts,
+    now: options.now ?? options.timestamp
+  });
+  const profileClientResolutionBrief = buildProfileClientResolutionBrief(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousExport: options.previousProfileExport,
+    previousHealthExport: options.previousProfileHealthExport,
+    previousPrimaryPack: options.previousProfilePrimaryPack,
+    previousRuntimeAdoption: options.previousProfileRuntimeAdoption,
+    previousResolutionBrief: options.previousProfileClientResolutionBrief,
     previousProviderState: options.previousProfileProviderState,
     previousAdoption: options.previousProfileProviderAdoption,
     previousEvidence: options.previousProfileBoundaryEvidence,
@@ -583,11 +904,63 @@ export function compileModuleSyntax(input = {}, options = {}) {
     attempt: options.profileAttempt,
     maxAttempts: options.maxProfileAttempts
   });
+  const profileRestartStatusLedger = buildProfileRestartStatusLedger(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousRestartPacket: options.previousProfileRestartRecovery,
+    previousLedger: options.previousProfileRestartStatusLedger,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts,
+    now: options.now ?? options.timestamp
+  });
+  const profileRestartReplayDecision = buildProfileRestartReplayDecisionEnvelope(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousRestartStatusLedger: options.previousProfileRestartStatusLedger,
+    previousReplayPlan: options.previousProfileRestartCommandReplay,
+    previousReplayDecision: options.previousProfileRestartReplayDecision,
+    previousCheckpoint: options.previousProfileRuntimeCheckpoint,
+    previousRuntimeAdoption: options.previousProfileRuntimeAdoption,
+    previousProviderState: options.previousProfileProviderState,
+    previousAdoption: options.previousProfileProviderAdoption,
+    previousManifest: options.previousProfileRecoveryManifest,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    commands: options.profileReplayCommands,
+    replayDecisionCommandKey: options.profileReplayDecisionCommandKey,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts,
+    now: options.now ?? options.timestamp
+  });
   const profileActivation = buildProfileActivationControlPanel(profileSource || options.profile || {}, {
     ...options,
     previousState: options.previousProfileState,
     previousLifecycle: options.previousProfileLifecycle,
     previousProviderState: options.previousProfileProviderState,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    activationSettings: options.profileActivationSettings,
+    acceptance: options.profilePreviewAcceptance,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts
+  });
+  const profileLaunchControls = buildProfileLaunchControlContract(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousProviderState: options.previousProfileProviderState,
+    previousLaunchControl: options.previousProfileLaunchControl,
     persistedMemory: options.persistedMemory,
     profileCommand: options.profileCommand,
     lifecycleCommand: options.profileLifecycleCommand,
@@ -641,6 +1014,57 @@ export function compileModuleSyntax(input = {}, options = {}) {
     syncCommandKey: options.importProviderSyncCommandKey,
     now: options.now ?? options.timestamp
   });
+  const profileProviderSyncHandoff = buildProfileProviderSyncHandoffContract(profileSource || options.profile || {}, {
+    ...options,
+    previousProviderState: options.previousProfileProviderState,
+    previousAdoption: options.previousProfileProviderAdoption,
+    previousSyncIntent: options.previousProfileProviderSyncIntent,
+    previousHandoff: options.previousProfileProviderSyncHandoff,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    requiredProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    acceptance: options.profileProviderAdoptionAcceptance,
+    handoffAcceptance: options.profileProviderSyncHandoffAcceptance,
+    importProviderSyncCheckpoint,
+    syncCursor: options.profileSyncCursor,
+    syncCommandKey: options.profileProviderSyncCommandKey,
+    now: options.now ?? options.timestamp
+  });
+  const profileProviderLaunchHandoff = buildProfileProviderLaunchHandoffContract(profileSource || options.profile || {}, {
+    ...options,
+    previousProviderState: options.previousProfileProviderState,
+    previousProfileProviderLaunchHandoff: options.previousProfileProviderLaunchHandoff,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    profileSyncCursor: options.profileSyncCursor,
+    launchCommandKey: options.profileProviderLaunchCommandKey,
+    now: options.now ?? options.timestamp
+  });
+  const featureLaunchPreview = buildFeatureGateLaunchPreviewContract(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousPreview: options.previousFeatureLaunchPreview,
+    acceptance: options.featureClientAcceptance ?? options.providerPreviewAcceptance,
+    launchAcceptance: options.featureLaunchPreviewAcceptance,
+    requireLaunchPreviewAcceptance: options.requireFeatureLaunchPreviewAcceptance === true,
+    providerService: profileProviderService.contract,
+    providerSyncHandoff: profileProviderSyncHandoff,
+    requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities
+  });
+  const featureNextStepDigest = buildFeatureGateClientNextStepDigest(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousAnalytics: options.previousGateAnalytics,
+    generation: options.gateGeneration,
+    acceptance: options.featureClientAcceptance ?? options.providerPreviewAcceptance,
+    launchAcceptance: options.featureLaunchPreviewAcceptance,
+    requireLaunchPreviewAcceptance: options.requireFeatureLaunchPreviewAcceptance === true,
+    providerService: profileProviderService.contract,
+    providerSyncHandoff: profileProviderSyncHandoff,
+    launchPreview: featureLaunchPreview,
+    requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities
+  });
   const importTimelineReport = buildImportTimelineReport(imports, {
     ...options,
     health: importHealth,
@@ -653,6 +1077,118 @@ export function compileModuleSyntax(input = {}, options = {}) {
     timelineLimit: options.importTimelineLimit ?? options.historyLimit,
     now: options.now ?? options.timestamp
   });
+  const importStatusJournal = buildImportStatusJournal(imports, {
+    ...options,
+    health: importHealth,
+    analytics: importAnalytics,
+    historyExport: importHistoryExport,
+    timelineReport: importTimelineReport,
+    lifecycle: importLifecycle,
+    previousStatusJournal: options.previousImportStatusJournal,
+    journalCommandKey: options.importStatusJournalCommandKey,
+    journalHistoryLimit: options.importStatusJournalHistoryLimit ?? options.historyLimit,
+    now: options.now ?? options.timestamp
+  });
+  const profileRecoveryManifest = buildProfilePersistedStateRecoveryManifest(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousManifest: options.previousProfileRecoveryManifest,
+    persistedMemory: options.persistedMemory,
+    statusJournal: options.profileStatusJournal ?? options.previousProfileStatusJournal,
+    command: options.profileCommand,
+    commandKey: options.profileRecoveryCommandKey ?? options.profileCommandKey,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts,
+    now: options.now ?? options.timestamp
+  });
+  const importAnalyticsRecovery = buildImportAnalyticsRecoveryDigest(imports, {
+    ...options,
+    health: importHealth,
+    analytics: importAnalytics,
+    historyExport: importHistoryExport,
+    timelineReport: importTimelineReport,
+    statusJournal: importStatusJournal,
+    previousDigest: options.previousImportAnalyticsRecoveryDigest,
+    commandKey: options.importAnalyticsRecoveryCommandKey,
+    now: options.now ?? options.timestamp
+  });
+  const moduleRecoveryRows = [
+    {
+      id: 'profile_recovery_manifest',
+      status: profileRecoveryManifest.status,
+      restartSafe: profileRecoveryManifest.restartSafe === true,
+      fingerprint: profileRecoveryManifest.fingerprint,
+      publish: profileRecoveryManifest.handoff?.publish === true,
+      nextAction: profileRecoveryManifest.recovery?.nextAction ?? profileRecoveryManifest.handoff?.nextAction,
+      blockedRows: profileRecoveryManifest.exportSummary?.blockedRows ?? [],
+      guardedRows: profileRecoveryManifest.exportSummary?.guardedRows ?? []
+    },
+    {
+      id: 'import_analytics_recovery',
+      status: importAnalyticsRecovery.status,
+      restartSafe: importAnalyticsRecovery.restartSafe === true,
+      fingerprint: importAnalyticsRecovery.fingerprint,
+      publish: importAnalyticsRecovery.handoff?.publish === true,
+      nextAction: importAnalyticsRecovery.recovery?.nextAction ?? importAnalyticsRecovery.handoff?.nextAction,
+      blockedRows: importAnalyticsRecovery.exportSummary?.blockedRows ?? [],
+      guardedRows: importAnalyticsRecovery.exportSummary?.guardedRows ?? []
+    }
+  ];
+  const moduleRecoveryStatus = moduleRecoveryRows.some((row) => row.status === 'blocked')
+    ? 'blocked'
+    : moduleRecoveryRows.some((row) => row.status === 'guarded' || row.status === 'degraded' || row.restartSafe !== true)
+      ? 'guarded'
+      : 'ready';
+  const moduleRecoveryFingerprint = [
+    'module_restart_recovery_digest',
+    operation,
+    moduleRecoveryStatus,
+    ...moduleRecoveryRows.map((row) => [
+      row.id,
+      row.status,
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('|');
+  const moduleRecoveryNextAction = moduleRecoveryStatus === 'blocked'
+    ? 'resolve_module_restart_recovery_blockers'
+    : moduleRecoveryStatus === 'guarded'
+      ? 'publish_module_restart_recovery_guarded'
+      : 'publish_module_restart_recovery_ready';
+  const moduleRestartRecoveryDigest = {
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_restart_recovery_digest',
+    operation,
+    status: moduleRecoveryStatus,
+    restartSafe: moduleRecoveryStatus === 'ready' && moduleRecoveryRows.every((row) => row.restartSafe),
+    fingerprint: moduleRecoveryFingerprint,
+    rows: moduleRecoveryRows,
+    readiness: {
+      blockingReasons: unique(moduleRecoveryRows.flatMap((row) => row.blockedRows.map((id) => `${row.id}:${id}`))),
+      guardedReasons: unique(moduleRecoveryRows.flatMap((row) => row.guardedRows.map((id) => `${row.id}:${id}`))),
+      nextAction: moduleRecoveryNextAction
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-restart-recovery',
+      statusChannel: moduleRecoveryStatus === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-restart-recovery',
+      publish: moduleRecoveryStatus !== 'ready' || moduleRecoveryRows.some((row) => row.publish),
+      severity: moduleRecoveryStatus === 'blocked' ? 'error' : moduleRecoveryStatus === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      nextAction: moduleRecoveryNextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_restart_recovery_digest',
+      operation,
+      status: moduleRecoveryStatus,
+      restartSafe: moduleRecoveryStatus === 'ready' && moduleRecoveryRows.every((row) => row.restartSafe),
+      fingerprint: moduleRecoveryFingerprint,
+      blockedRows: moduleRecoveryRows.flatMap((row) => row.blockedRows.map((id) => `${row.id}:${id}`)).sort(),
+      guardedRows: moduleRecoveryRows.flatMap((row) => row.guardedRows.map((id) => `${row.id}:${id}`)).sort(),
+      nextAction: moduleRecoveryNextAction
+    }
+  };
   const featureKernelManifest = buildFeatureGateKernelHandoffManifest(gateSource || options.gates || {}, {
     ...options,
     operation,
@@ -667,6 +1203,250 @@ export function compileModuleSyntax(input = {}, options = {}) {
     providerReadiness: importProviderReadiness,
     requiredAliases: options.requiredImportAliases,
     requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs
+  });
+  const profileLifecycleNextAction = buildProfileLifecycleNextActionState(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousProviderState: options.previousProfileProviderState,
+    previousLaunchControl: options.previousProfileLaunchControl,
+    previousAdoption: options.previousProfileProviderAdoption,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    providerAdoptionAcceptance: options.profileProviderAdoptionAcceptance,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts
+  });
+  const profileLifecycleSettingsControls = buildProfileLifecycleSettingsControlContract(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousControlContract: options.previousProfileLifecycleSettingsControls,
+    previousProviderState: options.previousProfileProviderState,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    clientControlAcceptance: options.profileLifecycleControlAcceptance,
+    requireExplicitControlAcceptance: options.requireProfileLifecycleControlAcceptance,
+    requiredControlRows: options.requiredProfileLifecycleControlRows,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts,
+    now: options.now ?? options.timestamp
+  });
+  const profileLifecycleScheduleCheckpoint = buildProfileLifecycleScheduleCheckpoint(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousControlContract: options.previousProfileLifecycleSettingsControls,
+    previousCheckpoint: options.previousProfileLifecycleScheduleCheckpoint,
+    previousProviderState: options.previousProfileProviderState,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    clientControlAcceptance: options.profileLifecycleControlAcceptance,
+    profileLifecycleScheduleCommandKey: options.profileLifecycleScheduleCommandKey,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts,
+    now: options.now ?? options.timestamp
+  });
+  const featureProviderHandoff = buildFeatureGateProviderHandoffState(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousReadiness: options.previousFeatureLifecycleReadiness,
+    generation: options.gateGeneration,
+    providerService: profileProviderService.contract,
+    providerPreviewAcceptance: options.providerPreviewAcceptance,
+    requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities
+  });
+  const importRuntimeHandoff = buildImportRuntimeHandoffState(imports, {
+    ...options,
+    health: importHealth,
+    providerReadinessAcceptance: options.importProviderReadinessAcceptance,
+    acceptance: options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    profileProviderSyncIntent,
+    previousRuntimeClientContract: options.previousImportRuntimeClientContract,
+    previousImportRuntimeAdoption: options.previousImportRuntimeAdoption,
+    previousCheckpoint: options.previousImportProviderSyncCheckpoint
+  });
+  const profileLifecycleClientControls = buildProfileLifecycleClientControlPacket(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousControlContract: options.previousProfileLifecycleSettingsControls,
+    previousPacket: options.previousProfileLifecycleClientControlPacket,
+    previousProviderAdoption: options.previousProfileProviderAdoption,
+    previousLaunchControl: options.previousProfileLaunchControl,
+    persistedMemory: options.persistedMemory,
+    settings: options.profileLifecycleSettings,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    controlCommandKey: options.profileLifecycleControlCommandKey,
+    clientControlAcceptance: options.profileLifecycleControlAcceptance,
+    requireExplicitControlAcceptance: options.requireProfileLifecycleControlAcceptance,
+    requiredControlRows: options.requiredProfileLifecycleControlRows,
+    providerAdoptionAcceptance: options.profileProviderAdoptionAcceptance,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities
+  });
+  const featureProviderControls = buildFeatureGateProviderControlPacket(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousReadiness: options.previousFeatureLifecycleReadiness,
+    generation: options.gateGeneration,
+    providerService: profileProviderService.contract,
+    providerPreviewAcceptance: options.providerPreviewAcceptance,
+    providerSyncAcceptance: options.featureProviderSyncAcceptance,
+    requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities
+  });
+  const importRuntimeClientControls = buildImportRuntimeClientControlPacket(imports, {
+    ...options,
+    health: importHealth,
+    previousResumeEnvelope: options.previousImportRuntimeResumeEnvelope,
+    previousLifecycle: options.previousImportLifecycle,
+    previousRuntimeClientContract: options.previousImportRuntimeClientContract,
+    command: options.importCommand,
+    settings: options.importSettings,
+    acceptance: options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    providerReadinessAcceptance: options.importProviderReadinessAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requireExplicitAcceptance: options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true
+  });
+  const importRuntimeRequestAdoption = buildImportRuntimeRequestAdoptionCheckpoint(imports, {
+    ...options,
+    health: importHealth,
+    previousCheckpoint: options.previousImportRuntimeRequestAdoption,
+    previousLifecycle: options.previousImportLifecycle,
+    previousAdoption: options.previousImportRuntimeAdoption,
+    previousClientContract: options.previousImportRuntimeClientContract,
+    previousRuntimeClientControls: options.previousImportRuntimeClientControls,
+    providerSyncCheckpoint: importProviderSyncCheckpoint,
+    command: options.importCommand,
+    settings: options.importSettings,
+    acceptance: options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    providerReadinessAcceptance: options.importProviderReadinessAcceptance,
+    request: options.importRequest ?? options.request,
+    requestKey: options.importRequestKey ?? options.requestKey,
+    acceptedAliases: options.importAcceptedAliases,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs
+  });
+  const moduleClientControlRoom = buildModuleClientControlRoomContract({
+    operation,
+    profileLifecycleClientControls,
+    featureProviderControls,
+    importRuntimeClientControls,
+    previousControlRoom: options.previousModuleClientControlRoom,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleClientControlRoomHistoryLimit ?? options.historyLimit
+  });
+  const moduleWorkflowNextAction = buildModuleWorkflowNextActionDigest({
+    operation,
+    profileLifecycleNextAction,
+    featureProviderHandoff,
+    importRuntimeHandoff,
+    previousDigest: options.previousModuleWorkflowNextAction,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleWorkflowNextActionHistoryLimit ?? options.historyLimit
+  });
+  const profileBoundaryRelease = buildProfileBoundaryReleaseDecision(profileSource || options.profile || {}, {
+    ...options,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousState: options.previousProfileState,
+    persistedMemory: options.persistedMemory,
+    lifecycleCommand: options.profileLifecycleCommand,
+    profileCommand: options.profileCommand,
+    settings: options.profileLifecycleSettings,
+    acceptance: options.profileBoundaryReleaseAcceptance ?? options.profileBoundaryEvidenceAcceptance,
+    releasePolicy: options.profileBoundaryReleasePolicy
+  });
+  const featureBoundaryRelease = buildFeatureGateBoundaryReleaseDecision(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousReadiness: options.previousFeatureLifecycleReadiness,
+    featureBoundary: featureBoundaryControls,
+    profileLifecycle,
+    importLifecycle,
+    importGateLifecycle,
+    providerPreview: providerGatePreview,
+    releasePolicy: options.featureBoundaryReleasePolicy
+  });
+  const importBoundaryRelease = buildImportBoundaryReleaseDecision(imports, {
+    ...options,
+    health: importHealth,
+    previousLifecycle: options.previousImportLifecycle,
+    command: options.importCommand,
+    settings: options.importSettings,
+    acceptance: options.importBoundaryReleaseAcceptance ?? options.importBoundaryAcceptance,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    importScopes: options.importScopes,
+    releasePolicy: options.importBoundaryReleasePolicy,
+    scope: {
+      tenantId: options.tenantId,
+      workspaceId: options.workspaceId,
+      requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+      requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+      role: options.role,
+      permissionMode: options.permissionMode
+    }
+  });
+  const profileTenantHandoffBoundary = buildProfileTenantHandoffBoundaryPacket(profileSource || options.profile || {}, {
+    ...options,
+    previousPacket: options.previousProfileTenantHandoffBoundary,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousState: options.previousProfileState,
+    persistedMemory: options.persistedMemory,
+    acceptance: options.profileBoundaryHandoffAcceptance ?? options.profileBoundaryReleaseAcceptance,
+    releasePolicy: options.profileBoundaryReleasePolicy
+  });
+  const featureTenantHandoffBoundary = buildFeatureGateTenantHandoffBoundaryPacket(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousPacket: options.previousFeatureTenantHandoffBoundary,
+    releasePolicy: options.featureBoundaryReleasePolicy
+  });
+  const importTenantHandoffBoundary = buildImportTenantHandoffBoundaryPacket(imports, {
+    ...options,
+    health: importHealth,
+    previousPacket: options.previousImportTenantHandoffBoundary,
+    acceptance: options.importBoundaryHandoffAcceptance ?? options.importBoundaryReleaseAcceptance,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    importScopes: options.importScopes,
+    releasePolicy: options.importBoundaryReleasePolicy,
+    scope: {
+      tenantId: options.tenantId,
+      workspaceId: options.workspaceId,
+      requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+      requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+      role: options.role,
+      permissionMode: options.permissionMode
+    }
+  });
+  const tenantHandoffBoundary = buildModuleTenantHandoffBoundaryMatrix({
+    operation,
+    profileTenantHandoffBoundary,
+    featureTenantHandoffBoundary,
+    importTenantHandoffBoundary,
+    previousMatrix: options.previousModuleTenantHandoffBoundary,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleTenantHandoffHistoryLimit ?? options.historyLimit
   });
   const diagnostics = [
     ...(parsed.diagnostics ?? []),
@@ -697,8 +1477,30 @@ export function compileModuleSyntax(input = {}, options = {}) {
     ...importTimelineReport.diagnostics.filter((item) => (
       options.enforceImportTimelineReport === true ? item.level === 'error' : item.level === 'fatal'
     )),
+    ...importStatusJournal.diagnostics.filter((item) => (
+      options.enforceImportStatusJournal === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileRecoveryManifest.diagnostics.filter((item) => (
+      options.enforceProfileRecoveryManifest === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...importAnalyticsRecovery.diagnostics.filter((item) => (
+      options.enforceImportAnalyticsRecovery === true ? item.level === 'error' : item.level === 'fatal'
+    )),
     ...importClientReadiness.diagnostics.filter((item) => (
       options.enforceImportClientReadiness === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...importClientPreviewRoute.diagnostics.filter((item) => (
+      options.enforceImportClientPreviewRoute === true || options.requireImportPreviewAcceptance === true
+        ? item.level === 'error'
+        : item.level === 'fatal'
+    )),
+    ...importClientPreviewDigest.diagnostics.filter((item) => (
+      options.enforceImportPreviewDigest === true || options.requireImportPreviewAcceptance === true
+        ? item.level === 'error'
+        : item.level === 'fatal'
+    )),
+    ...importClientResolutionBrief.diagnostics.filter((item) => (
+      options.enforceImportClientResolutionBrief === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...importProviderContract.diagnostics.filter((item) => item.level === 'error'),
     ...importProviderReadiness.diagnostics.filter((item) => (
@@ -710,14 +1512,29 @@ export function compileModuleSyntax(input = {}, options = {}) {
     ...importRuntimeAdoption.diagnostics.filter((item) => (
       options.enforceImportRuntimeAdoption === true ? item.level === 'error' : item.level === 'fatal'
     )),
+    ...importRuntimeClientContract.diagnostics.filter((item) => (
+      options.enforceImportRuntimeClientContract === true ? item.level === 'error' : item.level === 'fatal'
+    )),
     ...profileProviderAdoption.diagnostics.filter((item) => (
       options.enforceProfileProviderAdoption === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...profileProviderSyncIntent.diagnostics.filter((item) => (
       options.enforceProfileProviderSync === true ? item.level === 'error' : item.level === 'fatal'
     )),
+    ...profileProviderSyncHandoff.diagnostics.filter((item) => (
+      options.enforceProfileProviderSyncHandoff === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileProviderLaunchHandoff.diagnostics.filter((item) => (
+      options.enforceProfileProviderLaunch === true ? item.level === 'error' : item.level === 'fatal'
+    )),
     ...importProviderSyncCheckpoint.diagnostics.filter((item) => (
       options.enforceImportProviderSync === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...featureLaunchPreview.diagnostics.filter((item) => (
+      options.enforceFeatureLaunchPreview === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...featureNextStepDigest.diagnostics.filter((item) => (
+      options.enforceFeatureNextStepDigest === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...featureKernelManifest.diagnostics.filter((item) => (
       options.enforceKernelHandoffManifest === true ? item.level === 'error' : item.level === 'fatal'
@@ -725,11 +1542,38 @@ export function compileModuleSyntax(input = {}, options = {}) {
     ...importKernelManifest.diagnostics.filter((item) => (
       options.enforceKernelHandoffManifest === true ? item.level === 'error' : item.level === 'fatal'
     )),
+    ...profileBoundaryRelease.diagnostics.filter((item) => (
+      options.enforceBoundaryRelease === true || options.enforceProfileBoundaryRelease === true
+        ? item.level === 'error'
+        : item.level === 'fatal'
+    )),
+    ...featureBoundaryRelease.diagnostics.filter((item) => (
+      options.enforceBoundaryRelease === true || options.enforceFeatureBoundaryRelease === true
+        ? item.level === 'error'
+        : item.level === 'fatal'
+    )),
+    ...importBoundaryRelease.diagnostics.filter((item) => (
+      options.enforceBoundaryRelease === true || options.enforceImportBoundaryRelease === true
+        ? item.level === 'error'
+        : item.level === 'fatal'
+    )),
+    ...tenantHandoffBoundary.diagnostics.filter((item) => (
+      options.enforceTenantHandoffBoundary === true ? item.level === 'error' : item.level === 'fatal'
+    )),
     ...providerAdoption.diagnostics.filter((item) => (
       options.enforceModuleProviderAdoption === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...profileBoundaryEvidence.diagnostics.filter((item) => (
       options.enforceProfileBoundaryEvidence === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileTenantPermissionMatrix.diagnostics.filter((item) => (
+      options.enforceProfilePermissionMatrix === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileTenantLaunchGuard.diagnostics.filter((item) => (
+      options.enforceProfileTenantLaunchGuard === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...moduleTenantLaunchGuard.diagnostics.filter((item) => (
+      options.enforceModuleTenantLaunchGuard === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...profileOperationalHealth.diagnostics.filter((item) => (
       options.enforceProfileOperationalHealth === true ? item.level === 'error' : item.level === 'fatal'
@@ -737,28 +1581,43 @@ export function compileModuleSyntax(input = {}, options = {}) {
     ...profilePrimaryPack.diagnostics.filter((item) => (
       options.enforceProfilePrimaryPack === true ? item.level === 'error' : item.level === 'fatal'
     )),
+    ...profileAnalyticsExportLedger.diagnostics.filter((item) => (
+      options.enforceProfileAnalyticsExportLedger === true ? item.level === 'error' : item.level === 'fatal'
+    )),
     ...profileAudienceLedger.diagnostics.filter((item) => (
       options.enforceProfileAudienceLedger === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...profileRuntimeAdoption.diagnostics.filter((item) => (
       options.enforceProfileRuntimeAdoption === true ? item.level === 'error' : item.level === 'fatal'
     )),
+    ...profileClientResolutionBrief.diagnostics.filter((item) => (
+      options.enforceProfileClientResolutionBrief === true ? item.level === 'error' : item.level === 'fatal'
+    )),
     ...profileRequestKernelBinding.diagnostics.filter((item) => (
       options.enforceProfileRequestKernelBinding === true ? item.level === 'error' : item.level === 'fatal'
-    )),
-    ...moduleRuntimeAdoption.diagnostics.filter((item) => (
-      options.enforceModuleRuntimeAdoption === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...profileRestartRecovery.diagnostics.filter((item) => (
       options.enforceProfileRestartRecovery === true ? item.level === 'error' : item.level === 'fatal'
     )),
+    ...profileRestartStatusLedger.diagnostics.filter((item) => (
+      options.enforceProfileRestartStatusLedger === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileRestartReplayDecision.diagnostics.filter((item) => (
+      options.enforceProfileRestartReplayDecision === true ? item.level === 'error' : item.level === 'fatal'
+    )),
     ...profileActivation.diagnostics.filter((item) => (
       options.enforceProfileActivation === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileLaunchControls.diagnostics.filter((item) => (
+      options.enforceProfileLaunchControls === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...profilePreviewAcceptance.diagnostics.filter((item) => (
       options.enforceProfilePreviewAcceptance === true || options.requireProfilePreviewAcceptance === true
         ? item.level === 'error'
         : item.level === 'fatal'
+    )),
+    ...profileNextStepDigest.diagnostics.filter((item) => (
+      options.enforceProfileNextStepDigest === true ? item.level === 'error' : item.level === 'fatal'
     )),
     ...profileLifecycle.diagnostics.filter((item) => (
       options.enforceProfileLifecycle === true ? item.level === 'error' : item.level === 'fatal'
@@ -768,9 +1627,45 @@ export function compileModuleSyntax(input = {}, options = {}) {
     )),
     ...clientRuntime.diagnostics.filter((item) => (
       options.enforceClientRuntime === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileLifecycleNextAction.diagnostics.filter((item) => (
+      options.enforceProfileLifecycleNextAction === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...profileLifecycleSettingsControls.diagnostics.filter((item) => (
+      options.enforceProfileLifecycleSettingsControls === true
+        || options.requireProfileLifecycleControlAcceptance === true
+        ? item.level === 'error'
+        : item.level === 'fatal'
+    )),
+    ...profileLifecycleScheduleCheckpoint.diagnostics.filter((item) => (
+      options.enforceProfileLifecycleSchedule === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...featureProviderHandoff.diagnostics.filter((item) => (
+      options.enforceFeatureProviderHandoff === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...importRuntimeHandoff.diagnostics.filter((item) => (
+      options.enforceImportRuntimeHandoff === true ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...importRuntimeRequestAdoption.diagnostics.filter((item) => (
+      options.enforceImportRuntimeRequestAdoption === true
+        || options.requireImportRequestAcceptance === true
+        ? item.level === 'error'
+        : item.level === 'fatal'
+    )),
+    ...moduleWorkflowNextAction.diagnostics.filter((item) => (
+      options.enforceModuleWorkflowNextAction === true ? item.level === 'error' : item.level === 'fatal'
     ))
   ];
   const ok = !diagnostics.some((item) => item.level === 'error');
+  const moduleBoundaryRelease = buildModuleBoundaryReleaseReport({
+    operation,
+    profileBoundaryRelease,
+    featureBoundaryRelease,
+    importBoundaryRelease,
+    previousReport: options.previousModuleBoundaryRelease,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleBoundaryReleaseHistoryLimit ?? options.historyLimit
+  });
   const operationalStatus = buildModuleOperationalStatus({
     profilePersistence,
     profileFailure,
@@ -801,7 +1696,10 @@ export function compileModuleSyntax(input = {}, options = {}) {
     profileAudienceLedger,
     profileRuntimeAdoption,
     profileRestartRecovery,
+    profileRestartStatusLedger,
+    profileRestartReplayDecision,
     profileActivation,
+    profileLifecycleSettingsControls,
     featureBoundaryControls,
     importGateLifecycle,
     providerGatePreview,
@@ -836,7 +1734,10 @@ export function compileModuleSyntax(input = {}, options = {}) {
     profileAudienceLedger,
     profileRuntimeAdoption,
     profileRestartRecovery,
+    profileRestartStatusLedger,
+    profileRestartReplayDecision,
     profileActivation,
+    profileLifecycleSettingsControls,
     featureBoundaryControls,
     importGateLifecycle,
     providerGatePreview,
@@ -872,7 +1773,9 @@ export function compileModuleSyntax(input = {}, options = {}) {
     profileAudienceLedger,
     profileRuntimeAdoption,
     profileRestartRecovery,
+    profileRestartStatusLedger,
     profileActivation,
+    profileLifecycleSettingsControls,
     featureBoundaryControls,
     featureCommandPlan,
     featureLifecycleReadiness,
@@ -907,6 +1810,7 @@ export function compileModuleSyntax(input = {}, options = {}) {
     moduleRuntimeAdoption,
     profileRestartRecovery,
     profileActivation,
+    profileLifecycleSettingsControls,
     profileBoundaryEvidence,
     operationalStatus,
     operationalActionPlan,
@@ -916,7 +1820,10 @@ export function compileModuleSyntax(input = {}, options = {}) {
   const launchAcceptance = buildModuleLaunchAcceptancePackage({
     operation,
     profilePreviewAcceptance,
+    profileNextStepDigest,
     featureClientAcceptance,
+    featureNextStepDigest,
+    featureLaunchPreview,
     importClientAcceptance,
     clientWorkflowHandoff,
     exportReadiness,
@@ -936,6 +1843,7 @@ export function compileModuleSyntax(input = {}, options = {}) {
     featureLifecycleReadiness,
     importHistoryExport,
     importClientReadiness,
+    importClientPreviewDigest,
     importLifecycle,
     importProviderContract,
     importProviderReadiness,
@@ -948,6 +1856,7 @@ export function compileModuleSyntax(input = {}, options = {}) {
     profileRuntimeAdoption,
     profileRequestKernelBinding,
     profileRestartRecovery,
+    profileRestartStatusLedger,
     providerGatePreview,
     operationalStatus,
     operationalActionPlan,
@@ -959,9 +1868,727 @@ export function compileModuleSyntax(input = {}, options = {}) {
     previousPack: options.previousOperationsPack,
     now: options.now ?? options.timestamp
   });
+  const profileStatusPublication = buildProfileStatusPublicationPacket(profileOperationalHealth, {
+    ...options,
+    previousPublication: options.previousProfileStatusPublication,
+    maxPublicationAgeMs: options.profileStatusPublicationMaxAgeMs ?? options.maxPublicationAgeMs,
+    now: options.now ?? options.timestamp
+  });
+  const profileOperationalEscalation = buildProfileOperationalEscalationEnvelope(profileOperationalHealth, {
+    ...options,
+    publication: profileStatusPublication,
+    previousEscalation: options.previousProfileOperationalEscalation,
+    owners: options.profileEscalationOwners,
+    thresholds: options.profileEscalationThresholds,
+    now: options.now ?? options.timestamp
+  });
+  const importOperationalEscalation = buildImportOperationalEscalationEnvelope(imports, {
+    ...options,
+    health: importHealth,
+    recoveryDigest: importAnalyticsRecovery,
+    providerContract: importProviderContract,
+    providerReadiness: importProviderReadiness,
+    previousEscalation: options.previousImportOperationalEscalation,
+    owners: options.importEscalationOwners,
+    thresholds: options.importEscalationThresholds,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requiredAliases: options.requiredImportAliases,
+    now: options.now ?? options.timestamp
+  });
+  const moduleOperationalEscalation = buildModuleOperationalEscalationMatrix({
+    operation,
+    profileOperationalEscalation,
+    importOperationalEscalation,
+    operationalStatus,
+    previousEscalation: options.previousModuleOperationalEscalation,
+    owners: options.moduleEscalationOwners,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleEscalationHistoryLimit ?? options.historyLimit
+  });
+  const featureGatePublication = buildFeatureGatePublicationTimeline(gateAnalytics, {
+    ...options,
+    previousPublication: options.previousFeatureGatePublication,
+    maxPublicationAgeMs: options.featureGatePublicationMaxAgeMs ?? options.maxPublicationAgeMs,
+    now: options.now ?? options.timestamp
+  });
+  const importProviderSyncPublication = buildImportProviderSyncPublication(importProviderSyncCheckpoint, {
+    ...options,
+    previousPublication: options.previousImportProviderSyncPublication,
+    maxPublicationAgeMs: options.importProviderSyncPublicationMaxAgeMs ?? options.maxPublicationAgeMs,
+    now: options.now ?? options.timestamp
+  });
+  const importProviderSyncBridge = buildImportProviderSyncBridge(importProviderSyncCheckpoint, {
+    ...options,
+    publication: importProviderSyncPublication,
+    profileProviderSyncIntent,
+    previousBridge: options.previousImportProviderSyncBridge,
+    requiredAliases: options.requiredImportAliases,
+    acceptedAliases: options.importProviderSyncBridgeAcceptedAliases,
+    bridgeAcceptance: options.importProviderSyncBridgeAcceptance,
+    requireExplicitBridgeAcceptance: options.requireImportProviderSyncBridgeAcceptance,
+    publicationAgeMs: options.importProviderSyncPublicationAgeMs,
+    maxPublicationAgeMs: options.importProviderSyncBridgeMaxAgeMs ?? options.maxPublicationAgeMs,
+    now: options.now ?? options.timestamp
+  });
+  const importProviderLaunchGate = buildImportProviderLaunchGate(importProviderSyncBridge, {
+    ...options,
+    publication: importProviderSyncPublication,
+    checkpoint: importProviderSyncCheckpoint,
+    previousGate: options.previousImportProviderLaunchGate,
+    requiredAliases: options.requiredImportAliases,
+    waivedAliases: options.importProviderLaunchWaivers,
+    allowDegradedLaunch: options.allowImportProviderDegradedLaunch,
+    requireProviderSyncPublication: options.requireImportProviderSyncPublication,
+    requireKernelHandoff: options.requireImportProviderKernelHandoff,
+    now: options.now ?? options.timestamp
+  });
+  const importProviderSyncState = buildImportProviderSyncStateEnvelope(importProviderSyncCheckpoint, {
+    ...options,
+    publication: importProviderSyncPublication,
+    bridge: importProviderSyncBridge,
+    launchGate: importProviderLaunchGate,
+    previousEnvelope: options.previousImportProviderSyncState,
+    commandKey: options.importProviderSyncStateCommandKey ?? options.importProviderSyncCommandKey,
+    now: options.now ?? options.timestamp
+  });
+  const importProviderLaunchState = buildImportProviderLaunchStateEnvelope(importProviderSyncCheckpoint, {
+    ...options,
+    providerSyncBridge: importProviderSyncBridge,
+    profileLaunchHandoff: profileProviderLaunchHandoff,
+    previousEnvelope: options.previousImportProviderLaunchState,
+    launchCommandKey: options.importProviderLaunchCommandKey ?? options.importProviderSyncCommandKey,
+    now: options.now ?? options.timestamp
+  });
+  const featureProviderSyncAcceptance = buildFeatureGateProviderSyncAcceptance(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    launchPreview: featureLaunchPreview,
+    providerSyncHandoff: profileProviderSyncHandoff,
+    syncAcceptance: options.featureProviderSyncAcceptance ?? options.providerSyncAcceptance,
+    requireProviderSyncAcceptance: options.requireFeatureProviderSyncAcceptance === true
+      || options.requireProviderSyncAcceptance === true,
+    requiredSyncItems: options.requiredFeatureProviderSyncItems
+  });
+  const featureProviderLaunchAcceptance = buildFeatureGateProviderLaunchAcceptance(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    profileLaunchHandoff: profileProviderLaunchHandoff,
+    importProviderLaunchState,
+    acceptance: options.featureProviderLaunchAcceptance ?? options.providerLaunchAcceptance,
+    requireExplicitProviderLaunchAcceptance: options.requireFeatureProviderLaunchAcceptance === true
+      || options.requireProviderLaunchAcceptance === true
+  });
+  const moduleProviderSyncWorkflow = buildModuleProviderSyncWorkflowHandoff({
+    operation,
+    profileProviderSyncIntent,
+    profileProviderSyncHandoff,
+    importProviderSyncCheckpoint,
+    importProviderSyncPublication,
+    importProviderSyncBridge,
+    importProviderLaunchGate,
+    importProviderSyncState,
+    featureProviderSyncAcceptance,
+    previousWorkflow: options.previousModuleProviderSyncWorkflow,
+    now: options.now ?? options.timestamp,
+    requireExplicitAcceptance: options.requireModuleProviderSyncAcceptance === true
+  });
+  const moduleStatusPublication = buildModuleStatusPublicationFeed({
+    operation,
+    profileStatusPublication,
+    featureGatePublication,
+    importProviderSyncPublication,
+    importProviderSyncBridge,
+    importProviderLaunchGate,
+    operationsPack,
+    operationalStatus,
+    previousPublication: options.previousModuleStatusPublication,
+    now: options.now ?? options.timestamp,
+    maxPublicationAgeMs: options.moduleStatusPublicationMaxAgeMs ?? options.maxPublicationAgeMs
+  });
+  const moduleLaunchPublicationDigest = buildModuleLaunchPublicationDigest({
+    operation,
+    moduleStatusPublication,
+    operationsPack,
+    launchAcceptance,
+    clientWorkflowHandoff,
+    exportReadiness,
+    importClientPreviewDigest,
+    moduleRuntimeAdoption,
+    previousDigest: options.previousModuleLaunchPublicationDigest,
+    now: options.now ?? options.timestamp,
+    requireExplicitAcceptance: options.requireModuleLaunchAcceptance === true
+      || options.requireImportPreviewAcceptance === true
+  });
+  const featureOperationalLedger = buildFeatureGateOperationalLedger(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousAnalytics: options.previousGateAnalytics,
+    previousPublication: options.previousFeatureGatePublication,
+    previousLedger: options.previousFeatureGateOperationalLedger,
+    previousState: options.previousGateState,
+    generation: options.gateGeneration,
+    now: options.now ?? options.timestamp
+  });
+  const importOperationalLedger = buildImportOperationalLedger(imports, {
+    ...options,
+    health: importHealth,
+    previousAnalytics: options.previousImportAnalytics,
+    previousReadinessPlan: options.previousImportProviderReadiness,
+    previousLedger: options.previousImportOperationalLedger,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requiredAliases: options.requiredImportAliases,
+    now: options.now ?? options.timestamp
+  });
+  const featureLaunchReadinessLedger = buildFeatureGateLaunchReadinessLedger(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    operationalLedger: featureOperationalLedger,
+    launchPreview: featureLaunchPreview,
+    nextStepDigest: featureNextStepDigest,
+    previousLedger: options.previousFeatureLaunchReadinessLedger,
+    now: options.now ?? options.timestamp
+  });
+  const importLaunchReadinessLedger = buildImportClientLaunchReadinessLedger(imports, {
+    ...options,
+    operationalLedger: importOperationalLedger,
+    previewDigest: importClientPreviewDigest,
+    providerLaunchGate: importProviderLaunchGate,
+    previousLedger: options.previousImportClientLaunchReadinessLedger,
+    now: options.now ?? options.timestamp
+  });
+  const moduleOperationalReadinessLedger = buildModuleOperationalReadinessLedger({
+    operation,
+    profileOperationalHealth,
+    featureOperationalLedger,
+    importOperationalLedger,
+    moduleStatusPublication,
+    moduleLaunchPublicationDigest,
+    operationalStatus,
+    previousLedger: options.previousModuleOperationalReadinessLedger,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleOperationalLedgerHistoryLimit ?? options.historyLimit
+  });
+  const moduleClientActionQueue = buildModuleClientActionQueue({
+    operation,
+    featureClientActionQueue,
+    importClientActionQueue,
+    clientWorkflowHandoff,
+    launchAcceptance,
+    exportReadiness,
+    previousQueue: options.previousModuleClientActionQueue,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleClientActionHistoryLimit ?? options.historyLimit
+  });
+  const moduleClientExportRouteReadiness = buildModuleClientExportRouteReadiness({
+    operation,
+    profileAnalyticsExportLedger,
+    importClientPreviewRoute,
+    exportReadiness,
+    clientWorkflowHandoff,
+    moduleClientActionQueue,
+    moduleOperationalReadinessLedger,
+    previousRoute: options.previousModuleClientExportRouteReadiness,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleClientExportRouteHistoryLimit ?? options.historyLimit
+  });
+  const featureClientReadiness = buildFeatureGateClientReadinessContract(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousReadiness: options.previousFeatureClientReadiness,
+    previousState: options.previousGateState,
+    previousAnalytics: options.previousGateAnalytics,
+    generation: options.gateGeneration,
+    providerService: profileProviderService.contract,
+    acceptance: options.featureClientAcceptance ?? options.providerPreviewAcceptance,
+    providerPreviewAcceptance: options.providerPreviewAcceptance,
+    requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities,
+    requireExplicitAcceptance: options.requireFeatureClientAcceptance === true
+  });
+  const importTenantAuditReadiness = buildImportTenantAuditReadinessContract(imports, {
+    ...options,
+    health: importHealth,
+    previousReadiness: options.previousImportTenantAuditReadiness,
+    acceptance: options.importBoundaryAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    importScopes: options.importScopes,
+    scope: {
+      tenantId: options.tenantId,
+      workspaceId: options.workspaceId,
+      requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+      requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+      role: options.role,
+      permissionMode: options.permissionMode
+    },
+    now: options.now ?? options.timestamp
+  });
+  const profileResumeHandoff = buildProfileClientResumeHandoffContract(profileSource || options.profile || {}, {
+    ...options,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousExport: options.previousProfileExport,
+    previousHealthExport: options.previousProfileHealthExport,
+    previousPrimaryPack: options.previousProfilePrimaryPack,
+    previousRuntimeAdoption: options.previousProfileRuntimeAdoption,
+    previousResolutionBrief: options.previousProfileClientResolutionBrief,
+    previousProviderState: options.previousProfileProviderState,
+    previousAdoption: options.previousProfileProviderAdoption,
+    persistedMemory: options.persistedMemory,
+    profileCommand: options.profileCommand,
+    lifecycleCommand: options.profileLifecycleCommand,
+    settings: options.profileLifecycleSettings,
+    activationSettings: options.profileActivationSettings,
+    acceptance: options.profilePreviewAcceptance,
+    providerAcceptance: options.profileProviderAdoptionAcceptance,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    attempt: options.profileAttempt,
+    maxAttempts: options.maxProfileAttempts,
+    now: options.now ?? options.timestamp
+  });
+  const featureResumeState = buildFeatureGateResumeStateEnvelope(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousState: options.previousGateState,
+    previousReadiness: options.previousFeatureClientReadiness,
+    previousAnalytics: options.previousGateAnalytics,
+    previousPlan: options.previousFeatureGateCommandPlan,
+    previousResumeState: options.previousFeatureGateResumeState,
+    generation: options.gateGeneration,
+    providerService: profileProviderService.contract,
+    acceptance: options.featureClientAcceptance ?? options.providerPreviewAcceptance,
+    providerPreviewAcceptance: options.providerPreviewAcceptance,
+    requiredProviderCapabilities: profileProviderService.negotiation?.requestedCapabilities,
+    commands: options.featureGateCommands ?? options.gateCommands,
+    now: options.now ?? options.timestamp
+  });
+  const importRuntimeResume = buildImportRuntimeResumeEnvelope(imports, {
+    ...options,
+    health: importHealth,
+    previousClientContract: options.previousImportRuntimeClientContract,
+    previousLifecycle: options.previousImportLifecycle,
+    previousAdoption: options.previousImportRuntimeAdoption,
+    previousResumeEnvelope: options.previousImportRuntimeResumeEnvelope,
+    command: options.importCommand,
+    settings: options.importSettings,
+    acceptance: options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    providerReadinessAcceptance: options.importProviderReadinessAcceptance,
+    requiredAliases: options.requiredImportAliases,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    now: options.now ?? options.timestamp
+  });
+  const moduleResumeRows = [
+    {
+      id: 'profile_resume',
+      status: profileResumeHandoff.status,
+      restartSafe: profileResumeHandoff.restartSafe === true,
+      publish: profileResumeHandoff.handoff?.publish === true,
+      nextAction: profileResumeHandoff.readiness?.nextAction ?? profileResumeHandoff.handoff?.nextAction,
+      blockingReasons: profileResumeHandoff.readiness?.blockingReasons ?? [],
+      guardedReasons: profileResumeHandoff.readiness?.guardedReasons ?? []
+    },
+    {
+      id: 'feature_gate_resume',
+      status: featureResumeState.status,
+      restartSafe: featureResumeState.restartSafe === true,
+      publish: featureResumeState.handoff?.publish === true,
+      nextAction: featureResumeState.readiness?.nextAction ?? featureResumeState.handoff?.nextAction,
+      blockingReasons: featureResumeState.readiness?.blockingReasons ?? [],
+      guardedReasons: featureResumeState.readiness?.guardedReasons ?? []
+    },
+    {
+      id: 'import_runtime_resume',
+      status: importRuntimeResume.status,
+      restartSafe: importRuntimeResume.restartSafe === true,
+      publish: importRuntimeResume.handoff?.publish === true,
+      nextAction: importRuntimeResume.readiness?.nextAction ?? importRuntimeResume.handoff?.nextAction,
+      blockingReasons: importRuntimeResume.readiness?.blockingReasons ?? [],
+      guardedReasons: importRuntimeResume.readiness?.guardedReasons ?? []
+    }
+  ];
+  const moduleResumeStatus = moduleResumeRows.some((row) => row.status === 'blocked')
+    ? 'blocked'
+    : moduleResumeRows.some((row) => row.status === 'guarded' || row.status === 'degraded' || row.restartSafe !== true)
+      ? 'guarded'
+      : 'ready';
+  const moduleResumeFingerprint = [
+    'module_client_runtime_resume',
+    operation,
+    moduleResumeStatus,
+    profileResumeHandoff.fingerprint,
+    featureResumeState.fingerprint,
+    importRuntimeResume.fingerprint
+  ].map(clean).filter(Boolean).join('|');
+  const moduleClientRuntimeResume = {
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_runtime_resume',
+    operation,
+    status: moduleResumeStatus,
+    restartSafe: moduleResumeStatus === 'ready' && moduleResumeRows.every((row) => row.restartSafe),
+    fingerprint: moduleResumeFingerprint,
+    rows: moduleResumeRows,
+    request: {
+      requestKey: profileResumeHandoff.request?.requestKey ?? clientRuntime.state?.requestKey ?? null,
+      resumeToken: profileResumeHandoff.request?.resumeToken ?? clientRuntime.state?.workflow?.resumeToken ?? null,
+      workflowState: profileResumeHandoff.request?.workflowState ?? clientRuntime.state?.workflow?.state ?? null
+    },
+    readiness: {
+      blockingReasons: unique(moduleResumeRows.flatMap((row) => row.blockingReasons.map((reason) => `${row.id}:${reason}`))),
+      guardedReasons: unique(moduleResumeRows.flatMap((row) => row.guardedReasons.map((reason) => `${row.id}:${reason}`))),
+      nextAction: moduleResumeStatus === 'blocked'
+        ? 'resolve_module_client_runtime_resume_blockers'
+        : moduleResumeStatus === 'guarded'
+          ? 'publish_module_client_runtime_resume_guarded'
+          : 'publish_module_client_runtime_resume_ready'
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-client-runtime-resume',
+      statusChannel: moduleResumeStatus === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-runtime-resume',
+      publish: moduleResumeStatus !== 'ready' || moduleResumeRows.some((row) => row.publish),
+      severity: moduleResumeStatus === 'blocked' ? 'error' : moduleResumeStatus === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      includeRequestState: true,
+      nextAction: moduleResumeStatus === 'ready'
+        ? 'publish_module_client_runtime_resume_ready'
+        : 'review_module_client_runtime_resume'
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_runtime_resume',
+      operation,
+      status: moduleResumeStatus,
+      restartSafe: moduleResumeStatus === 'ready' && moduleResumeRows.every((row) => row.restartSafe),
+      fingerprint: moduleResumeFingerprint,
+      blockedRows: moduleResumeRows.filter((row) => row.status === 'blocked').map((row) => row.id).sort(),
+      guardedRows: moduleResumeRows
+        .filter((row) => row.status === 'guarded' || row.status === 'degraded' || row.restartSafe !== true)
+        .map((row) => row.id)
+        .sort(),
+      nextAction: moduleResumeStatus === 'ready'
+        ? 'publish_module_client_runtime_resume_ready'
+        : 'review_module_client_runtime_resume'
+    }
+  };
+  const previousModuleRestartReplay = normalizeModuleRestartReplayCheckpoint(options.previousModuleRestartReplayCheckpoint);
+  const moduleRestartReplayRows = dedupeModuleRestartReplayRows([
+    moduleRestartReplayRow('profile_replay_decision', 'profile', profileRestartReplayDecision, true, {
+      fingerprint: profileRestartReplayDecision.fingerprint,
+      statusChannel: profileRestartReplayDecision.handoff?.statusChannel,
+      nextAction: profileRestartReplayDecision.handoff?.nextAction ?? profileRestartReplayDecision.exportSummary?.nextAction,
+      evidence: {
+        appliedCommandKeys: profileRestartReplayDecision.idempotency?.appliedCommandKeys ?? [],
+        suppressedCommandKeys: profileRestartReplayDecision.idempotency?.suppressedCommandKeys ?? [],
+        blockedRows: profileRestartReplayDecision.exportSummary?.blockedRows ?? [],
+        guardedRows: profileRestartReplayDecision.exportSummary?.guardedRows ?? []
+      }
+    }),
+    moduleRestartReplayRow('module_restart_digest', 'module', moduleRestartRecoveryDigest, true, {
+      fingerprint: moduleRestartRecoveryDigest.fingerprint ?? moduleRestartRecoveryDigest.exportSummary?.fingerprint,
+      statusChannel: moduleRestartRecoveryDigest.handoff?.statusChannel,
+      nextAction: moduleRestartRecoveryDigest.handoff?.nextAction ?? moduleRestartRecoveryDigest.exportSummary?.nextAction,
+      evidence: {
+        blockedRows: moduleRestartRecoveryDigest.exportSummary?.blockedRows ?? [],
+        guardedRows: moduleRestartRecoveryDigest.exportSummary?.guardedRows ?? [],
+        restartSafe: moduleRestartRecoveryDigest.restartSafe === true
+      }
+    }),
+    moduleRestartReplayRow('client_runtime_resume', 'module', moduleClientRuntimeResume, true, {
+      fingerprint: moduleClientRuntimeResume.fingerprint,
+      statusChannel: moduleClientRuntimeResume.handoff?.statusChannel,
+      nextAction: moduleClientRuntimeResume.handoff?.nextAction,
+      evidence: {
+        requestKey: moduleClientRuntimeResume.request.requestKey,
+        resumeToken: moduleClientRuntimeResume.request.resumeToken,
+        blockedRows: moduleClientRuntimeResume.exportSummary.blockedRows,
+        guardedRows: moduleClientRuntimeResume.exportSummary.guardedRows
+      }
+    }),
+    moduleRestartReplayRow('import_runtime_resume', 'imports', importRuntimeResume, false, {
+      fingerprint: importRuntimeResume.fingerprint ?? importRuntimeResume.exportSummary?.fingerprint,
+      statusChannel: importRuntimeResume.handoff?.statusChannel,
+      nextAction: importRuntimeResume.handoff?.nextAction ?? importRuntimeResume.exportSummary?.nextAction,
+      evidence: {
+        blockedRows: importRuntimeResume.exportSummary?.blockedRows ?? [],
+        guardedRows: importRuntimeResume.exportSummary?.guardedRows ?? []
+      }
+    })
+  ]);
+  const moduleRestartReplayBlocked = moduleRestartReplayRows.filter((row) => row.status === 'blocked');
+  const moduleRestartReplayGuarded = moduleRestartReplayRows.filter((row) => row.status === 'guarded' || row.restartSafe === false);
+  const moduleRestartReplayStatus = moduleRestartReplayBlocked.length > 0
+    ? 'blocked'
+    : moduleRestartReplayGuarded.length > 0
+      ? 'guarded'
+      : 'ready';
+  const moduleRestartReplayFingerprint = moduleRestartReplayCheckpointFingerprint({
+    operation,
+    status: moduleRestartReplayStatus,
+    rows: moduleRestartReplayRows
+  });
+  const moduleRestartReplayChanged = previousModuleRestartReplay.fingerprint
+    ? previousModuleRestartReplay.fingerprint !== moduleRestartReplayFingerprint
+    : true;
+  const moduleRestartReplaySequence = previousModuleRestartReplay.sequence + (moduleRestartReplayChanged ? 1 : 0);
+  const moduleRestartReplayNextAction = moduleRestartReplayStatus === 'blocked'
+    ? moduleRestartReplayBlocked[0]?.nextAction ?? 'resolve_module_restart_replay_checkpoint'
+    : moduleRestartReplayStatus === 'guarded'
+      ? 'publish_module_restart_replay_checkpoint_guarded'
+      : moduleRestartReplayChanged
+        ? 'publish_module_restart_replay_checkpoint_ready'
+        : 'reuse_module_restart_replay_checkpoint';
+  const moduleRestartReplayCheckpoint = {
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_restart_replay_checkpoint',
+    operation,
+    status: moduleRestartReplayStatus,
+    restartSafe: moduleRestartReplayStatus === 'ready' && moduleRestartReplayRows.every((row) => row.restartSafe),
+    sequence: moduleRestartReplaySequence,
+    fingerprint: moduleRestartReplayFingerprint,
+    changed: moduleRestartReplayChanged,
+    rows: moduleRestartReplayRows,
+    readiness: {
+      blockingReasons: unique(moduleRestartReplayBlocked.map((row) => row.id)),
+      guardedReasons: unique(moduleRestartReplayGuarded.map((row) => row.id)),
+      nextAction: moduleRestartReplayNextAction
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-restart-replay',
+      statusChannel: moduleRestartReplayStatus === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-restart-replay',
+      publish: moduleRestartReplayChanged || moduleRestartReplayStatus !== 'ready',
+      severity: moduleRestartReplayStatus === 'blocked' ? 'error' : moduleRestartReplayStatus === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      includeIdempotency: moduleRestartReplayRows.some((row) => row.evidence.suppressedCommandKeys?.length > 0),
+      nextAction: moduleRestartReplayNextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_restart_replay_checkpoint',
+      operation,
+      status: moduleRestartReplayStatus,
+      restartSafe: moduleRestartReplayStatus === 'ready' && moduleRestartReplayRows.every((row) => row.restartSafe),
+      sequence: moduleRestartReplaySequence,
+      fingerprint: moduleRestartReplayFingerprint,
+      changed: moduleRestartReplayChanged,
+      blockedRows: moduleRestartReplayBlocked.map((row) => row.id).sort(),
+      guardedRows: moduleRestartReplayGuarded.map((row) => row.id).sort(),
+      nextAction: moduleRestartReplayNextAction
+    }
+  };
+  const moduleClientBoundaryReadiness = buildModuleClientBoundaryReadinessEnvelope({
+    operation,
+    featureClientReadiness,
+    importTenantAuditReadiness,
+    launchAcceptance,
+    moduleClientActionQueue,
+    clientWorkflowHandoff,
+    previousEnvelope: options.previousModuleClientBoundaryReadiness,
+    commandKey: options.moduleClientBoundaryReadinessCommandKey,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleClientBoundaryReadinessHistoryLimit ?? options.historyLimit
+  });
+  const moduleClientResolutionBrief = buildModuleClientResolutionBrief({
+    operation,
+    profileClientResolutionBrief,
+    importClientResolutionBrief,
+    moduleClientActionQueue,
+    clientWorkflowHandoff,
+    previousBrief: options.previousModuleClientResolutionBrief,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleClientResolutionHistoryLimit ?? options.historyLimit
+  });
+  const releaseEvidenceRows = [
+    {
+      id: 'feature_release_evidence',
+      status: featureReleaseEvidence.status,
+      restartSafe: featureReleaseEvidence.restartSafe === true,
+      fingerprint: featureReleaseEvidence.fingerprint,
+      nextAction: featureReleaseEvidence.readiness?.nextAction ?? featureReleaseEvidence.handoff?.nextAction,
+      blockedRows: featureReleaseEvidence.exportSummary?.blockedRows ?? [],
+      guardedRows: featureReleaseEvidence.exportSummary?.guardedRows ?? [],
+      publishRows: featureReleaseEvidence.exportSummary?.publishRows ?? []
+    },
+    {
+      id: 'import_client_evidence',
+      status: importClientEvidenceManifest.status,
+      restartSafe: importClientEvidenceManifest.restartSafe === true,
+      fingerprint: importClientEvidenceManifest.fingerprint,
+      nextAction: importClientEvidenceManifest.readiness?.nextAction ?? importClientEvidenceManifest.handoff?.nextAction,
+      blockedRows: importClientEvidenceManifest.exportSummary?.blockedRows ?? [],
+      guardedRows: importClientEvidenceManifest.exportSummary?.guardedRows ?? [],
+      publishRows: importClientEvidenceManifest.exportSummary?.publishRows ?? []
+    }
+  ];
+  const releaseEvidenceStatus = releaseEvidenceRows.some((row) => row.status === 'blocked')
+    ? 'blocked'
+    : releaseEvidenceRows.some((row) => row.status === 'guarded' || row.status === 'degraded')
+      ? 'guarded'
+      : 'ready';
+  const releaseEvidenceFingerprint = [
+    operation,
+    releaseEvidenceStatus,
+    ...releaseEvidenceRows.map((row) => [
+      row.id,
+      row.status,
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+  const releaseEvidenceNextAction = releaseEvidenceStatus === 'blocked'
+    ? 'resolve_module_release_evidence_blockers'
+    : releaseEvidenceStatus === 'guarded'
+      ? 'publish_module_release_evidence_guarded'
+      : 'publish_module_release_evidence_ready';
+  const moduleReleaseEvidence = {
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_release_evidence',
+    operation,
+    status: releaseEvidenceStatus,
+    restartSafe: releaseEvidenceStatus === 'ready' && releaseEvidenceRows.every((row) => row.restartSafe),
+    fingerprint: releaseEvidenceFingerprint,
+    rows: releaseEvidenceRows,
+    validationSummary: {
+      totalRows: releaseEvidenceRows.length,
+      blockedRows: releaseEvidenceRows.reduce((count, row) => count + row.blockedRows.length, 0),
+      guardedRows: releaseEvidenceRows.reduce((count, row) => count + row.guardedRows.length, 0),
+      publishRows: releaseEvidenceRows.reduce((count, row) => count + row.publishRows.length, 0),
+      diagnosticErrors: [
+        ...featureReleaseEvidence.diagnostics,
+        ...importClientEvidenceManifest.diagnostics
+      ].filter((item) => item.level === 'error').length,
+      diagnosticWarnings: [
+        ...featureReleaseEvidence.diagnostics,
+        ...importClientEvidenceManifest.diagnostics
+      ].filter((item) => item.level === 'warning').length
+    },
+    readiness: {
+      blockingReasons: unique(releaseEvidenceRows.flatMap((row) => row.blockedRows.map((id) => `${row.id}:${id}`))),
+      guardedReasons: unique(releaseEvidenceRows.flatMap((row) => row.guardedRows.map((id) => `${row.id}:${id}`))),
+      nextAction: releaseEvidenceNextAction
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module.release-evidence',
+      statusChannel: releaseEvidenceStatus === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-release-evidence',
+      publish: releaseEvidenceStatus !== 'ready' || releaseEvidenceRows.some((row) => row.publishRows.length > 0),
+      severity: releaseEvidenceStatus === 'blocked' ? 'error' : releaseEvidenceStatus === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      nextAction: releaseEvidenceNextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_release_evidence',
+      operation,
+      status: releaseEvidenceStatus,
+      restartSafe: releaseEvidenceStatus === 'ready' && releaseEvidenceRows.every((row) => row.restartSafe),
+      fingerprint: releaseEvidenceFingerprint,
+      blockedRows: releaseEvidenceRows.flatMap((row) => row.blockedRows.map((id) => `${row.id}:${id}`)).sort(),
+      guardedRows: releaseEvidenceRows.flatMap((row) => row.guardedRows.map((id) => `${row.id}:${id}`)).sort(),
+      publishRows: releaseEvidenceRows.flatMap((row) => row.publishRows.map((id) => `${row.id}:${id}`)).sort(),
+      nextAction: releaseEvidenceNextAction
+    }
+  };
+  const moduleLaunchGate = buildModuleLaunchGateControl({
+    operation,
+    profileLaunchControls,
+    featureLaunchPreview,
+    importProviderLaunchGate,
+    moduleReleaseEvidence,
+    moduleStatusPublication,
+    moduleLaunchPublicationDigest,
+    launchAcceptance,
+    clientWorkflowHandoff,
+    previousGate: options.previousModuleLaunchGate,
+    allowDegradedLaunch: options.allowModuleDegradedLaunch,
+    requireExplicitAcceptance: options.requireModuleLaunchAcceptance === true,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleLaunchGateHistoryLimit ?? options.historyLimit
+  });
+  const moduleClientLaunchReadiness = buildModuleClientLaunchReadinessReport({
+    operation,
+    featureLaunchReadinessLedger,
+    importLaunchReadinessLedger,
+    launchAcceptance,
+    moduleLaunchGate,
+    moduleLaunchPublicationDigest,
+    moduleStatusPublication,
+    clientWorkflowHandoff,
+    previousReport: options.previousModuleClientLaunchReadiness,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleClientLaunchReadinessHistoryLimit ?? options.historyLimit
+  });
+  const moduleBoundaryOperations = buildModuleBoundaryOperationsPacket({
+    operation,
+    profileBoundaryIntent,
+    featureOperationalControls,
+    importLifecycleCommandSurface,
+    moduleLaunchGate,
+    moduleClientLaunchReadiness,
+    previousPacket: options.previousModuleBoundaryOperations,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleBoundaryOperationsHistoryLimit ?? options.historyLimit
+  });
+  const profileOperationalReadiness = buildProfileOperationalReadinessBrief(profileSource || options.profile || {}, {
+    ...options,
+    previousBrief: options.previousProfileOperationalReadiness,
+    previousHealthExport: options.previousProfileHealthExport,
+    previousState: options.previousProfileState,
+    previousLifecycle: options.previousProfileLifecycle,
+    previousExport: options.previousProfileExport,
+    previousProviderState: options.previousProfileProviderState,
+    persistedMemory: options.persistedMemory,
+    now: options.now ?? options.timestamp
+  });
+  const featureAnalyticsPublication = buildFeatureGateAnalyticsPublicationSummary(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousAnalytics: options.previousGateAnalytics,
+    previousPublication: options.previousFeatureGateAnalyticsPublication,
+    previousState: options.previousGateState,
+    generation: options.gateGeneration,
+    now: options.now ?? options.timestamp
+  });
+  const importProviderOperationalBrief = buildImportProviderOperationalBrief(imports, {
+    ...options,
+    health: importHealth,
+    previousBrief: options.previousImportProviderOperationalBrief,
+    previousReadinessPlan: options.previousImportProviderReadiness,
+    requestedCapabilities: options.importRequestedCapabilities ?? imports.capabilityRefs,
+    requiredAliases: options.requiredImportAliases,
+    acceptance: options.importProviderReadinessAcceptance,
+    now: options.now ?? options.timestamp
+  });
+  const moduleOperationalReadinessBrief = buildModuleOperationalReadinessBrief({
+    operation,
+    profileOperationalReadiness,
+    featureAnalyticsPublication,
+    importProviderOperationalBrief,
+    operationalStatus,
+    moduleBoundaryOperations,
+    previousBrief: options.previousModuleOperationalReadinessBrief,
+    now: options.now ?? options.timestamp,
+    historyLimit: options.moduleOperationalReadinessBriefHistoryLimit ?? options.historyLimit
+  });
+  const finalOk = ok
+    && importWorkspaceBoundaryManifest.status !== 'blocked'
+    && moduleBoundaryOperations.status !== 'blocked'
+    && moduleOperationalReadinessBrief.status !== 'blocked'
+    && moduleLaunchGate.status !== 'blocked'
+    && moduleClientBoundaryReadiness.status !== 'blocked'
+    && moduleClientExportRouteReadiness.status !== 'blocked'
+    && moduleClientRuntimeResume.status !== 'blocked'
+    && moduleRestartReplayCheckpoint.status !== 'blocked'
+    && moduleRestartRecoveryDigest.status !== 'blocked'
+    && moduleTenantLaunchGuard.status !== 'blocked';
 
   return {
-    ok,
+    ok: finalOk,
     module: {
       schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
       sourceName: parsed.sourceName,
@@ -980,48 +2607,132 @@ export function compileModuleSyntax(input = {}, options = {}) {
       featureAnalytics: gateAnalytics.exportSummary,
       featureCommandPlan,
       featureLifecycleReadiness,
+      featureReleaseEvidence,
+      featureOperationalControls,
       featureBoundaryControls,
+      profileBoundaryIntent,
+      profileBoundaryRelease,
+      featureBoundaryRelease,
+      importBoundaryRelease,
+      moduleBoundaryRelease,
+      tenantHandoffBoundary,
       profileExport: profileExport.exportSummary,
       profileAudienceLedger,
       importHealth,
       importAnalytics,
       importHistoryExport,
       importTimelineReport,
+      importStatusJournal,
+      profileRecoveryManifest,
+      profileRestartReplayDecision,
+      importAnalyticsRecovery,
+      moduleRestartRecoveryDigest,
+      moduleRestartReplayCheckpoint,
       importClientReadiness,
+      importClientPreviewDigest,
+      importClientPreviewRoute,
+      importClientEvidenceManifest,
+      importClientResolutionBrief,
       importLifecycle,
       importGateLifecycle,
+      importLifecycleCommandSurface,
       importPreviewAcceptance,
       importBoundaryAcceptance,
+      importWorkspaceBoundaryManifest,
       importProviderContract,
       importProviderReadiness,
       importProviderAdoption,
       importProviderSyncCheckpoint,
+      importProviderLaunchState,
       importRuntimeAdoption,
+      importRuntimeClientContract,
       profileProviderService,
       profileProviderAdoption,
       profileProviderSyncIntent,
+      profileProviderSyncHandoff,
+      profileProviderLaunchHandoff,
       providerAdoption,
       featureKernelManifest,
       importKernelManifest,
+      profileLifecycleNextAction,
+      profileLifecycleSettingsControls,
+      profileLifecycleScheduleCheckpoint,
+      profileLifecycleClientControls,
+      featureProviderHandoff,
+      featureProviderControls,
+      importRuntimeHandoff,
+      importRuntimeClientControls,
+      importRuntimeRequestAdoption,
+      moduleClientControlRoom,
+      moduleWorkflowNextAction,
       kernelHandoffManifest: moduleKernelHandoffManifest,
       profileRuntimeAdoption,
+      profileClientResolutionBrief,
       profileRequestKernelBinding,
       moduleRuntimeAdoption,
       profileRestartRecovery,
+      profileRestartStatusLedger,
       profileActivation,
+      profileLaunchControls,
       providerGatePreview,
+      featureLaunchPreview,
+      featureNextStepDigest,
       featureClientAcceptance,
+      featureClientActionQueue,
       importClientAcceptance,
+      importClientActionQueue,
       launchAcceptance,
       profileBoundaryEvidence,
+      profileTenantPermissionMatrix,
+      profileTenantLaunchGuard,
+      moduleTenantLaunchGuard,
       profileOperationalHealth,
+      profileOperationalReadiness,
+      profileStatusPublication,
+      profileOperationalEscalation,
+      importOperationalEscalation,
+      moduleOperationalEscalation,
+      featureGatePublication,
+      importProviderSyncPublication,
+      importProviderSyncBridge,
+      importProviderLaunchGate,
+      importProviderSyncState,
+      featureProviderSyncAcceptance,
+      featureProviderLaunchAcceptance,
+      moduleProviderSyncWorkflow,
       profilePrimaryPack,
+      profileAnalyticsExportLedger,
       profileAudienceLedger,
       exportReadiness,
       operationsPack,
+      moduleStatusPublication,
+      moduleLaunchPublicationDigest,
+      moduleLaunchGate,
+      featureOperationalLedger,
+      featureAnalyticsPublication,
+      importOperationalLedger,
+      importProviderOperationalBrief,
+      featureLaunchReadinessLedger,
+      importLaunchReadinessLedger,
+      featureClientReadiness,
+      importTenantAuditReadiness,
+      profileResumeHandoff,
+      featureResumeState,
+      importRuntimeResume,
+      moduleClientRuntimeResume,
+      moduleClientBoundaryReadiness,
+      moduleClientExportRouteReadiness,
+      moduleClientLaunchReadiness,
+      moduleBoundaryOperations,
+      moduleOperationalReadinessBrief,
+      moduleOperationalReadinessLedger,
+      moduleClientActionQueue,
+      moduleClientResolutionBrief,
+      moduleReleaseEvidence,
       clientWorkflowHandoff,
       clientRuntime: clientRuntime.state,
       profilePreviewAcceptance,
+      profileNextStepDigest,
       profileFailure,
       profileLifecycle,
       profilePersistence: profilePersistence.envelope,
@@ -1033,34 +2744,101 @@ export function compileModuleSyntax(input = {}, options = {}) {
         importChannels: importHandoff.handoff.statusChannels,
         importHistory: importHistoryExport.handoff,
         importTimeline: importTimelineReport.handoff,
+        importStatusJournal: importStatusJournal.handoff,
+        profileRecoveryManifest: profileRecoveryManifest.handoff,
+        profileRestartReplayDecision: profileRestartReplayDecision.handoff,
+        importAnalyticsRecovery: importAnalyticsRecovery.handoff,
+        moduleRestartRecoveryDigest: moduleRestartRecoveryDigest.handoff,
+        moduleRestartReplayCheckpoint: moduleRestartReplayCheckpoint.handoff,
         importLifecycle: importLifecycle.handoff,
         importGateLifecycle: importGateLifecycle.handoff,
         importRuntimeAdoption: importRuntimeAdoption.handoff,
+        importRuntimeClientContract: importRuntimeClientContract.handoff,
         importProviderAdoption: importProviderAdoption.handoff,
         importProviderReadiness: importProviderReadiness.handoff,
         importProviderSync: importProviderSyncCheckpoint.handoff,
+        importProviderSyncPublication: importProviderSyncPublication.publication,
+        importProviderSyncBridge: importProviderSyncBridge.handoff,
+        importProviderLaunchGate: importProviderLaunchGate.handoff,
+        importProviderSyncState: importProviderSyncState.handoff,
+        importProviderLaunchState: importProviderLaunchState.handoff,
+        featureProviderSyncAcceptance: featureProviderSyncAcceptance.handoff,
+        featureProviderLaunchAcceptance: featureProviderLaunchAcceptance.handoff,
+        moduleProviderSyncWorkflow: moduleProviderSyncWorkflow.handoff,
+        moduleLaunchGate: moduleLaunchGate.handoff,
+        moduleBoundaryOperations: moduleBoundaryOperations.handoff,
+        profileBoundaryIntent: profileBoundaryIntent.handoff,
+        featureOperationalControls: featureOperationalControls.handoff,
+        importLifecycleCommandSurface: importLifecycleCommandSurface.handoff,
         profileLifecycle: profileLifecycle.handoff,
         providerTargets: importProviderContract.externalHandoff.targets,
         profileProviderTarget: profileProviderService.externalState?.target ?? null,
         profileProviderAdoption: profileProviderAdoption.handoff,
         profileProviderSync: profileProviderSyncIntent.handoff,
+        profileProviderSyncHandoff: profileProviderSyncHandoff.handoff,
+        profileProviderLaunchHandoff: profileProviderLaunchHandoff.launchHandoff,
+        featureLaunchPreview: featureLaunchPreview.handoff,
+        featureNextStepDigest: featureNextStepDigest.handoff,
+        profileLifecycleNextAction: profileLifecycleNextAction.handoff,
+        featureProviderHandoff: featureProviderHandoff.handoff,
+        importRuntimeHandoff: importRuntimeHandoff.handoff,
+        moduleWorkflowNextAction: moduleWorkflowNextAction.handoff,
+        profileStatusPublication: profileStatusPublication.publication,
+        profileOperationalEscalation: profileOperationalEscalation.handoff,
+        importOperationalEscalation: importOperationalEscalation.handoff,
+        moduleOperationalEscalation: moduleOperationalEscalation.handoff,
+        featureGatePublication: featureGatePublication.publication,
+        moduleStatusPublication: moduleStatusPublication.handoff,
+        moduleLaunchPublicationDigest: moduleLaunchPublicationDigest.handoff,
+        featureOperationalLedger: featureOperationalLedger.handoff,
+        importOperationalLedger: importOperationalLedger.handoff,
+        featureLaunchReadinessLedger: featureLaunchReadinessLedger.handoff,
+        importLaunchReadinessLedger: importLaunchReadinessLedger.handoff,
+        moduleClientLaunchReadiness: moduleClientLaunchReadiness.handoff,
+        moduleOperationalReadinessLedger: moduleOperationalReadinessLedger.handoff,
+        moduleClientExportRouteReadiness: moduleClientExportRouteReadiness.handoff,
+        moduleClientActionQueue: moduleClientActionQueue.handoff,
+        moduleClientResolutionBrief: moduleClientResolutionBrief.handoff,
+        moduleClientRuntimeResume: moduleClientRuntimeResume.handoff,
+        profileResumeHandoff: profileResumeHandoff.handoff,
+        featureResumeState: featureResumeState.handoff,
+        importRuntimeResume: importRuntimeResume.handoff,
+        moduleReleaseEvidence: moduleReleaseEvidence.handoff,
+        profileClientResolutionBrief: profileClientResolutionBrief.handoff,
+        importClientResolutionBrief: importClientResolutionBrief.handoff,
         providerAdoption: providerAdoption.handoff,
         featureKernelManifest: featureKernelManifest.handoff,
         importKernelManifest: importKernelManifest.handoff,
         kernelHandoffManifest: moduleKernelHandoffManifest.handoff,
         profileRuntimeAdoption: profileRuntimeAdoption.handoff,
         profileRestartRecovery: profileRestartRecovery.handoff,
+        profileRestartStatusLedger: profileRestartStatusLedger.handoff,
         profileActivation: profileActivation.handoff,
+        profileLaunchControls: profileLaunchControls.handoff,
+        profileLifecycleSettingsControls: profileLifecycleSettingsControls.handoff,
+        profileNextStepDigest: profileNextStepDigest.handoff,
         profileBoundaryEvidence: profileBoundaryEvidence.auditHandoff,
+        profileTenantPermissionMatrix: profileTenantPermissionMatrix.auditHandoff,
+        profileTenantLaunchGuard: profileTenantLaunchGuard.auditHandoff,
+        moduleTenantLaunchGuard: moduleTenantLaunchGuard.handoff,
         profileOperationalHealth: profileOperationalHealth.handoff,
         profilePrimaryPack: profilePrimaryPack.handoff,
+        profileAnalyticsExportLedger: profileAnalyticsExportLedger.handoff,
         profileAudienceLedger: profileAudienceLedger.handoff,
         featureCommandPlan: featureCommandPlan.handoff,
         featureLifecycleReadiness: featureLifecycleReadiness.handoff,
+        featureReleaseEvidence: featureReleaseEvidence.handoff,
         importClientReadiness: importClientReadiness.handoff,
+        importClientPreviewRoute: importClientPreviewRoute.handoff,
+        importClientEvidenceManifest: importClientEvidenceManifest.handoff,
         featureBoundaryControls: featureBoundaryControls.auditHandoff,
+        profileBoundaryRelease: profileBoundaryRelease.auditHandoff,
+        featureBoundaryRelease: featureBoundaryRelease.auditHandoff,
+        importBoundaryRelease: importBoundaryRelease.auditHandoff,
+        moduleBoundaryRelease: moduleBoundaryRelease.handoff,
         importBoundary: importBoundaryAcceptance.auditHandoff,
         profilePreview: profilePreviewAcceptance.exportSummary,
+        profileNextStepDigest: profileNextStepDigest.exportSummary,
         providerPreview: providerGatePreview.exportSummary,
         clientWorkflow: clientWorkflowHandoff.exportSummary,
         actionPlan: operationalActionPlan.handoff,
@@ -1074,6 +2852,20 @@ export function compileModuleSyntax(input = {}, options = {}) {
           && importHealth.restartSafe
           && importHistoryExport.restartSafe
           && importTimelineReport.restartSafe
+          && importStatusJournal.restartSafe
+          && profileRecoveryManifest.restartSafe
+          && importAnalyticsRecovery.restartSafe
+          && moduleRestartRecoveryDigest.restartSafe
+          && featureClientActionQueue.restartSafe
+          && featureNextStepDigest.restartSafe
+          && importClientActionQueue.restartSafe
+          && moduleClientActionQueue.restartSafe
+          && moduleClientExportRouteReadiness.restartSafe
+          && moduleClientResolutionBrief.restartSafe
+          && moduleClientRuntimeResume.restartSafe
+          && profileResumeHandoff.restartSafe
+          && featureResumeState.restartSafe
+          && importRuntimeResume.restartSafe
           && importLifecycle.ok
           && importGateLifecycle.restartSafe
           && importBoundaryAcceptance.restartSafe
@@ -1081,28 +2873,63 @@ export function compileModuleSyntax(input = {}, options = {}) {
           && importProviderReadiness.restartSafe
           && importProviderAdoption.restartSafe
           && importProviderSyncCheckpoint.restartSafe
+          && importProviderSyncBridge.restartSafe
+          && importProviderSyncState.restartSafe
+          && featureProviderSyncAcceptance.restartSafe
+          && moduleProviderSyncWorkflow.restartSafe
           && featureKernelManifest.restartSafe
           && importKernelManifest.restartSafe
           && moduleKernelHandoffManifest.restartSafe
           && importRuntimeAdoption.restartSafe
+          && importRuntimeClientContract.restartSafe
           && profileProviderService.restartSafe
           && profileProviderAdoption.restartSafe
           && profileProviderSyncIntent.restartSafe
           && providerAdoption.restartSafe
           && profileRuntimeAdoption.restartSafe
+          && profileClientResolutionBrief.restartSafe
           && profileRestartRecovery.restartSafe
+          && profileRestartStatusLedger.restartSafe
           && profileActivation.restartSafe
+          && profileLaunchControls.restartSafe
+          && profileLifecycleSettingsControls.restartSafe
           && profileBoundaryEvidence.restartSafe
+          && profileTenantPermissionMatrix.restartSafe
+          && profileTenantLaunchGuard.restartSafe
+          && moduleTenantLaunchGuard.restartSafe
           && profilePrimaryPack.restartSafe
+          && profileAnalyticsExportLedger.restartSafe
           && profileAudienceLedger.restartSafe
           && featureCommandPlan.restartSafe
           && featureLifecycleReadiness.restartSafe
+          && featureReleaseEvidence.restartSafe
           && featureBoundaryControls.restartSafe
+          && profileBoundaryRelease.restartSafe
+          && featureBoundaryRelease.restartSafe
+          && importBoundaryRelease.restartSafe
+          && moduleBoundaryRelease.restartSafe
           && importClientReadiness.restartSafe
+          && importClientPreviewRoute.restartSafe
+          && importClientEvidenceManifest.restartSafe
+          && importClientResolutionBrief.restartSafe
           && profilePreviewAcceptance.restartSafe
+          && profileNextStepDigest.restartSafe
           && providerGatePreview.restartSafe
           && exportReadiness.restartSafe
           && operationsPack.restartSafe
+          && profileStatusPublication.restartSafe
+          && featureGatePublication.restartSafe
+          && importProviderSyncPublication.restartSafe
+          && moduleStatusPublication.restartSafe
+          && moduleLaunchPublicationDigest.restartSafe
+          && featureOperationalLedger.restartSafe
+          && importOperationalLedger.restartSafe
+          && featureLaunchReadinessLedger.restartSafe
+          && importLaunchReadinessLedger.restartSafe
+          && moduleClientLaunchReadiness.restartSafe
+          && moduleOperationalReadinessLedger.restartSafe
+          && moduleClientExportRouteReadiness.restartSafe
+          && moduleReleaseEvidence.restartSafe
           && launchAcceptance.restartSafe
           && clientWorkflowHandoff.restartSafe
           && profileFailure.restartSafe !== false
@@ -1122,14 +2949,35 @@ export function compileModuleSyntax(input = {}, options = {}) {
         importStatus: importHealth.status,
         importHistoryStatus: importHistoryExport.status,
         importTimelineStatus: importTimelineReport.status,
+        importStatusJournalStatus: importStatusJournal.status,
+        profileRecoveryManifestStatus: profileRecoveryManifest.status,
+        importAnalyticsRecoveryStatus: importAnalyticsRecovery.status,
+        moduleRestartRecoveryStatus: moduleRestartRecoveryDigest.status,
         importLifecycleStatus: importLifecycle.status,
         importGateLifecycleStatus: importGateLifecycle.status,
         profileLifecycleStatus: profileLifecycle.status,
+        profileLifecycleSettingsControlStatus: profileLifecycleSettingsControls.status,
         importProviderStatus: importProviderContract.status,
         importProviderAdoptionStatus: importProviderAdoption.status,
         importProviderSyncStatus: importProviderSyncCheckpoint.status,
+        importProviderSyncBridgeStatus: importProviderSyncBridge.status,
+        profileStatusPublicationStatus: profileStatusPublication.status,
+        featureGatePublicationStatus: featureGatePublication.status,
+        importProviderSyncPublicationStatus: importProviderSyncPublication.status,
+        featureLaunchReadinessStatus: featureLaunchReadinessLedger.status,
+        importLaunchReadinessStatus: importLaunchReadinessLedger.status,
+        moduleClientLaunchReadinessStatus: moduleClientLaunchReadiness.status,
+        moduleClientExportRouteReadinessStatus: moduleClientExportRouteReadiness.status,
+        moduleStatusPublicationStatus: moduleStatusPublication.status,
+        moduleLaunchPublicationDigestStatus: moduleLaunchPublicationDigest.status,
         importProviderReadinessStatus: importProviderReadiness.status,
         importRuntimeAdoptionStatus: importRuntimeAdoption.status,
+        importRuntimeClientContractStatus: importRuntimeClientContract.status,
+        importClientResolutionStatus: importClientResolutionBrief.status,
+        moduleClientRuntimeResumeStatus: moduleClientRuntimeResume.status,
+        profileResumeHandoffStatus: profileResumeHandoff.status,
+        featureResumeStateStatus: featureResumeState.status,
+        importRuntimeResumeStatus: importRuntimeResume.status,
         profileProviderStatus: profileProviderService.status,
         profileProviderAdoptionStatus: profileProviderAdoption.status,
         profileProviderSyncStatus: profileProviderSyncIntent.status,
@@ -1138,57 +2986,111 @@ export function compileModuleSyntax(input = {}, options = {}) {
         importKernelManifestStatus: importKernelManifest.status,
         kernelHandoffManifestStatus: moduleKernelHandoffManifest.status,
         profileRuntimeAdoptionStatus: profileRuntimeAdoption.status,
+        profileClientResolutionStatus: profileClientResolutionBrief.status,
         profileRestartRecoveryStatus: profileRestartRecovery.status,
+        profileRestartStatusLedgerStatus: profileRestartStatusLedger.status,
         profileActivationStatus: profileActivation.status,
+        profileLaunchControlStatus: profileLaunchControls.status,
         profileBoundaryEvidenceStatus: profileBoundaryEvidence.status,
+        profileTenantPermissionStatus: profileTenantPermissionMatrix.status,
+        profileTenantLaunchGuardStatus: profileTenantLaunchGuard.status,
+        moduleTenantLaunchGuardStatus: moduleTenantLaunchGuard.status,
         profilePrimaryPackStatus: profilePrimaryPack.status,
+        profileAnalyticsExportLedgerStatus: profileAnalyticsExportLedger.status,
         profileAudienceLedgerStatus: profileAudienceLedger.status,
         featureCommandPlanStatus: featureCommandPlan.status,
         featureLifecycleReadinessStatus: featureLifecycleReadiness.status,
+        featureReleaseEvidenceStatus: featureReleaseEvidence.status,
         featureBoundaryControlsStatus: featureBoundaryControls.status,
+        profileBoundaryReleaseStatus: profileBoundaryRelease.status,
+        featureBoundaryReleaseStatus: featureBoundaryRelease.status,
+        importBoundaryReleaseStatus: importBoundaryRelease.status,
+        moduleBoundaryReleaseStatus: moduleBoundaryRelease.status,
         importClientReadinessStatus: importClientReadiness.status,
+        importClientPreviewRouteStatus: importClientPreviewRoute.status,
+        importClientEvidenceStatus: importClientEvidenceManifest.status,
         importBoundaryStatus: importBoundaryAcceptance.status,
         profilePreviewStatus: profilePreviewAcceptance.status,
         providerPreviewStatus: providerGatePreview.status,
         clientWorkflowStatus: clientWorkflowHandoff.status,
+        moduleClientResolutionStatus: moduleClientResolutionBrief.status,
+        moduleReleaseEvidenceStatus: moduleReleaseEvidence.status,
         launchAcceptanceStatus: launchAcceptance.status,
         exportStatus: exportReadiness.status,
         profileFailureStatus: profileFailure.status,
         boundaryStatus: boundary.contract.status,
         resumeAction: operationalActionPlan.nextAction === 'operator_review'
           ? 'operator_operational_review'
+          : moduleRestartRecoveryDigest.status === 'blocked'
+          ? moduleRestartRecoveryDigest.readiness.nextAction
           : profileLifecycle.status === 'disabled' || profileLifecycle.status === 'paused'
           ? 'wait_for_profile_lifecycle_control'
           : profileLifecycle.status === 'retry_scheduled'
           ? 'dispatch_profile_retry'
           : profileLifecycle.status === 'operator_review'
           ? 'operator_profile_lifecycle_review'
+          : profileLifecycleSettingsControls.status === 'blocked'
+          ? profileLifecycleSettingsControls.readiness.nextAction
           : operationalActionPlan.nextAction === 'dispatch_import_retry'
           ? 'dispatch_import_retry'
           : importProviderReadiness.status === 'blocked'
           ? 'resolve_import_provider_readiness_blockers'
           : importProviderSyncCheckpoint.status === 'blocked'
           ? 'resolve_import_provider_sync_checkpoint_blockers'
+          : importProviderSyncBridge.status === 'blocked'
+          ? importProviderSyncBridge.readiness.nextAction
           : profileProviderSyncIntent.status === 'blocked'
           ? 'resolve_profile_provider_sync_blockers'
           : providerAdoption.status === 'blocked'
           ? 'resolve_module_provider_adoption_blockers'
           : moduleKernelHandoffManifest.status === 'blocked'
           ? moduleKernelHandoffManifest.readiness.nextAction
+          : moduleLaunchPublicationDigest.status === 'blocked'
+          ? moduleLaunchPublicationDigest.readiness.nextAction
+          : moduleClientLaunchReadiness.status === 'blocked'
+          ? moduleClientLaunchReadiness.readiness.nextAction
+          : moduleClientExportRouteReadiness.status === 'blocked'
+          ? moduleClientExportRouteReadiness.handoff.nextAction
+          : moduleClientResolutionBrief.status === 'blocked'
+          ? moduleClientResolutionBrief.readiness.nextAction
           : profileRuntimeAdoption.status === 'blocked'
           ? 'resolve_profile_runtime_adoption_blockers'
+          : profileClientResolutionBrief.status === 'blocked'
+          ? profileClientResolutionBrief.readiness.nextAction
           : profileRestartRecovery.status === 'blocked'
           ? 'resolve_profile_restart_recovery_blockers'
+          : profileRestartStatusLedger.status === 'blocked'
+          ? 'resolve_profile_restart_status_ledger_blockers'
           : profileAudienceLedger.status === 'blocked'
           ? 'resolve_profile_audience_export_ledger_blockers'
           : featureCommandPlan.status === 'blocked'
           ? 'resolve_feature_gate_command_plan_blockers'
           : featureLifecycleReadiness.status === 'blocked'
           ? featureLifecycleReadiness.readiness.nextAction
+          : moduleReleaseEvidence.status === 'blocked'
+          ? moduleReleaseEvidence.readiness.nextAction
+          : featureReleaseEvidence.status === 'blocked'
+          ? featureReleaseEvidence.readiness.nextAction
+          : importClientEvidenceManifest.status === 'blocked'
+          ? importClientEvidenceManifest.readiness.nextAction
+          : moduleBoundaryRelease.status === 'blocked'
+          ? moduleBoundaryRelease.readiness.nextAction
+          : moduleTenantLaunchGuard.status === 'blocked'
+          ? moduleTenantLaunchGuard.readiness.nextAction
+          : profileTenantLaunchGuard.status === 'blocked'
+          ? profileTenantLaunchGuard.readiness.nextAction
+          : importStatusJournal.status === 'blocked'
+          ? importStatusJournal.handoff.nextAction
+          : profileRecoveryManifest.status === 'blocked'
+          ? profileRecoveryManifest.recovery.nextAction
+          : importAnalyticsRecovery.status === 'blocked'
+          ? importAnalyticsRecovery.recovery.nextAction
           : importTimelineReport.status === 'blocked'
           ? importTimelineReport.handoff.nextAction
           : importClientReadiness.status === 'blocked'
           ? 'resolve_import_client_readiness_blockers'
+          : importClientResolutionBrief.status === 'blocked'
+          ? importClientResolutionBrief.readiness.nextAction
           : importLifecycle.status === 'disabled' || importLifecycle.status === 'paused'
           ? 'wait_for_import_lifecycle_control'
           : importLifecycle.status === 'retry_scheduled'
@@ -1201,6 +3103,22 @@ export function compileModuleSyntax(input = {}, options = {}) {
           ? 'publish_feature_gate_command_plan_degraded'
           : featureLifecycleReadiness.status === 'degraded'
           ? featureLifecycleReadiness.readiness.nextAction
+          : moduleReleaseEvidence.status === 'guarded'
+          ? moduleReleaseEvidence.readiness.nextAction
+          : featureReleaseEvidence.status === 'guarded'
+          ? featureReleaseEvidence.readiness.nextAction
+          : importClientEvidenceManifest.status === 'guarded'
+          ? importClientEvidenceManifest.readiness.nextAction
+          : moduleBoundaryRelease.status === 'guarded'
+          ? moduleBoundaryRelease.readiness.nextAction
+          : importStatusJournal.status === 'degraded'
+          ? importStatusJournal.handoff.nextAction
+          : moduleRestartRecoveryDigest.status === 'guarded'
+          ? moduleRestartRecoveryDigest.readiness.nextAction
+          : profileRecoveryManifest.status === 'guarded'
+          ? profileRecoveryManifest.recovery.nextAction
+          : importAnalyticsRecovery.status === 'guarded'
+          ? importAnalyticsRecovery.recovery.nextAction
           : importClientReadiness.status === 'degraded'
           ? 'publish_import_client_readiness_degraded'
           : importTimelineReport.status === 'degraded'
@@ -1211,6 +3129,14 @@ export function compileModuleSyntax(input = {}, options = {}) {
             ? 'resume_with_import_degraded_mode'
             : moduleKernelHandoffManifest.status === 'degraded'
               ? moduleKernelHandoffManifest.readiness.nextAction
+            : importProviderSyncBridge.status === 'degraded'
+              ? importProviderSyncBridge.readiness.nextAction
+            : moduleLaunchPublicationDigest.status === 'guarded'
+              ? moduleLaunchPublicationDigest.readiness.nextAction
+            : moduleClientLaunchReadiness.status === 'guarded'
+              ? moduleClientLaunchReadiness.readiness.nextAction
+            : moduleClientResolutionBrief.status === 'guarded'
+              ? moduleClientResolutionBrief.readiness.nextAction
             : recovery.resumeAction
       }
     },
@@ -1386,6 +3312,594 @@ function buildModuleKernelHandoffManifest({
   };
 }
 
+export function buildModuleProviderSyncWorkflowHandoff({
+  operation = 'campaign.sync',
+  profileProviderSyncIntent = {},
+  profileProviderSyncHandoff = {},
+  importProviderSyncCheckpoint = {},
+  importProviderSyncPublication = {},
+  importProviderSyncBridge = {},
+  importProviderLaunchGate = {},
+  importProviderSyncState = {},
+  featureProviderSyncAcceptance = {},
+  previousWorkflow = {},
+  now = null,
+  requireExplicitAcceptance = false
+} = {}) {
+  const previous = normalizeModuleProviderSyncWorkflow(previousWorkflow);
+  const rows = [
+    moduleProviderSyncWorkflowRow('profile_sync_intent', 'profile', profileProviderSyncIntent, true, {
+      status: profileProviderSyncIntent.status,
+      restartSafe: profileProviderSyncIntent.restartSafe,
+      statusChannel: profileProviderSyncIntent.handoff?.statusChannel,
+      nextAction: profileProviderSyncIntent.readiness?.nextAction ?? profileProviderSyncIntent.handoff?.nextAction,
+      evidence: {
+        profileName: profileProviderSyncIntent.profileName ?? profileProviderSyncIntent.exportSummary?.profileName,
+        cursor: profileProviderSyncIntent.sync?.cursor ?? profileProviderSyncIntent.exportSummary?.syncCursor,
+        fingerprint: profileProviderSyncIntent.fingerprint ?? profileProviderSyncIntent.exportSummary?.fingerprint
+      }
+    }),
+    moduleProviderSyncWorkflowRow('profile_sync_handoff', 'profile', profileProviderSyncHandoff, true, {
+      status: profileProviderSyncHandoff.status,
+      restartSafe: profileProviderSyncHandoff.restartSafe,
+      statusChannel: profileProviderSyncHandoff.handoff?.statusChannel,
+      nextAction: profileProviderSyncHandoff.readiness?.nextAction ?? profileProviderSyncHandoff.handoff?.nextAction,
+      evidence: {
+        acceptedItems: profileProviderSyncHandoff.acceptance?.acceptedItems ?? [],
+        blockedRows: profileProviderSyncHandoff.exportSummary?.blockedRows ?? [],
+        degradedRows: profileProviderSyncHandoff.exportSummary?.degradedRows ?? []
+      }
+    }),
+    moduleProviderSyncWorkflowRow('feature_sync_acceptance', 'feature_gates', featureProviderSyncAcceptance, true, {
+      status: featureProviderSyncAcceptance.status,
+      restartSafe: featureProviderSyncAcceptance.restartSafe,
+      statusChannel: featureProviderSyncAcceptance.handoff?.statusChannel,
+      nextAction: featureProviderSyncAcceptance.readiness?.nextAction ?? featureProviderSyncAcceptance.handoff?.nextAction,
+      evidence: {
+        awaitingAcceptance: featureProviderSyncAcceptance.validationSummary?.awaitingAcceptance ?? 0,
+        acceptedItems: featureProviderSyncAcceptance.acceptance?.acceptedItems ?? [],
+        fingerprint: featureProviderSyncAcceptance.fingerprint
+      }
+    }),
+    moduleProviderSyncWorkflowRow('import_sync_checkpoint', 'imports', importProviderSyncCheckpoint, true, {
+      status: importProviderSyncCheckpoint.status,
+      restartSafe: importProviderSyncCheckpoint.restartSafe,
+      statusChannel: importProviderSyncCheckpoint.handoff?.statusChannel,
+      nextAction: importProviderSyncCheckpoint.readiness?.nextAction ?? importProviderSyncCheckpoint.handoff?.nextAction,
+      evidence: {
+        sequence: importProviderSyncCheckpoint.sequence ?? 0,
+        changed: importProviderSyncCheckpoint.changed === true,
+        profileCursor: importProviderSyncCheckpoint.profileSyncIntent?.cursor ?? null,
+        blockedProviders: importProviderSyncCheckpoint.exportSummary?.blockedProviders ?? []
+      }
+    }),
+    moduleProviderSyncWorkflowRow('import_sync_bridge', 'imports', importProviderSyncBridge, true, {
+      status: importProviderSyncBridge.status,
+      restartSafe: importProviderSyncBridge.restartSafe,
+      statusChannel: importProviderSyncBridge.handoff?.statusChannel,
+      nextAction: importProviderSyncBridge.readiness?.nextAction ?? importProviderSyncBridge.handoff?.nextAction,
+      evidence: {
+        sequence: importProviderSyncBridge.sequence ?? 0,
+        pendingAcceptance: importProviderSyncBridge.exportSummary?.pendingAcceptance ?? [],
+        degradedProviders: importProviderSyncBridge.exportSummary?.degradedProviders ?? []
+      }
+    }),
+    moduleProviderSyncWorkflowRow('import_sync_state', 'imports', importProviderSyncState, true, {
+      status: importProviderSyncState.status,
+      restartSafe: importProviderSyncState.restartSafe,
+      statusChannel: importProviderSyncState.handoff?.statusChannel,
+      nextAction: importProviderSyncState.readiness?.nextAction ?? importProviderSyncState.handoff?.nextAction,
+      evidence: {
+        sequence: importProviderSyncState.sequence ?? 0,
+        changed: importProviderSyncState.changed === true,
+        replaySafe: importProviderSyncState.persistedState?.replaySafe === true,
+        lastStableFingerprint: importProviderSyncState.persistedState?.lastStableFingerprint ?? null
+      }
+    }),
+    moduleProviderSyncWorkflowRow('import_provider_launch', 'imports', importProviderLaunchGate, true, {
+      status: importProviderLaunchGate.status,
+      restartSafe: importProviderLaunchGate.restartSafe,
+      statusChannel: importProviderLaunchGate.handoff?.statusChannel,
+      nextAction: importProviderLaunchGate.readiness?.nextAction ?? importProviderLaunchGate.handoff?.nextAction,
+      evidence: {
+        blockedProviders: importProviderLaunchGate.exportSummary?.blockedProviders ?? [],
+        degradedProviders: importProviderLaunchGate.exportSummary?.degradedProviders ?? [],
+        waivedProviders: importProviderLaunchGate.exportSummary?.waivedProviders ?? []
+      }
+    }),
+    moduleProviderSyncWorkflowRow('import_sync_publication', 'imports', importProviderSyncPublication, false, {
+      status: importProviderSyncPublication.status,
+      restartSafe: importProviderSyncPublication.restartSafe,
+      statusChannel: importProviderSyncPublication.publication?.statusChannel,
+      nextAction: importProviderSyncPublication.publication?.nextAction ?? importProviderSyncPublication.exportSummary?.nextAction,
+      evidence: {
+        publishProviders: importProviderSyncPublication.exportSummary?.publishProviders ?? [],
+        stale: importProviderSyncPublication.stale === true,
+        fingerprint: importProviderSyncPublication.fingerprint
+      }
+    })
+  ];
+  const requiredRows = rows.filter((row) => row.required);
+  const blockedRows = requiredRows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded' || row.restartSafe === false);
+  const awaitingAcceptance = rows.filter((row) => (
+    requireExplicitAcceptance
+    && row.required
+    && Array.isArray(row.evidence?.acceptedItems)
+    && row.evidence.acceptedItems.length === 0
+  ));
+  const status = blockedRows.length > 0 || awaitingAcceptance.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleProviderSyncWorkflowFingerprint({ operation, status, rows });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const diagnostics = [
+    ...(profileProviderSyncIntent.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(profileProviderSyncHandoff.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(featureProviderSyncAcceptance.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importProviderSyncState.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importProviderLaunchGate.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...awaitingAcceptance.map((row) => ({
+      level: 'error',
+      code: 'module_provider_sync_acceptance_missing',
+      subject: row.id
+    }))
+  ];
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_provider_sync_workflow_blockers'
+    : status === 'guarded'
+      ? 'publish_module_provider_sync_workflow_guarded'
+      : changed
+        ? 'publish_module_provider_sync_workflow_ready'
+        : 'reuse_module_provider_sync_workflow';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_provider_sync_workflow',
+    operation,
+    status,
+    restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe === true),
+    sequence,
+    fingerprint,
+    changed,
+    generatedAt: clean(now) || null,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      requiredRows: requiredRows.length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      awaitingAcceptance: awaitingAcceptance.length,
+      localStatusRoutes: rows.filter((row) => row.statusChannel?.startsWith('local.status.')).length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    readiness: {
+      blockingReasons: unique([
+        ...blockedRows.map((row) => row.id),
+        ...awaitingAcceptance.map((row) => `acceptance:${row.id}`)
+      ]),
+      guardedReasons: unique(guardedRows.map((row) => row.id)),
+      nextAction
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-provider-sync',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-provider-sync',
+      publish: changed || status !== 'ready' || rows.some((row) => row.publish),
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_provider_sync_workflow',
+      operation,
+      status,
+      restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe === true),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleBoundaryReleaseReport({
+  operation = 'campaign.sync',
+  profileBoundaryRelease = {},
+  featureBoundaryRelease = {},
+  importBoundaryRelease = {},
+  previousReport = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleBoundaryReleaseHistory(previousReport);
+  const rows = [
+    moduleBoundaryReleaseRow('profile_boundary_release', profileBoundaryRelease, true),
+    moduleBoundaryReleaseRow('feature_boundary_release', featureBoundaryRelease, true),
+    moduleBoundaryReleaseRow('import_boundary_release', importBoundaryRelease, true)
+  ];
+  const blockedRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded');
+  const status = blockedRows.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0
+      ? 'guarded'
+      : 'released';
+  const restartSafe = status === 'released' && rows.every((row) => row.restartSafe === true);
+  const counters = {
+    total: rows.length,
+    released: rows.filter((row) => row.status === 'released').length,
+    guarded: guardedRows.length,
+    blocked: blockedRows.length,
+    restartUnsafe: rows.filter((row) => row.restartSafe !== true).length,
+    diagnostics: {
+      errors: rows.reduce((count, row) => count + row.diagnosticErrors, 0),
+      warnings: rows.reduce((count, row) => count + row.diagnosticWarnings, 0)
+    }
+  };
+  const fingerprint = moduleBoundaryReleaseFingerprint({ operation, status, rows });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const event = {
+    sequence,
+    timestamp: clean(now) || null,
+    operation,
+    status,
+    fingerprint,
+    blockedRows: blockedRows.length,
+    guardedRows: guardedRows.length,
+    restartSafe
+  };
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [event] : [])
+  ].slice(-toNonNegativeInteger(historyLimit, 12) || 12);
+  const statusCounts = timeline.reduce((counts, item) => {
+    counts[item.status] = (counts[item.status] ?? 0) + 1;
+    return counts;
+  }, {});
+  const nextAction = status === 'blocked'
+    ? firstAction(blockedRows, null, 'resolve_module_boundary_release_blockers')
+    : status === 'guarded'
+      ? firstAction(guardedRows, null, 'publish_module_boundary_release_advisory')
+      : changed
+        ? 'publish_module_boundary_release'
+        : 'reuse_module_boundary_release';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    operation,
+    status,
+    restartSafe,
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    counters,
+    readiness: {
+      blockingReasons: unique(blockedRows.flatMap((row) => row.reasons)),
+      guardedReasons: unique(guardedRows.flatMap((row) => row.reasons)),
+      nextAction
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-boundary-release',
+      statusChannel: rows.every((row) => row.statusChannel === 'kernel.status.mailchimp')
+        ? 'kernel.status.mailchimp'
+        : 'local.status.module-boundary-release',
+      publish: changed || status !== 'released',
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: status !== 'released',
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_boundary_release_report',
+      operation,
+      status,
+      restartSafe,
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id),
+      guardedRows: guardedRows.map((row) => row.id),
+      nextAction
+    },
+    diagnostics: [
+      ...blockedRows.map((row) => ({
+        level: 'error',
+        code: 'module_boundary_release_blocked',
+        subject: row.id
+      })),
+      ...guardedRows.map((row) => ({
+        level: 'warning',
+        code: 'module_boundary_release_guarded',
+        subject: row.id
+      }))
+    ]
+  };
+}
+
+export function buildModuleTenantLaunchGuardReport({
+  operation = 'campaign.sync',
+  boundary = {},
+  profileTenantLaunchGuard = {},
+  previousReport = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleTenantLaunchGuardHistory(previousReport);
+  const moduleBoundary = boundary.contract ?? boundary;
+  const profileRows = Array.isArray(profileTenantLaunchGuard.rows) ? profileTenantLaunchGuard.rows : [];
+  const profileBlocked = profileRows.filter((row) => row.status === 'blocked' && row.required !== false);
+  const profileGuarded = profileRows.filter((row) => row.status === 'guarded');
+  const rows = [
+    {
+      id: 'module_boundary',
+      source: 'module',
+      status: moduleBoundary.status === 'blocked'
+        ? 'blocked'
+        : moduleBoundary.status === 'degraded'
+          ? 'guarded'
+          : 'ready',
+      required: true,
+      restartSafe: moduleBoundary.crossTenantSafe === true && moduleBoundary.status !== 'blocked',
+      nextAction: moduleBoundary.status === 'blocked'
+        ? 'resolve_module_tenant_boundary'
+        : moduleBoundary.status === 'degraded'
+          ? 'confirm_module_role_capability_boundary'
+          : 'publish_module_tenant_boundary',
+      evidence: {
+        tenantId: moduleBoundary.tenantId ?? null,
+        workspaceId: moduleBoundary.workspaceId ?? null,
+        role: moduleBoundary.role ?? null,
+        deniedCapabilities: moduleBoundary.deniedCapabilities ?? [],
+        crossTenantSafe: moduleBoundary.crossTenantSafe === true
+      }
+    },
+    {
+      id: 'profile_launch_guard',
+      source: 'profile',
+      status: profileTenantLaunchGuard.status === 'blocked'
+        ? 'blocked'
+        : profileTenantLaunchGuard.status === 'guarded'
+          ? 'guarded'
+          : 'ready',
+      required: true,
+      restartSafe: profileTenantLaunchGuard.restartSafe === true,
+      nextAction: profileTenantLaunchGuard.readiness?.nextAction
+        ?? profileTenantLaunchGuard.exportSummary?.nextAction
+        ?? 'review_profile_tenant_launch_guard',
+      evidence: {
+        tenantId: profileTenantLaunchGuard.scope?.tenantId ?? null,
+        workspaceId: profileTenantLaunchGuard.scope?.workspaceId ?? null,
+        requestedTenantId: profileTenantLaunchGuard.scope?.requestedTenantId ?? null,
+        requestedWorkspaceId: profileTenantLaunchGuard.scope?.requestedWorkspaceId ?? null,
+        blockedRows: profileBlocked.map((row) => row.id),
+        guardedRows: profileGuarded.map((row) => row.id),
+        fingerprint: profileTenantLaunchGuard.fingerprint ?? null
+      }
+    }
+  ];
+  const blockedRows = rows.filter((row) => row.required !== false && row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded');
+  const status = blockedRows.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0
+      ? 'guarded'
+      : 'ready';
+  const counters = {
+    rows: rows.length,
+    ready: rows.filter((row) => row.status === 'ready').length,
+    guarded: guardedRows.length,
+    blocked: blockedRows.length,
+    profileBlockedRows: profileBlocked.length,
+    profileGuardedRows: profileGuarded.length,
+    deniedCapabilities: moduleBoundary.deniedCapabilities?.length ?? 0,
+    crossTenantBlocked: moduleBoundary.crossTenantSafe === false ? 1 : 0
+  };
+  const fingerprint = moduleTenantLaunchGuardFingerprint({
+    operation,
+    status,
+    rows,
+    counters
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const restartSafe = status === 'ready' && rows.every((row) => row.restartSafe !== false);
+  const event = {
+    sequence,
+    timestamp: clean(now) || null,
+    operation,
+    status,
+    fingerprint,
+    blocked: counters.blocked,
+    guarded: counters.guarded,
+    restartSafe
+  };
+  const limit = Math.max(1, toNonNegativeInteger(historyLimit, 12));
+  const timeline = [...previous.timeline, event].slice(-limit);
+  const statusCounts = timeline.reduce((counts, item) => {
+    counts[item.status] = (counts[item.status] ?? 0) + 1;
+    return counts;
+  }, {});
+  const diagnostics = [
+    ...(boundary.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(profileTenantLaunchGuard.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...blockedRows.map((row) => ({
+      level: 'error',
+      code: 'module_tenant_launch_guard_blocked',
+      subject: row.id
+    })),
+    ...guardedRows.map((row) => ({
+      level: 'warning',
+      code: 'module_tenant_launch_guard_guarded',
+      subject: row.id
+    }))
+  ];
+  const nextAction = status === 'blocked'
+    ? firstModuleTenantLaunchGuardAction(blockedRows, 'resolve_module_tenant_launch_guard')
+    : status === 'guarded'
+      ? firstModuleTenantLaunchGuardAction(guardedRows, 'confirm_module_tenant_launch_guard')
+      : 'publish_module_tenant_launch_guard';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_tenant_launch_guard',
+    operation,
+    status,
+    restartSafe,
+    sequence,
+    fingerprint,
+    changed,
+    generatedAt: clean(now) || null,
+    counters,
+    rows,
+    history: {
+      sequence,
+      timeline,
+      statusCounts,
+      lastStatus: timeline[timeline.length - 1]?.status ?? status
+    },
+    readiness: {
+      status,
+      blockingReasons: blockedRows.map((row) => row.id),
+      guardedReasons: guardedRows.map((row) => row.id),
+      nextAction
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-launch-boundary',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-launch-boundary',
+      publish: changed || status !== 'ready',
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_tenant_launch_guard',
+      status,
+      restartSafe,
+      sequence,
+      fingerprint,
+      changed,
+      counters,
+      blockedRows: blockedRows.map((row) => row.id),
+      guardedRows: guardedRows.map((row) => row.id),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleTenantHandoffBoundaryMatrix({
+  operation = 'campaign.sync',
+  profileTenantHandoffBoundary = {},
+  featureTenantHandoffBoundary = {},
+  importTenantHandoffBoundary = {},
+  previousMatrix = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleTenantHandoffBoundary(previousMatrix);
+  const rows = [
+    moduleTenantHandoffBoundaryRow('profile', profileTenantHandoffBoundary, true),
+    moduleTenantHandoffBoundaryRow('feature_gates', featureTenantHandoffBoundary, true),
+    moduleTenantHandoffBoundaryRow('imports', importTenantHandoffBoundary, true)
+  ];
+  const blockedRows = rows.filter((row) => row.status === 'blocked' && row.required !== false);
+  const guardedRows = rows.filter((row) => row.status === 'guarded');
+  const status = blockedRows.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0
+      ? 'guarded'
+      : 'released';
+  const fingerprint = moduleTenantHandoffBoundaryFingerprint({
+    operation,
+    status,
+    rows
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const diagnostics = [
+    ...rows.flatMap((row) => row.diagnostics.filter((item) => item.level === 'error')),
+    ...blockedRows.map((row) => ({ level: 'error', code: 'module_tenant_handoff_boundary_blocked', subject: row.id })),
+    ...guardedRows.map((row) => ({ level: 'warning', code: 'module_tenant_handoff_boundary_guarded', subject: row.id }))
+  ];
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [{
+      sequence,
+      timestamp: clean(now) || null,
+      operation,
+      status,
+      fingerprint,
+      blockedRows: blockedRows.map((row) => row.id),
+      guardedRows: guardedRows.map((row) => row.id)
+    }] : [])
+  ].slice(-toNonNegativeInteger(historyLimit, 12));
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_tenant_handoff_boundary',
+    operation,
+    status,
+    restartSafe: status === 'released' && rows.every((row) => row.restartSafe === true),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-boundary',
+      statusChannel: status === 'released' ? 'kernel.status.mailchimp' : 'local.status.module-boundary',
+      publish: changed || status !== 'released',
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: status !== 'released',
+      nextAction: status === 'blocked'
+        ? 'resolve_module_tenant_handoff_boundary'
+        : status === 'guarded'
+          ? 'publish_module_tenant_handoff_guarded'
+          : 'publish_module_tenant_handoff_boundary'
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_tenant_handoff_boundary',
+      operation,
+      status,
+      restartSafe: status === 'released' && rows.every((row) => row.restartSafe === true),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id),
+      guardedRows: guardedRows.map((row) => row.id),
+      nextAction: status === 'released' ? 'publish_module_tenant_handoff_boundary' : 'review_module_tenant_handoff_boundary'
+    },
+    diagnostics
+  };
+}
+
 function lifecycleKernelStatus(status) {
   const value = clean(status);
   if (['blocked', 'operator_review', 'disabled'].includes(value)) return 'blocked';
@@ -1454,6 +3968,18 @@ export function buildKernelModuleContract(input = {}, options = {}) {
         counters: module.importHistoryExport.counters,
         exportSummary: module.importHistoryExport.exportSummary,
         handoff: module.importHistoryExport.handoff
+      },
+      importStatusJournal: {
+        status: module.importStatusJournal.status,
+        restartSafe: module.importStatusJournal.restartSafe,
+        sequence: module.importStatusJournal.sequence,
+        fingerprint: module.importStatusJournal.fingerprint,
+        changed: module.importStatusJournal.changed,
+        counters: module.importStatusJournal.counters,
+        journal: module.importStatusJournal.journal,
+        idempotency: module.importStatusJournal.idempotency,
+        handoff: module.importStatusJournal.handoff,
+        exportSummary: module.importStatusJournal.exportSummary
       },
       importLifecycle: {
         status: module.importLifecycle.status,
@@ -1674,6 +4200,16 @@ export function buildKernelModuleContract(input = {}, options = {}) {
         readiness: module.profileBoundaryEvidence.readiness,
         auditHandoff: module.profileBoundaryEvidence.auditHandoff,
         exportSummary: module.profileBoundaryEvidence.exportSummary
+      },
+      profileTenantPermissionMatrix: {
+        status: module.profileTenantPermissionMatrix.status,
+        restartSafe: module.profileTenantPermissionMatrix.restartSafe,
+        fingerprint: module.profileTenantPermissionMatrix.fingerprint,
+        scope: module.profileTenantPermissionMatrix.scope,
+        rows: module.profileTenantPermissionMatrix.rows,
+        validationSummary: module.profileTenantPermissionMatrix.validationSummary,
+        auditHandoff: module.profileTenantPermissionMatrix.auditHandoff,
+        exportSummary: module.profileTenantPermissionMatrix.exportSummary
       },
       profileOperationalHealth: {
         status: module.profileOperationalHealth.status,
@@ -2005,6 +4541,437 @@ export function buildModuleProviderAdoptionHandoff({
   };
 }
 
+export function buildModuleClientControlRoomContract({
+  operation = 'campaign.sync',
+  profileLifecycleClientControls = {},
+  featureProviderControls = {},
+  importRuntimeClientControls = {},
+  previousControlRoom = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleClientControlRoom(previousControlRoom);
+  const rows = [
+    moduleClientControlRoomRow('profile_lifecycle_controls', 'profile', profileLifecycleClientControls, true, {
+      status: profileLifecycleClientControls.status ?? profileLifecycleClientControls.exportSummary?.status,
+      restartSafe: profileLifecycleClientControls.restartSafe ?? profileLifecycleClientControls.exportSummary?.restartSafe,
+      statusChannel: profileLifecycleClientControls.handoff?.statusChannel,
+      nextAction: profileLifecycleClientControls.handoff?.nextAction ?? profileLifecycleClientControls.exportSummary?.nextAction,
+      evidence: {
+        visibleRows: profileLifecycleClientControls.exportSummary?.visibleRows ?? [],
+        blockedRows: profileLifecycleClientControls.exportSummary?.blockedRows ?? [],
+        guardedRows: profileLifecycleClientControls.exportSummary?.guardedRows ?? [],
+        availableCommands: profileLifecycleClientControls.exportSummary?.availableCommands ?? [],
+        fingerprint: profileLifecycleClientControls.fingerprint ?? profileLifecycleClientControls.exportSummary?.fingerprint
+      }
+    }),
+    moduleClientControlRoomRow('feature_provider_controls', 'feature_gates', featureProviderControls, true, {
+      status: featureProviderControls.status ?? featureProviderControls.exportSummary?.status,
+      restartSafe: featureProviderControls.restartSafe ?? featureProviderControls.exportSummary?.restartSafe,
+      statusChannel: featureProviderControls.handoff?.statusChannel,
+      nextAction: featureProviderControls.handoff?.nextAction ?? featureProviderControls.exportSummary?.nextAction,
+      evidence: {
+        visibleRows: featureProviderControls.exportSummary?.visibleRows ?? [],
+        blockedRows: featureProviderControls.exportSummary?.blockedRows ?? [],
+        guardedRows: featureProviderControls.exportSummary?.guardedRows ?? [],
+        deniedEffects: featureProviderControls.exportSummary?.deniedEffects ?? [],
+        fingerprint: featureProviderControls.fingerprint ?? featureProviderControls.exportSummary?.fingerprint
+      }
+    }),
+    moduleClientControlRoomRow('import_runtime_controls', 'imports', importRuntimeClientControls, true, {
+      status: importRuntimeClientControls.status ?? importRuntimeClientControls.exportSummary?.status,
+      restartSafe: importRuntimeClientControls.restartSafe ?? importRuntimeClientControls.exportSummary?.restartSafe,
+      statusChannel: importRuntimeClientControls.handoff?.statusChannel,
+      nextAction: importRuntimeClientControls.handoff?.nextAction ?? importRuntimeClientControls.exportSummary?.nextAction,
+      evidence: {
+        visibleRows: importRuntimeClientControls.exportSummary?.visibleRows ?? [],
+        blockedRows: importRuntimeClientControls.exportSummary?.blockedRows ?? [],
+        guardedRows: importRuntimeClientControls.exportSummary?.guardedRows ?? [],
+        fingerprint: importRuntimeClientControls.fingerprint ?? importRuntimeClientControls.exportSummary?.fingerprint
+      }
+    })
+  ];
+  const blockedRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded');
+  const visibleRows = rows.filter((row) => row.clientVisible);
+  const diagnostics = [
+    ...(profileLifecycleClientControls.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(featureProviderControls.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importRuntimeClientControls.diagnostics ?? []).filter((item) => item.level === 'error')
+  ];
+  const status = blockedRows.length > 0 || diagnostics.some((item) => item.level === 'error')
+    ? 'blocked'
+    : guardedRows.length > 0 || diagnostics.some((item) => item.level === 'warning')
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleClientControlRoomFingerprint({ operation, status, rows });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const event = {
+    sequence,
+    timestamp: clean(now) || null,
+    operation,
+    status,
+    fingerprint,
+    visibleRows: visibleRows.length,
+    blockedRows: blockedRows.length,
+    guardedRows: guardedRows.length
+  };
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [event] : [])
+  ].slice(-toPositiveInteger(historyLimit, 12));
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_client_control_room_blockers'
+    : status === 'guarded'
+      ? 'publish_module_client_control_room_guarded'
+      : changed
+        ? 'publish_module_client_control_room_ready'
+        : 'reuse_module_client_control_room';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_control_room',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      visibleRows: visibleRows.length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'mailchimp.client.workflow.module-control-room',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-client-control-room',
+      publish: status !== 'ready' || changed || visibleRows.length > 0,
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: visibleRows.length > 0,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_control_room',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+      sequence,
+      fingerprint,
+      changed,
+      visibleRows: visibleRows.map((row) => row.id).sort(),
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleWorkflowNextActionDigest({
+  operation = 'campaign.sync',
+  profileLifecycleNextAction = {},
+  featureProviderHandoff = {},
+  importRuntimeHandoff = {},
+  previousDigest = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleWorkflowNextAction(previousDigest);
+  const rows = [
+    moduleWorkflowNextActionRow('profile_lifecycle', 'profile', profileLifecycleNextAction, true, {
+      status: profileLifecycleNextAction.status ?? profileLifecycleNextAction.exportSummary?.status,
+      restartSafe: profileLifecycleNextAction.restartSafe ?? profileLifecycleNextAction.exportSummary?.restartSafe,
+      nextAction: profileLifecycleNextAction.handoff?.nextAction ?? profileLifecycleNextAction.exportSummary?.nextAction,
+      statusChannel: profileLifecycleNextAction.handoff?.statusChannel,
+      evidence: {
+        blockedRows: profileLifecycleNextAction.exportSummary?.blockedRows ?? [],
+        guardedRows: profileLifecycleNextAction.exportSummary?.guardedRows ?? [],
+        validationSummary: profileLifecycleNextAction.validationSummary ?? null,
+        fingerprint: profileLifecycleNextAction.fingerprint ?? profileLifecycleNextAction.exportSummary?.fingerprint
+      }
+    }),
+    moduleWorkflowNextActionRow('feature_provider_handoff', 'feature_gates', featureProviderHandoff, true, {
+      status: featureProviderHandoff.status ?? featureProviderHandoff.exportSummary?.status,
+      restartSafe: featureProviderHandoff.restartSafe ?? featureProviderHandoff.exportSummary?.restartSafe,
+      nextAction: featureProviderHandoff.handoff?.nextAction ?? featureProviderHandoff.exportSummary?.nextAction,
+      statusChannel: featureProviderHandoff.handoff?.statusChannel,
+      evidence: {
+        blockedRows: featureProviderHandoff.exportSummary?.blockedRows ?? [],
+        guardedRows: featureProviderHandoff.exportSummary?.guardedRows ?? [],
+        deniedEffects: featureProviderHandoff.exportSummary?.deniedEffects ?? [],
+        validationSummary: featureProviderHandoff.validationSummary ?? null,
+        fingerprint: featureProviderHandoff.fingerprint ?? featureProviderHandoff.exportSummary?.fingerprint
+      }
+    }),
+    moduleWorkflowNextActionRow('import_runtime_handoff', 'imports', importRuntimeHandoff, true, {
+      status: importRuntimeHandoff.status ?? importRuntimeHandoff.exportSummary?.status,
+      restartSafe: importRuntimeHandoff.restartSafe ?? importRuntimeHandoff.exportSummary?.restartSafe,
+      nextAction: importRuntimeHandoff.handoff?.nextAction ?? importRuntimeHandoff.exportSummary?.nextAction,
+      statusChannel: importRuntimeHandoff.handoff?.statusChannel,
+      evidence: {
+        blockedRows: importRuntimeHandoff.exportSummary?.blockedRows ?? [],
+        guardedRows: importRuntimeHandoff.exportSummary?.guardedRows ?? [],
+        validationSummary: importRuntimeHandoff.validationSummary ?? null,
+        fingerprint: importRuntimeHandoff.fingerprint ?? importRuntimeHandoff.exportSummary?.fingerprint
+      }
+    })
+  ];
+  const blockedRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded' || row.status === 'degraded');
+  const diagnostics = [
+    ...(profileLifecycleNextAction.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(featureProviderHandoff.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importRuntimeHandoff.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...blockedRows.map((row) => ({
+      level: 'error',
+      code: 'module_workflow_next_action_blocked',
+      subject: row.id
+    })),
+    ...guardedRows.map((row) => ({
+      level: 'warning',
+      code: 'module_workflow_next_action_guarded',
+      subject: row.id
+    }))
+  ];
+  const status = blockedRows.length > 0 || diagnostics.some((item) => item.level === 'error')
+    ? 'blocked'
+    : guardedRows.length > 0 || diagnostics.some((item) => item.level === 'warning')
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleWorkflowNextActionFingerprint({ operation, status, rows });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_workflow_next_action_blockers'
+    : status === 'guarded'
+      ? 'publish_module_workflow_next_action_guarded'
+      : changed
+        ? 'publish_module_workflow_next_action_ready'
+        : 'reuse_module_workflow_next_action';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_workflow_next_action',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe !== false),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      publishRows: rows.filter((row) => row.publish).length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    history: {
+      sequence,
+      timeline: [
+        ...previous.timeline,
+        ...(changed || previous.timeline.length === 0 ? [{
+          sequence,
+          timestamp: clean(now) || null,
+          operation,
+          status,
+          fingerprint,
+          blockedRows: blockedRows.map((row) => row.id),
+          guardedRows: guardedRows.map((row) => row.id)
+        }] : [])
+      ].slice(-toNonNegativeInteger(historyLimit, 12))
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-workflow-next-action',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-workflow-next-action',
+      publish: changed || status !== 'ready' || rows.some((row) => row.publish),
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      nextAction
+    },
+    readiness: {
+      blockingReasons: blockedRows.map((row) => row.id).sort(),
+      guardedReasons: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_workflow_next_action',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe !== false),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleBoundaryOperationsPacket({
+  operation = 'campaign.sync',
+  profileBoundaryIntent = {},
+  featureOperationalControls = {},
+  importLifecycleCommandSurface = {},
+  moduleLaunchGate = {},
+  moduleClientLaunchReadiness = {},
+  previousPacket = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleBoundaryOperationsPacket(previousPacket);
+  const rows = [
+    moduleBoundaryOperationsRow('profile_boundary_intent', profileBoundaryIntent, true, {
+      source: 'profile',
+      statusChannel: profileBoundaryIntent.handoff?.statusChannel,
+      nextAction: profileBoundaryIntent.handoff?.nextAction ?? profileBoundaryIntent.exportSummary?.nextAction,
+      counters: profileBoundaryIntent.validationSummary
+    }),
+    moduleBoundaryOperationsRow('feature_gate_controls', featureOperationalControls, true, {
+      source: 'feature_gates',
+      statusChannel: featureOperationalControls.handoff?.statusChannel,
+      nextAction: featureOperationalControls.handoff?.nextAction ?? featureOperationalControls.exportSummary?.nextAction,
+      counters: featureOperationalControls.validationSummary
+    }),
+    moduleBoundaryOperationsRow('import_lifecycle_controls', importLifecycleCommandSurface, true, {
+      source: 'imports',
+      statusChannel: importLifecycleCommandSurface.handoff?.statusChannel,
+      nextAction: importLifecycleCommandSurface.handoff?.nextAction ?? importLifecycleCommandSurface.exportSummary?.nextAction,
+      counters: importLifecycleCommandSurface.validationSummary
+    }),
+    moduleBoundaryOperationsRow('module_launch_gate', moduleLaunchGate, true, {
+      source: 'module',
+      statusChannel: moduleLaunchGate.handoff?.statusChannel,
+      nextAction: moduleLaunchGate.handoff?.nextAction ?? moduleLaunchGate.exportSummary?.nextAction,
+      counters: moduleLaunchGate.validationSummary ?? moduleLaunchGate.counters
+    }),
+    moduleBoundaryOperationsRow('client_launch_readiness', moduleClientLaunchReadiness, false, {
+      source: 'client',
+      statusChannel: moduleClientLaunchReadiness.handoff?.statusChannel,
+      nextAction: moduleClientLaunchReadiness.handoff?.nextAction ?? moduleClientLaunchReadiness.exportSummary?.nextAction,
+      counters: moduleClientLaunchReadiness.validationSummary ?? moduleClientLaunchReadiness.counters
+    })
+  ];
+  const blockedRows = rows.filter((row) => row.required && row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded' || row.restartSafe === false);
+  const diagnostics = [
+    ...(profileBoundaryIntent.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(featureOperationalControls.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importLifecycleCommandSurface.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(moduleLaunchGate.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...blockedRows.map((row) => ({ level: 'error', code: 'module_boundary_operations_blocked', subject: row.id })),
+    ...guardedRows.map((row) => ({ level: 'warning', code: 'module_boundary_operations_guarded', subject: row.id }))
+  ];
+  const status = diagnostics.some((item) => item.level === 'error') || blockedRows.length > 0
+    ? 'blocked'
+    : diagnostics.some((item) => item.level === 'warning') || guardedRows.length > 0
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleBoundaryOperationsFingerprint({ operation, status, rows });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const event = {
+    sequence,
+    timestamp: clean(now) || null,
+    operation,
+    status,
+    fingerprint,
+    blockedRows: blockedRows.length,
+    guardedRows: guardedRows.length,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+    changed
+  };
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [event] : [])
+  ].slice(-toPositiveInteger(historyLimit, 12));
+  const statusCounts = timeline.reduce((counts, item) => {
+    counts[item.status] = (counts[item.status] ?? 0) + 1;
+    return counts;
+  }, {});
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_boundary_operations'
+    : status === 'guarded'
+      ? 'publish_module_boundary_operations_guarded'
+      : changed
+        ? 'publish_module_boundary_operations_ready'
+        : 'reuse_module_boundary_operations';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_boundary_operations_packet',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    counters: {
+      rows: rows.length,
+      requiredRows: rows.filter((row) => row.required).length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      restartGuardedRows: rows.filter((row) => row.restartSafe !== true).length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts
+    },
+    readiness: {
+      blockingReasons: unique(blockedRows.map((row) => row.id)),
+      guardedReasons: unique(guardedRows.map((row) => row.id)),
+      nextAction
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-boundary-operations',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-boundary-operations',
+      publish: changed || status !== 'ready',
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_boundary_operations_packet',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id),
+      guardedRows: guardedRows.map((row) => row.id),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
 export function buildModuleOperationalStatus({
   profilePersistence = {},
   profileFailure = {},
@@ -2028,12 +4995,15 @@ export function buildModuleOperationalStatus({
   providerAdoption = {},
   profileRuntimeAdoption = {},
   profileRestartRecovery = {},
+  profileRestartStatusLedger = {},
+  profileRestartReplayDecision = {},
   providerGatePreview = {},
   profileExport = {},
   profilePreviewAcceptance = {},
   profileBoundaryEvidence = {},
   profilePrimaryPack = {},
   profileActivation = {},
+  profileLifecycleSettingsControls = {},
   featureBoundaryControls = {},
   importGateLifecycle = {},
   boundary = {},
@@ -2059,7 +5029,10 @@ export function buildModuleOperationalStatus({
   const providerAdoptionStatus = providerAdoption.status ?? 'ready';
   const profileRuntimeAdoptionStatus = profileRuntimeAdoption.status ?? 'ready';
   const profileRestartRecoveryStatus = profileRestartRecovery.status ?? 'ready';
+  const profileRestartStatusLedgerStatus = profileRestartStatusLedger.status ?? 'ready';
+  const profileRestartReplayDecisionStatus = profileRestartReplayDecision.status ?? 'ready';
   const profileActivationStatus = profileActivation.status ?? 'ready';
+  const profileLifecycleSettingsControlStatus = profileLifecycleSettingsControls.status ?? 'ready';
   const providerPreviewStatus = providerGatePreview.status ?? 'ready';
   const profileExportStatus = profileExport.readiness?.status ?? profileExport.exportSummary?.status ?? 'ready';
   const profilePreviewStatus = profilePreviewAcceptance.status ?? 'ready';
@@ -2090,7 +5063,10 @@ export function buildModuleOperationalStatus({
     ...(providerAdoptionStatus === 'blocked' ? ['module_provider_adoption'] : []),
     ...(profileRuntimeAdoptionStatus === 'blocked' ? ['profile_runtime_adoption'] : []),
     ...(profileRestartRecoveryStatus === 'blocked' ? ['profile_restart_recovery'] : []),
+    ...(profileRestartStatusLedgerStatus === 'blocked' ? ['profile_restart_status_ledger'] : []),
+    ...(profileRestartReplayDecisionStatus === 'blocked' ? ['profile_restart_replay_decision'] : []),
     ...(profileActivationStatus === 'blocked' ? ['profile_activation'] : []),
+    ...(profileLifecycleSettingsControlStatus === 'blocked' ? ['profile_lifecycle_settings_controls'] : []),
     ...(providerPreviewStatus === 'blocked' ? ['provider_gate_preview'] : []),
     ...(boundaryStatus === 'blocked' ? ['module_boundary'] : []),
     ...(profilePreviewStatus === 'blocked' ? ['profile_preview_acceptance'] : []),
@@ -2127,7 +5103,10 @@ export function buildModuleOperationalStatus({
     ...(providerAdoptionStatus === 'degraded' ? ['module_provider_adoption'] : []),
     ...(profileRuntimeAdoptionStatus === 'degraded' ? ['profile_runtime_adoption'] : []),
     ...(profileRestartRecoveryStatus === 'degraded' ? ['profile_restart_recovery'] : []),
+    ...(profileRestartStatusLedgerStatus === 'degraded' ? ['profile_restart_status_ledger'] : []),
+    ...(['degraded', 'guarded'].includes(profileRestartReplayDecisionStatus) ? ['profile_restart_replay_decision'] : []),
     ...(profileActivationStatus === 'degraded' ? ['profile_activation'] : []),
+    ...(profileLifecycleSettingsControlStatus === 'degraded' ? ['profile_lifecycle_settings_controls'] : []),
     ...(providerPreviewStatus === 'degraded' ? ['provider_gate_preview'] : []),
     ...(boundaryStatus === 'degraded' ? ['module_boundary'] : []),
     ...(profilePreviewStatus === 'degraded' ? ['profile_preview_acceptance'] : []),
@@ -2165,7 +5144,10 @@ export function buildModuleOperationalStatus({
     && providerAdoption.restartSafe !== false
     && profileRuntimeAdoption.restartSafe !== false
     && profileRestartRecovery.restartSafe !== false
+    && profileRestartStatusLedger.restartSafe !== false
+    && profileRestartReplayDecision.restartSafe !== false
     && profileActivation.restartSafe !== false
+    && profileLifecycleSettingsControls.restartSafe !== false
     && profilePreviewAcceptance.restartSafe !== false
     && profileBoundaryEvidence.restartSafe !== false
     && profilePrimaryPack.restartSafe !== false
@@ -2207,7 +5189,10 @@ export function buildModuleOperationalStatus({
       providerAdoption: providerAdoptionStatus,
       profileRuntimeAdoption: profileRuntimeAdoptionStatus,
       profileRestartRecovery: profileRestartRecoveryStatus,
+      profileRestartStatusLedger: profileRestartStatusLedgerStatus,
+      profileRestartReplayDecision: profileRestartReplayDecisionStatus,
       profileActivation: profileActivationStatus,
+      profileLifecycleSettingsControls: profileLifecycleSettingsControlStatus,
       profilePreviewAcceptance: profilePreviewStatus,
       profileBoundaryEvidence: profileBoundaryEvidenceStatus,
       profilePrimaryPack: profilePrimaryPackStatus,
@@ -2251,7 +5236,10 @@ export function buildModuleOperationalStatus({
       providerAdoption: providerAdoption.exportSummary ?? null,
       profileRuntimeAdoption: profileRuntimeAdoption.exportSummary ?? null,
       profileRestartRecovery: profileRestartRecovery.exportSummary ?? null,
+      profileRestartStatusLedger: profileRestartStatusLedger.exportSummary ?? null,
+      profileRestartReplayDecision: profileRestartReplayDecision.exportSummary ?? null,
       profileActivation: profileActivation.exportSummary ?? null,
+      profileLifecycleSettingsControls: profileLifecycleSettingsControls.exportSummary ?? null,
       profilePreviewAcceptance: profilePreviewAcceptance.exportSummary ?? null,
       profileBoundaryEvidence: profileBoundaryEvidence.exportSummary ?? null,
       profilePrimaryPack: profilePrimaryPack.exportSummary ?? null,
@@ -2262,6 +5250,265 @@ export function buildModuleOperationalStatus({
       profileBoundaryAudit: profilePersistence.envelope?.boundary?.auditHandoff ?? null,
       boundaryAudit: boundary.contract?.auditHandoff ?? null
     }
+  };
+}
+
+export function buildModuleOperationalReadinessBrief({
+  operation = 'campaign.sync',
+  profileOperationalReadiness = {},
+  featureAnalyticsPublication = {},
+  importProviderOperationalBrief = {},
+  operationalStatus = {},
+  moduleBoundaryOperations = {},
+  previousBrief = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleOperationalReadinessBrief(previousBrief);
+  const rows = [
+    moduleOperationalReadinessBriefRow('profile_readiness', 'profile', profileOperationalReadiness, true, {
+      nextAction: profileOperationalReadiness.handoff?.nextAction ?? profileOperationalReadiness.exportSummary?.nextAction,
+      statusChannel: profileOperationalReadiness.handoff?.statusChannel,
+      counters: profileOperationalReadiness.validationSummary
+    }),
+    moduleOperationalReadinessBriefRow('feature_analytics', 'feature_gates', featureAnalyticsPublication, true, {
+      nextAction: featureAnalyticsPublication.handoff?.nextAction ?? featureAnalyticsPublication.exportSummary?.nextAction,
+      statusChannel: featureAnalyticsPublication.handoff?.statusChannel,
+      counters: featureAnalyticsPublication.counters
+    }),
+    moduleOperationalReadinessBriefRow('import_provider_brief', 'imports', importProviderOperationalBrief, true, {
+      nextAction: importProviderOperationalBrief.handoff?.nextAction ?? importProviderOperationalBrief.exportSummary?.nextAction,
+      statusChannel: importProviderOperationalBrief.handoff?.statusChannel,
+      counters: importProviderOperationalBrief.validationSummary
+    }),
+    moduleOperationalReadinessBriefRow('module_boundary_operations', 'module', moduleBoundaryOperations, true, {
+      nextAction: moduleBoundaryOperations.handoff?.nextAction ?? moduleBoundaryOperations.exportSummary?.nextAction,
+      statusChannel: moduleBoundaryOperations.handoff?.statusChannel,
+      counters: moduleBoundaryOperations.validationSummary
+    })
+  ];
+  const requiredRows = rows.filter((row) => row.required);
+  const blockedRows = requiredRows.filter((row) => row.status === 'blocked');
+  const guardedRows = requiredRows.filter((row) => row.status === 'guarded' || row.restartSafe !== true);
+  const status = blockedRows.length > 0 || operationalStatus.status === 'blocked'
+    ? 'blocked'
+    : guardedRows.length > 0 || operationalStatus.status === 'degraded'
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleOperationalReadinessBriefFingerprint({
+    operation,
+    status,
+    rows,
+    operationalStatus
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const nextAction = status === 'blocked'
+    ? blockedRows[0]?.nextAction ?? 'resolve_module_operational_readiness'
+    : status === 'guarded'
+      ? guardedRows[0]?.nextAction ?? 'publish_module_operational_readiness_guarded'
+      : changed
+        ? 'publish_module_operational_readiness_ready'
+        : 'reuse_module_operational_readiness_brief';
+  const event = {
+    sequence,
+    timestamp: clean(now) || null,
+    operation,
+    status,
+    fingerprint,
+    blockedRows: blockedRows.length,
+    guardedRows: guardedRows.length,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe)
+  };
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [event] : [])
+  ].slice(-toNonNegativeInteger(historyLimit, 12) || 12);
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_operational_readiness_brief',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    validationSummary: {
+      totalRows: rows.length,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      publishRows: rows.filter((row) => row.publish).map((row) => row.id).sort(),
+      clientVisibleRows: rows.filter((row) => row.clientVisible).map((row) => row.id).sort()
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-operational-readiness',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-operational-readiness',
+      publish: changed || status !== 'ready' || rows.some((row) => row.publish),
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeTimeline: true,
+      includeRows: true,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_operational_readiness_brief',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    }
+  };
+}
+
+export function buildModuleOperationalEscalationMatrix({
+  operation = 'campaign.sync',
+  profileOperationalEscalation = {},
+  importOperationalEscalation = {},
+  operationalStatus = {},
+  previousEscalation = {},
+  owners = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleOperationalEscalation(previousEscalation);
+  const ownerMap = normalizeModuleEscalationOwners(owners);
+  const rows = [
+    moduleOperationalEscalationRow('profile', profileOperationalEscalation, ownerMap.profile),
+    moduleOperationalEscalationRow('imports', importOperationalEscalation, ownerMap.imports),
+    ...moduleEscalationRowsFromLeaf('profile', profileOperationalEscalation.rows ?? [], ownerMap.profile),
+    ...moduleEscalationRowsFromLeaf('imports', importOperationalEscalation.rows ?? [], ownerMap.imports)
+  ].filter((row) => row.status !== 'ready' || row.publish === true);
+  const blockedRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded');
+  const status = blockedRows.length > 0 || operationalStatus.status === 'blocked'
+    ? 'blocked'
+    : guardedRows.length > 0 || operationalStatus.status === 'degraded'
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleOperationalEscalationFingerprint({
+    operation,
+    status,
+    rows,
+    operationalStatus
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const firstRetry = profileOperationalEscalation.retry ?? importOperationalEscalation.retry ?? null;
+  const nextAction = status === 'blocked'
+    ? 'page_module_operational_owner'
+    : status === 'guarded'
+      ? firstRetry
+        ? 'schedule_module_retry_and_publish_guarded_status'
+        : 'publish_module_guarded_escalation'
+      : changed
+        ? 'publish_module_escalation_clear'
+        : 'reuse_module_escalation';
+  const event = {
+    sequence,
+    timestamp: clean(now) || null,
+    operation,
+    status,
+    fingerprint,
+    blockedRows: blockedRows.length,
+    guardedRows: guardedRows.length,
+    publishRows: rows.filter((row) => row.publish).length,
+    nextAction
+  };
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [event] : [])
+  ].slice(-toPositiveInteger(historyLimit, 12));
+  const diagnostics = [
+    ...(profileOperationalEscalation.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importOperationalEscalation.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(status === 'blocked' && blockedRows.length === 0
+      ? [{ level: 'error', code: 'module_escalation_blocked_without_row', subject: operation }]
+      : [])
+  ];
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_operational_escalation',
+    operation,
+    status,
+    restartSafe: status === 'ready'
+      && profileOperationalEscalation.restartSafe !== false
+      && importOperationalEscalation.restartSafe !== false
+      && operationalStatus.restartSafe !== false,
+    sequence,
+    fingerprint,
+    changed,
+    generatedAt: clean(now) || null,
+    rows,
+    counters: {
+      rows: rows.length,
+      blocked: blockedRows.length,
+      guarded: guardedRows.length,
+      publishRows: rows.filter((row) => row.publish).length,
+      profileRows: rows.filter((row) => row.source === 'profile').length,
+      importRows: rows.filter((row) => row.source === 'imports').length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    escalation: {
+      owner: blockedRows[0]?.owner ?? guardedRows[0]?.owner ?? ownerMap.defaultOwner,
+      nextRetry: firstRetry,
+      nextAction,
+      lastStableFingerprint: status === 'ready' ? fingerprint : previous.lastStableFingerprint
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-escalation',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-escalation',
+      publish: changed || status !== 'ready' || rows.some((row) => row.publish),
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: rows.length > 0,
+      includeTimeline: timeline.length > 0,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_operational_escalation',
+      operation,
+      status,
+      restartSafe: status === 'ready'
+        && profileOperationalEscalation.restartSafe !== false
+        && importOperationalEscalation.restartSafe !== false
+        && operationalStatus.restartSafe !== false,
+      sequence,
+      fingerprint,
+      changed,
+      owner: blockedRows[0]?.owner ?? guardedRows[0]?.owner ?? ownerMap.defaultOwner,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      publishRows: rows.filter((row) => row.publish).map((row) => row.id).sort(),
+      nextRetry: firstRetry,
+      nextAction
+    },
+    diagnostics
   };
 }
 
@@ -2284,7 +5531,10 @@ export function buildModuleOperationalActionPlan({
   providerAdoption = {},
   profileRuntimeAdoption = {},
   profileRestartRecovery = {},
+  profileRestartStatusLedger = {},
+  profileRestartReplayDecision = {},
   profileActivation = {},
+  profileLifecycleSettingsControls = {},
   featureBoundaryControls = {},
   featureLifecycleReadiness = {},
   importGateLifecycle = {},
@@ -2314,7 +5564,10 @@ export function buildModuleOperationalActionPlan({
     ...normalizeProviderAdoptionActions(providerAdoption, 'module_provider_adoption'),
     ...normalizeProfileRuntimeAdoptionActions(profileRuntimeAdoption),
     ...normalizeProfileRestartRecoveryActions(profileRestartRecovery),
+    ...normalizeProfileRestartStatusLedgerActions(profileRestartStatusLedger),
+    ...normalizeProfileRestartReplayDecisionActions(profileRestartReplayDecision),
     ...normalizeProfileActivationActions(profileActivation),
+    ...normalizeProfileLifecycleSettingsControlActions(profileLifecycleSettingsControls),
     ...normalizeFeatureBoundaryControlActions(featureBoundaryControls),
     ...normalizeFeatureLifecycleReadinessActions(featureLifecycleReadiness),
     ...normalizeImportGateLifecycleActions(importGateLifecycle),
@@ -2350,6 +5603,8 @@ export function buildModuleOperationalActionPlan({
       ? 'dispatch_import_retry'
     : profileActivation.status === 'blocked'
       ? 'resolve_profile_activation_blockers'
+    : profileLifecycleSettingsControls.status === 'blocked'
+      ? profileLifecycleSettingsControls.readiness?.nextAction ?? 'resolve_profile_lifecycle_control_blockers'
     : featureBoundaryControls.status === 'blocked'
       ? 'resolve_feature_boundary_control_blockers'
     : featureLifecycleReadiness.status === 'blocked'
@@ -2368,21 +5623,23 @@ export function buildModuleOperationalActionPlan({
       ? 'resolve_profile_runtime_adoption_blockers'
     : profileRestartRecovery.status === 'blocked'
       ? 'resolve_profile_restart_recovery_blockers'
+    : profileRestartReplayDecision.status === 'blocked'
+      ? 'resolve_profile_restart_replay_decision_blockers'
     : providerGatePreview.status === 'blocked'
       ? 'resolve_provider_preview_blockers'
-      : profilePrimaryPack.status === 'blocked'
+    : profilePrimaryPack.status === 'blocked'
       ? 'resolve_profile_primary_pack_blockers'
-      : profileBoundaryEvidence.status === 'blocked'
+    : profileBoundaryEvidence.status === 'blocked'
       ? 'resolve_profile_boundary_evidence_blockers'
-      : profilePreviewAcceptance.status === 'blocked'
-        ? 'resolve_profile_preview_blockers'
-      : importBoundaryAcceptance.status === 'blocked'
-        ? 'resolve_import_boundary_blockers'
-      : importPreviewAcceptance.status === 'blocked'
-        ? 'resolve_import_preview_blockers'
-      : operationalStatus.status === 'degraded'
-        ? 'publish_degraded_status'
-        : 'publish_ready_status';
+    : profilePreviewAcceptance.status === 'blocked'
+      ? 'resolve_profile_preview_blockers'
+    : importBoundaryAcceptance.status === 'blocked'
+      ? 'resolve_import_boundary_blockers'
+    : importPreviewAcceptance.status === 'blocked'
+      ? 'resolve_import_preview_blockers'
+    : operationalStatus.status === 'degraded'
+      ? 'publish_degraded_status'
+      : 'publish_ready_status';
 
   return {
     schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
@@ -2422,6 +5679,7 @@ export function buildModuleExportReadiness({
   profileRuntimeAdoption = {},
   profileRestartRecovery = {},
   profileActivation = {},
+  profileLifecycleSettingsControls = {},
   featureBoundaryControls = {},
   featureLifecycleReadiness = {},
   importGateLifecycle = {},
@@ -2454,6 +5712,7 @@ export function buildModuleExportReadiness({
     profileRuntimeAdoption: profileRuntimeAdoption.status ?? 'ready',
     profileRestartRecovery: profileRestartRecovery.status ?? 'ready',
     profileActivation: profileActivation.status ?? 'ready',
+    profileLifecycleSettingsControls: profileLifecycleSettingsControls.status ?? 'ready',
     featureBoundaryControls: featureBoundaryControls.exportSummary?.status ?? featureBoundaryControls.status ?? 'ready',
     featureLifecycleReadiness: featureLifecycleReadiness.exportSummary?.status ?? featureLifecycleReadiness.status ?? 'ready',
     importGateLifecycle: importGateLifecycle.exportSummary?.status ?? importGateLifecycle.status ?? 'ready',
@@ -2610,6 +5869,12 @@ export function buildModuleExportReadiness({
       nextAction: profileActivation.readiness?.nextAction ?? profileActivation.handoff?.nextAction ?? null
     },
     {
+      component: 'profileLifecycleSettingsControls',
+      status: components.profileLifecycleSettingsControls,
+      summary: profileLifecycleSettingsControls.exportSummary ?? null,
+      nextAction: profileLifecycleSettingsControls.readiness?.nextAction ?? profileLifecycleSettingsControls.handoff?.nextAction ?? null
+    },
+    {
       component: 'profileProvider',
       status: components.profileProvider,
       summary: profileProviderService.negotiation ?? null,
@@ -2657,6 +5922,7 @@ export function buildModuleExportReadiness({
       && providerAdoption.restartSafe !== false
       && profilePrimaryPack.restartSafe !== false
       && profileActivation.restartSafe !== false
+      && profileLifecycleSettingsControls.restartSafe !== false
       && featureBoundaryControls.restartSafe !== false
       && importGateLifecycle.restartSafe !== false
       && providerGatePreview.restartSafe !== false
@@ -2694,6 +5960,7 @@ export function buildModuleExportReadiness({
       providerAdoption: providerAdoption.exportSummary ?? null,
       profilePrimaryPack: profilePrimaryPack.exportSummary ?? null,
       profileActivation: profileActivation.exportSummary ?? null,
+      profileLifecycleSettingsControls: profileLifecycleSettingsControls.exportSummary ?? null,
       boundary: boundary.contract?.auditHandoff ?? null,
       actionPlan: {
         nextAction: operationalActionPlan.nextAction ?? nextAction,
@@ -2716,6 +5983,159 @@ export function buildModuleExportReadiness({
   };
 }
 
+export function buildModuleClientExportRouteReadiness({
+  operation = 'campaign.sync',
+  profileAnalyticsExportLedger = {},
+  importClientPreviewRoute = {},
+  exportReadiness = {},
+  clientWorkflowHandoff = {},
+  moduleClientActionQueue = {},
+  moduleOperationalReadinessLedger = {},
+  previousRoute = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleClientExportRoute(previousRoute);
+  const rows = [
+    moduleClientExportRouteRow('profile_analytics_export', profileAnalyticsExportLedger, true, {
+      visible: profileAnalyticsExportLedger.handoff?.publish === true,
+      nextAction: profileAnalyticsExportLedger.handoff?.nextAction ?? profileAnalyticsExportLedger.exportSummary?.nextAction,
+      awaitingAcceptance: profileAnalyticsExportLedger.exportSummary?.awaitingAcceptance ?? []
+    }),
+    moduleClientExportRouteRow('import_preview_route', importClientPreviewRoute, true, {
+      visible: importClientPreviewRoute.routeState?.previewVisible === true,
+      nextAction: importClientPreviewRoute.handoff?.nextAction ?? importClientPreviewRoute.exportSummary?.nextAction,
+      awaitingAcceptance: importClientPreviewRoute.exportSummary?.awaitingAcceptance ?? []
+    }),
+    moduleClientExportRouteRow('module_export_readiness', exportReadiness, true, {
+      visible: exportReadiness.status !== 'ready',
+      nextAction: exportReadiness.nextAction ?? exportReadiness.handoff?.nextAction
+    }),
+    moduleClientExportRouteRow('client_workflow_handoff', clientWorkflowHandoff, true, {
+      visible: clientWorkflowHandoff.handoff?.publish === true || clientWorkflowHandoff.status !== 'ready',
+      nextAction: clientWorkflowHandoff.readiness?.nextAction ?? clientWorkflowHandoff.handoff?.nextAction
+    }),
+    moduleClientExportRouteRow('client_action_queue', moduleClientActionQueue, false, {
+      visible: moduleClientActionQueue.handoff?.publish === true || (moduleClientActionQueue.rows ?? []).length > 0,
+      nextAction: moduleClientActionQueue.handoff?.nextAction ?? moduleClientActionQueue.exportSummary?.nextAction
+    }),
+    moduleClientExportRouteRow('operational_readiness_ledger', moduleOperationalReadinessLedger, false, {
+      visible: moduleOperationalReadinessLedger.handoff?.publish === true || moduleOperationalReadinessLedger.status !== 'ready',
+      nextAction: moduleOperationalReadinessLedger.handoff?.nextAction ?? moduleOperationalReadinessLedger.exportSummary?.nextAction
+    })
+  ];
+  const requiredRows = rows.filter((row) => row.required);
+  const blockedRows = requiredRows.filter((row) => row.status === 'blocked');
+  const guardedRows = requiredRows.filter((row) => row.status === 'guarded' || row.restartSafe !== true);
+  const awaitingAcceptance = unique(rows.flatMap((row) => row.awaitingAcceptance));
+  const status = blockedRows.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0 || awaitingAcceptance.length > 0
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = [
+    'module_client_export_route',
+    operation,
+    status,
+    `awaiting:${awaitingAcceptance.join(',')}`,
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.visibleToClient ? 'visible' : 'hidden',
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const event = {
+    sequence,
+    timestamp: clean(now) || null,
+    operation,
+    status,
+    fingerprint,
+    blockedRows: blockedRows.length,
+    guardedRows: guardedRows.length,
+    awaitingAcceptance: awaitingAcceptance.length
+  };
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [event] : [])
+  ].slice(-toPositiveInteger(historyLimit, 12));
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_client_export_route_blockers'
+    : awaitingAcceptance.length > 0
+      ? 'request_module_client_export_acceptance'
+      : status === 'guarded'
+        ? 'publish_module_client_export_route_guarded'
+        : changed
+          ? 'publish_module_client_export_route'
+          : 'reuse_module_client_export_route';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_export_route_readiness',
+    operation,
+    status,
+    restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    routeState: {
+      previewVisible: rows.some((row) => row.visibleToClient),
+      acceptEnabled: status !== 'blocked' && awaitingAcceptance.length > 0,
+      exportEnabled: status === 'ready' && awaitingAcceptance.length === 0,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      awaitingAcceptance
+    },
+    validationSummary: {
+      totalRows: rows.length,
+      requiredRows: requiredRows.length,
+      visibleRows: rows.filter((row) => row.visibleToClient).length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      awaitingAcceptance: awaitingAcceptance.length
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'client.route.mailchimp.module-export',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-client-export-route',
+      publish: changed || status !== 'ready' || awaitingAcceptance.length > 0,
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      includeHistory: true,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_export_route_readiness',
+      operation,
+      status,
+      restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      awaitingAcceptance,
+      visibleRows: rows.filter((row) => row.visibleToClient).map((row) => row.id).sort(),
+      nextAction
+    }
+  };
+}
+
 export function buildModuleClientWorkflowHandoff({
   profileClientWorkflow = {},
   featureClientWorkflow = {},
@@ -2724,6 +6144,7 @@ export function buildModuleClientWorkflowHandoff({
   moduleRuntimeAdoption = {},
   profileActivation = {},
   profileRuntimeAdoption = {},
+  profileLifecycleSettingsControls = {},
   profileBoundaryEvidence = {},
   operationalStatus = {},
   operationalActionPlan = {},
@@ -2792,6 +6213,28 @@ export function buildModuleClientWorkflowHandoff({
         visibleToClient: row.status !== 'ready' || row.ready !== true,
         nextAction: row.nextAction,
         evidence: row.evidence ?? {}
+      }))
+    },
+    {
+      id: 'profile_lifecycle_settings_controls',
+      label: 'Profile lifecycle controls',
+      status: profileLifecycleSettingsControls.status ?? 'ready',
+      restartSafe: profileLifecycleSettingsControls.restartSafe !== false,
+      nextAction: profileLifecycleSettingsControls.readiness?.nextAction ?? profileLifecycleSettingsControls.handoff?.nextAction ?? null,
+      handoff: profileLifecycleSettingsControls.handoff ?? null,
+      rows: (profileLifecycleSettingsControls.rows ?? []).map((row) => ({
+        id: row.key,
+        label: row.label,
+        status: row.status,
+        visibleToClient: row.visibleToClient === true,
+        nextAction: row.nextAction,
+        evidence: {
+          commands: row.commands ?? [],
+          disabledReasons: row.disabledReasons ?? [],
+          accepted: row.accepted === true,
+          required: row.required === true,
+          ...row.evidence
+        }
       }))
     },
     {
@@ -3189,7 +6632,10 @@ export function buildModuleRuntimeAdoptionHandoff({
 export function buildModuleLaunchAcceptancePackage({
   operation = 'campaign.sync',
   profilePreviewAcceptance = {},
+  profileNextStepDigest = {},
   featureClientAcceptance = {},
+  featureNextStepDigest = {},
+  featureLaunchPreview = {},
   importClientAcceptance = {},
   clientWorkflowHandoff = {},
   exportReadiness = {},
@@ -3216,7 +6662,10 @@ export function buildModuleLaunchAcceptancePackage({
       evidence: {
         awaitingAcceptance: profilePreviewAcceptance.validationSummary?.awaitingAcceptance ?? 0,
         missingClaims: profilePreviewAcceptance.validationSummary?.missingClaims ?? 0,
-        statusChannel: profilePreviewAcceptance.exportSummary?.statusChannel ?? null
+        statusChannel: profilePreviewAcceptance.exportSummary?.statusChannel ?? null,
+        nextStepRows: profileNextStepDigest.validationSummary?.totalRows ?? 0,
+        visibleNextStepRows: profileNextStepDigest.validationSummary?.visibleRows ?? 0,
+        nextActions: profileNextStepDigest.readiness?.nextActions ?? []
       }
     },
     {
@@ -3232,7 +6681,26 @@ export function buildModuleLaunchAcceptancePackage({
       evidence: {
         awaitingAcceptance: featureClientAcceptance.validationSummary?.awaitingAcceptance ?? 0,
         deniedEffects: featureClientAcceptance.validationSummary?.deniedEffects ?? 0,
-        blockedRows: featureClientAcceptance.exportSummary?.blockedRows ?? []
+        blockedRows: featureClientAcceptance.exportSummary?.blockedRows ?? [],
+        nextStepRows: featureNextStepDigest.validationSummary?.totalRows ?? 0,
+        visibleNextStepRows: featureNextStepDigest.validationSummary?.visibleRows ?? 0,
+        nextActions: featureNextStepDigest.readiness?.nextActions ?? []
+      }
+    },
+    {
+      key: 'feature_launch_preview',
+      label: 'Feature launch preview',
+      status: featureLaunchPreview.status ?? 'ready',
+      restartSafe: featureLaunchPreview.restartSafe !== false,
+      accepted: normalizedAcceptance.acceptedItems.includes('feature_launch_preview'),
+      required: normalizedAcceptance.requiredItems.length === 0 || normalizedAcceptance.requiredItems.includes('feature_launch_preview'),
+      nextStep: featureLaunchPreview.readiness?.nextAction
+        ?? featureLaunchPreview.exportSummary?.nextAction
+        ?? 'publish_feature_launch_preview_ready',
+      evidence: {
+        visibleRows: featureLaunchPreview.validationSummary?.visibleRows ?? 0,
+        blockedRows: featureLaunchPreview.exportSummary?.blockedRows ?? [],
+        degradedRows: featureLaunchPreview.exportSummary?.degradedRows ?? []
       }
     },
     {
@@ -3359,6 +6827,10 @@ export function buildModuleLaunchAcceptancePackage({
       blockedRows: blockedRows.length,
       degradedRows: degradedRows.length,
       awaitingAcceptance: awaitingAcceptance.length,
+      profileNextStepRows: profileNextStepDigest.validationSummary?.totalRows ?? 0,
+      featureNextStepRows: featureNextStepDigest.validationSummary?.totalRows ?? 0,
+      visibleNextStepRows: (profileNextStepDigest.validationSummary?.visibleRows ?? 0)
+        + (featureNextStepDigest.validationSummary?.visibleRows ?? 0),
       diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
       diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
     },
@@ -3396,6 +6868,10 @@ export function buildModuleLaunchAcceptancePackage({
       blockedRows: blockedRows.map((row) => row.key),
       degradedRows: degradedRows.map((row) => row.key),
       awaitingAcceptance: awaitingAcceptance.map((row) => row.key),
+      previewNextActions: unique([
+        ...(profileNextStepDigest.readiness?.nextActions ?? []),
+        ...(featureNextStepDigest.readiness?.nextActions ?? [])
+      ]),
       nextAction
     },
     diagnostics
@@ -3412,6 +6888,7 @@ export function buildModuleMailchimpOperationsPack({
   featureLifecycleReadiness = {},
   importHistoryExport = {},
   importClientReadiness = {},
+  importClientPreviewDigest = {},
   importLifecycle = {},
   importProviderContract = {},
   importProviderReadiness = {},
@@ -3423,6 +6900,7 @@ export function buildModuleMailchimpOperationsPack({
   profileActivation = {},
   profileRuntimeAdoption = {},
   profileRequestKernelBinding = {},
+  profileRestartStatusLedger = {},
   providerGatePreview = {},
   operationalStatus = {},
   operationalActionPlan = {},
@@ -3503,6 +6981,14 @@ export function buildModuleMailchimpOperationsPack({
       nextAction: importClientReadiness.exportSummary?.nextAction ?? importClientReadiness.handoff?.nextAction ?? null,
       handoff: importClientReadiness.handoff ?? null,
       summary: importClientReadiness.exportSummary ?? null
+    },
+    {
+      component: 'import_client_preview_digest',
+      status: importClientPreviewDigest.status ?? 'ready',
+      restartSafe: importClientPreviewDigest.restartSafe !== false,
+      nextAction: importClientPreviewDigest.readiness?.nextAction ?? importClientPreviewDigest.handoff?.nextAction ?? null,
+      handoff: importClientPreviewDigest.handoff ?? null,
+      summary: importClientPreviewDigest.exportSummary ?? null
     },
     {
       component: 'import_lifecycle',
@@ -3598,6 +7084,14 @@ export function buildModuleMailchimpOperationsPack({
       nextAction: profileRequestKernelBinding.readiness?.nextAction ?? profileRequestKernelBinding.handoff?.nextAction ?? null,
       handoff: profileRequestKernelBinding.handoff ?? null,
       summary: profileRequestKernelBinding.exportSummary ?? null
+    },
+    {
+      component: 'profile_restart_status_ledger',
+      status: profileRestartStatusLedger.status ?? 'ready',
+      restartSafe: profileRestartStatusLedger.restartSafe !== false,
+      nextAction: profileRestartStatusLedger.exportSummary?.nextAction ?? profileRestartStatusLedger.handoff?.nextAction ?? null,
+      handoff: profileRestartStatusLedger.handoff ?? null,
+      summary: profileRestartStatusLedger.exportSummary ?? null
     },
     {
       component: 'module_runtime_adoption',
@@ -3735,6 +7229,7 @@ export function buildModuleMailchimpOperationsPack({
       featureCommandPlanChanged: featureCommandPlan.changed === true ? 1 : 0,
       featureLifecycleReadinessChanged: featureLifecycleReadiness.changed === true ? 1 : 0,
       importClientReadinessChanged: importClientReadiness.changed === true ? 1 : 0,
+      importClientPreviewDigestChanged: importClientPreviewDigest.changed === true ? 1 : 0,
       profileRequestKernelBindingChanged: profileRequestKernelBinding.changed === true ? 1 : 0,
       moduleRuntimeAdoptionChanged: moduleRuntimeAdoption.changed === true ? 1 : 0,
       operationalActions: operationalActionPlan.actionCount ?? 0
@@ -3771,11 +7266,1140 @@ export function buildModuleMailchimpOperationsPack({
       featureCommandPlan: featureCommandPlan.exportSummary ?? null,
       featureLifecycleReadiness: featureLifecycleReadiness.exportSummary ?? null,
       importClientReadiness: importClientReadiness.exportSummary ?? null,
+      importClientPreviewDigest: importClientPreviewDigest.exportSummary ?? null,
       profileRequestKernelBinding: profileRequestKernelBinding.exportSummary ?? null,
       moduleRuntimeAdoption: moduleRuntimeAdoption.exportSummary ?? null,
       launchAcceptance: launchAcceptance.exportSummary ?? null,
       nextAction
     }
+  };
+}
+
+export function buildModuleStatusPublicationFeed({
+  operation = 'campaign.sync',
+  profileStatusPublication = {},
+  featureGatePublication = {},
+  importProviderSyncPublication = {},
+  importProviderSyncBridge = {},
+  operationsPack = {},
+  operationalStatus = {},
+  previousPublication = {},
+  now = null,
+  maxPublicationAgeMs = 120000
+} = {}) {
+  const previous = normalizeModuleStatusPublicationHistory(previousPublication);
+  const maxAge = toNonNegativeInteger(maxPublicationAgeMs, 120000);
+  const rows = [
+    moduleStatusPublicationRow('profile_status', profileStatusPublication, {
+      required: true,
+      publication: profileStatusPublication.publication,
+      summary: profileStatusPublication.exportSummary
+    }),
+    moduleStatusPublicationRow('feature_gate_status', featureGatePublication, {
+      required: true,
+      publication: featureGatePublication.publication,
+      summary: featureGatePublication.exportSummary
+    }),
+    moduleStatusPublicationRow('import_provider_sync', importProviderSyncPublication, {
+      required: true,
+      publication: importProviderSyncPublication.publication,
+      summary: importProviderSyncPublication.exportSummary
+    }),
+    moduleStatusPublicationRow('import_provider_sync_bridge', importProviderSyncBridge, {
+      required: true,
+      publication: importProviderSyncBridge.handoff,
+      summary: importProviderSyncBridge.exportSummary
+    }),
+    moduleStatusPublicationRow('operations_pack', operationsPack, {
+      required: true,
+      publication: operationsPack.handoff,
+      summary: operationsPack.exportSummary
+    }),
+    moduleStatusPublicationRow('operational_status', operationalStatus, {
+      required: false,
+      publication: operationalStatus.handoff,
+      summary: operationalStatus.exportSummary
+    })
+  ];
+  const staleRows = rows.filter((row) => (
+    row.summary?.fingerprint
+    && previous.rowFingerprints[row.id] === row.summary.fingerprint
+    && previous.ageMs > maxAge
+  ));
+  const blockedRows = rows.filter((row) => row.status === 'blocked' || row.required && row.restartSafe === false);
+  const degradedRows = rows.filter((row) => (
+    row.status === 'degraded'
+    || row.status === 'guarded'
+    || row.status === 'retry_scheduled'
+    || row.status === 'paused'
+    || staleRows.some((staleRow) => staleRow.id === row.id)
+  ));
+  const status = blockedRows.length > 0 || operationsPack.status === 'blocked'
+    ? 'blocked'
+    : degradedRows.length > 0 || operationsPack.status === 'degraded'
+      ? 'degraded'
+      : 'ready';
+  const fingerprint = moduleStatusPublicationFingerprint({
+    operation,
+    status,
+    rows,
+    staleRows
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = changed ? previous.sequence + 1 : previous.sequence;
+  const nextAction = status === 'blocked'
+    ? 'publish_module_status_blocked'
+    : status === 'degraded'
+      ? 'publish_module_status_degraded'
+      : changed
+        ? 'publish_module_status_ready'
+        : 'reuse_module_status_publication';
+  const diagnostics = [
+    ...(profileStatusPublication.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(featureGatePublication.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importProviderSyncPublication.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importProviderSyncBridge.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...staleRows.map((row) => ({
+      level: 'warning',
+      code: 'module_status_publication_row_stale',
+      subject: row.id
+    }))
+  ];
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_status_publication',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe !== false),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    blockedRows: blockedRows.map((row) => row.id).sort(),
+    degradedRows: degradedRows.map((row) => row.id).sort(),
+    counters: {
+      rows: rows.length,
+      publishRows: rows.filter((row) => row.publish).length,
+      blocked: blockedRows.length,
+      degraded: degradedRows.length,
+      stale: staleRows.length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    history: {
+      sequence,
+      timeline: [
+        ...previous.timeline,
+        ...(changed || previous.timeline.length === 0 ? [{
+          sequence,
+          timestamp: clean(now) || null,
+          operation,
+          status,
+          fingerprint,
+          blockedRows: blockedRows.length,
+          degradedRows: degradedRows.length,
+          staleRows: staleRows.length,
+          publishRows: rows.filter((row) => row.publish).length
+        }] : [])
+      ].slice(-12)
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-publication',
+      statusChannel: 'kernel.status.mailchimp',
+      publish: changed || status !== 'ready' || staleRows.length > 0,
+      severity: status === 'blocked' ? 'error' : status === 'degraded' ? 'warning' : 'info',
+      includeRows: true,
+      includeOperationsPack: operationsPack.status !== 'ready',
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_status_publication',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe !== false),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      degradedRows: degradedRows.map((row) => row.id).sort(),
+      staleRows: staleRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleLaunchPublicationDigest({
+  operation = 'campaign.sync',
+  moduleStatusPublication = {},
+  operationsPack = {},
+  launchAcceptance = {},
+  clientWorkflowHandoff = {},
+  exportReadiness = {},
+  importClientPreviewDigest = {},
+  moduleRuntimeAdoption = {},
+  previousDigest = {},
+  now = null,
+  requireExplicitAcceptance = false
+} = {}) {
+  const previous = normalizeModuleLaunchPublicationDigest(previousDigest);
+  const rows = [
+    moduleLaunchPublicationRow('module_status', moduleStatusPublication, {
+      required: true,
+      handoff: moduleStatusPublication.handoff,
+      summary: moduleStatusPublication.exportSummary
+    }),
+    moduleLaunchPublicationRow('operations_pack', operationsPack, {
+      required: true,
+      handoff: operationsPack.handoff,
+      summary: operationsPack.exportSummary
+    }),
+    moduleLaunchPublicationRow('launch_acceptance', launchAcceptance, {
+      required: true,
+      handoff: launchAcceptance.handoff,
+      summary: launchAcceptance.exportSummary,
+      acceptanceRequired: requireExplicitAcceptance
+    }),
+    moduleLaunchPublicationRow('client_workflow', clientWorkflowHandoff, {
+      required: true,
+      handoff: clientWorkflowHandoff.handoff,
+      summary: clientWorkflowHandoff.exportSummary
+    }),
+    moduleLaunchPublicationRow('export_readiness', exportReadiness, {
+      required: true,
+      handoff: exportReadiness.handoff,
+      summary: exportReadiness.exportSummary
+    }),
+    moduleLaunchPublicationRow('import_preview_digest', importClientPreviewDigest, {
+      required: true,
+      handoff: importClientPreviewDigest.handoff,
+      summary: importClientPreviewDigest.exportSummary,
+      acceptanceRequired: requireExplicitAcceptance
+    }),
+    moduleLaunchPublicationRow('runtime_adoption', moduleRuntimeAdoption, {
+      required: false,
+      handoff: moduleRuntimeAdoption.handoff,
+      summary: moduleRuntimeAdoption.exportSummary
+    })
+  ];
+  const blockedRows = rows.filter((row) => row.status === 'blocked' || row.required && row.restartSafe === false);
+  const guardedRows = rows.filter((row) => (
+    row.status === 'guarded'
+    || row.status === 'degraded'
+    || row.status === 'retry_scheduled'
+    || row.status === 'paused'
+    || row.acceptanceRequired && row.accepted !== true
+  ));
+  const publishRows = rows.filter((row) => row.publish || row.status !== 'ready' || row.changed === true);
+  const status = blockedRows.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleLaunchPublicationFingerprint({
+    operation,
+    status,
+    rows,
+    publishRows
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const diagnostics = [
+    ...(moduleStatusPublication.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importClientPreviewDigest.diagnostics ?? []).filter((item) => (
+      requireExplicitAcceptance ? item.level === 'error' : item.level === 'fatal'
+    )),
+    ...blockedRows.map((row) => ({
+      level: 'error',
+      code: 'module_launch_publication_row_blocked',
+      subject: row.id
+    })),
+    ...guardedRows
+      .filter((row) => !blockedRows.some((blocked) => blocked.id === row.id))
+      .map((row) => ({
+        level: 'warning',
+        code: 'module_launch_publication_row_guarded',
+        subject: row.id
+      }))
+  ];
+  const finalStatus = diagnostics.some((item) => item.level === 'error') || status === 'blocked'
+    ? 'blocked'
+    : diagnostics.some((item) => item.level === 'warning') || status === 'guarded'
+      ? 'guarded'
+      : 'ready';
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [{
+      sequence,
+      timestamp: clean(now) || null,
+      operation,
+      status: finalStatus,
+      fingerprint,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      publishRows: publishRows.length,
+      changed
+    }] : [])
+  ].slice(-12);
+  const nextAction = finalStatus === 'blocked'
+    ? firstModuleLaunchAction(blockedRows, 'resolve_module_launch_publication_blockers')
+    : finalStatus === 'guarded'
+      ? firstModuleLaunchAction(guardedRows, 'publish_module_launch_publication_guarded')
+      : changed
+        ? 'publish_module_launch_publication_ready'
+        : 'reuse_module_launch_publication_digest';
+
+  return {
+    ok: finalStatus !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_launch_publication_digest',
+    operation,
+    status: finalStatus,
+    restartSafe: finalStatus === 'ready' && rows.every((row) => row.restartSafe !== false),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    blockedRows: blockedRows.map((row) => row.id).sort(),
+    guardedRows: guardedRows.map((row) => row.id).sort(),
+    publishRows: publishRows.map((row) => row.id).sort(),
+    counters: {
+      rows: rows.length,
+      blocked: blockedRows.length,
+      guarded: guardedRows.length,
+      publishRows: publishRows.length,
+      acceptanceRequired: rows.filter((row) => row.acceptanceRequired).length,
+      accepted: rows.filter((row) => row.accepted).length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    readiness: {
+      status: finalStatus,
+      blockingReasons: unique(blockedRows.flatMap((row) => [row.id, ...row.reasons])),
+      guardedReasons: unique(guardedRows.flatMap((row) => [row.id, ...row.reasons])),
+      nextAction
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-launch',
+      statusChannel: 'kernel.status.mailchimp',
+      publish: changed || finalStatus !== 'ready' || publishRows.length > 0,
+      severity: finalStatus === 'blocked' ? 'error' : finalStatus === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      includeAcceptance: rows.some((row) => row.acceptanceRequired),
+      includeOperationsPack: operationsPack.status !== 'ready',
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_launch_publication_digest',
+      operation,
+      status: finalStatus,
+      restartSafe: finalStatus === 'ready' && rows.every((row) => row.restartSafe !== false),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      publishRows: publishRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleLaunchGateControl({
+  operation = 'campaign.sync',
+  profileLaunchControls = {},
+  featureLaunchPreview = {},
+  importProviderLaunchGate = {},
+  moduleReleaseEvidence = {},
+  moduleStatusPublication = {},
+  moduleLaunchPublicationDigest = {},
+  launchAcceptance = {},
+  clientWorkflowHandoff = {},
+  previousGate = {},
+  allowDegradedLaunch = false,
+  requireExplicitAcceptance = false,
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleLaunchPublicationDigest(previousGate);
+  const rows = [
+    moduleLaunchGateRow('profile_launch_controls', profileLaunchControls, {
+      required: true,
+      restartSafe: profileLaunchControls.restartSafe,
+      handoff: profileLaunchControls.handoff,
+      summary: profileLaunchControls.exportSummary
+    }),
+    moduleLaunchGateRow('feature_launch_preview', featureLaunchPreview, {
+      required: true,
+      restartSafe: featureLaunchPreview.restartSafe,
+      handoff: featureLaunchPreview.handoff,
+      summary: featureLaunchPreview.exportSummary
+    }),
+    moduleLaunchGateRow('import_provider_launch_gate', importProviderLaunchGate, {
+      required: true,
+      restartSafe: importProviderLaunchGate.restartSafe,
+      handoff: importProviderLaunchGate.handoff,
+      summary: importProviderLaunchGate.exportSummary
+    }),
+    moduleLaunchGateRow('release_evidence', moduleReleaseEvidence, {
+      required: true,
+      restartSafe: moduleReleaseEvidence.restartSafe,
+      handoff: moduleReleaseEvidence.handoff,
+      summary: moduleReleaseEvidence.exportSummary
+    }),
+    moduleLaunchGateRow('status_publication', moduleStatusPublication, {
+      required: true,
+      restartSafe: moduleStatusPublication.restartSafe,
+      handoff: moduleStatusPublication.handoff,
+      summary: moduleStatusPublication.exportSummary
+    }),
+    moduleLaunchGateRow('launch_publication_digest', moduleLaunchPublicationDigest, {
+      required: true,
+      restartSafe: moduleLaunchPublicationDigest.restartSafe,
+      handoff: moduleLaunchPublicationDigest.handoff,
+      summary: moduleLaunchPublicationDigest.exportSummary
+    }),
+    moduleLaunchGateRow('launch_acceptance', launchAcceptance, {
+      required: requireExplicitAcceptance,
+      restartSafe: launchAcceptance.restartSafe,
+      handoff: launchAcceptance.handoff,
+      summary: launchAcceptance.exportSummary,
+      acceptanceRequired: requireExplicitAcceptance
+    }),
+    moduleLaunchGateRow('client_workflow_handoff', clientWorkflowHandoff, {
+      required: false,
+      restartSafe: clientWorkflowHandoff.restartSafe,
+      handoff: clientWorkflowHandoff.handoff,
+      summary: clientWorkflowHandoff.exportSummary
+    })
+  ];
+  const blockedRows = rows.filter((row) => row.required && (
+    row.status === 'blocked'
+    || row.restartSafe === false
+    || row.acceptanceRequired && row.accepted !== true
+  ));
+  const degradedRows = rows.filter((row) => !blockedRows.some((blocked) => blocked.id === row.id) && (
+    row.status === 'degraded'
+    || row.status === 'guarded'
+    || row.status === 'paused'
+    || row.status === 'retry_scheduled'
+    || row.publishPending === true
+  ));
+  const status = blockedRows.length > 0
+    ? 'blocked'
+    : degradedRows.length > 0
+      ? allowDegradedLaunch ? 'degraded' : 'blocked'
+      : 'ready';
+  const fingerprint = moduleLaunchGateFingerprint({
+    operation,
+    status,
+    allowDegradedLaunch,
+    requireExplicitAcceptance,
+    rows
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const diagnostics = [
+    ...rows
+      .filter((row) => row.status === 'blocked' || row.required && row.restartSafe === false)
+      .map((row) => ({
+        level: 'error',
+        code: 'module_launch_gate_row_blocked',
+        subject: row.id
+      })),
+    ...degradedRows.map((row) => ({
+      level: allowDegradedLaunch ? 'warning' : 'error',
+      code: 'module_launch_gate_row_degraded',
+      subject: row.id
+    })),
+    ...(requireExplicitAcceptance && rows.some((row) => row.acceptanceRequired && row.accepted !== true)
+      ? [{
+        level: 'error',
+        code: 'module_launch_gate_acceptance_missing',
+        subject: 'launch_acceptance'
+      }]
+      : [])
+  ];
+  const finalStatus = diagnostics.some((item) => item.level === 'error') || status === 'blocked'
+    ? 'blocked'
+    : diagnostics.some((item) => item.level === 'warning') || status === 'degraded'
+      ? 'degraded'
+      : 'ready';
+  const nextAction = finalStatus === 'blocked'
+    ? firstModuleLaunchAction(blockedRows, 'resolve_module_launch_gate_blockers')
+    : finalStatus === 'degraded'
+      ? firstModuleLaunchAction(degradedRows, 'publish_module_launch_gate_degraded')
+      : changed
+        ? 'publish_module_launch_gate_ready'
+        : 'reuse_module_launch_gate';
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [{
+      sequence,
+      timestamp: clean(now) || null,
+      operation,
+      status: finalStatus,
+      fingerprint,
+      blockedRows: blockedRows.length,
+      degradedRows: degradedRows.length,
+      restartSafe: finalStatus === 'ready' && rows.every((row) => row.restartSafe !== false)
+    }] : [])
+  ].slice(-Math.max(1, toNonNegativeInteger(historyLimit, 12)));
+
+  return {
+    ok: finalStatus !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_launch_gate',
+    operation,
+    status: finalStatus,
+    restartSafe: finalStatus === 'ready' && rows.every((row) => row.restartSafe !== false),
+    sequence,
+    fingerprint,
+    changed,
+    policy: {
+      allowDegradedLaunch,
+      requireExplicitAcceptance
+    },
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      blockedRows: blockedRows.length,
+      degradedRows: degradedRows.length,
+      publishPending: rows.filter((row) => row.publishPending).length,
+      restartGuarded: rows.filter((row) => row.restartSafe === false).length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    readiness: {
+      blockingReasons: unique(blockedRows.flatMap((row) => [row.id, ...row.reasons])),
+      degradedReasons: unique(degradedRows.flatMap((row) => [row.id, ...row.reasons])),
+      nextAction
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-launch-gate',
+      statusChannel: finalStatus === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-launch-gate',
+      publish: changed || finalStatus !== 'ready' || rows.some((row) => row.publishPending),
+      severity: finalStatus === 'blocked' ? 'error' : finalStatus === 'degraded' ? 'warning' : 'info',
+      includeRows: true,
+      includePublicationDigest: moduleLaunchPublicationDigest.status !== 'ready',
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_launch_gate',
+      operation,
+      status: finalStatus,
+      restartSafe: finalStatus === 'ready' && rows.every((row) => row.restartSafe !== false),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      degradedRows: degradedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleClientLaunchReadinessReport({
+  operation = 'campaign.sync',
+  featureLaunchReadinessLedger = {},
+  importLaunchReadinessLedger = {},
+  launchAcceptance = {},
+  moduleLaunchGate = {},
+  moduleLaunchPublicationDigest = {},
+  moduleStatusPublication = {},
+  clientWorkflowHandoff = {},
+  previousReport = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleClientLaunchReadiness(previousReport);
+  const timestamp = clean(now) || null;
+  const rows = [
+    moduleClientLaunchReadinessRow('feature_launch_readiness', 'feature_gates', featureLaunchReadinessLedger, true, {
+      status: featureLaunchReadinessLedger.status,
+      restartSafe: featureLaunchReadinessLedger.restartSafe,
+      clientVisible: (featureLaunchReadinessLedger.exportSummary?.clientVisibleRows ?? []).length > 0,
+      fingerprint: featureLaunchReadinessLedger.fingerprint ?? featureLaunchReadinessLedger.exportSummary?.fingerprint,
+      nextAction: featureLaunchReadinessLedger.readiness?.nextAction ?? featureLaunchReadinessLedger.handoff?.nextAction ?? featureLaunchReadinessLedger.exportSummary?.nextAction,
+      evidence: {
+        blockedRows: featureLaunchReadinessLedger.exportSummary?.blockedRows ?? [],
+        guardedRows: featureLaunchReadinessLedger.exportSummary?.guardedRows ?? [],
+        clientVisibleRows: featureLaunchReadinessLedger.exportSummary?.clientVisibleRows ?? []
+      }
+    }),
+    moduleClientLaunchReadinessRow('import_launch_readiness', 'imports', importLaunchReadinessLedger, true, {
+      status: importLaunchReadinessLedger.status,
+      restartSafe: importLaunchReadinessLedger.restartSafe,
+      clientVisible: (importLaunchReadinessLedger.exportSummary?.clientVisibleRows ?? []).length > 0,
+      fingerprint: importLaunchReadinessLedger.fingerprint ?? importLaunchReadinessLedger.exportSummary?.fingerprint,
+      nextAction: importLaunchReadinessLedger.readiness?.nextAction ?? importLaunchReadinessLedger.handoff?.nextAction ?? importLaunchReadinessLedger.exportSummary?.nextAction,
+      evidence: {
+        blockedRows: importLaunchReadinessLedger.exportSummary?.blockedRows ?? [],
+        guardedRows: importLaunchReadinessLedger.exportSummary?.guardedRows ?? [],
+        clientVisibleRows: importLaunchReadinessLedger.exportSummary?.clientVisibleRows ?? [],
+        imports: importLaunchReadinessLedger.exportSummary?.imports ?? []
+      }
+    }),
+    moduleClientLaunchReadinessRow('module_launch_acceptance', 'module', launchAcceptance, true, {
+      status: launchAcceptance.status,
+      restartSafe: launchAcceptance.restartSafe,
+      clientVisible: launchAcceptance.status !== 'ready' || (launchAcceptance.exportSummary?.awaitingAcceptance ?? []).length > 0,
+      fingerprint: launchAcceptance.fingerprint ?? launchAcceptance.exportSummary?.fingerprint,
+      nextAction: launchAcceptance.readiness?.nextAction ?? launchAcceptance.handoff?.nextAction ?? launchAcceptance.exportSummary?.nextAction,
+      evidence: {
+        awaitingAcceptance: launchAcceptance.exportSummary?.awaitingAcceptance ?? [],
+        rejectedItems: launchAcceptance.exportSummary?.rejectedItems ?? [],
+        blockedRows: launchAcceptance.exportSummary?.blockedRows ?? [],
+        guardedRows: launchAcceptance.exportSummary?.guardedRows ?? []
+      }
+    }),
+    moduleClientLaunchReadinessRow('module_launch_gate', 'module', moduleLaunchGate, true, {
+      status: moduleLaunchGate.status,
+      restartSafe: moduleLaunchGate.restartSafe,
+      clientVisible: moduleLaunchGate.status !== 'ready',
+      fingerprint: moduleLaunchGate.fingerprint ?? moduleLaunchGate.exportSummary?.fingerprint,
+      nextAction: moduleLaunchGate.readiness?.nextAction ?? moduleLaunchGate.handoff?.nextAction ?? moduleLaunchGate.exportSummary?.nextAction,
+      evidence: {
+        blockedRows: moduleLaunchGate.exportSummary?.blockedRows ?? [],
+        guardedRows: moduleLaunchGate.exportSummary?.guardedRows ?? moduleLaunchGate.exportSummary?.degradedRows ?? [],
+        launchAllowed: moduleLaunchGate.launch?.allowed === true
+      }
+    }),
+    moduleClientLaunchReadinessRow('module_launch_publication', 'module', moduleLaunchPublicationDigest, false, {
+      status: moduleLaunchPublicationDigest.status,
+      restartSafe: moduleLaunchPublicationDigest.restartSafe,
+      clientVisible: moduleLaunchPublicationDigest.status !== 'ready' || moduleLaunchPublicationDigest.publication?.publish === true,
+      fingerprint: moduleLaunchPublicationDigest.fingerprint ?? moduleLaunchPublicationDigest.exportSummary?.fingerprint,
+      nextAction: moduleLaunchPublicationDigest.readiness?.nextAction ?? moduleLaunchPublicationDigest.handoff?.nextAction ?? moduleLaunchPublicationDigest.exportSummary?.nextAction,
+      evidence: {
+        publish: moduleLaunchPublicationDigest.publication?.publish === true,
+        statusChannel: moduleLaunchPublicationDigest.handoff?.statusChannel,
+        blockedRows: moduleLaunchPublicationDigest.exportSummary?.blockedRows ?? [],
+        guardedRows: moduleLaunchPublicationDigest.exportSummary?.guardedRows ?? []
+      }
+    }),
+    moduleClientLaunchReadinessRow('module_status_publication', 'module', moduleStatusPublication, false, {
+      status: moduleStatusPublication.status,
+      restartSafe: moduleStatusPublication.restartSafe,
+      clientVisible: moduleStatusPublication.status !== 'ready' || moduleStatusPublication.handoff?.publish === true,
+      fingerprint: moduleStatusPublication.fingerprint ?? moduleStatusPublication.exportSummary?.fingerprint,
+      nextAction: moduleStatusPublication.readiness?.nextAction ?? moduleStatusPublication.handoff?.nextAction ?? moduleStatusPublication.exportSummary?.nextAction,
+      evidence: {
+        publish: moduleStatusPublication.handoff?.publish === true,
+        statusChannel: moduleStatusPublication.handoff?.statusChannel,
+        blockedRows: moduleStatusPublication.exportSummary?.blockedRows ?? [],
+        guardedRows: moduleStatusPublication.exportSummary?.guardedRows ?? []
+      }
+    }),
+    moduleClientLaunchReadinessRow('client_workflow_handoff', 'module', clientWorkflowHandoff, true, {
+      status: clientWorkflowHandoff.status,
+      restartSafe: clientWorkflowHandoff.restartSafe,
+      clientVisible: clientWorkflowHandoff.handoff?.publish === true || (clientWorkflowHandoff.exportSummary?.blockingRows ?? []).length > 0,
+      fingerprint: clientWorkflowHandoff.fingerprint ?? clientWorkflowHandoff.exportSummary?.fingerprint,
+      nextAction: clientWorkflowHandoff.readiness?.nextAction ?? clientWorkflowHandoff.handoff?.nextAction ?? clientWorkflowHandoff.exportSummary?.nextAction,
+      evidence: {
+        blockedRows: clientWorkflowHandoff.exportSummary?.blockingRows ?? [],
+        guardedRows: clientWorkflowHandoff.exportSummary?.degradedRows ?? [],
+        statusChannel: clientWorkflowHandoff.handoff?.statusChannel
+      }
+    })
+  ];
+  const requiredRows = rows.filter((row) => row.required);
+  const blockedRows = requiredRows.filter((row) => row.status === 'blocked');
+  const guardedRows = requiredRows.filter((row) => row.status === 'guarded');
+  const status = blockedRows.length > 0 ? 'blocked' : guardedRows.length > 0 ? 'guarded' : 'ready';
+  const fingerprint = [
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.clientVisible ? 'visible' : 'hidden',
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_client_launch_readiness_blockers'
+    : status === 'guarded'
+      ? 'publish_module_client_launch_readiness_guarded'
+      : changed
+        ? 'publish_module_client_launch_readiness_ready'
+        : 'reuse_module_client_launch_readiness';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_launch_readiness',
+    operation,
+    status,
+    restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe),
+    sequence,
+    fingerprint,
+    changed,
+    generatedAt: timestamp,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      requiredRows: requiredRows.length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      clientVisibleRows: rows.filter((row) => row.clientVisible).length
+    },
+    history: {
+      sequence,
+      timeline: [
+        ...previous.timeline,
+        ...(changed || previous.timeline.length === 0 ? [{
+          sequence,
+          timestamp,
+          operation,
+          status,
+          fingerprint,
+          blockedRows: blockedRows.map((row) => row.id).sort(),
+          guardedRows: guardedRows.map((row) => row.id).sort(),
+          clientVisibleRows: rows.filter((row) => row.clientVisible).map((row) => row.id).sort()
+        }] : [])
+      ].slice(-Math.max(1, toNonNegativeInteger(historyLimit, 12)))
+    },
+    readiness: {
+      blockingReasons: unique(blockedRows.flatMap((row) => row.evidence.blockedRows?.map((id) => `${row.id}:${id}`) ?? [row.id])),
+      guardedReasons: unique(guardedRows.flatMap((row) => row.evidence.guardedRows?.map((id) => `${row.id}:${id}`) ?? [row.id])),
+      clientVisibleRows: rows.filter((row) => row.clientVisible).map((row) => row.id).sort(),
+      nextAction
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-client-launch-readiness',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-client-launch-readiness',
+      publish: changed || status !== 'ready' || rows.some((row) => row.clientVisible),
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_launch_readiness',
+      operation,
+      status,
+      restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      clientVisibleRows: rows.filter((row) => row.clientVisible).map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics: []
+  };
+}
+
+export function buildModuleClientPreviewRouteReadiness(input = {}, options = {}) {
+  const parsed = typeof input === 'string' ? parseModuleSyntaxSource(input, options) : normalizeModuleInput(input);
+  const profileSource = parsed.sections.profiles.join('\n');
+  const gateSource = parsed.sections.gates.join('\n');
+  const importSource = parsed.sections.imports.join('\n');
+  const profile = compileProfileDeclaration(profileSource || options.profile || {}, options);
+  const operation = (profile.profile?.operation ?? clean(options.operation)) || 'campaign.sync';
+  const requestedEffects = [...parsed.sections.effects, ...(options.requestedEffects ?? [])];
+  const profileRoute = buildProfileClientPreviewRouteContract(profileSource || options.profile || {}, {
+    ...options,
+    previousRoute: options.previousProfileClientPreviewRoute,
+    previousState: options.previousProfileState,
+    persistedMemory: options.persistedMemory,
+    previousProviderState: options.previousProfileProviderState,
+    requestedProviderCapabilities: options.profileProviderCapabilities ?? options.requestedProviderCapabilities,
+    acceptance: options.profilePreviewAcceptance,
+    requiredPreviewItems: options.requiredProfilePreviewItems
+  });
+  const featureRoute = buildFeatureGateClientPreviewRouteContract(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousRoute: options.previousFeatureClientPreviewRoute,
+    previousReadiness: options.previousFeatureClientReadiness,
+    previousQueue: options.previousFeatureClientActionQueue,
+    previousLaunchPreview: options.previousFeatureLaunchPreview,
+    providerService: options.providerService,
+    acceptance: options.featureClientAcceptance ?? options.providerPreviewAcceptance
+  });
+  const importRoute = buildImportTenantScopedPreviewRoute(importSource, {
+    ...options,
+    previousScopedRoute: options.previousImportTenantScopedPreviewRoute,
+    previousRoute: options.previousImportClientPreviewRoute,
+    requestedCapabilities: options.importRequestedCapabilities,
+    requiredAliases: options.requiredImportAliases,
+    acceptance: options.importClientAcceptance ?? options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    requireExplicitAcceptance: options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true,
+    scope: {
+      tenantId: options.tenantId,
+      workspaceId: options.workspaceId,
+      requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+      requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+      role: options.role,
+      permissionMode: options.permissionMode
+    }
+  });
+  const previous = normalizeModuleClientPreviewRouteReadiness(
+    options.previousRouteReadiness ?? options.previousModuleClientPreviewRouteReadiness
+  );
+  const rows = dedupeModuleClientPreviewRouteRows([
+    moduleClientPreviewRouteRow('profile_route', profileRoute, true, {
+      surface: 'profile',
+      visible: profileRoute.handoff?.includeRows === true || profileRoute.status !== 'ready'
+    }),
+    moduleClientPreviewRouteRow('feature_gate_route', featureRoute, true, {
+      surface: 'feature-gates',
+      visible: featureRoute.handoff?.includeRows === true || featureRoute.status !== 'ready'
+    }),
+    moduleClientPreviewRouteRow('import_route', importRoute, true, {
+      surface: 'imports',
+      visible: importRoute.handoff?.includeRouteState === true || importRoute.status !== 'ready',
+      evidence: {
+        tenantId: importRoute.scope?.tenantId ?? null,
+        workspaceId: importRoute.scope?.workspaceId ?? null,
+        tenantBoundaryClear: importRoute.routeState?.tenantBoundaryClear === true
+      }
+    })
+  ]);
+  const blockedRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded');
+  const visibleRows = rows.filter((row) => row.visibleToClient);
+  const status = blockedRows.length > 0 ? 'blocked' : guardedRows.length > 0 ? 'guarded' : 'ready';
+  const fingerprint = moduleClientPreviewRouteReadinessFingerprint({
+    operation,
+    status,
+    rows,
+    parsedDiagnostics: parsed.diagnostics ?? []
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const diagnostics = [
+    ...(parsed.diagnostics ?? []),
+    ...(profileRoute.diagnostics ?? []).filter((item) => item.level === 'error' || options.includeProfilePreviewWarnings === true),
+    ...(featureRoute.diagnostics ?? []).filter((item) => item.level === 'error' || options.includeFeaturePreviewWarnings === true),
+    ...(importRoute.diagnostics ?? []).filter((item) => item.level === 'error' || options.includeImportPreviewWarnings === true),
+    ...blockedRows.map((row) => ({ level: 'error', code: 'module_client_preview_route_blocked', subject: row.id })),
+    ...guardedRows.map((row) => ({ level: 'warning', code: 'module_client_preview_route_guarded', subject: row.id }))
+  ];
+  const nextAction = blockedRows[0]?.nextAction
+    ?? guardedRows[0]?.nextAction
+    ?? (visibleRows.length > 0 ? 'publish_module_client_preview_updates' : changed ? 'publish_module_client_preview_route_ready' : 'reuse_module_client_preview_route');
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_preview_route_readiness',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    surfaces: {
+      profile: profileRoute.exportSummary,
+      featureGates: featureRoute.exportSummary,
+      imports: importRoute.exportSummary
+    },
+    routeState: {
+      previewVisible: visibleRows.length > 0,
+      acceptEnabled: status !== 'blocked' && rows.some((row) => row.awaitingAcceptance.length > 0),
+      readyEnabled: status === 'ready' && rows.every((row) => row.awaitingAcceptance.length === 0),
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      visibleRows: visibleRows.map((row) => row.id).sort(),
+      awaitingAcceptance: unique(rows.flatMap((row) => row.awaitingAcceptance))
+    },
+    validationSummary: {
+      totalRows: rows.length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      visibleRows: visibleRows.length,
+      awaitingAcceptance: rows.reduce((count, row) => count + row.awaitingAcceptance.length, 0),
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    explanation: {
+      headline: status === 'ready'
+        ? 'mailchimp_module_preview_route_ready'
+        : status === 'guarded'
+          ? 'mailchimp_module_preview_route_guarded'
+          : 'mailchimp_module_preview_route_blocked',
+      nextSteps: unique(rows
+        .filter((row) => row.status !== 'ready' || row.visibleToClient || row.awaitingAcceptance.length > 0)
+        .map((row) => row.nextAction))
+    },
+    handoff: {
+      target: 'client.route.mailchimp.module-preview',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-preview-route',
+      publish: changed || status !== 'ready' || visibleRows.length > 0,
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      includeSurfaceSummaries: true,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_preview_route_readiness',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      visibleRows: visibleRows.map((row) => row.id).sort(),
+      awaitingAcceptance: unique(rows.flatMap((row) => row.awaitingAcceptance)),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleLaunchAcceptanceExportRoute(input = {}, options = {}) {
+  const parsed = typeof input === 'string' ? parseModuleSyntaxSource(input, options) : normalizeModuleInput(input);
+  const profileSource = parsed.sections.profiles.join('\n');
+  const gateSource = parsed.sections.gates.join('\n');
+  const importSource = parsed.sections.imports.join('\n');
+  const profile = compileProfileDeclaration(profileSource || options.profile || {}, options);
+  const operation = (profile.profile?.operation ?? clean(options.operation)) || 'campaign.sync';
+  const requestedEffects = [...parsed.sections.effects, ...(options.requestedEffects ?? [])];
+  const profileLaunch = buildProfileLaunchAcceptanceExport(profileSource || options.profile || {}, {
+    ...options,
+    previousLaunchAcceptanceExport: options.previousProfileLaunchAcceptanceExport,
+    previousExport: options.previousProfileExport,
+    previousHealthExport: options.previousProfileHealthExport,
+    previousPrimaryPack: options.previousProfilePrimaryPack,
+    previousLedger: options.previousProfileAnalyticsExportLedger,
+    previousRoute: options.previousProfileClientPreviewRoute,
+    previousState: options.previousProfileState,
+    persistedMemory: options.persistedMemory,
+    acceptance: options.profilePreviewAcceptance,
+    requiredItems: options.requiredProfilePreviewItems,
+    requireProfileLaunchAcceptance: options.requireProfileLaunchAcceptance === true,
+    now: options.now ?? options.timestamp
+  });
+  const featureRoute = buildFeatureGateClientPreviewRouteContract(gateSource || options.gates || {}, {
+    ...options,
+    operation,
+    requestedEffects,
+    previousRoute: options.previousFeatureClientPreviewRoute,
+    previousReadiness: options.previousFeatureClientReadiness,
+    previousQueue: options.previousFeatureClientActionQueue,
+    previousLaunchPreview: options.previousFeatureLaunchPreview,
+    providerService: options.providerService,
+    acceptance: options.featureClientAcceptance ?? options.providerPreviewAcceptance,
+    requireExplicitAcceptance: options.requireFeatureLaunchAcceptance === true
+  });
+  const importRoute = buildImportTenantScopedPreviewRoute(importSource, {
+    ...options,
+    previousScopedRoute: options.previousImportTenantScopedPreviewRoute,
+    previousRoute: options.previousImportClientPreviewRoute,
+    requestedCapabilities: options.importRequestedCapabilities,
+    requiredAliases: options.requiredImportAliases,
+    acceptance: options.importClientAcceptance ?? options.importAcceptance,
+    boundaryAcceptance: options.importBoundaryAcceptance,
+    requireExplicitAcceptance: options.requireImportLaunchAcceptance === true
+      || options.requireImportPreviewAcceptance === true
+      || options.requireImportClientAcceptance === true,
+    scope: {
+      tenantId: options.tenantId,
+      workspaceId: options.workspaceId,
+      requestedTenantId: options.requestedTenantId ?? options.requestTenantId,
+      requestedWorkspaceId: options.requestedWorkspaceId ?? options.requestWorkspaceId,
+      role: options.role,
+      permissionMode: options.permissionMode
+    }
+  });
+  const previewRoute = buildModuleClientPreviewRouteReadiness(input, {
+    ...options,
+    previousRouteReadiness: options.previousModuleClientPreviewRouteReadiness,
+    providerService: options.providerService
+  });
+  const previous = normalizeModuleLaunchAcceptanceExportRoute(
+    options.previousLaunchAcceptanceExportRoute ?? options.previousModuleLaunchAcceptanceExportRoute
+  );
+  const rows = dedupeModuleLaunchAcceptanceRows([
+    moduleLaunchAcceptanceRow('profile_launch_acceptance', profileLaunch, true, {
+      surface: 'profile',
+      awaitingAcceptance: profileLaunch.exportSummary?.awaitingAcceptance,
+      nextAction: profileLaunch.readiness?.nextAction ?? profileLaunch.exportSummary?.nextAction
+    }),
+    moduleLaunchAcceptanceRow('feature_gate_preview_route', featureRoute, true, {
+      surface: 'feature-gates',
+      awaitingAcceptance: featureRoute.exportSummary?.awaitingAcceptance,
+      nextAction: featureRoute.handoff?.nextAction ?? featureRoute.exportSummary?.nextAction
+    }),
+    moduleLaunchAcceptanceRow('import_preview_route', importRoute, true, {
+      surface: 'imports',
+      awaitingAcceptance: importRoute.exportSummary?.awaitingAcceptance,
+      nextAction: importRoute.handoff?.nextAction ?? importRoute.exportSummary?.nextAction
+    }),
+    moduleLaunchAcceptanceRow('module_preview_route', previewRoute, options.includeModulePreviewRoute !== false, {
+      surface: 'module',
+      awaitingAcceptance: previewRoute.exportSummary?.awaitingAcceptance,
+      nextAction: previewRoute.handoff?.nextAction ?? previewRoute.exportSummary?.nextAction
+    })
+  ]);
+  const requiredRows = rows.filter((row) => row.required);
+  const blockedRows = requiredRows.filter((row) => row.status === 'blocked');
+  const guardedRows = requiredRows.filter((row) => row.status === 'guarded');
+  const awaitingAcceptance = unique(rows.flatMap((row) => row.awaitingAcceptance));
+  const diagnostics = [
+    ...(parsed.diagnostics ?? []),
+    ...(profileLaunch.diagnostics ?? []).filter((item) => item.level === 'error' || options.includeProfileLaunchWarnings === true),
+    ...(featureRoute.diagnostics ?? []).filter((item) => item.level === 'error' || options.includeFeatureLaunchWarnings === true),
+    ...(importRoute.diagnostics ?? []).filter((item) => item.level === 'error' || options.includeImportLaunchWarnings === true),
+    ...(previewRoute.diagnostics ?? []).filter((item) => item.level === 'error' || options.includeModulePreviewWarnings === true),
+    ...blockedRows.map((row) => ({ level: 'error', code: 'module_launch_acceptance_row_blocked', subject: row.id })),
+    ...guardedRows.map((row) => ({ level: 'warning', code: 'module_launch_acceptance_row_guarded', subject: row.id })),
+    ...(awaitingAcceptance.length > 0 && options.requireModuleLaunchAcceptance === true
+      ? awaitingAcceptance.map((item) => ({ level: 'error', code: 'module_launch_acceptance_required', subject: item }))
+      : awaitingAcceptance.map((item) => ({ level: 'warning', code: 'module_launch_acceptance_pending', subject: item })))
+  ];
+  const status = diagnostics.some((item) => item.level === 'error') || blockedRows.length > 0
+    ? 'blocked'
+    : diagnostics.some((item) => item.level === 'warning') || guardedRows.length > 0 || awaitingAcceptance.length > 0
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleLaunchAcceptanceExportRouteFingerprint({
+    operation,
+    status,
+    rows,
+    awaitingAcceptance
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const now = clean(options.now ?? options.timestamp) || null;
+  const event = {
+    sequence,
+    timestamp: now,
+    operation,
+    status,
+    fingerprint,
+    blockedRows: blockedRows.length,
+    guardedRows: guardedRows.length,
+    awaitingAcceptance: awaitingAcceptance.length
+  };
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [event] : [])
+  ].slice(-toPositiveInteger(options.launchAcceptanceHistoryLimit ?? options.historyLimit, 12));
+  const nextAction = blockedRows[0]?.nextAction
+    ?? (awaitingAcceptance.length > 0 ? 'collect_module_launch_acceptance' : null)
+    ?? guardedRows[0]?.nextAction
+    ?? (changed ? 'publish_module_launch_acceptance_export_route' : 'reuse_module_launch_acceptance_export_route');
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_launch_acceptance_export_route',
+    operation,
+    status,
+    restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    surfaces: {
+      profile: profileLaunch.exportSummary,
+      featureGates: featureRoute.exportSummary,
+      imports: importRoute.exportSummary,
+      modulePreview: previewRoute.exportSummary
+    },
+    counters: {
+      totalRows: rows.length,
+      requiredRows: requiredRows.length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      awaitingAcceptance: awaitingAcceptance.length,
+      publishRows: rows.filter((row) => row.publish).length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    routeState: {
+      previewVisible: rows.some((row) => row.clientVisible),
+      acceptEnabled: status !== 'blocked' && awaitingAcceptance.length > 0,
+      readyEnabled: status === 'ready' && awaitingAcceptance.length === 0,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      awaitingAcceptance
+    },
+    explanation: {
+      headline: status === 'ready'
+        ? 'mailchimp_module_launch_acceptance_ready'
+        : status === 'guarded'
+          ? 'mailchimp_module_launch_acceptance_guarded'
+          : 'mailchimp_module_launch_acceptance_blocked',
+      nextSteps: unique(rows
+        .filter((row) => row.status !== 'ready' || row.awaitingAcceptance.length > 0 || row.publish)
+        .map((row) => row.nextAction))
+    },
+    handoff: {
+      target: 'client.route.mailchimp.module-launch-acceptance',
+      statusChannel: status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-launch-acceptance',
+      publish: changed || status !== 'ready' || awaitingAcceptance.length > 0,
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: true,
+      includeHistory: true,
+      includeSurfaceSummaries: true,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_launch_acceptance_export_route',
+      operation,
+      status,
+      restartSafe: status === 'ready' && requiredRows.every((row) => row.restartSafe),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      awaitingAcceptance,
+      publishRows: rows.filter((row) => row.publish).map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
   };
 }
 
@@ -3789,6 +8413,181 @@ export function selfCheckModuleSyntax() {
     'gate campaignPlanning=on',
     'effect mailchimp.read'
   ].join('\n'));
+}
+
+function normalizeModuleClientPreviewRouteReadiness(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint)
+  };
+}
+
+function normalizeModuleLaunchAcceptanceExportRoute(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleLaunchAcceptanceRow(id, source = {}, required, fallback = {}) {
+  const rawStatus = clean(source.status ?? source.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'blocked'
+    ? 'blocked'
+    : rawStatus === 'guarded' || rawStatus === 'degraded' || rawStatus === 'recovering' || source.restartSafe === false
+      ? 'guarded'
+      : 'ready';
+  const awaitingAcceptance = Array.isArray(fallback.awaitingAcceptance)
+    ? fallback.awaitingAcceptance.map(clean).filter(Boolean)
+    : Array.isArray(source.exportSummary?.awaitingAcceptance)
+      ? source.exportSummary.awaitingAcceptance.map(clean).filter(Boolean)
+      : [];
+  return {
+    id,
+    surface: clean(fallback.surface) || id,
+    status,
+    required: required === true,
+    restartSafe: status === 'ready' && source.restartSafe !== false && source.exportSummary?.restartSafe !== false,
+    clientVisible: status !== 'ready' || awaitingAcceptance.length > 0 || source.handoff?.publish === true,
+    publish: status !== 'ready' || awaitingAcceptance.length > 0 || source.handoff?.publish === true || source.changed === true,
+    awaitingAcceptance: unique(awaitingAcceptance),
+    sequence: toNonNegativeInteger(source.sequence ?? source.exportSummary?.sequence, 0),
+    fingerprint: clean(source.fingerprint ?? source.exportSummary?.fingerprint),
+    statusChannel: clean(source.handoff?.statusChannel ?? source.exportSummary?.statusChannel) || null,
+    nextAction: clean(fallback.nextAction ?? source.readiness?.nextAction ?? source.handoff?.nextAction ?? source.exportSummary?.nextAction)
+      || (status === 'blocked' ? `resolve_${id}` : status === 'guarded' ? `review_${id}` : `publish_${id}`),
+    evidence: fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {}
+  };
+}
+
+function dedupeModuleLaunchAcceptanceRows(rows = []) {
+  const seen = new Set();
+  return rows
+    .filter((row) => row && typeof row === 'object' && clean(row.id))
+    .filter((row) => {
+      const key = [row.id, row.status, row.nextAction].map(clean).join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => (
+      moduleLaunchAcceptanceStatusRank(right.status) - moduleLaunchAcceptanceStatusRank(left.status)
+      || clean(left.surface).localeCompare(clean(right.surface))
+      || clean(left.id).localeCompare(clean(right.id))
+    ));
+}
+
+function moduleLaunchAcceptanceStatusRank(status) {
+  if (status === 'blocked') return 3;
+  if (status === 'guarded' || status === 'degraded') return 2;
+  return 1;
+}
+
+function moduleLaunchAcceptanceExportRouteFingerprint({
+  operation,
+  status,
+  rows,
+  awaitingAcceptance
+}) {
+  return [
+    'module_launch_acceptance_export_route',
+    operation,
+    status,
+    `awaiting:${awaitingAcceptance.join(',')}`,
+    ...rows.map((row) => [
+      row.id,
+      row.surface,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.clientVisible ? 'client_visible' : 'client_hidden',
+      row.publish ? 'publish' : 'silent',
+      row.statusChannel,
+      row.fingerprint,
+      row.nextAction,
+      ...row.awaitingAcceptance
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function moduleClientPreviewRouteRow(id, source = {}, required, fallback = {}) {
+  const rawStatus = clean(source.status ?? source.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'degraded' ? 'guarded' : rawStatus;
+  const blocked = status === 'blocked';
+  const guarded = !blocked && status !== 'ready';
+  const awaitingAcceptance = Array.isArray(source.exportSummary?.awaitingAcceptance)
+    ? source.exportSummary.awaitingAcceptance.map(clean).filter(Boolean)
+    : [];
+  return {
+    id,
+    surface: clean(fallback.surface) || id,
+    status: blocked ? 'blocked' : guarded ? 'guarded' : 'ready',
+    required: required === true,
+    restartSafe: blocked !== true && guarded !== true && source.restartSafe !== false && source.exportSummary?.restartSafe !== false,
+    visibleToClient: fallback.visible === true || blocked || guarded || awaitingAcceptance.length > 0,
+    awaitingAcceptance,
+    fingerprint: clean(source.fingerprint ?? source.exportSummary?.fingerprint),
+    nextAction: clean(source.readiness?.nextAction ?? source.handoff?.nextAction ?? source.exportSummary?.nextAction)
+      || (blocked ? `resolve_${id}` : guarded ? `review_${id}` : `publish_${id}`),
+    evidence: {
+      statusChannel: source.handoff?.statusChannel ?? null,
+      visibleRows: source.exportSummary?.visibleRows ?? source.exportSummary?.clientVisibleRows ?? [],
+      ...(fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {})
+    }
+  };
+}
+
+function dedupeModuleClientPreviewRouteRows(rows = []) {
+  const seen = new Set();
+  return rows
+    .filter((row) => row && typeof row === 'object' && clean(row.id))
+    .filter((row) => {
+      const key = [row.id, row.status, row.nextAction].map(clean).join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => (
+      moduleClientPreviewRouteRank(right.status) - moduleClientPreviewRouteRank(left.status)
+      || clean(left.id).localeCompare(clean(right.id))
+    ));
+}
+
+function moduleClientPreviewRouteRank(status) {
+  if (status === 'blocked') return 3;
+  if (status === 'guarded') return 2;
+  return 1;
+}
+
+function moduleClientPreviewRouteReadinessFingerprint({
+  operation,
+  status,
+  rows,
+  parsedDiagnostics
+}) {
+  return [
+    'module_client_preview_route_readiness',
+    operation,
+    status,
+    ...parsedDiagnostics.map((item) => `${item.level}:${item.code}:${item.subject}`),
+    ...rows.map((row) => [
+      row.id,
+      row.surface,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.visibleToClient ? 'visible' : 'hidden',
+      row.fingerprint,
+      row.nextAction,
+      ...row.awaitingAcceptance
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
 }
 
 function normalizeModuleInput(input) {
@@ -3815,6 +8614,199 @@ function normalizeModuleOperationsPackHistory(input) {
     fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
     timeline: Array.isArray(history.timeline) ? history.timeline.filter((item) => item && typeof item === 'object') : []
   };
+}
+
+function normalizeModuleStatusPublicationHistory(input) {
+  const value = input && typeof input === 'object' ? input : {};
+  const history = value.history && typeof value.history === 'object' ? value.history : value;
+  const rowFingerprints = value.rowFingerprints && typeof value.rowFingerprints === 'object'
+    ? value.rowFingerprints
+    : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? history.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    ageMs: toNonNegativeInteger(value.ageMs ?? value.publicationAgeMs, 0),
+    rowFingerprints,
+    timeline: Array.isArray(history.timeline) ? history.timeline.filter((item) => item && typeof item === 'object') : []
+  };
+}
+
+function moduleStatusPublicationRow(id, source, {
+  required,
+  publication,
+  summary
+}) {
+  const normalizedSummary = summary && typeof summary === 'object' ? summary : {};
+  const normalizedPublication = publication && typeof publication === 'object' ? publication : {};
+  const status = clean(source.status ?? normalizedSummary.status) || 'ready';
+  return {
+    id,
+    status,
+    required,
+    restartSafe: source.restartSafe !== false && normalizedSummary.restartSafe !== false,
+    publish: normalizedPublication.publish === true || status !== 'ready',
+    statusChannel: clean(normalizedPublication.statusChannel) || 'kernel.status.mailchimp',
+    target: clean(normalizedPublication.target) || `kernel.status.mailchimp.${id.replace(/_/g, '-')}`,
+    sequence: toNonNegativeInteger(source.sequence ?? normalizedSummary.sequence, 0),
+    fingerprint: clean(source.fingerprint ?? normalizedSummary.fingerprint),
+    summary: normalizedSummary,
+    nextAction: clean(normalizedPublication.nextAction ?? normalizedSummary.nextAction) || (
+      status === 'ready' ? `publish_${id}` : `review_${id}`
+    )
+  };
+}
+
+function normalizeModuleLaunchPublicationDigest(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  const history = value.history && typeof value.history === 'object' ? value.history : value;
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.exportSummary?.sequence ?? history.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(history.timeline) ? history.timeline.filter((item) => item && typeof item === 'object') : []
+  };
+}
+
+function normalizeModuleClientLaunchReadiness(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  const history = value.history && typeof value.history === 'object' ? value.history : value;
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.exportSummary?.sequence ?? history.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(history.timeline) ? history.timeline.filter((item) => item && typeof item === 'object') : []
+  };
+}
+
+function moduleClientLaunchReadinessRow(id, sourceName, source, required, fallback = {}) {
+  const rawStatus = clean(fallback.status ?? source.status ?? source.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'degraded' || rawStatus === 'paused' || rawStatus === 'disabled'
+    ? 'guarded'
+    : rawStatus;
+  const blocked = status === 'blocked';
+  const guarded = !blocked && status !== 'ready';
+  return {
+    id,
+    source: sourceName,
+    status: blocked ? 'blocked' : guarded ? 'guarded' : 'ready',
+    required,
+    restartSafe: fallback.restartSafe === true && blocked !== true,
+    clientVisible: fallback.clientVisible === true || blocked || guarded,
+    fingerprint: clean(fallback.fingerprint ?? source.fingerprint ?? source.exportSummary?.fingerprint),
+    nextAction: clean(fallback.nextAction) || (
+      blocked ? `resolve_${id}_blockers` : guarded ? `publish_${id}_guarded` : `publish_${id}`
+    ),
+    evidence: fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {}
+  };
+}
+
+function moduleLaunchPublicationRow(id, source, {
+  required,
+  handoff,
+  summary,
+  acceptanceRequired = false
+}) {
+  const normalizedSummary = summary && typeof summary === 'object' ? summary : {};
+  const normalizedHandoff = handoff && typeof handoff === 'object' ? handoff : {};
+  const status = normalizeLaunchPublicationStatus(clean(source.status ?? normalizedSummary.status) || 'ready');
+  const accepted = acceptanceRequired
+    ? source.accepted === true || normalizedSummary.accepted === true || normalizedSummary.awaitingAcceptance?.length === 0
+    : true;
+  const reasons = unique([
+    ...normalizeList(source.readiness?.blockingReasons),
+    ...normalizeList(source.readiness?.guardedReasons),
+    ...normalizeList(source.readiness?.degradedReasons),
+    ...normalizeList(normalizedSummary.blockedRows),
+    ...normalizeList(normalizedSummary.guardedRows),
+    ...normalizeList(normalizedSummary.degradedRows),
+    ...(accepted ? [] : ['acceptance_pending'])
+  ]);
+  return {
+    id,
+    status,
+    required,
+    acceptanceRequired,
+    accepted,
+    restartSafe: source.restartSafe !== false && normalizedSummary.restartSafe !== false,
+    publish: normalizedHandoff.publish === true || status !== 'ready',
+    changed: source.changed === true || normalizedSummary.changed === true,
+    statusChannel: clean(normalizedHandoff.statusChannel) || 'kernel.status.mailchimp',
+    target: clean(normalizedHandoff.target) || `kernel.status.mailchimp.${id.replace(/_/g, '-')}`,
+    sequence: toNonNegativeInteger(source.sequence ?? normalizedSummary.sequence, 0),
+    fingerprint: clean(source.fingerprint ?? normalizedSummary.fingerprint),
+    reasons,
+    nextAction: clean(normalizedHandoff.nextAction ?? source.readiness?.nextAction ?? normalizedSummary.nextAction) || (
+      status === 'ready' ? `publish_${id}` : `review_${id}`
+    ),
+    summary: normalizedSummary
+  };
+}
+
+function moduleLaunchGateRow(id, source, {
+  required,
+  restartSafe,
+  handoff,
+  summary,
+  acceptanceRequired = false
+}) {
+  const normalizedSummary = summary && typeof summary === 'object' ? summary : {};
+  const normalizedHandoff = handoff && typeof handoff === 'object' ? handoff : {};
+  const status = normalizeModuleLaunchGateStatus(clean(source.status ?? normalizedSummary.status) || 'ready');
+  const accepted = acceptanceRequired
+    ? source.accepted === true
+      || normalizedSummary.accepted === true
+      || normalizeList(normalizedSummary.awaitingAcceptance).length === 0
+    : true;
+  const restartClear = restartSafe !== false
+    && source.restartSafe !== false
+    && normalizedSummary.restartSafe !== false;
+  const reasons = unique([
+    ...normalizeList(source.readiness?.blockingReasons),
+    ...normalizeList(source.readiness?.guardedReasons),
+    ...normalizeList(source.readiness?.degradedReasons),
+    ...normalizeList(normalizedSummary.blockedRows),
+    ...normalizeList(normalizedSummary.guardedRows),
+    ...normalizeList(normalizedSummary.degradedRows),
+    ...(restartClear ? [] : ['restart_guarded']),
+    ...(accepted ? [] : ['acceptance_pending']),
+    ...(normalizedHandoff.publish === true && status !== 'ready' ? ['publication_pending'] : [])
+  ]);
+
+  return {
+    id,
+    status,
+    required,
+    acceptanceRequired,
+    accepted,
+    restartSafe: restartClear,
+    publishPending: normalizedHandoff.publish === true || status !== 'ready',
+    statusChannel: clean(normalizedHandoff.statusChannel) || (
+      status === 'ready' ? 'kernel.status.mailchimp' : 'local.status.module-launch-gate'
+    ),
+    target: clean(normalizedHandoff.target) || `kernel.status.mailchimp.${id.replace(/_/g, '-')}`,
+    sequence: toNonNegativeInteger(source.sequence ?? normalizedSummary.sequence, 0),
+    fingerprint: clean(source.fingerprint ?? normalizedSummary.fingerprint),
+    reasons,
+    nextAction: clean(normalizedHandoff.nextAction ?? source.readiness?.nextAction ?? normalizedSummary.nextAction) || (
+      status === 'ready' ? `release_${id}` : `review_${id}`
+    ),
+    summary: normalizedSummary
+  };
+}
+
+function normalizeModuleLaunchGateStatus(status) {
+  if (status === 'blocked' || status === 'operator_review') return 'blocked';
+  if (['guarded', 'degraded', 'retry_scheduled', 'paused', 'disabled', 'status_acknowledged'].includes(status)) {
+    return 'degraded';
+  }
+  if (status === 'released' || status === 'healthy' || status === 'accepted') return 'ready';
+  return 'ready';
+}
+
+function normalizeLaunchPublicationStatus(status) {
+  if (status === 'blocked' || status === 'operator_review') return 'blocked';
+  if (['guarded', 'degraded', 'retry_scheduled', 'paused', 'disabled', 'status_acknowledged'].includes(status)) {
+    return 'guarded';
+  }
+  return 'ready';
 }
 
 function normalizeModuleLaunchAcceptanceHistory(input) {
@@ -3942,6 +8934,83 @@ function moduleOperationsPackFingerprint({
   ].map(clean).filter(Boolean).join('||');
 }
 
+function moduleLaunchPublicationFingerprint({
+  operation,
+  status,
+  rows,
+  publishRows
+}) {
+  return [
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.acceptanceRequired ? 'acceptance_required' : 'acceptance_optional',
+      row.accepted ? 'accepted' : 'pending',
+      row.publish ? 'publish' : 'silent',
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort(),
+    ...publishRows.map((row) => `publish:${row.id}`).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function moduleLaunchGateFingerprint({
+  operation,
+  status,
+  allowDegradedLaunch,
+  requireExplicitAcceptance,
+  rows
+}) {
+  return [
+    operation,
+    status,
+    allowDegradedLaunch ? 'degraded_allowed' : 'degraded_blocks',
+    requireExplicitAcceptance ? 'acceptance_required' : 'acceptance_optional',
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.acceptanceRequired ? 'acceptance_required' : 'acceptance_optional',
+      row.accepted ? 'accepted' : 'pending',
+      row.publishPending ? 'publish' : 'silent',
+      row.statusChannel,
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function firstModuleLaunchAction(rows, fallback) {
+  return clean(rows.find((row) => row.nextAction)?.nextAction) || fallback;
+}
+
+function moduleStatusPublicationFingerprint({
+  operation,
+  status,
+  rows,
+  staleRows
+}) {
+  const staleIds = new Set(staleRows.map((row) => row.id));
+  return [
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.restartSafe === false ? 'guarded' : 'safe',
+      row.publish === true ? 'publish' : 'silent',
+      staleIds.has(row.id) ? 'stale' : 'fresh',
+      row.sequence ?? 0,
+      row.fingerprint ?? '',
+      row.nextAction ?? 'no_action'
+    ].map(clean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
 export function deriveModuleBoundaryContract({
   boundarySource = [],
   options = {},
@@ -4012,6 +9081,11 @@ function parseKeyValues(value) {
 
 function unique(values) {
   return [...new Set(values.map(clean).filter(Boolean))].sort();
+}
+
+function normalizeList(value) {
+  if (Array.isArray(value)) return value.map(clean).filter(Boolean);
+  return String(value ?? '').split(',').map(clean).filter(Boolean);
 }
 
 function normalizeModuleProviderAdoptionHistory(input) {
@@ -4298,6 +9372,55 @@ function normalizeProfileActivationActions(activation) {
       code: 'profile_activation_degraded',
       subject: reason,
       action: 'Publish degraded Mailchimp profile activation state before guarded handoff.',
+      severity: 'warning'
+    }))
+  ];
+}
+
+function normalizeProfileLifecycleSettingsControlActions(contract) {
+  const summary = contract.exportSummary ?? {};
+  const readiness = contract.readiness ?? {};
+  return [
+    ...(summary.blockedRows?.length > 0 ? [{
+      source: 'profile_lifecycle_settings_controls',
+      code: 'resolve_profile_lifecycle_control_blockers',
+      subject: summary.blockedRows.join(','),
+      action: readiness.nextAction ?? 'Resolve blocked Mailchimp profile lifecycle controls.',
+      severity: 'error'
+    }] : []),
+    ...(summary.guardedRows?.length > 0 ? [{
+      source: 'profile_lifecycle_settings_controls',
+      code: 'publish_profile_lifecycle_control_guard',
+      subject: summary.guardedRows.join(','),
+      action: 'Publish guarded Mailchimp profile lifecycle controls before client handoff.',
+      severity: contract.status === 'blocked' ? 'error' : 'warning'
+    }] : []),
+    ...(summary.awaitingAcceptance?.length > 0 ? [{
+      source: 'profile_lifecycle_settings_controls',
+      code: 'profile_lifecycle_control_acceptance_pending',
+      subject: summary.awaitingAcceptance.join(','),
+      action: 'Collect lifecycle control acceptance before exposing Mailchimp runtime controls.',
+      severity: contract.status === 'blocked' ? 'error' : 'warning'
+    }] : []),
+    ...(summary.availableCommands?.length > 0 && contract.status === 'ready' ? [{
+      source: 'profile_lifecycle_settings_controls',
+      code: 'publish_profile_lifecycle_control_contract',
+      subject: summary.availableCommands.join(','),
+      action: contract.handoff?.nextAction ?? 'Publish Mailchimp profile lifecycle control contract.',
+      severity: 'info'
+    }] : []),
+    ...(readiness.blockingReasons ?? []).map((reason) => ({
+      source: 'profile_lifecycle_settings_controls',
+      code: 'profile_lifecycle_control_blocker',
+      subject: reason,
+      action: 'Resolve Mailchimp profile lifecycle control blocker before module launch.',
+      severity: 'error'
+    })),
+    ...(readiness.guardedReasons ?? []).map((reason) => ({
+      source: 'profile_lifecycle_settings_controls',
+      code: 'profile_lifecycle_control_guarded',
+      subject: reason,
+      action: 'Publish guarded Mailchimp profile lifecycle control state before launch.',
       severity: 'warning'
     }))
   ];
@@ -4809,6 +9932,97 @@ function normalizeProfileRestartRecoveryActions(packet) {
   ];
 }
 
+function normalizeProfileRestartStatusLedgerActions(ledger) {
+  const summary = ledger.exportSummary ?? {};
+  return [
+    ...(ledger.status === 'blocked' ? [{
+      source: 'profile_restart_status_ledger',
+      code: 'review_profile_restart_status_ledger',
+      subject: summary.restartKey ?? summary.fingerprint ?? 'profile_restart_status_ledger',
+      action: 'Review blocked Mailchimp profile restart status ledger before module resume.',
+      severity: 'error'
+    }] : []),
+    ...((summary.blockedRows ?? []).map((row) => ({
+      source: 'profile_restart_status_ledger',
+      code: 'profile_restart_status_row_blocked',
+      subject: row,
+      action: 'Resolve the blocked Mailchimp profile restart ledger row before publishing module status.',
+      severity: 'error'
+    }))),
+    ...((summary.degradedRows ?? []).map((row) => ({
+      source: 'profile_restart_status_ledger',
+      code: 'profile_restart_status_row_guarded',
+      subject: row,
+      action: 'Publish guarded Mailchimp profile restart ledger status before restart-safe handoff.',
+      severity: ledger.status === 'blocked' ? 'error' : 'warning'
+    }))),
+    ...(summary.changed === true && ledger.status !== 'blocked' ? [{
+      source: 'profile_restart_status_ledger',
+      code: 'publish_profile_restart_status_ledger_delta',
+      subject: summary.fingerprint ?? summary.restartKey ?? 'profile_restart_status_ledger',
+      action: 'Publish the Mailchimp profile restart status ledger delta with the module handoff.',
+      severity: ledger.status === 'degraded' ? 'warning' : 'info'
+    }] : []),
+    ...(ledger.restartSafe === false ? [{
+      source: 'profile_restart_status_ledger',
+      code: 'repair_profile_restart_status_ledger_guard',
+      subject: summary.restartKey ?? 'profile_restart_status_ledger',
+      action: 'Repair Mailchimp profile restart ledger guards before marking the module restart-safe.',
+      severity: ledger.status === 'blocked' ? 'error' : 'warning'
+    }] : [])
+  ];
+}
+
+function normalizeProfileRestartReplayDecisionActions(decision) {
+  const summary = decision.exportSummary ?? {};
+  const readiness = decision.readiness ?? {};
+  const idempotency = decision.idempotency ?? {};
+  return [
+    ...(decision.status === 'blocked' ? [{
+      source: 'profile_restart_replay_decision',
+      code: 'review_profile_restart_replay_decision',
+      subject: summary.fingerprint ?? decision.fingerprint ?? 'profile_restart_replay_decision',
+      action: 'Review blocked Mailchimp profile restart replay decision before module resume.',
+      severity: 'error'
+    }] : []),
+    ...((readiness.blockingReasons ?? summary.blockedRows ?? []).map((row) => ({
+      source: 'profile_restart_replay_decision',
+      code: 'profile_restart_replay_decision_blocked_row',
+      subject: row,
+      action: 'Resolve the blocked Mailchimp profile replay decision row before restart-safe handoff.',
+      severity: 'error'
+    }))),
+    ...((readiness.guardedReasons ?? summary.guardedRows ?? []).map((row) => ({
+      source: 'profile_restart_replay_decision',
+      code: 'profile_restart_replay_decision_guarded_row',
+      subject: row,
+      action: 'Publish guarded Mailchimp profile replay decision status before module resume.',
+      severity: decision.status === 'blocked' ? 'error' : 'warning'
+    }))),
+    ...((idempotency.suppressedCommandKeys ?? summary.suppressedCommandKeys ?? []).map((commandKey) => ({
+      source: 'profile_restart_replay_decision',
+      code: 'profile_restart_replay_command_suppressed',
+      subject: commandKey,
+      action: 'Keep the duplicate Mailchimp profile replay command suppressed during restart recovery.',
+      severity: 'info'
+    }))),
+    ...(summary.changed === true && decision.status !== 'blocked' ? [{
+      source: 'profile_restart_replay_decision',
+      code: 'publish_profile_restart_replay_decision_delta',
+      subject: summary.fingerprint ?? 'profile_restart_replay_decision',
+      action: 'Publish the Mailchimp profile restart replay decision delta with module status.',
+      severity: decision.status === 'guarded' ? 'warning' : 'info'
+    }] : []),
+    ...(decision.restartSafe === false ? [{
+      source: 'profile_restart_replay_decision',
+      code: 'repair_profile_restart_replay_guard',
+      subject: summary.fingerprint ?? 'profile_restart_replay_decision',
+      action: 'Repair guarded Mailchimp profile replay decisions before marking the module restart-safe.',
+      severity: decision.status === 'blocked' ? 'error' : 'warning'
+    }] : [])
+  ];
+}
+
 function normalizeFeatureBoundaryControlActions(controls) {
   const summary = controls.exportSummary ?? {};
   return [
@@ -4941,6 +10155,983 @@ function normalizeImportGateLifecycleActions(controlPlan) {
   ];
 }
 
+export function buildModuleOperationalReadinessLedger({
+  operation = 'campaign.sync',
+  profileOperationalHealth = {},
+  featureOperationalLedger = {},
+  importOperationalLedger = {},
+  moduleStatusPublication = {},
+  moduleLaunchPublicationDigest = {},
+  operationalStatus = {},
+  previousLedger = {},
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleOperationalLedger(previousLedger);
+  const rows = [
+    moduleOperationalReadinessRow('profile_health', 'profile', profileOperationalHealth, true, {
+      status: profileOperationalHealth.status ?? profileOperationalHealth.exportSummary?.status,
+      restartSafe: profileOperationalHealth.restartSafe ?? profileOperationalHealth.exportSummary?.restartSafe,
+      nextAction: profileOperationalHealth.readiness?.nextAction
+        ?? profileOperationalHealth.exportSummary?.nextAction
+        ?? profileOperationalHealth.handoff?.nextAction,
+      statusChannel: profileOperationalHealth.handoff?.statusChannel,
+      evidence: {
+        profileName: profileOperationalHealth.profileName ?? profileOperationalHealth.exportSummary?.profileName,
+        blockedRows: profileOperationalHealth.exportSummary?.blockedRows ?? [],
+        degradedRows: profileOperationalHealth.exportSummary?.degradedRows ?? [],
+        fingerprint: profileOperationalHealth.fingerprint ?? profileOperationalHealth.exportSummary?.fingerprint
+      }
+    }),
+    moduleOperationalReadinessRow('feature_operational_ledger', 'feature', featureOperationalLedger, true, {
+      status: featureOperationalLedger.status ?? featureOperationalLedger.exportSummary?.status,
+      restartSafe: featureOperationalLedger.restartSafe ?? featureOperationalLedger.exportSummary?.restartSafe,
+      nextAction: featureOperationalLedger.exportSummary?.nextAction ?? featureOperationalLedger.handoff?.nextAction,
+      statusChannel: featureOperationalLedger.handoff?.statusChannel,
+      evidence: {
+        blockedRows: featureOperationalLedger.exportSummary?.blockedRows ?? [],
+        degradedRows: featureOperationalLedger.exportSummary?.degradedRows ?? [],
+        deniedEffects: featureOperationalLedger.counters?.deniedEffects ?? 0,
+        fingerprint: featureOperationalLedger.fingerprint ?? featureOperationalLedger.exportSummary?.fingerprint
+      }
+    }),
+    moduleOperationalReadinessRow('import_operational_ledger', 'import', importOperationalLedger, true, {
+      status: importOperationalLedger.status ?? importOperationalLedger.exportSummary?.status,
+      restartSafe: importOperationalLedger.restartSafe ?? importOperationalLedger.exportSummary?.restartSafe,
+      nextAction: importOperationalLedger.exportSummary?.nextAction ?? importOperationalLedger.handoff?.nextAction,
+      statusChannel: importOperationalLedger.handoff?.statusChannel,
+      evidence: {
+        blockedRows: importOperationalLedger.exportSummary?.blockedRows ?? [],
+        degradedRows: importOperationalLedger.exportSummary?.degradedRows ?? [],
+        missingCapabilities: importOperationalLedger.exportSummary?.missingCapabilities ?? [],
+        unsafeHandoffs: importOperationalLedger.exportSummary?.unsafeHandoffs ?? [],
+        fingerprint: importOperationalLedger.fingerprint ?? importOperationalLedger.exportSummary?.fingerprint
+      }
+    }),
+    moduleOperationalReadinessRow('status_publication', 'module', moduleStatusPublication, true, {
+      status: moduleStatusPublication.status ?? moduleStatusPublication.exportSummary?.status,
+      restartSafe: moduleStatusPublication.restartSafe ?? moduleStatusPublication.exportSummary?.restartSafe,
+      nextAction: moduleStatusPublication.exportSummary?.nextAction ?? moduleStatusPublication.handoff?.nextAction,
+      statusChannel: moduleStatusPublication.handoff?.statusChannel,
+      evidence: {
+        staleRows: moduleStatusPublication.exportSummary?.staleRows ?? [],
+        publishRows: moduleStatusPublication.exportSummary?.publishRows ?? [],
+        fingerprint: moduleStatusPublication.fingerprint ?? moduleStatusPublication.exportSummary?.fingerprint
+      }
+    }),
+    moduleOperationalReadinessRow('launch_publication_digest', 'module', moduleLaunchPublicationDigest, false, {
+      status: moduleLaunchPublicationDigest.status ?? moduleLaunchPublicationDigest.exportSummary?.status,
+      restartSafe: moduleLaunchPublicationDigest.restartSafe ?? moduleLaunchPublicationDigest.exportSummary?.restartSafe,
+      nextAction: moduleLaunchPublicationDigest.exportSummary?.nextAction ?? moduleLaunchPublicationDigest.handoff?.nextAction,
+      statusChannel: moduleLaunchPublicationDigest.handoff?.statusChannel,
+      evidence: {
+        awaitingAcceptance: moduleLaunchPublicationDigest.exportSummary?.awaitingAcceptance ?? [],
+        blockedRows: moduleLaunchPublicationDigest.exportSummary?.blockedRows ?? [],
+        guardedRows: moduleLaunchPublicationDigest.exportSummary?.guardedRows ?? [],
+        fingerprint: moduleLaunchPublicationDigest.fingerprint ?? moduleLaunchPublicationDigest.exportSummary?.fingerprint
+      }
+    })
+  ];
+  const blockedRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded' || row.status === 'degraded');
+  const status = blockedRows.length > 0 || operationalStatus.status === 'blocked'
+    ? 'blocked'
+    : guardedRows.length > 0 || operationalStatus.status === 'degraded'
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleOperationalReadinessFingerprint({
+    operation,
+    status,
+    rows,
+    operationalStatus
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_operational_readiness_blockers'
+    : status === 'guarded'
+      ? 'publish_module_operational_readiness_guarded'
+      : changed
+        ? 'publish_module_operational_readiness'
+        : 'reuse_module_operational_readiness';
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [{
+      sequence,
+      timestamp: clean(now) || null,
+      operation,
+      status,
+      fingerprint,
+      blockedRows: blockedRows.map((row) => row.id),
+      guardedRows: guardedRows.map((row) => row.id)
+    }] : [])
+  ].slice(-Math.max(1, toNonNegativeInteger(historyLimit, 12)));
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_operational_readiness_ledger',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      requiredRows: rows.filter((row) => row.required).length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      profileRows: rows.filter((row) => row.source === 'profile').length,
+      featureRows: rows.filter((row) => row.source === 'feature').length,
+      importRows: rows.filter((row) => row.source === 'import').length
+    },
+    readiness: {
+      status,
+      blockingReasons: blockedRows.map((row) => row.id).sort(),
+      guardedReasons: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'kernel.status.mailchimp.module-operational-readiness',
+      statusChannel: rows.every((row) => row.statusChannel === 'kernel.status.mailchimp' || !row.statusChannel)
+        ? 'kernel.status.mailchimp'
+        : 'local.status.module-operational-readiness',
+      publish: changed || status !== 'ready',
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: status !== 'ready' || changed,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_operational_readiness_ledger',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    }
+  };
+}
+
+function buildModuleClientActionQueue({
+  operation,
+  featureClientActionQueue,
+  importClientActionQueue,
+  clientWorkflowHandoff,
+  launchAcceptance,
+  exportReadiness,
+  previousQueue,
+  now,
+  historyLimit
+}) {
+  const previous = normalizeModuleClientActionQueueHistory(previousQueue);
+  const featureRows = normalizeModuleClientActionRows(featureClientActionQueue, 'feature');
+  const importRows = normalizeModuleClientActionRows(importClientActionQueue, 'import');
+  const workflowRows = (clientWorkflowHandoff.rows ?? [])
+    .filter((row) => row.status !== 'ready' || row.visibleToClient === true)
+    .map((row) => ({
+      id: `workflow:${row.id ?? row.component}`,
+      source: 'module_workflow',
+      subject: clean(row.id ?? row.component),
+      status: row.status === 'degraded' ? 'guarded' : row.status,
+      severity: row.status === 'blocked' ? 'error' : row.status === 'degraded' ? 'warning' : 'info',
+      clientVisible: true,
+      required: row.required !== false,
+      nextAction: clean(row.nextAction) || 'review_module_workflow',
+      evidence: row.evidence ?? {}
+    }));
+  const launchRows = [
+    ...(launchAcceptance.status === 'ready' ? [] : [{
+      id: 'launch:acceptance',
+      source: 'module_launch_acceptance',
+      subject: launchAcceptance.exportSummary?.title ?? 'module_launch_acceptance',
+      status: launchAcceptance.status === 'degraded' ? 'guarded' : launchAcceptance.status,
+      severity: launchAcceptance.status === 'blocked' ? 'error' : 'warning',
+      clientVisible: true,
+      required: true,
+      nextAction: launchAcceptance.readiness?.nextAction ?? launchAcceptance.exportSummary?.nextAction ?? 'review_module_launch_acceptance',
+      evidence: {
+        awaitingAcceptance: launchAcceptance.exportSummary?.awaitingAcceptance ?? [],
+        blockedRows: launchAcceptance.exportSummary?.blockedRows ?? [],
+        guardedRows: launchAcceptance.exportSummary?.guardedRows ?? launchAcceptance.exportSummary?.degradedRows ?? []
+      }
+    }]),
+    ...(exportReadiness.status === 'ready' ? [] : [{
+      id: 'launch:export_readiness',
+      source: 'module_export_readiness',
+      subject: exportReadiness.exportSummary?.title ?? 'module_export_readiness',
+      status: exportReadiness.status === 'degraded' ? 'guarded' : exportReadiness.status,
+      severity: exportReadiness.status === 'blocked' ? 'error' : 'warning',
+      clientVisible: true,
+      required: true,
+      nextAction: exportReadiness.readiness?.nextAction ?? exportReadiness.exportSummary?.nextAction ?? 'review_module_export_readiness',
+      evidence: {
+        blockingReasons: exportReadiness.readiness?.blockingReasons ?? [],
+        degradedReasons: exportReadiness.readiness?.degradedReasons ?? []
+      }
+    }])
+  ];
+  const rows = dedupeModuleClientActionRows([
+    ...featureRows,
+    ...importRows,
+    ...workflowRows,
+    ...launchRows
+  ]).sort((left, right) => (
+    severityRank(right.severity) - severityRank(left.severity)
+    || moduleClientActionStatusRank(right.status) - moduleClientActionStatusRank(left.status)
+    || left.id.localeCompare(right.id)
+  ));
+  const blockingRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded' || row.status === 'degraded' || row.status === 'awaiting_acceptance');
+  const visibleRows = rows.filter((row) => row.clientVisible);
+  const status = blockingRows.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleClientActionQueueFingerprint({
+    operation,
+    status,
+    rows,
+    featureClientActionQueue,
+    importClientActionQueue,
+    clientWorkflowHandoff,
+    launchAcceptance,
+    exportReadiness
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const limit = Math.max(1, toNonNegativeInteger(historyLimit, 12));
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [{
+      sequence,
+      timestamp: clean(now) || null,
+      operation,
+      status,
+      fingerprint,
+      visibleActions: visibleRows.length,
+      blockingActions: blockingRows.length,
+      guardedActions: guardedRows.length,
+      changed
+    }] : [])
+  ].slice(-limit);
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_client_action_blockers'
+    : status === 'guarded'
+      ? 'publish_module_client_action_guarded'
+      : changed
+        ? 'publish_module_client_action_ready'
+        : 'reuse_module_client_action_queue';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_action_queue',
+    operation,
+    status,
+    restartSafe: status === 'ready'
+      && featureClientActionQueue.restartSafe === true
+      && importClientActionQueue.restartSafe === true
+      && clientWorkflowHandoff.restartSafe !== false,
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      visibleRows: visibleRows.length,
+      blockingRows: blockingRows.length,
+      guardedRows: guardedRows.length,
+      featureActions: featureRows.length,
+      importActions: importRows.length,
+      workflowActions: workflowRows.length,
+      launchActions: launchRows.length
+    },
+    readiness: {
+      status,
+      blockingReasons: blockingRows.map((row) => row.subject).sort(),
+      guardedReasons: guardedRows.map((row) => row.subject).sort(),
+      nextAction
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'mailchimp.client.workflow.module-actions',
+      statusChannel: rows.some((row) => row.source === 'import' && row.status !== 'ready')
+        ? importClientActionQueue.handoff?.statusChannel ?? 'kernel.status.mailchimp'
+        : featureClientActionQueue.handoff?.statusChannel ?? 'kernel.status.mailchimp',
+      publish: changed || status !== 'ready' || visibleRows.length > 0,
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: visibleRows.length > 0,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_action_queue',
+      operation,
+      status,
+      restartSafe: status === 'ready'
+        && featureClientActionQueue.restartSafe === true
+        && importClientActionQueue.restartSafe === true,
+      sequence,
+      fingerprint,
+      changed,
+      visibleActions: visibleRows.map((row) => row.id).sort(),
+      blockingActions: blockingRows.map((row) => row.id).sort(),
+      guardedActions: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    }
+  };
+}
+
+export function buildModuleClientBoundaryReadinessEnvelope({
+  operation = 'campaign.sync',
+  featureClientReadiness = {},
+  importTenantAuditReadiness = {},
+  launchAcceptance = {},
+  moduleClientActionQueue = {},
+  clientWorkflowHandoff = {},
+  previousEnvelope = {},
+  commandKey = null,
+  now = null,
+  historyLimit = 12
+} = {}) {
+  const previous = normalizeModuleClientBoundaryReadiness(previousEnvelope);
+  const seenCommands = new Set(previous.appliedCommandKeys.map(clean).filter(Boolean));
+  const normalizedCommandKey = clean(commandKey);
+  const repeatedCommand = normalizedCommandKey && seenCommands.has(normalizedCommandKey);
+  const rows = [
+    moduleClientBoundaryReadinessRow('feature_client_readiness', 'feature', featureClientReadiness, true, {
+      status: featureClientReadiness.status ?? featureClientReadiness.exportSummary?.status,
+      restartSafe: featureClientReadiness.restartSafe ?? featureClientReadiness.exportSummary?.restartSafe,
+      statusChannel: featureClientReadiness.handoff?.statusChannel,
+      nextAction: featureClientReadiness.readiness?.nextAction ?? featureClientReadiness.exportSummary?.nextAction,
+      evidence: {
+        fingerprint: featureClientReadiness.fingerprint ?? featureClientReadiness.exportSummary?.fingerprint,
+        blockedRows: featureClientReadiness.exportSummary?.blockedRows ?? [],
+        guardedRows: featureClientReadiness.exportSummary?.guardedRows ?? [],
+        awaitingAcceptance: featureClientReadiness.validationSummary?.awaitingAcceptance ?? 0
+      }
+    }),
+    moduleClientBoundaryReadinessRow('import_tenant_audit', 'import', importTenantAuditReadiness, true, {
+      status: importTenantAuditReadiness.status ?? importTenantAuditReadiness.exportSummary?.status,
+      restartSafe: importTenantAuditReadiness.restartSafe ?? importTenantAuditReadiness.exportSummary?.restartSafe,
+      statusChannel: importTenantAuditReadiness.auditHandoff?.statusChannel,
+      nextAction: importTenantAuditReadiness.readiness?.nextAction ?? importTenantAuditReadiness.exportSummary?.nextAction,
+      evidence: {
+        fingerprint: importTenantAuditReadiness.fingerprint ?? importTenantAuditReadiness.exportSummary?.fingerprint,
+        tenantId: importTenantAuditReadiness.scope?.tenantId ?? importTenantAuditReadiness.exportSummary?.tenantId,
+        workspaceId: importTenantAuditReadiness.scope?.workspaceId ?? importTenantAuditReadiness.exportSummary?.workspaceId,
+        blockedImports: importTenantAuditReadiness.exportSummary?.blockedImports ?? [],
+        guardedImports: importTenantAuditReadiness.exportSummary?.guardedImports ?? []
+      }
+    }),
+    moduleClientBoundaryReadinessRow('module_launch_acceptance', 'module', launchAcceptance, true, {
+      status: launchAcceptance.status ?? launchAcceptance.exportSummary?.status,
+      restartSafe: launchAcceptance.restartSafe ?? launchAcceptance.exportSummary?.restartSafe,
+      statusChannel: launchAcceptance.handoff?.statusChannel,
+      nextAction: launchAcceptance.readiness?.nextAction ?? launchAcceptance.exportSummary?.nextAction,
+      evidence: {
+        fingerprint: launchAcceptance.fingerprint ?? launchAcceptance.exportSummary?.fingerprint,
+        awaitingAcceptance: launchAcceptance.exportSummary?.awaitingAcceptance ?? [],
+        blockedRows: launchAcceptance.exportSummary?.blockedRows ?? [],
+        guardedRows: launchAcceptance.exportSummary?.guardedRows ?? launchAcceptance.exportSummary?.degradedRows ?? []
+      }
+    }),
+    moduleClientBoundaryReadinessRow('module_client_actions', 'module', moduleClientActionQueue, false, {
+      status: moduleClientActionQueue.status ?? moduleClientActionQueue.exportSummary?.status,
+      restartSafe: moduleClientActionQueue.restartSafe ?? moduleClientActionQueue.exportSummary?.restartSafe,
+      statusChannel: moduleClientActionQueue.handoff?.statusChannel,
+      nextAction: moduleClientActionQueue.readiness?.nextAction ?? moduleClientActionQueue.exportSummary?.nextAction,
+      evidence: {
+        fingerprint: moduleClientActionQueue.fingerprint ?? moduleClientActionQueue.exportSummary?.fingerprint,
+        visibleActions: moduleClientActionQueue.exportSummary?.visibleActions ?? [],
+        blockingActions: moduleClientActionQueue.exportSummary?.blockingActions ?? [],
+        guardedActions: moduleClientActionQueue.exportSummary?.guardedActions ?? []
+      }
+    }),
+    moduleClientBoundaryReadinessRow('client_workflow_handoff', 'module', clientWorkflowHandoff, false, {
+      status: clientWorkflowHandoff.status ?? clientWorkflowHandoff.exportSummary?.status,
+      restartSafe: clientWorkflowHandoff.restartSafe ?? clientWorkflowHandoff.exportSummary?.restartSafe,
+      statusChannel: clientWorkflowHandoff.handoff?.statusChannel,
+      nextAction: clientWorkflowHandoff.handoff?.nextAction ?? clientWorkflowHandoff.exportSummary?.nextAction,
+      evidence: {
+        fingerprint: clientWorkflowHandoff.fingerprint ?? clientWorkflowHandoff.exportSummary?.fingerprint,
+        blockingRows: clientWorkflowHandoff.exportSummary?.blockingRows ?? [],
+        degradedRows: clientWorkflowHandoff.exportSummary?.degradedRows ?? []
+      }
+    })
+  ];
+  const blockedRows = rows.filter((row) => row.status === 'blocked');
+  const guardedRows = rows.filter((row) => row.status === 'guarded' || row.status === 'degraded');
+  const status = blockedRows.length > 0
+    ? 'blocked'
+    : guardedRows.length > 0
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleClientBoundaryReadinessFingerprint({
+    operation,
+    status,
+    rows,
+    repeatedCommand
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const appliedCommandKeys = normalizedCommandKey && !repeatedCommand && status !== 'blocked'
+    ? [...seenCommands, normalizedCommandKey].sort()
+    : [...seenCommands].sort();
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_client_boundary_readiness_blockers'
+    : status === 'guarded'
+      ? 'publish_module_client_boundary_readiness_guarded'
+      : repeatedCommand
+        ? 'reuse_module_client_boundary_readiness'
+        : changed
+          ? 'publish_module_client_boundary_readiness_ready'
+          : 'reuse_module_client_boundary_readiness';
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [{
+      sequence,
+      timestamp: clean(now) || null,
+      operation,
+      status,
+      fingerprint,
+      blockedRows: blockedRows.map((row) => row.id),
+      guardedRows: guardedRows.map((row) => row.id),
+      commandKey: normalizedCommandKey || null,
+      repeatedCommand: Boolean(repeatedCommand)
+    }] : [])
+  ].slice(-Math.max(1, toNonNegativeInteger(historyLimit, 12)));
+  const diagnostics = [
+    ...(featureClientReadiness.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(importTenantAuditReadiness.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(launchAcceptance.diagnostics ?? []).filter((item) => item.level === 'error'),
+    ...(repeatedCommand ? [{
+      level: 'info',
+      code: 'module_client_boundary_readiness_command_already_applied',
+      subject: normalizedCommandKey
+    }] : [])
+  ];
+
+  return {
+    ok: status !== 'blocked' && !diagnostics.some((item) => item.level === 'error'),
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_boundary_readiness',
+    operation,
+    status,
+    restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      requiredRows: rows.filter((row) => row.required).length,
+      blockedRows: blockedRows.length,
+      guardedRows: guardedRows.length,
+      localStatusRows: rows.filter((row) => row.statusChannel?.startsWith('local.status.')).length,
+      diagnosticErrors: diagnostics.filter((item) => item.level === 'error').length,
+      diagnosticWarnings: diagnostics.filter((item) => item.level === 'warning').length
+    },
+    readiness: {
+      status,
+      blockingReasons: blockedRows.map((row) => row.id).sort(),
+      guardedReasons: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    idempotency: {
+      commandKey: normalizedCommandKey || null,
+      repeated: Boolean(repeatedCommand),
+      applied: Boolean(normalizedCommandKey) && !repeatedCommand && status !== 'blocked',
+      appliedCommandKeys
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'mailchimp.client.workflow.module-boundary-readiness',
+      statusChannel: rows.every((row) => row.statusChannel === 'kernel.status.mailchimp' || !row.statusChannel)
+        ? 'kernel.status.mailchimp'
+        : 'local.status.module-boundary-readiness',
+      publish: changed || status !== 'ready' || repeatedCommand,
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: status !== 'ready' || changed,
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_boundary_readiness',
+      operation,
+      status,
+      restartSafe: status === 'ready' && rows.every((row) => row.restartSafe === true),
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockedRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    },
+    diagnostics
+  };
+}
+
+export function buildModuleClientResolutionBrief({
+  operation,
+  profileClientResolutionBrief = {},
+  importClientResolutionBrief = {},
+  moduleClientActionQueue = {},
+  clientWorkflowHandoff = {},
+  previousBrief,
+  now,
+  historyLimit
+} = {}) {
+  const previous = normalizeModuleClientResolutionBrief(previousBrief);
+  const profileRows = normalizeModuleResolutionRows(profileClientResolutionBrief, 'profile');
+  const importRows = normalizeModuleResolutionRows(importClientResolutionBrief, 'import');
+  const actionRows = (moduleClientActionQueue.rows ?? [])
+    .filter((row) => row.status !== 'ready' || row.clientVisible === true)
+    .map((row) => ({
+      id: `action:${row.id}`,
+      source: 'module_action_queue',
+      subject: clean(row.subject) || clean(row.id),
+      status: row.status === 'degraded' ? 'guarded' : clean(row.status) || 'ready',
+      severity: clean(row.severity) || (row.status === 'blocked' ? 'error' : 'warning'),
+      clientVisible: row.clientVisible !== false,
+      nextAction: clean(row.nextAction) || moduleClientActionQueue.readiness?.nextAction || 'review_module_client_action',
+      evidence: {
+        queueStatus: moduleClientActionQueue.status ?? null,
+        queueFingerprint: moduleClientActionQueue.fingerprint ?? moduleClientActionQueue.exportSummary?.fingerprint ?? null,
+        source: row.source,
+        required: row.required === true
+      }
+    }));
+  const workflowRows = (clientWorkflowHandoff.rows ?? [])
+    .filter((row) => row.status !== 'ready' || row.visibleToClient === true)
+    .map((row) => ({
+      id: `workflow:${row.id ?? row.component}`,
+      source: 'module_workflow',
+      subject: clean(row.id ?? row.component),
+      status: row.status === 'degraded' ? 'guarded' : clean(row.status) || 'ready',
+      severity: row.status === 'blocked' ? 'error' : row.status === 'ready' ? 'info' : 'warning',
+      clientVisible: true,
+      nextAction: clean(row.nextAction) || clientWorkflowHandoff.readiness?.nextAction || 'review_module_client_workflow',
+      evidence: {
+        workflowStatus: clientWorkflowHandoff.status ?? null,
+        workflowFingerprint: clientWorkflowHandoff.fingerprint ?? clientWorkflowHandoff.exportSummary?.fingerprint ?? null,
+        component: row.component
+      }
+    }));
+  const rows = dedupeModuleResolutionRows([
+    ...profileRows,
+    ...importRows,
+    ...actionRows,
+    ...workflowRows
+  ]).sort((left, right) => (
+    severityRank(right.severity) - severityRank(left.severity)
+    || moduleClientActionStatusRank(right.status) - moduleClientActionStatusRank(left.status)
+    || left.source.localeCompare(right.source)
+    || left.subject.localeCompare(right.subject)
+  ));
+  const blockingRows = rows.filter((row) => row.status === 'blocked' || row.severity === 'error');
+  const guardedRows = rows.filter((row) => row.status !== 'blocked' && row.severity !== 'error');
+  const status = blockingRows.length > 0
+    || profileClientResolutionBrief.status === 'blocked'
+    || importClientResolutionBrief.status === 'blocked'
+    || moduleClientActionQueue.status === 'blocked'
+    ? 'blocked'
+    : guardedRows.length > 0
+      || profileClientResolutionBrief.status === 'guarded'
+      || importClientResolutionBrief.status === 'guarded'
+      || moduleClientActionQueue.status === 'guarded'
+      || clientWorkflowHandoff.status === 'degraded'
+      ? 'guarded'
+      : 'ready';
+  const fingerprint = moduleClientResolutionFingerprint({
+    operation,
+    status,
+    rows,
+    profileClientResolutionBrief,
+    importClientResolutionBrief,
+    moduleClientActionQueue,
+    clientWorkflowHandoff
+  });
+  const changed = previous.fingerprint ? previous.fingerprint !== fingerprint : true;
+  const sequence = previous.sequence + (changed ? 1 : 0);
+  const limit = Math.max(1, toNonNegativeInteger(historyLimit, 12));
+  const timeline = [
+    ...previous.timeline,
+    ...(changed || previous.timeline.length === 0 ? [{
+      sequence,
+      timestamp: clean(now) || null,
+      operation,
+      status,
+      fingerprint,
+      blocked: blockingRows.length,
+      guarded: guardedRows.length,
+      changed
+    }] : [])
+  ].slice(-limit);
+  const nextAction = status === 'blocked'
+    ? 'resolve_module_client_resolution_blockers'
+    : status === 'guarded'
+      ? 'publish_module_client_resolution_guarded'
+      : changed
+        ? 'publish_module_client_resolution_ready'
+        : 'reuse_module_client_resolution';
+
+  return {
+    ok: status !== 'blocked',
+    schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+    title: 'mailchimp_module_client_resolution_brief',
+    operation,
+    status,
+    restartSafe: status === 'ready'
+      && profileClientResolutionBrief.restartSafe === true
+      && importClientResolutionBrief.restartSafe === true
+      && moduleClientActionQueue.restartSafe === true
+      && clientWorkflowHandoff.restartSafe !== false,
+    sequence,
+    fingerprint,
+    changed,
+    rows,
+    validationSummary: {
+      totalRows: rows.length,
+      blockingRows: blockingRows.length,
+      guardedRows: guardedRows.length,
+      profileRows: profileRows.length,
+      importRows: importRows.length,
+      actionRows: actionRows.length,
+      workflowRows: workflowRows.length
+    },
+    readiness: {
+      status,
+      blockingReasons: unique(blockingRows.map((row) => row.subject)),
+      guardedReasons: unique(guardedRows.map((row) => row.subject)),
+      nextAction
+    },
+    history: {
+      sequence,
+      timeline,
+      statusCounts: timeline.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {})
+    },
+    handoff: {
+      target: 'mailchimp.client.workflow.module-resolution',
+      statusChannel: status === 'ready'
+        ? 'kernel.status.mailchimp'
+        : rows.some((row) => row.source.startsWith('import'))
+          ? importClientResolutionBrief.handoff?.statusChannel ?? 'kernel.status.mailchimp'
+          : profileClientResolutionBrief.handoff?.statusChannel ?? 'kernel.status.mailchimp',
+      publish: changed || status !== 'ready',
+      severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+      includeRows: rows.length > 0,
+      includeWorkflow: clientWorkflowHandoff.status !== 'ready',
+      nextAction
+    },
+    exportSummary: {
+      schemaVersion: MODULE_SYNTAX_SCHEMA_VERSION,
+      title: 'mailchimp_module_client_resolution_brief',
+      operation,
+      status,
+      restartSafe: status === 'ready'
+        && profileClientResolutionBrief.restartSafe === true
+        && importClientResolutionBrief.restartSafe === true,
+      sequence,
+      fingerprint,
+      changed,
+      blockedRows: blockingRows.map((row) => row.id).sort(),
+      guardedRows: guardedRows.map((row) => row.id).sort(),
+      nextAction
+    }
+  };
+}
+
+function normalizeModuleClientActionRows(queue, prefix) {
+  return (queue.rows ?? []).map((row) => ({
+    id: `${prefix}:${row.id}`,
+    source: prefix,
+    subject: clean(row.subject) || clean(row.id),
+    status: row.status === 'degraded' ? 'guarded' : clean(row.status) || 'ready',
+    severity: clean(row.severity) || (row.status === 'blocked' ? 'error' : row.status === 'ready' ? 'info' : 'warning'),
+    clientVisible: row.clientVisible === true || row.status !== 'ready',
+    required: row.required === true,
+    nextAction: clean(row.nextAction) || queue.readiness?.nextAction || queue.exportSummary?.nextAction || `review_${prefix}_action`,
+    evidence: {
+      ...(row.evidence ?? {}),
+      queueStatus: queue.status,
+      queueFingerprint: queue.fingerprint ?? queue.exportSummary?.fingerprint ?? null
+    }
+  }));
+}
+
+function normalizeModuleClientExportRoute(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleClientExportRouteRow(id, source = {}, required, fallback = {}) {
+  const rawStatus = clean(source.status ?? source.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'degraded' || rawStatus === 'recovering' || rawStatus === 'paused' ? 'guarded' : rawStatus;
+  const blocked = status === 'blocked';
+  const guarded = !blocked && (status === 'guarded' || source.restartSafe === false || source.exportSummary?.restartSafe === false);
+  const awaitingAcceptance = normalizeList(fallback.awaitingAcceptance ?? source.exportSummary?.awaitingAcceptance);
+  return {
+    id,
+    status: blocked ? 'blocked' : guarded ? 'guarded' : 'ready',
+    required: required === true,
+    restartSafe: blocked !== true && guarded !== true,
+    visibleToClient: fallback.visible === true || blocked || guarded || awaitingAcceptance.length > 0,
+    fingerprint: clean(source.fingerprint ?? source.exportSummary?.fingerprint),
+    awaitingAcceptance,
+    nextAction: clean(fallback.nextAction ?? source.readiness?.nextAction ?? source.handoff?.nextAction ?? source.exportSummary?.nextAction)
+      || (blocked ? `resolve_${id}` : guarded ? `publish_${id}_guarded` : `publish_${id}`)
+  };
+}
+
+function normalizeModuleResolutionRows(brief, prefix) {
+  return (brief.rows ?? [])
+    .filter((row) => row.status !== 'ready' || row.clientVisible === true)
+    .map((row) => ({
+      id: `${prefix}:${row.id}`,
+      source: `${prefix}_resolution`,
+      subject: clean(row.subject) || clean(row.id),
+      status: row.status === 'degraded' ? 'guarded' : clean(row.status) || 'ready',
+      severity: clean(row.severity) || (row.status === 'blocked' ? 'error' : row.status === 'ready' ? 'info' : 'warning'),
+      clientVisible: row.clientVisible !== false,
+      nextAction: clean(row.nextAction) || brief.readiness?.nextAction || `review_${prefix}_resolution`,
+      evidence: {
+        ...(row.evidence ?? {}),
+        briefStatus: brief.status ?? null,
+        briefFingerprint: brief.fingerprint ?? brief.exportSummary?.fingerprint ?? null
+      }
+    }));
+}
+
+function dedupeModuleClientActionRows(rows) {
+  const seen = new Set();
+  return rows.filter((row) => {
+    row.id = clean(row.id);
+    row.source = clean(row.source);
+    row.subject = clean(row.subject);
+    row.status = clean(row.status) || 'ready';
+    row.severity = clean(row.severity) || 'info';
+    row.nextAction = clean(row.nextAction) || null;
+    row.evidence = row.evidence && typeof row.evidence === 'object' ? row.evidence : {};
+    const key = [row.id, row.source, row.subject, row.nextAction].map(clean).join('|');
+    if (!row.id || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeModuleResolutionRows(rows) {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const normalized = {
+      ...row,
+      id: clean(row.id),
+      source: clean(row.source),
+      subject: clean(row.subject),
+      status: clean(row.status) || 'ready',
+      severity: clean(row.severity) || 'info',
+      nextAction: clean(row.nextAction) || null,
+      clientVisible: row.clientVisible === true,
+      evidence: row.evidence && typeof row.evidence === 'object' ? row.evidence : {}
+    };
+    const key = [normalized.id, normalized.source, normalized.subject, normalized.nextAction].map(clean).join('|');
+    if (!normalized.id || !normalized.source || seen.has(key)) return false;
+    seen.add(key);
+    Object.assign(row, normalized);
+    return true;
+  });
+}
+
+function normalizeModuleClientActionQueueHistory(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function normalizeModuleClientResolutionBrief(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleClientActionQueueFingerprint({
+  operation,
+  status,
+  rows,
+  featureClientActionQueue,
+  importClientActionQueue,
+  clientWorkflowHandoff,
+  launchAcceptance,
+  exportReadiness
+}) {
+  return [
+    operation,
+    status,
+    featureClientActionQueue.fingerprint ?? featureClientActionQueue.exportSummary?.fingerprint ?? '',
+    importClientActionQueue.fingerprint ?? importClientActionQueue.exportSummary?.fingerprint ?? '',
+    clientWorkflowHandoff.fingerprint ?? clientWorkflowHandoff.exportSummary?.fingerprint ?? '',
+    launchAcceptance.fingerprint ?? launchAcceptance.exportSummary?.fingerprint ?? '',
+    exportReadiness.fingerprint ?? exportReadiness.exportSummary?.fingerprint ?? '',
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.severity,
+      row.clientVisible ? 'visible' : 'hidden',
+      row.required ? 'required' : 'optional',
+      row.nextAction ?? 'no_action'
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function moduleClientResolutionFingerprint({
+  operation,
+  status,
+  rows,
+  profileClientResolutionBrief,
+  importClientResolutionBrief,
+  moduleClientActionQueue,
+  clientWorkflowHandoff
+}) {
+  return [
+    operation,
+    status,
+    profileClientResolutionBrief.fingerprint ?? profileClientResolutionBrief.exportSummary?.fingerprint ?? '',
+    importClientResolutionBrief.fingerprint ?? importClientResolutionBrief.exportSummary?.fingerprint ?? '',
+    moduleClientActionQueue.fingerprint ?? moduleClientActionQueue.exportSummary?.fingerprint ?? '',
+    clientWorkflowHandoff.fingerprint ?? clientWorkflowHandoff.exportSummary?.fingerprint ?? '',
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.severity,
+      row.clientVisible ? 'visible' : 'hidden',
+      row.nextAction ?? 'no_action'
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function moduleClientActionStatusRank(status) {
+  if (status === 'blocked') return 4;
+  if (status === 'guarded' || status === 'degraded') return 3;
+  if (status === 'awaiting_acceptance') return 2;
+  return 1;
+}
+
+function normalizeModuleOperationalLedger(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleOperationalReadinessRow(id, source, contract, required, fallback) {
+  const rawStatus = clean(fallback.status ?? contract.status ?? contract.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'healthy'
+    ? 'ready'
+    : rawStatus === 'degraded'
+      ? 'guarded'
+      : rawStatus;
+  const blocked = status === 'blocked';
+  const guarded = !blocked && (status === 'guarded' || status === 'paused' || status === 'disabled');
+  return {
+    id,
+    source,
+    status: blocked ? 'blocked' : guarded ? 'guarded' : 'ready',
+    required,
+    restartSafe: fallback.restartSafe === true && blocked !== true && guarded !== true,
+    statusChannel: clean(fallback.statusChannel) || null,
+    nextAction: clean(fallback.nextAction) || (
+      blocked ? `resolve_${id}` : guarded ? `publish_${id}_guarded` : `publish_${id}`
+    ),
+    evidence: fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {}
+  };
+}
+
+function moduleOperationalReadinessFingerprint({
+  operation,
+  status,
+  rows,
+  operationalStatus
+}) {
+  return [
+    operation,
+    status,
+    operationalStatus.status ?? 'unknown',
+    operationalStatus.fingerprint ?? operationalStatus.exportSummary?.fingerprint ?? '',
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel ?? '',
+      row.evidence?.fingerprint ?? '',
+      row.nextAction ?? 'no_action'
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
 function normalizeModuleRuntimeAdoptionHistory(input = {}) {
   return {
     sequence: toNonNegativeInteger(input.sequence ?? input.exportSummary?.sequence, 0),
@@ -4951,6 +11142,125 @@ function normalizeModuleRuntimeAdoptionHistory(input = {}) {
         ? input.timeline
         : []
   };
+}
+
+function normalizeModuleWorkflowNextAction(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleWorkflowNextActionRow(id, source, contract, required, fallback) {
+  const rawStatus = clean(fallback.status ?? contract.status ?? contract.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'degraded' ? 'guarded' : rawStatus;
+  const blocked = status === 'blocked';
+  const guarded = !blocked && (status === 'guarded' || status === 'paused' || status === 'disabled');
+  const statusChannel = clean(fallback.statusChannel) || null;
+  return {
+    id,
+    source,
+    status: blocked ? 'blocked' : guarded ? 'guarded' : 'ready',
+    required,
+    restartSafe: fallback.restartSafe !== false && blocked !== true && guarded !== true,
+    statusChannel,
+    publish: blocked || guarded || statusChannel.startsWith('local.status.'),
+    nextAction: clean(fallback.nextAction) || (
+      blocked ? `resolve_${id}` : guarded ? `publish_${id}_guarded` : `publish_${id}`
+    ),
+    evidence: fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {}
+  };
+}
+
+function normalizeModuleClientControlRoom(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleClientControlRoomRow(id, source, contract = {}, required, fallback = {}) {
+  const rawStatus = clean(fallback.status ?? contract.status ?? contract.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'blocked'
+    ? 'blocked'
+    : rawStatus === 'guarded' || rawStatus === 'degraded' || fallback.restartSafe === false || contract.restartSafe === false
+      ? 'guarded'
+      : 'ready';
+  const evidence = fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {};
+  const visibleRows = normalizeList(evidence.visibleRows);
+  const blockedRows = normalizeList(evidence.blockedRows);
+  const guardedRows = normalizeList(evidence.guardedRows);
+  return {
+    id,
+    source,
+    status,
+    required: required === true,
+    restartSafe: status === 'ready' && fallback.restartSafe !== false && contract.restartSafe !== false,
+    statusChannel: clean(fallback.statusChannel ?? contract.handoff?.statusChannel) || null,
+    clientVisible: status !== 'ready' || visibleRows.length > 0,
+    nextAction: clean(fallback.nextAction ?? contract.handoff?.nextAction ?? contract.exportSummary?.nextAction)
+      || (status === 'blocked' ? `resolve_${id}` : status === 'guarded' ? `review_${id}` : `publish_${id}`),
+    evidence: {
+      ...evidence,
+      visibleRows,
+      blockedRows,
+      guardedRows
+    },
+    fingerprint: clean(evidence.fingerprint ?? contract.fingerprint ?? contract.exportSummary?.fingerprint)
+  };
+}
+
+function moduleClientControlRoomFingerprint({ operation, status, rows }) {
+  return [
+    'module_client_control_room',
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel,
+      row.fingerprint,
+      row.nextAction,
+      ...row.evidence.visibleRows,
+      ...row.evidence.blockedRows,
+      ...row.evidence.guardedRows
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function moduleWorkflowNextActionFingerprint({
+  operation,
+  status,
+  rows
+}) {
+  return [
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel ?? '',
+      row.evidence?.fingerprint ?? '',
+      row.nextAction ?? 'no_action'
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
 }
 
 function moduleRuntimeAdoptionFingerprint({
@@ -4975,6 +11285,567 @@ function moduleRuntimeAdoptionFingerprint({
       row.evidence?.changed === true ? 'changed' : 'stable',
       row.nextAction ?? 'no_action'
     ].map(clean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleProviderSyncWorkflow(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint)
+  };
+}
+
+function moduleProviderSyncWorkflowRow(id, source, contract, required, fallback = {}) {
+  const rawStatus = clean(fallback.status ?? contract.status ?? contract.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'degraded' || rawStatus === 'paused' || rawStatus === 'disabled'
+    ? 'guarded'
+    : rawStatus;
+  const blocked = status === 'blocked';
+  const guarded = !blocked && status !== 'ready';
+  const statusChannel = clean(fallback.statusChannel ?? contract.handoff?.statusChannel) || null;
+  return {
+    id,
+    source,
+    status: blocked ? 'blocked' : guarded ? 'guarded' : 'ready',
+    required,
+    restartSafe: fallback.restartSafe === true && blocked !== true && guarded !== true,
+    statusChannel,
+    publish: blocked || guarded || statusChannel?.startsWith('local.status.') === true,
+    nextAction: clean(fallback.nextAction) || (
+      blocked ? `resolve_${id}` : guarded ? `publish_${id}_guarded` : `publish_${id}`
+    ),
+    evidence: fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {}
+  };
+}
+
+function moduleProviderSyncWorkflowFingerprint({ operation, status, rows }) {
+  return [
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel ?? '',
+      row.evidence?.fingerprint ?? row.evidence?.lastStableFingerprint ?? '',
+      row.evidence?.cursor ?? row.evidence?.profileCursor ?? '',
+      row.evidence?.changed === true ? 'changed' : '',
+      row.nextAction ?? 'no_action'
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleBoundaryReleaseHistory(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline
+      : Array.isArray(value.timeline)
+        ? value.timeline
+        : []
+  };
+}
+
+function moduleBoundaryReleaseRow(id, release, required) {
+  const summary = release.exportSummary ?? {};
+  const readiness = release.readiness ?? {};
+  const status = clean(release.status ?? summary.status) || 'blocked';
+  const blocked = status === 'blocked';
+  const guarded = status === 'guarded' || status === 'degraded';
+  const normalizedStatus = blocked ? 'blocked' : guarded ? 'guarded' : 'released';
+  return {
+    id,
+    status: normalizedStatus,
+    required,
+    restartSafe: release.restartSafe === true || summary.restartSafe === true,
+    statusChannel: clean(release.auditHandoff?.statusChannel ?? release.handoff?.statusChannel) || 'kernel.status.mailchimp',
+    diagnosticErrors: (release.diagnostics ?? []).filter((item) => item.level === 'error').length,
+    diagnosticWarnings: (release.diagnostics ?? []).filter((item) => item.level === 'warning').length,
+    reasons: normalizedStatus === 'blocked'
+      ? normalizeList(readiness.blockingReasons ?? summary.blockedRows)
+      : normalizedStatus === 'guarded'
+        ? normalizeList(readiness.guardedReasons ?? readiness.degradedReasons ?? summary.guardedRows ?? summary.degradedRows)
+        : [],
+    nextAction: readiness.nextAction ?? summary.nextAction ?? (
+      normalizedStatus === 'released' ? `publish_${id}` : `review_${id}`
+    ),
+    evidence: {
+      tenantId: summary.tenantId ?? release.scope?.tenantId ?? null,
+      workspaceId: summary.workspaceId ?? release.scope?.workspaceId ?? null,
+      blockedRows: summary.blockedRows ?? [],
+      guardedRows: summary.guardedRows ?? summary.degradedRows ?? [],
+      restartSafe: release.restartSafe === true || summary.restartSafe === true
+    }
+  };
+}
+
+function moduleBoundaryReleaseFingerprint({ operation, status, rows }) {
+  return [
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.nextAction,
+      ...row.reasons
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleTenantLaunchGuardHistory(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function firstModuleTenantLaunchGuardAction(rows, fallback) {
+  return rows
+    .map((row) => clean(row.nextAction))
+    .filter(Boolean)[0] || fallback;
+}
+
+function moduleTenantLaunchGuardFingerprint({
+  operation,
+  status,
+  rows,
+  counters
+}) {
+  return [
+    operation,
+    status,
+    `blocked:${counters.blocked ?? 0}`,
+    `guarded:${counters.guarded ?? 0}`,
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required === false ? 'optional' : 'required',
+      row.restartSafe === false ? 'restart_guarded' : 'restart_safe',
+      row.nextAction,
+      row.evidence?.tenantId,
+      row.evidence?.workspaceId,
+      row.evidence?.requestedTenantId,
+      row.evidence?.requestedWorkspaceId,
+      ...(row.evidence?.deniedCapabilities ?? []).map((item) => `capability:${item}`),
+      ...(row.evidence?.blockedRows ?? []).map((item) => `blocked:${item}`),
+      ...(row.evidence?.guardedRows ?? []).map((item) => `guarded:${item}`),
+      row.evidence?.fingerprint
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleRestartReplayCheckpoint(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint)
+  };
+}
+
+function moduleRestartReplayRow(id, source, packet = {}, required, fallback = {}) {
+  const rawStatus = clean(packet.status ?? packet.exportSummary?.status ?? fallback.status) || 'ready';
+  const status = rawStatus === 'blocked'
+    ? 'blocked'
+    : rawStatus === 'guarded' || rawStatus === 'degraded' || packet.restartSafe === false
+      ? 'guarded'
+      : 'ready';
+  return {
+    id,
+    source,
+    status,
+    required: required === true,
+    restartSafe: status === 'ready' && packet.restartSafe !== false,
+    fingerprint: clean(fallback.fingerprint ?? packet.fingerprint ?? packet.exportSummary?.fingerprint),
+    statusChannel: clean(fallback.statusChannel ?? packet.handoff?.statusChannel) || null,
+    nextAction: clean(fallback.nextAction ?? packet.handoff?.nextAction ?? packet.exportSummary?.nextAction)
+      || (status === 'blocked' ? `resolve_${id}` : status === 'guarded' ? `review_${id}` : `publish_${id}`),
+    evidence: fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {}
+  };
+}
+
+function dedupeModuleRestartReplayRows(rows = []) {
+  const seen = new Set();
+  return rows
+    .filter((row) => row && typeof row === 'object' && clean(row.id))
+    .filter((row) => {
+      const key = [row.id, row.source, row.status, row.nextAction].map(clean).join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => (
+      moduleRestartReplayStatusRank(right.status) - moduleRestartReplayStatusRank(left.status)
+      || clean(left.id).localeCompare(clean(right.id))
+    ));
+}
+
+function moduleRestartReplayStatusRank(status) {
+  if (status === 'blocked') return 3;
+  if (status === 'guarded') return 2;
+  return 1;
+}
+
+function moduleRestartReplayCheckpointFingerprint({ operation, status, rows }) {
+  return [
+    'module_restart_replay_checkpoint',
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel,
+      row.fingerprint,
+      row.nextAction,
+      ...(row.evidence?.appliedCommandKeys ?? []),
+      ...(row.evidence?.suppressedCommandKeys ?? []),
+      ...(row.evidence?.blockedRows ?? []),
+      ...(row.evidence?.guardedRows ?? [])
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleTenantHandoffBoundary(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function normalizeModuleClientBoundaryReadiness(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    appliedCommandKeys: Array.isArray(value.idempotency?.appliedCommandKeys)
+      ? value.idempotency.appliedCommandKeys
+      : Array.isArray(value.appliedCommandKeys)
+        ? value.appliedCommandKeys
+        : [],
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleClientBoundaryReadinessRow(id, source, contract, required, fallback = {}) {
+  const rawStatus = clean(fallback.status ?? contract.status ?? contract.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'degraded' || rawStatus === 'paused' || rawStatus === 'disabled'
+    ? 'guarded'
+    : rawStatus;
+  const blocked = status === 'blocked';
+  const guarded = !blocked && status !== 'ready';
+  return {
+    id,
+    source,
+    status: blocked ? 'blocked' : guarded ? 'guarded' : 'ready',
+    required,
+    restartSafe: fallback.restartSafe === true && blocked !== true && guarded !== true,
+    statusChannel: clean(fallback.statusChannel) || null,
+    nextAction: clean(fallback.nextAction) || (
+      blocked ? `resolve_${id}` : guarded ? `publish_${id}_guarded` : `publish_${id}`
+    ),
+    evidence: fallback.evidence && typeof fallback.evidence === 'object' ? fallback.evidence : {}
+  };
+}
+
+function moduleClientBoundaryReadinessFingerprint({
+  operation,
+  status,
+  rows,
+  repeatedCommand
+}) {
+  return [
+    operation,
+    status,
+    repeatedCommand ? 'replayed_command' : 'new_command',
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel ?? '',
+      row.evidence?.fingerprint ?? '',
+      row.nextAction ?? 'no_action'
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function moduleTenantHandoffBoundaryRow(id, packet, required) {
+  const summary = packet.exportSummary ?? {};
+  const handoff = packet.handoff ?? {};
+  const rawStatus = clean(packet.status ?? summary.status) || 'blocked';
+  const status = rawStatus === 'released' || rawStatus === 'ready'
+    ? 'released'
+    : rawStatus === 'guarded' || rawStatus === 'degraded'
+      ? 'guarded'
+      : 'blocked';
+  return {
+    id,
+    status,
+    required,
+    restartSafe: packet.restartSafe === true || summary.restartSafe === true,
+    sequence: toNonNegativeInteger(packet.sequence ?? summary.sequence, 0),
+    fingerprint: clean(packet.fingerprint ?? summary.fingerprint),
+    statusChannel: clean(handoff.statusChannel) || (status === 'released' ? 'kernel.status.mailchimp' : 'local.status.module-boundary'),
+    diagnosticErrors: (packet.diagnostics ?? []).filter((item) => item.level === 'error').length,
+    diagnosticWarnings: (packet.diagnostics ?? []).filter((item) => item.level === 'warning').length,
+    blockedRows: summary.blockedRows ?? [],
+    guardedRows: summary.guardedRows ?? [],
+    nextAction: clean(handoff.nextAction ?? summary.nextAction) || (
+      status === 'released' ? `publish_${id}_tenant_handoff` : `review_${id}_tenant_handoff`
+    ),
+    evidence: {
+      tenantId: summary.tenantId ?? packet.scope?.tenantId ?? null,
+      workspaceId: summary.workspaceId ?? packet.scope?.workspaceId ?? null,
+      changed: packet.changed === true || summary.changed === true,
+      publish: handoff.publish === true,
+      severity: clean(handoff.severity) || (status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info')
+    },
+    diagnostics: Array.isArray(packet.diagnostics) ? packet.diagnostics : []
+  };
+}
+
+function moduleTenantHandoffBoundaryFingerprint({ operation, status, rows }) {
+  return [
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel,
+      row.fingerprint,
+      row.nextAction,
+      ...row.blockedRows,
+      ...row.guardedRows
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleOperationalEscalation(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    lastStableFingerprint: clean(value.escalation?.lastStableFingerprint ?? value.lastStableFingerprint) || null,
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+      : []
+  };
+}
+
+function normalizeModuleOperationalReadinessBrief(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleOperationalReadinessBriefRow(id, source, contract = {}, required, fallback = {}) {
+  const rawStatus = clean(contract.status ?? contract.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'blocked'
+    ? 'blocked'
+    : rawStatus === 'guarded' || rawStatus === 'degraded' || rawStatus === 'recovering' || contract.restartSafe === false
+      ? 'guarded'
+      : 'ready';
+  return {
+    id,
+    source,
+    status,
+    required: required === true,
+    restartSafe: status === 'ready' && contract.restartSafe !== false && contract.exportSummary?.restartSafe !== false,
+    publish: contract.handoff?.publish === true || status !== 'ready' || contract.changed === true,
+    clientVisible: status !== 'ready' || required === true || contract.handoff?.publish === true,
+    sequence: toNonNegativeInteger(contract.sequence ?? contract.exportSummary?.sequence, 0),
+    fingerprint: clean(contract.fingerprint ?? contract.exportSummary?.fingerprint),
+    statusChannel: clean(fallback.statusChannel ?? contract.handoff?.statusChannel) || null,
+    nextAction: clean(fallback.nextAction ?? contract.handoff?.nextAction ?? contract.exportSummary?.nextAction)
+      || (status === 'blocked' ? `resolve_${id}` : status === 'guarded' ? `review_${id}` : `publish_${id}`),
+    counters: fallback.counters && typeof fallback.counters === 'object' ? fallback.counters : {}
+  };
+}
+
+function moduleOperationalReadinessBriefFingerprint({
+  operation,
+  status,
+  rows,
+  operationalStatus
+}) {
+  return [
+    'module_operational_readiness_brief',
+    operation,
+    status,
+    operationalStatus.status ?? 'unknown_operational_status',
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.publish ? 'publish' : 'silent',
+      row.statusChannel,
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleEscalationOwners(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    defaultOwner: clean(value.defaultOwner) || 'mailchimp.operations',
+    profile: clean(value.profile) || clean(value.profileOwner) || 'mailchimp.profile',
+    imports: clean(value.imports) || clean(value.importOwner) || 'mailchimp.imports'
+  };
+}
+
+function moduleOperationalEscalationRow(source, envelope = {}, owner) {
+  const rawStatus = clean(envelope.status ?? envelope.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'blocked' ? 'blocked' : rawStatus === 'degraded' || rawStatus === 'guarded' ? 'guarded' : 'ready';
+  return {
+    id: `${source}:summary`,
+    source,
+    subject: envelope.exportSummary?.title ?? envelope.title ?? source,
+    status,
+    severity: status === 'blocked' ? 'error' : status === 'guarded' ? 'warning' : 'info',
+    owner: clean(envelope.escalation?.owner ?? envelope.exportSummary?.owner) || owner,
+    deadlineMs: envelope.escalation?.deadlineMs ?? null,
+    publish: envelope.handoff?.publish === true || status !== 'ready',
+    restartSafe: envelope.restartSafe !== false && status === 'ready',
+    nextAction: clean(envelope.escalation?.nextAction ?? envelope.handoff?.nextAction ?? envelope.exportSummary?.nextAction)
+      || (status === 'blocked' ? `resolve_${source}_escalation` : status === 'guarded' ? `publish_${source}_escalation_guarded` : `publish_${source}_escalation_ready`),
+    evidence: {
+      sequence: envelope.sequence ?? envelope.exportSummary?.sequence ?? 0,
+      fingerprint: envelope.fingerprint ?? envelope.exportSummary?.fingerprint ?? null,
+      publishRows: envelope.exportSummary?.publishRows ?? [],
+      nextRetry: envelope.retry ?? envelope.exportSummary?.nextRetry ?? null
+    }
+  };
+}
+
+function moduleEscalationRowsFromLeaf(source, rows = [], defaultOwner) {
+  return rows
+    .filter((row) => row && typeof row === 'object')
+    .filter((row) => row.severity === 'error' || row.severity === 'warning' || row.publish === true)
+    .map((row) => ({
+      id: `${source}:${clean(row.id)}`,
+      source,
+      subject: clean(row.subject) || clean(row.id),
+      status: row.severity === 'error' ? 'blocked' : row.severity === 'warning' ? 'guarded' : 'ready',
+      severity: clean(row.severity) || 'info',
+      owner: clean(row.owner) || defaultOwner,
+      deadlineMs: row.deadlineMs ?? null,
+      publish: row.publish === true || row.severity === 'error',
+      restartSafe: row.severity !== 'error',
+      nextAction: clean(row.action) || (row.severity === 'error' ? `resolve_${source}_row` : `review_${source}_row`),
+      evidence: row.evidence && typeof row.evidence === 'object' ? row.evidence : {}
+    }));
+}
+
+function moduleOperationalEscalationFingerprint({
+  operation,
+  status,
+  rows,
+  operationalStatus
+}) {
+  return [
+    operation,
+    status,
+    operationalStatus.status ?? 'unknown_operational_status',
+    ...rows.map((row) => [
+      row.id,
+      row.status,
+      row.severity,
+      row.owner,
+      row.deadlineMs ?? '',
+      row.publish ? 'publish' : 'silent',
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
+  ].map(clean).filter(Boolean).join('||');
+}
+
+function normalizeModuleBoundaryOperationsPacket(input = {}) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    sequence: toNonNegativeInteger(value.sequence ?? value.history?.sequence ?? value.exportSummary?.sequence, 0),
+    fingerprint: clean(value.fingerprint ?? value.exportSummary?.fingerprint),
+    timeline: Array.isArray(value.history?.timeline)
+      ? value.history.timeline.filter((item) => item && typeof item === 'object')
+      : Array.isArray(value.timeline)
+        ? value.timeline.filter((item) => item && typeof item === 'object')
+        : []
+  };
+}
+
+function moduleBoundaryOperationsRow(id, source = {}, required, fallback = {}) {
+  const rawStatus = clean(source.status ?? source.exportSummary?.status) || 'ready';
+  const status = rawStatus === 'blocked'
+    ? 'blocked'
+    : rawStatus === 'guarded' || rawStatus === 'degraded' || rawStatus === 'paused' || rawStatus === 'disabled' || source.restartSafe === false
+      ? 'guarded'
+      : 'ready';
+  return {
+    id,
+    source: clean(fallback.source) || id,
+    status,
+    required: required === true,
+    restartSafe: status === 'ready' && source.restartSafe !== false && source.exportSummary?.restartSafe !== false,
+    fingerprint: clean(source.fingerprint ?? source.exportSummary?.fingerprint),
+    statusChannel: clean(fallback.statusChannel ?? source.handoff?.statusChannel ?? source.exportSummary?.statusChannel) || null,
+    nextAction: clean(fallback.nextAction ?? source.readiness?.nextAction ?? source.handoff?.nextAction ?? source.exportSummary?.nextAction)
+      || (status === 'blocked' ? `resolve_${id}` : status === 'guarded' ? `review_${id}` : `publish_${id}`),
+    counters: fallback.counters && typeof fallback.counters === 'object' ? fallback.counters : {}
+  };
+}
+
+function moduleBoundaryOperationsFingerprint({ operation, status, rows }) {
+  return [
+    'module_boundary_operations',
+    operation,
+    status,
+    ...rows.map((row) => [
+      row.id,
+      row.source,
+      row.status,
+      row.required ? 'required' : 'optional',
+      row.restartSafe ? 'restart_safe' : 'restart_guarded',
+      row.statusChannel,
+      row.fingerprint,
+      row.nextAction
+    ].map(clean).filter(Boolean).join(':')).sort()
   ].map(clean).filter(Boolean).join('||');
 }
 

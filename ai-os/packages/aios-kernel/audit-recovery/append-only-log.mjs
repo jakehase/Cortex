@@ -55,6 +55,7 @@ const PROVIDER_CONSISTENCY_MODES = new Set(['strong', 'bounded-staleness', 'even
 const PROVIDER_DELIVERY_GUARANTEES = new Set(['at-most-once', 'at-least-once', 'exactly-once']);
 const PROVIDER_AUTH_MODES = new Set(['hosted-kernel', 'service-token', 'signed-request', 'mtls']);
 const PROVIDER_REQUIRED_STRONG_COMMANDS = new Set(['accept', 'export-proof']);
+const DEFAULT_CLIENT_CONTINUATION_TTL_MS = 10 * 60 * 1000;
 const LIFECYCLE_MODES = new Set(['enabled', 'disabled', 'maintenance']);
 const SCHEDULE_CADENCES = new Set(['manual', 'hourly', 'daily', 'weekly']);
 const SCHEDULE_CADENCE_INTERVAL_MINUTES = {
@@ -170,6 +171,7 @@ const NON_RETRYABLE_ISSUE_CODES = new Set([
 ]);
 const REPAIRABLE_ISSUE_CODES = new Set([
   'missing_required_field',
+  'invalid_timestamp',
   'missing_previous_digest',
   'timestamp_regression',
   'digest_chain_mismatch',
@@ -191,6 +193,19 @@ const BOUNDARY_COMMAND_PERMISSIONS = {
   exportProof: PROOF_PERMISSIONS,
   readBoundary: BOUNDARY_AUDIT_PERMISSIONS
 };
+const MAILCHIMP_EVENT_ACTIONS = new Set([
+  'mailchimp.campaign.create',
+  'mailchimp.campaign.update',
+  'mailchimp.campaign.schedule',
+  'mailchimp.campaign.send',
+  'mailchimp.campaign.pause',
+  'mailchimp.campaign.cancel',
+  'mailchimp.template.update',
+  'mailchimp.list.segment.update',
+  'mailchimp.audience.sync'
+]);
+const MAILCHIMP_DELIVERY_COMMANDS = new Set(['accept', 'export-proof']);
+const MAILCHIMP_REQUIRED_AUDIT_FIELDS = ['campaignId', 'audienceId'];
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -335,6 +350,64 @@ function normalizeRequestState(input) {
   };
 }
 
+function normalizeMailchimpCampaignEnvelope(input) {
+  const request = input.request && typeof input.request === 'object' ? input.request : {};
+  const client = input.client && typeof input.client === 'object' ? input.client : {};
+  const product = input.product && typeof input.product === 'object' ? input.product : {};
+  const mailchimp = input.mailchimp && typeof input.mailchimp === 'object'
+    ? input.mailchimp
+    : product.mailchimp && typeof product.mailchimp === 'object'
+      ? product.mailchimp
+      : request.mailchimp && typeof request.mailchimp === 'object'
+        ? request.mailchimp
+        : client.mailchimp && typeof client.mailchimp === 'object'
+          ? client.mailchimp
+          : {};
+  const campaign = mailchimp.campaign && typeof mailchimp.campaign === 'object' ? mailchimp.campaign : {};
+  const audience = mailchimp.audience && typeof mailchimp.audience === 'object' ? mailchimp.audience : {};
+  const template = mailchimp.template && typeof mailchimp.template === 'object' ? mailchimp.template : {};
+  const schedule = mailchimp.schedule && typeof mailchimp.schedule === 'object' ? mailchimp.schedule : {};
+  const enabled = asBoolean(mailchimp.enabled ?? product.mailchimpEnabled ?? request.mailchimpEnabled);
+  const campaignId = firstTrimmedString(campaign.id, campaign.campaignId, mailchimp.campaignId, request.campaignId);
+  const audienceId = firstTrimmedString(audience.id, audience.audienceId, audience.listId, mailchimp.audienceId, mailchimp.listId, request.audienceId);
+  const templateId = firstTrimmedString(template.id, template.templateId, mailchimp.templateId, request.templateId);
+  const scheduledAt = firstTrimmedString(schedule.scheduledAt, schedule.sendAt, mailchimp.scheduledAt, request.scheduledAt);
+  const archiveUrl = firstTrimmedString(campaign.archiveUrl, mailchimp.archiveUrl, request.archiveUrl);
+  const operation = normalizeCommandName(
+    mailchimp.operation
+    || campaign.operation
+    || request.mailchimpOperation
+    || product.operation
+  );
+  const evidenceRefs = normalizeStringList([
+    ...(Array.isArray(mailchimp.evidenceRefs) ? mailchimp.evidenceRefs : []),
+    campaignId ? `mailchimp:campaign:${campaignId}` : null,
+    audienceId ? `mailchimp:audience:${audienceId}` : null,
+    templateId ? `mailchimp:template:${templateId}` : null,
+    archiveUrl
+  ]);
+  const present = enabled === true
+    || Boolean(campaignId || audienceId || templateId || scheduledAt || operation || archiveUrl || evidenceRefs.length);
+
+  return {
+    type: 'AppendOnlyAuditRecoveryMailchimpCampaignEnvelope.v1',
+    present,
+    enabled: enabled !== false,
+    campaignId,
+    audienceId,
+    templateId,
+    scheduledAt,
+    archiveUrl,
+    operation,
+    evidenceRefs,
+    requiredFields: MAILCHIMP_REQUIRED_AUDIT_FIELDS,
+    proofScope: campaignId && audienceId
+      ? `mailchimp:${audienceId}:${campaignId}`
+      : null,
+    routeHint: present ? '/kernel/audit-recovery/mailchimp/campaign-audit' : null
+  };
+}
+
 function normalizeClientResumeEnvelope(input) {
   const request = input.request && typeof input.request === 'object' ? input.request : {};
   const client = input.client && typeof input.client === 'object' ? input.client : {};
@@ -373,11 +446,81 @@ function normalizeClientResumeEnvelope(input) {
     requestedAt: firstTrimmedString(resume.requestedAt, resume.createdAt, request.requestedAt),
     issuedByRuntimeId: firstTrimmedString(resume.runtimeId, resume.issuedByRuntimeId, client.runtimeId, request.runtimeId),
     clientRequestId: firstTrimmedString(resume.clientRequestId, request.requestId, client.requestId, request.id),
-    nonce: firstTrimmedString(resume.nonce, resume.resumeNonce)
+    nonce: firstTrimmedString(resume.nonce, resume.resumeNonce),
+    expiresAt: firstTrimmedString(resume.expiresAt, resume.expiration, request.continuationExpiresAt, client.continuationExpiresAt),
+    expectedRuntimeId: firstTrimmedString(resume.expectedRuntimeId, resume.runtimeId, client.runtimeId, request.runtimeId),
+    expectedClientRequestId: firstTrimmedString(resume.expectedClientRequestId, resume.clientRequestId, request.requestId, client.requestId),
+    expectedWorkflowState: firstTrimmedString(resume.workflowState, resume.expectedWorkflowState),
+    expectedFingerprint: firstTrimmedString(resume.fingerprint, resume.expectedFingerprint, resume.continuationFingerprint)
   };
 }
 
-function validateClientResumeEnvelope(validation, resumeEnvelope) {
+function buildClientContinuationFingerprint({
+  latestDigest,
+  entryCount,
+  route,
+  workflowState,
+  runtimeId,
+  clientRequestId,
+  storageKey
+}) {
+  return [
+    surfaceId,
+    latestDigest || 'pending',
+    Number.isInteger(entryCount) ? entryCount : 'unknown-count',
+    route || 'unrouted',
+    workflowState || 'unknown-state',
+    runtimeId || 'unbound-runtime',
+    clientRequestId || 'unbound-request',
+    storageKey || 'unpersisted'
+  ].join('|');
+}
+
+function buildClientContinuationCheckpoint({
+  latestEntry,
+  persistedStateShape,
+  requestState,
+  validation,
+  workflowHandoff,
+  now
+}) {
+  const issuedAtMs = Date.parse(now);
+  const expiresAt = Number.isFinite(issuedAtMs)
+    ? new Date(issuedAtMs + DEFAULT_CLIENT_CONTINUATION_TTL_MS).toISOString()
+    : null;
+  const latestDigest = latestEntry ? latestEntry.digest : null;
+  const route = workflowHandoff.route;
+  const workflowState = workflowHandoff.state;
+  const fingerprint = buildClientContinuationFingerprint({
+    latestDigest,
+    entryCount: validation.entries.length,
+    route,
+    workflowState,
+    runtimeId: requestState.runtimeId,
+    clientRequestId: requestState.clientRequestId,
+    storageKey: persistedStateShape.storageKey
+  });
+
+  return {
+    type: 'AppendOnlyAuditRecoveryClientContinuationCheckpoint.v1',
+    issuedAt: now,
+    expiresAt,
+    ttlMs: DEFAULT_CLIENT_CONTINUATION_TTL_MS,
+    fingerprint,
+    state: {
+      latestDigest,
+      entryCount: validation.entries.length,
+      route,
+      workflowState,
+      runtimeId: requestState.runtimeId,
+      clientRequestId: requestState.clientRequestId,
+      storageKey: persistedStateShape.storageKey
+    },
+    expiresOn: ['digest-change', 'entry-count-change', 'route-change', 'workflow-state-change', 'runtime-change', 'state-storage-key-change']
+  };
+}
+
+function validateClientResumeEnvelope(validation, resumeEnvelope, continuationCheckpoint = null, now = null) {
   if (!resumeEnvelope.token && !resumeEnvelope.expectedLatestDigest && resumeEnvelope.expectedEntryCount === null && !resumeEnvelope.expectedRoute) {
     return validation;
   }
@@ -414,6 +557,65 @@ function validateClientResumeEnvelope(validation, resumeEnvelope) {
       actual: resumeEnvelope.expectedEntryCount,
       message: 'Client resume token was issued for a different append-only entry count.'
     });
+  }
+  if (resumeEnvelope.expiresAt) {
+    const expiresAtMs = Date.parse(resumeEnvelope.expiresAt);
+    const nowMs = Date.parse(now);
+    if (!Number.isFinite(expiresAtMs)) {
+      addIssue({
+        code: 'invalid_client_resume_expiry',
+        severity: 'error',
+        actual: resumeEnvelope.expiresAt,
+        message: 'Client resume expiry must be an ISO timestamp.'
+      });
+    } else if (Number.isFinite(nowMs) && expiresAtMs <= nowMs) {
+      addIssue({
+        code: 'expired_client_resume_token',
+        severity: 'error',
+        actual: resumeEnvelope.expiresAt,
+        message: 'Client resume token expired before this append-only recovery request.'
+      });
+    }
+  }
+  if (continuationCheckpoint) {
+    if (resumeEnvelope.expectedWorkflowState && resumeEnvelope.expectedWorkflowState !== continuationCheckpoint.state.workflowState) {
+      addIssue({
+        code: 'stale_client_resume_workflow_state',
+        severity: 'error',
+        expected: continuationCheckpoint.state.workflowState,
+        actual: resumeEnvelope.expectedWorkflowState,
+        message: 'Client resume token was issued for a different workflow state.'
+      });
+    }
+    if (resumeEnvelope.expectedRuntimeId && continuationCheckpoint.state.runtimeId
+      && resumeEnvelope.expectedRuntimeId !== continuationCheckpoint.state.runtimeId) {
+      addIssue({
+        code: 'stale_client_resume_runtime',
+        severity: 'error',
+        expected: continuationCheckpoint.state.runtimeId,
+        actual: resumeEnvelope.expectedRuntimeId,
+        message: 'Client resume token was issued for a different runtime.'
+      });
+    }
+    if (resumeEnvelope.expectedClientRequestId && continuationCheckpoint.state.clientRequestId
+      && resumeEnvelope.expectedClientRequestId !== continuationCheckpoint.state.clientRequestId) {
+      addIssue({
+        code: 'stale_client_resume_request',
+        severity: 'error',
+        expected: continuationCheckpoint.state.clientRequestId,
+        actual: resumeEnvelope.expectedClientRequestId,
+        message: 'Client resume token was issued for a different client request.'
+      });
+    }
+    if (resumeEnvelope.expectedFingerprint && resumeEnvelope.expectedFingerprint !== continuationCheckpoint.fingerprint) {
+      addIssue({
+        code: 'stale_client_resume_fingerprint',
+        severity: 'error',
+        expected: continuationCheckpoint.fingerprint,
+        actual: resumeEnvelope.expectedFingerprint,
+        message: 'Client resume fingerprint no longer matches the hosted-kernel continuation checkpoint.'
+      });
+    }
   }
 
   return {
@@ -1255,6 +1457,627 @@ function validateLifecycleSettings(validation, lifecycle, acceptanceRequested) {
   };
 }
 
+function validateMailchimpCampaignEnvelope(validation, mailchimpCampaign, commandSemantics) {
+  if (!mailchimpCampaign.present) return validation;
+
+  const issues = [...validation.issues];
+  const addIssue = (issue) => issues.push({ entryIndex: null, field: 'mailchimp.campaign', ...issue });
+  const deliveryCommand = MAILCHIMP_DELIVERY_COMMANDS.has(commandSemantics.command);
+
+  if (!mailchimpCampaign.enabled && deliveryCommand) {
+    addIssue({
+      code: 'mailchimp_campaign_audit_disabled',
+      severity: 'error',
+      message: 'Mailchimp campaign audit recovery must be enabled before delivery proof can be accepted.'
+    });
+  }
+  if (!mailchimpCampaign.campaignId) {
+    addIssue({
+      code: 'mailchimp_campaign_id_missing',
+      severity: deliveryCommand ? 'error' : 'warning',
+      message: 'Mailchimp campaign audit entries require campaignId to bind append-only proof.'
+    });
+  }
+  if (!mailchimpCampaign.audienceId) {
+    addIssue({
+      code: 'mailchimp_audience_id_missing',
+      severity: deliveryCommand ? 'error' : 'warning',
+      message: 'Mailchimp campaign audit entries require audienceId or listId to bind delivery scope.'
+    });
+  }
+  if (mailchimpCampaign.scheduledAt && !isValidTimestamp(mailchimpCampaign.scheduledAt)) {
+    addIssue({
+      code: 'mailchimp_campaign_schedule_invalid',
+      severity: 'error',
+      actual: mailchimpCampaign.scheduledAt,
+      message: 'Mailchimp campaign scheduledAt must be a valid timestamp.'
+    });
+  }
+  if (mailchimpCampaign.operation && !MAILCHIMP_EVENT_ACTIONS.has(`mailchimp.${mailchimpCampaign.operation}`) && !MAILCHIMP_EVENT_ACTIONS.has(mailchimpCampaign.operation)) {
+    addIssue({
+      code: 'mailchimp_campaign_operation_unknown',
+      severity: 'warning',
+      actual: mailchimpCampaign.operation,
+      expected: Array.from(MAILCHIMP_EVENT_ACTIONS),
+      message: 'Mailchimp campaign operation is not in the hosted audit recovery action catalog.'
+    });
+  }
+
+  return {
+    ...validation,
+    issues,
+    errorCount: issues.filter((issue) => issue.severity === 'error').length,
+    warningCount: issues.filter((issue) => issue.severity === 'warning').length
+  };
+}
+
+function buildMailchimpCampaignBoundaryGate({
+  boundaryContext,
+  commandSemantics,
+  mailchimpCampaign,
+  providerNegotiation
+}) {
+  if (!mailchimpCampaign.present) {
+    return {
+      contract: 'AppendOnlyAuditRecoveryMailchimpCampaignBoundaryGate.v1',
+      present: false,
+      status: 'not_applicable',
+      allowed: true,
+      failClosed: false,
+      blockers: [],
+      disclosure: 'not_applicable',
+      proofPartition: null,
+      handoffScope: null,
+      requiredPermissions: []
+    };
+  }
+
+  const deliveryCommand = MAILCHIMP_DELIVERY_COMMANDS.has(commandSemantics.command);
+  const requiredPermissionSet = commandSemantics.command === 'export-proof'
+    ? BOUNDARY_COMMAND_PERMISSIONS.exportProof
+    : BOUNDARY_COMMAND_PERMISSIONS.accept;
+  const requiredPermissions = Array.from(requiredPermissionSet);
+  const permissionAllowed = commandSemantics.command === 'export-proof'
+    ? boundaryContext.canExportProof
+    : boundaryContext.canAccept;
+  const tenantAllowed = !boundaryContext.allowedTenantIds.length
+    || !boundaryContext.tenantId
+    || boundaryContext.allowedTenantIds.includes(boundaryContext.tenantId);
+  const workspaceAllowed = !boundaryContext.allowedWorkspaceIds.length
+    || !boundaryContext.workspaceId
+    || boundaryContext.allowedWorkspaceIds.includes(boundaryContext.workspaceId);
+  const boundTenantId = resolveBoundTenantForWorkspace(
+    boundaryContext.workspaceTenantBindings,
+    boundaryContext.workspaceId
+  );
+  const workspaceBindingSatisfied = !boundaryContext.requireWorkspaceTenantBinding
+    || Boolean(boundTenantId && boundTenantId === boundaryContext.tenantId);
+  const proofPartition = [
+    boundaryContext.tenantId || 'unbound-tenant',
+    boundaryContext.workspaceId || 'unbound-workspace',
+    mailchimpCampaign.audienceId || 'unbound-audience',
+    mailchimpCampaign.campaignId || 'unbound-campaign'
+  ].join(':');
+  const providerStateKey = providerNegotiation.externalHandoffState.externalStateKey
+    || providerNegotiation.externalHandoffState.correlationId
+    || commandSemantics.idempotencyKey;
+  const blockers = [
+    deliveryCommand && !permissionAllowed ? {
+      code: 'mailchimp_delivery_permission_denied',
+      field: 'actor.permissions',
+      severity: 'error',
+      expected: requiredPermissions,
+      message: 'Mailchimp campaign delivery requires append-only acceptance or proof export permission.'
+    } : null,
+    !boundaryContext.tenantId ? {
+      code: 'mailchimp_delivery_tenant_missing',
+      field: 'scope.tenantId',
+      severity: deliveryCommand ? 'error' : 'warning',
+      message: 'Mailchimp campaign delivery proof must be bound to a tenant before acceptance.'
+    } : null,
+    !boundaryContext.workspaceId ? {
+      code: 'mailchimp_delivery_workspace_missing',
+      field: 'scope.workspaceId',
+      severity: deliveryCommand ? 'error' : 'warning',
+      message: 'Mailchimp campaign delivery proof must be bound to a workspace before acceptance.'
+    } : null,
+    !tenantAllowed ? {
+      code: 'mailchimp_delivery_tenant_not_allowed',
+      field: 'scope.allowedTenantIds',
+      severity: 'error',
+      actual: boundaryContext.tenantId,
+      expected: boundaryContext.allowedTenantIds,
+      message: 'Mailchimp campaign delivery tenant is outside the actor boundary.'
+    } : null,
+    !workspaceAllowed ? {
+      code: 'mailchimp_delivery_workspace_not_allowed',
+      field: 'scope.allowedWorkspaceIds',
+      severity: 'error',
+      actual: boundaryContext.workspaceId,
+      expected: boundaryContext.allowedWorkspaceIds,
+      message: 'Mailchimp campaign delivery workspace is outside the actor boundary.'
+    } : null,
+    !workspaceBindingSatisfied ? {
+      code: 'mailchimp_delivery_workspace_tenant_binding_missing',
+      field: 'scope.workspaceTenantBindings',
+      severity: 'error',
+      actual: {
+        workspaceId: boundaryContext.workspaceId,
+        tenantId: boundaryContext.tenantId,
+        boundTenantId
+      },
+      message: 'Mailchimp campaign delivery requires workspace-to-tenant binding before proof handoff.'
+    } : null
+  ].filter(Boolean);
+  const hardBlockers = blockers.filter((blocker) => blocker.severity === 'error');
+  const allowed = hardBlockers.length === 0;
+
+  return {
+    contract: 'AppendOnlyAuditRecoveryMailchimpCampaignBoundaryGate.v1',
+    present: true,
+    status: allowed ? 'allowed' : 'blocked',
+    allowed,
+    failClosed: !allowed,
+    command: commandSemantics.command,
+    deliveryCommand,
+    requiredPermissions,
+    permissionAllowed,
+    actorId: boundaryContext.actorId,
+    tenantId: boundaryContext.tenantId,
+    workspaceId: boundaryContext.workspaceId,
+    tenantAllowed,
+    workspaceAllowed,
+    workspaceTenantBinding: {
+      required: boundaryContext.requireWorkspaceTenantBinding,
+      workspaceId: boundaryContext.workspaceId,
+      tenantId: boundaryContext.tenantId,
+      boundTenantId,
+      satisfied: workspaceBindingSatisfied
+    },
+    proofPartition,
+    handoffScope: {
+      product: 'mailchimp',
+      campaignId: mailchimpCampaign.campaignId,
+      audienceId: mailchimpCampaign.audienceId,
+      proofScope: mailchimpCampaign.proofScope,
+      providerStateKey,
+      externalStateKey: `${proofPartition}:${providerStateKey}`,
+      disclosure: boundaryContext.canReadBoundary ? 'scoped-identifiers' : 'redacted-boundary'
+    },
+    blockers,
+    blockerCodes: blockers.map((blocker) => blocker.code),
+    disclosure: boundaryContext.canReadBoundary ? 'full_boundary_gate' : 'redacted_boundary_gate'
+  };
+}
+
+function buildMailchimpCampaignDeliveryContract({
+  accepted,
+  boundaryContext,
+  commandSemantics,
+  latestEntry,
+  mailchimpCampaign,
+  now,
+  providerNegotiation,
+  validation
+}) {
+  if (!mailchimpCampaign.present) {
+    return {
+      type: 'AppendOnlyAuditRecoveryMailchimpCampaignDeliveryContract.v1',
+      present: false,
+      status: 'not_applicable',
+      readyForAcceptance: true,
+      readyForProofExport: true,
+      blockingReasons: [],
+      warnings: []
+    };
+  }
+
+  const providerReady = providerNegotiation.status === 'negotiated';
+  const appendOnlyReady = validation.errorCount === 0 && Boolean(latestEntry?.digest);
+  const boundaryGate = buildMailchimpCampaignBoundaryGate({
+    boundaryContext,
+    commandSemantics,
+    mailchimpCampaign,
+    providerNegotiation
+  });
+  const fieldBlockers = [
+    mailchimpCampaign.enabled ? null : 'mailchimp_campaign_audit_disabled',
+    mailchimpCampaign.campaignId ? null : 'mailchimp_campaign_id_missing',
+    mailchimpCampaign.audienceId ? null : 'mailchimp_audience_id_missing',
+    mailchimpCampaign.scheduledAt && !isValidTimestamp(mailchimpCampaign.scheduledAt)
+      ? 'mailchimp_campaign_schedule_invalid'
+      : null
+  ].filter(Boolean);
+  const providerBlockers = [
+    providerReady ? null : providerNegotiation.status,
+    ...providerNegotiation.missingRequiredCapabilities.map((capability) => `missing:${capability}`),
+    providerNegotiation.syncMetadata.syncDigestMatches ? null : 'provider_sync_cursor_stale',
+    providerNegotiation.externalHandoffState.required && !providerNegotiation.externalHandoffState.ready
+      ? 'provider_handoff_not_ready'
+      : null
+  ].filter(Boolean);
+  const proofRefs = [
+    ...mailchimpCampaign.evidenceRefs,
+    latestEntry?.digest ? `append-only:digest:${latestEntry.digest}` : null,
+    boundaryContext.tenantId ? `tenant:${boundaryContext.tenantId}` : null,
+    boundaryContext.workspaceId ? `workspace:${boundaryContext.workspaceId}` : null
+  ].filter(Boolean);
+  const blockingReasons = [...new Set([
+    ...fieldBlockers,
+    ...providerBlockers,
+    ...boundaryGate.blockerCodes,
+    ...(appendOnlyReady ? [] : ['append_only_validation_not_ready'])
+  ])];
+  const readyForAcceptance = blockingReasons.length === 0;
+  const deliveryId = mailchimpCampaign.proofScope
+    || `mailchimp:${mailchimpCampaign.audienceId || 'unbound-audience'}:${mailchimpCampaign.campaignId || 'unbound-campaign'}`;
+
+  return {
+    type: 'AppendOnlyAuditRecoveryMailchimpCampaignDeliveryContract.v1',
+    present: true,
+    status: readyForAcceptance
+      ? accepted
+        ? 'accepted'
+        : 'ready_for_acceptance'
+      : 'blocked',
+    deliveryId,
+    campaignId: mailchimpCampaign.campaignId,
+    audienceId: mailchimpCampaign.audienceId,
+    templateId: mailchimpCampaign.templateId,
+    operation: mailchimpCampaign.operation,
+    scheduledAt: mailchimpCampaign.scheduledAt,
+    archiveUrl: mailchimpCampaign.archiveUrl,
+    boundaryGate,
+    readyForAcceptance,
+    readyForProofExport: accepted && readyForAcceptance,
+    blockingReasons,
+    warnings: [
+      mailchimpCampaign.operation ? null : 'mailchimp_operation_not_declared',
+      mailchimpCampaign.templateId ? null : 'mailchimp_template_not_bound',
+      providerNegotiation.externalHandoffState.required ? null : 'external_handoff_not_requested'
+    ].filter(Boolean),
+    providerHandoff: {
+      required: true,
+      providerId: providerNegotiation.provider.providerId,
+      target: providerNegotiation.externalHandoffState.target || 'mailchimp-campaign-audit',
+      state: providerNegotiation.externalHandoffState.state,
+      ready: providerNegotiation.externalHandoffState.ready,
+      correlationId: providerNegotiation.externalHandoffState.correlationId,
+      externalStateKey: providerNegotiation.externalHandoffState.externalStateKey
+        || `${deliveryId}:${commandSemantics.idempotencyKey}`,
+      callbackRoute: providerNegotiation.externalHandoffState.callbackRoute,
+      ackDeadlineAt: providerNegotiation.externalHandoffState.ackDeadlineAt,
+      leaseExpiresAt: providerNegotiation.externalHandoffState.leaseExpiresAt
+    },
+    proofManifest: {
+      contract: 'AppendOnlyAuditRecoveryMailchimpCampaignProofManifest.v1',
+      generatedAt: now,
+      latestDigest: latestEntry?.digest || null,
+      latestEntryId: latestEntry?.id || null,
+      entryCount: validation.entries.length,
+      tenantId: boundaryContext.tenantId,
+      workspaceId: boundaryContext.workspaceId,
+      proofPartition: boundaryGate.proofPartition,
+      handoffScope: boundaryGate.handoffScope,
+      proofScope: mailchimpCampaign.proofScope,
+      proofRefs,
+      requiredAuditFields: mailchimpCampaign.requiredFields,
+      idempotencyKey: `${commandSemantics.idempotencyKey}:mailchimp:${deliveryId}`
+    },
+    routeContract: {
+      route: mailchimpCampaign.routeHint,
+      method: accepted ? 'POST' : 'PATCH',
+      enabled: readyForAcceptance,
+      disabledReasons: blockingReasons,
+      bodyContract: 'AppendOnlyAuditRecoveryMailchimpCampaignDeliveryRequest.v1',
+      body: {
+        campaignId: mailchimpCampaign.campaignId,
+        audienceId: mailchimpCampaign.audienceId,
+        templateId: mailchimpCampaign.templateId,
+        latestDigest: latestEntry?.digest || null,
+        proofScope: mailchimpCampaign.proofScope,
+        proofPartition: boundaryGate.proofPartition,
+        idempotencyKey: `${commandSemantics.idempotencyKey}:mailchimp:${deliveryId}`
+      }
+    }
+  };
+}
+
+function buildMailchimpCampaignAcceptanceHandoff({
+  accepted,
+  acceptanceRequested,
+  clientReadinessSummary,
+  commandSemantics,
+  latestEntry,
+  mailchimpCampaign,
+  mailchimpDeliveryContract,
+  now,
+  proofReceipt,
+  requestState,
+  validation,
+  workflowHandoff
+}) {
+  if (!mailchimpCampaign.present) {
+    return {
+      type: 'AppendOnlyAuditRecoveryMailchimpCampaignAcceptanceHandoff.v1',
+      present: false,
+      status: 'not_applicable',
+      ready: true,
+      routeContract: null,
+      nextStep: null,
+      validationSummary: {
+        status: 'not_applicable',
+        errorCount: 0,
+        warningCount: 0,
+        issueCodes: []
+      }
+    };
+  }
+
+  const mailchimpIssueCodes = validation.issues
+    .filter((issue) => issue.field === 'mailchimp' || String(issue.code || '').startsWith('mailchimp_'))
+    .map((issue) => issue.code);
+  const proofManifest = mailchimpDeliveryContract.proofManifest || {};
+  const providerHandoff = mailchimpDeliveryContract.providerHandoff || {};
+  const expectedProofScope = mailchimpCampaign.campaignId && mailchimpCampaign.audienceId
+    ? `mailchimp:${mailchimpCampaign.audienceId}:${mailchimpCampaign.campaignId}`
+    : null;
+  const scopeBlockers = [
+    expectedProofScope && mailchimpCampaign.proofScope && expectedProofScope !== mailchimpCampaign.proofScope
+      ? 'mailchimp_proof_scope_mismatch'
+      : null,
+    proofManifest.proofScope && mailchimpCampaign.proofScope && proofManifest.proofScope !== mailchimpCampaign.proofScope
+      ? 'mailchimp_proof_manifest_scope_mismatch'
+      : null,
+    proofManifest.latestDigest && latestEntry?.digest && proofManifest.latestDigest !== latestEntry.digest
+      ? 'mailchimp_proof_manifest_digest_stale'
+      : null,
+    proofManifest.entryCount !== undefined && proofManifest.entryCount !== validation.entries.length
+      ? 'mailchimp_proof_manifest_entry_count_stale'
+      : null,
+    providerHandoff.externalStateKey ? null : 'mailchimp_provider_handoff_state_key_missing'
+  ].filter(Boolean);
+  const blockingReasons = [...new Set([
+    ...mailchimpDeliveryContract.blockingReasons,
+    ...mailchimpIssueCodes.filter((code) => !mailchimpDeliveryContract.blockingReasons.includes(code)),
+    ...scopeBlockers,
+    ...(proofReceipt.canExport || !accepted ? [] : ['proof_export_not_ready'])
+  ])];
+  const ready = mailchimpDeliveryContract.readyForAcceptance
+    && validation.errorCount === 0
+    && scopeBlockers.length === 0
+    && Boolean(latestEntry?.digest)
+    && workflowHandoff.state !== 'repair'
+    && workflowHandoff.state !== 'blocked';
+  const status = accepted
+    ? 'accepted'
+    : ready
+      ? acceptanceRequested
+        ? 'acceptance_requested'
+        : 'ready_for_acceptance'
+      : 'blocked';
+  const nextStep = ready
+    ? {
+        id: accepted ? 'export-mailchimp-campaign-proof' : 'accept-mailchimp-campaign-audit',
+        label: accepted ? 'Export Mailchimp campaign proof' : 'Accept Mailchimp campaign audit',
+        route: accepted ? WORKFLOW_ROUTES.proof : WORKFLOW_ROUTES.accept,
+        routeAction: accepted
+          ? 'route.auditRecovery.appendOnlyLog.exportMailchimpProof'
+          : 'route.auditRecovery.appendOnlyLog.acceptMailchimpCampaignAudit',
+        reason: accepted
+          ? 'Mailchimp campaign audit has been accepted and can be exported as proof.'
+          : 'Mailchimp campaign audit is ready for operator acceptance.'
+      }
+      : {
+        id: 'repair-mailchimp-campaign-audit',
+        label: 'Repair Mailchimp campaign audit',
+        route: WORKFLOW_ROUTES.validate,
+        routeAction: 'route.auditRecovery.appendOnlyLog.validateMailchimpCampaignAudit',
+        reason: blockingReasons[0] || 'Mailchimp campaign audit is blocked before acceptance.'
+      };
+  const idempotencyKey = `${commandSemantics.idempotencyKey}:mailchimp-acceptance:${mailchimpDeliveryContract.deliveryId}`;
+  const persistedHandoffState = {
+    contract: 'AppendOnlyAuditRecoveryMailchimpPersistedHandoffState.v1',
+    stateKey: providerHandoff.externalStateKey || `${idempotencyKey}:state`,
+    idempotencyKey,
+    restartSafeStatus: accepted
+      ? 'accepted-proof-exportable'
+      : ready
+        ? 'acceptance-resumable'
+        : 'repair-required',
+    replayPolicy: accepted
+      ? 'return-accepted-handoff'
+      : ready
+        ? 'retry-same-idempotency-key'
+        : 'block-until-scope-and-provider-contracts-repair',
+    nextAction: accepted
+      ? 'export-proof'
+      : ready
+        ? 'accept-campaign-audit'
+        : 'repair-campaign-audit',
+    digest: latestEntry?.digest || null,
+    entryCount: validation.entries.length,
+    proofScope: mailchimpCampaign.proofScope,
+    expectedProofScope,
+    deliveryId: mailchimpDeliveryContract.deliveryId,
+    providerState: providerHandoff.state || 'unknown',
+    providerCorrelationId: providerHandoff.correlationId || null,
+    providerLeaseExpiresAt: providerHandoff.leaseExpiresAt || null,
+    route: nextStep.route,
+    routeAction: nextStep.routeAction,
+    blockingReasons,
+    scopeIntegrity: {
+      valid: scopeBlockers.length === 0,
+      blockers: scopeBlockers,
+      proofManifestDigest: proofManifest.latestDigest || null,
+      proofManifestEntryCount: proofManifest.entryCount ?? null
+    }
+  };
+  const routeBody = {
+    requestId: requestState.clientRequestId,
+    runtimeId: requestState.runtimeId,
+    continuationToken: requestState.continuationToken,
+    campaignId: mailchimpCampaign.campaignId,
+    audienceId: mailchimpCampaign.audienceId,
+    templateId: mailchimpCampaign.templateId,
+    latestDigest: latestEntry?.digest || null,
+    entryCount: validation.entries.length,
+    proofScope: mailchimpCampaign.proofScope,
+    proofContract: proofReceipt.proofContract,
+    providerHandoffState: providerHandoff.state,
+    externalStateKey: providerHandoff.externalStateKey,
+    idempotencyKey,
+    persistedHandoffState
+  };
+
+  return {
+    type: 'AppendOnlyAuditRecoveryMailchimpCampaignAcceptanceHandoff.v1',
+    present: true,
+    generatedAt: now,
+    status,
+    ready,
+    accepted,
+    acceptanceRequested,
+    campaign: {
+      campaignId: mailchimpCampaign.campaignId,
+      audienceId: mailchimpCampaign.audienceId,
+      templateId: mailchimpCampaign.templateId,
+      operation: mailchimpCampaign.operation,
+      scheduledAt: mailchimpCampaign.scheduledAt,
+      proofScope: mailchimpCampaign.proofScope
+    },
+    validationSummary: {
+      status: validation.errorCount > 0 ? 'blocked' : validation.warningCount > 0 ? 'warnings' : 'passed',
+      errorCount: validation.errorCount,
+      warningCount: validation.warningCount,
+      issueCodes: [...new Set(mailchimpIssueCodes)],
+      blockingReasons,
+      firstBlockingReason: blockingReasons[0] || null
+    },
+    readiness: {
+      summaryStatus: clientReadinessSummary.status,
+      activeRoute: clientReadinessSummary.activeRoute,
+      recommendedRoute: clientReadinessSummary.recommendedRoute,
+      providerReady: providerHandoff.ready,
+      proofReady: proofReceipt.canExport || !accepted,
+      appendOnlyReady: Boolean(latestEntry?.digest) && validation.errorCount === 0,
+      scopeIntegrityReady: scopeBlockers.length === 0,
+      restartSafeStatus: persistedHandoffState.restartSafeStatus
+    },
+    persistedHandoffState,
+    preview: {
+      title: `Mailchimp campaign ${mailchimpCampaign.campaignId || 'unbound-campaign'}`,
+      subtitle: `Audience ${mailchimpCampaign.audienceId || 'unbound-audience'}`,
+      evidenceRefs: mailchimpCampaign.evidenceRefs,
+      latestDigest: latestEntry?.digest || null,
+      providerHandoff,
+      persistedHandoffState
+    },
+    nextStep,
+    routeContract: {
+      route: nextStep.route,
+      method: accepted ? 'GET' : ready ? 'POST' : 'PATCH',
+      enabled: ready || accepted,
+      disabledReasons: ready || accepted ? [] : blockingReasons,
+      bodyContract: 'AppendOnlyAuditRecoveryMailchimpCampaignAcceptanceRequest.v1',
+      body: routeBody
+    }
+  };
+}
+
+function buildMailchimpClientRuntimeAdoption({
+  accepted,
+  clientResume,
+  mailchimpAcceptanceHandoff,
+  mailchimpDeliveryContract,
+  now,
+  requestState,
+  workflowHandoffDecision
+}) {
+  if (!mailchimpAcceptanceHandoff.present) {
+    return {
+      type: 'AppendOnlyAuditRecoveryMailchimpClientRuntimeAdoption.v1',
+      present: false,
+      status: 'not_applicable',
+      canAdopt: true,
+      blockedReasons: [],
+      routeContract: null
+    };
+  }
+
+  const routeContract = mailchimpAcceptanceHandoff.routeContract;
+  const blockedReasons = [
+    ...mailchimpAcceptanceHandoff.validationSummary.blockingReasons,
+    ...(clientResume.canSubmit ? [] : clientResume.blockedBy.map((issue) => issue.code)),
+    ...(workflowHandoffDecision.submitPolicy.allowed ? [] : workflowHandoffDecision.blockedBy.map((issue) => issue.code))
+  ];
+  const uniqueBlockedReasons = [...new Set(blockedReasons.filter(Boolean))];
+  const canAdopt = routeContract.enabled
+    && clientResume.canSubmit
+    && workflowHandoffDecision.submitPolicy.allowed
+    && uniqueBlockedReasons.length === 0;
+  const status = canAdopt
+    ? accepted ? 'proof_runtime_adoptable' : 'acceptance_runtime_adoptable'
+    : uniqueBlockedReasons.length > 0 ? 'blocked' : 'awaiting_client_resume';
+  const handoffExternalStateKey = mailchimpDeliveryContract.providerHandoff.externalStateKey
+    || routeContract.body.externalStateKey
+    || routeContract.body.idempotencyKey;
+
+  return {
+    type: 'AppendOnlyAuditRecoveryMailchimpClientRuntimeAdoption.v1',
+    present: true,
+    generatedAt: now,
+    status,
+    canAdopt,
+    campaignId: mailchimpAcceptanceHandoff.campaign.campaignId,
+    audienceId: mailchimpAcceptanceHandoff.campaign.audienceId,
+    product: 'mailchimp',
+    runtimeBinding: {
+      clientRequestId: requestState.clientRequestId,
+      runtimeId: requestState.runtimeId,
+      continuationToken: clientResume.token,
+      continuationFingerprint: clientResume.expectedState.fingerprint,
+      continuationExpiresAt: clientResume.expectedState.expiresAt,
+      handoffExternalStateKey,
+      providerHandoffState: mailchimpDeliveryContract.providerHandoff.state,
+      route: routeContract.route,
+      method: routeContract.method,
+      idempotencyKey: routeContract.body.idempotencyKey
+    },
+    clientStatePatch: {
+      mailchimpCampaignAudit: {
+        status,
+        canAdopt,
+        campaignId: mailchimpAcceptanceHandoff.campaign.campaignId,
+        audienceId: mailchimpAcceptanceHandoff.campaign.audienceId,
+        templateId: mailchimpAcceptanceHandoff.campaign.templateId,
+        proofScope: mailchimpAcceptanceHandoff.campaign.proofScope,
+        latestDigest: routeContract.body.latestDigest,
+        entryCount: routeContract.body.entryCount,
+        nextRoute: routeContract.route,
+        nextAction: mailchimpAcceptanceHandoff.nextStep,
+        continuationToken: clientResume.token,
+        blockedReasons: uniqueBlockedReasons
+      }
+    },
+    routeContract: {
+      route: '/kernel/audit-recovery/append-only-log/runtime/mailchimp/adopt',
+      method: 'PATCH',
+      requestContract: 'AppendOnlyAuditRecoveryMailchimpRuntimeAdoptionRequest.v1',
+      responseContract: 'AppendOnlyAuditRecoveryMailchimpClientRuntimeAdoption.v1',
+      enabled: canAdopt,
+      disabledReasons: uniqueBlockedReasons,
+      body: {
+        ...routeContract.body,
+        continuationToken: clientResume.token,
+        continuationFingerprint: clientResume.expectedState.fingerprint,
+        handoffExternalStateKey,
+        adoptionStatus: status
+      }
+    }
+  };
+}
+
 function buildLifecycleExecutionPlan({ lifecycle, lifecycleCommand, now, validation }) {
   const lifecycleIssueCodes = new Set([
     'invalid_lifecycle_mode',
@@ -1448,6 +2271,54 @@ function compareIso(left, right) {
   return leftMs - rightMs;
 }
 
+function buildTimestampIntegrity(entries, issues) {
+  const invalidTimestampIndexes = new Set(
+    issues
+      .filter((issue) => issue.code === 'invalid_timestamp' && Number.isInteger(issue.entryIndex))
+      .map((issue) => issue.entryIndex)
+  );
+  const regressionIndexes = new Set(
+    issues
+      .filter((issue) => issue.code === 'timestamp_regression' && Number.isInteger(issue.entryIndex))
+      .map((issue) => issue.entryIndex)
+  );
+  const parseableTimes = entries
+    .map((entry) => ({
+      entryIndex: entry.index,
+      timestamp: entry.timestamp,
+      epochMs: Date.parse(entry.timestamp)
+    }))
+    .filter((item) => Number.isFinite(item.epochMs));
+  const firstObserved = parseableTimes.length > 0
+    ? parseableTimes.reduce((first, item) => item.epochMs < first.epochMs ? item : first, parseableTimes[0])
+    : null;
+  const lastObserved = parseableTimes.length > 0
+    ? parseableTimes.reduce((last, item) => item.epochMs > last.epochMs ? item : last, parseableTimes[0])
+    : null;
+  const status = invalidTimestampIndexes.size > 0
+    ? 'invalid'
+    : regressionIndexes.size > 0
+      ? 'non_monotonic'
+      : parseableTimes.length === entries.length
+        ? 'verified'
+        : 'unverified';
+
+  return {
+    contract: 'AppendOnlyAuditRecoveryTimestampIntegrity.v1',
+    status,
+    parseableCount: parseableTimes.length,
+    invalidCount: invalidTimestampIndexes.size,
+    regressionCount: regressionIndexes.size,
+    firstObservedAt: firstObserved ? firstObserved.timestamp : null,
+    firstObservedEntryIndex: firstObserved ? firstObserved.entryIndex : null,
+    lastObservedAt: lastObserved ? lastObserved.timestamp : null,
+    lastObservedEntryIndex: lastObserved ? lastObserved.entryIndex : null,
+    invalidEntryIndexes: Array.from(invalidTimestampIndexes),
+    regressionEntryIndexes: Array.from(regressionIndexes),
+    acceptanceBlocking: invalidTimestampIndexes.size > 0 || regressionIndexes.size > 0
+  };
+}
+
 function validateEntries(entries, policy) {
   const issues = [];
   const normalized = entries.map(normalizeEntry);
@@ -1475,7 +2346,18 @@ function validateEntries(entries, policy) {
         message: `Audit entry id ${entry.id} appears more than once.`
       });
     }
-    if (entry.id) seenIds.add(entry.id);
+      if (entry.id) seenIds.add(entry.id);
+
+    if (entry.timestamp && !isValidTimestamp(entry.timestamp)) {
+      issues.push({
+        code: 'invalid_timestamp',
+        severity: 'error',
+        entryIndex: index,
+        field: 'timestamp',
+        actual: entry.timestamp,
+        message: `Audit entry ${index} timestamp must be parseable before append-only acceptance.`
+      });
+    }
 
     if (policy.requireMonotonicTimestamps && index > 0) {
       const previous = normalized[index - 1];
@@ -1530,7 +2412,8 @@ function validateEntries(entries, policy) {
     entries: normalized,
     issues,
     errorCount: issues.filter((issue) => issue.severity === 'error').length,
-    warningCount: issues.filter((issue) => issue.severity === 'warning').length
+    warningCount: issues.filter((issue) => issue.severity === 'warning').length,
+    timestampIntegrity: buildTimestampIntegrity(normalized, issues)
   };
 }
 
@@ -1795,10 +2678,12 @@ function buildPreview(validation) {
     latestTimestamp: lastEntry ? lastEntry.timestamp : null,
     latestAction: lastEntry ? lastEntry.action : null,
     issueCount: validation.issues.length,
+    timestampIntegrity: validation.timestampIntegrity,
     rows: validation.entries.slice(-5).map((entry) => ({
       index: entry.index,
       id: entry.id,
       timestamp: entry.timestamp,
+      timestampValid: entry.timestamp ? isValidTimestamp(entry.timestamp) : false,
       actor: entry.actor,
       action: entry.action,
       digest: entry.digest,
@@ -1878,9 +2763,23 @@ function buildAnalyticsTimelineEvents({
     status: issue.code,
     digest: currentSnapshot.latestDigest,
     entryCount: currentSnapshot.entryCount,
-    severity: issue.severity,
-    entryIndex: issue.entryIndex
+      severity: issue.severity,
+      entryIndex: issue.entryIndex
   }));
+  const timestampIntegrityEvent = validation.timestampIntegrity.status === 'verified'
+    ? null
+    : {
+        id: 'timestamp-integrity-current',
+        type: 'timestamp_integrity',
+        occurredAt: now,
+        route: WORKFLOW_ROUTES.validate,
+        status: validation.timestampIntegrity.status,
+        digest: currentSnapshot.latestDigest,
+        entryCount: currentSnapshot.entryCount,
+        severity: validation.timestampIntegrity.acceptanceBlocking ? 'error' : 'warning',
+        invalidEntryIndexes: validation.timestampIntegrity.invalidEntryIndexes,
+        regressionEntryIndexes: validation.timestampIntegrity.regressionEntryIndexes
+      };
   const writeEvents = statePersistence.requiredWrites.map((write, index) => ({
     id: `write-${index}`,
     type: 'required_write',
@@ -1916,7 +2815,14 @@ function buildAnalyticsTimelineEvents({
     dueAt: lifecycleState.nextAction.dueAt
   };
 
-  return [...historicalEvents, lifecycleEvent, ...validationEvents, ...writeEvents, ...runtimeEvents]
+  return [
+    ...historicalEvents,
+    lifecycleEvent,
+    ...(timestampIntegrityEvent ? [timestampIntegrityEvent] : []),
+    ...validationEvents,
+    ...writeEvents,
+    ...runtimeEvents
+  ]
     .filter((event) => event.occurredAt || event.digest || event.entryCount !== null)
     .slice(-40);
 }
@@ -1988,7 +2894,9 @@ function buildAnalyticsReporting({
     exportReady: accepted || persistedStateShape.acceptedSnapshot.reusable,
     storageKey: persistedStateShape.storageKey,
     scopeKey: `${boundaryContext.tenantId || 'tenant-unscoped'}:${boundaryContext.workspaceId || 'workspace-unscoped'}`,
-    route: accepted ? WORKFLOW_ROUTES.proof : validation.errorCount > 0 ? WORKFLOW_ROUTES.validate : WORKFLOW_ROUTES.accept
+    route: accepted ? WORKFLOW_ROUTES.proof : validation.errorCount > 0 ? WORKFLOW_ROUTES.validate : WORKFLOW_ROUTES.accept,
+    timestampIntegrityStatus: validation.timestampIntegrity.status,
+    timestampIntegrityBlocking: validation.timestampIntegrity.acceptanceBlocking
   };
   const timeline = [...historySnapshots, currentSnapshot];
   const timelineEvents = buildAnalyticsTimelineEvents({
@@ -2026,6 +2934,9 @@ function buildAnalyticsReporting({
       warningsTotal: validation.warningCount,
       repairableIssues: validation.issues.filter((issue) => REPAIRABLE_ISSUE_CODES.has(issue.code)).length,
       boundaryIssues: validation.issues.filter((issue) => boundaryIssueCodes.has(issue.code)).length,
+      timestampInvalidEntries: validation.timestampIntegrity.invalidCount,
+      timestampRegressionEntries: validation.timestampIntegrity.regressionCount,
+      timestampParseableEntries: validation.timestampIntegrity.parseableCount,
       runtimeFailures: operationalHealth.signals.observedFailureCount,
       malformedRuntimeSignals: operationalHealth.signals.malformedSignalCount,
       pendingWrites: statePersistence.requiredWrites.length,
@@ -2046,6 +2957,7 @@ function buildAnalyticsReporting({
       current: currentSnapshot,
       history: timeline,
       events: timelineEvents,
+      timestampIntegrity: validation.timestampIntegrity,
       deltaFromPrevious: {
         entryCount: entryDelta,
         errorCount: errorDelta,
@@ -2074,7 +2986,8 @@ function buildAnalyticsReporting({
         entryCount: validation.entries.length,
         tenantId: boundaryContext.tenantId,
         workspaceId: boundaryContext.workspaceId,
-        appendOnly: validation.errorCount === 0
+        appendOnly: validation.errorCount === 0,
+        timestampIntegrity: validation.timestampIntegrity.status
       },
       artifactPlan: {
         json: {
@@ -2190,6 +3103,7 @@ function summarizeValidationForClient(validation) {
     entryCount: validation.entries.length,
     errorCount: validation.errorCount,
     warningCount: validation.warningCount,
+    timestampIntegrity: validation.timestampIntegrity,
     primaryIssue: primaryIssue
       ? {
           code: primaryIssue.code,
@@ -2396,6 +3310,7 @@ function buildClientWorkflowContract({
         action: preview.latestAction
       },
       issueCount: preview.issueCount,
+      timestampIntegrity: preview.timestampIntegrity,
       rows: preview.rows
     },
     acceptancePanel: {
@@ -2585,7 +3500,146 @@ function buildWorkflowHandoffDecision({
   };
 }
 
+function buildOperatorRemediationPacket({
+  clientReadinessSummary,
+  commandSemantics,
+  lifecycleState,
+  now,
+  operationalHealth,
+  proofReceipt,
+  providerNegotiation,
+  readiness,
+  statePersistence,
+  validation,
+  workflowHandoffDecision
+}) {
+  const issueActions = validation.issues
+    .filter((issue) => issue.severity === 'error' || REPAIRABLE_ISSUE_CODES.has(issue.code))
+    .map((issue) => ({
+      code: issue.code,
+      severity: issue.severity,
+      entryIndex: issue.entryIndex,
+      field: issue.field,
+      route: REPAIRABLE_ISSUE_CODES.has(issue.code) ? WORKFLOW_ROUTES.validate : WORKFLOW_ROUTES.accept,
+      repairable: REPAIRABLE_ISSUE_CODES.has(issue.code),
+      message: issue.message
+    }));
+  const providerActions = [
+    ...providerNegotiation.missingRequiredCapabilities.map((capability) => ({
+      code: `missing_provider_capability:${capability}`,
+      severity: 'error',
+      route: WORKFLOW_ROUTES.validate,
+      owner: 'provider',
+      action: 'negotiate-provider-capability',
+      capability
+    })),
+    ...(providerNegotiation.status !== 'negotiated'
+      ? [{
+          code: providerNegotiation.status,
+          severity: 'error',
+          route: WORKFLOW_ROUTES.validate,
+          owner: 'provider',
+          action: providerNegotiation.status === 'sync_cursor_stale'
+            ? 'refresh-sync-cursor'
+            : providerNegotiation.status === 'handoff_not_acknowledged'
+              ? 'acknowledge-external-handoff'
+              : 'repair-provider-contract'
+        }]
+      : [])
+  ];
+  const healthActions = operationalHealth.actionableErrors.map((error) => ({
+    code: error.code,
+    severity: error.severity,
+    route: error.route,
+    owner: error.dependency || 'hosted-kernel',
+    action: error.action,
+    retryable: error.retryable,
+    retryAfterMs: operationalHealth.retry.nextDelayMs,
+    degradedMode: operationalHealth.degradedMode.recoveryMode
+  }));
+  const restartActions = readiness.restartSafe
+    ? []
+    : [{
+        code: statePersistence.restartSafeStatus,
+        severity: 'error',
+        route: WORKFLOW_ROUTES.accept,
+        owner: 'command-journal',
+        action: statePersistence.restartRecovery.action,
+        resumeWriteFrom: statePersistence.restartRecovery.resumeWriteFrom,
+        replayFromEntryIndex: statePersistence.restartRecovery.replayFromEntryIndex
+      }];
+  const actions = [...issueActions, ...providerActions, ...healthActions, ...restartActions];
+  const blockingActionCodes = [...new Set(actions
+    .filter((action) => action.severity === 'error')
+    .map((action) => action.code))];
+  const nextRetryAt = operationalHealth.retry.nextDelayMs
+    ? millisecondsAfter(now, operationalHealth.retry.nextDelayMs)
+    : null;
+  const canSelfRecover = blockingActionCodes.length === 0
+    || actions.every((action) => action.retryable || action.repairable);
+  const commandRoute = workflowHandoffDecision.route;
+
+  return {
+    type: 'AppendOnlyAuditRecoveryOperatorRemediationPacket.v1',
+    generatedAt: now,
+    status: workflowHandoffDecision.status === 'ready'
+      ? 'ready'
+      : canSelfRecover
+        ? 'recoverable'
+        : 'operator_action_required',
+    primaryRoute: commandRoute,
+    primaryCommand: workflowHandoffDecision.command,
+    operatorPrompt: workflowHandoffDecision.operatorPrompt,
+    blockingActionCodes,
+    canSelfRecover,
+    degradedMode: {
+      active: operationalHealth.degradedMode.active,
+      recoveryMode: operationalHealth.degradedMode.recoveryMode,
+      fallbackRoute: operationalHealth.degradedMode.fallbackRoute,
+      allowedOperations: operationalHealth.degradedMode.allowedOperations
+    },
+    retryPlan: {
+      strategy: operationalHealth.retry.strategy,
+      safeToRetry: operationalHealth.retry.safeToRetry,
+      exhausted: operationalHealth.retry.exhausted,
+      currentAttempt: operationalHealth.retry.currentAttempt,
+      maxAttempts: operationalHealth.retry.maxAttempts,
+      nextDelayMs: operationalHealth.retry.nextDelayMs,
+      nextRetryAt,
+      reason: operationalHealth.retry.reason
+    },
+    readiness: {
+      status: readiness.status,
+      restartSafe: readiness.restartSafe,
+      firstBlockedStage: clientReadinessSummary.firstBlockedStage,
+      recommendedRoute: clientReadinessSummary.recommendedRoute
+    },
+    proofGate: {
+      canExport: proofReceipt.canExport,
+      status: proofReceipt.status,
+      blockedBy: proofReceipt.blockedBy,
+      latestDigest: proofReceipt.manifest.latestDigest
+    },
+    lifecycleGate: {
+      status: lifecycleState.status,
+      canAcceptNow: lifecycleState.canAcceptNow,
+      nextAction: lifecycleState.nextAction
+    },
+    commandReplay: {
+      command: commandSemantics.command,
+      status: commandSemantics.status,
+      idempotencyKey: commandSemantics.idempotencyKey,
+      restartSafeStatus: statePersistence.restartSafeStatus,
+      requiredWriteCount: statePersistence.requiredWrites.length,
+      replayAction: statePersistence.restartRecovery.action
+    },
+    actions,
+    submitPolicy: workflowHandoffDecision.submitPolicy
+  };
+}
+
 function buildClientResumeContract({
+  continuationCheckpoint,
   commandSemantics,
   latestEntry,
   now,
@@ -2601,6 +3655,12 @@ function buildClientResumeContract({
     issue.code === 'stale_client_resume_digest'
     || issue.code === 'stale_client_resume_entry_count'
     || issue.code === 'invalid_client_resume_route'
+    || issue.code === 'invalid_client_resume_expiry'
+    || issue.code === 'expired_client_resume_token'
+    || issue.code === 'stale_client_resume_workflow_state'
+    || issue.code === 'stale_client_resume_runtime'
+    || issue.code === 'stale_client_resume_request'
+    || issue.code === 'stale_client_resume_fingerprint'
   ));
   const issuedToken = resumeEnvelope.token
     || requestState.continuationToken
@@ -2628,7 +3688,10 @@ function buildClientResumeContract({
     idempotencyKey: commandSemantics.idempotencyKey,
     expectedLatestDigest: latestDigest,
     expectedEntryCount: validation.entries.length,
-    route: resumeRoute
+    route: resumeRoute,
+    expectedWorkflowState: workflowHandoff.state,
+    expectedFingerprint: continuationCheckpoint?.fingerprint || null,
+    expiresAt: continuationCheckpoint?.expiresAt || null
   };
 
   return {
@@ -2637,13 +3700,16 @@ function buildClientResumeContract({
     token: issuedToken,
     issuedAt: now,
     expiresOnDigestChange: true,
+    checkpoint: continuationCheckpoint,
     expectedState: {
       latestDigest,
       latestTimestamp,
       entryCount: validation.entries.length,
       checkpointStorageKey: persistedStateShape.storageKey,
       workflowState: workflowHandoff.state,
-      route: resumeRoute
+      route: resumeRoute,
+      fingerprint: continuationCheckpoint?.fingerprint || null,
+      expiresAt: continuationCheckpoint?.expiresAt || null
     },
     submittedState: {
       token: resumeEnvelope.token,
@@ -2652,7 +3718,10 @@ function buildClientResumeContract({
       route: resumeEnvelope.expectedRoute,
       requestedAt: resumeEnvelope.requestedAt,
       runtimeId: resumeEnvelope.issuedByRuntimeId,
-      nonce: resumeEnvelope.nonce
+      nonce: resumeEnvelope.nonce,
+      workflowState: resumeEnvelope.expectedWorkflowState,
+      fingerprint: resumeEnvelope.expectedFingerprint,
+      expiresAt: resumeEnvelope.expiresAt
     },
     resumeRequest: {
       method: workflowHandoff.resume.method,
@@ -3816,11 +4885,19 @@ function buildProofReceipt({
       providerServiceContract: providerNegotiation.serviceContract.contract,
       providerExternalStateKey: providerNegotiation.serviceContract.externalStateKey,
       providerConsistency: providerNegotiation.serviceContract.consistency,
-      providerDeliveryGuarantee: providerNegotiation.serviceContract.deliveryGuarantee
+      providerDeliveryGuarantee: providerNegotiation.serviceContract.deliveryGuarantee,
+      timestampIntegrity: validation.timestampIntegrity.status,
+      timestampRange: {
+        firstObservedAt: validation.timestampIntegrity.firstObservedAt,
+        firstObservedEntryIndex: validation.timestampIntegrity.firstObservedEntryIndex,
+        lastObservedAt: validation.timestampIntegrity.lastObservedAt,
+        lastObservedEntryIndex: validation.timestampIntegrity.lastObservedEntryIndex
+      }
     },
     chain: {
       algorithm: 'digest-chain',
       continuity: validation.errorCount === 0 ? 'verified' : 'failed',
+      timestampIntegrity: validation.timestampIntegrity,
       firstEntryId: genesisEntry ? genesisEntry.id : null,
       lastEntryId: latestEntry ? latestEntry.id : null,
       requiredFields: REQUIRED_ENTRY_FIELDS,
@@ -3937,6 +5014,25 @@ function buildRuntimeContracts(
         blockedBy: 'Array<{ code: string, route: string }>'
       },
       value: workflowHandoffDecision
+    },
+    operatorRemediationPacket: {
+      type: 'AppendOnlyAuditRecoveryOperatorRemediationPacket.v1',
+      fields: {
+        status: 'ready|recoverable|operator_action_required',
+        primaryRoute: 'string',
+        primaryCommand: 'preview|accept|recover|export-proof',
+        operatorPrompt: 'string',
+        blockingActionCodes: 'string[]',
+        canSelfRecover: 'boolean',
+        degradedMode: '{ active: boolean, recoveryMode: string, fallbackRoute: string, allowedOperations: object }',
+        retryPlan: '{ strategy: string, safeToRetry: boolean, exhausted: boolean, currentAttempt: number, maxAttempts: number, nextDelayMs: number|null, nextRetryAt: string|null, reason: string }',
+        readiness: '{ status: string, restartSafe: boolean, firstBlockedStage: object|null, recommendedRoute: string }',
+        proofGate: '{ canExport: boolean, status: string, blockedBy: string[], latestDigest: string|null }',
+        lifecycleGate: '{ status: string, canAcceptNow: boolean, nextAction: object }',
+        commandReplay: '{ command: string, status: string, idempotencyKey: string, restartSafeStatus: string, requiredWriteCount: number, replayAction: string }',
+        actions: 'Array<{ code: string, severity: string, route: string, action?: string, owner?: string, retryable?: boolean, repairable?: boolean }>',
+        submitPolicy: 'AppendOnlyAuditRecoveryWorkflowHandoffDecision.v1.submitPolicy'
+      }
     },
     persistedState: {
       type: 'AppendOnlyAuditRecoveryPersistedState.v1',
@@ -4057,9 +5153,9 @@ function buildRuntimeContracts(
     analyticsReport: {
       type: 'AppendOnlyAuditRecoveryAnalyticsReport.v1',
       fields: {
-        counters: '{ entriesTotal: number, acceptedEntries: number, scopedEntries: number, uniqueActors: number, uniqueActions: number, errorsTotal: number, warningsTotal: number, runtimeFailures: number, pendingWrites: number, historySnapshots: number }',
+        counters: '{ entriesTotal: number, acceptedEntries: number, scopedEntries: number, uniqueActors: number, uniqueActions: number, errorsTotal: number, warningsTotal: number, timestampInvalidEntries: number, timestampRegressionEntries: number, timestampParseableEntries: number, runtimeFailures: number, pendingWrites: number, historySnapshots: number }',
         breakdowns: '{ actions: Array<{ key: string, count: number }>, actors: Array<{ key: string, count: number }>, routes: Array<{ key: string, count: number }>, issues: Array<{ key: string, count: number }>, commandStatuses: Array<{ key: string, count: number }> }',
-        timeline: '{ current: AppendOnlyAuditRecoveryAnalyticsSnapshot.v1, history: AppendOnlyAuditRecoveryAnalyticsSnapshot.v1[], events: AppendOnlyAuditRecoveryTimelineEvent.v1[], deltaFromPrevious: object }',
+        timeline: '{ current: AppendOnlyAuditRecoveryAnalyticsSnapshot.v1, history: AppendOnlyAuditRecoveryAnalyticsSnapshot.v1[], events: AppendOnlyAuditRecoveryTimelineEvent.v1[], timestampIntegrity: AppendOnlyAuditRecoveryTimestampIntegrity.v1, deltaFromPrevious: object }',
         exportSummary: 'AppendOnlyAuditRecoveryExportSummary.v1',
         reportingState: '{ status: string, primaryMetric: string, route: string, dashboardCards: Array<{ id: string, label: string, value: number, trend: number|null }>, alerts: Array<object>, exportControls: object }'
       }
@@ -4078,6 +5174,7 @@ export function describeAppendOnlyLogSurface(input = {}) {
   const acceptanceRequested = Boolean(input.acceptance && input.acceptance.requestedBy);
   const lifecycleControls = normalizeLifecycleControls(input);
   const lifecycleCommand = normalizeLifecycleCommand(input, lifecycleControls);
+  const mailchimpCampaign = normalizeMailchimpCampaignEnvelope(input);
   let validation = validateBoundaryContext(
     validateEntries(asArray(input.evidence), policy),
     boundaryContext,
@@ -4110,6 +5207,7 @@ export function describeAppendOnlyLogSurface(input = {}) {
     idempotencyKey: buildIdempotencyKey(requestState, providerCommand, latestEntry),
     status: validation.errorCount > 0 ? 'blocked' : 'pending'
   };
+  validation = validateMailchimpCampaignEnvelope(validation, mailchimpCampaign, providerProbeCommand);
   let providerNegotiation = buildProviderNegotiation({
     commandSemantics: providerProbeCommand,
     latestEntry,
@@ -4119,6 +5217,34 @@ export function describeAppendOnlyLogSurface(input = {}) {
     validation
   });
   validation = validateProviderNegotiation(validation, providerNegotiation, acceptanceRequested);
+  const mailchimpProbeContract = buildMailchimpCampaignDeliveryContract({
+    accepted: false,
+    boundaryContext,
+    commandSemantics: providerProbeCommand,
+    latestEntry,
+    mailchimpCampaign,
+    now,
+    providerNegotiation,
+    validation
+  });
+  if (acceptanceRequested && !mailchimpProbeContract.readyForAcceptance) {
+    const issues = [
+      ...validation.issues,
+      ...mailchimpProbeContract.blockingReasons.map((reason) => ({
+        code: reason,
+        severity: 'error',
+        entryIndex: null,
+        field: 'mailchimp.deliveryContract',
+        message: `Mailchimp campaign delivery contract is blocked: ${reason}.`
+      }))
+    ];
+    validation = {
+      ...validation,
+      issues,
+      errorCount: issues.filter((issue) => issue.severity === 'error').length,
+      warningCount: issues.filter((issue) => issue.severity === 'warning').length
+    };
+  }
   const accepted = acceptanceRequested && validation.errorCount === 0;
   const preview = buildPreview(validation);
   const workflowHandoff = buildWorkflowHandoff(validation, accepted, requestState, latestEntry);
@@ -4132,6 +5258,15 @@ export function describeAppendOnlyLogSurface(input = {}) {
     persistedState,
     validation
   });
+  const continuationCheckpoint = buildClientContinuationCheckpoint({
+    latestEntry,
+    persistedStateShape,
+    requestState,
+    validation,
+    workflowHandoff,
+    now
+  });
+  validation = validateClientResumeEnvelope(validation, clientResumeEnvelope, continuationCheckpoint, now);
   const commandSemantics = buildCommandSemantics({
     accepted,
     boundaryContext,
@@ -4152,6 +5287,7 @@ export function describeAppendOnlyLogSurface(input = {}) {
     validation
   });
   const clientResume = buildClientResumeContract({
+    continuationCheckpoint,
     commandSemantics,
     latestEntry,
     now,
@@ -4167,6 +5303,16 @@ export function describeAppendOnlyLogSurface(input = {}) {
     now,
     providerContract,
     requestState,
+    validation
+  });
+  const mailchimpDeliveryContract = buildMailchimpCampaignDeliveryContract({
+    accepted,
+    boundaryContext,
+    commandSemantics,
+    latestEntry,
+    mailchimpCampaign,
+    now,
+    providerNegotiation,
     validation
   });
   const recoveryPaths = buildRecoveryPaths({
@@ -4213,13 +5359,15 @@ export function describeAppendOnlyLogSurface(input = {}) {
       && boundary.canExportProof
       && Boolean(latestEntry && latestEntry.digest)
       && providerNegotiation.status === 'negotiated'
-      && operationalHealth.degradedMode.proofExportBlocked === false,
+      && operationalHealth.degradedMode.proofExportBlocked === false
+      && (!mailchimpDeliveryContract.present || mailchimpDeliveryContract.readyForProofExport),
     readyForWorkflowHandoff: workflowHandoff.canContinue || workflowHandoff.state === 'repair',
     readyForLifecycleAcceptance: lifecycleState.canAcceptNow,
     readyForScheduledAcceptance: lifecycleState.canAutoAccept,
     readyForProviderSync: providerNegotiation.status === 'negotiated'
       && providerNegotiation.syncMetadata.syncDigestMatches,
     readyForExternalHandoff: providerNegotiation.externalHandoffState.ready,
+    readyForMailchimpDelivery: mailchimpDeliveryContract.readyForAcceptance,
     restartSafe: statePersistence.restartSafeStatus.startsWith('restart_safe')
       && !['write_blocked', 'write_conflict', 'write_deferred_active_lease'].includes(statePersistence.status),
     restartSafeStatus: statePersistence.restartSafeStatus,
@@ -4269,6 +5417,20 @@ export function describeAppendOnlyLogSurface(input = {}) {
     validation,
     workflowHandoff
   });
+  const mailchimpAcceptanceHandoff = buildMailchimpCampaignAcceptanceHandoff({
+    accepted,
+    acceptanceRequested,
+    clientReadinessSummary,
+    commandSemantics,
+    latestEntry,
+    mailchimpCampaign,
+    mailchimpDeliveryContract,
+    now,
+    proofReceipt,
+    requestState,
+    validation,
+    workflowHandoff
+  });
   const clientWorkflow = buildClientWorkflowContract({
     accepted,
     acceptanceRequested,
@@ -4300,6 +5462,28 @@ export function describeAppendOnlyLogSurface(input = {}) {
     validation,
     workflowHandoff
   });
+  const operatorRemediationPacket = buildOperatorRemediationPacket({
+    clientReadinessSummary,
+    commandSemantics,
+    lifecycleState,
+    now,
+    operationalHealth,
+    proofReceipt,
+    providerNegotiation,
+    readiness,
+    statePersistence,
+    validation,
+    workflowHandoffDecision
+  });
+  const mailchimpRuntimeAdoption = buildMailchimpClientRuntimeAdoption({
+    accepted,
+    clientResume,
+    mailchimpAcceptanceHandoff,
+    mailchimpDeliveryContract,
+    now,
+    requestState,
+    workflowHandoffDecision
+  });
 
   return {
     ok: true,
@@ -4313,6 +5497,10 @@ export function describeAppendOnlyLogSurface(input = {}) {
     requestState,
     boundary,
     lifecycle: lifecycleState,
+    mailchimpCampaign,
+    mailchimpDeliveryContract,
+    mailchimpAcceptanceHandoff,
+    mailchimpRuntimeAdoption,
     operationalHealth,
     analyticsReport,
     persistedState: persistedStateShape,
@@ -4331,6 +5519,7 @@ export function describeAppendOnlyLogSurface(input = {}) {
     },
     workflowHandoff,
     workflowHandoffDecision,
+    operatorRemediationPacket,
     clientResume,
     readiness,
     readinessSummary: clientReadinessSummary,
@@ -4340,6 +5529,7 @@ export function describeAppendOnlyLogSurface(input = {}) {
       entryCount: validation.entries.length,
       errorCount: validation.errorCount,
       warningCount: validation.warningCount,
+      timestampIntegrity: validation.timestampIntegrity,
       issues: validation.issues
     },
     proof: {
@@ -4349,6 +5539,8 @@ export function describeAppendOnlyLogSurface(input = {}) {
       latestDigest: proofReceipt.manifest.latestDigest,
       genesisDigest: proofReceipt.manifest.genesisDigest,
       appendOnly: proofReceipt.manifest.appendOnly,
+      timestampIntegrity: proofReceipt.manifest.timestampIntegrity,
+      timestampRange: proofReceipt.manifest.timestampRange,
       tenantScoped: boundaryContext.enforced,
       tenantId: proofReceipt.manifest.tenantId,
       workspaceId: proofReceipt.manifest.workspaceId,
@@ -4361,6 +5553,10 @@ export function describeAppendOnlyLogSurface(input = {}) {
       syncMetadata: providerNegotiation.syncMetadata,
       serviceContract: providerNegotiation.serviceContract,
       externalHandoffState: providerNegotiation.externalHandoffState,
+      productScope: mailchimpCampaign.present ? mailchimpCampaign.proofScope : null,
+      mailchimpCampaign,
+      mailchimpDeliveryContract,
+      mailchimpRuntimeAdoption,
       warnings: proofReceipt.chain.warningCodes
     },
     recoveryPaths,
@@ -4371,6 +5567,7 @@ export function describeAppendOnlyLogSurface(input = {}) {
       validationRoute: WORKFLOW_ROUTES.validate,
       proofRoute: WORKFLOW_ROUTES.proof,
       requiredEvidenceFields: REQUIRED_ENTRY_FIELDS,
+      timestampIntegrityContract: 'AppendOnlyAuditRecoveryTimestampIntegrity.v1',
       accepts: {
         evidence: 'Array<AppendOnlyAuditEntry>',
         acceptance: '{ requestedBy: string, reason?: string }',
@@ -4378,6 +5575,10 @@ export function describeAppendOnlyLogSurface(input = {}) {
         scope: '{ tenantId?: string, workspaceId?: string, allowedTenantIds?: string[], allowedWorkspaceIds?: string[], workspaceTenantBindings?: Array<{ workspaceId: string, tenantId: string }>, requireWorkspaceTenantBinding?: boolean }',
         lifecycle: 'AppendOnlyAuditRecoveryLifecycleSettings.v1',
         lifecycleCommand: 'AppendOnlyAuditRecoveryLifecycleCommand.v1',
+        mailchimp: 'AppendOnlyAuditRecoveryMailchimpCampaignEnvelope.v1',
+        mailchimpDeliveryContract: 'AppendOnlyAuditRecoveryMailchimpCampaignDeliveryContract.v1',
+        mailchimpAcceptanceHandoff: 'AppendOnlyAuditRecoveryMailchimpCampaignAcceptanceHandoff.v1',
+        mailchimpRuntimeAdoption: 'AppendOnlyAuditRecoveryMailchimpClientRuntimeAdoption.v1',
         settings: '{ lifecycle?: AppendOnlyAuditRecoveryLifecycleSettings.v1 }',
         controls: '{ lifecycle?: AppendOnlyAuditRecoveryLifecycleSettings.v1, lifecycleCommand?: AppendOnlyAuditRecoveryLifecycleCommand.v1 }',
         provider: 'AppendOnlyAuditRecoveryProviderContract.v1',
@@ -4388,7 +5589,8 @@ export function describeAppendOnlyLogSurface(input = {}) {
         operationalHealth: '{ failures?: AppendOnlyAuditRecoveryRuntimeFailure.v1[], degradedMode?: boolean }',
         failures: 'AppendOnlyAuditRecoveryRuntimeFailure.v1[]',
         retry: '{ attempt?: number, maxAttempts?: number, baseDelayMs?: number, maxDelayMs?: number }',
-        workflowHandoffDecision: 'AppendOnlyAuditRecoveryWorkflowHandoffDecision.v1'
+        workflowHandoffDecision: 'AppendOnlyAuditRecoveryWorkflowHandoffDecision.v1',
+        operatorRemediationPacket: 'AppendOnlyAuditRecoveryOperatorRemediationPacket.v1'
       },
       providerCapabilities: {
         supported: HOSTED_KERNEL_PROVIDER_CAPABILITIES,
@@ -4429,6 +5631,9 @@ export function describeAppendOnlyLogSurface(input = {}) {
           accept: 'AppendOnlyAuditRecoveryAcceptancePanel.v1',
           proof: 'AppendOnlyAuditRecoveryProof.v1',
           readiness: 'AppendOnlyAuditRecoveryClientReadinessSummary.v1'
+        },
+        productHandoffs: {
+          mailchimpCampaignAcceptance: 'AppendOnlyAuditRecoveryMailchimpCampaignAcceptanceHandoff.v1'
         },
         value: clientWorkflow
       }

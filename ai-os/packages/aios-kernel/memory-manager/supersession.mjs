@@ -76,6 +76,8 @@ const ACTION_PERMISSION = {
   recover: "recover"
 };
 const WORKSPACE_PRIVILEGED_ROLES = new Set(["owner", "admin", "kernel"]);
+const MAILCHIMP_SUPERSESSION_EVENT_KINDS = new Set(["audience-sync", "campaign-sync", "segment-sync", "automation-sync"]);
+const MAILCHIMP_SUPERSESSION_REQUIRED_IDENTIFIERS = ["audienceId"];
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -203,6 +205,100 @@ function normalizeWorkspaceGrantList(value) {
 
 function uniqueCleanStrings(values) {
   return [...new Set(asArray(values).map(cleanString).filter(Boolean))].sort();
+}
+
+function normalizeMailchimpSupersessionContext(input, current, candidate, now) {
+  const source = asObject(input.mailchimp || input.mailchimpSync || asObject(input.integration).mailchimp);
+  const identifiers = asObject(source.identifiers);
+  const audienceId = cleanString(source.audienceId) || cleanString(source.listId) || cleanString(identifiers.audienceId);
+  const campaignId = cleanString(source.campaignId) || cleanString(identifiers.campaignId);
+  const segmentId = cleanString(source.segmentId) || cleanString(identifiers.segmentId);
+  const automationId = cleanString(source.automationId) || cleanString(identifiers.automationId);
+  const requestedEventKinds = uniqueCleanStrings(source.eventKinds || source.events)
+    .map((eventKind) => eventKind.toLowerCase());
+  const currentTags = uniqueCleanStrings(current.tags).map((tag) => tag.toLowerCase());
+  const candidateTags = uniqueCleanStrings(candidate.tags).map((tag) => tag.toLowerCase());
+  const recordTagged = [...currentTags, ...candidateTags].some((tag) => tag.startsWith("mailchimp"));
+  const eventKinds = requestedEventKinds.length > 0
+    ? requestedEventKinds.filter((eventKind) => MAILCHIMP_SUPERSESSION_EVENT_KINDS.has(eventKind))
+    : recordTagged
+      ? ["audience-sync"]
+      : [];
+  const unsupportedEventKinds = requestedEventKinds.filter((eventKind) => !MAILCHIMP_SUPERSESSION_EVENT_KINDS.has(eventKind));
+  const requestedMode = cleanString(source.syncMode) || cleanString(source.mode) || "delta";
+  const syncMode = ["delta", "snapshot", "webhook"].includes(requestedMode) ? requestedMode : "delta";
+  const externalRevision = cleanString(source.externalRevision) || cleanString(source.revision);
+  const missingRequiredIdentifiers = MAILCHIMP_SUPERSESSION_REQUIRED_IDENTIFIERS.filter((identifier) => {
+    if (identifier === "audienceId") return !audienceId;
+    return false;
+  });
+  const subjectKey = [
+    "mailchimp",
+    audienceId || "audience-unbound",
+    campaignId || segmentId || automationId || "workspace"
+  ].join(":");
+  const ready = missingRequiredIdentifiers.length === 0 && eventKinds.length > 0;
+
+  return {
+    schemaVersion: 1,
+    provider: "mailchimp",
+    generatedAt: now,
+    subjectKey,
+    ready,
+    identifiers: {
+      audienceId,
+      campaignId,
+      segmentId,
+      automationId,
+      missingRequiredIdentifiers
+    },
+    sync: {
+      mode: syncMode,
+      eventKinds,
+      unsupportedEventKinds,
+      externalRevision,
+      lastSyncedAt: cleanString(source.lastSyncedAt) || cleanString(source.syncedAt)
+    },
+    recordSignals: {
+      currentTagged: currentTags.some((tag) => tag.startsWith("mailchimp")),
+      candidateTagged: candidateTags.some((tag) => tag.startsWith("mailchimp")),
+      currentTags,
+      candidateTags
+    },
+    validationIssues: [
+      ...missingRequiredIdentifiers.map((identifier) => ({
+        code: "mailchimp_required_identifier_missing",
+        severity: "warning",
+        field: `mailchimp.${identifier}`,
+        message: `Mailchimp ${identifier} is required before supersession can externalize sync state.`
+      })),
+      ...unsupportedEventKinds.map((eventKind) => ({
+        code: "mailchimp_event_kind_unsupported",
+        severity: "warning",
+        field: "mailchimp.eventKinds",
+        value: eventKind,
+        allowed: [...MAILCHIMP_SUPERSESSION_EVENT_KINDS].sort()
+      })),
+      ...(requestedMode === syncMode ? [] : [{
+        code: "mailchimp_sync_mode_normalized",
+        severity: "warning",
+        field: "mailchimp.syncMode",
+        value: requestedMode,
+        normalizedValue: syncMode
+      }])
+    ],
+    proofKey: hashStablePayload({
+      surfaceId,
+      provider: "mailchimp",
+      subjectKey,
+      currentMemoryId: current.id,
+      candidateMemoryId: candidate.id,
+      eventKinds,
+      syncMode,
+      externalRevision,
+      ready
+    })
+  };
 }
 
 function resolveBoundaryScopeValue({ explicitValue, recordValues, fieldName, fallbackValue = null }) {
@@ -1129,6 +1225,7 @@ function normalizePersistedSupersessionState(value) {
   const command = asObject(state.lastCommand);
   const recovery = asObject(state.recovery);
   const writeCheckpoint = asObject(state.writeCheckpoint);
+  const mailchimp = asObject(state.mailchimpSync || state.mailchimpContinuity || state.providerContinuity?.mailchimp);
   const commandJournal = normalizeCommandJournal(
     state.commandJournal || state.commandLedger || writeCheckpoint.commandJournal
   );
@@ -1209,7 +1306,26 @@ function normalizePersistedSupersessionState(value) {
       typeof writeCheckpoint.hashAlgorithm === "string" && writeCheckpoint.hashAlgorithm.trim()
         ? writeCheckpoint.hashAlgorithm.trim()
         : null,
-    commandJournal
+    commandJournal,
+    mailchimpContinuity: {
+      schemaVersion: mailchimp.schemaVersion === 1 ? 1 : null,
+      status: cleanString(mailchimp.status),
+      subjectKey: cleanString(mailchimp.subjectKey),
+      checkpointKey: cleanString(mailchimp.checkpointKey) || cleanString(mailchimp.payloadRef),
+      payloadRef: cleanString(mailchimp.payloadRef),
+      externalRevision: cleanString(mailchimp.externalRevision),
+      acceptedAt: cleanString(mailchimp.acceptedAt),
+      replaySafe:
+        typeof mailchimp.replaySafe === "boolean"
+          ? mailchimp.replaySafe
+          : typeof mailchimp.restartSafe === "boolean"
+            ? mailchimp.restartSafe
+            : null,
+      blockerCount: Number.isInteger(mailchimp.blockerCount) && mailchimp.blockerCount >= 0
+        ? mailchimp.blockerCount
+        : null,
+      proofKey: cleanString(mailchimp.proofKey) || cleanString(mailchimp.proof)
+    }
   };
 }
 
@@ -1491,6 +1607,8 @@ function buildPersistedStateShape({
     revision: nextRevision,
     currentMemoryId: current.id,
     candidateMemoryId: candidate.id,
+    previousMailchimpContinuity: persistedState.mailchimpContinuity,
+    mailchimpContinuity: persistedState.mailchimpContinuity,
     boundary: {
       tenantId: boundary.tenantId,
       workspaceId: boundary.workspaceId,
@@ -2706,7 +2824,8 @@ function buildClientRuntimeState({
   commandResult,
   operationalHealth,
   nextSteps,
-  persistedStateShape
+  persistedStateShape,
+  mailchimpSupersessionRuntime
 }) {
   const preferences = normalizeClientHandoffPreferences(input, requestContext);
   const blocked = !validationSummary.ok || readiness.status === "blocked";
@@ -2795,7 +2914,8 @@ function buildClientRuntimeState({
         `memory:${current.id}`,
         `memory:${candidate.id}`,
         `workflow:${requestContext.workflow.id}`,
-        `supersession:${persistedStateShape.status}`
+        `supersession:${persistedStateShape.status}`,
+        `mailchimp:${mailchimpSupersessionRuntime.context.subjectKey}`
       ],
       revision: persistedStateShape.revision,
       status: persistedStateShape.status,
@@ -2880,6 +3000,18 @@ function buildClientRuntimeState({
       degradedMode: operationalHealth.degradedMode,
       retry: operationalHealth.retry
     },
+    mailchimpSync: {
+      state: mailchimpSupersessionRuntime.state,
+      ready: mailchimpSupersessionRuntime.ready,
+      required: mailchimpSupersessionRuntime.required,
+      subjectKey: mailchimpSupersessionRuntime.context.subjectKey,
+      providerBinding: mailchimpSupersessionRuntime.providerBinding,
+      runtimeStatePatch: mailchimpSupersessionRuntime.runtimeStatePatch,
+      externalHandoff: mailchimpSupersessionRuntime.externalHandoff,
+      validationSummary: mailchimpSupersessionRuntime.validationSummary,
+      nextAction: mailchimpSupersessionRuntime.nextAction,
+      proofKey: mailchimpSupersessionRuntime.proofKey
+    },
     resume: {
       route: resumeRoute,
       mode: preferences.mode,
@@ -2893,7 +3025,10 @@ function buildClientRuntimeState({
         stateKey: `${preferences.stateNamespace}:${requestContext.workflow.id}:${acceptToken}`,
         handoffEnvelopeId: workflowHandoffEnvelope.envelopeId,
         status: persistedStateShape.status,
-        isolationKey: scopeContract.isolationKey
+        isolationKey: scopeContract.isolationKey,
+        mailchimpSyncState: mailchimpSupersessionRuntime.state,
+        mailchimpSubjectKey: mailchimpSupersessionRuntime.context.subjectKey,
+        mailchimpHandoffRef: mailchimpSupersessionRuntime.externalHandoff.payloadRef
       },
       returnTo: preferences.returnTo
     }
@@ -2987,7 +3122,23 @@ function normalizeHistorySnapshots(value) {
           removedFacts:
             Number.isInteger(counters.removedFacts) && counters.removedFacts >= 0 ? counters.removedFacts : 0,
           evidenceItems:
-            Number.isInteger(counters.evidenceItems) && counters.evidenceItems >= 0 ? counters.evidenceItems : 0
+            Number.isInteger(counters.evidenceItems) && counters.evidenceItems >= 0 ? counters.evidenceItems : 0,
+          mailchimpRequired:
+            Number.isInteger(counters.mailchimpRequired) && counters.mailchimpRequired >= 0
+              ? counters.mailchimpRequired
+              : 0,
+          mailchimpReady:
+            Number.isInteger(counters.mailchimpReady) && counters.mailchimpReady >= 0
+              ? counters.mailchimpReady
+              : 0,
+          mailchimpBlockers:
+            Number.isInteger(counters.mailchimpBlockers) && counters.mailchimpBlockers >= 0
+              ? counters.mailchimpBlockers
+              : 0,
+          mailchimpContinuityReplaySafe:
+            Number.isInteger(counters.mailchimpContinuityReplaySafe) && counters.mailchimpContinuityReplaySafe >= 0
+              ? counters.mailchimpContinuityReplaySafe
+              : 0
         }
       };
     })
@@ -3002,14 +3153,23 @@ function sumHistoryCounters(snapshots) {
       warnings: totals.warnings + snapshot.counters.warnings,
       introducedFacts: totals.introducedFacts + snapshot.counters.introducedFacts,
       removedFacts: totals.removedFacts + snapshot.counters.removedFacts,
-      evidenceItems: totals.evidenceItems + snapshot.counters.evidenceItems
+      evidenceItems: totals.evidenceItems + snapshot.counters.evidenceItems,
+      mailchimpRequired: totals.mailchimpRequired + snapshot.counters.mailchimpRequired,
+      mailchimpReady: totals.mailchimpReady + snapshot.counters.mailchimpReady,
+      mailchimpBlockers: totals.mailchimpBlockers + snapshot.counters.mailchimpBlockers,
+      mailchimpContinuityReplaySafe:
+        totals.mailchimpContinuityReplaySafe + snapshot.counters.mailchimpContinuityReplaySafe
     }),
     {
       blockers: 0,
       warnings: 0,
       introducedFacts: 0,
       removedFacts: 0,
-      evidenceItems: 0
+      evidenceItems: 0,
+      mailchimpRequired: 0,
+      mailchimpReady: 0,
+      mailchimpBlockers: 0,
+      mailchimpContinuityReplaySafe: 0
     }
   );
 }
@@ -3049,6 +3209,11 @@ function buildAnalyticsHistoryRollup(historySnapshots) {
           introducedFacts: current.counters.introducedFacts - previousSnapshot.counters.introducedFacts,
           removedFacts: current.counters.removedFacts - previousSnapshot.counters.removedFacts,
           evidenceItems: current.counters.evidenceItems - previousSnapshot.counters.evidenceItems,
+          mailchimpRequired: current.counters.mailchimpRequired - previousSnapshot.counters.mailchimpRequired,
+          mailchimpReady: current.counters.mailchimpReady - previousSnapshot.counters.mailchimpReady,
+          mailchimpBlockers: current.counters.mailchimpBlockers - previousSnapshot.counters.mailchimpBlockers,
+          mailchimpContinuityReplaySafe:
+            current.counters.mailchimpContinuityReplaySafe - previousSnapshot.counters.mailchimpContinuityReplaySafe,
           revision: current.revision - previousSnapshot.revision
         }
       : null,
@@ -3147,13 +3312,25 @@ function buildSupersessionAnalytics({
   recoveryStatus,
   persistedStateShape,
   lifecycleControls,
-  acceptToken
+  acceptToken,
+  mailchimpSupersessionRuntime
 }) {
   const persistedAnalytics = asObject(asObject(input.persistedState).analytics);
   const analyticsInput = asObject(input.analytics || input.analyticsExport || persistedAnalytics.exportPreferences);
   const historyInput = asArray(input.history).length > 0 ? input.history : persistedAnalytics.historySnapshots;
   const exportPreferences = normalizeAnalyticsExportPreferences(analyticsInput);
   const previousSnapshots = normalizeHistorySnapshots(historyInput);
+  const mailchimpRuntime = asObject(mailchimpSupersessionRuntime);
+  const mailchimpContext = asObject(mailchimpRuntime.context);
+  const mailchimpValidation = asObject(mailchimpRuntime.validationSummary);
+  const mailchimpContinuity = asObject(mailchimpRuntime.continuity);
+  const mailchimpExternalHandoff = asObject(mailchimpRuntime.externalHandoff);
+  const mailchimpBlockers = asArray(mailchimpValidation.blockers);
+  const mailchimpIssues = asArray(mailchimpValidation.issues);
+  const mailchimpSubjectKey = cleanString(mailchimpContext.subjectKey) || "mailchimp:unbound";
+  const mailchimpContinuityStatus = cleanString(mailchimpContinuity.status) || "not_applicable";
+  const mailchimpRequired = mailchimpRuntime.required === true;
+  const mailchimpReady = mailchimpRuntime.ready === true;
   const counters = {
     validationChecks: validation.checks.length,
     validationPassed: validationSummary.passed,
@@ -3183,6 +3360,14 @@ function buildSupersessionAnalytics({
     workspaceScopeInferred: scopeContract.effectiveScope.workspaceSource === "memory_pair_inferred" ? 1 : 0,
     scopeViolations: scopeContract.violations.length,
     scopedWriteAllowed: scopeContract.writePolicy.allowStateWrite ? 1 : 0,
+    mailchimpRequired: mailchimpRequired ? 1 : 0,
+    mailchimpReady: mailchimpReady ? 1 : 0,
+    mailchimpBlocked: mailchimpRequired && !mailchimpReady ? 1 : 0,
+    mailchimpBlockers: mailchimpBlockers.length,
+    mailchimpValidationIssues: mailchimpIssues.length,
+    mailchimpContinuityReplaySafe: mailchimpContinuity.replaySafe === true ? 1 : 0,
+    mailchimpPayloadReady: mailchimpExternalHandoff.payload ? 1 : 0,
+    mailchimpEventKinds: asArray(asObject(mailchimpContext.sync).eventKinds).length,
     historySnapshotsRetained: previousSnapshots.length + 1,
     exportFormatsRequested: exportPreferences.formats.length
   };
@@ -3199,7 +3384,11 @@ function buildSupersessionAnalytics({
       warnings: counters.warnings,
       introducedFacts: counters.introducedFacts,
       removedFacts: counters.removedFacts,
-      evidenceItems: counters.evidenceItems
+      evidenceItems: counters.evidenceItems,
+      mailchimpRequired: counters.mailchimpRequired,
+      mailchimpReady: counters.mailchimpReady,
+      mailchimpBlockers: counters.mailchimpBlockers,
+      mailchimpContinuityReplaySafe: counters.mailchimpContinuityReplaySafe
     }
   };
   const historySnapshots = [...previousSnapshots, currentSnapshot].slice(-ANALYTICS_HISTORY_LIMIT);
@@ -3273,6 +3462,22 @@ function buildSupersessionAnalytics({
     },
     {
       at: now,
+      event: "mailchimp_supersession_sync_evaluated",
+      status: mailchimpRequired ? (mailchimpReady ? "ready" : "blocked") : "not_required",
+      route: mailchimpReady
+        ? mailchimpExternalHandoff.route || "memory-manager/supersession/provider/mailchimp/accept"
+        : "memory-manager/supersession/provider/mailchimp",
+      subjectKey: mailchimpSubjectKey,
+      required: mailchimpRequired,
+      ready: mailchimpReady,
+      continuityStatus: mailchimpContinuityStatus,
+      replaySafe: mailchimpContinuity.replaySafe === true,
+      payloadRef: cleanString(mailchimpExternalHandoff.payloadRef),
+      blockers: mailchimpBlockers,
+      issueCount: mailchimpIssues.length
+    },
+    {
+      at: now,
       event: "analytics_export_projected",
       status: exportPreferences.formats.join("+"),
       route: exportPreferences.destination,
@@ -3304,7 +3509,12 @@ function buildSupersessionAnalytics({
       workspaceAuthorized: scopeContract.workspaceAuthorization.allowed,
       workspaceAuthorizationSource: scopeContract.workspaceAuthorization.source,
       historySnapshotsRetained: historyRollup.retention.retained,
-      exportFormats: exportPreferences.formats
+      exportFormats: exportPreferences.formats,
+      mailchimpSyncRequired: mailchimpRequired,
+      mailchimpSyncReady: mailchimpReady,
+      mailchimpSubjectKey,
+      mailchimpContinuityStatus,
+      mailchimpBlockerCount: mailchimpBlockers.length
     },
     {
       kind: "analytics_history_rollup",
@@ -3318,7 +3528,11 @@ function buildSupersessionAnalytics({
       totalIntroducedFacts: historyRollup.totals.introducedFacts,
       totalRemovedFacts: historyRollup.totals.removedFacts,
       trendBlockerRate: historyRollup.trendWindow.blockerRate,
-      trendWarningRate: historyRollup.trendWindow.warningRate
+      trendWarningRate: historyRollup.trendWindow.warningRate,
+      totalMailchimpRequired: historyRollup.totals.mailchimpRequired,
+      totalMailchimpReady: historyRollup.totals.mailchimpReady,
+      totalMailchimpBlockers: historyRollup.totals.mailchimpBlockers,
+      totalMailchimpReplaySafe: historyRollup.totals.mailchimpContinuityReplaySafe
     },
     {
       kind: "analytics_export_manifest",
@@ -3348,6 +3562,44 @@ function buildSupersessionAnalytics({
       grantCount: scopeContract.workspaceAuthorization.grantCount,
       reason: scopeContract.workspaceAuthorization.reason
     },
+    {
+      kind: "mailchimp_supersession_sync",
+      workflowId: requestContext.workflow.id,
+      subjectKey: mailchimpSubjectKey,
+      required: mailchimpRequired,
+      ready: mailchimpReady,
+      state: cleanString(mailchimpRuntime.state) || "not_applicable",
+      providerReady: asObject(mailchimpRuntime.providerBinding).providerReady === true,
+      route: mailchimpExternalHandoff.route || null,
+      payloadRef: cleanString(mailchimpExternalHandoff.payloadRef),
+      continuityStatus: mailchimpContinuityStatus,
+      continuityCheckpointKey: cleanString(mailchimpContinuity.checkpointKey),
+      replaySafe: mailchimpContinuity.replaySafe === true,
+      externalRevision: cleanString(asObject(mailchimpContext.sync).externalRevision),
+      eventKinds: asArray(asObject(mailchimpContext.sync).eventKinds),
+      syncMode: cleanString(asObject(mailchimpContext.sync).mode),
+      blockerCount: mailchimpBlockers.length,
+      blockers: mailchimpBlockers,
+      issueCount: mailchimpIssues.length,
+      proofKey: cleanString(mailchimpRuntime.proofKey)
+    },
+    ...mailchimpBlockers.map((blocker) => ({
+      kind: "mailchimp_sync_blocker",
+      workflowId: requestContext.workflow.id,
+      subjectKey: mailchimpSubjectKey,
+      blocker,
+      route: "memory-manager/supersession/provider/mailchimp",
+      continuityStatus: mailchimpContinuityStatus
+    })),
+    ...mailchimpIssues.map((issue) => ({
+      kind: "mailchimp_sync_issue",
+      workflowId: requestContext.workflow.id,
+      subjectKey: mailchimpSubjectKey,
+      severity: issue.severity || "warning",
+      field: issue.field || "mailchimp",
+      message: issue.message || issue.code || "Mailchimp supersession sync requires review.",
+      allowed: issue.allowed || null
+    })),
     ...boundary.scopeResolution.issues.map((issue) => ({
       kind: "scope_resolution_issue",
       workflowId: requestContext.workflow.id,
@@ -3449,13 +3701,23 @@ function buildSupersessionAnalytics({
       summary:
         `${counters.introducedFacts} introduced fact(s), ${counters.removedFacts} removed fact(s), ` +
         `${counters.blockerFailures} blocker(s), ${counters.warnings} warning(s), ` +
-        `${counters.scopeViolations} scope violation(s).`,
+        `${counters.scopeViolations} scope violation(s), ` +
+        `${counters.mailchimpBlockers} Mailchimp sync blocker(s).`,
+      mailchimp: {
+        required: mailchimpRequired,
+        ready: mailchimpReady,
+        subjectKey: mailchimpSubjectKey,
+        continuityStatus: mailchimpContinuityStatus,
+        blockerCount: mailchimpBlockers.length,
+        payloadRef: cleanString(mailchimpExternalHandoff.payloadRef)
+      },
       trend:
         historyRollup.deltasFromPrevious
           ? {
               blockerDelta: historyRollup.deltasFromPrevious.blockers,
               warningDelta: historyRollup.deltasFromPrevious.warnings,
               removedFactDelta: historyRollup.deltasFromPrevious.removedFacts,
+              mailchimpBlockerDelta: historyRollup.deltasFromPrevious.mailchimpBlockers,
               revisionDelta: historyRollup.deltasFromPrevious.revision
             }
           : null
@@ -3704,6 +3966,14 @@ function buildProviderServiceContracts({ input, command, lifecycleControls, work
   const unavailableRequiredServices = providers
     .filter((provider) => requiredServices.includes(provider.service) && !provider.available)
     .map((provider) => provider.service);
+  const providerActionSummary = buildProviderActionSummary({
+    providers,
+    requiredServices,
+    command,
+    lifecycleControls,
+    workflowHandoff,
+    acceptToken
+  });
 
   return {
     schemaVersion: 1,
@@ -3713,6 +3983,7 @@ function buildProviderServiceContracts({ input, command, lifecycleControls, work
     unavailableRequiredServices,
     providers,
     serviceIntents: providers.map((provider) => provider.serviceIntent),
+    providerActionSummary,
     negotiationMatrix: Object.fromEntries(
       providers.map((provider) => [
         provider.service,
@@ -3741,6 +4012,529 @@ function buildProviderServiceContracts({ input, command, lifecycleControls, work
         }
       ])
     )
+  };
+}
+
+function buildMailchimpSupersessionRuntime({
+  input,
+  now,
+  current,
+  candidate,
+  command,
+  acceptToken,
+  boundary,
+  scopeContract,
+  lifecycleControls,
+  providerServiceContracts,
+  workflowHandoff,
+  persistedStateShape
+}) {
+  const context = normalizeMailchimpSupersessionContext(input, current, candidate, now);
+  const auditProvider = providerServiceContracts.providers.find((provider) => provider.service === "audit");
+  const handoffProvider = providerServiceContracts.providers.find((provider) => provider.service === "handoff");
+  const stateProvider = providerServiceContracts.providers.find((provider) => provider.service === "state");
+  const requiresExternalSync = context.ready || context.recordSignals.currentTagged || context.recordSignals.candidateTagged;
+  const providerReady = providerServiceContracts.acceptanceReady;
+  const continuity = buildMailchimpSupersessionContinuity({
+    now,
+    context,
+    command,
+    acceptToken,
+    boundary,
+    scopeContract,
+    persistedStateShape
+  });
+  const blockers = [
+    ...context.identifiers.missingRequiredIdentifiers.map((identifier) => `missing-${identifier}`),
+    context.sync.eventKinds.length === 0 && requiresExternalSync ? "mailchimp-event-kind-missing" : null,
+    !providerReady ? "provider-services-not-ready" : null,
+    !boundary.decision.allowed ? "actor-permission-denied" : null,
+    !scopeContract.writePolicy.allowStateWrite ? "scope-write-blocked" : null,
+    !lifecycleControls.settings.enabled ? "lifecycle-disabled" : null,
+    command.action === "accept" && !lifecycleControls.commandAvailability.accept.enabled ? "accept-command-disabled" : null,
+    persistedStateShape.status === "recovery_conflict" ? "supersession-recovery-conflict" : null,
+    ...continuity.blockers
+  ].filter(Boolean);
+  const ready = requiresExternalSync && blockers.length === 0;
+  const route = auditProvider?.endpoint || auditProvider?.externalHandoff.route || workflowHandoff.route;
+  const payload = {
+    provider: "mailchimp",
+    subjectKey: context.subjectKey,
+    acceptToken,
+    commandId: command.id,
+    idempotencyKey: `${command.idempotencyKey}:mailchimp`,
+    currentMemoryId: current.id,
+    candidateMemoryId: candidate.id,
+    tenantId: boundary.tenantId,
+    workspaceId: boundary.workspaceId,
+    isolationKey: scopeContract.isolationKey,
+    audienceId: context.identifiers.audienceId,
+    campaignId: context.identifiers.campaignId,
+    segmentId: context.identifiers.segmentId,
+    automationId: context.identifiers.automationId,
+    eventKinds: context.sync.eventKinds,
+    syncMode: context.sync.mode,
+    externalRevision: context.sync.externalRevision,
+    stateCheckpointKey: stateProvider?.sync.checkpointKey || null,
+    auditCheckpointKey: auditProvider?.sync.checkpointKey || null,
+    handoffProviderId: handoffProvider?.providerId || null
+  };
+
+  return {
+    schemaVersion: 1,
+    generatedAt: now,
+    state: !requiresExternalSync ? "not_applicable" : ready ? "ready" : "blocked",
+    ready,
+    required: requiresExternalSync,
+    context,
+    providerBinding: {
+      providerReady,
+      auditProviderId: auditProvider?.providerId || null,
+      handoffProviderId: handoffProvider?.providerId || null,
+      route,
+      unavailableRequiredServices: providerServiceContracts.unavailableRequiredServices,
+      negotiation: providerServiceContracts.negotiation
+    },
+    runtimeStatePatch: {
+      namespace: "memory.supersession.mailchimp",
+      key: `${surfaceId}:${acceptToken}:mailchimp`,
+      status: ready ? "ready" : requiresExternalSync ? "blocked" : "not_applicable",
+      subjectKey: context.subjectKey,
+      acceptToken: ready ? acceptToken : null,
+      checkpointKey: continuity.checkpointKey,
+      continuityStatus: continuity.status,
+      externalRevision: context.sync.externalRevision,
+      blockerCount: blockers.length
+    },
+    continuity,
+    externalHandoff: {
+      required: requiresExternalSync,
+      state: ready ? "ready" : requiresExternalSync ? "blocked" : "not_required",
+      route,
+      payloadRef: continuity.payloadRef,
+      payload: ready ? payload : null
+    },
+    validationSummary: {
+      ok: blockers.length === 0,
+      blockers,
+      issues: context.validationIssues
+    },
+    nextAction: ready
+      ? {
+          action: "publish_mailchimp_supersession_sync",
+          route,
+          payload
+        }
+      : {
+          action: requiresExternalSync ? "repair_mailchimp_supersession_sync" : "continue_without_mailchimp_sync",
+          route: requiresExternalSync ? "memory-manager/supersession/provider/mailchimp" : workflowHandoff.route,
+          blockers
+        },
+    proofKey: hashStablePayload({
+      surfaceId,
+      acceptToken,
+      contextProof: context.proofKey,
+      state: requiresExternalSync ? (ready ? "ready" : "blocked") : "not_applicable",
+      providerReady,
+      blockers,
+      isolationKey: scopeContract.isolationKey,
+      continuityProof: continuity.proofKey
+    })
+  };
+}
+
+function buildMailchimpSupersessionContinuity({
+  now,
+  context,
+  command,
+  acceptToken,
+  boundary,
+  scopeContract,
+  persistedStateShape
+}) {
+  const previous = persistedStateShape.previousMailchimpContinuity || {};
+  const subjectMismatch = Boolean(previous.subjectKey && previous.subjectKey !== context.subjectKey);
+  const externalRevisionMismatch = Boolean(
+    previous.externalRevision &&
+    context.sync.externalRevision &&
+    previous.externalRevision !== context.sync.externalRevision
+  );
+  const unsafeReplay = previous.replaySafe === false && previous.status && previous.status !== "not_applicable";
+  const staleCheckpoint = Boolean(
+    previous.checkpointKey &&
+    previous.status === "ready" &&
+    (subjectMismatch || externalRevisionMismatch)
+  );
+  const blockers = [
+    subjectMismatch ? "mailchimp-subject-changed-after-restart" : null,
+    externalRevisionMismatch ? "mailchimp-external-revision-changed-after-restart" : null,
+    unsafeReplay ? "mailchimp-previous-handoff-not-replay-safe" : null,
+    staleCheckpoint ? "mailchimp-checkpoint-stale" : null
+  ].filter(Boolean);
+  const checkpointKey = hashStablePayload({
+    surfaceId,
+    provider: "mailchimp",
+    acceptToken,
+    commandId: command.id,
+    idempotencyKey: command.idempotencyKey,
+    subjectKey: context.subjectKey,
+    previousCheckpointKey: subjectMismatch ? null : previous.checkpointKey || null,
+    isolationKey: scopeContract.isolationKey,
+    externalRevision: context.sync.externalRevision,
+    eventKinds: context.sync.eventKinds
+  });
+  const payloadRef = hashStablePayload({
+    checkpointKey,
+    route: "memory-manager/supersession/provider/mailchimp",
+    tenantId: boundary.tenantId,
+    workspaceId: boundary.workspaceId,
+    commandId: command.id
+  });
+  const status = blockers.length > 0
+    ? "recovery_required"
+    : context.ready
+      ? "ready"
+      : "needs_input";
+
+  return {
+    schemaVersion: 1,
+    provider: "mailchimp",
+    status,
+    checkpointKey,
+    payloadRef,
+    replaySafe: blockers.length === 0,
+    subjectKey: context.subjectKey,
+    previous: {
+      status: previous.status || null,
+      subjectKey: previous.subjectKey || null,
+      checkpointKey: previous.checkpointKey || null,
+      payloadRef: previous.payloadRef || null,
+      externalRevision: previous.externalRevision || null,
+      replaySafe: previous.replaySafe
+    },
+    restart: {
+      subjectMismatch,
+      externalRevisionMismatch,
+      unsafeReplay,
+      staleCheckpoint,
+      blockers,
+      resumeRoute: blockers.length > 0
+        ? "memory-manager/supersession/provider/mailchimp/recover"
+        : context.ready
+          ? "memory-manager/supersession/provider/mailchimp/accept"
+          : "memory-manager/supersession/provider/mailchimp/scope"
+    },
+    writePatch: {
+      namespace: "memory.supersession.mailchimp",
+      key: `${surfaceId}:${acceptToken}:mailchimp`,
+      status,
+      subjectKey: context.subjectKey,
+      checkpointKey,
+      payloadRef,
+      externalRevision: context.sync.externalRevision,
+      acceptedAt: status === "ready" ? now : null,
+      replaySafe: blockers.length === 0,
+      blockerCount: blockers.length,
+      proofKey: hashStablePayload({
+        checkpointKey,
+        status,
+        blockers,
+        previousCheckpointKey: previous.checkpointKey || null
+      })
+    },
+    blockers,
+    proofKey: hashStablePayload({
+      surfaceId,
+      "mailchimp-continuity": checkpointKey,
+      status,
+      previousCheckpointKey: previous.checkpointKey || null,
+      previousExternalRevision: previous.externalRevision || null,
+      blockers,
+      isolationKey: scopeContract.isolationKey
+    })
+  };
+}
+
+function buildMailchimpSupersessionWorkflowContract({
+  requestContext,
+  mailchimpSupersessionRuntime,
+  persistedStateShape,
+  readiness,
+  validationSummary,
+  acceptToken,
+  command
+}) {
+  const routeBase = "memory-manager/supersession/provider/mailchimp";
+  const runtime = mailchimpSupersessionRuntime || {};
+  const blocked = runtime.required && !runtime.ready;
+  const terminal = TERMINAL_PERSISTED_STATUSES.has(persistedStateShape.status);
+  const canAcceptMailchimp = runtime.ready
+    && validationSummary.ok
+    && (readiness.status === "ready" || readiness.status === "ready_with_warnings")
+    && !terminal;
+  const acceptanceToken = stableProofId([
+    surfaceId,
+    "mailchimp-supersession-acceptance",
+    requestContext.workflow.id,
+    acceptToken,
+    runtime.context?.subjectKey,
+    runtime.externalHandoff?.payloadRef,
+    persistedStateShape.status,
+    command.idempotencyKey
+  ]);
+  const validationIssues = asArray(runtime.validationSummary?.issues);
+  const blockers = asArray(runtime.validationSummary?.blockers);
+
+  return {
+    schemaVersion: 1,
+    contract: "memory-supersession-mailchimp-workflow",
+    routeBase,
+    state: !runtime.required ? "not_applicable" : canAcceptMailchimp ? "ready_for_acceptance" : "needs_review",
+    required: Boolean(runtime.required),
+    ready: Boolean(runtime.ready),
+    request: {
+      requestId: requestContext.requestId,
+      sessionId: requestContext.sessionId,
+      workflowId: requestContext.workflow.id,
+      commandId: command.id,
+      commandAction: command.action
+    },
+    persistence: {
+      stateKey: persistedStateShape.stateKey,
+      status: persistedStateShape.status,
+      revision: persistedStateShape.revision,
+      restartSafe: persistedStateShape.statusSemantics.restartSafe,
+      terminal,
+      mailchimpContinuity: {
+        status: runtime.continuity?.status || null,
+        checkpointKey: runtime.continuity?.checkpointKey || null,
+        payloadRef: runtime.continuity?.payloadRef || null,
+        externalRevision: runtime.continuity?.writePatch?.externalRevision || null,
+        replaySafe: runtime.continuity?.replaySafe ?? null,
+        resumeRoute: runtime.continuity?.restart?.resumeRoute || null,
+        blockers: runtime.continuity?.blockers || []
+      }
+    },
+    preview: {
+      route: `${routeBase}/preview`,
+      subjectKey: runtime.context?.subjectKey || null,
+      currentTagged: Boolean(runtime.context?.recordSignals?.currentTagged),
+      candidateTagged: Boolean(runtime.context?.recordSignals?.candidateTagged),
+      eventKinds: runtime.context?.sync?.eventKinds || [],
+      syncMode: runtime.context?.sync?.mode || null,
+      externalRevision: runtime.context?.sync?.externalRevision || null,
+      externalHandoffState: runtime.externalHandoff?.state || "not_required",
+      payloadRef: runtime.externalHandoff?.payloadRef || null
+    },
+    acceptance: {
+      route: `${routeBase}/accept`,
+      method: "POST",
+      required: Boolean(runtime.required),
+      enabled: canAcceptMailchimp,
+      token: canAcceptMailchimp ? acceptanceToken : null,
+      blockedReason: canAcceptMailchimp
+        ? null
+        : terminal
+          ? "supersession_already_terminal"
+          : blockers[0] || (!validationSummary.ok ? "supersession_validation_blocked" : readiness.reason),
+      body: canAcceptMailchimp
+        ? {
+            acceptToken,
+            token: acceptanceToken,
+            commandId: command.id,
+            idempotencyKey: `${command.idempotencyKey}:mailchimp-workflow`,
+            subjectKey: runtime.context?.subjectKey || null,
+            payloadRef: runtime.externalHandoff?.payloadRef || null,
+            expectedStateKey: persistedStateShape.stateKey,
+            expectedRevision: persistedStateShape.revision
+          }
+        : null
+    },
+    validationSummary: {
+      route: `${routeBase}/validation`,
+      ok: !blocked,
+      blockers,
+      issueCount: validationIssues.length,
+      issues: validationIssues.map((issue) => ({
+        severity: issue.severity || "warning",
+        field: issue.field || "mailchimp",
+        message: issue.message || issue.code || "Mailchimp supersession sync requires review."
+      }))
+    },
+    nextSteps: canAcceptMailchimp
+      ? [{
+          action: "publish_mailchimp_supersession_sync",
+          route: `${routeBase}/accept`,
+          token: acceptanceToken
+        }]
+      : blocked
+        ? [{
+            action: "repair_mailchimp_supersession_sync",
+            route: `${routeBase}/validation`,
+            blockers
+          }]
+        : [{
+            action: "continue_without_mailchimp_sync",
+            route: requestContext.route.current
+          }],
+    proofKey: stableProofId([
+      surfaceId,
+      "mailchimp-supersession-workflow",
+      acceptToken,
+      runtime.proofKey,
+      persistedStateShape.status,
+      readiness.status,
+      validationSummary.ok ? "valid" : "blocked",
+      acceptanceToken
+    ])
+  };
+}
+
+function buildProviderActionSummary({
+  providers,
+  requiredServices,
+  command,
+  lifecycleControls,
+  workflowHandoff,
+  acceptToken
+}) {
+  const serviceActions = providers.map((provider) => {
+    const required = requiredServices.includes(provider.service);
+    const intent = provider.serviceIntent;
+    const missingCapabilities = provider.missingCapabilities;
+    const handoffBlocked = provider.externalHandoff.required && provider.externalHandoff.state !== "ready";
+    const statusBlocked =
+      required &&
+      !["ready", "optional"].includes(provider.status) &&
+      !(provider.status === "degraded" && provider.service !== "memory");
+    const blockers = [
+      ...(missingCapabilities.length > 0 ? ["capability_missing"] : []),
+      ...(handoffBlocked ? ["external_handoff_reference_missing"] : []),
+      ...(statusBlocked ? ["provider_status_blocked"] : []),
+      ...(!provider.available && required ? ["required_service_unavailable"] : [])
+    ];
+    const nextAction =
+      missingCapabilities.length > 0
+        ? "negotiate_provider_capabilities"
+        : handoffBlocked
+          ? "attach_external_handoff_reference"
+          : statusBlocked
+            ? "restore_provider_service"
+            : intent.requiredForCommand
+              ? "invoke_provider_operation"
+              : "monitor_optional_provider";
+    const route =
+      nextAction === "attach_external_handoff_reference"
+        ? provider.externalHandoff.route
+        : provider.endpoint || provider.externalHandoff.route || workflowHandoff.route;
+
+    return {
+      service: provider.service,
+      providerId: provider.providerId,
+      required,
+      requiredForCommand: intent.requiredForCommand,
+      ready: blockers.length === 0,
+      status: provider.status,
+      nextAction,
+      route,
+      operation: intent.operation,
+      method: intent.method,
+      idempotencyKey: intent.commandEnvelope.idempotencyKey,
+      blockers,
+      capabilityNegotiation: {
+        status: intent.capabilityNegotiation.status,
+        mode: provider.capabilityMode,
+        missing: missingCapabilities,
+        required: provider.requiredCapabilities,
+        advertised: provider.advertisedCapabilities
+      },
+      syncCheckpoint: intent.syncCheckpoint,
+      externalHandoff: provider.externalHandoff,
+      proofKey: stableProofId([
+        surfaceId,
+        "provider-action",
+        provider.service,
+        provider.providerId,
+        nextAction,
+        blockers.join(","),
+        intent.syncCheckpoint.cursor,
+        intent.syncCheckpoint.expectedRevision
+      ])
+    };
+  });
+  const requiredBlocked = serviceActions
+    .filter((action) => action.required && !action.ready)
+    .map((action) => action.service);
+  const externalHandoffActions = serviceActions.filter((action) => action.externalHandoff.required);
+  const syncWatermarks = Object.fromEntries(serviceActions.map((action) => [
+    action.service,
+    {
+      providerId: action.providerId,
+      cursor: action.syncCheckpoint.cursor,
+      revision: action.syncCheckpoint.revision,
+      expectedRevision: action.syncCheckpoint.expectedRevision,
+      watermark: action.syncCheckpoint.watermark,
+      checkpointKey: action.syncCheckpoint.checkpointKey
+    }
+  ]));
+  const primaryAction = serviceActions.find((action) => action.required && !action.ready)
+    || serviceActions.find((action) => action.requiredForCommand)
+    || serviceActions[0]
+    || null;
+  const exportReady = requiredBlocked.length === 0
+    && serviceActions.every((action) => action.capabilityNegotiation.status !== "capability_blocked");
+
+  return {
+    schemaVersion: 1,
+    generatedForCommand: {
+      commandId: command.id,
+      action: command.action,
+      idempotencyKey: command.idempotencyKey,
+      acceptToken
+    },
+    lifecycle: {
+      mode: lifecycleControls.settings.mode,
+      schedulingEnabled: lifecycleControls.scheduling.enabled,
+      nextAction: lifecycleControls.nextAction.action
+    },
+    status: requiredBlocked.length === 0 ? "ready" : "blocked",
+    exportReady,
+    requiredBlocked,
+    primaryAction,
+    serviceActions,
+    externalHandoffQueue: externalHandoffActions.map((action) => ({
+      service: action.service,
+      providerId: action.providerId,
+      route: action.externalHandoff.route,
+      mode: action.externalHandoff.mode,
+      state: action.externalHandoff.state,
+      externalRef: action.externalHandoff.externalRef,
+      required: action.externalHandoff.required,
+      commandId: command.id,
+      acceptToken,
+      proofKey: action.proofKey
+    })),
+    syncWatermarks,
+    providerExportSummary: {
+      serviceCount: serviceActions.length,
+      readyServices: serviceActions.filter((action) => action.ready).length,
+      requiredServices: requiredServices.length,
+      blockedServices: requiredBlocked.length,
+      capabilityBlockedServices: serviceActions
+        .filter((action) => action.capabilityNegotiation.status === "capability_blocked")
+        .map((action) => action.service),
+      handoffBlockedServices: serviceActions
+        .filter((action) => action.externalHandoff.required && action.externalHandoff.state !== "ready")
+        .map((action) => action.service)
+    },
+    proofKey: stableProofId([
+      surfaceId,
+      "provider-action-summary",
+      command.id,
+      command.action,
+      requiredBlocked.join(","),
+      serviceActions.map((action) => `${action.service}:${action.nextAction}:${action.proofKey}`).join("|")
+    ])
   };
 }
 
@@ -4111,6 +4905,7 @@ function buildHostedKernelIntegration({
       negotiation: providerServiceContracts.negotiation,
       serviceIntents: providerServiceContracts.serviceIntents,
       syncMetadata: providerServiceContracts.syncMetadata,
+      actionSummary: providerServiceContracts.providerActionSummary,
       externalHandoffs: providerServiceContracts.serviceIntents
         .filter((intent) => intent.externalHandoffState.required)
         .map((intent) => ({
@@ -4157,7 +4952,8 @@ function buildHostedKernelIntegration({
       degradedMode: operationalHealth.degradedMode,
       retry: operationalHealth.retry,
       actionableErrors: operationalHealth.actionableErrors
-    }
+    },
+    nextProviderAction: providerServiceContracts.providerActionSummary.primaryAction
   };
 }
 
@@ -4277,6 +5073,30 @@ export function describeSupersessionSurface(input = {}) {
     workflowHandoff,
     acceptToken
   });
+  const mailchimpSupersessionRuntime = buildMailchimpSupersessionRuntime({
+    input,
+    now,
+    current,
+    candidate,
+    command,
+    acceptToken,
+    boundary,
+    scopeContract,
+    lifecycleControls,
+    providerServiceContracts,
+    workflowHandoff,
+    persistedStateShape
+  });
+  persistedStateShape.mailchimpContinuity = mailchimpSupersessionRuntime.continuity.writePatch;
+  const mailchimpSupersessionWorkflow = buildMailchimpSupersessionWorkflowContract({
+    requestContext,
+    mailchimpSupersessionRuntime,
+    persistedStateShape,
+    readiness,
+    validationSummary,
+    acceptToken,
+    command
+  });
   operationalHealth = mergeOperationalHealthWithProviderContracts({
     now,
     operationalHealth,
@@ -4328,7 +5148,8 @@ export function describeSupersessionSurface(input = {}) {
     commandResult,
     operationalHealth,
     nextSteps,
-    persistedStateShape
+    persistedStateShape,
+    mailchimpSupersessionRuntime
   });
   const analytics = buildSupersessionAnalytics({
     now,
@@ -4348,7 +5169,8 @@ export function describeSupersessionSurface(input = {}) {
     recoveryStatus,
     persistedStateShape,
     lifecycleControls,
-    acceptToken
+    acceptToken,
+    mailchimpSupersessionRuntime
   });
   const hostedKernelIntegration = buildHostedKernelIntegration({
     now,
@@ -4486,6 +5308,8 @@ export function describeSupersessionSurface(input = {}) {
     readiness,
     lifecycleControls,
     providerServiceContracts,
+    mailchimpSupersessionRuntime,
+    mailchimpSupersessionWorkflow,
     operationalHealth,
     hostedKernelIntegration,
     validationSummary,
@@ -4538,6 +5362,11 @@ export function describeSupersessionSurface(input = {}) {
       analyticsExportManifestProofKey: analytics.exportSummary.manifest.proof.proofKey,
       analyticsExportFormats: analytics.exportSummary.formats,
       analyticsRows: analytics.exportSummary.rowCount,
+      mailchimpSyncState: mailchimpSupersessionRuntime.state,
+      mailchimpSyncReady: mailchimpSupersessionRuntime.ready,
+      mailchimpSubjectKey: mailchimpSupersessionRuntime.context.subjectKey,
+      mailchimpHandoffPayloadRef: mailchimpSupersessionRuntime.externalHandoff.payloadRef,
+      mailchimpRuntimeProofKey: mailchimpSupersessionRuntime.proofKey,
       historySnapshotCount: analytics.historySnapshots.length,
       historyTrend: analytics.report.trend,
       evidenceCount: evidence.length,

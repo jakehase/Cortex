@@ -108,6 +108,58 @@ function asBoolean(value, fallback) {
   return fallback;
 }
 
+function analyzeLeasePath(value) {
+  const raw = asString(value);
+  if (!raw) {
+    return {
+      raw: null,
+      normalized: null,
+      absolute: false,
+      containsParentTraversal: false,
+      escapedAboveRoot: false,
+      segmentCount: 0
+    };
+  }
+
+  const slashNormalized = raw.replace(/\\/g, "/").replace(/\/+/g, "/");
+  const absolute = slashNormalized.startsWith("/");
+  const segments = [];
+  let containsParentTraversal = false;
+  let escapedAboveRoot = false;
+
+  for (const segment of slashNormalized.split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      containsParentTraversal = true;
+      if (segments.length > 0 && segments[segments.length - 1] !== "..") {
+        segments.pop();
+      } else if (absolute) {
+        escapedAboveRoot = true;
+      } else {
+        segments.push("..");
+        escapedAboveRoot = true;
+      }
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  const normalized = absolute
+    ? `/${segments.join("/")}`.replace(/\/$/, "") || "/"
+    : segments.join("/") || ".";
+
+  return {
+    raw,
+    normalized,
+    absolute,
+    containsParentTraversal,
+    escapedAboveRoot,
+    segmentCount: segments.filter((segment) => segment !== "..").length
+  };
+}
+
 function normalizeLifecycleCommand(value) {
   const command = asString(value)?.toLowerCase().replace(/_/g, "-");
   return command ? LIFECYCLE_COMMAND_ALIASES.get(command) || command : null;
@@ -126,17 +178,52 @@ function asArray(value) {
 }
 
 function normalizeLeasePath(value) {
-  if (!value) {
-    return null;
-  }
-  const normalized = value.replace(/\/+/g, "/").replace(/\/$/, "");
-  return normalized || "/";
+  return analyzeLeasePath(value).normalized;
 }
 
 function isContainedPath(childPath, rootPath) {
   const child = normalizeLeasePath(childPath);
   const root = normalizeLeasePath(rootPath);
-  return Boolean(child && root && (child === root || child.startsWith(`${root}/`)));
+  if (!child || !root) {
+    return false;
+  }
+  if (root === "/") {
+    return child.startsWith("/");
+  }
+  return child === root || child.startsWith(`${root}/`);
+}
+
+function buildLeasePathSafety({ leaseInput, lease }) {
+  const workdir = analyzeLeasePath(leaseInput.workdir);
+  const artifactRoot = analyzeLeasePath(leaseInput.artifactRoot);
+  const containmentProven = Boolean(lease.workdir && lease.artifactRoot)
+    && isContainedPath(lease.workdir, lease.artifactRoot);
+  const canonicalized = Boolean(
+    (workdir.raw && workdir.normalized && workdir.raw !== workdir.normalized)
+      || (artifactRoot.raw && artifactRoot.normalized && artifactRoot.raw !== artifactRoot.normalized)
+  );
+
+  return {
+    format: "working-directory-lease.path-safety.v1",
+    canonicalized,
+    containmentProven,
+    workdir: {
+      raw: workdir.raw,
+      normalized: workdir.normalized,
+      absolute: workdir.absolute,
+      containsParentTraversal: workdir.containsParentTraversal,
+      escapedAboveRoot: workdir.escapedAboveRoot,
+      segmentCount: workdir.segmentCount
+    },
+    artifactRoot: {
+      raw: artifactRoot.raw,
+      normalized: artifactRoot.normalized,
+      absolute: artifactRoot.absolute,
+      containsParentTraversal: artifactRoot.containsParentTraversal,
+      escapedAboveRoot: artifactRoot.escapedAboveRoot,
+      segmentCount: artifactRoot.segmentCount
+    }
+  };
 }
 
 function normalizeLifecycleSettings(rawSettings, input) {
@@ -231,7 +318,7 @@ function buildLifecycleSettingsValidation(settings, lease) {
   };
 }
 
-function buildValidation(input, lease) {
+function buildValidation(input, lease, pathSafety) {
   const errors = [];
   const warnings = [];
 
@@ -282,6 +369,27 @@ function buildValidation(input, lease) {
       code: "WORKDIR_OUTSIDE_ROOT",
       field: "lease.workdir",
       message: "The leased working directory must be contained by artifactRoot."
+    });
+  }
+  if (pathSafety?.workdir?.escapedAboveRoot) {
+    errors.push({
+      code: "WORKDIR_PATH_TRAVERSAL_ESCAPES_ROOT",
+      field: "lease.workdir",
+      message: "The leased working directory path must not traverse above its lexical root."
+    });
+  }
+  if (pathSafety?.artifactRoot?.escapedAboveRoot) {
+    errors.push({
+      code: "ARTIFACT_ROOT_PATH_TRAVERSAL_ESCAPES_ROOT",
+      field: "lease.artifactRoot",
+      message: "The artifactRoot path must not traverse above its lexical root."
+    });
+  }
+  if (pathSafety?.workdir?.containsParentTraversal || pathSafety?.artifactRoot?.containsParentTraversal) {
+    warnings.push({
+      code: "LEASE_PATH_PARENT_SEGMENTS_CANONICALIZED",
+      field: "lease.workdir",
+      message: "Lease paths containing parent traversal segments were canonicalized before containment decisions were evaluated."
     });
   }
 
@@ -2119,6 +2227,8 @@ function normalizePersistedLeaseState(input, lease, clientRuntime, nowMs, now) {
 
   return {
     format: "working-directory-lease.persisted-state.v1",
+    stateId: asString(persistedInput.stateId || persistedInput.id || recoveryInput.stateId)
+      || `working-directory-lease-state:${lease.leaseId || "unassigned"}`,
     present: Object.keys(persistedInput).length > 0,
     absenceReason: Object.keys(persistedInput).length > 0 ? null : "PERSISTED_STATE_NOT_SUPPLIED",
     observedAt: observedAtMs ? new Date(observedAtMs).toISOString() : null,
@@ -2236,9 +2346,90 @@ function buildPersistedStateValidation(persistedState, lease, clientRuntime) {
   };
 }
 
+function buildRestartCommandReceipt({ persistedState, persistedStateValidation, health, failureState, lifecycle, retryPolicy, now }) {
+  const commandId = persistedState.command.commandId;
+  const replayKey = persistedState.command.replayKey;
+  const alreadyApplied = persistedState.command.alreadyApplied;
+  const mismatchBlocked = persistedStateValidation.errors.length > 0;
+  const replayFingerprint = uniqueStrings([
+    persistedState.stateId,
+    persistedState.leaseIdentity.leaseId,
+    persistedState.currentFingerprint,
+    replayKey,
+    commandId,
+    String(persistedState.generation)
+  ]).join("|") || null;
+  const commandResultFingerprint = persistedState.command.resultFingerprint || (alreadyApplied
+    ? replayFingerprint
+    : null);
+  const expiresAt = retryPolicy.nextAttemptAt
+    || lifecycle.nextAction.dueAt
+    || (health.msUntilExpiry > 0 ? new Date(Date.parse(now) + health.msUntilExpiry).toISOString() : null);
+  const replayDisposition = mismatchBlocked
+    ? "blocked"
+    : alreadyApplied
+      ? persistedState.command.resultRef ? "return-stored-result" : "acknowledge-applied"
+      : failureState.code === "LEASE_EXPIRED"
+        ? "requires-reacquire"
+        : health.status === "unhealthy"
+          ? "defer-until-healthy"
+          : "execute-once";
+  const persistedCommandPatch = commandId || replayKey
+    ? {
+      lastCommandId: commandId,
+      appliedCommandIds: alreadyApplied
+        ? persistedState.command.appliedCommandIds
+        : uniqueStrings(persistedState.command.appliedCommandIds.concat(commandId, replayKey)),
+      commandResults: {
+        [commandId || replayKey]: {
+          status: alreadyApplied ? persistedState.command.resultStatus || "applied" : "pending",
+          resultRef: alreadyApplied ? persistedState.command.resultRef : null,
+          fingerprint: commandResultFingerprint || replayFingerprint,
+          observedAt: now
+        }
+      }
+    }
+    : null;
+
+  return {
+    format: "working-directory-lease.restart-command-receipt.v1",
+    receiptId: replayFingerprint ? `lease-command-receipt:${replayFingerprint}` : null,
+    commandId,
+    replayKey,
+    replayFingerprint,
+    alreadyApplied,
+    replayDisposition,
+    replaySafe: !mismatchBlocked && replayDisposition !== "defer-until-healthy",
+    blockedReasons: uniqueStrings([
+      mismatchBlocked ? "PERSISTED_STATE_VALIDATION_FAILED" : null,
+      health.status === "unhealthy" ? "LEASE_UNHEALTHY" : null,
+      failureState.terminal ? failureState.code : null
+    ]),
+    result: {
+      state: alreadyApplied
+        ? persistedState.command.resultRef ? "stored-result" : "stored-ack"
+        : replayDisposition === "execute-once" ? "pending-execution" : replayDisposition,
+      resultRef: alreadyApplied ? persistedState.command.resultRef : null,
+      status: alreadyApplied ? persistedState.command.resultStatus || "applied" : null,
+      fingerprint: commandResultFingerprint
+    },
+    expiresAt,
+    persistedCommandPatch
+  };
+}
+
 function buildRecoveryContract({ persistedState, persistedStateValidation, health, failureState, lifecycle, retryPolicy, syncMetadata, now }) {
   const replaySuppressed = persistedState.command.alreadyApplied;
   const mismatchBlocked = persistedStateValidation.errors.length > 0;
+  const restartCommandReceipt = buildRestartCommandReceipt({
+    persistedState,
+    persistedStateValidation,
+    health,
+    failureState,
+    lifecycle,
+    retryPolicy,
+    now
+  });
   const restartRecoveryRequired = persistedState.restartDetected
     || persistedState.restartEpochChanged
     || persistedState.fingerprintChanged
@@ -2287,8 +2478,11 @@ function buildRecoveryContract({ persistedState, persistedStateValidation, healt
     idempotency: {
       commandId: persistedState.command.commandId,
       replayKey: persistedState.command.replayKey,
+      receiptId: restartCommandReceipt.receiptId,
+      replayFingerprint: restartCommandReceipt.replayFingerprint,
       alreadyApplied: replaySuppressed,
       effect: replaySuppressed ? "no-op" : "execute-once",
+      disposition: restartCommandReceipt.replayDisposition,
       result: {
         state: replaySuppressed
           ? persistedState.command.resultRef ? "return-stored-result" : "return-idempotent-ack"
@@ -2298,6 +2492,7 @@ function buildRecoveryContract({ persistedState, persistedStateValidation, healt
         fingerprint: replaySuppressed ? persistedState.command.resultFingerprint : null
       }
     },
+    restartCommandReceipt,
     requiredRecoveryCommands: recoveryCommands,
     persistence: {
       required: persistenceRequired,
@@ -2327,6 +2522,7 @@ function buildRecoveryContract({ persistedState, persistedStateValidation, healt
         appliedCommandIds: uniqueStrings(
           persistedState.command.appliedCommandIds.concat(persistedState.command.commandId, persistedState.command.replayKey)
         ),
+        commandResults: restartCommandReceipt.persistedCommandPatch?.commandResults || null,
         persistedAt: now
       } : null
     },
@@ -2856,6 +3052,129 @@ function buildClientWorkflowRuntimeHandoff({
   };
 }
 
+function buildRouteAcceptanceReceiptContract({
+  routePreviewDecision,
+  clientWorkflowRuntimeHandoff,
+  acceptance,
+  readiness,
+  workflowHandoff,
+  providerHandoffCommit,
+  tenantAuditHandoff,
+  validationSummary,
+  recovery,
+  writeAdmission,
+  operationalIncident,
+  now
+}) {
+  const accepted = acceptance.accepted && readiness.ready && clientWorkflowRuntimeHandoff.ready;
+  const checklist = [
+    {
+      id: "preview-acknowledged",
+      label: "Preview acknowledged",
+      ready: !acceptance.policy.requirePreviewAcknowledgement
+        || !acceptance.blockers.includes("PREVIEW_ACKNOWLEDGEMENT_REQUIRED"),
+      blocker: acceptance.blockers.includes("PREVIEW_ACKNOWLEDGEMENT_REQUIRED")
+        ? "PREVIEW_ACKNOWLEDGEMENT_REQUIRED"
+        : null
+    },
+    {
+      id: "validation-passed",
+      label: "Validation passed",
+      ready: validationSummary.status === "pass",
+      blocker: validationSummary.status === "pass" ? null : validationSummary.blockingCodes[0] || "VALIDATION_BLOCKED"
+    },
+    {
+      id: "provider-handoff-claimed",
+      label: "Provider handoff claimed",
+      ready: providerHandoffCommit.ready || providerHandoffCommit.replayed || workflowHandoff.handoffPayload.leaseId !== null,
+      blocker: providerHandoffCommit.blockers[0] || null
+    },
+    {
+      id: "tenant-audit-routable",
+      label: "Tenant audit routable",
+      ready: !tenantAuditHandoff.required || Boolean(tenantAuditHandoff.sink || tenantAuditHandoff.routingKey),
+      blocker: tenantAuditHandoff.required && !tenantAuditHandoff.sink && !tenantAuditHandoff.routingKey
+        ? "TENANT_AUDIT_HANDOFF_TARGET_MISSING"
+        : null
+    },
+    {
+      id: "restart-safe",
+      label: "Restart safe",
+      ready: recovery.restartSafeStatus === "stable" || recovery.restartSafeStatus === "idempotent-replay",
+      blocker: recovery.restartSafeStatus === "blocked" ? "RECOVERY_BLOCKED" : null
+    },
+    {
+      id: "writes-admitted",
+      label: "Writes admitted",
+      ready: writeAdmission.state !== "blocked",
+      blocker: writeAdmission.blockers[0] || null
+    },
+    {
+      id: "incident-clear",
+      label: "Operational incident clear",
+      ready: !operationalIncident.circuitBreaker.blockProviderAdmission && !operationalIncident.circuitBreaker.blockWrites,
+      blocker: operationalIncident.circuitBreaker.blockedCommands[0]
+        ? `OPERATIONAL_INCIDENT_BLOCKS_${operationalIncident.circuitBreaker.blockedCommands[0].toUpperCase()}`
+        : null
+    }
+  ];
+  const blockers = uniqueStrings(checklist.filter((item) => !item.ready).map((item) => item.blocker));
+  const receiptState = accepted
+    ? "accepted"
+    : blockers.length
+      ? "blocked"
+      : acceptance.state === "acceptable"
+        ? "awaiting-acceptance"
+        : "preview";
+
+  return {
+    format: "working-directory-lease.route-acceptance-receipt.v1",
+    generatedAt: now,
+    state: receiptState,
+    accepted,
+    receiptId: uniqueStrings([
+      routePreviewDecision.requestId,
+      routePreviewDecision.routePayload.leaseId,
+      workflowHandoff.handoffPayload.localCheckpoint,
+      clientWorkflowRuntimeHandoff.dispatch.idempotencyKey
+    ]).join(":") || null,
+    route: {
+      href: routePreviewDecision.route,
+      command: routePreviewDecision.routePayload.command,
+      state: routePreviewDecision.state,
+      dispatchCommand: clientWorkflowRuntimeHandoff.dispatch.command,
+      dueAt: clientWorkflowRuntimeHandoff.dispatch.dueAt
+    },
+    acceptance: {
+      acceptedBy: acceptance.acceptedBy,
+      acceptedAt: acceptance.acceptedAt,
+      requestedBy: acceptance.requestedBy,
+      policy: acceptance.policy,
+      blockers: acceptance.blockers
+    },
+    checklist,
+    blockers,
+    handoffClaim: {
+      state: providerHandoffCommit.state,
+      ready: providerHandoffCommit.ready,
+      replayed: providerHandoffCommit.replayed,
+      idempotencyKey: providerHandoffCommit.commit.idempotencyKey,
+      resultRef: providerHandoffCommit.commit.resultRef,
+      externalStatePatchReady: Boolean(providerHandoffCommit.externalStatePatch)
+    },
+    clientStatePatch: clientWorkflowRuntimeHandoff.persist.statePatch,
+    nextStep: {
+      command: accepted
+        ? "mount-artifact-filesystem"
+        : blockers.includes("RECOVERY_BLOCKED")
+          ? recovery.requiredRecoveryCommands[0] || "recover-persisted-state"
+          : routePreviewDecision.acceptance.cta || readiness.nextStep.command,
+      reason: blockers[0] || readiness.nextStep.reason || "ACCEPTANCE_READY",
+      routePayload: routePreviewDecision.routePayload
+    }
+  };
+}
+
 function normalizeOperationalHealthInput(input, nowMs) {
   const healthInput = input.operationalHealth && typeof input.operationalHealth === "object"
     ? input.operationalHealth
@@ -3130,14 +3449,15 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
   const lease = {
     leaseId: asString(leaseInput.leaseId),
     ownerId: asString(leaseInput.ownerId),
-    workdir: asString(leaseInput.workdir),
-    artifactRoot: asString(leaseInput.artifactRoot),
+    workdir: normalizeLeasePath(leaseInput.workdir),
+    artifactRoot: normalizeLeasePath(leaseInput.artifactRoot),
     acquiredAt: new Date(acquiredAtMs).toISOString(),
     expiresAt: new Date(expiresAtMs).toISOString(),
     acquiredAtMs,
     expiresAtMs,
     ttlMs
   };
+  const pathSafety = buildLeasePathSafety({ leaseInput, lease });
   const clientRuntime = normalizeClientRuntimeContract(input, lease);
   const tenantBoundary = normalizeTenantBoundaryContract(input, lease, clientRuntime);
   const lifecycleSettings = normalizeLifecycleSettings(rawLifecycleSettings, input);
@@ -3154,7 +3474,7 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
     nowMs,
     now
   });
-  const validation = buildValidation(input, lease);
+  const validation = buildValidation(input, lease, pathSafety);
   validation.errors = validation.errors.concat(lifecycleSettingsValidation.errors);
   validation.warnings = validation.warnings.concat(lifecycleSettingsValidation.warnings);
   validation.errors = validation.errors.concat(clientRuntimeValidation.errors);
@@ -3292,7 +3612,9 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
     workdir: lease.workdir,
     invariants: {
       hasIdentity: Boolean(lease.leaseId && lease.ownerId),
-      pathContainedByArtifactRoot: isContainedPath(lease.workdir, lease.artifactRoot),
+      pathContainedByArtifactRoot: pathSafety.containmentProven,
+      leasePathsCanonicalized: pathSafety.canonicalized,
+      leasePathTraversalRejected: !pathSafety.workdir.escapedAboveRoot && !pathSafety.artifactRoot.escapedAboveRoot,
       notExpired: !expired,
       validationOk: validation.ok,
       lifecycleEnabled: lifecycleSettings.enabled,
@@ -3311,6 +3633,13 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
       lifecycleSettings.enabled
         ? "working-directory-lease.lifecycle.enabled"
         : "working-directory-lease.lifecycle.disabled",
+      pathSafety.canonicalized ? "working-directory-lease.path-safety.canonicalized" : null,
+      pathSafety.containmentProven
+        ? "working-directory-lease.path-safety.contained"
+        : "working-directory-lease.path-safety.not-contained",
+      pathSafety.workdir.escapedAboveRoot || pathSafety.artifactRoot.escapedAboveRoot
+        ? "working-directory-lease.path-safety.traversal-rejected"
+        : null,
       `working-directory-lease.operational-health.${operationalHealth.state}`,
       lifecycle.schedule.enabled ? "working-directory-lease.scheduler.enabled" : null,
       lifecycle.nextAction.command ? `working-directory-lease.next-action.${lifecycle.nextAction.command}` : null,
@@ -3492,6 +3821,20 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
     retryPolicy,
     now
   });
+  const routeAcceptanceReceipt = buildRouteAcceptanceReceiptContract({
+    routePreviewDecision,
+    clientWorkflowRuntimeHandoff,
+    acceptance,
+    readiness,
+    workflowHandoff,
+    providerHandoffCommit,
+    tenantAuditHandoff,
+    validationSummary,
+    recovery,
+    writeAdmission,
+    operationalIncident,
+    now
+  });
   proof.provider = {
     providerId: providerContract.providerId,
     serviceId: providerContract.serviceId,
@@ -3551,6 +3894,8 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
   proof.invariants.workflowHandoffReady = workflowHandoff.state === "mount-ready";
   proof.invariants.clientWorkflowRuntimeReady = clientWorkflowRuntimeHandoff.ready;
   proof.invariants.clientWorkflowRuntimeResumable = clientWorkflowRuntimeHandoff.resumable;
+  proof.invariants.routeAcceptanceReceiptAccepted = routeAcceptanceReceipt.accepted;
+  proof.invariants.routeAcceptanceReceiptReplayable = Boolean(routeAcceptanceReceipt.receiptId);
   proof.lifecycleCommandControl = {
     requestedCommand: lifecycleCommandControl.requestedCommand,
     accepted: lifecycleCommandControl.accepted,
@@ -3640,6 +3985,15 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
     route: clientWorkflowRuntimeHandoff.navigation.route,
     routeState: clientWorkflowRuntimeHandoff.navigation.routeState,
     blockers: clientWorkflowRuntimeHandoff.blockers
+  };
+  proof.routeAcceptanceReceipt = {
+    state: routeAcceptanceReceipt.state,
+    accepted: routeAcceptanceReceipt.accepted,
+    receiptId: routeAcceptanceReceipt.receiptId,
+    blockerCount: routeAcceptanceReceipt.blockers.length,
+    nextCommand: routeAcceptanceReceipt.nextStep.command,
+    handoffClaimState: routeAcceptanceReceipt.handoffClaim.state,
+    externalStatePatchReady: routeAcceptanceReceipt.handoffClaim.externalStatePatchReady
   };
   proof.auditTrail = uniqueStrings(proof.auditTrail.concat([
     "working-directory-lease.provider-contract.normalized",
@@ -3754,6 +4108,12 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
     clientWorkflowRuntimeHandoff.dispatch.command
       ? `working-directory-lease.client-workflow-runtime-handoff.dispatch.${clientWorkflowRuntimeHandoff.dispatch.command}`
       : null,
+    `working-directory-lease.route-acceptance-receipt.${routeAcceptanceReceipt.state}`,
+    routeAcceptanceReceipt.accepted ? "working-directory-lease.route-acceptance-receipt.accepted" : null,
+    routeAcceptanceReceipt.blockers.length > 0 ? "working-directory-lease.route-acceptance-receipt.blocked" : null,
+    routeAcceptanceReceipt.handoffClaim.externalStatePatchReady
+      ? "working-directory-lease.route-acceptance-receipt.external-state-patch-ready"
+      : null,
     routePreviewDecision.routePayload.command
       ? `working-directory-lease.route-preview-decision.command.${routePreviewDecision.routePayload.command}`
       : null
@@ -3851,6 +4211,7 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
     lease,
     health,
     validation,
+    pathSafety,
     failureState,
     degradedMode,
     retryPolicy,
@@ -3879,6 +4240,7 @@ export function describeWorkingDirectoryLeaseSurface(input = {}) {
     routePreviewDecision,
     workflowHandoff,
     clientWorkflowRuntimeHandoff,
+    routeAcceptanceReceipt,
     validationSummary,
     analytics: {
       counters: analyticsCounters,

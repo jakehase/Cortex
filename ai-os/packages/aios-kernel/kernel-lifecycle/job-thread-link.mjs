@@ -634,6 +634,121 @@ function normalizeLinkProofLedger(input = {}, links, workspaceScope, nowMs) {
   };
 }
 
+function linkIdentityKey(link) {
+  return `${link.tenantId}/${link.workspaceId}/${link.jobId}/${link.threadId}`;
+}
+
+function linkClaimRank(link) {
+  return [
+    link.proofValid ? 1 : 0,
+    link.stale ? 0 : 1,
+    link.proofStatus === "valid" ? 1 : 0,
+    Number.isFinite(new Date(link.updatedAt).getTime()) ? new Date(link.updatedAt).getTime() : 0,
+    link.proofSource === "proof-ledger" ? 1 : 0
+  ];
+}
+
+function compareLinkClaims(left, right) {
+  const leftRank = linkClaimRank(left);
+  const rightRank = linkClaimRank(right);
+
+  for (let index = 0; index < leftRank.length; index += 1) {
+    if (leftRank[index] !== rightRank[index]) return leftRank[index] - rightRank[index];
+  }
+
+  return String(left.proofId || "").localeCompare(String(right.proofId || ""));
+}
+
+function deriveCanonicalLinkClaims(links) {
+  const selectedByKey = new Map();
+  const duplicateGroups = new Map();
+
+  for (const link of links) {
+    const identityKey = linkIdentityKey(link);
+    const selected = selectedByKey.get(identityKey);
+
+    if (!selected) {
+      selectedByKey.set(identityKey, link);
+      duplicateGroups.set(identityKey, [link]);
+      continue;
+    }
+
+    duplicateGroups.get(identityKey).push(link);
+
+    if (compareLinkClaims(selected, link) < 0) {
+      selectedByKey.set(identityKey, link);
+    }
+  }
+
+  const duplicateSets = [...duplicateGroups.entries()]
+    .filter(([, group]) => group.length > 1)
+    .map(([identityKey, group]) => {
+      const selected = selectedByKey.get(identityKey);
+      const rejected = group.filter((link) => link !== selected);
+
+      return {
+        contract: "hosted-kernel.job-thread-link.duplicate-claim.v1",
+        identityKey,
+        tenantId: selected.tenantId,
+        workspaceId: selected.workspaceId,
+        jobId: selected.jobId,
+        threadId: selected.threadId,
+        selectedProofId: selected.proofId,
+        selectedUpdatedAt: selected.updatedAt,
+        rejectedCount: rejected.length,
+        rejectedProofIds: normalizeCapabilityList(rejected.map((link) => link.proofId || "missing_proof")),
+        rejectedReasons: normalizeCapabilityList(
+          rejected.map((link) =>
+            link.stale
+              ? "stale_duplicate"
+              : !link.proofValid
+                ? link.proofBlockedBy || "invalid_duplicate_proof"
+                : "lower_ranked_duplicate"
+          )
+        )
+      };
+    });
+
+  const duplicateIdentityKeys = new Set(duplicateSets.map((duplicate) => duplicate.identityKey));
+  const canonicalLinks = links
+    .filter((link) => selectedByKey.get(linkIdentityKey(link)) === link)
+    .map((link) => ({
+      ...link,
+      canonicalClaim: true,
+      duplicateClaimCount: duplicateGroups.get(linkIdentityKey(link))?.length || 1
+    }));
+  const rejectedLinks = links
+    .filter((link) => selectedByKey.get(linkIdentityKey(link)) !== link)
+    .map((link) => ({
+      ...link,
+      canonicalClaim: false,
+      duplicateRejected: true,
+      duplicateRejectionReason: link.stale
+        ? "stale_duplicate"
+        : !link.proofValid
+          ? link.proofBlockedBy || "invalid_duplicate_proof"
+          : "lower_ranked_duplicate"
+    }));
+  const warnings = duplicateSets.map((duplicate) => ({
+    code: "duplicate_job_thread_claim",
+    identityKey: duplicate.identityKey,
+    message: `${duplicate.identityKey} had ${duplicate.rejectedCount + 1} job-thread-link claims; the freshest valid claim was selected`
+  }));
+
+  return {
+    contract: "hosted-kernel.job-thread-link.claim-resolution.v1",
+    canonicalLinkCount: canonicalLinks.length,
+    inputLinkCount: links.length,
+    duplicateIdentityCount: duplicateSets.length,
+    duplicateRejectedLinkCount: rejectedLinks.length,
+    duplicateIdentityKeys: [...duplicateIdentityKeys].sort(),
+    duplicateSets,
+    rejectedLinks,
+    warnings,
+    links: canonicalLinks
+  };
+}
+
 function normalizeCapabilityList(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map((capability) => String(capability || "").trim()).filter(Boolean))].sort();
@@ -1717,6 +1832,7 @@ function shapePersistedState({
   previewAcceptance,
   nextStep,
   proofLedger,
+  claimResolution,
   now
 }) {
   const commandJournal = appendCommandJournalEntry({
@@ -1813,6 +1929,9 @@ function shapePersistedState({
     proofLedgerSource: proofLedger.source,
     proofedLinkCount: proofLedger.proofedLinkCount,
     invalidProofReasons: proofLedger.invalidProofReasons,
+    canonicalLinkCount: claimResolution.canonicalLinkCount,
+    duplicateRejectedLinkCount: claimResolution.duplicateRejectedLinkCount,
+    duplicateIdentityKeys: claimResolution.duplicateIdentityKeys,
     syncMode: sync.providerSyncMode,
     syncBlockedBy: sync.syncBlockedBy,
     syncBarrier: sync.syncBarrier,
@@ -1836,6 +1955,8 @@ function shapePersistedState({
       tenantId: link.tenantId,
       workspaceId: link.workspaceId,
       state: link.state,
+      canonicalClaim: link.canonicalClaim,
+      duplicateClaimCount: link.duplicateClaimCount,
       updatedAt: link.updatedAt,
       proofId: link.proofId,
       proofStatus: link.proofStatus,
@@ -2049,6 +2170,7 @@ function deriveAnalyticsReporting({
   boundary,
   health,
   persistedState,
+  claimResolution,
   now
 }) {
   const missingProofCount = links.filter((link) => !link.proofId).length;
@@ -2084,6 +2206,9 @@ function deriveAnalyticsReporting({
     healthDegradedCount: health.degraded ? 1 : 0,
     boundaryViolationCount: boundary.hardRejectedLinkCount,
     proofReasonVariantCount: Object.keys(proofReasonCounts).length,
+    canonicalLinkCount: claimResolution.canonicalLinkCount,
+    duplicateIdentityCount: claimResolution.duplicateIdentityCount,
+    duplicateRejectedLinkCount: claimResolution.duplicateRejectedLinkCount,
     warningSignalCount: timelineWarnings.length
   };
   const currentSnapshot = {
@@ -2167,6 +2292,13 @@ function deriveAnalyticsReporting({
       state: invalidProofLinks.length ? "needs-proof-work" : "covered",
       subject: Object.keys(proofReasonCounts).join(",") || "valid",
       exportKey: `${workspaceScope.workspaceId}:proof:${invalidProofLinks.length ? "invalid" : "valid"}`
+    },
+    {
+      at: now,
+      event: "link-claims-resolved",
+      state: claimResolution.duplicateRejectedLinkCount ? "duplicates-rejected" : "canonical",
+      subject: claimResolution.duplicateIdentityKeys.join(",") || "unique",
+      exportKey: `${workspaceScope.workspaceId}:claims:${claimResolution.duplicateRejectedLinkCount ? "deduped" : "unique"}`
     },
     {
       at: now,
@@ -2385,10 +2517,21 @@ function deriveValidationSummary({
   boundary,
   health,
   links,
+  claimResolution,
   warnings
 }) {
   const invalidProofLinks = links.filter((link) => !link.proofValid);
   const checks = [
+    {
+      code: "link_claim_uniqueness",
+      label: "Job/thread claim uniqueness",
+      status: validationStatus(true, claimResolution.duplicateRejectedLinkCount > 0),
+      severity: claimResolution.duplicateRejectedLinkCount ? "warning" : "info",
+      message: claimResolution.duplicateRejectedLinkCount
+        ? "Duplicate job/thread link claims were collapsed to canonical hosted-kernel claims"
+        : "All scoped job/thread link claims are unique",
+      count: claimResolution.duplicateRejectedLinkCount
+    },
     {
       code: "boundary_scope",
       label: "Tenant and workspace scope",
@@ -2474,6 +2617,9 @@ function deriveValidationSummary({
     rejectedLinkCount: boundary.rejectedLinkCount,
     quarantinedLinkCount: boundary.quarantinedLinkCount,
     hardRejectedLinkCount: boundary.hardRejectedLinkCount,
+    canonicalLinkCount: claimResolution.canonicalLinkCount,
+    duplicateRejectedLinkCount: claimResolution.duplicateRejectedLinkCount,
+    duplicateIdentityKeys: claimResolution.duplicateIdentityKeys,
     proofedLinkCount: proofLedger.proofedLinkCount,
     invalidProofReasons: proofLedger.invalidProofReasons,
     checks
@@ -2555,6 +2701,16 @@ function deriveClientContinuationContract({
   externalReady,
   now
 }) {
+  const nowMs = Date.parse(now);
+  const retryAfterMs = health.retryAfterAt ? Date.parse(health.retryAfterAt) : null;
+  const nextRunMs = schedule.nextRunAt ? Date.parse(schedule.nextRunAt) : null;
+  const leaseAnchorMs = Number.isFinite(retryAfterMs)
+    ? retryAfterMs
+    : Number.isFinite(nextRunMs)
+      ? nextRunMs
+      : Number.isFinite(nowMs)
+        ? nowMs + 60_000
+        : null;
   const continuationKey =
     clientRuntime.continuationKey ||
     [
@@ -2591,12 +2747,39 @@ function deriveClientContinuationContract({
           : mode === "blocked"
             ? "review-blocking-kernel-state"
             : "render-job-thread-link-preview";
+  const leaseExpiresAt = Number.isFinite(leaseAnchorMs)
+    ? new Date(Math.max(leaseAnchorMs, Number.isFinite(nowMs) ? nowMs : leaseAnchorMs)).toISOString()
+    : null;
+  const continuationGeneration = [
+    validationSummary.readinessScore,
+    health.status,
+    health.failureState,
+    schedule.nextRunAt || "no-next-run",
+    sync.cursor,
+    blockedBy || "unblocked"
+  ].join(":");
+  const resumePolicy = {
+    contract: "hosted-kernel.job-thread-link.client-resume-policy.v1",
+    resumeToken: `${continuationKey}/${continuationGeneration}`,
+    preserveContinuationKey: true,
+    leaseExpiresAt,
+    refreshRequiredAfterLease: mode !== "dispatch",
+    hydrateBeforeDispatch: mode === "wait" || mode === "blocked",
+    replaySafe: Boolean(previewAcceptance.acceptanceToken || clientRuntime.requestId),
+    authoritativeCursor: sync.cursor,
+    expectedHealthStatus: health.status,
+    expectedValidationStatus: validationSummary.status,
+    expectedNextRunAt: schedule.nextRunAt,
+    blockedBy
+  };
   const dispatchEnvelope = {
     contract: "hosted-kernel.job-thread-link.client-dispatch-envelope.v1",
     mode,
     action,
     requestId: clientRuntime.requestId,
     continuationKey,
+    continuationGeneration,
+    leaseExpiresAt,
     idempotencyKey: previewAcceptance.acceptanceToken || `${continuationKey}/${nextStep.routeHint.command}`,
     method: nextStep.routeHint.method,
     route: clientRuntime.callbackRoute || nextStep.routeHint.clientRoute,
@@ -2625,11 +2808,16 @@ function deriveClientContinuationContract({
       cursor: sync.cursor,
       validationStatus: validationSummary.status,
       healthStatus: health.status,
+      healthFailureState: health.failureState,
       retryAfterAt: health.retryAfterAt,
       nextRunAt: schedule.nextRunAt,
-      blockedBy
+      blockedBy,
+      continuationGeneration,
+      leaseExpiresAt,
+      resumeToken: resumePolicy.resumeToken
     },
     dispatchEnvelope,
+    resumePolicy,
     handoffInstruction:
       mode === "external-handoff"
         ? {
@@ -2648,7 +2836,9 @@ function deriveClientContinuationContract({
       previewAccepted: previewAcceptance.accepted,
       readinessScore: validationSummary.readinessScore,
       retryAfterAt: health.retryAfterAt,
-      nextRunAt: schedule.nextRunAt
+      nextRunAt: schedule.nextRunAt,
+      leaseExpiresAt,
+      resumeRequired: mode === "wait" || mode === "blocked"
     }
   };
 }
@@ -2711,6 +2901,17 @@ function deriveClientWorkflowHandoff({
     dispatchMode: clientRuntime.dispatchMode,
     workflowState: clientRuntime.workflowState,
     continuation,
+    continuationLease: {
+      contract: "hosted-kernel.job-thread-link.client-continuation-lease.v1",
+      continuationKey: continuation.dispatchEnvelope.continuationKey,
+      continuationGeneration: continuation.dispatchEnvelope.continuationGeneration,
+      leaseExpiresAt: continuation.dispatchEnvelope.leaseExpiresAt,
+      resumeToken: continuation.resumePolicy.resumeToken,
+      mode: continuation.mode,
+      dispatchReady: continuation.dispatchEnvelope.ready,
+      hydrateBeforeDispatch: continuation.resumePolicy.hydrateBeforeDispatch,
+      blockedBy
+    },
     clientStatePatch: continuation.statePatch,
     dispatchEnvelope: continuation.dispatchEnvelope,
     routeHint: {
@@ -2947,6 +3148,7 @@ function buildAudit({
   validationSummary,
   previewAcceptance,
   nextStep,
+  claimResolution,
   warnings,
   now
 }) {
@@ -2996,6 +3198,10 @@ function buildAudit({
     staleJobCount: links.filter((link) => link.stale).length,
     proofedLinkCount: proofLedger.proofedLinkCount,
     invalidProofReasons: proofLedger.invalidProofReasons,
+    canonicalLinkCount: claimResolution.canonicalLinkCount,
+    duplicateRejectedLinkCount: claimResolution.duplicateRejectedLinkCount,
+    duplicateIdentityKeys: claimResolution.duplicateIdentityKeys,
+    duplicateClaimSets: claimResolution.duplicateSets,
     scheduleDue: schedule.due,
     providerNegotiated: providerContract.negotiated,
     providerId: providerContract.primaryProviderId,
@@ -3064,7 +3270,19 @@ function buildAudit({
       proofValid: link.proofValid,
       proofBlockedBy: link.proofBlockedBy,
       proofSource: link.proofSource,
-      proofFingerprint: link.proofFingerprint
+      proofFingerprint: link.proofFingerprint,
+      canonicalClaim: link.canonicalClaim,
+      duplicateClaimCount: link.duplicateClaimCount
+    })),
+    duplicateRejectedEvidence: claimResolution.rejectedLinks.map((link) => ({
+      jobId: link.jobId,
+      threadId: link.threadId,
+      tenantId: link.tenantId,
+      workspaceId: link.workspaceId,
+      proofId: link.proofId,
+      proofStatus: link.proofStatus,
+      proofValid: link.proofValid,
+      reason: link.duplicateRejectionReason
     })),
     rejectedEvidence: boundary.rejectedLinks.map((link) => ({
       jobId: link.jobId,
@@ -3100,7 +3318,15 @@ export function describeJobThreadLinkSurface(input = {}) {
     links: candidateLinks
   });
   const proofLedger = normalizeLinkProofLedger(input, boundary.scopedLinks, workspaceScope, nowMs);
-  const links = proofLedger.links;
+  const claimResolution = deriveCanonicalLinkClaims(proofLedger.links);
+  const links = claimResolution.links;
+  const canonicalProofLedger = {
+    ...proofLedger,
+    proofedLinkCount: links.filter((link) => link.proofValid).length,
+    invalidLinkCount: links.filter((link) => !link.proofValid).length,
+    invalidProofReasons: normalizeCapabilityList(links.filter((link) => !link.proofValid).map((link) => link.proofBlockedBy)),
+    links
+  };
   const baseLifecycle = deriveLifecycleState({
     command: commandReceipt.effectiveCommand,
     settings: normalized.settings,
@@ -3159,6 +3385,7 @@ export function describeJobThreadLinkSurface(input = {}) {
     boundary,
     health,
     persistedState: persisted.state,
+    claimResolution,
     now
   });
   const warnings = [
@@ -3167,7 +3394,8 @@ export function describeJobThreadLinkSurface(input = {}) {
     ...controls.warnings,
     ...persisted.warnings,
     ...providerState.warnings,
-    ...proofLedger.warnings
+    ...proofLedger.warnings,
+    ...claimResolution.warnings
   ];
   const nextAction = deriveNextAction(command, lifecycle, schedule, links, externalHandoff, health, controls);
   const validationSummary = deriveValidationSummary({
@@ -3175,10 +3403,11 @@ export function describeJobThreadLinkSurface(input = {}) {
     schedule,
     providerContract,
     sync,
-    proofLedger,
+    proofLedger: canonicalProofLedger,
     boundary,
     health,
     links,
+    claimResolution,
     warnings
   });
   const commandState = deriveLifecycleCommandState({
@@ -3238,7 +3467,8 @@ export function describeJobThreadLinkSurface(input = {}) {
     validationSummary,
     previewAcceptance,
     nextStep,
-    proofLedger,
+    proofLedger: canonicalProofLedger,
+    claimResolution,
     now
   });
   const clientWorkflowHandoff = deriveClientWorkflowHandoff({
@@ -3265,7 +3495,7 @@ export function describeJobThreadLinkSurface(input = {}) {
     recovery,
     persistedState,
     externalHandoff,
-    proofLedger,
+    proofLedger: canonicalProofLedger,
     workspaceScope,
     principal,
     boundary,
@@ -3276,6 +3506,7 @@ export function describeJobThreadLinkSurface(input = {}) {
     validationSummary,
     previewAcceptance,
     nextStep,
+    claimResolution,
     warnings,
     now
   });
@@ -3302,7 +3533,8 @@ export function describeJobThreadLinkSurface(input = {}) {
     health,
     schedule,
     providerContract,
-    proofLedger,
+    proofLedger: canonicalProofLedger,
+    claimResolution,
     sync,
     recovery,
     analytics,

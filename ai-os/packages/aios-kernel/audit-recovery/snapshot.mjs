@@ -29,6 +29,7 @@ const PERSISTED_RESTART_PROJECTION_SCHEMA_VERSION = 'audit-recovery.snapshot.per
 const MAX_PREVIEW_EVIDENCE = 5;
 const MAX_NEXT_STEP_ITEMS = 6;
 const MAX_ROUTE_BLOCKERS = 5;
+const MAX_ACCEPTANCE_ACKNOWLEDGEMENTS = 10;
 const MAX_RESTART_BLOCKERS = 8;
 const LIFECYCLE_CONTROL_SCHEMA_VERSION = 'audit-recovery.snapshot.lifecycle-control.v1';
 const OPERATIONAL_HEALTH_SCHEMA_VERSION = 'audit-recovery.snapshot.operational-health.v1';
@@ -41,6 +42,11 @@ const SUPPORTED_SCHEDULE_INTERVALS = new Set(['manual', 'hourly', 'daily', 'week
 const HEALTHY_DEPENDENCY_STATES = new Set(['ok', 'ready', 'available']);
 const DEGRADED_DEPENDENCY_STATES = new Set(['degraded', 'slow', 'readonly', 'stale']);
 const RECOVERY_RESUME_STATES = new Set(['ready-to-enqueue', 'waiting-for-queue', 'queued', 'pending', 'resume']);
+const RECOVERY_ROUTE_REASONS = Object.freeze({
+  empty: 'target-route-empty',
+  outsideBoundary: 'target-route-outside-audit-recovery',
+  valid: 'target-route-valid'
+});
 const PROVIDER_SERVICE_CONTRACTS = Object.freeze({
   snapshotStore: {
     service: 'snapshot-store',
@@ -125,6 +131,26 @@ function normalizeRouteStack(value) {
   }
 
   return routes.slice(0, MAX_CLIENT_ROUTE_STACK);
+}
+
+function isRecoveryRoute(route) {
+  return route === RECOVERY_ROUTE_PREFIX || route.startsWith(`${RECOVERY_ROUTE_PREFIX}/`);
+}
+
+function normalizeRecoveryTargetRoute(value, fallback = '/audit-recovery/recover') {
+  const raw = asString(value);
+  const fallbackRoute = isRecoveryRoute(fallback) ? fallback : '/audit-recovery/recover';
+  const route = raw || fallbackRoute;
+  const valid = isRecoveryRoute(route);
+
+  return {
+    route: valid ? route : fallbackRoute,
+    requestedRoute: raw || null,
+    valid,
+    reason: !raw
+      ? RECOVERY_ROUTE_REASONS.empty
+      : (valid ? RECOVERY_ROUTE_REASONS.valid : RECOVERY_ROUTE_REASONS.outsideBoundary)
+  };
 }
 
 function normalizeProviderInput(input, key, contract) {
@@ -239,6 +265,114 @@ function buildProviderContracts({ input, request, generatedAt }) {
       }, {})
     },
     blocking
+  };
+}
+
+function buildExternalProviderHandoffReadiness({ providerContracts, lifecycleSettings, request, generatedAt }) {
+  const handoffServices = new Set(['snapshot-store', 'audit-log', 'recovery-queue']);
+  const serviceFindings = providerContracts.services
+    .filter((entry) => handoffServices.has(entry.service))
+    .map((entry) => {
+      const blockers = [];
+      const warnings = [];
+
+      if (!entry.accepted) {
+        blockers.push(`provider-${entry.status}`);
+      }
+      if (entry.missingCapabilities.length > 0) {
+        blockers.push('provider-capability-gap');
+      }
+      if (entry.handoff.ackRequired && !entry.handoff.ackedAt) {
+        blockers.push('provider-handoff-ack-missing');
+      }
+      if (entry.sync.state === 'stale') {
+        warnings.push('provider-sync-stale');
+      }
+      if (entry.handoff.targetRoute && !isRecoveryRoute(entry.handoff.targetRoute)) {
+        blockers.push('provider-handoff-route-outside-boundary');
+      }
+
+      return {
+        service: entry.service,
+        providerId: entry.providerId,
+        status: entry.status,
+        accepted: entry.accepted,
+        ready: blockers.length === 0,
+        degraded: warnings.length > 0,
+        blockers,
+        warnings,
+        requiredCapabilities: entry.requiredCapabilities,
+        missingCapabilities: entry.missingCapabilities,
+        endpoint: entry.endpoint,
+        sync: entry.sync,
+        handoff: entry.handoff,
+        nextAction: blockers.includes('provider-handoff-ack-missing')
+          ? 'await-provider-handoff-ack'
+          : blockers.includes('provider-handoff-route-outside-boundary')
+            ? 'repair-provider-handoff-route'
+            : entry.missingCapabilities.length > 0
+              ? 'negotiate-provider-capabilities'
+              : !entry.accepted
+                ? 'repair-provider-contract'
+                : warnings.length > 0
+                  ? 'refresh-provider-sync'
+                  : 'retain-provider-contract'
+      };
+    });
+  const blockingServices = serviceFindings.filter((finding) => !finding.ready);
+  const degradedServices = serviceFindings.filter((finding) => finding.ready && finding.degraded);
+  const lifecycleBlocksHandoff = lifecycleSettings.enabled === false
+    || lifecycleSettings.captureAllowed === false
+    || lifecycleSettings.validation.errors.length > 0;
+  const state = lifecycleBlocksHandoff || blockingServices.length > 0
+    ? 'blocked'
+    : degradedServices.length > 0 || providerContracts.negotiation.status === 'degraded'
+      ? 'degraded'
+      : 'ready';
+  const primaryFinding = blockingServices[0] || degradedServices[0] || null;
+  const digest = proofDigest({
+    schemaVersion: 'audit-recovery.snapshot.external-provider-handoff-readiness.v1',
+    state,
+    requestId: request.requestId,
+    tenantId: request.tenantId,
+    workspaceId: request.workspaceId,
+    lifecycleNextAction: lifecycleSettings.nextAction,
+    services: serviceFindings.map((finding) => ({
+      service: finding.service,
+      providerId: finding.providerId,
+      status: finding.status,
+      blockers: finding.blockers,
+      warnings: finding.warnings,
+      syncWatermark: finding.sync.watermark
+    })),
+    generatedAt
+  });
+
+  return {
+    schemaVersion: 'audit-recovery.snapshot.external-provider-handoff-readiness.v1',
+    generatedAt,
+    state,
+    ready: state === 'ready',
+    degraded: state === 'degraded',
+    lifecycleBlocksHandoff,
+    nextAction: lifecycleBlocksHandoff
+      ? lifecycleSettings.nextAction
+      : primaryFinding?.nextAction || 'emit-provider-handoff',
+    requiredServices: [...handoffServices],
+    blockingServices: blockingServices.map((finding) => finding.service),
+    degradedServices: degradedServices.map((finding) => finding.service),
+    providerIds: serviceFindings.map((finding) => finding.providerId),
+    serviceFindings,
+    operatorMessage: state === 'ready'
+      ? 'External provider handoff is ready.'
+      : lifecycleBlocksHandoff
+        ? 'Resolve snapshot lifecycle controls before handing off to external providers.'
+        : `Repair ${primaryFinding?.service || 'provider'} before handing off the snapshot.`,
+    audit: {
+      algorithm: 'sha256',
+      digest,
+      covers: ['request', 'lifecycle', 'provider-services', 'sync', 'handoff']
+    }
   };
 }
 
@@ -693,6 +827,105 @@ function normalizeLifecycleSettings(input, request, generatedAt) {
   };
 }
 
+function buildLifecycleOperatorPlan({ lifecycleSettings, boundary, providerContracts, operationalHealth, handoff, request, generatedAt }) {
+  const lifecycleErrors = lifecycleSettings.validation.errors;
+  const providerBlocked = providerContracts.negotiation.status === 'blocked';
+  const healthBlocked = operationalHealth.canAcceptSnapshot !== true;
+  const handoffBlocked = handoff?.clientWorkflow?.actions?.some((action) => action.enabled === false && action.id === 'enqueue-recovery-handoff') === true;
+  const blockedReasons = [
+    ...lifecycleErrors,
+    ...boundary.violations.map((violation) => `boundary:${violation}`),
+    ...providerContracts.negotiation.blockedServices.map((service) => `provider:${service}`),
+    ...operationalHealth.actionableErrors
+      .filter((error) => error.blocksCapture || error.blocksHandoff)
+      .map((error) => error.code),
+    ...(handoffBlocked ? ['handoff-action-disabled'] : [])
+  ];
+  const nextCommand = boundary.decision !== 'allow'
+    ? 'repair-boundary'
+    : lifecycleErrors.length > 0
+      ? 'update-lifecycle-settings'
+      : !lifecycleSettings.enabled
+        ? 'enable-snapshots'
+        : lifecycleSettings.schedule.paused
+          ? 'resume-schedule'
+          : providerBlocked
+            ? 'repair-provider-contracts'
+            : healthBlocked
+              ? 'retry-health-check'
+              : lifecycleSettings.schedule.drift.state === 'overdue'
+                ? 'capture-overdue-snapshot'
+                : lifecycleSettings.schedule.enabled
+                  ? 'await-scheduled-capture'
+                  : 'capture-now';
+  const canApply = blockedReasons.length === 0
+    && boundary.decision === 'allow'
+    && lifecycleSettings.captureAllowed
+    && !providerBlocked
+    && operationalHealth.canAcceptSnapshot;
+
+  return {
+    schemaVersion: 'audit-recovery.snapshot.lifecycle-operator-plan.v1',
+    generatedAt,
+    requestId: request.requestId,
+    tenantId: request.tenantId,
+    workspaceId: request.workspaceId,
+    state: canApply
+      ? 'ready'
+      : lifecycleSettings.command.accepted === false
+        ? 'command-blocked'
+        : 'needs-operator-action',
+    canApply,
+    nextCommand,
+    blockedReasons: [...new Set(blockedReasons)],
+    lifecycle: {
+      enabled: lifecycleSettings.enabled,
+      captureAllowed: lifecycleSettings.captureAllowed,
+      commandRequested: lifecycleSettings.command.requested,
+      commandNormalized: lifecycleSettings.command.normalized,
+      commandAccepted: lifecycleSettings.command.accepted,
+      commandRejectedReason: lifecycleSettings.command.rejectedReason,
+      nextAction: lifecycleSettings.nextAction,
+      retentionDays: lifecycleSettings.retention.days
+    },
+    schedule: {
+      enabled: lifecycleSettings.schedule.enabled,
+      interval: lifecycleSettings.schedule.interval,
+      paused: lifecycleSettings.schedule.paused,
+      nextRunAt: lifecycleSettings.schedule.nextRunAt,
+      driftState: lifecycleSettings.schedule.drift.state,
+      missedRun: lifecycleSettings.schedule.drift.missedRun,
+      maintenanceActive: lifecycleSettings.schedule.maintenanceWindow.active
+    },
+    boundary: {
+      decision: boundary.decision,
+      violations: boundary.violations,
+      auditPartition: boundary.auditPartition
+    },
+    provider: {
+      negotiationStatus: providerContracts.negotiation.status,
+      blockedServices: providerContracts.negotiation.blockedServices,
+      staleServices: providerContracts.negotiation.staleServices,
+      maxObservedLagMs: providerContracts.sync.maxObservedLagMs
+    },
+    health: {
+      state: operationalHealth.state,
+      mode: operationalHealth.mode,
+      canAcceptSnapshot: operationalHealth.canAcceptSnapshot,
+      canQueueRecoveryHandoff: operationalHealth.canQueueRecoveryHandoff,
+      retryable: operationalHealth.retryPolicy.retryable,
+      retryAfterSeconds: operationalHealth.retryPolicy.retryAfterSeconds,
+      primaryError: operationalHealth.actionableErrors[0]?.code || null
+    },
+    proofSubjects: [
+      `request:${request.requestId}`,
+      `tenant:${request.tenantId}`,
+      `workspace:${request.workspaceId}`,
+      `next-command:${nextCommand}`
+    ]
+  };
+}
+
 function normalizeActorCapabilities(actor) {
   const role = asString(actor.role, 'operator').toLowerCase();
   const roleCapabilities = ROLE_CAPABILITIES[role] || ROLE_CAPABILITIES.viewer;
@@ -857,7 +1090,12 @@ function normalizeClientState(input, request, generatedAt) {
       step: asString(workflow.step, intent === 'recover' ? 'handoff-review' : 'capture-review'),
       handoffMode: asString(workflow.handoffMode, recovery.handoffRequested || input.handoff === true ? 'enqueue' : 'review'),
       returnRoute: asString(workflow.returnRoute, '/audit-recovery/snapshot'),
-      optimisticCommit: asBoolean(workflow.optimisticCommit, false)
+      optimisticCommit: asBoolean(workflow.optimisticCommit, false),
+      previewAccepted: asBoolean(workflow.previewAccepted, asBoolean(input.previewAccepted, false)),
+      acknowledgedGateIds: normalizeStringList(workflow.acknowledgedGateIds || workflow.acknowledgements || input.acknowledgedGateIds),
+      previewAcceptance: isPlainObject(workflow.previewAcceptance)
+        ? workflow.previewAcceptance
+        : (isPlainObject(input.previewAcceptance) ? input.previewAcceptance : {})
     },
     runtime: normalizeClientRuntime(input, state, request, generatedAt)
   };
@@ -867,6 +1105,8 @@ function buildClientWorkflowHandoff({ request, clientState, evidence, snapshotId
   const healthBlocked = !operationalHealth.canAcceptSnapshot || operationalHealth.dependencies.recoveryQueue === 'failed';
   const lifecycleBlocked = !lifecycleSettings.enabled || lifecycleSettings.schedule.paused || lifecycleSettings.validation.errors.length > 0;
   const providerBlocked = providerContracts.negotiation.blockedServices.includes('recovery-queue');
+  const acceptanceGate = resumeContract?.acceptanceGate || null;
+  const acceptanceBlocked = acceptanceGate?.ready === false;
   const actions = [];
 
   if (resumeContract?.clientPrompt?.visible) {
@@ -920,9 +1160,25 @@ function buildClientWorkflowHandoff({ request, clientState, evidence, snapshotId
     type: canContinue && clientState.recovery.handoffRequested ? 'enqueue' : 'navigate',
     label: canContinue && clientState.recovery.handoffRequested ? 'Queue recovery handoff' : 'Open snapshot review',
     route: destination,
-    enabled: boundary.decision === 'allow' && !providerBlocked && operationalHealth.canAcceptSnapshot,
-    reason: canContinue ? 'snapshot is ready for client workflow handoff' : 'snapshot remains in review workflow'
+    enabled: boundary.decision === 'allow' && !providerBlocked && operationalHealth.canAcceptSnapshot && !acceptanceBlocked,
+    reason: acceptanceBlocked
+      ? acceptanceGate.nextAction
+      : (canContinue ? 'snapshot is ready for client workflow handoff' : 'snapshot remains in review workflow'),
+    acceptanceGateId: acceptanceGate?.gateId || null
   });
+
+  if (acceptanceGate?.required) {
+    actions.push({
+      id: 'accept-handoff-preview',
+      type: 'acknowledge',
+      label: 'Accept handoff preview',
+      route: '/audit-recovery/snapshot/review',
+      enabled: acceptanceGate.canAccept,
+      reason: acceptanceGate.ready ? 'handoff preview accepted' : acceptanceGate.nextAction,
+      acceptanceGateId: acceptanceGate.gateId,
+      requiredAcknowledgements: acceptanceGate.requiredAcknowledgements
+    });
+  }
 
   if (operationalHealth.degradedMode) {
     actions.push({
@@ -951,6 +1207,17 @@ function buildClientWorkflowHandoff({ request, clientState, evidence, snapshotId
     localCheckpointState: clientState.runtime.localCheckpoint.dirty ? 'dirty' : 'clean',
     routeStack: clientState.runtime.routeStack,
     pendingHandoff: clientState.runtime.pendingHandoff,
+    acceptanceGate: acceptanceGate
+      ? {
+        gateId: acceptanceGate.gateId,
+        state: acceptanceGate.state,
+        ready: acceptanceGate.ready,
+        required: acceptanceGate.required,
+        accepted: acceptanceGate.accepted,
+        nextAction: acceptanceGate.nextAction,
+        blockers: acceptanceGate.blockers
+      }
+      : null,
     resumeContract: resumeContract
       ? {
         schemaVersion: resumeContract.schemaVersion,
@@ -1043,11 +1310,15 @@ function normalizeRecoveryJournalEntry(item, index) {
 function normalizePendingRecovery(value) {
   const pending = isPlainObject(value) ? value : {};
   const requested = asBoolean(pending.requested, false) || Boolean(asString(pending.snapshotId));
+  const targetRoute = normalizeRecoveryTargetRoute(pending.targetRoute, '/audit-recovery/recover');
 
   return {
     requested,
     snapshotId: asString(pending.snapshotId),
-    targetRoute: asString(pending.targetRoute, '/audit-recovery/recover'),
+    targetRoute: targetRoute.route,
+    requestedTargetRoute: targetRoute.requestedRoute,
+    targetRouteValid: targetRoute.valid,
+    targetRouteReason: targetRoute.reason,
     mode: asString(pending.mode, requested ? 'resume' : 'none'),
     status: requested ? asString(pending.status, 'pending') : 'none',
     idempotencyKey: asString(pending.idempotencyKey),
@@ -1110,7 +1381,8 @@ function buildRestartProjection({ storageKey, bootId, activeSnapshot, checkpoint
     leaseMatchesActive ? '' : 'recovery-lease-snapshot-mismatch',
     recoveryLease.expired ? 'recovery-lease-expired' : '',
     pendingRecovery.requested && !pendingRecovery.idempotencyKey ? 'pending-recovery-idempotency-missing' : '',
-    pendingRecovery.requested && !pendingRecovery.resumeCursor ? 'pending-recovery-cursor-missing' : ''
+    pendingRecovery.requested && !pendingRecovery.resumeCursor ? 'pending-recovery-cursor-missing' : '',
+    pendingRecovery.requested && pendingRecovery.targetRouteValid === false ? 'pending-recovery-target-route-invalid' : ''
   ].filter(Boolean).slice(0, MAX_RESTART_BLOCKERS);
   const command = blockers.length > 0
     ? 'reconcile-persisted-state'
@@ -1143,6 +1415,8 @@ function buildRestartProjection({ storageKey, bootId, activeSnapshot, checkpoint
     checkpointGeneration: checkpoint.generation,
     pendingRecoveryStatus: pendingRecovery.status,
     pendingRecoveryRequested: pendingRecovery.requested,
+    pendingRecoveryTargetRoute: pendingRecovery.targetRoute || null,
+    pendingRecoveryTargetRouteValid: pendingRecovery.targetRouteValid !== false,
     resumeToken,
     blockers,
     recoveryLease: {
@@ -1533,6 +1807,24 @@ function buildAnalyticsReport({ input, request, clientState, boundary, evidence,
       workspaceId: boundary.workspaceId
     }))
   ];
+  const exportSegments = buildAnalyticsExportSegments({
+    summary: {
+      snapshotId,
+      generatedAt,
+      tenantId: boundary.tenantId,
+      workspaceId: boundary.workspaceId,
+      healthState: operationalHealth.state,
+      providerNegotiationStatus: providerContracts.negotiation.status,
+      persistedRestartProjectionStatus: nextPersistedState.restartProjection.status
+    },
+    counters,
+    historySnapshots,
+    timeline,
+    exportRows,
+    restartProjection: nextPersistedState.restartProjection,
+    handoff,
+    generatedAt
+  });
   const summary = {
     schemaVersion: 'audit-recovery.snapshot.analytics.v1',
     snapshotId,
@@ -1589,15 +1881,129 @@ function buildAnalyticsReport({ input, request, clientState, boundary, evidence,
       format: 'jsonl-compatible',
       primaryKey: 'digest',
       rowCount: exportRows.length,
+      segmentCount: exportSegments.segments.length,
+      readySegmentCount: exportSegments.readySegmentCount,
+      blockedSegmentCount: exportSegments.blockedSegmentCount,
       rows: exportRows,
+      segments: exportSegments.segments,
+      segmentDigest: exportSegments.digest,
       summaryDigest: reportDigest
     },
+    exportSegments,
     audit: {
       algorithm: 'sha256',
-      reportDigest,
+      reportDigest: proofDigest({ reportDigest, exportSegmentsDigest: exportSegments.digest }),
       proofDigest: auditProofDigest,
-      covers: ['summary', 'historySnapshots', 'timeline', 'exports.rows']
+      covers: ['summary', 'historySnapshots', 'timeline', 'exports.rows', 'exportSegments']
     }
+  };
+}
+
+function buildAnalyticsExportSegments({
+  summary,
+  counters,
+  historySnapshots,
+  timeline,
+  exportRows,
+  restartProjection,
+  handoff,
+  generatedAt
+}) {
+  const rowsByType = countBy(exportRows, (row) => row.type);
+  const timelineByState = countBy(timeline, (event) => event.state);
+  const historyByStatus = countBy(historySnapshots, (snapshot) => snapshot.status);
+  const restartBlocked = restartProjection.status === 'blocked';
+  const handoffBlocked = handoff.status.startsWith('blocked');
+  const segments = [
+    {
+      id: 'history',
+      schemaVersion: 'audit-recovery.snapshot.export-segment.history.v1',
+      state: historySnapshots.length > 0 ? 'ready' : 'empty',
+      rowType: 'history-snapshot',
+      rowCount: rowsByType['history-snapshot'] || 0,
+      counters: historyByStatus,
+      latestAt: historySnapshots[0]?.capturedAt || null,
+      blockedReasons: [],
+      requiredForExport: true
+    },
+    {
+      id: 'timeline',
+      schemaVersion: 'audit-recovery.snapshot.export-segment.timeline.v1',
+      state: timeline.length > 0 ? 'ready' : 'empty',
+      rowType: 'timeline-event',
+      rowCount: rowsByType['timeline-event'] || 0,
+      counters: timelineByState,
+      latestAt: timeline[timeline.length - 1]?.at || null,
+      blockedReasons: [],
+      requiredForExport: true
+    },
+    {
+      id: 'restart-projection',
+      schemaVersion: 'audit-recovery.snapshot.export-segment.restart.v1',
+      state: restartBlocked ? 'blocked' : 'ready',
+      rowType: 'restart-projection',
+      rowCount: 1,
+      counters: {
+        restartSafe: restartProjection.restartSafe ? 1 : 0,
+        blockerTotal: restartProjection.blockers.length,
+        leaseExpired: restartProjection.recoveryLease.expired ? 1 : 0
+      },
+      latestAt: restartProjection.generatedAt,
+      blockedReasons: restartProjection.blockers,
+      requiredForExport: true
+    },
+    {
+      id: 'handoff-resume',
+      schemaVersion: 'audit-recovery.snapshot.export-segment.handoff.v1',
+      state: handoffBlocked ? 'blocked' : handoff.status,
+      rowType: 'handoff-resume-contract',
+      rowCount: 1,
+      counters: {
+        resumeEnabled: handoff.resumeContract.resume.enabled ? 1 : 0,
+        blockerTotal: handoff.resumeContract.resume.blockers.length,
+        actionTotal: handoff.clientWorkflow.actions.length
+      },
+      latestAt: handoff.generatedAt,
+      blockedReasons: handoff.resumeContract.resume.blockers,
+      requiredForExport: false
+    }
+  ].map((segment) => ({
+    ...segment,
+    digest: proofDigest({
+      id: segment.id,
+      state: segment.state,
+      rowCount: segment.rowCount,
+      counters: segment.counters,
+      blockedReasons: segment.blockedReasons,
+      generatedAt
+    }).slice(0, 24)
+  }));
+  const readySegmentCount = segments.filter((segment) => segment.state === 'ready' || segment.state === 'ready-degraded').length;
+  const blockedSegmentCount = segments.filter((segment) => segment.state === 'blocked').length;
+  const requiredBlocked = segments.filter((segment) => segment.requiredForExport && segment.state === 'blocked');
+  const digest = proofDigest({
+    summary,
+    counters,
+    segmentDigests: segments.map((segment) => segment.digest),
+    rowCount: exportRows.length,
+    generatedAt
+  });
+
+  return {
+    schemaVersion: 'audit-recovery.snapshot.analytics-export-segments.v1',
+    generatedAt,
+    state: requiredBlocked.length > 0
+      ? 'blocked'
+      : blockedSegmentCount > 0
+        ? 'ready-with-handoff-blockers'
+        : 'ready',
+    ready: requiredBlocked.length === 0,
+    readySegmentCount,
+    blockedSegmentCount,
+    requiredBlockedSegmentIds: requiredBlocked.map((segment) => segment.id),
+    rowsByType,
+    digest,
+    segments
   };
 }
 
@@ -2250,6 +2656,9 @@ function buildPersistedState({ persistedState, request, clientState, evidence, s
       requested: true,
       snapshotId,
       targetRoute: '/audit-recovery/recover',
+      requestedTargetRoute: null,
+      targetRouteValid: true,
+      targetRouteReason: RECOVERY_ROUTE_REASONS.valid,
       mode: clientState.recovery.mode,
       status: operationalHealth.dependencies.recoveryQueue === 'failed' ? 'waiting-for-queue' : 'ready-to-enqueue',
       idempotencyKey: proofDigest({
@@ -2268,6 +2677,9 @@ function buildPersistedState({ persistedState, request, clientState, evidence, s
       requested: false,
       snapshotId: '',
       targetRoute: '/audit-recovery/recover',
+      requestedTargetRoute: null,
+      targetRouteValid: true,
+      targetRouteReason: RECOVERY_ROUTE_REASONS.empty,
       mode: 'none',
       status: 'none',
       idempotencyKey: '',
@@ -2660,6 +3072,129 @@ function buildRestartSafeStatus({ request, evidence, command, recoveryPaths, per
   };
 }
 
+function buildHandoffReconciliation({
+  request,
+  clientState,
+  snapshotId,
+  destination,
+  pendingRecovery,
+  runtimePending,
+  persistedTargetRoute,
+  runtimeTargetRoute,
+  providerTargetRoute,
+  routeStack,
+  nextPersistedState,
+  providerContracts,
+  recoveryQueueContract,
+  operationalHealth,
+  generatedAt
+}) {
+  const runtimeHasPending = Boolean(runtimePending.id) && runtimePending.status !== 'none';
+  const persistedHasPending = pendingRecovery.requested === true;
+  const runtimeSnapshotId = asString(runtimePending.snapshotId);
+  const persistedSnapshotId = asString(pendingRecovery.snapshotId);
+  const runtimeStatus = asString(runtimePending.status, runtimeHasPending ? 'pending' : 'none');
+  const persistedStatus = asString(pendingRecovery.status, persistedHasPending ? 'pending' : 'none');
+  const providerSyncCursor = providerContracts.sync.cursors['recovery-queue'] || recoveryQueueContract?.sync.cursor || null;
+  const runtimeRouteMismatch = runtimeHasPending
+    && runtimeTargetRoute.valid
+    && persistedTargetRoute.valid
+    && runtimeTargetRoute.route !== persistedTargetRoute.route;
+  const runtimeSnapshotMismatch = runtimeHasPending
+    && runtimeSnapshotId
+    && runtimeSnapshotId !== snapshotId
+    && (!persistedSnapshotId || runtimeSnapshotId !== persistedSnapshotId);
+  const persistedSnapshotMismatch = persistedHasPending
+    && persistedSnapshotId
+    && persistedSnapshotId !== snapshotId;
+  const providerAckMissing = recoveryQueueContract?.handoff.ackRequired === true
+    && !recoveryQueueContract.handoff.ackedAt;
+  const blockers = [
+    runtimeHasPending && !persistedHasPending ? 'runtime-pending-handoff-not-persisted' : '',
+    persistedHasPending && !pendingRecovery.resumeCursor ? 'persisted-resume-cursor-missing' : '',
+    persistedHasPending && !pendingRecovery.idempotencyKey ? 'persisted-idempotency-key-missing' : '',
+    runtimeSnapshotMismatch ? 'runtime-pending-snapshot-mismatch' : '',
+    persistedSnapshotMismatch ? 'persisted-pending-snapshot-mismatch' : '',
+    runtimeRouteMismatch ? 'runtime-persisted-target-route-mismatch' : '',
+    !runtimeTargetRoute.valid && runtimeHasPending ? 'runtime-target-route-invalid' : '',
+    !persistedTargetRoute.valid && persistedHasPending ? 'persisted-target-route-invalid' : '',
+    !providerTargetRoute.valid ? 'provider-target-route-invalid' : '',
+    clientState.runtime.localCheckpoint.dirty ? 'client-local-checkpoint-dirty' : '',
+    nextPersistedState.restartProjection.status === 'blocked' ? 'restart-projection-blocked' : '',
+    nextPersistedState.integrity.status !== 'verified' ? 'persistence-integrity-unverified' : '',
+    providerContracts.negotiation.blockedServices.includes('recovery-queue') ? 'recovery-queue-contract-blocked' : '',
+    operationalHealth.dependencies.recoveryQueue === 'failed' ? 'recovery-queue-unavailable' : '',
+    providerAckMissing ? 'recovery-queue-provider-ack-missing' : ''
+  ].filter(Boolean);
+  const warnings = [
+    operationalHealth.degradedMode ? 'operational-health-degraded' : '',
+    providerContracts.negotiation.staleServices.includes('recovery-queue') ? 'recovery-queue-sync-stale' : '',
+    runtimeHasPending && persistedHasPending && runtimeStatus !== persistedStatus ? 'runtime-persisted-status-drift' : '',
+    routeStack.includes(destination) ? '' : 'destination-route-injected'
+  ].filter(Boolean);
+  const state = blockers.length > 0
+    ? 'blocked'
+    : persistedHasPending
+      ? warnings.length > 0 ? 'ready-with-warnings' : 'ready'
+      : runtimeHasPending
+        ? 'needs-persistence'
+        : 'not-required';
+  const claimMaterial = {
+    requestId: request.requestId,
+    clientSessionId: request.clientSessionId,
+    snapshotId,
+    persistedSnapshotId: persistedSnapshotId || null,
+    runtimeSnapshotId: runtimeSnapshotId || null,
+    persistedTargetRoute: persistedTargetRoute.route,
+    runtimeTargetRoute: runtimeTargetRoute.route,
+    providerTargetRoute: providerTargetRoute.route,
+    resumeCursor: pendingRecovery.resumeCursor || null,
+    idempotencyKey: pendingRecovery.idempotencyKey || null,
+    providerSyncCursor,
+    blockers,
+    warnings
+  };
+
+  return {
+    schemaVersion: 'audit-recovery.snapshot.handoff-reconciliation.v1',
+    generatedAt,
+    state,
+    ready: state === 'ready' || state === 'ready-with-warnings',
+    runtimePending: runtimeHasPending,
+    persistedPending: persistedHasPending,
+    runtimeStatus,
+    persistedStatus,
+    snapshotMatch: !runtimeSnapshotMismatch && !persistedSnapshotMismatch,
+    routeMatch: !runtimeRouteMismatch && runtimeTargetRoute.valid && persistedTargetRoute.valid && providerTargetRoute.valid,
+    providerAck: {
+      required: recoveryQueueContract?.handoff.ackRequired === true,
+      ackedAt: recoveryQueueContract?.handoff.ackedAt || null,
+      missing: providerAckMissing
+    },
+    sync: {
+      cursor: providerSyncCursor,
+      stale: providerContracts.negotiation.staleServices.includes('recovery-queue'),
+      maxObservedLagMs: providerContracts.sync.maxObservedLagMs
+    },
+    blockers,
+    warnings,
+    nextAction: blockers.length > 0
+      ? blockers.includes('runtime-pending-handoff-not-persisted') || blockers.includes('client-local-checkpoint-dirty')
+        ? 'flush-client-handoff-state'
+        : blockers.includes('recovery-queue-provider-ack-missing')
+          ? 'await-recovery-queue-ack'
+          : 'reconcile-handoff-state'
+      : state === 'needs-persistence'
+        ? 'persist-runtime-handoff-state'
+        : 'resume-handoff-ready',
+    proof: {
+      algorithm: 'sha256',
+      digest: proofDigest(claimMaterial),
+      covers: ['snapshotId', 'targetRoutes', 'resumeCursor', 'idempotencyKey', 'providerSyncCursor', 'blockers', 'warnings']
+    }
+  };
+}
+
 function buildHandoffResumeContract({
   request,
   clientState,
@@ -2678,16 +3213,31 @@ function buildHandoffResumeContract({
   const pendingRecovery = nextPersistedState.pendingRecovery;
   const runtimePending = clientState.runtime.pendingHandoff;
   const providerBlocked = providerContracts.negotiation.blockedServices.includes('recovery-queue');
+  const recoveryQueueContract = providerContracts.services.find((entry) => entry.key === 'recoveryQueue');
+  const providerTargetRoute = normalizeRecoveryTargetRoute(recoveryQueueContract?.handoff.targetRoute, destination);
   const runtimeHasPending = Boolean(runtimePending.id) && runtimePending.status !== 'none';
   const persistedHasPending = pendingRecovery.requested === true;
+  const runtimeTargetRoute = normalizeRecoveryTargetRoute(runtimePending.targetRoute, destination);
+  const persistedTargetRoute = {
+    route: pendingRecovery.targetRoute,
+    requestedRoute: pendingRecovery.requestedTargetRoute || null,
+    valid: pendingRecovery.targetRouteValid !== false,
+    reason: pendingRecovery.targetRouteReason || RECOVERY_ROUTE_REASONS.valid
+  };
+  const selectedTargetRoute = persistedHasPending ? persistedTargetRoute : runtimeTargetRoute;
   const routeStack = normalizeRouteStack([
     request.route,
     destination,
-    pendingRecovery.targetRoute,
-    runtimePending.targetRoute,
+    persistedTargetRoute.route,
+    runtimeTargetRoute.route,
     ...clientState.runtime.routeStack
   ]);
-  const targetRoute = asString(pendingRecovery.targetRoute, asString(runtimePending.targetRoute, destination));
+  const targetRoute = selectedTargetRoute.valid ? selectedTargetRoute.route : destination;
+  const targetRouteBlocker = persistedHasPending && !persistedTargetRoute.valid
+    ? 'pending-recovery-target-route-invalid'
+    : (runtimeHasPending && !runtimeTargetRoute.valid
+      ? 'runtime-pending-target-route-invalid'
+      : (!providerTargetRoute.valid ? 'provider-handoff-target-route-invalid' : ''));
   const blockers = [
     evidence.length === 0 ? 'evidence-required' : '',
     boundary.decision !== 'allow' ? 'boundary-denied' : '',
@@ -2697,17 +3247,37 @@ function buildHandoffResumeContract({
     !operationalHealth.canAcceptSnapshot ? 'health-blocked' : '',
     operationalHealth.dependencies.recoveryQueue === 'failed' ? 'recovery-queue-unavailable' : '',
     providerBlocked ? 'recovery-queue-contract-blocked' : '',
+    targetRouteBlocker,
     nextPersistedState.integrity.status !== 'verified' ? 'persistence-integrity-unverified' : '',
     clientState.runtime.localCheckpoint.dirty ? 'client-checkpoint-dirty' : ''
   ].filter(Boolean);
+  const reconciliation = buildHandoffReconciliation({
+    request,
+    clientState,
+    snapshotId,
+    destination,
+    pendingRecovery,
+    runtimePending,
+    persistedTargetRoute,
+    runtimeTargetRoute,
+    providerTargetRoute,
+    routeStack,
+    nextPersistedState,
+    providerContracts,
+    recoveryQueueContract,
+    operationalHealth,
+    generatedAt
+  });
+  const effectiveBlockers = [...new Set([...blockers, ...reconciliation.blockers])];
   const resumeEnabled = canContinue
     && persistedHasPending
     && Boolean(pendingRecovery.resumeCursor)
-    && blockers.length === 0;
+    && effectiveBlockers.length === 0
+    && reconciliation.ready;
   const state = resumeEnabled
     ? 'resume-ready'
     : (runtimeHasPending || persistedHasPending
-      ? (blockers.length > 0 ? 'resume-blocked' : 'resume-review')
+      ? (effectiveBlockers.length > 0 ? 'resume-blocked' : 'resume-review')
       : 'no-pending-handoff');
   const token = proofDigest({
     schemaVersion: HANDOFF_RESUME_CONTRACT_SCHEMA_VERSION,
@@ -2718,7 +3288,8 @@ function buildHandoffResumeContract({
     resumeCursor: pendingRecovery.resumeCursor,
     idempotencyKey: pendingRecovery.idempotencyKey,
     routeStack,
-    blockers
+    blockers: effectiveBlockers,
+    reconciliationDigest: reconciliation.proof.digest
   }).slice(0, 28);
   const payload = {
     snapshotId,
@@ -2731,10 +3302,29 @@ function buildHandoffResumeContract({
     idempotencyKey: pendingRecovery.idempotencyKey || null,
     recoveryMode: clientState.recovery.mode,
     recoveryTarget: clientState.recovery.target,
+    routeContract: {
+      requestedRoute: selectedTargetRoute.requestedRoute,
+      targetRoute,
+      valid: selectedTargetRoute.valid,
+      reason: selectedTargetRoute.reason
+    },
     checkpointCursor: nextPersistedState.checkpoint.cursor,
     proofDigest: nextPersistedState.activeSnapshot.proofDigest,
     providerSyncCursor: providerContracts.sync.cursors['recovery-queue'] || null
   };
+  const acceptanceGate = buildHandoffAcceptanceGate({
+    request,
+    clientState,
+    evidence,
+    snapshotId,
+    pendingRecovery,
+    resumeEnabled,
+    targetRoute,
+    effectiveBlockers,
+    reconciliation,
+    operationalHealth,
+    generatedAt
+  });
 
   return {
     schemaVersion: HANDOFF_RESUME_CONTRACT_SCHEMA_VERSION,
@@ -2746,24 +3336,41 @@ function buildHandoffResumeContract({
       runtimeStatus: runtimePending.status,
       persistedStatus: pendingRecovery.status,
       selectedSnapshotId: clientState.selectedSnapshot.id || null,
-      activeSnapshotId: nextPersistedState.activeSnapshot.id || null
+      activeSnapshotId: nextPersistedState.activeSnapshot.id || null,
+      runtimeTargetRoute: {
+        requestedRoute: runtimeTargetRoute.requestedRoute,
+        targetRoute: runtimeTargetRoute.route,
+        valid: runtimeTargetRoute.valid,
+        reason: runtimeTargetRoute.reason
+      },
+      persistedTargetRoute
     },
     route: {
       currentRoute: request.route,
       targetRoute,
       returnRoute: clientState.workflow.returnRoute,
       routeStack,
-      state: routeStack.includes(targetRoute) ? 'route-stack-ready' : 'target-route-injected'
+      providerTargetRoute: {
+        requestedRoute: providerTargetRoute.requestedRoute,
+        targetRoute: providerTargetRoute.route,
+        valid: providerTargetRoute.valid,
+        reason: providerTargetRoute.reason
+      },
+      state: !selectedTargetRoute.valid || !providerTargetRoute.valid
+        ? 'target-route-rejected'
+        : (routeStack.includes(targetRoute) ? 'route-stack-ready' : 'target-route-injected')
     },
     resume: {
       enabled: resumeEnabled,
       reason: resumeEnabled
         ? 'pending recovery can resume from persisted checkpoint and client route state'
-        : (blockers[0] || 'no persisted recovery handoff is pending'),
+        : (effectiveBlockers[0] || reconciliation.nextAction || 'no persisted recovery handoff is pending'),
       token,
-      blockers,
-      requiredInputs: resumeEnabled ? ['resumeCursor', 'idempotencyKey', 'proofDigest'] : blockers
+      blockers: effectiveBlockers,
+      requiredInputs: resumeEnabled ? ['resumeCursor', 'idempotencyKey', 'proofDigest'] : effectiveBlockers
     },
+    acceptanceGate,
+    reconciliation,
     queuePayload: payload,
     recoveryPathStatus: {
       restart: recoveryPaths.restart.status,
@@ -2772,20 +3379,125 @@ function buildHandoffResumeContract({
     },
     clientPrompt: {
       visible: runtimeHasPending || persistedHasPending,
-      severity: resumeEnabled ? 'info' : (blockers.length > 0 ? 'warning' : 'info'),
-      label: resumeEnabled ? 'Resume pending recovery' : 'Review pending recovery',
+      severity: resumeEnabled ? 'info' : (effectiveBlockers.length > 0 ? 'warning' : 'info'),
+      label: resumeEnabled
+        ? 'Resume pending recovery'
+        : reconciliation.state === 'needs-persistence'
+          ? 'Save pending recovery'
+          : 'Review pending recovery',
       route: targetRoute
     },
     audit: {
       algorithm: 'sha256',
-      digest: proofDigest({ payload, state, routeStack, blockers, generatedAt }),
-      covers: ['source', 'route', 'resume', 'queuePayload', 'recoveryPathStatus']
+      digest: proofDigest({ payload, state, routeStack, blockers: effectiveBlockers, reconciliation, acceptanceGate, generatedAt }),
+      covers: ['source', 'route', 'resume', 'acceptanceGate', 'reconciliation', 'queuePayload', 'recoveryPathStatus']
+    }
+  };
+}
+
+function buildHandoffAcceptanceGate({
+  request,
+  clientState,
+  evidence,
+  snapshotId,
+  pendingRecovery,
+  resumeEnabled,
+  targetRoute,
+  effectiveBlockers,
+  reconciliation,
+  operationalHealth,
+  generatedAt
+}) {
+  const workflow = clientState.workflow || {};
+  const runtimePending = clientState.runtime.pendingHandoff || {};
+  const required = clientState.recovery.handoffRequested
+    || pendingRecovery.requested === true
+    || workflow.handoffMode === 'enqueue'
+    || runtimePending.status === 'pending';
+  const previewInput = isPlainObject(workflow.previewAcceptance)
+    ? workflow.previewAcceptance
+    : {};
+  const explicitAccepted = previewInput.accepted === true
+    || workflow.previewAccepted === true
+    || runtimePending.previewAccepted === true;
+  const acknowledged = normalizeStringList(
+    previewInput.acknowledgements
+    || previewInput.acknowledgementIds
+    || workflow.acknowledgedGateIds
+  );
+  const requiredAcknowledgements = [
+    ...(operationalHealth.degradedMode ? ['degraded-mode'] : []),
+    ...(evidence.length === 0 ? ['audit-evidence'] : []),
+    ...effectiveBlockers
+  ];
+  const missingAcknowledgements = [...new Set(requiredAcknowledgements)]
+    .filter((id) => !acknowledged.includes(id));
+  const blockers = [
+    ...(required && !explicitAccepted ? ['handoff-preview-acceptance-required'] : []),
+    ...(explicitAccepted && !asString(previewInput.acceptedBy, request.actor.id) ? ['handoff-preview-accepted-by-required'] : []),
+    ...(explicitAccepted && missingAcknowledgements.length > 0 ? ['handoff-preview-acknowledgements-missing'] : []),
+    ...(reconciliation.ready ? [] : ['handoff-reconciliation-not-ready'])
+  ];
+  const ready = !required || (explicitAccepted && blockers.length === 0 && resumeEnabled);
+  const gateMaterial = {
+    schemaVersion: 'audit-recovery.snapshot.handoff-acceptance-gate.v1',
+    requestId: request.requestId,
+    clientSessionId: request.clientSessionId,
+    snapshotId,
+    targetRoute,
+    required,
+    explicitAccepted,
+    acknowledged,
+    missingAcknowledgements,
+    effectiveBlockers,
+    reconciliationState: reconciliation.state,
+    generatedAt
+  };
+
+  return {
+    schemaVersion: 'audit-recovery.snapshot.handoff-acceptance-gate.v1',
+    gateId: proofDigest(gateMaterial).slice(0, 24),
+    generatedAt,
+    state: ready
+      ? 'ready'
+      : blockers.length > 0
+        ? 'blocked'
+        : required
+          ? 'awaiting-acceptance'
+          : 'not-required',
+    required,
+    ready,
+    canAccept: required && effectiveBlockers.length === 0 && reconciliation.ready,
+    accepted: explicitAccepted && blockers.length === 0,
+    acceptedBy: explicitAccepted ? asString(previewInput.acceptedBy, request.actor.id) : null,
+    acceptedAt: explicitAccepted ? asString(previewInput.acceptedAt, generatedAt) : null,
+    requiredAcknowledgements: [...new Set(requiredAcknowledgements)],
+    acknowledgedGateIds: acknowledged,
+    missingAcknowledgements,
+    blockers,
+    nextAction: blockers.includes('handoff-preview-acceptance-required')
+      ? 'accept-handoff-preview'
+      : blockers.includes('handoff-preview-acknowledgements-missing')
+        ? 'acknowledge-handoff-preview-gates'
+        : blockers.includes('handoff-reconciliation-not-ready')
+          ? reconciliation.nextAction
+          : ready
+            ? 'enqueue-recovery-handoff'
+            : 'review-handoff-preview',
+    proof: {
+      algorithm: 'sha256',
+      digest: proofDigest({ gateMaterial, blockers, ready }),
+      covers: ['snapshotId', 'targetRoute', 'required', 'accepted', 'acknowledgements', 'reconciliation']
     }
   };
 }
 
 function buildHandoff({ request, clientState, evidence, snapshotId, generatedAt, boundary, lifecycleSettings, providerContracts, operationalHealth, nextPersistedState, recoveryPaths }) {
   const recoveryQueueContract = providerContracts.services.find((entry) => entry.key === 'recoveryQueue');
+  const destination = clientState.recovery.handoffRequested
+    ? '/audit-recovery/recover'
+    : '/audit-recovery/review';
+  const providerTargetRoute = normalizeRecoveryTargetRoute(recoveryQueueContract?.handoff.targetRoute, destination);
   const canContinue = evidence.length > 0
     && request.route.startsWith('/audit-recovery')
     && boundary.decision === 'allow'
@@ -2793,12 +3505,11 @@ function buildHandoff({ request, clientState, evidence, snapshotId, generatedAt,
     && !lifecycleSettings.schedule.paused
     && operationalHealth.canAcceptSnapshot
     && operationalHealth.dependencies.recoveryQueue !== 'failed'
-    && recoveryQueueContract?.accepted === true;
-  const destination = clientState.recovery.handoffRequested
-    ? '/audit-recovery/recover'
-    : '/audit-recovery/review';
+    && recoveryQueueContract?.accepted === true
+    && providerTargetRoute.valid;
   const healthBlocked = !operationalHealth.canAcceptSnapshot || operationalHealth.dependencies.recoveryQueue === 'failed';
-  const lifecycleBlocked = !lifecycleSettings.enabled || lifecycleSettings.schedule.paused;
+  const lifecycleBlocked = !lifecycleSettings.enabled || lifecycleSettings.schedule.paused || lifecycleSettings.validation.errors.length > 0;
+  const routeBlocked = !providerTargetRoute.valid;
   const resumeContract = buildHandoffResumeContract({
     request,
     clientState,
@@ -2834,13 +3545,19 @@ function buildHandoff({ request, clientState, evidence, snapshotId, generatedAt,
     status: canContinue
       ? (operationalHealth.degradedMode ? 'ready-degraded' : 'ready')
       : (boundary.decision === 'allow'
-        ? (lifecycleBlocked ? 'blocked-by-lifecycle' : (healthBlocked ? 'blocked-by-health' : 'needs-evidence'))
+        ? (lifecycleBlocked
+          ? 'blocked-by-lifecycle'
+          : (healthBlocked ? 'blocked-by-health' : (routeBlocked ? 'blocked-by-route' : 'needs-evidence')))
         : 'blocked-by-boundary'),
     destination,
     label: canContinue
       ? (operationalHealth.degradedMode ? 'Review recovery snapshot after degraded-mode acknowledgement' : 'Review recovery snapshot')
       : (boundary.decision === 'allow'
-        ? (lifecycleBlocked ? 'Resolve snapshot lifecycle controls before recovery handoff' : (healthBlocked ? 'Hosted-kernel health blocked recovery handoff' : 'Add audit evidence before recovery'))
+        ? (lifecycleBlocked
+          ? 'Resolve snapshot lifecycle controls before recovery handoff'
+          : (healthBlocked
+            ? 'Hosted-kernel health blocked recovery handoff'
+            : (routeBlocked ? 'Recovery handoff target route is outside audit-recovery' : 'Add audit evidence before recovery')))
         : 'Tenant or workspace permission boundary blocked recovery'),
     snapshotId,
     requestId: request.requestId,
@@ -2869,7 +3586,10 @@ function buildHandoff({ request, clientState, evidence, snapshotId, generatedAt,
       providerId: recoveryQueueContract?.providerId || null,
       service: recoveryQueueContract?.service || 'recovery-queue',
       externalReference: recoveryQueueContract?.handoff.externalReference || null,
-      targetRoute: recoveryQueueContract?.handoff.targetRoute || destination,
+      targetRoute: providerTargetRoute.route,
+      requestedTargetRoute: providerTargetRoute.requestedRoute,
+      targetRouteValid: providerTargetRoute.valid,
+      targetRouteReason: providerTargetRoute.reason,
       syncCursor: recoveryQueueContract?.sync.cursor || null,
       ackRequired: recoveryQueueContract?.handoff.ackRequired === true,
       ackedAt: recoveryQueueContract?.handoff.ackedAt || null
@@ -2896,7 +3616,129 @@ function buildAcceptanceGate(id, label, passed, route, reason, severity = 'error
   };
 }
 
+function normalizePreviewAcceptanceInput(input, generatedAt) {
+  const source = isPlainObject(input.previewAcceptance)
+    ? input.previewAcceptance
+    : (isPlainObject(input.acceptance) ? input.acceptance : {});
+  const acknowledgements = normalizeStringList(
+    source.acknowledgements
+    || source.acknowledgementIds
+    || source.acknowledgedGateIds
+  ).slice(0, MAX_ACCEPTANCE_ACKNOWLEDGEMENTS);
+  const acceptedBy = asString(source.acceptedBy, asString(source.actorId, asString(source.userId)));
+  const acceptedAt = asString(source.acceptedAt, acceptedBy ? generatedAt : '');
+  const accepted = asBoolean(source.accepted, Boolean(acceptedBy));
+  const required = asBoolean(source.required, false);
+
+  return {
+    schemaVersion: 'audit-recovery.snapshot.preview-acceptance-input.v1',
+    requested: Object.keys(source).length > 0,
+    required,
+    accepted,
+    acceptedBy: acceptedBy || null,
+    acceptedAt: acceptedAt || null,
+    comment: asString(source.comment, asString(source.reason)).slice(0, 240) || null,
+    acknowledgements,
+    rawAcknowledgementCount: Array.isArray(source.acknowledgements)
+      ? source.acknowledgements.length
+      : Array.isArray(source.acknowledgementIds)
+        ? source.acknowledgementIds.length
+        : Array.isArray(source.acknowledgedGateIds)
+          ? source.acknowledgedGateIds.length
+          : acknowledgements.length,
+    truncated: acknowledgements.length >= MAX_ACCEPTANCE_ACKNOWLEDGEMENTS
+  };
+}
+
+function buildPreviewAcceptanceReceipt({ acceptanceInput, baseGates, snapshotId, request, snapshotArtifact, generatedAt }) {
+  const acknowledgementSet = new Set(acceptanceInput.acknowledgements);
+  const failedGateIds = baseGates
+    .filter((gate) => !gate.passed)
+    .map((gate) => gate.id);
+  const blockingGateIds = baseGates
+    .filter((gate) => !gate.passed && gate.severity === 'error')
+    .map((gate) => gate.id);
+  const unacknowledgedBlockingGateIds = blockingGateIds
+    .filter((gateId) => !acknowledgementSet.has(gateId));
+  const unknownAcknowledgements = acceptanceInput.acknowledgements
+    .filter((gateId) => !baseGates.some((gate) => gate.id === gateId));
+  const blockers = [];
+
+  if (acceptanceInput.required && !acceptanceInput.accepted) {
+    blockers.push('preview-acceptance-required');
+  }
+  if (acceptanceInput.accepted && !acceptanceInput.acceptedBy) {
+    blockers.push('preview-acceptance-actor-required');
+  }
+  if (acceptanceInput.accepted && !acceptanceInput.acceptedAt) {
+    blockers.push('preview-acceptance-timestamp-required');
+  }
+  if (acceptanceInput.accepted && unacknowledgedBlockingGateIds.length > 0) {
+    blockers.push('preview-acceptance-blocking-gates-unacknowledged');
+  }
+  if (unknownAcknowledgements.length > 0) {
+    blockers.push('preview-acceptance-unknown-acknowledgements');
+  }
+
+  const digest = proofDigest({
+    schemaVersion: 'audit-recovery.snapshot.preview-acceptance-receipt.v1',
+    snapshotId,
+    requestId: request.requestId,
+    actorId: request.actor.id,
+    accepted: acceptanceInput.accepted,
+    acceptedBy: acceptanceInput.acceptedBy,
+    acceptedAt: acceptanceInput.acceptedAt,
+    required: acceptanceInput.required,
+    acknowledgements: acceptanceInput.acknowledgements,
+    failedGateIds,
+    blockingGateIds,
+    artifactPayloadDigest: snapshotArtifact.payloadDigest,
+    blockers,
+    generatedAt
+  });
+
+  return {
+    schemaVersion: 'audit-recovery.snapshot.preview-acceptance-receipt.v1',
+    generatedAt,
+    required: acceptanceInput.required,
+    requested: acceptanceInput.requested,
+    accepted: acceptanceInput.accepted && blockers.length === 0,
+    acceptedBy: acceptanceInput.acceptedBy,
+    acceptedAt: acceptanceInput.acceptedAt,
+    comment: acceptanceInput.comment,
+    state: blockers.length > 0
+      ? 'blocked'
+      : acceptanceInput.accepted
+        ? 'accepted'
+        : acceptanceInput.required
+          ? 'awaiting-acceptance'
+          : 'not-required',
+    blockers,
+    failedGateIds,
+    blockingGateIds,
+    acknowledgedGateIds: acceptanceInput.acknowledgements,
+    unacknowledgedBlockingGateIds,
+    unknownAcknowledgements,
+    truncatedAcknowledgements: acceptanceInput.truncated,
+    nextAction: blockers.includes('preview-acceptance-required')
+      ? 'collect-preview-acceptance'
+      : blockers.includes('preview-acceptance-blocking-gates-unacknowledged')
+        ? 'acknowledge-blocking-preview-gates'
+        : blockers.length > 0
+          ? 'repair-preview-acceptance'
+          : acceptanceInput.accepted
+            ? 'continue-recovery-handoff'
+            : 'review-preview',
+    proof: {
+      algorithm: 'sha256',
+      digest,
+      covers: ['snapshotId', 'requestId', 'acceptedBy', 'acceptedAt', 'acknowledgements', 'gates', 'artifactPayloadDigest']
+    }
+  };
+}
+
 function buildPreviewAcceptanceContract({
+  input,
   request,
   clientState,
   evidence,
@@ -2912,7 +3754,8 @@ function buildPreviewAcceptanceContract({
   snapshotArtifact,
   generatedAt
 }) {
-  const gates = [
+  const acceptanceInput = normalizePreviewAcceptanceInput(input, generatedAt);
+  const baseGates = [
     buildAcceptanceGate(
       'boundary',
       'Tenant and workspace boundary',
@@ -2966,6 +3809,32 @@ function buildPreviewAcceptanceContract({
       restartStatus.message || snapshotArtifact.validation.persistenceIntegrity,
       'error',
       { restartState: restartStatus.state, artifactState: snapshotArtifact.state }
+    )
+  ];
+  const acceptanceReceipt = buildPreviewAcceptanceReceipt({
+    acceptanceInput,
+    baseGates,
+    snapshotId,
+    request,
+    snapshotArtifact,
+    generatedAt
+  });
+  const gates = [
+    ...baseGates,
+    buildAcceptanceGate(
+      'operator-acceptance',
+      'Operator preview acceptance',
+      !acceptanceReceipt.required || acceptanceReceipt.accepted,
+      '/audit-recovery/snapshot/review',
+      acceptanceReceipt.blockers.join(', ') || acceptanceReceipt.nextAction,
+      acceptanceReceipt.required ? 'error' : 'warning',
+      {
+        required: acceptanceReceipt.required,
+        acceptedBy: acceptanceReceipt.acceptedBy,
+        acceptedAt: acceptanceReceipt.acceptedAt,
+        receiptDigest: acceptanceReceipt.proof.digest,
+        unacknowledgedBlockingGateIds: acceptanceReceipt.unacknowledgedBlockingGateIds
+      }
     )
   ];
   const failedGates = gates.filter((gate) => !gate.passed);
@@ -3024,6 +3893,7 @@ function buildPreviewAcceptanceContract({
     requestId: request.requestId,
     acceptanceState,
     gates,
+    acceptanceReceiptDigest: acceptanceReceipt.proof.digest,
     nextSteps,
     artifactPayloadDigest: snapshotArtifact.payloadDigest,
     commandResultDigest: idempotentCommand.resultDigest
@@ -3046,9 +3916,13 @@ function buildPreviewAcceptanceContract({
     },
     acceptance: {
       state: acceptanceState,
-      submitEnabled: acceptanceState !== 'blocked' && snapshotArtifact.exportable,
+      submitEnabled: acceptanceState !== 'blocked' && snapshotArtifact.exportable && (!acceptanceReceipt.required || acceptanceReceipt.accepted),
       acceptLabel: handoff.status.startsWith('ready') ? 'Accept and continue' : 'Keep in review',
-      requiredAcknowledgements: operationalHealth.degradedMode ? ['degraded-mode'] : [],
+      requiredAcknowledgements: [
+        ...(operationalHealth.degradedMode ? ['degraded-mode'] : []),
+        ...acceptanceReceipt.unacknowledgedBlockingGateIds
+      ],
+      receipt: acceptanceReceipt,
       gates
     },
     readiness: {
@@ -3057,14 +3931,17 @@ function buildPreviewAcceptanceContract({
       restartSafe: restartStatus.restartSafe === true,
       recoveryStatus: recoveryPaths.recover.status,
       handoffStatus: handoff.status,
-      providerNegotiationStatus: providerContracts.negotiation.status
+      providerNegotiationStatus: providerContracts.negotiation.status,
+      acceptanceState: acceptanceReceipt.state,
+      acceptanceDigest: acceptanceReceipt.proof.digest,
+      acceptanceNextAction: acceptanceReceipt.nextAction
     },
     validationSummary,
     nextSteps,
     audit: {
       algorithm: 'sha256',
       digest: proofDigest(proofInput),
-      covers: ['preview', 'acceptance.gates', 'readiness', 'validationSummary', 'nextSteps']
+      covers: ['preview', 'acceptance.gates', 'acceptance.receipt', 'readiness', 'validationSummary', 'nextSteps']
     }
   };
 }
@@ -3103,8 +3980,11 @@ function buildRoutePreviewContract({
       id: primaryAction?.id || 'refresh-preview',
       label: primaryAction?.label || 'Refresh snapshot preview',
       route: primaryAction?.route || request.route,
-      enabled: previewAcceptance.acceptance.submitEnabled && blockingGates.length === 0,
+      enabled: previewAcceptance.acceptance.submitEnabled
+        && blockingGates.length === 0
+        && previewAcceptance.acceptance.receipt.state !== 'blocked',
       disabledReason: blockingGates[0]?.reason
+        || previewAcceptance.acceptance.receipt.blockers[0]
         || (!snapshotArtifact.exportable ? snapshotArtifact.validation.status : null)
     },
     secondary: {
@@ -3153,6 +4033,17 @@ function buildRoutePreviewContract({
     artifactPayloadDigest: snapshotArtifact.payloadDigest,
     commandStatus: idempotentCommand.status
   };
+  const acceptanceReceiptSummary = {
+    state: previewAcceptance.acceptance.receipt.state,
+    required: previewAcceptance.acceptance.receipt.required,
+    accepted: previewAcceptance.acceptance.receipt.accepted,
+    acceptedBy: previewAcceptance.acceptance.receipt.acceptedBy,
+    acceptedAt: previewAcceptance.acceptance.receipt.acceptedAt,
+    nextAction: previewAcceptance.acceptance.receipt.nextAction,
+    blockerCount: previewAcceptance.acceptance.receipt.blockers.length,
+    unacknowledgedBlockingGateIds: previewAcceptance.acceptance.receipt.unacknowledgedBlockingGateIds,
+    digest: previewAcceptance.acceptance.receipt.proof.digest
+  };
 
   return {
     schemaVersion: ROUTE_PREVIEW_CONTRACT_SCHEMA_VERSION,
@@ -3180,6 +4071,7 @@ function buildRoutePreviewContract({
       label: previewAcceptance.readiness.label,
       restartSafe: previewAcceptance.readiness.restartSafe,
       submitEnabled: previewAcceptance.acceptance.submitEnabled,
+      acceptance: acceptanceReceiptSummary,
       artifactExportable: snapshotArtifact.exportable,
       lifecycleNextAction: lifecycleSettings.nextAction,
       providerNegotiationStatus: providerContracts.negotiation.status,
@@ -3190,6 +4082,8 @@ function buildRoutePreviewContract({
       eventName: 'audit_recovery_snapshot_preview_rendered',
       properties: {
         acceptanceState: previewAcceptance.acceptance.state,
+        acceptanceReceiptState: previewAcceptance.acceptance.receipt.state,
+        acceptanceReceiptRequired: previewAcceptance.acceptance.receipt.required,
         readinessScore: previewAcceptance.readiness.score,
         blockerCount: blockingGates.length,
         warningCount: warningGates.length,
@@ -3218,6 +4112,12 @@ export function describeSnapshotSurface(input = {}) {
     request,
     generatedAt: now
   });
+  const externalProviderHandoffReadiness = buildExternalProviderHandoffReadiness({
+    providerContracts,
+    lifecycleSettings,
+    request,
+    generatedAt: now
+  });
   const persistedState = normalizePersistedState(input);
   const snapshotId = `snapshot_${proofDigest({
     surfaceId,
@@ -3233,6 +4133,7 @@ export function describeSnapshotSurface(input = {}) {
     },
     lifecycleSettings,
     providerContracts,
+    externalProviderHandoffReadiness,
     boundary,
     evidence,
     generatedAt: now
@@ -3248,6 +4149,7 @@ export function describeSnapshotSurface(input = {}) {
     clientState,
     lifecycleSettings,
     providerContracts,
+    externalProviderHandoffReadiness,
     boundary,
     evidenceDigests: evidence.map((item) => item.digest)
   };
@@ -3325,6 +4227,15 @@ export function describeSnapshotSurface(input = {}) {
     nextPersistedState,
     recoveryPaths
   });
+  const lifecycleOperatorPlan = buildLifecycleOperatorPlan({
+    lifecycleSettings,
+    boundary,
+    providerContracts,
+    operationalHealth,
+    handoff,
+    request,
+    generatedAt: now
+  });
   const analytics = buildAnalyticsReport({
     input,
     request,
@@ -3359,6 +4270,7 @@ export function describeSnapshotSurface(input = {}) {
     generatedAt: now
   });
   const previewAcceptance = buildPreviewAcceptanceContract({
+    input,
     request,
     clientState,
     evidence,
@@ -3418,6 +4330,9 @@ export function describeSnapshotSurface(input = {}) {
           requested: nextPersistedState.pendingRecovery.requested,
           status: nextPersistedState.pendingRecovery.status,
           targetRoute: nextPersistedState.pendingRecovery.targetRoute,
+          requestedTargetRoute: nextPersistedState.pendingRecovery.requestedTargetRoute || null,
+          targetRouteValid: nextPersistedState.pendingRecovery.targetRouteValid !== false,
+          targetRouteReason: nextPersistedState.pendingRecovery.targetRouteReason || RECOVERY_ROUTE_REASONS.valid,
           resumeCursor: nextPersistedState.pendingRecovery.resumeCursor
         },
         recoveryLease: nextPersistedState.recoveryLease,
@@ -3443,7 +4358,8 @@ export function describeSnapshotSurface(input = {}) {
         command: lifecycleSettings.command,
         controls: lifecycleSettings.controls,
         validation: lifecycleSettings.validation,
-        nextAction: lifecycleSettings.nextAction
+        nextAction: lifecycleSettings.nextAction,
+        operatorPlan: lifecycleOperatorPlan
       },
       boundary,
       providerContracts: {
@@ -3451,6 +4367,18 @@ export function describeSnapshotSurface(input = {}) {
         negotiation: providerContracts.negotiation,
         sync: providerContracts.sync,
         capabilityMatrix: providerContracts.capabilityMatrix
+      },
+      externalProviderHandoffReadiness: {
+        schemaVersion: externalProviderHandoffReadiness.schemaVersion,
+        state: externalProviderHandoffReadiness.state,
+        ready: externalProviderHandoffReadiness.ready,
+        degraded: externalProviderHandoffReadiness.degraded,
+        nextAction: externalProviderHandoffReadiness.nextAction,
+        lifecycleBlocksHandoff: externalProviderHandoffReadiness.lifecycleBlocksHandoff,
+        blockingServices: externalProviderHandoffReadiness.blockingServices,
+        degradedServices: externalProviderHandoffReadiness.degradedServices,
+        operatorMessage: externalProviderHandoffReadiness.operatorMessage,
+        auditDigest: externalProviderHandoffReadiness.audit.digest
       },
       operationalHealth: {
         schemaVersion: operationalHealth.schemaVersion,
@@ -3483,7 +4411,13 @@ export function describeSnapshotSurface(input = {}) {
         schemaVersion: analytics.summary.schemaVersion,
         summaryDigest: analytics.exports.summaryDigest,
         exportFormat: analytics.exports.format,
-        exportRowCount: analytics.exports.rowCount
+        exportRowCount: analytics.exports.rowCount,
+        exportSegmentCount: analytics.exports.segmentCount,
+        exportReadySegmentCount: analytics.exports.readySegmentCount,
+        exportBlockedSegmentCount: analytics.exports.blockedSegmentCount,
+        exportSegmentDigest: analytics.exports.segmentDigest,
+        exportState: analytics.exportSegments.state,
+        requiredBlockedSegmentIds: analytics.exportSegments.requiredBlockedSegmentIds
       },
       snapshotArtifact: {
         schemaVersion: snapshotArtifact.schemaVersion,
@@ -3527,6 +4461,9 @@ export function describeSnapshotSurface(input = {}) {
         readiness: previewAcceptance.readiness,
         validationSummary: previewAcceptance.validationSummary,
         nextSteps: previewAcceptance.nextSteps,
+        acceptanceReceiptDigest: previewAcceptance.acceptance.receipt.proof.digest,
+        acceptanceReceiptState: previewAcceptance.acceptance.receipt.state,
+        acceptanceReceiptNextAction: previewAcceptance.acceptance.receipt.nextAction,
         auditDigest: previewAcceptance.audit.digest
       },
       routePreview: {
@@ -3541,6 +4478,21 @@ export function describeSnapshotSurface(input = {}) {
         readinessSummary: routePreview.readinessSummary,
         telemetry: routePreview.telemetry,
         auditDigest: routePreview.audit.digest
+      },
+      operatorPlan: {
+        schemaVersion: lifecycleOperatorPlan.schemaVersion,
+        state: lifecycleOperatorPlan.state,
+        canApply: lifecycleOperatorPlan.canApply,
+        nextCommand: lifecycleOperatorPlan.nextCommand,
+        blockedReasons: lifecycleOperatorPlan.blockedReasons,
+        schedule: lifecycleOperatorPlan.schedule,
+        health: lifecycleOperatorPlan.health,
+        externalProviderHandoff: {
+          state: externalProviderHandoffReadiness.state,
+          ready: externalProviderHandoffReadiness.ready,
+          nextAction: externalProviderHandoffReadiness.nextAction,
+          blockingServices: externalProviderHandoffReadiness.blockingServices
+        }
       }
     },
     snapshot: {
@@ -3570,8 +4522,10 @@ export function describeSnapshotSurface(input = {}) {
     },
     recoveryPaths,
     providerContracts,
+    externalProviderHandoffReadiness,
     operationalHealth,
     handoff,
+    lifecycleOperatorPlan,
     snapshotArtifact,
     previewAcceptance,
     routePreview,

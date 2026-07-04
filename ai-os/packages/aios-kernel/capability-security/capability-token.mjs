@@ -100,6 +100,8 @@ const CLIENT_RUNTIME_DEFAULTS = Object.freeze({
   reviewRoute: '/kernel/capability-token/review',
   providerSyncRoute: '/kernel/capability-token/provider-sync'
 });
+const CLIENT_REQUEST_MAX_AGE_SECONDS = 300;
+const CLIENT_REQUEST_FUTURE_SKEW_SECONDS = 30;
 const ACCEPTANCE_ACKNOWLEDGEMENT_PRIORITY = Object.freeze([
   'issuer_dependency_degraded',
   'provider_sync_required',
@@ -136,6 +138,9 @@ const TERMINAL_ISSUANCE_BLOCKER_CODES = new Set([
   'workspace_out_of_scope',
   'capability_token_revoked_reference',
   'capability_token_replay_detected',
+  'capability_token_request_timestamp_invalid',
+  'capability_token_request_stale',
+  'capability_token_request_from_future',
   'delegation_depth_exceeded',
   'delegation_tenant_mismatch',
   'delegation_parent_expired',
@@ -201,6 +206,89 @@ function normalizeStringList(value) {
 
   const normalized = asNonEmptyString(value);
   return normalized ? [normalized] : [];
+}
+
+const DEFAULT_EVIDENCE_REDACTION_FIELDS = Object.freeze([
+  'accessToken',
+  'apiKey',
+  'authorization',
+  'cookie',
+  'password',
+  'secret',
+  'sessionToken'
+]);
+
+function normalizeEvidenceRedactionToken(value) {
+  return asNonEmptyString(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function shouldRedactEvidenceField(key, redactionFields) {
+  const normalizedKey = normalizeEvidenceRedactionToken(key);
+  if (!normalizedKey) return false;
+
+  return redactionFields.some((field) => {
+    const normalizedField = normalizeEvidenceRedactionToken(field);
+    return normalizedField && (
+      normalizedKey === normalizedField
+        || normalizedKey.endsWith(normalizedField)
+        || normalizedKey.includes(normalizedField)
+    );
+  });
+}
+
+function redactEvidenceValue(value, redactionFields) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactEvidenceValue(entry, redactionFields));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [
+    key,
+    shouldRedactEvidenceField(key, redactionFields)
+      ? '[REDACTED]'
+      : redactEvidenceValue(nested, redactionFields)
+  ]));
+}
+
+function collectEvidenceRedactionPaths(value, redactionFields, path = []) {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => collectEvidenceRedactionPaths(entry, redactionFields, path.concat(String(index))));
+  }
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+
+  return Object.entries(value).flatMap(([key, nested]) => {
+    const nextPath = path.concat(key);
+    if (shouldRedactEvidenceField(key, redactionFields)) {
+      return [nextPath.join('.')];
+    }
+    return collectEvidenceRedactionPaths(nested, redactionFields, nextPath);
+  });
+}
+
+function normalizeEvidenceBundle(input = {}) {
+  const evidence = Array.isArray(input.evidence)
+    ? input.evidence.filter((entry) => entry !== undefined)
+    : [];
+  const redactionFields = uniqueSorted([
+    ...DEFAULT_EVIDENCE_REDACTION_FIELDS,
+    ...normalizeStringList(input.evidenceRedactionFields || input.redactionFields)
+  ]);
+  const redactionPaths = collectEvidenceRedactionPaths(evidence, redactionFields)
+    .map((path) => `evidence.${path}`);
+
+  return {
+    schema: 'aios.capabilitySecurity.capabilityToken.evidenceRedaction.v1',
+    supplied: evidence.length > 0,
+    entryCount: evidence.length,
+    redactionFields,
+    redactionPaths,
+    redactionPathCount: redactionPaths.length,
+    redacted: redactEvidenceValue(evidence, redactionFields)
+  };
 }
 
 function normalizeRoles(input) {
@@ -1442,9 +1530,18 @@ function buildCapabilityTokenSecurityGuard({ input, tenantId, subjectId, clientR
       requestId: record.requestId,
       source: record.source,
       message: 'Capability token request nonce or request id was already consumed.'
-    }))
+    })),
+    clientRuntime.freshness?.denial && {
+      ...clientRuntime.freshness.denial,
+      source: 'client-runtime-freshness'
+    }
   ];
-  const state = denials.length ? 'blocked' : requestNonce ? 'guarded' : 'unsealed_request';
+  const activeDenials = denials.filter(Boolean);
+  const state = activeDenials.length
+    ? 'blocked'
+    : !clientRuntime.freshness?.supplied
+      ? requestNonce ? 'freshness_unobserved' : 'unsealed_request'
+      : requestNonce ? 'guarded' : 'unsealed_request';
   const proofPayload = {
     schema: 'capability-token.security-guard.v1',
     surfaceId,
@@ -1456,7 +1553,9 @@ function buildCapabilityTokenSecurityGuard({ input, tenantId, subjectId, clientR
     referenceProofDigests: references.proofDigests,
     revocationMatchCount: revocationMatches.length,
     replayMatchCount: replayMatches.length,
-    denialCodes: denials.map((denial) => denial.code),
+    requestFreshnessState: clientRuntime.freshness?.state || 'unobserved',
+    requestFreshnessProof: clientRuntime.freshness?.proof?.digest || null,
+    denialCodes: activeDenials.map((denial) => denial.code),
     state,
     generatedAt: now
   };
@@ -1466,6 +1565,8 @@ function buildCapabilityTokenSecurityGuard({ input, tenantId, subjectId, clientR
     state,
     requestNonce: requestNonce || null,
     requestSealed: Boolean(requestNonce),
+    requestFreshness: clientRuntime.freshness || null,
+    requestFresh: clientRuntime.freshness?.state === 'fresh',
     referenceTokenIds: references.tokenIds,
     referenceProofDigests: references.proofDigests,
     registry: {
@@ -1476,10 +1577,10 @@ function buildCapabilityTokenSecurityGuard({ input, tenantId, subjectId, clientR
     },
     revocationMatches,
     replayMatches,
-    denials,
+    denials: activeDenials,
     audit: {
       stream: 'aios.kernel.capability-token.security-guard',
-      action: denials.length ? 'capability_token_security_guard_blocked' : 'capability_token_security_guard_clear',
+      action: activeDenials.length ? 'capability_token_security_guard_blocked' : 'capability_token_security_guard_clear',
       state,
       proof: hashProof(proofPayload)
     },
@@ -1566,12 +1667,105 @@ function normalizeClientRuntimeRouteCatalog(runtime = {}, handoff = {}, request 
   };
 }
 
+function normalizeClientRequestFreshness(input = {}, runtime = {}, request = {}, now = normalizeIssuedAt(input.now)) {
+  const suppliedAt = firstNonEmptyString(
+    runtime.requestedAt,
+    runtime.createdAt,
+    runtime.issuedAt,
+    request.requestedAt,
+    request.createdAt,
+    request.issuedAt,
+    input.requestedAt,
+    input.requestCreatedAt
+  );
+  const observedAt = suppliedAt && Number.isFinite(Date.parse(suppliedAt))
+    ? new Date(suppliedAt).toISOString()
+    : null;
+  const ageSeconds = observedAt
+    ? Math.floor((Date.parse(now) - Date.parse(observedAt)) / 1000)
+    : null;
+  const invalid = Boolean(suppliedAt && !observedAt);
+  const fromFuture = ageSeconds !== null && ageSeconds < -CLIENT_REQUEST_FUTURE_SKEW_SECONDS;
+  const stale = ageSeconds !== null && ageSeconds > CLIENT_REQUEST_MAX_AGE_SECONDS;
+  const state = invalid
+    ? 'invalid'
+    : !observedAt
+      ? 'unobserved'
+      : fromFuture
+        ? 'future_skew'
+        : stale
+          ? 'stale'
+          : 'fresh';
+  const denial = state === 'invalid'
+    ? {
+        code: 'capability_token_request_timestamp_invalid',
+        suppliedAt,
+        message: 'Client capability token request timestamp must be parseable before replay sealing can be trusted.'
+      }
+    : state === 'future_skew'
+      ? {
+          code: 'capability_token_request_from_future',
+          requestedAt: observedAt,
+          ageSeconds,
+          maxFutureSkewSeconds: CLIENT_REQUEST_FUTURE_SKEW_SECONDS,
+          message: 'Client capability token request timestamp is beyond the hosted-kernel future skew allowance.'
+        }
+      : state === 'stale'
+        ? {
+            code: 'capability_token_request_stale',
+            requestedAt: observedAt,
+            ageSeconds,
+            maxAgeSeconds: CLIENT_REQUEST_MAX_AGE_SECONDS,
+            message: 'Client capability token request timestamp is outside the hosted-kernel freshness window.'
+          }
+        : null;
+
+  return {
+    contractVersion: 'capability-token.client-request-freshness.v1',
+    state,
+    supplied: Boolean(suppliedAt),
+    requestedAt: observedAt,
+    assessedAt: now,
+    ageSeconds,
+    maxAgeSeconds: CLIENT_REQUEST_MAX_AGE_SECONDS,
+    maxFutureSkewSeconds: CLIENT_REQUEST_FUTURE_SKEW_SECONDS,
+    blocking: Boolean(denial),
+    denial,
+    proof: {
+      algorithm: 'sha256',
+      digest: hashProof({
+        schema: 'capability-token.client-request-freshness.v1',
+        state,
+        supplied: Boolean(suppliedAt),
+        requestedAt: observedAt,
+        assessedAt: now,
+        ageSeconds,
+        maxAgeSeconds: CLIENT_REQUEST_MAX_AGE_SECONDS,
+        maxFutureSkewSeconds: CLIENT_REQUEST_FUTURE_SKEW_SECONDS,
+        denialCode: denial?.code || null
+      }),
+      signedFields: [
+        'schema',
+        'state',
+        'supplied',
+        'requestedAt',
+        'assessedAt',
+        'ageSeconds',
+        'maxAgeSeconds',
+        'maxFutureSkewSeconds',
+        'denialCode'
+      ]
+    }
+  };
+}
+
 function normalizeClientRuntimeState(input = {}, boundary = {}, subjectId = '') {
   const runtime = input.clientRuntime || input.clientState || input.requestState || {};
   const request = input.request || runtime.request || {};
   const workflow = input.workflow || runtime.workflow || {};
   const handoff = input.handoff || runtime.handoff || {};
   const routeCatalog = normalizeClientRuntimeRouteCatalog(runtime, handoff, request);
+  const freshness = normalizeClientRequestFreshness(input, runtime, request, normalizeIssuedAt(input.now));
   const requestSeed = {
     tenantId: boundary.tenantId || null,
     subjectId: subjectId || null,
@@ -1617,6 +1811,7 @@ function normalizeClientRuntimeState(input = {}, boundary = {}, subjectId = '') 
     evidenceRefs: normalizeStringList(runtime.evidenceRefs || request.evidenceRefs),
     routeCatalog,
     routeWarnings: routeCatalog.warnings,
+    freshness,
     stateDigest: hashProof({
       schema: 'capability-token.client-runtime.v1',
       requestId,
@@ -1628,7 +1823,8 @@ function normalizeClientRuntimeState(input = {}, boundary = {}, subjectId = '') 
       subjectId: subjectId || null,
       workspaceIds: boundary.workspaceIds || [],
       requestedAction: firstNonEmptyString(handoff.action, runtime.requestedAction, request.action, 'capability_token_accept'),
-      routeCatalogDigest: routeCatalog.digest
+      routeCatalogDigest: routeCatalog.digest,
+      freshnessProof: freshness.proof.digest
     })
   };
 }
@@ -3834,6 +4030,9 @@ function summarizeCapabilityTokenValidation({
         state: securityGuard.state,
         requestSealed: securityGuard.requestSealed,
         requestNonce: securityGuard.requestNonce,
+        requestFreshnessState: securityGuard.requestFreshness?.state || 'unobserved',
+        requestFreshnessAgeSeconds: securityGuard.requestFreshness?.ageSeconds ?? null,
+        requestFreshnessProof: securityGuard.requestFreshness?.proof?.digest || null,
         revocationMatchCount: securityGuard.registry.revocationMatchCount,
         replayMatchCount: securityGuard.registry.replayMatchCount,
         registryRevocationCount: securityGuard.registry.revocationCount,
@@ -3978,6 +4177,33 @@ function buildCapabilityTokenNextSteps({
     });
   }
 
+  if (securityGuard.requestFreshness?.blocking) {
+    steps.push({
+      id: 'refresh-client-request',
+      priority: priority++,
+      state: 'required',
+      blocking: true,
+      label: 'Refresh client request',
+      explanation: securityGuard.requestFreshness.denial.message,
+      requestFreshnessState: securityGuard.requestFreshness.state,
+      requestedAt: securityGuard.requestFreshness.requestedAt,
+      ageSeconds: securityGuard.requestFreshness.ageSeconds,
+      maxAgeSeconds: securityGuard.requestFreshness.maxAgeSeconds,
+      proof: securityGuard.requestFreshness.proof.digest
+    });
+  } else if (!securityGuard.requestFreshness?.supplied) {
+    steps.push({
+      id: 'stamp-client-request-time',
+      priority: priority++,
+      state: 'recommended',
+      blocking: false,
+      label: 'Stamp client request time',
+      explanation: 'Add a client request timestamp so the hosted kernel can enforce request freshness alongside replay protection.',
+      maxAgeSeconds: CLIENT_REQUEST_MAX_AGE_SECONDS,
+      proof: securityGuard.requestFreshness?.proof?.digest || securityGuard.proof.digest
+    });
+  }
+
   if (providerContracts.negotiationState === 'sync_required') {
     steps.push({
       id: 'refresh-provider-sync',
@@ -4050,6 +4276,9 @@ function issuanceBlockerSource(code) {
     return 'authorization-boundary';
   }
   if (code.startsWith('capability_token_replay') || code.startsWith('capability_token_revoked')) {
+    return 'security-guard';
+  }
+  if (code.startsWith('capability_token_request_')) {
     return 'security-guard';
   }
   if (code.includes('provider')) {
@@ -4420,6 +4649,8 @@ function buildWorkflowHandoffReviewQueue({
       label: securityGuard.state === 'blocked' ? 'Review revocation and replay guard' : 'Seal request nonce',
       route: routeCatalog.reviewRoute,
       requestNonce: securityGuard.requestNonce,
+      requestFreshnessState: securityGuard.requestFreshness?.state || 'unobserved',
+      requestFreshnessProof: securityGuard.requestFreshness?.proof?.digest || null,
       reasonCodes: securityGuard.denials.map((denial) => denial.code),
       revocationMatchCount: securityGuard.registry.revocationMatchCount,
       replayMatchCount: securityGuard.registry.replayMatchCount
@@ -4449,6 +4680,174 @@ function buildWorkflowHandoffReviewQueue({
         ? -1
         : 1
   )).map((item, index) => ({ ...item, sequence: index + 1 }));
+}
+
+function buildClientContinuationPacket({
+  clientRuntime,
+  routeCatalog,
+  handoffState,
+  targetRoute,
+  acceptable,
+  providerSyncRequired,
+  validationSummary,
+  reviewQueue,
+  lifecycleControls,
+  securityGuard,
+  providerContracts,
+  tokenId,
+  expiresAt,
+  proof
+}) {
+  const primaryBlockingItem = reviewQueue.find((item) => item.blocking) || null;
+  const retryableBlockers = validationSummary.blockingCodes.filter((code) => (
+    RETRYABLE_ISSUANCE_BLOCKER_CODES.has(code)
+  ));
+  const terminalBlockers = validationSummary.blockingCodes.filter((code) => (
+    TERMINAL_ISSUANCE_BLOCKER_CODES.has(code) || !retryableBlockers.includes(code)
+  ));
+  const providerSyncQueued = providerSyncRequired || providerContracts.negotiationState === 'sync_required';
+  const clientCanResume = acceptable
+    && securityGuard.state !== 'blocked'
+    && lifecycleControls.state !== 'blocked'
+    && Boolean(clientRuntime.continuationId || clientRuntime.workflowId || clientRuntime.requestId);
+  const resumeMode = !clientCanResume
+    ? 'not_resumable'
+    : providerSyncQueued
+      ? 'resume_after_provider_sync'
+      : clientRuntime.continuationId
+        ? 'resume_named_continuation'
+        : 'resume_request';
+  const nextClientRoute = primaryBlockingItem?.route
+    || (providerSyncQueued ? routeCatalog.providerSyncRoute : targetRoute);
+  const checkpointKey = [
+    surfaceId,
+    clientRuntime.requestId,
+    clientRuntime.continuationId || clientRuntime.workflowId || 'request',
+    tokenId || 'pending'
+  ].join(':');
+  const providerReceiptRefs = providerContracts.syncMetadata.receiptAuditReferences.map((reference) => ({
+    type: reference.type,
+    providerId: reference.providerId,
+    receiptId: reference.receiptId,
+    digest: reference.digest,
+    state: reference.state
+  }));
+  const requiredClientClaims = uniqueSorted([
+    acceptable ? 'capability-token.accept' : 'capability-token.review',
+    providerSyncQueued ? 'provider-sync.review' : null,
+    lifecycleControls.scheduling.enabled ? 'lifecycle-schedule.review' : null,
+    securityGuard.requestSealed ? 'replay-sealed-request' : 'replay-seal-required'
+  ]);
+  const dispatch = {
+    state: acceptable
+      ? providerSyncQueued
+        ? 'hold_for_provider_sync'
+        : 'ready'
+      : retryableBlockers.length && !terminalBlockers.length
+        ? 'retryable_hold'
+        : 'blocked',
+    route: nextClientRoute,
+    routeGuard: acceptable ? 'acceptance_allowed' : 'review_required',
+    retryable: retryableBlockers.length > 0 && terminalBlockers.length === 0,
+    retryAfterSeconds: lifecycleControls.scheduling.deferredUntil
+      ? Math.max(0, Math.ceil((Date.parse(lifecycleControls.scheduling.deferredUntil) - Date.parse(clientRuntime.freshness.assessedAt)) / 1000))
+      : 0
+  };
+  const proofPayload = {
+    schema: 'capability-token.client-continuation.v1',
+    surfaceId,
+    requestId: clientRuntime.requestId,
+    continuationId: clientRuntime.continuationId,
+    workflowId: clientRuntime.workflowId,
+    handoffState,
+    resumeMode,
+    targetRoute,
+    nextClientRoute,
+    acceptable,
+    providerSyncQueued,
+    dispatchState: dispatch.state,
+    retryableBlockers,
+    terminalBlockers,
+    lifecycleCommand: lifecycleControls.command,
+    lifecycleState: lifecycleControls.state,
+    securityGuardState: securityGuard.state,
+    providerNegotiationState: providerContracts.negotiationState,
+    tokenId,
+    proofDigest: proof,
+    expiresAt
+  };
+
+  return {
+    contractVersion: 'capability-token.client-continuation.v1',
+    requestId: clientRuntime.requestId,
+    sessionId: clientRuntime.sessionId,
+    clientId: clientRuntime.clientId,
+    workflowId: clientRuntime.workflowId,
+    continuationId: clientRuntime.continuationId,
+    state: dispatch.state,
+    resumeMode,
+    resumable: clientCanResume,
+    checkpointKey,
+    targetRoute,
+    nextClientRoute,
+    returnRoute: clientRuntime.returnRoute,
+    dispatch,
+    requiredClientClaims,
+    routeStatePatch: {
+      schema: 'capability-token.client-continuation-route-patch.v1',
+      requestId: clientRuntime.requestId,
+      continuationId: clientRuntime.continuationId,
+      handoffState,
+      route: nextClientRoute,
+      returnRoute: clientRuntime.returnRoute,
+      tokenId,
+      proofDigest: proof,
+      expiresAt,
+      replayProtection: {
+        requestSealed: securityGuard.requestSealed,
+        requestNonce: securityGuard.requestNonce,
+        freshnessState: securityGuard.requestFreshness?.state || 'unobserved',
+        proof: securityGuard.requestFreshness?.proof?.digest || null
+      },
+      lifecycle: {
+        command: lifecycleControls.command,
+        state: lifecycleControls.state,
+        nextAction: lifecycleControls.nextAction.action,
+        commandState: lifecycleControls.commandPlan.nextActionState,
+        checkpointIntent: lifecycleControls.commandPlan.checkpoint.intent
+      },
+      providerSync: {
+        required: providerSyncQueued,
+        state: providerContracts.negotiationState,
+        providerIds: providerContracts.providers.map((provider) => provider.providerId),
+        receiptRefs: providerReceiptRefs
+      }
+    },
+    retry: {
+      retryable: dispatch.retryable,
+      retryAfterSeconds: dispatch.retryAfterSeconds,
+      retryableBlockers,
+      terminalBlockers
+    },
+    primaryBlockingItem: primaryBlockingItem
+      ? {
+          id: primaryBlockingItem.id,
+          source: primaryBlockingItem.source,
+          route: primaryBlockingItem.route,
+          reasonCodes: primaryBlockingItem.reasonCodes || []
+        }
+      : null,
+    auditReferences: uniqueSorted([
+      securityGuard.proof.digest,
+      lifecycleControls.commandPlan.proof.digest,
+      ...providerReceiptRefs.map((reference) => reference.digest)
+    ]),
+    proof: {
+      algorithm: 'sha256',
+      digest: hashProof(proofPayload),
+      signedFields: Object.keys(proofPayload)
+    }
+  };
 }
 
 function buildClientWorkflowHandoff({
@@ -4534,6 +4933,22 @@ function buildClientWorkflowHandoff({
         routePlan
       }
     : null;
+  const continuationPacket = buildClientContinuationPacket({
+    clientRuntime,
+    routeCatalog,
+    handoffState,
+    targetRoute,
+    acceptable,
+    providerSyncRequired,
+    validationSummary,
+    reviewQueue,
+    lifecycleControls,
+    securityGuard,
+    providerContracts,
+    tokenId,
+    expiresAt,
+    proof
+  });
   const handoffProofPayload = {
     schema: 'capability-token.client-handoff.v1',
     requestId: clientRuntime.requestId,
@@ -4558,7 +4973,8 @@ function buildClientWorkflowHandoff({
         item.proofRefs || []
       ])
     }),
-    routePlanDigest: hashProof(routePlan)
+    routePlanDigest: hashProof(routePlan),
+    continuationDigest: continuationPacket.proof.digest
   };
 
   return {
@@ -4571,13 +4987,16 @@ function buildClientWorkflowHandoff({
     routePlan,
     reviewQueue,
     primaryReviewItem,
+    continuationPacket,
     visibleAction: acceptable
       ? {
           id: providerSyncRequired ? 'sync-providers' : 'accept-capability-token',
           label: providerSyncRequired ? 'Sync providers' : 'Accept capability token',
           enabled: true,
           route: targetRoute,
-          continuationRequired
+          continuationRequired,
+          continuationState: continuationPacket.state,
+          requiredClientClaims: continuationPacket.requiredClientClaims
         }
       : {
           id: primaryReviewItem?.id || 'review-capability-token',
@@ -4586,7 +5005,9 @@ function buildClientWorkflowHandoff({
           route: targetRoute,
           continuationRequired: false,
           source: primaryReviewItem?.source || 'capability-token',
-          reasonCodes: primaryReviewItem?.reasonCodes || blockingCodes
+          reasonCodes: primaryReviewItem?.reasonCodes || blockingCodes,
+          continuationState: continuationPacket.state,
+          requiredClientClaims: continuationPacket.requiredClientClaims
         },
     resumeEnvelope,
     blockedBy: acceptable ? [] : blockingCodes,
@@ -5027,6 +5448,9 @@ function buildCapabilityTokenPreviewPacket({
       state: securityGuard.state,
       requestSealed: securityGuard.requestSealed,
       requestNonce: securityGuard.requestNonce,
+      requestFreshnessState: securityGuard.requestFreshness?.state || 'unobserved',
+      requestFresh: securityGuard.requestFresh,
+      requestFreshnessProof: securityGuard.requestFreshness?.proof?.digest || null,
       revocationMatchCount: securityGuard.registry.revocationMatchCount,
       replayMatchCount: securityGuard.registry.replayMatchCount,
       denialCodes: securityGuard.denials.map((denial) => denial.code),
@@ -5036,6 +5460,161 @@ function buildCapabilityTokenPreviewPacket({
     warningCount: validationSummary.warningCount,
     errorCount: errors.length + denials.length + validationSummary.failureCount,
     proofDigest: proof,
+    proof: {
+      algorithm: 'sha256',
+      digest: hashProof(proofPayload),
+      signedFields: Object.keys(proofPayload)
+    }
+  };
+}
+
+function buildOperatorHandoffPackage({
+  preview,
+  acceptance,
+  readiness,
+  validationSummary,
+  nextSteps,
+  workflowHandoff,
+  clientRuntime,
+  providerContracts,
+  lifecycleControls,
+  delegationPlan,
+  securityGuard,
+  tokenId,
+  proof,
+  expiresAt
+}) {
+  const blockingSteps = nextSteps.filter((step) => step.blocking);
+  const recommendedSteps = nextSteps.filter((step) => step.state === 'recommended');
+  const requiredAcknowledgements = acceptance.acknowledgementRequirements.requirements
+    .filter((requirement) => requirement.required || requirement.blocking);
+  const visibleSteps = [
+    ...blockingSteps,
+    ...recommendedSteps,
+    ...nextSteps.filter((step) => step.state === 'available')
+  ].slice(0, 8);
+  const primaryStep = blockingSteps[0]
+    || requiredAcknowledgements[0]
+    || recommendedSteps[0]
+    || nextSteps[0]
+    || null;
+  const state = validationSummary.failureCount
+    ? 'blocked'
+    : acceptance.handoffState === 'provider_sync_required'
+      ? 'provider_sync_required'
+      : acceptance.acceptable && readiness.canResumeClientWorkflow
+        ? 'resume_ready'
+        : acceptance.acceptable
+          ? 'acceptance_ready'
+          : 'review_required';
+  const actionId = primaryStep?.id
+    || acceptance.acceptAction
+    || workflowHandoff.visibleAction?.id
+    || 'review-capability-token';
+  const route = primaryStep?.route
+    || primaryStep?.nextActionRoute
+    || workflowHandoff.targetRoute
+    || acceptance.targetRoute;
+  const routeStatePatch = {
+    schema: 'capability-token.client-route-state-patch.v1',
+    requestId: clientRuntime.requestId,
+    sessionId: clientRuntime.sessionId,
+    workflowId: clientRuntime.workflowId,
+    continuationId: clientRuntime.continuationId,
+    handoffState: workflowHandoff.handoffState,
+    acceptanceState: acceptance.acceptanceState,
+    readinessState: readiness.state,
+    routeGuard: readiness.routeGuard,
+    targetRoute: route,
+    returnRoute: workflowHandoff.returnRoute,
+    tokenId,
+    proofDigest: proof,
+    expiresAt,
+    replayProtection: {
+      requestSealed: securityGuard.requestSealed,
+      requestFreshnessState: securityGuard.requestFreshness?.state || 'unobserved',
+      requestFresh: securityGuard.requestFresh
+    },
+    lifecycle: {
+      command: lifecycleControls.command,
+      state: lifecycleControls.state,
+      checkpointIntent: lifecycleControls.commandPlan.checkpoint.intent,
+      nextAction: lifecycleControls.scheduling.nextAction
+    }
+  };
+  const proofPayload = {
+    schema: 'capability-token.operator-handoff.v1',
+    requestId: clientRuntime.requestId,
+    tokenId,
+    state,
+    actionId,
+    route,
+    proofDigest: proof,
+    previewProof: preview.proof.digest,
+    acceptanceProof: acceptance.proof.digest,
+    workflowProof: workflowHandoff.proof.digest,
+    validationState: validationSummary.state,
+    validationBlockingCodes: validationSummary.blockingCodes,
+    acknowledgementIds: requiredAcknowledgements.map((requirement) => requirement.id),
+    visibleStepIds: visibleSteps.map((step) => step.id),
+    providerNegotiationState: providerContracts.negotiationState,
+    lifecycleState: lifecycleControls.state,
+    delegationState: delegationPlan.state,
+    securityGuardState: securityGuard.state
+  };
+
+  return {
+    contractVersion: 'capability-token.operator-handoff.v1',
+    state,
+    requestId: clientRuntime.requestId,
+    tokenId,
+    action: {
+      id: actionId,
+      label: primaryStep?.label || workflowHandoff.visibleAction?.label || 'Review capability token',
+      route,
+      enabled: workflowHandoff.visibleAction?.enabled !== false,
+      blocking: Boolean(primaryStep?.blocking),
+      retryable: !validationSummary.failureCount || providerContracts.negotiationState === 'sync_required',
+      continuationRequired: workflowHandoff.visibleAction?.continuationRequired === true
+    },
+    display: {
+      statusLabel: preview.statusLabel,
+      previewState: preview.previewState,
+      readinessState: readiness.state,
+      acceptanceState: acceptance.acceptanceState,
+      providerHandoffState: readiness.providerHandoffState,
+      routeGuard: readiness.routeGuard,
+      warningCount: validationSummary.warningCount,
+      failureCount: validationSummary.failureCount
+    },
+    blockers: blockingSteps.map((step) => ({
+      id: step.id,
+      label: step.label,
+      source: step.source || null,
+      explanation: step.explanation,
+      route: step.route || step.nextActionRoute || workflowHandoff.targetRoute,
+      reasonCodes: step.reasonCodes || step.denialCodes || []
+    })),
+    acknowledgements: requiredAcknowledgements.map((requirement) => ({
+      id: requirement.id,
+      label: requirement.label,
+      state: requirement.state,
+      route: requirement.route,
+      required: requirement.required,
+      blocking: requirement.blocking,
+      proofRefs: requirement.proofRefs || [],
+      evidenceRefs: requirement.evidenceRefs || []
+    })),
+    visibleSteps,
+    routeStatePatch,
+    auditRefs: uniqueSorted([
+      preview.proof.digest,
+      acceptance.proof.digest,
+      workflowHandoff.proof.digest,
+      readiness.health.proofDigest,
+      delegationPlan.proof.digest,
+      securityGuard.proof.digest
+    ]),
     proof: {
       algorithm: 'sha256',
       digest: hashProof(proofPayload),
@@ -5733,9 +6312,26 @@ function buildCapabilityTokenClientContract({
     securityGuard,
     proof
   });
+  const operatorHandoff = buildOperatorHandoffPackage({
+    preview,
+    acceptance: acceptanceDecision,
+    readiness,
+    validationSummary,
+    nextSteps,
+    workflowHandoff,
+    clientRuntime,
+    providerContracts,
+    lifecycleControls,
+    delegationPlan,
+    securityGuard,
+    tokenId,
+    proof,
+    expiresAt
+  });
 
   return {
     preview,
+    operatorHandoff,
     clientRuntime,
     acceptance: {
       ...acceptanceDecision,
@@ -5763,6 +6359,7 @@ function normalizeIssuedAt(value) {
 
 export function buildCapabilityTokenContract(input = {}) {
   const now = normalizeIssuedAt(input.now);
+  const evidenceBundle = normalizeEvidenceBundle(input);
   const tenantId = asNonEmptyString(input.tenantId || input.tenant?.id);
   const subjectId = asNonEmptyString(input.subjectId || input.subject?.id || input.principalId);
   const targetTenantId = asNonEmptyString(input.targetTenantId || input.resource?.tenantId || tenantId);
@@ -5971,6 +6568,8 @@ export function buildCapabilityTokenContract(input = {}) {
       state: securityGuard.state,
       requestSealed: securityGuard.requestSealed,
       requestNonce: securityGuard.requestNonce,
+      requestFreshnessState: securityGuard.requestFreshness?.state || 'unobserved',
+      requestFreshnessProof: securityGuard.requestFreshness?.proof?.digest || null,
       referenceTokenIds: securityGuard.referenceTokenIds,
       referenceProofDigests: securityGuard.referenceProofDigests,
       registry: securityGuard.registry,
@@ -6079,6 +6678,8 @@ export function buildCapabilityTokenContract(input = {}) {
         state: securityGuard.state,
         requestSealed: securityGuard.requestSealed,
         requestNonce: securityGuard.requestNonce,
+        requestFreshness: securityGuard.requestFreshness,
+        requestFresh: securityGuard.requestFresh,
         referenceTokenIds: securityGuard.referenceTokenIds,
         referenceProofDigests: securityGuard.referenceProofDigests,
         registry: securityGuard.registry,
@@ -6181,6 +6782,13 @@ export function buildCapabilityTokenContract(input = {}) {
         state: securityGuard.state,
         requestSealed: securityGuard.requestSealed,
         requestNonce: securityGuard.requestNonce,
+        requestFreshness: {
+          state: securityGuard.requestFreshness?.state || 'unobserved',
+          requestedAt: securityGuard.requestFreshness?.requestedAt || null,
+          ageSeconds: securityGuard.requestFreshness?.ageSeconds ?? null,
+          maxAgeSeconds: securityGuard.requestFreshness?.maxAgeSeconds || CLIENT_REQUEST_MAX_AGE_SECONDS,
+          proof: securityGuard.requestFreshness?.proof?.digest || null
+        },
         registry: securityGuard.registry,
         denialCodes: securityGuard.denials.map((denial) => denial.code),
         auditProof: securityGuard.audit.proof,
@@ -6219,7 +6827,12 @@ export function buildCapabilityTokenContract(input = {}) {
         restartSafeStatus: statePersistence.recovery.restartSafeStatus,
         proof: statePersistence.proof.digest
       },
-      evidence: Array.isArray(input.evidence) ? input.evidence : []
+      evidence: evidenceBundle.redacted,
+      evidenceRedaction: {
+        schema: evidenceBundle.schema,
+        redactionPathCount: evidenceBundle.redactionPathCount,
+        redactionPaths: evidenceBundle.redactionPaths
+      }
     },
     providerContracts,
     lifecycleControls,
@@ -6243,6 +6856,8 @@ export function buildCapabilityTokenContract(input = {}) {
       state: securityGuard.state,
       requestSealed: securityGuard.requestSealed,
       requestNonce: securityGuard.requestNonce,
+      requestFreshness: securityGuard.requestFreshness,
+      requestFresh: securityGuard.requestFresh,
       referenceTokenIds: securityGuard.referenceTokenIds,
       referenceProofDigests: securityGuard.referenceProofDigests,
       registry: securityGuard.registry,
@@ -6253,6 +6868,7 @@ export function buildCapabilityTokenContract(input = {}) {
       proof: securityGuard.proof
     },
     clientRuntime,
+    operatorHandoff: clientContract.operatorHandoff,
     preview: clientContract.preview,
     acceptance: clientContract.acceptance,
     readiness: clientContract.readiness,
@@ -6264,7 +6880,8 @@ export function buildCapabilityTokenContract(input = {}) {
       algorithm: 'sha256',
       digest: proof,
       signedFields: Object.keys(proofPayload)
-    }
+    },
+    evidenceRedaction: evidenceBundle
   };
   contract.analytics = buildCapabilityTokenAnalytics(contract, input);
   return contract;
@@ -6283,7 +6900,8 @@ export function describeCapabilityTokenSurface(input = {}) {
     wave: 'ai-os-wave1-hosted-kernel-boot-proof',
     contract: 'hosted-kernel capability token contract with strict tenant and workspace boundaries',
     capabilityToken,
-    evidence: Array.isArray(input.evidence) ? input.evidence : []
+    evidence: capabilityToken.evidenceRedaction.redacted,
+    evidenceRedaction: capabilityToken.evidenceRedaction
   };
 }
 

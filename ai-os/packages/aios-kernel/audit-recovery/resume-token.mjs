@@ -29,11 +29,14 @@ const CLIENT_HEARTBEAT_STALE_AFTER_MS = 90_000;
 const RESTART_LOCK_STALE_AFTER_MS = 2 * 60 * 1000;
 const RESUME_LEASE_TTL_MS = 45_000;
 const RESUME_LEASE_RENEW_WITHIN_MS = 10_000;
+const RESUME_CLAIM_STALE_AFTER_MS = 2 * 60 * 1000;
 const MAX_COMMAND_LEDGER_ENTRIES = 30;
 const MAX_RECOVERY_JOURNAL_ENTRIES = 20;
 const DURABLE_COMMIT_STAGES = new Set(['prepared', 'checkpoint-written', 'committed', 'published']);
 const TERMINAL_COMMAND_STATUSES = new Set(['committed', 'succeeded', 'completed', 'applied']);
 const ACTIVE_COMMAND_STATUSES = new Set(['pending', 'running', 'in-flight', 'locked']);
+const ACTIVE_RESUME_CLAIM_STATUSES = new Set(['claimed', 'pending', 'running', 'in-flight', 'locked']);
+const REJECTED_RESUME_CLAIM_STATUSES = new Set(['rejected', 'revoked', 'cancelled', 'expired']);
 const LIFECYCLE_MUTABLE_CONTROLS = new Set([
   'enabled',
   'paused',
@@ -48,6 +51,10 @@ const MAX_PROVIDER_SERVICES = 12;
 const PROVIDER_CONTRACT_VERSIONS = new Set(['v1', 'v2']);
 const DEFAULT_PROVIDER_PROOF_FORMAT = 'audit-proof.v1';
 const DEFAULT_EXTERNAL_EXPORT_TARGET = 'external-provider';
+const MAILCHIMP_EXPORT_TARGET = 'mailchimp';
+const MAILCHIMP_HANDOFF_TARGETS = new Set(['audience', 'campaign', 'automation', 'journey']);
+const MAILCHIMP_RESUME_MODES = new Set(['preview-only', 'sync-members', 'replay-campaign-events', 'resume-automation']);
+const MAILCHIMP_REQUIRED_ACKS = ['mailchimp-target', 'consent-boundary', 'proof-export'];
 const MAX_PROVIDER_SEQUENCE_DRIFT = 1;
 const MAX_HANDOFF_COMMIT_AGE_MS = 5 * 60 * 1000;
 const OPERATIONAL_SEVERITY_RANK = new Map([
@@ -63,6 +70,9 @@ const PROVIDER_CAPABILITY_ALIASES = new Map([
   ['proof', 'audit.proof.write'],
   ['audit', 'audit.proof.write'],
   ['handoff', 'external-handoff.write'],
+  ['mailchimp', 'mailchimp.handoff.write'],
+  ['mailchimp-audience', 'mailchimp.audience.sync'],
+  ['mailchimp-campaign', 'mailchimp.campaign.replay'],
   ['schedule', 'resume.schedule.write'],
   ['rotate', 'resume-token.rotate']
 ]);
@@ -547,6 +557,137 @@ function normalizeProviderHandoffCommit(provider, services, validation, handoffI
   };
 }
 
+function normalizeMailchimpResumeTargetType(value) {
+  const targetType = String(value || '').trim().toLowerCase().replaceAll('_', '-');
+  return MAILCHIMP_HANDOFF_TARGETS.has(targetType) ? targetType : 'audience';
+}
+
+function normalizeMailchimpResumeMode(value, targetType) {
+  const mode = String(value || '').trim().toLowerCase().replaceAll('_', '-');
+  if (MAILCHIMP_RESUME_MODES.has(mode)) return mode;
+  if (targetType === 'campaign') return 'replay-campaign-events';
+  if (targetType === 'automation' || targetType === 'journey') return 'resume-automation';
+  return 'preview-only';
+}
+
+function normalizeMailchimpResumeContract(provider, handoffInput, integration, token, validation, nowMs) {
+  const providerMailchimp = provider.mailchimp && typeof provider.mailchimp === 'object'
+    ? provider.mailchimp
+    : provider.mailchimpHandoff && typeof provider.mailchimpHandoff === 'object'
+      ? provider.mailchimpHandoff
+      : {};
+  const handoffMailchimp = handoffInput.mailchimp && typeof handoffInput.mailchimp === 'object'
+    ? handoffInput.mailchimp
+    : {};
+  const integrationMailchimp = integration.mailchimp && typeof integration.mailchimp === 'object'
+    ? integration.mailchimp
+    : {};
+  const source = { ...integrationMailchimp, ...providerMailchimp, ...handoffMailchimp };
+  const providerText = `${provider.id || ''} ${provider.providerId || ''} ${provider.type || ''} ${provider.kind || ''}`.toLowerCase();
+  const requested = source.enabled === true
+    || source.requested === true
+    || handoffInput.exportTarget === MAILCHIMP_EXPORT_TARGET
+    || integration.exportTarget === MAILCHIMP_EXPORT_TARGET
+    || providerText.includes('mailchimp')
+    || typeof source.audienceId === 'string'
+    || typeof source.campaignId === 'string';
+  const targetType = normalizeMailchimpResumeTargetType(source.targetType || source.target);
+  const mode = normalizeMailchimpResumeMode(source.mode || source.resumeMode || source.exportMode, targetType);
+  const audienceId = String(source.audienceId || source.listId || '').trim() || null;
+  const campaignId = String(source.campaignId || source.campaign || '').trim() || null;
+  const automationId = String(source.automationId || source.journeyId || '').trim() || null;
+  const dataCenter = String(source.dataCenter || source.dc || '').trim().toLowerCase() || null;
+  const requiredAcks = normalizeStringList(source.requiredAcknowledgements || source.requiredAcks);
+  const acceptedAcks = normalizeStringList(source.acceptedAcknowledgements || source.acceptedAcks || source.acknowledgements);
+  const finalRequiredAcks = requiredAcks.length > 0 ? requiredAcks : MAILCHIMP_REQUIRED_ACKS;
+  const missingAcknowledgements = requested
+    ? finalRequiredAcks.filter((ack) => !acceptedAcks.includes(ack))
+    : [];
+  const exportFields = normalizeStringList(source.exportFields || source.fields);
+  const mergeFieldMap = source.mergeFieldMap && typeof source.mergeFieldMap === 'object'
+    ? Object.keys(source.mergeFieldMap)
+        .sort()
+        .reduce((mapped, key) => {
+          const value = source.mergeFieldMap[key];
+          if (typeof value === 'string' && value.trim()) mapped[key] = value.trim();
+          return mapped;
+        }, {})
+    : {};
+  const blockers = [];
+  const warnings = [];
+  const expiresAtMs = Date.parse(validation.expiresAt || '');
+
+  if (requested && targetType === 'audience' && !audienceId) blockers.push('mailchimp_audience_id_missing');
+  if (requested && targetType === 'campaign' && !campaignId) blockers.push('mailchimp_campaign_id_missing');
+  if (requested && (targetType === 'automation' || targetType === 'journey') && !automationId) {
+    blockers.push('mailchimp_automation_id_missing');
+  }
+  if (requested && mode === 'sync-members' && !audienceId) blockers.push('mailchimp_member_sync_requires_audience');
+  if (requested && mode === 'replay-campaign-events' && !campaignId) blockers.push('mailchimp_campaign_replay_requires_campaign');
+  if (requested && mode !== 'preview-only' && missingAcknowledgements.length > 0) {
+    blockers.push('mailchimp_acceptance_acknowledgement_missing');
+  }
+  if (requested && !Number.isNaN(expiresAtMs) && expiresAtMs <= nowMs) blockers.push('mailchimp_resume_token_expired');
+  if (requested && source.requiresMarketingConsent !== false && mode !== 'preview-only') {
+    warnings.push('mailchimp_marketing_consent_required');
+  }
+  if (requested && source.suppressUnsubscribed === false) warnings.push('mailchimp_unsubscribed_suppression_disabled');
+
+  return {
+    schema: 'aios.audit-recovery.resume-token.mailchimp-resume-contract.v1',
+    requested,
+    ready: requested && blockers.length === 0,
+    state: !requested
+      ? 'not-requested'
+      : blockers.length > 0
+        ? 'blocked'
+        : warnings.length > 0
+          ? 'ready-with-warnings'
+          : 'ready',
+    target: {
+      type: targetType,
+      audienceId,
+      campaignId,
+      automationId,
+      dataCenter
+    },
+    mode,
+    export: {
+      target: MAILCHIMP_EXPORT_TARGET,
+      fields: exportFields,
+      mergeFieldMap,
+      checkpointId: token?.checkpointId || null,
+      tokenId: token?.tokenId || null
+    },
+    consentBoundary: {
+      requiresMarketingConsent: source.requiresMarketingConsent !== false,
+      suppressUnsubscribed: source.suppressUnsubscribed !== false,
+      doubleOptIn: source.doubleOptIn === true
+    },
+    acknowledgements: {
+      required: finalRequiredAcks,
+      accepted: acceptedAcks,
+      missing: missingAcknowledgements
+    },
+    blockers,
+    warnings,
+    nextAction: !requested
+      ? 'retain_kernel_resume_contract'
+      : blockers.length > 0
+        ? missingAcknowledgements.length > 0
+          ? 'collect_mailchimp_preview_acceptance'
+          : 'repair_mailchimp_resume_contract'
+        : 'dispatch_mailchimp_resume_handoff',
+    proofSubjects: [
+      `mailchimp:${targetType}`,
+      `audience:${audienceId || 'missing'}`,
+      `campaign:${campaignId || 'missing'}`,
+      `mode:${mode}`,
+      `checkpoint:${token?.checkpointId || 'unknown'}`
+    ]
+  };
+}
+
 function buildHistorySnapshotDigest(historySnapshots, nowMs) {
   const ordered = [...historySnapshots].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
   const recentWindow = ordered.slice(-HISTORY_TREND_WINDOW_SIZE);
@@ -639,7 +780,7 @@ function buildHistorySnapshotDigest(historySnapshots, nowMs) {
   };
 }
 
-function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
+function normalizeProviderContracts(request, lifecycle, validation, nowMs, token = null) {
   const integration = request.integration && typeof request.integration === 'object' ? request.integration : {};
   const contractInput = request.providerContracts || request.providers || integration.providers || [];
   const providerEntries = Array.isArray(contractInput) ? contractInput : [contractInput];
@@ -670,7 +811,15 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
   if (handoffInput.enabled === true || handoffInput.targetProviderId) {
     requiredCapabilities.add('external-handoff.write');
   }
-  const handoffEnabled = handoffInput.enabled === true || Boolean(handoffInput.targetProviderId);
+  const mailchimpRequested = handoffInput.exportTarget === MAILCHIMP_EXPORT_TARGET
+    || integration.exportTarget === MAILCHIMP_EXPORT_TARGET
+    || (handoffInput.mailchimp && typeof handoffInput.mailchimp === 'object')
+    || (integration.mailchimp && typeof integration.mailchimp === 'object');
+  if (mailchimpRequested) {
+    requiredCapabilities.add('mailchimp.handoff.write');
+    requiredCapabilities.add('external-handoff.write');
+  }
+  const handoffEnabled = handoffInput.enabled === true || Boolean(handoffInput.targetProviderId) || mailchimpRequested;
 
   const providers = providerEntries
     .filter((provider) => provider && typeof provider === 'object')
@@ -691,6 +840,14 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
       const serviceSyncUnknown = services.some((service) => service.required && service.sync.state === 'unknown');
       const negotiation = normalizeProviderNegotiation(provider, services, requiredCapabilities, handoffEnabled, integration);
       const handoffCommit = normalizeProviderHandoffCommit(provider, services, validation, handoffInput, integration, nowMs);
+      const mailchimp = normalizeMailchimpResumeContract(provider, handoffInput, integration, token, validation, nowMs);
+      if (mailchimp.requested) {
+        for (const capability of ['mailchimp.handoff.write']) {
+          if (!capabilitySet.has(capability) && !missingCapabilities.includes(capability)) {
+            missingCapabilities.push(capability);
+          }
+        }
+      }
       const serviceBlockingCount = services.filter((service) => (
         service.required && (
           service.available === false
@@ -720,6 +877,7 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
         missingCapabilities,
         negotiation,
         handoffCommit,
+        mailchimp,
         serviceBlockingCount,
         services,
         contractVersion: String(provider.contractVersion || provider.version || 'v1'),
@@ -751,6 +909,7 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
       || provider.missingCapabilities.length > 0
       || provider.negotiation.accepted === false
       || provider.handoffCommit.ready === false
+      || (provider.mailchimp.requested && provider.mailchimp.ready === false)
       || provider.serviceBlockingCount > 0
       || provider.sync.state === 'conflict'
     )
@@ -766,7 +925,9 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
             : selectedProvider.serviceBlockingCount > 0
               ? 'service-contract-blocked'
               : selectedProvider.handoffCommit.ready === false
-                ? 'handoff-commit-blocked'
+              ? 'handoff-commit-blocked'
+              : selectedProvider.mailchimp.requested && selectedProvider.mailchimp.ready === false
+                ? 'mailchimp-contract-blocked'
               : selectedProvider.negotiation.accepted === false
                 ? 'contract-negotiation-blocked'
               : selectedProvider.negotiation.writeBarrierOpen === false
@@ -794,6 +955,7 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
     missingCapabilities: selectedProvider?.missingCapabilities || [...requiredCapabilities],
     negotiation: selectedProvider?.negotiation || null,
     handoffCommit: selectedProvider?.handoffCommit || null,
+    mailchimp: selectedProvider?.mailchimp || null,
     syncCursor: selectedProvider?.sync.cursor || null,
     syncSequence: selectedProvider?.sync.sequence || null,
     syncState: selectedProvider?.sync.state || 'unselected',
@@ -815,6 +977,7 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
       `provider:${selectedProviderId || 'unselected'}`,
       `resume-token-expires:${validation.expiresAt || 'unknown'}`,
       ...(selectedProvider?.handoffCommit.proofSubjects || []),
+      ...(selectedProvider?.mailchimp.proofSubjects || []),
       ...selectedServices.filter((service) => service.required).map((service) => `service:${service.id}`)
     ],
     transferable: handoffState === 'ready',
@@ -848,6 +1011,17 @@ function normalizeProviderContracts(request, lifecycle, validation, nowMs) {
         .filter((provider) => provider.handoffCommit.ready === false)
         .map((provider) => provider.id),
       blockerCodes: [...new Set(providers.flatMap((provider) => provider.handoffCommit.blockers))]
+    },
+    mailchimp: {
+      requested: providers.some((provider) => provider.mailchimp.requested),
+      readyProviderIds: providers
+        .filter((provider) => provider.mailchimp.requested && provider.mailchimp.ready)
+        .map((provider) => provider.id),
+      blockedProviderIds: providers
+        .filter((provider) => provider.mailchimp.requested && provider.mailchimp.ready === false)
+        .map((provider) => provider.id),
+      blockerCodes: [...new Set(providers.flatMap((provider) => provider.mailchimp.blockers))],
+      warningCodes: [...new Set(providers.flatMap((provider) => provider.mailchimp.warnings))]
     },
     negotiation: {
       requestedContractVersions: [...new Set(providers.map((provider) => provider.negotiation.requestedContractVersion))],
@@ -1374,6 +1548,139 @@ function buildWorkflowHandoff(request, lifecycle, providerContract, previewAccep
   };
 }
 
+function normalizeMailchimpRuntimeHandoffGate(request, providerContract, previewAcceptance, clientRuntime, workflowHandoff, tenantBoundary, now) {
+  const inputGate = request.mailchimpRuntimeHandoffGate && typeof request.mailchimpRuntimeHandoffGate === 'object'
+    ? request.mailchimpRuntimeHandoffGate
+    : request.recoveryCheckpointMailchimpGate && typeof request.recoveryCheckpointMailchimpGate === 'object'
+      ? request.recoveryCheckpointMailchimpGate
+      : request.mailchimpGate && typeof request.mailchimpGate === 'object'
+        ? request.mailchimpGate
+        : {};
+  const manifest = providerContract.handoff.manifest.mailchimp || null;
+  const requested = inputGate.requested === true
+    || manifest?.requested === true
+    || Boolean(manifest?.target);
+  const target = inputGate.target && typeof inputGate.target === 'object'
+    ? inputGate.target
+    : manifest?.target || null;
+  const exportInput = inputGate.export && typeof inputGate.export === 'object' ? inputGate.export : {};
+  const acceptedAcks = normalizeStringList(
+    inputGate.clientRuntime?.acceptedAcknowledgements
+    || inputGate.acceptance?.acknowledgements
+    || clientRuntime.workflowActions
+      .filter((action) => action.acknowledged)
+      .map((action) => action.id)
+  );
+  const requiredAcks = normalizeStringList(
+    inputGate.clientRuntime?.requiredAcknowledgements
+    || inputGate.acceptance?.requiredAcknowledgements
+    || manifest?.acknowledgements.required
+  );
+  const manifestMissingAcks = manifest?.acknowledgements.missing || [];
+  const missingAcknowledgements = [
+    ...manifestMissingAcks,
+    ...requiredAcks.filter((ack) => !acceptedAcks.includes(ack))
+  ];
+  const checkpointIds = normalizeStringList(
+    inputGate.checkpointIds
+    || inputGate.dispatchPayload?.checkpointIds
+    || inputGate.checkpointId
+    || clientRuntime.focusCheckpointId
+  );
+  const providerId = String(inputGate.providerId || manifest?.providerId || providerContract.selectedProviderId || '');
+  const projectionId = String(inputGate.projectionId || inputGate.dispatchPayload?.projectionId || manifest?.projectionId || '');
+  const digest = String(inputGate.proof?.digest || inputGate.proofDigest || '');
+  const upstreamBlockers = normalizeStringList(inputGate.blockers);
+  const upstreamWarnings = normalizeStringList(inputGate.warnings);
+  const localBlockers = [
+    requested && !providerId ? 'mailchimp_runtime_provider_missing' : '',
+    requested && providerContract.handoff.state !== 'ready' ? `mailchimp_runtime_handoff_${providerContract.handoff.state.replaceAll('-', '_')}` : '',
+    requested && previewAcceptance.acceptance.blocking ? 'mailchimp_runtime_preview_acceptance_blocked' : '',
+    requested && clientRuntime.canReleaseControl === false ? 'mailchimp_runtime_client_state_blocked' : '',
+    requested && tenantBoundary.errors.length > 0 ? 'mailchimp_runtime_tenant_boundary_blocked' : '',
+    requested && missingAcknowledgements.length > 0 ? 'mailchimp_runtime_acknowledgement_missing' : '',
+    requested && checkpointIds.length === 0 ? 'mailchimp_runtime_checkpoint_missing' : ''
+  ].filter(Boolean);
+  const blockers = [...new Set([...upstreamBlockers, ...localBlockers])];
+  const warnings = [...new Set([
+    ...upstreamWarnings,
+    ...(manifest?.warnings || []),
+    manifest?.consentBoundary?.requiresMarketingConsent && manifest.mode !== 'preview-only'
+      ? 'mailchimp_runtime_marketing_consent_required'
+      : '',
+    providerContract.sync.degraded ? 'mailchimp_runtime_provider_sync_degraded' : ''
+  ].filter(Boolean))];
+  const ready = requested && blockers.length === 0;
+  const state = !requested
+    ? 'not-requested'
+    : blockers.length > 0
+      ? 'blocked'
+      : warnings.length > 0
+        ? 'ready-with-warnings'
+        : 'ready';
+  const gateDigest = digest || `${surfaceId}:mailchimp-runtime:${providerId || 'unselected'}:${checkpointIds.join('|') || 'none'}:${state}`;
+
+  return {
+    schema: 'aios.audit-recovery.resume-token.mailchimp-runtime-handoff-gate.v1',
+    generatedAt: now,
+    requested,
+    ready,
+    state,
+    providerId: providerId || null,
+    projectionId: projectionId || null,
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    checkpointIds,
+    target,
+    mode: String(inputGate.mode || exportInput.mode || manifest?.mode || 'preview-only'),
+    acceptance: {
+      accepted: inputGate.acceptance?.accepted === true || previewAcceptance.acceptance.accepted,
+      state: previewAcceptance.acceptance.state,
+      digest: inputGate.acceptance?.digest || inputGate.acceptanceDigest || null,
+      missingAcknowledgements,
+      acceptedBy: inputGate.acceptance?.acceptedBy || previewAcceptance.acceptance.acceptedBy || null,
+      acceptedAt: inputGate.acceptance?.acceptedAt || previewAcceptance.acceptance.acceptedAt || null
+    },
+    clientRuntime: {
+      sessionId: clientRuntime.sessionId,
+      route: clientRuntime.route,
+      canReleaseControl: clientRuntime.canReleaseControl,
+      stateExportReady: clientRuntime.stateExport.ready,
+      handoffTicketId: clientRuntime.handoffTicket.id,
+      missingAcknowledgements
+    },
+    dispatch: ready
+      ? {
+          providerId: providerId || providerContract.selectedProviderId,
+          checkpointIds,
+          ticketId: clientRuntime.handoffTicket.id,
+          destination: workflowHandoff.destination,
+          exportTarget: 'mailchimp',
+          stateExportRefs: clientRuntime.stateExport.refs,
+          proofDigest: gateDigest
+        }
+      : null,
+    blockers,
+    warnings,
+    nextAction: !requested
+      ? 'retain_kernel_resume_contract'
+      : blockers.includes('mailchimp_runtime_acknowledgement_missing')
+        ? 'collect_mailchimp_preview_acceptance'
+        : blockers.includes('mailchimp_runtime_client_state_blocked')
+          ? clientRuntime.nextAction
+          : blockers.includes('mailchimp_runtime_preview_acceptance_blocked')
+            ? previewAcceptance.acceptance.nextAction
+            : blockers.length > 0
+              ? 'repair_mailchimp_runtime_handoff_gate'
+              : 'dispatch_mailchimp_resume_handoff',
+    proof: {
+      algorithm: 'sha256',
+      digest: gateDigest,
+      covers: ['provider', 'checkpointIds', 'acceptance', 'clientRuntime', 'tenantBoundary', 'blockers']
+    }
+  };
+}
+
 function validateResumeToken(token, nowMs) {
   const errors = [];
   const warnings = [];
@@ -1417,6 +1724,247 @@ function validateResumeToken(token, nowMs) {
     expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString(),
     errors,
     warnings
+  };
+}
+
+function normalizeResumeGuard(request, token, validation, persistedState, tenantBoundary, providerContract, nowMs) {
+  const guardInput = request.resumeGuard && typeof request.resumeGuard === 'object'
+    ? request.resumeGuard
+    : request.resumeClaim && typeof request.resumeClaim === 'object'
+      ? request.resumeClaim
+      : {};
+  const requested = guardInput.required === true
+    || guardInput.enabled === true
+    || request.requireResumeGuard === true
+    || providerContract.handoff.enabled
+    || lifecycleCommandRequiresResumeGuard(request.command || request.action);
+  const tokenId = String(guardInput.tokenId || token?.tokenId || '');
+  const checkpointId = String(guardInput.checkpointId || token?.checkpointId || persistedState.snapshot.checkpointId || '');
+  const guardTenantId = guardInput.tenantId || token?.tenantId || tenantBoundary.tenantId;
+  const guardWorkspaceId = guardInput.workspaceId || token?.workspaceId || tenantBoundary.workspaceId;
+  const issuedAt = toIsoString(guardInput.issuedAt || token?.issuedAt || nowMs, nowMs);
+  const expiresAt = guardInput.expiresAt
+    ? toIsoString(guardInput.expiresAt, nowMs)
+    : validation.expiresAt;
+  const issuedAtMs = Date.parse(issuedAt);
+  const expiresAtMs = expiresAt ? Date.parse(expiresAt) : NaN;
+  const expectedCheckpointIds = normalizeStringList([
+    token?.checkpointId,
+    persistedState.snapshot.checkpointId,
+    persistedState.restart.checkpointId,
+    ...(Array.isArray(guardInput.allowedCheckpointIds) ? guardInput.allowedCheckpointIds : [])
+  ]).filter(Boolean);
+  const providerHandoffReady = !providerContract.handoff.enabled
+    || providerContract.handoff.state === 'ready'
+    || providerContract.handoff.manifest.transferable === true;
+  const resumeClaim = normalizeResumeClaim(guardInput, request, token, persistedState, tenantBoundary, nowMs);
+  const blockers = [];
+  const warnings = [];
+
+  if (requested && !tokenId) blockers.push('resume_guard_token_id_missing');
+  if (requested && !checkpointId) blockers.push('resume_guard_checkpoint_missing');
+  if (validation.valid !== true) blockers.push('resume_guard_token_invalid');
+  if (expectedCheckpointIds.length > 0 && checkpointId && !expectedCheckpointIds.includes(checkpointId)) {
+    blockers.push('resume_guard_checkpoint_mismatch');
+  }
+  if (guardTenantId && tenantBoundary.tenantId && String(guardTenantId) !== String(tenantBoundary.tenantId)) {
+    blockers.push('resume_guard_tenant_mismatch');
+  }
+  if (guardWorkspaceId && tenantBoundary.workspaceId && String(guardWorkspaceId) !== String(tenantBoundary.workspaceId)) {
+    blockers.push('resume_guard_workspace_mismatch');
+  }
+  if (Number.isFinite(issuedAtMs) && issuedAtMs > nowMs) blockers.push('resume_guard_issued_at_in_future');
+  if (expiresAt && Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs) blockers.push('resume_guard_expired');
+  if (providerContract.handoff.enabled && !providerHandoffReady) blockers.push('resume_guard_handoff_not_transferable');
+  if (persistedState.restart.safeToReplay !== true) blockers.push('resume_guard_persisted_state_not_replay_safe');
+  if (persistedState.writeBarrier.open !== true) blockers.push('resume_guard_write_barrier_closed');
+  if (tenantBoundary.errors.length > 0) blockers.push('resume_guard_boundary_blocked');
+  for (const blocker of resumeClaim.blockers) blockers.push(blocker);
+  if (tenantBoundary.warnings.length > 0) warnings.push('resume_guard_boundary_warning');
+  if (providerContract.sync.degraded) warnings.push('resume_guard_provider_sync_degraded');
+  for (const warning of resumeClaim.warnings) warnings.push(warning);
+  if (expiresAt && Number.isFinite(expiresAtMs) && expiresAtMs - nowMs < 60_000 && expiresAtMs > nowMs) {
+    warnings.push('resume_guard_expires_within_60s');
+  }
+
+  const proofSubjects = [
+    `token:${tokenId || 'missing'}`,
+    `checkpoint:${checkpointId || 'missing'}`,
+    `tenant:${guardTenantId || 'unknown'}`,
+    `workspace:${guardWorkspaceId || 'unknown'}`,
+    `handoff:${providerContract.handoff.state}`,
+    `restart:${persistedState.restart.status}`
+  ];
+
+  return {
+    schema: 'aios.audit-recovery.resume-token.resume-guard.v1',
+    requested,
+    state: !requested
+      ? 'not-required'
+      : blockers.length > 0
+        ? 'blocked'
+        : warnings.length > 0
+          ? 'ready-with-warnings'
+          : 'ready',
+    ready: !requested || blockers.length === 0,
+    tokenId: tokenId || null,
+    checkpointId: checkpointId || null,
+    tenantId: guardTenantId ? String(guardTenantId) : null,
+    workspaceId: guardWorkspaceId ? String(guardWorkspaceId) : null,
+    issuedAt,
+    expiresAt,
+    expectedCheckpointIds,
+    providerHandoffReady,
+    replaySafe: persistedState.restart.safeToReplay === true,
+    writeBarrierOpen: persistedState.writeBarrier.open === true,
+    claim: resumeClaim,
+    blockers: [...new Set(blockers)],
+    warnings: [...new Set(warnings)],
+    proofSubjects: [...proofSubjects, ...resumeClaim.proofSubjects],
+    proofDigest: String(guardInput.proofDigest || `${tokenId}:${checkpointId}:${expiresAt || 'unbounded'}`),
+    nextAction: blockers.length > 0
+      ? blockers.includes('resume_guard_token_invalid') || blockers.includes('resume_guard_expired')
+        ? 'issue_fresh_resume_token'
+        : blockers.includes('resume_guard_handoff_not_transferable')
+          ? 'repair_external_handoff_manifest'
+          : blockers.some((blocker) => blocker.startsWith('resume_claim_'))
+            ? resumeClaim.nextAction
+          : 'repair_resume_guard'
+      : 'resume_guard_ready'
+  };
+}
+
+function lifecycleCommandRequiresResumeGuard(command) {
+  const normalized = String(command || '').trim().toLowerCase();
+  return ['resume', 'resume-checkpoint', 'recover', 'handoff', 'open-external-handoff'].includes(normalized);
+}
+
+function normalizeResumeClaim(guardInput, request, token, persistedState, tenantBoundary, nowMs) {
+  const claimInput = guardInput.claim && typeof guardInput.claim === 'object'
+    ? guardInput.claim
+    : request.claim && typeof request.claim === 'object'
+      ? request.claim
+      : {};
+  const ownerId = String(
+    claimInput.ownerId
+    || claimInput.holderId
+    || request.operatorId
+    || tenantBoundary.principal.id
+    || 'hosted-kernel'
+  );
+  const tokenId = String(claimInput.tokenId || guardInput.tokenId || token?.tokenId || '');
+  const checkpointId = String(claimInput.checkpointId || guardInput.checkpointId || token?.checkpointId || persistedState.snapshot.checkpointId || '');
+  const commandId = String(claimInput.commandId || claimInput.idempotencyKey || persistedState.commandId || '');
+  const claimId = String(claimInput.id || claimInput.claimId || `${commandId || 'unknown-command'}:${tokenId || 'missing-token'}:${checkpointId || 'missing-checkpoint'}`);
+  const claimedAt = toIsoString(claimInput.claimedAt || claimInput.acquiredAt || claimInput.issuedAt || nowMs, nowMs);
+  const claimedAtMs = Date.parse(claimedAt);
+  const ageMs = Number.isNaN(claimedAtMs) ? null : Math.max(0, nowMs - claimedAtMs);
+  const status = String(claimInput.status || claimInput.state || (Object.keys(claimInput).length > 0 ? 'claimed' : 'implicit')).toLowerCase();
+  const claimLedgerInput = Array.isArray(guardInput.claimLedger)
+    ? guardInput.claimLedger
+    : Array.isArray(request.resumeClaims)
+      ? request.resumeClaims
+      : Array.isArray(request.claims)
+        ? request.claims
+        : [];
+  const claimLedger = claimLedgerInput
+    .filter((entry) => entry && typeof entry === 'object')
+    .slice(-MAX_COMMAND_LEDGER_ENTRIES)
+    .map((entry, index) => {
+      const entryClaimedAtMs = Date.parse(entry.claimedAt || entry.acquiredAt || entry.updatedAt || entry.timestamp || '');
+      const entryStatus = String(entry.status || entry.state || 'claimed').toLowerCase();
+
+      return {
+        id: String(entry.id || entry.claimId || `resume-claim-${index + 1}`),
+        commandId: entry.commandId || entry.idempotencyKey ? String(entry.commandId || entry.idempotencyKey) : null,
+        tokenId: entry.tokenId ? String(entry.tokenId) : null,
+        checkpointId: entry.checkpointId ? String(entry.checkpointId) : null,
+        ownerId: entry.ownerId || entry.holderId ? String(entry.ownerId || entry.holderId) : null,
+        status: entryStatus,
+        claimedAt: Number.isNaN(entryClaimedAtMs) ? null : new Date(entryClaimedAtMs).toISOString(),
+        ageMs: Number.isNaN(entryClaimedAtMs) ? null : Math.max(0, nowMs - entryClaimedAtMs)
+      };
+    });
+  const matchingClaim = claimLedger.find((entry) => entry.id === claimId || (entry.commandId && entry.commandId === commandId)) || null;
+  const conflictingClaim = claimLedger.find((entry) => (
+    ACTIVE_RESUME_CLAIM_STATUSES.has(entry.status)
+    && entry.ownerId
+    && entry.ownerId !== ownerId
+    && (entry.ageMs === null || entry.ageMs <= RESUME_CLAIM_STALE_AFTER_MS)
+    && (!entry.checkpointId || !checkpointId || entry.checkpointId === checkpointId)
+  )) || null;
+  const blockers = [];
+  const warnings = [];
+
+  if (!claimId) blockers.push('resume_claim_id_missing');
+  if (!ownerId) blockers.push('resume_claim_owner_missing');
+  if (claimInput.commandId && commandId !== persistedState.commandId) blockers.push('resume_claim_command_mismatch');
+  if (claimInput.tokenId && token?.tokenId && tokenId !== String(token.tokenId)) blockers.push('resume_claim_token_mismatch');
+  if (claimInput.checkpointId && token?.checkpointId && checkpointId !== String(token.checkpointId)) blockers.push('resume_claim_checkpoint_mismatch');
+  if (claimInput.tenantId && tenantBoundary.tenantId && String(claimInput.tenantId) !== String(tenantBoundary.tenantId)) {
+    blockers.push('resume_claim_tenant_mismatch');
+  }
+  if (claimInput.workspaceId && tenantBoundary.workspaceId && String(claimInput.workspaceId) !== String(tenantBoundary.workspaceId)) {
+    blockers.push('resume_claim_workspace_mismatch');
+  }
+  if (Number.isNaN(claimedAtMs)) blockers.push('resume_claim_claimed_at_invalid');
+  if (Number.isFinite(claimedAtMs) && claimedAtMs > nowMs) blockers.push('resume_claim_claimed_at_in_future');
+  if (ageMs !== null && ageMs > RESUME_CLAIM_STALE_AFTER_MS) warnings.push('resume_claim_stale');
+  if (REJECTED_RESUME_CLAIM_STATUSES.has(status)) blockers.push('resume_claim_status_rejected');
+  if (matchingClaim && REJECTED_RESUME_CLAIM_STATUSES.has(matchingClaim.status)) {
+    blockers.push('resume_claim_prior_status_rejected');
+  }
+  if (matchingClaim && matchingClaim.ownerId && matchingClaim.ownerId !== ownerId) blockers.push('resume_claim_owner_mismatch');
+  if (conflictingClaim) blockers.push('resume_claim_conflict');
+  if (persistedState.commandAlreadyApplied) warnings.push('resume_claim_command_already_applied');
+
+  const state = persistedState.commandAlreadyApplied
+    ? 'already-applied'
+    : blockers.length > 0
+      ? 'blocked'
+      : warnings.includes('resume_claim_stale')
+        ? 'stale'
+        : matchingClaim
+          ? 'reclaimed'
+          : status === 'implicit'
+            ? 'implicit'
+            : 'claimed';
+
+  return {
+    schema: 'aios.audit-recovery.resume-token.resume-claim.v1',
+    id: claimId || null,
+    state,
+    status,
+    commandId: commandId || null,
+    tokenId: tokenId || null,
+    checkpointId: checkpointId || null,
+    ownerId: ownerId || null,
+    claimedAt,
+    ageMs,
+    staleAfterMs: RESUME_CLAIM_STALE_AFTER_MS,
+    replayDisposition: persistedState.commandAlreadyApplied
+      ? 'return-cached-result'
+      : blockers.length > 0
+        ? 'reject-claim'
+        : 'admit-single-use-resume',
+    matchingPriorClaimId: matchingClaim?.id || null,
+    conflictingClaimId: conflictingClaim?.id || null,
+    ledgerCount: claimLedger.length,
+    blockers: [...new Set(blockers)],
+    warnings: [...new Set(warnings)],
+    proofSubjects: [
+      `claim:${claimId || 'missing'}`,
+      `owner:${ownerId || 'missing'}`,
+      `command:${commandId || 'missing'}`,
+      `checkpoint:${checkpointId || 'missing'}`
+    ],
+    nextAction: blockers.length > 0
+      ? blockers.includes('resume_claim_conflict')
+        ? 'wait_for_active_resume_claim_or_reclaim'
+        : 'repair_resume_claim'
+      : persistedState.commandAlreadyApplied
+        ? 'return_cached_resume_result'
+        : 'commit_resume_claim'
   };
 }
 
@@ -1699,6 +2247,170 @@ function buildAnalytics(validation, dependencyHealth, retryState, evidence, hist
     },
     history: historyDigest,
     exportModel
+  };
+}
+
+function normalizeCheckpointPreviewHandoff(request, token, providerContract, nowMs) {
+  const handoffInput = request.previewResumeTokenHandoff && typeof request.previewResumeTokenHandoff === 'object'
+    ? request.previewResumeTokenHandoff
+    : request.checkpointPreviewHandoff && typeof request.checkpointPreviewHandoff === 'object'
+      ? request.checkpointPreviewHandoff
+      : request.previewAcceptanceExportManifest && typeof request.previewAcceptanceExportManifest === 'object'
+        ? {
+            manifest: request.previewAcceptanceExportManifest,
+            acceptance: request.previewAcceptanceExportManifest.routeHandoff,
+            checkpointIds: request.previewAcceptanceExportManifest.rows?.map((row) => row.checkpointId)
+          }
+        : {};
+  const present = Object.keys(handoffInput).length > 0;
+  const manifestInput = handoffInput.manifest && typeof handoffInput.manifest === 'object'
+    ? handoffInput.manifest
+    : {};
+  const acceptanceInput = handoffInput.acceptance && typeof handoffInput.acceptance === 'object'
+    ? handoffInput.acceptance
+    : {};
+  const routeInput = handoffInput.routeContract && typeof handoffInput.routeContract === 'object'
+    ? handoffInput.routeContract
+    : {};
+  const adoptionInput = handoffInput.clientStateAdoption && typeof handoffInput.clientStateAdoption === 'object'
+    ? handoffInput.clientStateAdoption
+    : {};
+  const resumeTokenInput = handoffInput.resumeToken && typeof handoffInput.resumeToken === 'object'
+    ? handoffInput.resumeToken
+    : {};
+  const checkpointIds = normalizeStringList(
+    handoffInput.checkpointIds
+    || handoffInput.selectedCheckpointIds
+    || manifestInput.checkpointIds
+    || manifestInput.selectedCheckpointIds
+  );
+  const checkpointId = String(
+    handoffInput.checkpointId
+    || resumeTokenInput.checkpointId
+    || checkpointIds[0]
+    || token?.checkpointId
+    || ''
+  );
+  const tokenId = String(resumeTokenInput.tokenId || handoffInput.tokenId || token?.tokenId || '');
+  const tenantId = handoffInput.tenantId ? String(handoffInput.tenantId) : null;
+  const workspaceId = handoffInput.workspaceId ? String(handoffInput.workspaceId) : null;
+  const manifestId = String(manifestInput.manifestId || handoffInput.manifestId || '');
+  const manifestDigest = String(manifestInput.digest || handoffInput.manifestDigest || handoffInput.proof?.digest || '');
+  const acceptanceDigest = String(acceptanceInput.digest || acceptanceInput.acceptanceDigest || handoffInput.acceptanceDigest || '');
+  const acceptedAt = acceptanceInput.acceptedAt
+    ? toIsoString(acceptanceInput.acceptedAt, nowMs)
+    : handoffInput.generatedAt
+      ? toIsoString(handoffInput.generatedAt, nowMs)
+      : null;
+  const acceptedBy = acceptanceInput.acceptedBy ? String(acceptanceInput.acceptedBy) : null;
+  const accepted = handoffInput.accepted === true
+    || handoffInput.state === 'accepted'
+    || acceptanceInput.accepted === true
+    || Boolean(acceptedBy && acceptedAt && acceptanceDigest);
+  const manifestReady = manifestInput.ready === true
+    || handoffInput.ready === true
+    || handoffInput.state === 'accepted';
+  const canAdoptClientState = adoptionInput.canAdopt !== false;
+  const requiredStateExportTargets = normalizeStringList(
+    adoptionInput.requiredStateExportTargets
+    || adoptionInput.stateExportTargets
+    || ['browser', 'hosted-kernel']
+  ).map((target) => target.toLowerCase());
+  const unsupportedStateExportTargets = requiredStateExportTargets
+    .filter((target) => !CLIENT_STATE_EXPORT_TARGETS.has(target));
+  const requestedProviderId = routeInput.targetProviderId || handoffInput.targetProviderId || null;
+  const providerMismatch = requestedProviderId
+    && providerContract.selectedProviderId
+    && requestedProviderId !== providerContract.selectedProviderId;
+  const blockers = [];
+  const warnings = [];
+
+  if (present && !accepted) blockers.push('checkpoint_preview_handoff_not_accepted');
+  if (present && !manifestReady) blockers.push('checkpoint_preview_manifest_not_ready');
+  if (present && !manifestId) blockers.push('checkpoint_preview_manifest_id_missing');
+  if (present && !manifestDigest) blockers.push('checkpoint_preview_manifest_digest_missing');
+  if (present && !acceptanceDigest) blockers.push('checkpoint_preview_acceptance_digest_missing');
+  if (present && !checkpointId) blockers.push('checkpoint_preview_checkpoint_missing');
+  if (present && token?.checkpointId && checkpointId && checkpointId !== String(token.checkpointId)) {
+    blockers.push('checkpoint_preview_token_checkpoint_mismatch');
+  }
+  if (present && resumeTokenInput.tokenId && token?.tokenId && tokenId !== String(token.tokenId)) {
+    blockers.push('checkpoint_preview_token_id_mismatch');
+  }
+  if (present && providerMismatch) blockers.push('checkpoint_preview_provider_mismatch');
+  if (present && !canAdoptClientState) blockers.push('checkpoint_preview_client_state_not_adoptable');
+  if (unsupportedStateExportTargets.length > 0) blockers.push('checkpoint_preview_state_export_target_unsupported');
+  if (present && !acceptedBy) warnings.push('checkpoint_preview_acceptor_unknown');
+  if (present && routeInput.destination === 'mailchimp' && providerContract.mailchimp.requested !== true) {
+    warnings.push('checkpoint_preview_mailchimp_destination_without_provider_request');
+  }
+
+  const proofSubjects = present
+    ? [
+        `checkpoint-preview:${handoffInput.handoffId || manifestId || 'unidentified'}`,
+        `manifest:${manifestId || 'missing'}`,
+        `acceptance:${acceptanceDigest || 'missing'}`,
+        `checkpoint:${checkpointId || 'missing'}`,
+        `client-state:${canAdoptClientState ? 'adoptable' : 'blocked'}`
+      ]
+    : [];
+
+  return {
+    schema: 'aios.audit-recovery.resume-token.checkpoint-preview-handoff.v1',
+    present,
+    state: !present
+      ? 'not-present'
+      : blockers.length > 0
+        ? 'blocked'
+        : warnings.length > 0
+          ? 'accepted-with-warnings'
+          : 'accepted',
+    accepted: present && accepted && blockers.length === 0,
+    handoffId: handoffInput.handoffId || null,
+    tenantId,
+    workspaceId,
+    checkpointId: checkpointId || null,
+    checkpointIds,
+    tokenId: tokenId || null,
+    manifest: {
+      manifestId: manifestId || null,
+      ready: manifestReady,
+      digest: manifestDigest || null,
+      selectedCheckpointCount: Number.isFinite(Number(manifestInput.selectedCheckpointCount))
+        ? Number(manifestInput.selectedCheckpointCount)
+        : checkpointIds.length
+    },
+    acceptance: {
+      accepted,
+      acceptedBy,
+      acceptedAt,
+      digest: acceptanceDigest || null
+    },
+    routeContract: {
+      sourceRoute: routeInput.sourceRoute || null,
+      resumeRouteAction: routeInput.resumeRouteAction || null,
+      continuationAction: routeInput.continuationAction || null,
+      destination: routeInput.destination || (providerContract.handoff.enabled ? 'external-provider' : 'hosted-kernel'),
+      targetProviderId: requestedProviderId,
+      providerMatches: !providerMismatch
+    },
+    clientStateAdoption: {
+      canAdopt: canAdoptClientState && blockers.length === 0,
+      viewStateKey: adoptionInput.viewStateKey || null,
+      requiredStateExportTargets,
+      unsupportedStateExportTargets,
+      pendingMutationIds: normalizeStringList(adoptionInput.pendingMutationIds),
+      missingAcknowledgements: normalizeStringList(adoptionInput.missingAcknowledgements),
+      nextAction: blockers.length > 0
+        ? 'repair_checkpoint_preview_handoff'
+        : 'adopt_checkpoint_preview_handoff'
+    },
+    blockers: [...new Set(blockers)],
+    warnings: [...new Set(warnings)],
+    proofSubjects,
+    proofDigest: present
+      ? String(handoffInput.proof?.digest || `${manifestDigest}:${acceptanceDigest}:${checkpointId}`)
+      : null
   };
 }
 
@@ -2628,7 +3340,7 @@ function buildTimeline(now, validation, dependencyHealth, retryState, historySna
   return timeline.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
 }
 
-function buildActionableErrors(validation, dependencyHealth, retryState, lifecycle, providerContract, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease) {
+function buildActionableErrors(validation, dependencyHealth, retryState, lifecycle, providerContract, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease, resumeGuard, mailchimpRuntimeGate = null) {
   const errors = [];
 
   for (const code of lifecycle.errors) {
@@ -2739,6 +3451,18 @@ function buildActionableErrors(validation, dependencyHealth, retryState, lifecyc
     });
   }
 
+  if (mailchimpRuntimeGate?.requested && !mailchimpRuntimeGate.ready) {
+    for (const blocker of mailchimpRuntimeGate.blockers) {
+      errors.push({
+        code: blocker,
+        severity: blocker.includes('acknowledgement') || blocker.includes('client_state')
+          ? 'recoverable'
+          : 'blocking',
+        action: mailchimpRuntimeGate.nextAction
+      });
+    }
+  }
+
   for (const code of clientRuntime.errors) {
     errors.push({
       code,
@@ -2768,6 +3492,18 @@ function buildActionableErrors(validation, dependencyHealth, retryState, lifecyc
       code,
       severity: code === 'resume_lease_expired' ? 'recoverable' : 'blocking',
       action: resumeLease.nextAction
+    });
+  }
+
+  for (const code of resumeGuard.blockers) {
+    errors.push({
+      code,
+      severity: code === 'resume_guard_expired'
+        || code === 'resume_guard_handoff_not_transferable'
+        || code === 'resume_claim_conflict'
+        ? 'recoverable'
+        : 'blocking',
+      action: resumeGuard.nextAction
     });
   }
 
@@ -2801,7 +3537,7 @@ function buildOperationalRecoveryPlan(actionableErrors, domains, retryState, wor
     dependency: actionableErrors.filter((error) => error.code.startsWith('dependency_')),
     provider: actionableErrors.filter((error) => error.code.startsWith('provider_') || error.code.startsWith('external_handoff_')),
     client: actionableErrors.filter((error) => error.code.startsWith('client_runtime_') || error.code.startsWith('workflow_')),
-    persistence: actionableErrors.filter((error) => error.code.startsWith('persisted_') || error.code.startsWith('resume_lease_')),
+    persistence: actionableErrors.filter((error) => error.code.startsWith('persisted_') || error.code.startsWith('resume_lease_') || error.code.startsWith('resume_guard_')),
     boundary: actionableErrors.filter((error) => error.code.startsWith('tenant_boundary_') || error.code === 'preview_acceptance_required')
   };
   const retryableCodes = recoverableErrors.map((error) => error.code);
@@ -2901,6 +3637,7 @@ function normalizePreviewAcceptance(request, validation, lifecycle, providerCont
     : previewInput.acceptance && typeof previewInput.acceptance === 'object'
       ? previewInput.acceptance
       : {};
+  const checkpointPreviewHandoff = normalizeCheckpointPreviewHandoff(request, token, providerContract, now);
   const affectedScopes = [
     token?.scope || 'unknown-scope',
     token?.checkpointId ? `checkpoint:${token.checkpointId}` : 'checkpoint:unknown',
@@ -2912,19 +3649,42 @@ function normalizePreviewAcceptance(request, validation, lifecycle, providerCont
     ...validation.warnings,
     ...lifecycle.warnings,
     ...(providerContract.sync.degraded ? ['provider_sync_degraded'] : []),
-    ...(providerContract.handoff.state === 'sync-stale' ? ['external_handoff_sync_stale'] : [])
+    ...(providerContract.handoff.state === 'sync-stale' ? ['external_handoff_sync_stale'] : []),
+    ...providerContract.mailchimp.warningCodes
   ];
   const required = acceptanceInput.required === true
     || previewInput.acceptanceRequired === true
-    || lifecycle.manualApprovalRequired === true;
-  const accepted = acceptanceInput.accepted === true || request.previewAccepted === true;
+    || lifecycle.manualApprovalRequired === true
+    || checkpointPreviewHandoff.present;
+  const accepted = acceptanceInput.accepted === true
+    || request.previewAccepted === true
+    || checkpointPreviewHandoff.accepted;
   const acceptedAt = accepted
-    ? toIsoString(acceptanceInput.acceptedAt || request.previewAcceptedAt || now, now)
+    ? toIsoString(
+        acceptanceInput.acceptedAt
+        || request.previewAcceptedAt
+        || checkpointPreviewHandoff.acceptance.acceptedAt
+        || now,
+        now
+      )
     : null;
   const acceptedBy = accepted
-    ? String(acceptanceInput.acceptedBy || request.previewAcceptedBy || 'unknown-operator')
+    ? String(
+        acceptanceInput.acceptedBy
+        || request.previewAcceptedBy
+        || checkpointPreviewHandoff.acceptance.acceptedBy
+        || 'unknown-operator'
+      )
     : null;
-  const previewId = String(previewInput.id || `${surfaceId}:preview:${token?.tokenId || 'missing-token'}`);
+  const previewId = String(
+    previewInput.id
+    || checkpointPreviewHandoff.handoffId
+    || `${surfaceId}:preview:${token?.tokenId || 'missing-token'}`
+  );
+  const mailchimpManifest = providerContract.handoff.manifest.mailchimp;
+  const mailchimpAcceptanceRequired = Boolean(mailchimpManifest?.requested && mailchimpManifest.acknowledgements.missing.length > 0);
+  const acceptanceRequired = required || mailchimpAcceptanceRequired;
+  const acceptanceBlocking = acceptanceRequired && (!accepted || checkpointPreviewHandoff.blockers.length > 0);
 
   return {
     schema: 'aios.audit-recovery.resume-token.preview-acceptance.v1',
@@ -2935,7 +3695,9 @@ function normalizePreviewAcceptance(request, validation, lifecycle, providerCont
         ? `Resume checkpoint ${token.checkpointId}`
         : 'Resume checkpoint unavailable',
       intent: providerContract.handoff.enabled
-        ? 'external_provider_handoff'
+        ? mailchimpManifest?.requested
+          ? 'mailchimp_resume_handoff'
+          : 'external_provider_handoff'
         : lifecycle.schedule.enabled
           ? 'scheduled_kernel_resume'
           : 'hosted_kernel_resume',
@@ -2948,25 +3710,66 @@ function normalizePreviewAcceptance(request, validation, lifecycle, providerCont
         expiresAt: validation.expiresAt
       }
     },
+    mailchimp: mailchimpManifest
+      ? {
+          requested: mailchimpManifest.requested,
+          state: mailchimpManifest.state,
+          target: mailchimpManifest.target,
+          mode: mailchimpManifest.mode,
+          consentBoundary: mailchimpManifest.consentBoundary,
+          acknowledgements: mailchimpManifest.acknowledgements,
+          blockers: mailchimpManifest.blockers,
+          warnings: mailchimpManifest.warnings,
+          nextAction: mailchimpManifest.nextAction,
+          proofSubjects: mailchimpManifest.proofSubjects
+        }
+      : {
+          requested: false,
+          state: 'not-requested',
+          target: null,
+          mode: 'preview-only',
+          consentBoundary: null,
+          acknowledgements: { required: [], accepted: [], missing: [] },
+          blockers: [],
+          warnings: [],
+          nextAction: 'retain_kernel_resume_contract',
+          proofSubjects: []
+        },
+    checkpointPreviewHandoff,
     acceptance: {
-      required,
+      required: acceptanceRequired,
       accepted,
-      state: !required
+      state: !acceptanceRequired
         ? 'not-required'
+        : checkpointPreviewHandoff.blockers.length > 0
+          ? 'checkpoint-preview-handoff-blocked'
         : accepted
           ? 'accepted'
+        : mailchimpAcceptanceRequired
+          ? 'awaiting-mailchimp-acknowledgement'
           : 'awaiting-acceptance',
       acceptedAt,
       acceptedBy,
-      blocking: required && !accepted,
-      nextAction: required && !accepted
-        ? 'present_resume_preview_for_acceptance'
+      blocking: acceptanceBlocking,
+      requiredAcknowledgements: mailchimpManifest?.acknowledgements.required || [],
+      missingAcknowledgements: accepted && checkpointPreviewHandoff.blockers.length === 0
+        ? []
+        : [
+            ...(mailchimpManifest?.acknowledgements.missing || []),
+            ...checkpointPreviewHandoff.blockers
+          ],
+      nextAction: acceptanceBlocking
+        ? checkpointPreviewHandoff.blockers.length > 0
+          ? checkpointPreviewHandoff.clientStateAdoption.nextAction
+          : mailchimpAcceptanceRequired
+          ? 'collect_mailchimp_preview_acceptance'
+          : 'present_resume_preview_for_acceptance'
         : 'continue_resume_readiness_checks'
     }
   };
 }
 
-function buildValidationSummary(validation, lifecycle, dependencyHealth, providerContract, previewAcceptance, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease) {
+function buildValidationSummary(validation, lifecycle, dependencyHealth, providerContract, previewAcceptance, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease, resumeGuard) {
   const checks = [
     {
       id: 'resume-token',
@@ -3012,6 +3815,8 @@ function buildValidationSummary(validation, lifecycle, dependencyHealth, provide
         ))
         .flatMap((provider) => provider.handoffCommit.ready === false
           ? provider.handoffCommit.blockers.map((blocker) => `provider_${provider.id}_${blocker}`)
+          : provider.mailchimp.requested && provider.mailchimp.ready === false
+          ? provider.mailchimp.blockers.map((blocker) => `provider_${provider.id}_${blocker}`)
           : provider.negotiation.accepted === false
           ? provider.negotiation.blockingReasons.map((reason) => `provider_${provider.id}_${reason}`)
           : [`provider_${provider.id}_blocked`]),
@@ -3067,6 +3872,17 @@ function buildValidationSummary(validation, lifecycle, dependencyHealth, provide
       warnings: resumeLease.warnings
     },
     {
+      id: 'resume-guard',
+      label: 'Resume guard',
+      status: resumeGuard.blockers.length > 0
+        ? 'fail'
+        : resumeGuard.warnings.length > 0
+          ? 'warn'
+          : 'pass',
+      codes: resumeGuard.blockers,
+      warnings: resumeGuard.warnings
+    },
+    {
       id: 'tenant-boundary',
       label: 'Tenant boundary',
       status: tenantBoundary.errors.length > 0
@@ -3092,7 +3908,7 @@ function buildValidationSummary(validation, lifecycle, dependencyHealth, provide
   };
 }
 
-function buildReadinessContract(ok, mode, recoveryNextAction, actionableErrors, validationSummary, previewAcceptance, providerContract, lifecycle, tenantBoundary, resumeLease) {
+function buildReadinessContract(ok, mode, recoveryNextAction, actionableErrors, validationSummary, previewAcceptance, providerContract, lifecycle, tenantBoundary, resumeLease, resumeGuard, mailchimpRuntimeGate = null) {
   const idempotentReplay = mode === 'idempotent-replay';
   const blockingErrors = actionableErrors.filter((error) => error.severity === 'blocking');
   const nextSteps = blockingErrors.length > 0
@@ -3121,6 +3937,19 @@ function buildReadinessContract(ok, mode, recoveryNextAction, actionableErrors, 
     canResumeNow: ok && !idempotentReplay,
     requiresAcceptance: previewAcceptance.acceptance.required,
     acceptanceState: previewAcceptance.acceptance.state,
+    mailchimpRuntimeGate: mailchimpRuntimeGate
+      ? {
+          requested: mailchimpRuntimeGate.requested,
+          ready: mailchimpRuntimeGate.ready,
+          state: mailchimpRuntimeGate.state,
+          providerId: mailchimpRuntimeGate.providerId,
+          checkpointIds: mailchimpRuntimeGate.checkpointIds,
+          nextAction: mailchimpRuntimeGate.nextAction,
+          blockerCount: mailchimpRuntimeGate.blockers.length,
+          blockers: mailchimpRuntimeGate.blockers,
+          proofDigest: mailchimpRuntimeGate.proof.digest
+        }
+      : null,
     selectedProviderId: providerContract.selectedProviderId,
     lifecycleState: lifecycle.state,
     lifecyclePolicy: {
@@ -3137,6 +3966,19 @@ function buildReadinessContract(ok, mode, recoveryNextAction, actionableErrors, 
     resumeLeaseState: resumeLease.state,
     resumeLeaseHolderId: resumeLease.holderId,
     resumeLeaseExpiresAt: resumeLease.expiresAt,
+    resumeGuard: {
+      state: resumeGuard.state,
+      ready: resumeGuard.ready,
+      checkpointId: resumeGuard.checkpointId,
+      claimState: resumeGuard.claim.state,
+      claimReplayDisposition: resumeGuard.claim.replayDisposition,
+      claimId: resumeGuard.claim.id,
+      claimOwnerId: resumeGuard.claim.ownerId,
+      conflictingClaimId: resumeGuard.claim.conflictingClaimId,
+      blockerCount: resumeGuard.blockers.length,
+      blockers: resumeGuard.blockers,
+      nextAction: resumeGuard.nextAction
+    },
     tenantId: tenantBoundary.tenantId,
     workspaceId: tenantBoundary.workspaceId,
     boundaryStatus: tenantBoundary.errors.length > 0 ? 'blocked' : 'scoped',
@@ -3153,7 +3995,116 @@ function buildReadinessContract(ok, mode, recoveryNextAction, actionableErrors, 
   };
 }
 
-function buildClientPreviewContract(request, ok, token, validationSummary, previewAcceptance, readiness, workflowHandoff, providerContract, clientRuntime, lifecycle, tenantBoundary, resumeLease, actionableErrors, now) {
+function buildOperatorRecoveryDecision({ ok, mode, recoveryNextAction, actionableErrors, readiness, operationalHealth, lifecycle, providerContract, tenantBoundary, resumeLease, resumeGuard, persistedState, now }) {
+  const blockingErrors = actionableErrors.filter((error) => error.severity === 'blocking');
+  const retryableErrors = actionableErrors.filter((error) => error.retryable === true || error.severity === 'recoverable');
+  const boundaryBlocked = tenantBoundary.errors.length > 0 || readiness.boundaryStatus === 'blocked';
+  const providerBlocked = providerContract.blockingProviderCount > 0
+    || providerContract.handoff.state === 'sync-conflict'
+    || providerContract.handoff.state === 'handoff-commit-blocked'
+    || providerContract.handoff.state === 'contract-negotiation-blocked';
+  const leaseBlocked = resumeLease.canProceed === false;
+  const guardBlocked = resumeGuard.ready === false;
+  const persistedBlocked = persistedState.restart.safeToReplay === false;
+  const primaryDomain = boundaryBlocked
+    ? 'tenant-boundary'
+    : providerBlocked
+      ? 'provider-contract'
+      : leaseBlocked
+        ? 'resume-lease'
+        : guardBlocked
+          ? 'resume-guard'
+          : persistedBlocked
+            ? 'persisted-state'
+            : blockingErrors[0]?.code || 'readiness';
+  const nextAction = ok
+    ? (mode === 'idempotent-replay' ? 'return_persisted_resume_result' : recoveryNextAction)
+    : boundaryBlocked
+      ? 'repair_tenant_workspace_boundary'
+      : providerBlocked
+        ? providerContract.handoff.nextAction
+        : leaseBlocked
+          ? resumeLease.nextAction
+          : guardBlocked
+            ? resumeGuard.nextAction
+            : persistedBlocked
+              ? persistedState.restart.nextAction
+              : recoveryNextAction;
+  const blockedReasons = [
+    ...blockingErrors.map((error) => error.code),
+    ...tenantBoundary.errors,
+    ...resumeLease.errors,
+    ...resumeGuard.blockers,
+    ...providerContract.handoff.manifest.missingCapabilities.map((capability) => `capability_missing:${capability}`),
+    ...(persistedBlocked ? persistedState.restart.blockers : [])
+  ];
+
+  return {
+    schema: 'aios.audit-recovery.resume-token.operator-recovery-decision.v1',
+    generatedAt: now,
+    state: ok
+      ? (mode === 'idempotent-replay' ? 'replay-complete' : 'resume-ready')
+      : retryableErrors.length > 0
+        ? 'retryable-blocked'
+        : 'blocked',
+    primaryDomain,
+    nextAction,
+    canResumeNow: readiness.canResumeNow,
+    retryable: retryableErrors.length > 0 && operationalHealth.retryPolicy.exhausted !== true,
+    retryAfterAt: operationalHealth.retryPolicy.nextRetryAt,
+    blockedReasons: [...new Set(blockedReasons)],
+    operatorMessage: operationalHealth.operatorMessage,
+    lifecycle: {
+      command: lifecycle.command,
+      state: lifecycle.state,
+      nextAction: lifecycle.nextAction,
+      scheduleDue: lifecycle.schedule.due,
+      scheduleNextRunAt: lifecycle.schedule.nextRunAt,
+      policyRevision: lifecycle.settingsPolicy.revision
+    },
+    provider: {
+      selectedProviderId: providerContract.selectedProviderId,
+      handoffState: providerContract.handoff.state,
+      handoffNextAction: providerContract.handoff.nextAction,
+      blockingProviderCount: providerContract.blockingProviderCount,
+      syncConflict: providerContract.sync.conflict,
+      syncDegraded: providerContract.sync.degraded
+    },
+    boundary: {
+      tenantId: tenantBoundary.tenantId,
+      workspaceId: tenantBoundary.workspaceId,
+      status: readiness.boundaryStatus,
+      workspaceLaneId: readiness.workspaceLaneId,
+      crossWorkspaceRequested: readiness.crossWorkspaceEscalation.requested,
+      crossWorkspaceAllowed: readiness.crossWorkspaceEscalation.allowed,
+      errors: tenantBoundary.errors
+    },
+    resumeLease: {
+      state: resumeLease.state,
+      canProceed: resumeLease.canProceed,
+      holderId: resumeLease.holderId,
+      expiresAt: resumeLease.expiresAt,
+      nextAction: resumeLease.nextAction
+    },
+    resumeGuard: {
+      state: resumeGuard.state,
+      ready: resumeGuard.ready,
+      checkpointId: resumeGuard.checkpointId,
+      claimState: resumeGuard.claim.state,
+      claimReplayDisposition: resumeGuard.claim.replayDisposition,
+      nextAction: resumeGuard.nextAction
+    },
+    proofSubjects: [
+      `mode:${mode}`,
+      `primary-domain:${primaryDomain}`,
+      `tenant:${tenantBoundary.tenantId || 'unknown'}`,
+      `workspace:${tenantBoundary.workspaceId || 'unknown'}`,
+      `next-action:${nextAction}`
+    ]
+  };
+}
+
+function buildClientPreviewContract(request, ok, token, validationSummary, previewAcceptance, readiness, workflowHandoff, providerContract, clientRuntime, lifecycle, tenantBoundary, resumeLease, actionableErrors, now, mailchimpRuntimeGate = null) {
   const routeInput = request.route && typeof request.route === 'object' ? request.route : {};
   const uiInput = request.ui && typeof request.ui === 'object' ? request.ui : {};
   const blockingErrors = actionableErrors.filter((error) => error.severity === 'blocking');
@@ -3192,6 +4143,16 @@ function buildClientPreviewContract(request, ok, token, validationSummary, previ
   const destinationLabel = workflowHandoff.destination.kind === 'external-provider'
     ? `External provider ${workflowHandoff.destination.providerId || 'unselected'}`
     : 'Hosted kernel';
+  const mailchimp = providerContract.handoff.manifest.mailchimp || {
+    requested: false,
+    state: 'not-requested',
+    target: null,
+    mode: 'preview-only',
+    acknowledgements: { required: [], accepted: [], missing: [] },
+    consentBoundary: null,
+    nextAction: 'retain_kernel_resume_contract',
+    proofSubjects: []
+  };
 
   return {
     schema: 'aios.audit-recovery.resume-token.client-preview.v1',
@@ -3298,6 +4259,34 @@ function buildClientPreviewContract(request, ok, token, validationSummary, previ
       warningCheckCount: validationSummary.warningCheckCount,
       sections: validationSections
     },
+    mailchimpHandoff: {
+      requested: mailchimp.requested,
+      state: mailchimp.state,
+      ready: mailchimp.ready,
+      target: mailchimp.target,
+      mode: mailchimp.mode,
+      consentBoundary: mailchimp.consentBoundary,
+      acknowledgementRequired: mailchimp.acknowledgements.missing.length > 0,
+      missingAcknowledgements: mailchimp.acknowledgements.missing,
+      nextAction: mailchimp.nextAction,
+      proofSubjects: mailchimp.proofSubjects
+    },
+    mailchimpRuntimeGate: mailchimpRuntimeGate
+      ? {
+          requested: mailchimpRuntimeGate.requested,
+          ready: mailchimpRuntimeGate.ready,
+          state: mailchimpRuntimeGate.state,
+          providerId: mailchimpRuntimeGate.providerId,
+          checkpointIds: mailchimpRuntimeGate.checkpointIds,
+          mode: mailchimpRuntimeGate.mode,
+          acceptance: mailchimpRuntimeGate.acceptance,
+          dispatch: mailchimpRuntimeGate.dispatch,
+          blockers: mailchimpRuntimeGate.blockers,
+          warnings: mailchimpRuntimeGate.warnings,
+          nextAction: mailchimpRuntimeGate.nextAction,
+          proofDigest: mailchimpRuntimeGate.proof.digest
+        }
+      : null,
     context: {
       tenantId: tenantBoundary.tenantId,
       workspaceId: tenantBoundary.workspaceId,
@@ -3308,12 +4297,25 @@ function buildClientPreviewContract(request, ok, token, validationSummary, previ
       handoffCommitState: providerContract.handoff.manifest.handoffCommit?.state || null,
       handoffCommitReady: providerContract.handoff.manifest.handoffCommit?.ready ?? null,
       handoffCommitBlockers: providerContract.handoff.manifest.handoffCommit?.blockers || [],
+      mailchimpHandoffState: mailchimp.state,
+      mailchimpRuntimeGateState: mailchimpRuntimeGate?.state || 'not-requested',
+      mailchimpRuntimeGateReady: mailchimpRuntimeGate?.ready || false,
+      mailchimpRuntimeGateNextAction: mailchimpRuntimeGate?.nextAction || null,
+      mailchimpHandoffTargetType: mailchimp.target?.type || null,
+      mailchimpAudienceId: mailchimp.target?.audienceId || null,
+      mailchimpCampaignId: mailchimp.target?.campaignId || null,
+      mailchimpResumeMode: mailchimp.mode,
+      mailchimpMissingAcknowledgements: mailchimp.acknowledgements.missing,
       capabilityCoverage: providerContract.providers
         .find((provider) => provider.id === providerContract.selectedProviderId)?.capabilityFit.coverage ?? null,
       clientSessionId: clientRuntime.sessionId,
       workspaceLaneId: tenantBoundary.isolation.selectedWorkspaceLaneId,
       checkpointAllowedByWorkspaceLane: tenantBoundary.isolation.checkpointAllowedByLane,
-      crossWorkspaceEscalationRef: tenantBoundary.auditHandoff.escalationRef
+      crossWorkspaceEscalationRef: tenantBoundary.auditHandoff.escalationRef,
+      resumeClaimId: readiness.resumeGuard.claimId,
+      resumeClaimState: readiness.resumeGuard.claimState,
+      resumeClaimReplayDisposition: readiness.resumeGuard.claimReplayDisposition,
+      resumeClaimConflictingClaimId: readiness.resumeGuard.conflictingClaimId
     },
     nextSteps: clientActions,
     proofSubjects: [
@@ -3322,7 +4324,8 @@ function buildClientPreviewContract(request, ok, token, validationSummary, previ
       `route:${clientRuntime.route}`,
       `client-ticket:${clientRuntime.handoffTicket.id}`,
       `tenant:${tenantBoundary.tenantId || 'unknown'}`,
-      `workspace-lane:${tenantBoundary.isolation.selectedWorkspaceLaneId || 'unselected'}`
+      `workspace-lane:${tenantBoundary.isolation.selectedWorkspaceLaneId || 'unselected'}`,
+      ...mailchimp.proofSubjects
     ]
   };
 }
@@ -3373,6 +4376,8 @@ function buildOperationalHealth(ok, validation, dependencyHealth, retryState, li
         ))
         .flatMap((provider) => provider.handoffCommit.ready === false
           ? provider.handoffCommit.blockers.map((blocker) => `provider_${provider.id}_${blocker}`)
+          : provider.mailchimp.requested && provider.mailchimp.ready === false
+          ? provider.mailchimp.blockers.map((blocker) => `provider_${provider.id}_${blocker}`)
           : provider.negotiation.accepted === false
           ? provider.negotiation.blockingReasons.map((reason) => `provider_${provider.id}_${reason}`)
           : [`provider_${provider.id}_blocked`]),
@@ -3660,6 +4665,22 @@ function buildExportSummary(state) {
       syncDegraded: state.providerContract.sync.degraded,
       syncConflict: state.providerContract.sync.conflict
     },
+    mailchimpRuntimeGate: state.mailchimpRuntimeGate
+      ? {
+          schema: state.mailchimpRuntimeGate.schema,
+          requested: state.mailchimpRuntimeGate.requested,
+          ready: state.mailchimpRuntimeGate.ready,
+          state: state.mailchimpRuntimeGate.state,
+          providerId: state.mailchimpRuntimeGate.providerId,
+          checkpointIds: state.mailchimpRuntimeGate.checkpointIds,
+          mode: state.mailchimpRuntimeGate.mode,
+          blockerCount: state.mailchimpRuntimeGate.blockers.length,
+          warningCount: state.mailchimpRuntimeGate.warnings.length,
+          nextAction: state.mailchimpRuntimeGate.nextAction,
+          dispatchable: Boolean(state.mailchimpRuntimeGate.dispatch),
+          proofDigest: state.mailchimpRuntimeGate.proof.digest
+        }
+      : null,
     counters: state.analytics.counters,
     analyticsExport: {
       schema: state.analytics.exportModel.schema,
@@ -3748,6 +4769,25 @@ function buildExportSummary(state) {
       canProceed: state.resumeLease.canProceed,
       nextAction: state.resumeLease.nextAction
     },
+    resumeGuard: {
+      schema: state.resumeGuard.schema,
+      state: state.resumeGuard.state,
+      ready: state.resumeGuard.ready,
+      checkpointId: state.resumeGuard.checkpointId,
+      blockerCount: state.resumeGuard.blockers.length,
+      warningCount: state.resumeGuard.warnings.length,
+      claim: {
+        schema: state.resumeGuard.claim.schema,
+        id: state.resumeGuard.claim.id,
+        state: state.resumeGuard.claim.state,
+        ownerId: state.resumeGuard.claim.ownerId,
+        replayDisposition: state.resumeGuard.claim.replayDisposition,
+        conflictingClaimId: state.resumeGuard.claim.conflictingClaimId,
+        blockerCount: state.resumeGuard.claim.blockers.length,
+        warningCount: state.resumeGuard.claim.warnings.length
+      },
+      nextAction: state.resumeGuard.nextAction
+    },
     clientRuntime: {
       schema: state.clientRuntime.schema,
       sessionId: state.clientRuntime.sessionId,
@@ -3834,8 +4874,9 @@ export function describeResumeTokenSurface(input = {}) {
   const retryState = computeRetryState(request);
   const lifecycle = normalizeLifecycleSettings(request, nowMs);
   const persistedState = normalizePersistedResumeState(request, lifecycle, token, nowMs);
-  const providerContract = normalizeProviderContracts(request, lifecycle, validation, nowMs);
+  const providerContract = normalizeProviderContracts(request, lifecycle, validation, nowMs, token);
   const tenantBoundary = normalizeTenantBoundary(request, token, lifecycle, providerContract, now);
+  const resumeGuard = normalizeResumeGuard(request, token, validation, persistedState, tenantBoundary, providerContract, nowMs);
   const dependencyHealth = [
     {
       name: 'checkpoint-store',
@@ -3856,9 +4897,18 @@ export function describeResumeTokenSurface(input = {}) {
   const previewAcceptance = normalizePreviewAcceptance(request, validation, lifecycle, providerContract, token, now);
   const clientRuntime = normalizeClientRuntimeState(request, token, nowMs);
   const workflowHandoff = buildWorkflowHandoff(request, lifecycle, providerContract, previewAcceptance, clientRuntime, validation, tenantBoundary);
+  const mailchimpRuntimeGate = normalizeMailchimpRuntimeHandoffGate(
+    request,
+    providerContract,
+    previewAcceptance,
+    clientRuntime,
+    workflowHandoff,
+    tenantBoundary,
+    now
+  );
   const resumeLease = normalizeResumeLease(request, lifecycle, token, clientRuntime, persistedState, tenantBoundary, nowMs);
-  const validationSummary = buildValidationSummary(validation, lifecycle, dependencyHealth, providerContract, previewAcceptance, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease);
-  const actionableErrors = buildActionableErrors(validation, dependencyHealth, retryState, lifecycle, providerContract, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease);
+  const validationSummary = buildValidationSummary(validation, lifecycle, dependencyHealth, providerContract, previewAcceptance, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease, resumeGuard);
+  const actionableErrors = buildActionableErrors(validation, dependencyHealth, retryState, lifecycle, providerContract, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease, resumeGuard, mailchimpRuntimeGate);
   if (previewAcceptance.acceptance.blocking) {
     actionableErrors.push({
       code: 'preview_acceptance_required',
@@ -3876,6 +4926,8 @@ export function describeResumeTokenSurface(input = {}) {
     && lifecycle.canResumeNow
     && persistedState.restart.safeToReplay
     && resumeLease.canProceed
+    && resumeGuard.ready
+    && (!mailchimpRuntimeGate.requested || mailchimpRuntimeGate.ready)
     && tenantBoundary.errors.length === 0);
   const effectiveMode = replayCompleted
     ? 'idempotent-replay'
@@ -3889,9 +4941,24 @@ export function describeResumeTokenSurface(input = {}) {
     : ok
       ? workflowHandoff.nextAction
     : actionableErrors[0]?.action || providerContract.handoff.nextAction || lifecycle.nextAction || retryState.nextAction;
-  const readiness = buildReadinessContract(ok, effectiveMode, recoveryNextAction, actionableErrors, validationSummary, previewAcceptance, providerContract, lifecycle, tenantBoundary, resumeLease);
-  const clientPreview = buildClientPreviewContract(request, ok, token, validationSummary, previewAcceptance, readiness, workflowHandoff, providerContract, clientRuntime, lifecycle, tenantBoundary, resumeLease, actionableErrors, now);
+  const readiness = buildReadinessContract(ok, effectiveMode, recoveryNextAction, actionableErrors, validationSummary, previewAcceptance, providerContract, lifecycle, tenantBoundary, resumeLease, resumeGuard, mailchimpRuntimeGate);
+  const clientPreview = buildClientPreviewContract(request, ok, token, validationSummary, previewAcceptance, readiness, workflowHandoff, providerContract, clientRuntime, lifecycle, tenantBoundary, resumeLease, actionableErrors, now, mailchimpRuntimeGate);
   const operationalHealth = buildOperationalHealth(ok, validation, dependencyHealth, retryState, lifecycle, providerContract, clientRuntime, workflowHandoff, persistedState, tenantBoundary, resumeLease, actionableErrors, now);
+  const operatorRecoveryDecision = buildOperatorRecoveryDecision({
+    ok,
+    mode: effectiveMode,
+    recoveryNextAction,
+    actionableErrors,
+    readiness,
+    operationalHealth,
+    lifecycle,
+    providerContract,
+    tenantBoundary,
+    resumeLease,
+    resumeGuard,
+    persistedState,
+    now
+  });
   const reporting = buildReportingState(ok, token, analytics, timeline, actionableErrors, readiness, operationalHealth, workflowHandoff, now);
 
   const state = {
@@ -3911,16 +4978,20 @@ export function describeResumeTokenSurface(input = {}) {
       operational: operationalHealth,
       lifecycle,
       providerContract,
+      mailchimpRuntimeGate,
       clientRuntime,
       workflowHandoff,
       persistedState,
       resumeLease,
+      resumeGuard,
       tenantBoundary
     },
     lifecycle,
     persistedState,
     resumeLease,
+    resumeGuard,
     providerContract,
+    mailchimpRuntimeGate,
     tenantBoundary,
     clientRuntime,
     workflowHandoff,
@@ -3934,6 +5005,7 @@ export function describeResumeTokenSurface(input = {}) {
       checkpointId: token?.checkpointId || null,
       degradedMode: degraded || providerDegraded,
       nextAction: recoveryNextAction,
+      operatorDecision: operatorRecoveryDecision,
       scheduledAt: lifecycle.schedule.nextRunAt,
       scheduleDue: lifecycle.schedule.due,
       handoff: providerContract.handoff,
@@ -3944,6 +5016,21 @@ export function describeResumeTokenSurface(input = {}) {
         fencingToken: resumeLease.fencing.token,
         expiresAt: resumeLease.expiresAt,
         nextAction: resumeLease.nextAction
+      },
+      resumeGuard: {
+        state: resumeGuard.state,
+        ready: resumeGuard.ready,
+        checkpointId: resumeGuard.checkpointId,
+        claim: {
+          id: resumeGuard.claim.id,
+          state: resumeGuard.claim.state,
+          replayDisposition: resumeGuard.claim.replayDisposition,
+          ownerId: resumeGuard.claim.ownerId,
+          conflictingClaimId: resumeGuard.claim.conflictingClaimId,
+          nextAction: resumeGuard.claim.nextAction
+        },
+        blockers: resumeGuard.blockers,
+        nextAction: resumeGuard.nextAction
       },
       workflowHandoff
     },
@@ -4009,6 +5096,26 @@ export function describeResumeTokenSurface(input = {}) {
       selectedProviderHandoffCommitReady: providerContract.handoff.manifest.handoffCommit?.ready ?? null,
       selectedProviderHandoffCommitPayloadRef: providerContract.handoff.manifest.handoffCommit?.payload.ref || null,
       selectedProviderHandoffCommitReceiptRef: providerContract.handoff.manifest.handoffCommit?.receipt.ref || null,
+      mailchimpHandoffRequested: providerContract.mailchimp.requested,
+      mailchimpHandoffReadyProviderIds: providerContract.mailchimp.readyProviderIds,
+      mailchimpHandoffBlockedProviderIds: providerContract.mailchimp.blockedProviderIds,
+      mailchimpHandoffBlockerCodes: providerContract.mailchimp.blockerCodes,
+      mailchimpRuntimeGateSchema: mailchimpRuntimeGate.schema,
+      mailchimpRuntimeGateRequested: mailchimpRuntimeGate.requested,
+      mailchimpRuntimeGateReady: mailchimpRuntimeGate.ready,
+      mailchimpRuntimeGateState: mailchimpRuntimeGate.state,
+      mailchimpRuntimeGateProviderId: mailchimpRuntimeGate.providerId,
+      mailchimpRuntimeGateCheckpointIds: mailchimpRuntimeGate.checkpointIds,
+      mailchimpRuntimeGateBlockers: mailchimpRuntimeGate.blockers,
+      mailchimpRuntimeGateWarnings: mailchimpRuntimeGate.warnings,
+      mailchimpRuntimeGateDispatchable: Boolean(mailchimpRuntimeGate.dispatch),
+      mailchimpRuntimeGateProofDigest: mailchimpRuntimeGate.proof.digest,
+      mailchimpSelectedState: providerContract.handoff.manifest.mailchimp?.state || 'not-requested',
+      mailchimpSelectedTargetType: providerContract.handoff.manifest.mailchimp?.target.type || null,
+      mailchimpSelectedAudienceId: providerContract.handoff.manifest.mailchimp?.target.audienceId || null,
+      mailchimpSelectedCampaignId: providerContract.handoff.manifest.mailchimp?.target.campaignId || null,
+      mailchimpSelectedResumeMode: providerContract.handoff.manifest.mailchimp?.mode || null,
+      mailchimpMissingAcknowledgements: providerContract.handoff.manifest.mailchimp?.acknowledgements.missing || [],
       externalHandoffState: providerContract.handoff.state,
       externalHandoffManifestId: providerContract.handoff.manifest.id,
       externalHandoffManifestReady: providerContract.handoff.manifest.transferable,
@@ -4043,6 +5150,21 @@ export function describeResumeTokenSurface(input = {}) {
       resumeLeaseFencingToken: resumeLease.fencing.token,
       resumeLeaseExpiresAt: resumeLease.expiresAt,
       resumeLeaseCanProceed: resumeLease.canProceed,
+      resumeGuardState: resumeGuard.state,
+      resumeGuardReady: resumeGuard.ready,
+      resumeGuardCheckpointId: resumeGuard.checkpointId,
+      resumeClaimSchema: resumeGuard.claim.schema,
+      resumeClaimId: resumeGuard.claim.id,
+      resumeClaimState: resumeGuard.claim.state,
+      resumeClaimReplayDisposition: resumeGuard.claim.replayDisposition,
+      resumeClaimOwnerId: resumeGuard.claim.ownerId,
+      resumeClaimConflictingClaimId: resumeGuard.claim.conflictingClaimId,
+      resumeClaimBlockers: resumeGuard.claim.blockers,
+      resumeClaimWarnings: resumeGuard.claim.warnings,
+      resumeGuardBlockers: resumeGuard.blockers,
+      resumeGuardWarnings: resumeGuard.warnings,
+      resumeGuardProofSubjects: resumeGuard.proofSubjects,
+      resumeGuardNextAction: resumeGuard.nextAction,
       operationalHealthSchema: operationalHealth.schema,
       operationalStatus: operationalHealth.status,
       operationalFailureState: operationalHealth.failureState,
@@ -4057,6 +5179,11 @@ export function describeResumeTokenSurface(input = {}) {
       retryGateEligible: operationalHealth.recoveryPlan.retryGate.eligible,
       retryGateBlockedBy: operationalHealth.recoveryPlan.retryGate.blockedBy,
       degradedGateAdmitted: operationalHealth.recoveryPlan.degradedGate.admitted,
+      operatorRecoveryDecisionState: operatorRecoveryDecision.state,
+      operatorRecoveryDecisionDomain: operatorRecoveryDecision.primaryDomain,
+      operatorRecoveryDecisionNextAction: operatorRecoveryDecision.nextAction,
+      operatorRecoveryDecisionRetryable: operatorRecoveryDecision.retryable,
+      operatorRecoveryDecisionBlockedReasons: operatorRecoveryDecision.blockedReasons,
       operatorMessage: operationalHealth.operatorMessage,
       historyDigestSchema: analytics.history.schema,
       historyCurrentStreak: analytics.history.currentStreak,

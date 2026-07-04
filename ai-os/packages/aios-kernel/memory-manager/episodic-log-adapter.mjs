@@ -24,7 +24,10 @@ const allowedProviderCapabilities = new Set([
   "full-capture",
   "proof-export",
   "external-handoff",
-  "workspace-isolation"
+  "workspace-isolation",
+  "mailchimp-audience-sync",
+  "mailchimp-campaign-event",
+  "mailchimp-webhook-handoff"
 ]);
 const allowedFailureCodes = new Set([
   "backend-unreachable",
@@ -44,6 +47,8 @@ const allowedLifecycleStates = new Set(["enabled", "disabled", "paused", "suspen
 const allowedWorkflowIntents = new Set(["inspect", "preview", "commit", "flush", "recover"]);
 const allowedWorkflowPriorities = new Set(["low", "normal", "high", "urgent"]);
 const allowedReturnModes = new Set(["inline", "callback", "deferred"]);
+const allowedClientWorkflowTransferStatuses = new Set(["pending", "delivered", "acknowledged", "rejected", "expired"]);
+const MAX_EPISODE_CLOCK_SKEW_MS = 2 * 60 * 1000;
 const allowedLifecycleReasons = new Set([
   "operator-request",
   "maintenance-window",
@@ -169,9 +174,28 @@ function normalizeEpisodeRecord(entry, index, settings, tenantBoundary, now) {
   const summary = normalizeText(source.summary ?? source.title ?? source.message, null, { maxLength: 240 });
   const fullContent = normalizeText(source.content ?? source.body ?? source.transcript, null, { maxLength: 1200 });
   const metadata = normalizeMetadata(source.metadata ?? source.tags, settings.captureLevel);
+  const nowMs = Date.parse(now);
+  const occurredAtMs = Date.parse(occurredAt);
+  const retentionCutoffMs = Number.isFinite(nowMs)
+    ? nowMs - settings.retentionDays * 24 * 60 * 60 * 1000
+    : NaN;
+  const clockViolations = [];
   const rejectedReasons = [];
   const warnings = [];
 
+  if (!Number.isFinite(occurredAtMs)) {
+    clockViolations.push("invalid-episode-timestamp");
+    rejectedReasons.push("invalid-episode-timestamp");
+  } else {
+    if (Number.isFinite(nowMs) && occurredAtMs > nowMs + MAX_EPISODE_CLOCK_SKEW_MS) {
+      clockViolations.push("episode-timestamp-from-future");
+      rejectedReasons.push("episode-timestamp-from-future");
+    }
+    if (Number.isFinite(retentionCutoffMs) && occurredAtMs < retentionCutoffMs) {
+      clockViolations.push("episode-outside-retention-window");
+      rejectedReasons.push("episode-outside-retention-window");
+    }
+  }
   if (source.type !== undefined && type !== requestedType) {
     warnings.push(`episodes[${index}].type was normalized to interaction`);
   }
@@ -204,6 +228,15 @@ function normalizeEpisodeRecord(entry, index, settings, tenantBoundary, now) {
     tenantId: tenantBoundary.tenantId,
     workspaceId: tenantBoundary.workspaceId,
     projectId: tenantBoundary.projectId,
+    clockBoundary: {
+      observedAt: occurredAt,
+      generatedAt: now,
+      maxFutureSkewMs: MAX_EPISODE_CLOCK_SKEW_MS,
+      retentionDays: settings.retentionDays,
+      retentionCutoffAt: Number.isFinite(retentionCutoffMs) ? new Date(retentionCutoffMs).toISOString() : null,
+      accepted: clockViolations.length === 0,
+      violations: clockViolations
+    },
     capture,
     proofToken: proofTokenFor({
       episodeId,
@@ -213,7 +246,8 @@ function normalizeEpisodeRecord(entry, index, settings, tenantBoundary, now) {
       summary: capture.summary,
       metadata,
       tenantId: tenantBoundary.tenantId,
-      workspaceId: tenantBoundary.workspaceId
+      workspaceId: tenantBoundary.workspaceId,
+      clockViolations
     }),
     warnings
   };
@@ -309,6 +343,13 @@ function normalizeEpisodeEnvelope(input, settings, tenantBoundary, now) {
   const records = identityGuard.records;
   const acceptedRecords = records.filter((record) => record.accepted);
   const rejectedRecords = records.filter((record) => !record.accepted);
+  const clockRejectedRecords = records.filter((record) => record.clockBoundary?.violations?.length > 0);
+  const clockViolationCounts = clockRejectedRecords.reduce((counts, record) => {
+    for (const violation of record.clockBoundary.violations) {
+      counts[violation] = (counts[violation] || 0) + 1;
+    }
+    return counts;
+  }, {});
 
   if (requestedCount > records.length) {
     warnings.push(`episodes were trimmed to maxEpisodesPerFlush (${settings.maxEpisodesPerFlush})`);
@@ -326,6 +367,15 @@ function normalizeEpisodeEnvelope(input, settings, tenantBoundary, now) {
     trimmedCount: Math.max(0, requestedCount - records.length),
     captureLevel: settings.captureLevel,
     tenantBoundary: tenantBoundary.handoffScope,
+    clockBoundary: {
+      status: clockRejectedRecords.length ? "violations-present" : "accepted",
+      generatedAt: now,
+      maxFutureSkewMs: MAX_EPISODE_CLOCK_SKEW_MS,
+      retentionDays: settings.retentionDays,
+      rejectedCount: clockRejectedRecords.length,
+      violationCounts: clockViolationCounts,
+      rejectedEpisodeIds: clockRejectedRecords.map((record) => record.episodeId)
+    },
     identityGuard: {
       duplicateEpisodeIdCount: identityGuard.duplicateEpisodeIds.length,
       duplicateEpisodeIds: identityGuard.duplicateEpisodeIds,
@@ -341,6 +391,130 @@ function normalizeEpisodeEnvelope(input, settings, tenantBoundary, now) {
     })),
     proofTokens: acceptedRecords.map((record) => record.proofToken),
     warnings
+  };
+}
+
+function applyOperationalCapturePolicy(episodeEnvelope, operationalHealth, now) {
+  const rejectNewCaptures = operationalHealth.writeDisposition === "hold-writes"
+    || operationalHealth.captureDisposition === "reject-new-episode-captures";
+  const downgradeFullCapture = operationalHealth.captureDisposition === "downgrade-to-summary-until-healthy";
+  const policyActions = [];
+  const warnings = [];
+
+  if (rejectNewCaptures) {
+    policyActions.push("reject-new-episode-captures");
+  }
+  if (downgradeFullCapture) {
+    policyActions.push("downgrade-full-content-to-redacted-summary");
+  }
+
+  if (policyActions.length === 0 || episodeEnvelope.records.length === 0) {
+    return {
+      ...episodeEnvelope,
+      healthCapturePolicy: {
+        contract: "episodic-log.health-capture-policy.v1",
+        applied: false,
+        generatedAt: now,
+        healthStatus: operationalHealth.status,
+        writeDisposition: operationalHealth.writeDisposition,
+        captureDisposition: operationalHealth.captureDisposition,
+        actions: [],
+        affectedEpisodeIds: []
+      }
+    };
+  }
+
+  const affectedEpisodeIds = [];
+  const records = episodeEnvelope.records.map((record) => {
+    if (!record.accepted) return record;
+
+    if (rejectNewCaptures) {
+      const rejectedReasons = [...record.rejectedReasons];
+      if (!rejectedReasons.includes("operational-health-holds-writes")) {
+        rejectedReasons.push("operational-health-holds-writes");
+      }
+      affectedEpisodeIds.push(record.episodeId);
+      return {
+        ...record,
+        accepted: false,
+        rejectedReasons,
+        healthDisposition: {
+          applied: true,
+          action: "reject-new-episode-captures",
+          healthStatus: operationalHealth.status,
+          writeDisposition: operationalHealth.writeDisposition,
+          captureDisposition: operationalHealth.captureDisposition,
+          reason: operationalHealth.circuitBreaker.reason || operationalHealth.retry.reason || "operational health is not accepting new captures"
+        },
+        proofToken: proofTokenFor({
+          previousProofToken: record.proofToken,
+          episodeId: record.episodeId,
+          rejectedReasons,
+          healthStatus: operationalHealth.status,
+          writeDisposition: operationalHealth.writeDisposition,
+          generatedAt: now
+        })
+      };
+    }
+
+    if (downgradeFullCapture && record.capture.content) {
+      affectedEpisodeIds.push(record.episodeId);
+      warnings.push(`episode "${record.episodeId}" full content was redacted because operational health is degraded`);
+      return {
+        ...record,
+        capture: {
+          ...record.capture,
+          content: null,
+          redacted: true
+        },
+        healthDisposition: {
+          applied: true,
+          action: "downgrade-full-content-to-redacted-summary",
+          healthStatus: operationalHealth.status,
+          writeDisposition: operationalHealth.writeDisposition,
+          captureDisposition: operationalHealth.captureDisposition,
+          reason: "full capture is downgraded while the episodic log backend is degraded"
+        },
+        proofToken: proofTokenFor({
+          previousProofToken: record.proofToken,
+          episodeId: record.episodeId,
+          summary: record.capture.summary,
+          metadata: record.capture.metadata,
+          redactedByHealthPolicy: true,
+          healthStatus: operationalHealth.status,
+          generatedAt: now
+        })
+      };
+    }
+
+    return record;
+  });
+  const acceptedRecords = records.filter((record) => record.accepted);
+  const rejectedRecords = records.filter((record) => !record.accepted);
+
+  return {
+    ...episodeEnvelope,
+    acceptedCount: acceptedRecords.length,
+    rejectedCount: rejectedRecords.length,
+    records,
+    rejected: rejectedRecords.map((record) => ({
+      episodeId: record.episodeId,
+      reasons: record.rejectedReasons,
+      identityConflict: record.identityConflict || null,
+      healthDisposition: record.healthDisposition || null
+    })),
+    proofTokens: acceptedRecords.map((record) => record.proofToken),
+    warnings: [...episodeEnvelope.warnings, ...warnings],
+    healthCapturePolicy: {
+      contract: "episodic-log.health-capture-policy.v1",
+      applied: affectedEpisodeIds.length > 0,
+      generatedAt: now,
+      healthStatus: operationalHealth.status,
+      writeDisposition: operationalHealth.writeDisposition,
+      captureDisposition: operationalHealth.captureDisposition,
+      actions: policyActions,
+      affectedEpisodeIds
+    }
   };
 }
 
@@ -1039,8 +1213,21 @@ function normalizeScopeAllowList(value) {
 
 function normalizeProviderContract(input = {}, settings, clientState) {
   const source = input.provider || input.serviceProvider || input.storageProvider || {};
+  const service = source.service && typeof source.service === "object" && !Array.isArray(source.service)
+    ? source.service
+    : {};
+  const mailchimp = source.mailchimp && typeof source.mailchimp === "object" && !Array.isArray(source.mailchimp)
+    ? source.mailchimp
+    : service.mailchimp && typeof service.mailchimp === "object" && !Array.isArray(service.mailchimp)
+      ? service.mailchimp
+      : {};
   const requestedKind = typeof source.kind === "string" ? source.kind.trim().toLowerCase() : "hosted-kernel";
   const kind = allowedProviderKinds.has(requestedKind) ? requestedKind : "hosted-kernel";
+  const serviceName = normalizeText(source.serviceName ?? service.name, null, { maxLength: 120 });
+  const serviceKind = normalizeText(source.serviceKind ?? service.kind ?? source.productService, null, { maxLength: 80 });
+  const mailchimpEnabled = serviceKind === "mailchimp"
+    || serviceName?.toLowerCase().includes("mailchimp")
+    || mailchimp.enabled === true;
   const requestedState = typeof source.state === "string" ? source.state.trim().toLowerCase() : null;
   const state = allowedProviderStates.has(requestedState)
     ? requestedState
@@ -1067,7 +1254,8 @@ function normalizeProviderContract(input = {}, settings, clientState) {
         "proof-export",
         "workspace-isolation",
         ...(settings.captureLevel === "full" ? ["full-capture"] : []),
-        ...(clientState.handoffTarget !== "operator" || clientState.returnRoute ? ["external-handoff"] : [])
+        ...(clientState.handoffTarget !== "operator" || clientState.returnRoute ? ["external-handoff"] : []),
+        ...(mailchimpEnabled ? ["mailchimp-audience-sync", "mailchimp-campaign-event", "mailchimp-webhook-handoff"] : [])
       ];
   const warnings = [];
 
@@ -1090,8 +1278,22 @@ function normalizeProviderContract(input = {}, settings, clientState) {
     kind,
     state,
     endpoint,
+    serviceName,
+    serviceKind: serviceKind || kind,
     consistencyLevel,
     capabilities,
+    productService: mailchimpEnabled
+      ? {
+          product: "mailchimp",
+          audienceId: normalizeText(mailchimp.audienceId ?? mailchimp.listId, null, { maxLength: 120 }),
+          campaignId: normalizeText(mailchimp.campaignId, null, { maxLength: 120 }),
+          webhookId: normalizeText(mailchimp.webhookId, null, { maxLength: 120 }),
+          webhookEndpoint: normalizeText(mailchimp.webhookEndpoint ?? mailchimp.endpoint, null, { maxLength: 220 }),
+          webhookSigningKeyRef: normalizeText(mailchimp.webhookSigningKeyRef ?? mailchimp.signingKeyRef, null, { maxLength: 160 }),
+          suppressUnsubscribedContacts: normalizeBoolean(mailchimp.suppressUnsubscribedContacts, true),
+          exportEventTypes: normalizeStringList(mailchimp.exportEventTypes || mailchimp.events)
+        }
+      : null,
     sync: {
       cursor: syncCursor,
       acknowledgedCursor,
@@ -1326,6 +1528,11 @@ function buildProviderNegotiation(providerContract, settings, command, episodeEn
   if (tenantBoundary.isolationMode === "workspace") {
     requiredCapabilities.add("workspace-isolation");
   }
+  if (providerContract.productService?.product === "mailchimp") {
+    requiredCapabilities.add("mailchimp-audience-sync");
+    requiredCapabilities.add("mailchimp-campaign-event");
+    requiredCapabilities.add("mailchimp-webhook-handoff");
+  }
 
   const missingCapabilities = [...requiredCapabilities].filter((capability) => !providerContract.capabilities.includes(capability));
   const blockers = [];
@@ -1336,6 +1543,20 @@ function buildProviderNegotiation(providerContract, settings, command, episodeEn
     blockers.push("provider-read-only");
   }
   blockers.push(...missingCapabilities.map((capability) => `provider-missing-${capability}`));
+  if (providerContract.productService?.product === "mailchimp") {
+    if (!providerContract.productService.audienceId) {
+      blockers.push("mailchimp-audience-id-required");
+    }
+    if (!providerContract.productService.webhookEndpoint) {
+      blockers.push("mailchimp-webhook-endpoint-required");
+    }
+    if (!providerContract.productService.webhookSigningKeyRef) {
+      blockers.push("mailchimp-webhook-signing-key-required");
+    }
+    if (!providerContract.productService.suppressUnsubscribedContacts) {
+      blockers.push("mailchimp-unsubscribed-contact-suppression-required");
+    }
+  }
 
   const syncStatus = providerContract.sync.pendingAcknowledgement
     ? "pending-acknowledgement"
@@ -1361,13 +1582,22 @@ function buildProviderNegotiation(providerContract, settings, command, episodeEn
       cursor: providerContract.sync.cursor,
       pendingAcknowledgement: providerContract.sync.pendingAcknowledgement
     },
+    productService: providerContract.productService
+      ? {
+          ...providerContract.productService,
+          requiredCapabilities: [...requiredCapabilities].filter((capability) => capability.startsWith("mailchimp-")),
+          missingCapabilities: missingCapabilities.filter((capability) => capability.startsWith("mailchimp-")),
+          readyForExport: blockers.every((blocker) => !blocker.startsWith("mailchimp-"))
+        }
+      : null,
     proofToken: proofTokenFor({
       providerId: providerContract.providerId,
       state: providerContract.state,
       consistencyLevel: providerContract.consistencyLevel,
       requiredCapabilities: [...requiredCapabilities],
       grantedCapabilities: providerContract.capabilities,
-      syncStatus
+      syncStatus,
+      productService: providerContract.productService
     }),
     blockers
   };
@@ -1427,6 +1657,9 @@ function normalizeProviderServiceContract(input = {}, command, providerContract,
   if (externalRequired && !handoffRoute) {
     blockers.push("provider-service-handoff-route-required");
   }
+  if (providerNegotiation.productService?.product === "mailchimp" && providerNegotiation.productService.readyForExport === false) {
+    blockers.push("mailchimp-provider-export-contract-blocked");
+  }
 
   return {
     contract: "episodic-log.hosted-provider-service-contract.v1",
@@ -1450,6 +1683,23 @@ function normalizeProviderServiceContract(input = {}, command, providerContract,
       missingCapabilities: providerNegotiation.missingCapabilities,
       valid: providerNegotiation.canCommit && blockers.length === 0
     },
+    productServiceContract: providerNegotiation.productService
+      ? {
+          contract: "episodic-log.mailchimp-provider-export.v1",
+          product: "mailchimp",
+          audienceId: providerNegotiation.productService.audienceId,
+          campaignId: providerNegotiation.productService.campaignId,
+          webhookId: providerNegotiation.productService.webhookId,
+          webhookEndpoint: providerNegotiation.productService.webhookEndpoint,
+          webhookSigningKeyRef: providerNegotiation.productService.webhookSigningKeyRef,
+          suppressUnsubscribedContacts: providerNegotiation.productService.suppressUnsubscribedContacts,
+          exportEventTypes: providerNegotiation.productService.exportEventTypes,
+          requiredCapabilities: providerNegotiation.productService.requiredCapabilities,
+          missingCapabilities: providerNegotiation.productService.missingCapabilities,
+          deliveryCursor: nextCursor,
+          readyForExport: providerNegotiation.productService.readyForExport && blockers.length === 0
+        }
+      : null,
     syncMetadata: {
       localWatermark,
       remoteWatermark,
@@ -1478,7 +1728,8 @@ function normalizeProviderServiceContract(input = {}, command, providerContract,
       ackMode,
       nextCursor,
       minAckRevision,
-      handoffStatus
+      handoffStatus,
+      productServiceContract: providerNegotiation.productService
     }),
     blockers,
     warnings
@@ -2224,6 +2475,9 @@ function buildReadinessContract(command, settings, lifecycleControls, lifecycleC
   if (episodeEnvelope?.rejectedCount > 0) {
     blockers.push("episode-envelope-has-rejections");
   }
+  if (episodeEnvelope?.clockBoundary?.rejectedCount > 0) {
+    blockers.push("episode-envelope-clock-boundary-violations");
+  }
 
   return {
     status: blockers.length === 0 ? "ready" : "attention-required",
@@ -2276,6 +2530,7 @@ function buildReadinessContract(command, settings, lifecycleControls, lifecycleC
     workspaceScoped: Boolean(boundary.workspaceId),
     acceptedEpisodeCount: episodeEnvelope?.acceptedCount || 0,
     rejectedEpisodeCount: episodeEnvelope?.rejectedCount || 0,
+    episodeClockBoundary: episodeEnvelope?.clockBoundary || null,
     actorRole: boundary.actorRole,
     blockers,
     normalizedWarnings: validationSummary.warningCount,
@@ -3156,6 +3411,298 @@ function buildClientHandoffReceipt(input = {}, clientState, requestContinuation,
   };
 }
 
+function buildClientWorkflowTransfer(input = {}, workflowHandoff, operatorDecisionPacket, clientHandoffReceipt, persistedState, episodeEnvelope, now) {
+  const source = input.clientWorkflowTransfer
+    || input.workflow?.transfer
+    || input.clientState?.workflowTransfer
+    || input.client?.workflowTransfer
+    || {};
+  const requestedStatus = typeof source.status === "string" ? source.status.trim().toLowerCase() : null;
+  const acknowledgedAt = normalizeTimestamp(source.acknowledgedAt ?? source.ackedAt ?? source.deliveredAt);
+  const expiresAt = normalizeTimestamp(
+    source.expiresAt
+      ?? source.deadlineAt
+      ?? clientHandoffReceipt.acknowledgement.deadlineAt
+      ?? workflowHandoff.clientWorkflow.workflowDeadlineAt
+  );
+  const nowMs = Date.parse(now);
+  const expiresMs = expiresAt ? Date.parse(expiresAt) : NaN;
+  const expired = Number.isFinite(expiresMs) && expiresMs <= nowMs;
+  const acknowledgementRequired = clientHandoffReceipt.acknowledgement.required;
+  const status = allowedClientWorkflowTransferStatuses.has(requestedStatus)
+    ? requestedStatus
+    : expired
+      ? "expired"
+      : acknowledgedAt
+        ? "acknowledged"
+        : acknowledgementRequired
+          ? "pending"
+          : "delivered";
+  const clientRoute = normalizeText(
+    source.route ?? source.clientRoute,
+    workflowHandoff.resume.route,
+    { maxLength: 220 }
+  );
+  const callbackRoute = normalizeText(
+    source.callbackRoute ?? source.returnRoute,
+    clientHandoffReceipt.routes.deliver,
+    { maxLength: 220 }
+  );
+  const acknowledgementRoute = normalizeText(
+    source.ackRoute ?? source.acknowledgementRoute,
+    clientHandoffReceipt.routes.acknowledge,
+    { maxLength: 220 }
+  );
+  const handoffId = normalizeText(
+    source.handoffId ?? source.id,
+    `${workflowHandoff.continuationKey}:workflow-transfer:${persistedState.nextRevision}`,
+    { maxLength: 240 }
+  );
+  const idempotencyKey = normalizeText(
+    source.idempotencyKey,
+    `${persistedState.commandKey}:client-workflow:${clientHandoffReceipt.receiptId}`,
+    { maxLength: 260 }
+  );
+  const warnings = [];
+  const blockers = [];
+  const requiredClientState = {
+    continuationKey: workflowHandoff.continuationKey,
+    commandKey: persistedState.commandKey,
+    expectedRevision: persistedState.revision,
+    nextRevision: persistedState.nextRevision,
+    nextCursor: clientHandoffReceipt.acknowledgement.nextCursor,
+    providerSyncBatchId: clientHandoffReceipt.acknowledgement.batchId,
+    acceptedEpisodeProofTokens: episodeEnvelope.proofTokens,
+    rejectedEpisodeIds: episodeEnvelope.rejected.map((record) => record.episodeId)
+  };
+
+  if (source.status !== undefined && !allowedClientWorkflowTransferStatuses.has(requestedStatus)) {
+    warnings.push(`client workflow transfer status "${source.status}" was normalized to ${status}`);
+  }
+  if (expiresAt && expired && status !== "acknowledged") {
+    blockers.push("client-workflow-transfer-expired");
+  }
+  if (acknowledgementRequired && !acknowledgementRoute) {
+    blockers.push("client-workflow-transfer-ack-route-required");
+  }
+  if (clientHandoffReceipt.status === "blocked") {
+    blockers.push("client-handoff-receipt-blocked");
+  }
+  if (status === "rejected") {
+    blockers.push("client-workflow-transfer-rejected");
+  }
+
+  const commitIntent = workflowHandoff.resume.requiredDecision === "commit"
+    ? "commit"
+    : operatorDecisionPacket.confirmationRequired
+      ? "await-operator-decision"
+      : "preview";
+  const commitReadiness = blockers.length > 0
+    ? "blocked"
+    : status === "acknowledged" || (!acknowledgementRequired && status === "delivered")
+      ? "ready"
+      : "waiting-for-client";
+  const statePatch = {
+    episodicLogWorkflow: {
+      handoffId,
+      status,
+      commitIntent,
+      commitReadiness,
+      receiptId: clientHandoffReceipt.receiptId,
+      continuationKey: workflowHandoff.continuationKey,
+      route: clientRoute,
+      acknowledgementRoute,
+      expectedRevision: persistedState.revision,
+      nextRevision: persistedState.nextRevision,
+      nextCursor: clientHandoffReceipt.acknowledgement.nextCursor,
+      providerSyncBatchId: clientHandoffReceipt.acknowledgement.batchId
+    }
+  };
+
+  return {
+    contract: "episodic-log.client-workflow-transfer.v1",
+    generatedAt: now,
+    handoffId,
+    idempotencyKey,
+    status,
+    commitIntent,
+    commitReadiness,
+    acknowledgement: {
+      required: acknowledgementRequired,
+      policy: clientHandoffReceipt.ackPolicy,
+      receiptId: clientHandoffReceipt.receiptId,
+      acknowledgedAt,
+      expiresAt,
+      expired,
+      route: acknowledgementRoute
+    },
+    routes: {
+      client: clientRoute,
+      callback: callbackRoute,
+      acknowledge: acknowledgementRoute,
+      resume: workflowHandoff.resume.route
+    },
+    requiredClientState,
+    statePatch,
+    visibleDecision: {
+      status: operatorDecisionPacket.status,
+      confirmationRequired: operatorDecisionPacket.confirmationRequired,
+      primaryActionId: operatorDecisionPacket.actions.find((action) => action.enabled)?.id || null,
+      message: operatorDecisionPacket.userMessage
+    },
+    blockers,
+    warnings,
+    proofToken: proofTokenFor({
+      handoffId,
+      idempotencyKey,
+      status,
+      commitIntent,
+      commitReadiness,
+      receiptId: clientHandoffReceipt.receiptId,
+      requiredClientState,
+      generatedAt: now
+    })
+  };
+}
+
+function buildFreshnessGateAdoptionPacket(workflowHandoff, operatorDecisionPacket, clientHandoffReceipt, clientWorkflowTransfer, readiness, acceptance, providerServiceContract, providerSyncHandoffContract, persistedState, episodeEnvelope, operationalHealth, now) {
+  const requiredStepIds = [];
+  if (readiness.status !== "ready") requiredStepIds.push("episodic-log-readiness");
+  if (clientHandoffReceipt.acknowledgement.required) requiredStepIds.push("episodic-log-client-receipt");
+  if (providerServiceContract.syncMetadata.ackRequired) requiredStepIds.push("episodic-log-provider-ack");
+  if (episodeEnvelope.rejectedCount > 0) requiredStepIds.push("episodic-log-rejected-episodes");
+  if (operationalHealth.status === "failed") requiredStepIds.push("episodic-log-operational-health");
+
+  const blockedBy = [
+    ...readiness.blockers,
+    ...clientHandoffReceipt.blockers,
+    ...clientWorkflowTransfer.blockers,
+    ...providerServiceContract.blockers,
+    ...providerSyncHandoffContract.blockers
+  ];
+  const accepted = acceptance.accepted && clientWorkflowTransfer.commitReadiness === "ready" && blockedBy.length === 0;
+  const state = accepted
+    ? "accepted"
+    : clientWorkflowTransfer.status === "expired"
+      ? "expired"
+      : clientWorkflowTransfer.status === "rejected"
+        ? "rejected"
+        : blockedBy.length > 0
+          ? "blocked"
+          : clientHandoffReceipt.acknowledgement.required
+            ? "awaiting-client-ack"
+            : "preview-ready";
+  const route = clientWorkflowTransfer.routes.client || workflowHandoff.resume.route;
+  const acknowledgementRoute = clientWorkflowTransfer.routes.acknowledge || clientHandoffReceipt.routes.acknowledge;
+  const receiptId = clientWorkflowTransfer.acknowledgement.receiptId || clientHandoffReceipt.receiptId;
+  const proofToken = proofTokenFor({
+    state,
+    accepted,
+    receiptId,
+    route,
+    commandKey: persistedState.commandKey,
+    nextRevision: persistedState.nextRevision,
+    providerSyncBatchId: providerSyncHandoffContract.batchId,
+    acceptedEpisodeProofTokens: episodeEnvelope.proofTokens,
+    rejectedEpisodeIds: episodeEnvelope.rejected.map((record) => record.episodeId),
+    generatedAt: now
+  });
+
+  return {
+    contract: "episodic-log.freshness-gate-adoption.v1",
+    generatedAt: now,
+    adoptionId: `${workflowHandoff.continuationKey}:freshness-adoption:${persistedState.nextRevision}`,
+    sourceSurface: surfaceName,
+    requestId: workflowHandoff.requestId,
+    sessionId: workflowHandoff.sessionId,
+    correlationId: workflowHandoff.correlationId,
+    continuationKey: workflowHandoff.continuationKey,
+    state,
+    accepted,
+    previewId: operatorDecisionPacket.proofToken,
+    receiptId,
+    handoffId: clientWorkflowTransfer.handoffId,
+    channel: clientHandoffReceipt.channel,
+    route,
+    acknowledgementRoute,
+    commitIntent: clientWorkflowTransfer.commitIntent,
+    commitReadiness: clientWorkflowTransfer.commitReadiness,
+    acceptanceDecision: acceptance.decision,
+    acceptanceRequired: operatorDecisionPacket.confirmationRequired || clientHandoffReceipt.acknowledgement.required,
+    acceptedAt: accepted ? now : null,
+    actorId: workflowHandoff.actor,
+    clientWorkflowMode: acceptance.accepted ? "manual" : "observe",
+    targetRoute: route,
+    providerSyncBatchId: providerSyncHandoffContract.batchId,
+    providerNextCursor: providerServiceContract.syncMetadata.nextCursor,
+    expectedRevision: persistedState.revision,
+    nextRevision: persistedState.nextRevision,
+    requiredStepIds,
+    acceptedStepIds: accepted
+      ? [
+          "episodic-log-preview",
+          "episodic-log-readiness",
+          ...requiredStepIds,
+          ...episodeEnvelope.proofTokens.map((token) => `episode-proof:${token}`)
+        ]
+      : [],
+    acceptedValidationCodes: accepted && readiness.status === "ready" ? [] : readiness.blockers,
+    memoryWorkflow: {
+      mode: accepted ? "manual" : "observe",
+      requiresConfirmation: !accepted,
+      acceptsStatePatch: clientWorkflowTransfer.commitReadiness === "ready",
+      route,
+      requiredAckStepIds: requiredStepIds,
+      requestedStepIds: requiredStepIds
+    },
+    memoryAcceptance: {
+      receiptId,
+      previewId: operatorDecisionPacket.proofToken,
+      accepted,
+      acceptedAt: accepted ? now : null,
+      actorId: workflowHandoff.actor,
+      channel: clientHandoffReceipt.channel,
+      acceptedStepIds: accepted ? requiredStepIds : [],
+      acceptedValidationCodes: accepted ? readiness.blockers : [],
+      decision: accepted ? "accept" : state
+    },
+    memoryWorkflowAcks: accepted
+      ? requiredStepIds.map((stepId) => ({
+          id: `${receiptId}:${stepId}`,
+          stepId,
+          status: "acked",
+          acknowledgedAt: now,
+          reason: "episodic-log-adoption-accepted"
+        }))
+      : [],
+    requiredClientState: clientWorkflowTransfer.requiredClientState,
+    statePatch: {
+      memoryWorkflow: {
+        source: "episodic-log-adapter",
+        adoptionId: `${workflowHandoff.continuationKey}:freshness-adoption:${persistedState.nextRevision}`,
+        state,
+        route,
+        acknowledgementRoute,
+        receiptId,
+        accepted,
+        expectedRevision: persistedState.revision,
+        nextRevision: persistedState.nextRevision,
+        nextCursor: providerServiceContract.syncMetadata.nextCursor,
+        providerSyncBatchId: providerSyncHandoffContract.batchId
+      }
+    },
+    blockedBy,
+    warnings: [
+      ...clientHandoffReceipt.warnings,
+      ...clientWorkflowTransfer.warnings,
+      ...(episodeEnvelope.rejectedCount > 0 ? ["episodic-log-adoption-has-rejected-episodes"] : []),
+      ...(operationalHealth.status === "degraded" ? ["episodic-log-adoption-health-degraded"] : [])
+    ],
+    proofToken,
+    auditDisposition: accepted ? "freshness-gate-adoption-ready" : `freshness-gate-adoption-${state}`
+  };
+}
+
 function normalizeCounterSource(input = {}) {
   const source = input.analytics || input.counters || input.metrics || {};
   const acceptedEpisodes = clampInteger(source.acceptedEpisodes ?? source.accepted ?? source.ingested, 0, { min: 0, max: 10000000 });
@@ -3390,7 +3937,256 @@ function incrementCounter(counter, key, amount = 1) {
   counter[normalizedKey] = (counter[normalizedKey] || 0) + amount;
 }
 
-function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timelineReport, episodeEnvelope, durableRunEventJournal, providerServiceContract, providerSyncHandoffContract, boundaryAuditHandoff, now) {
+function deriveMailchimpEpisodeSignal(record) {
+  const metadata = record.capture?.metadata || {};
+  const summary = String(record.capture?.summary || "");
+  const rawEventType = normalizeText(
+    metadata.mailchimpEventType
+      || metadata.mailchimp_event_type
+      || metadata.eventType
+      || metadata.event
+      || (record.type === "handoff" && summary.toLowerCase().includes("mailchimp") ? "handoff" : null),
+    null,
+    { maxLength: 80 }
+  );
+  const audienceId = normalizeText(
+    metadata.mailchimpAudienceId
+      || metadata.mailchimp_audience_id
+      || metadata.audienceId
+      || metadata.listId,
+    null,
+    { maxLength: 120 }
+  );
+  const campaignId = normalizeText(
+    metadata.mailchimpCampaignId
+      || metadata.mailchimp_campaign_id
+      || metadata.campaignId,
+    null,
+    { maxLength: 120 }
+  );
+  const webhookId = normalizeText(
+    metadata.mailchimpWebhookId
+      || metadata.mailchimp_webhook_id
+      || metadata.webhookId,
+    null,
+    { maxLength: 120 }
+  );
+  const externalOperationId = normalizeText(
+    metadata.mailchimpOperationId
+      || metadata.externalOperationId
+      || metadata.operationId,
+    null,
+    { maxLength: 140 }
+  );
+  const explicitProduct = normalizeText(metadata.product || metadata.productService || metadata.provider, null, { maxLength: 80 });
+  const mailchimpMentioned = summary.toLowerCase().includes("mailchimp");
+  const isMailchimp = explicitProduct === "mailchimp"
+    || Boolean(rawEventType || audienceId || campaignId || webhookId || externalOperationId)
+    || mailchimpMentioned;
+
+  if (!isMailchimp) {
+    return null;
+  }
+
+  return {
+    episodeId: record.episodeId,
+    type: rawEventType || record.type,
+    severity: record.severity,
+    occurredAt: record.occurredAt,
+    audienceId,
+    campaignId,
+    webhookId,
+    externalOperationId,
+    proofToken: record.proofToken,
+    redacted: Boolean(record.capture?.redacted),
+    source: explicitProduct === "mailchimp" ? "metadata" : mailchimpMentioned ? "summary" : "metadata-signal"
+  };
+}
+
+function buildMailchimpAnalyticsExport({
+  acceptedRecords,
+  rejectedRecords,
+  providerServiceContract,
+  providerSyncHandoffContract,
+  exportSummary,
+  now
+}) {
+  const configuredProduct = providerServiceContract.productServiceContract?.product === "mailchimp"
+    ? providerServiceContract.productServiceContract
+    : null;
+  const eventSignals = acceptedRecords
+    .map((record) => deriveMailchimpEpisodeSignal(record))
+    .filter(Boolean);
+  const rejectedMailchimpCount = rejectedRecords.filter((record) => (
+    Boolean(deriveMailchimpEpisodeSignal(record))
+    || record.rejectedReasons.some((reason) => reason.includes("mailchimp"))
+  )).length;
+  const eventTypeCounts = {};
+  const audienceCounts = {};
+  const campaignCounts = {};
+  const severityCounts = {};
+
+  for (const event of eventSignals) {
+    incrementCounter(eventTypeCounts, event.type);
+    incrementCounter(severityCounts, event.severity);
+    if (event.audienceId || configuredProduct?.audienceId) {
+      incrementCounter(audienceCounts, event.audienceId || configuredProduct.audienceId);
+    }
+    if (event.campaignId || configuredProduct?.campaignId) {
+      incrementCounter(campaignCounts, event.campaignId || configuredProduct.campaignId);
+    }
+  }
+
+  const missingContractFields = configuredProduct
+    ? [
+        ...(configuredProduct.audienceId ? [] : ["mailchimp-audience-id-missing"]),
+        ...(configuredProduct.webhookEndpoint ? [] : ["mailchimp-webhook-endpoint-missing"]),
+        ...(configuredProduct.webhookSigningKeyRef ? [] : ["mailchimp-webhook-signing-key-missing"]),
+        ...(configuredProduct.suppressUnsubscribedContacts === false
+          ? ["mailchimp-unsubscribed-contact-suppression-required"]
+          : [])
+      ]
+    : [];
+  const providerBlockers = [
+    ...missingContractFields,
+    ...providerServiceContract.blockers.filter((blocker) => blocker.includes("mailchimp")),
+    ...providerSyncHandoffContract.blockers.filter((blocker) => blocker.includes("mailchimp"))
+  ];
+  const exportReady = Boolean(configuredProduct)
+    && providerBlockers.length === 0
+    && exportSummary.ready
+    && providerSyncHandoffContract.disposition !== "blocked";
+  const batchId = `${exportSummary.exportId}:mailchimp:${proofTokenFor({
+    configuredProduct,
+    eventTypeCounts,
+    audienceCounts,
+    campaignCounts,
+    nextCursor: providerServiceContract.syncMetadata.nextCursor,
+    generatedAt: now
+  })}`;
+
+  return {
+    contract: "episodic-log.mailchimp-analytics-export.v1",
+    generatedAt: now,
+    configured: Boolean(configuredProduct),
+    ready: exportReady,
+    state: !configuredProduct
+      ? "not-configured"
+      : exportReady
+        ? "ready"
+        : "blocked",
+    audienceId: configuredProduct?.audienceId || null,
+    campaignId: configuredProduct?.campaignId || null,
+    webhookId: configuredProduct?.webhookId || null,
+    webhookEndpoint: configuredProduct?.webhookEndpoint || null,
+    suppressUnsubscribedContacts: configuredProduct?.suppressUnsubscribedContacts !== false,
+    acceptedEventCount: eventSignals.length,
+    rejectedEventCount: rejectedMailchimpCount,
+    eventTypeCounts,
+    audienceCounts,
+    campaignCounts,
+    severityCounts,
+    providerBlockers: [...new Set(providerBlockers)].sort(),
+    exportBatch: {
+      batchId,
+      destination: exportSummary.destination,
+      route: configuredProduct?.webhookEndpoint || providerServiceContract.routes.externalHandoff,
+      ackRoute: providerServiceContract.routes.acknowledge,
+      nextCursor: providerServiceContract.syncMetadata.nextCursor,
+      remoteWatermark: providerSyncHandoffContract.cursorState.remoteWatermark,
+      requiresRemoteAck: providerSyncHandoffContract.cursorState.requiresRemoteAck,
+      deliverySemantic: providerSyncHandoffContract.deliverySemantic,
+      handoffMode: providerSyncHandoffContract.handoffMode
+    },
+    events: eventSignals.slice(0, 20)
+  };
+}
+
+function buildOperationalHealthExport(operationalHealth, readiness, providerServiceContract, providerSyncHandoffContract, now) {
+  const blockerRows = [
+    ...operationalHealth.blockers.map((blocker) => ({
+      source: "operational-health",
+      code: blocker,
+      severity: operationalHealth.status === "failing" || operationalHealth.status === "offline" ? "error" : "warning",
+      action: operationalHealth.retry.scheduled ? "wait-for-retry" : "operator-review",
+      retryAt: operationalHealth.retry.retryAt
+    })),
+    ...readiness.blockers.map((blocker) => ({
+      source: "readiness",
+      code: blocker,
+      severity: "warning",
+      action: readiness.canAcceptPreview ? "accept-preview" : "resolve-readiness-blocker",
+      retryAt: null
+    })),
+    ...providerServiceContract.blockers.map((blocker) => ({
+      source: "provider-service-contract",
+      code: blocker,
+      severity: "error",
+      action: "repair-provider-service-contract",
+      retryAt: null
+    })),
+    ...providerSyncHandoffContract.blockers.map((blocker) => ({
+      source: "provider-sync-handoff",
+      code: blocker,
+      severity: "error",
+      action: "repair-provider-sync-handoff",
+      retryAt: null
+    }))
+  ];
+  const severityCounts = blockerRows.reduce((counts, row) => {
+    counts[row.severity] = (counts[row.severity] || 0) + 1;
+    return counts;
+  }, {});
+  const sourceCounts = blockerRows.reduce((counts, row) => {
+    counts[row.source] = (counts[row.source] || 0) + 1;
+    return counts;
+  }, {});
+  const primaryBlocker = blockerRows.find((row) => row.severity === "error") || blockerRows[0] || null;
+
+  return {
+    contract: "episodic-log.operational-health-export.v1",
+    generatedAt: now,
+    status: operationalHealth.status,
+    readinessStatus: readiness.status,
+    degradedMode: operationalHealth.degradedMode,
+    writeDisposition: operationalHealth.writeDisposition,
+    captureDisposition: operationalHealth.captureDisposition,
+    canAttemptFlush: operationalHealth.canAttemptFlush,
+    retry: {
+      scheduled: operationalHealth.retry.scheduled,
+      retryAt: operationalHealth.retry.retryAt,
+      attempt: operationalHealth.retry.attempt,
+      backoffSeconds: operationalHealth.retry.backoffSeconds,
+      jitterSeconds: operationalHealth.retry.jitterSeconds,
+      retryable: operationalHealth.retry.retryable,
+      heldByCircuitBreaker: operationalHealth.circuitBreaker.open && !operationalHealth.retry.scheduled
+    },
+    circuitBreaker: {
+      open: operationalHealth.circuitBreaker.open,
+      reason: operationalHealth.circuitBreaker.reason,
+      openedAt: operationalHealth.circuitBreaker.openedAt
+    },
+    buffer: {
+      queuedEpisodes: operationalHealth.buffer.queuedEpisodes,
+      pressure: operationalHealth.buffer.pressure,
+      flushLimit: operationalHealth.buffer.flushLimit,
+      overflowRisk: operationalHealth.buffer.overflowRisk,
+      overflowAction: operationalHealth.buffer.overflowAction
+    },
+    blockerSummary: {
+      total: blockerRows.length,
+      severityCounts,
+      sourceCounts,
+      primary: primaryBlocker
+    },
+    actionRows: blockerRows.map((row, index) => ({
+      sequence: index + 1,
+      ...row
+    }))
+  };
+}
+
+function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timelineReport, episodeEnvelope, durableRunEventJournal, providerServiceContract, providerSyncHandoffContract, boundaryAuditHandoff, operationalHealth, readiness, now) {
   const acceptedRecords = episodeEnvelope.records.filter((record) => record.accepted);
   const rejectedRecords = episodeEnvelope.records.filter((record) => !record.accepted);
   const episodeTypeCounts = {};
@@ -3440,6 +4236,21 @@ function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timeline
       ? "complete"
       : "partial"
     : "blocked";
+  const operationalHealthExport = buildOperationalHealthExport(
+    operationalHealth,
+    readiness,
+    providerServiceContract,
+    providerSyncHandoffContract,
+    now
+  );
+  const mailchimpExport = buildMailchimpAnalyticsExport({
+    acceptedRecords,
+    rejectedRecords,
+    providerServiceContract,
+    providerSyncHandoffContract,
+    exportSummary,
+    now
+  });
 
   return {
     contract: "episodic-log.analytics-reporting-snapshot.v1",
@@ -3456,7 +4267,12 @@ function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timeline
       committedEventCount,
       heldEventCount,
       timelineEventCount: timelineReport.events.length,
-      historySnapshotCount: analyticsState.history.length
+      historySnapshotCount: analyticsState.history.length,
+      mailchimpAcceptedEventCount: mailchimpExport.acceptedEventCount,
+      mailchimpRejectedEventCount: mailchimpExport.rejectedEventCount,
+      mailchimpEventTypeCounts: mailchimpExport.eventTypeCounts,
+      mailchimpAudienceCounts: mailchimpExport.audienceCounts,
+      mailchimpCampaignCounts: mailchimpExport.campaignCounts
     },
     exportManifest: {
       format: exportSummary.format,
@@ -3468,7 +4284,18 @@ function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timeline
       watermark: exportWatermark,
       includeHistory: exportSummary.includeHistory,
       includeProof: exportSummary.includeProof,
-      recordCounts: exportSummary.recordCounts
+      recordCounts: exportSummary.recordCounts,
+      mailchimp: {
+        configured: mailchimpExport.configured,
+        ready: mailchimpExport.ready,
+        state: mailchimpExport.state,
+        batchId: mailchimpExport.exportBatch.batchId,
+        audienceId: mailchimpExport.audienceId,
+        campaignId: mailchimpExport.campaignId,
+        nextCursor: mailchimpExport.exportBatch.nextCursor,
+        route: mailchimpExport.exportBatch.route,
+        providerBlockers: mailchimpExport.providerBlockers
+      }
     },
     handoffReporting: {
       boundaryDisposition: boundaryAuditHandoff.disposition,
@@ -3477,7 +4304,10 @@ function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timeline
       deliverySemantic: providerSyncHandoffContract.deliverySemantic,
       ackRequired: providerServiceContract.syncMetadata.ackRequired,
       nextCursor: providerServiceContract.syncMetadata.nextCursor,
-      batchId: providerSyncHandoffContract.batchId
+      batchId: providerSyncHandoffContract.batchId,
+      mailchimpBatchId: mailchimpExport.exportBatch.batchId,
+      mailchimpReady: mailchimpExport.ready,
+      mailchimpState: mailchimpExport.state
     },
     timelineState: {
       latestEventAt: latestTimelineEvent?.at || now,
@@ -3486,6 +4316,8 @@ function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timeline
       retryScheduled: timelineReport.reportState.retryScheduled,
       retryAt: timelineReport.reportState.retryAt
     },
+    operationalHealthExport,
+    mailchimpExport,
     proofToken: proofTokenFor({
       exportId: exportSummary.exportId,
       reportCompleteness,
@@ -3494,6 +4326,11 @@ function buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timeline
       rejectionReasonCounts,
       partitionScope,
       exportWatermark,
+      operationalHealthStatus: operationalHealthExport.status,
+      operationalBlockerCount: operationalHealthExport.blockerSummary.total,
+      mailchimpState: mailchimpExport.state,
+      mailchimpAcceptedEventCount: mailchimpExport.acceptedEventCount,
+      mailchimpProviderBlockers: mailchimpExport.providerBlockers,
       batchId: providerSyncHandoffContract.batchId,
       generatedAt: now
     })
@@ -3798,7 +4635,11 @@ export function describeEpisodicLogAdapterSurface(input = {}) {
   const lifecycleCommandPlan = buildLifecycleCommandPlan(input, command, normalized.settings, effectiveSettings, lifecycleControls, nextAction, now);
   const operationalHealth = buildOperationalHealth(failureState, effectiveSettings, nextAction, now);
   const tenantBoundary = buildTenantBoundary(input, command, effectiveSettings, runtime.clientState);
-  const episodeEnvelope = normalizeEpisodeEnvelope(input, effectiveSettings, tenantBoundary, now);
+  const episodeEnvelope = applyOperationalCapturePolicy(
+    normalizeEpisodeEnvelope(input, effectiveSettings, tenantBoundary, now),
+    operationalHealth,
+    now
+  );
   const providerContract = normalizeProviderContract(input, effectiveSettings, runtime.clientState);
   const persistedState = normalizePersistedState(input, command, effectiveSettings, tenantBoundary, runtime.clientState, providerContract, now);
   const providerNegotiation = buildProviderNegotiation(providerContract, effectiveSettings, command, episodeEnvelope, tenantBoundary, runtime.clientState, now);
@@ -3832,6 +4673,8 @@ export function describeEpisodicLogAdapterSurface(input = {}) {
   const nextSteps = buildExplainableNextSteps(readiness, acceptance, lifecycleControls, nextAction, workflowHandoff, operationalHealth, providerNegotiation, providerServiceContract, providerSyncHandoffContract, providerCommitPlan, persistedState, requestContinuation);
   const operatorDecisionPacket = buildOperatorDecisionPacket(command, preview, readiness, validationSummary, acceptance, nextSteps, workflowHandoff, requestContinuation, boundaryAuditHandoff, providerServiceContract, providerSyncHandoffContract, providerCommitPlan, persistedState, episodeEnvelope, now);
   const clientHandoffReceipt = buildClientHandoffReceipt(input, runtime.clientState, requestContinuation, workflowHandoff, operatorDecisionPacket, acceptance, readiness, providerServiceContract, providerSyncHandoffContract, persistedState, episodeEnvelope, now);
+  const clientWorkflowTransfer = buildClientWorkflowTransfer(input, workflowHandoff, operatorDecisionPacket, clientHandoffReceipt, persistedState, episodeEnvelope, now);
+  const freshnessGateAdoption = buildFreshnessGateAdoptionPacket(workflowHandoff, operatorDecisionPacket, clientHandoffReceipt, clientWorkflowTransfer, readiness, acceptance, providerServiceContract, providerSyncHandoffContract, persistedState, episodeEnvelope, operationalHealth, now);
   const counterState = normalizeCounterSource(input);
   const historyState = normalizeHistorySnapshots(input, now);
   const analyticsState = buildAnalyticsState(counterState.counters, historyState, effectiveSettings, operationalHealth, readiness, nextAction, episodeEnvelope, now);
@@ -3839,7 +4682,7 @@ export function describeEpisodicLogAdapterSurface(input = {}) {
   const timelineReport = buildTimelineReport(analyticsState, exportSummary, nextAction, operationalHealth, now);
   const operatorSummary = buildOperatorVisibleSummary(command, readiness, episodeEnvelope, workflowHandoff, nextSteps, persistedState, providerServiceContract, providerSyncHandoffContract, providerCommitPlan, boundaryAuditHandoff, operationalHealth, requestContinuation, timelineReport, now);
   const durableRunEventJournal = buildDurableRunEventJournal(command, episodeEnvelope, workflowHandoff, operatorSummary, persistedState, providerServiceContract, providerSyncHandoffContract, providerCommitPlan, boundaryAuditHandoff, tenantBoundary, readiness, now);
-  const analyticsReportingSnapshot = buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timelineReport, episodeEnvelope, durableRunEventJournal, providerServiceContract, providerSyncHandoffContract, boundaryAuditHandoff, now);
+  const analyticsReportingSnapshot = buildAnalyticsReportingSnapshot(analyticsState, exportSummary, timelineReport, episodeEnvelope, durableRunEventJournal, providerServiceContract, providerSyncHandoffContract, boundaryAuditHandoff, operationalHealth, readiness, now);
   const analyticsWarnings = [...counterState.warnings, ...historyState.warnings, ...exportSummary.warnings];
   const proof = {
     surfaceId,
@@ -3940,6 +4783,13 @@ export function describeEpisodicLogAdapterSurface(input = {}) {
     clientHandoffReceiptChannel: clientHandoffReceipt.channel,
     clientHandoffReceiptAckPolicy: clientHandoffReceipt.ackPolicy,
     clientHandoffReceiptProofToken: clientHandoffReceipt.proofToken,
+    clientWorkflowTransferStatus: clientWorkflowTransfer.status,
+    clientWorkflowTransferCommitReadiness: clientWorkflowTransfer.commitReadiness,
+    clientWorkflowTransferProofToken: clientWorkflowTransfer.proofToken,
+    freshnessGateAdoptionState: freshnessGateAdoption.state,
+    freshnessGateAdoptionAccepted: freshnessGateAdoption.accepted,
+    freshnessGateAdoptionReceiptId: freshnessGateAdoption.receiptId,
+    freshnessGateAdoptionProofToken: freshnessGateAdoption.proofToken,
     durableJournalDisposition: durableRunEventJournal.appendDisposition,
     durableJournalEventCount: durableRunEventJournal.sequenceRange.eventCount,
     durableJournalProofToken: durableRunEventJournal.proofToken,
@@ -3989,6 +4839,8 @@ export function describeEpisodicLogAdapterSurface(input = {}) {
     analyticsReportingSnapshot,
     operatorDecisionPacket,
     clientHandoffReceipt,
+    clientWorkflowTransfer,
+    freshnessGateAdoption,
     episodeEnvelope,
     exportSummary,
     timelineReport,
@@ -4000,8 +4852,8 @@ export function describeEpisodicLogAdapterSurface(input = {}) {
     clientState: runtime.clientState,
     workflowHandoff,
     integration: {
-      accepts: ["settings", "command", "lifecycleCommand", "lifecycleControls", "controls", "lifecycle", "lifecycleCommandPlan", "commandPlan", "scheduler", "scheduleControls", "acceptance", "evidence", "clientState", "client", "runtime", "handoffReceipt", "requestState", "workflow", "continuation", "correlationId", "requestId", "sessionId", "idempotencyKey", "persistedState", "durableState", "state", "tenantId", "workspaceId", "actorRole", "scope", "workspace", "failureState", "failure", "health", "analytics", "counters", "metrics", "history", "snapshots", "episodes", "episodicLog", "logEntries", "export", "exportRequest", "provider", "serviceProvider", "storageProvider", "providerService", "serviceContract", "providerSync", "syncMetadata", "handoffState", "providerCommitPlan", "commitPlan", "boundaryAudit", "auditHandoff"],
-      emits: ["lifecycle", "lifecycleControls", "lifecycleCommandPlan", "settings", "validation", "validationSummary", "preview", "acceptance", "readiness", "operationalHealth", "providerContract", "providerNegotiation", "providerServiceContract", "providerSyncHandoffContract", "providerCommitPlan", "boundaryAuditHandoff", "requestWorkflowState", "requestContinuation", "persistedState", "operatorDecisionPacket", "clientHandoffReceipt", "episodeEnvelope", "analyticsState", "analyticsReportingSnapshot", "exportSummary", "timelineReport", "operatorSummary", "durableRunEventJournal", "tenantBoundary", "nextAction", "nextSteps", "clientState", "workflowHandoff", "audit", "proof"],
+      accepts: ["settings", "command", "lifecycleCommand", "lifecycleControls", "controls", "lifecycle", "lifecycleCommandPlan", "commandPlan", "scheduler", "scheduleControls", "acceptance", "evidence", "clientState", "client", "runtime", "handoffReceipt", "clientWorkflowTransfer", "workflowTransfer", "freshnessGateAdoption", "memoryWorkflow", "memoryAcceptance", "requestState", "workflow", "continuation", "correlationId", "requestId", "sessionId", "idempotencyKey", "persistedState", "durableState", "state", "tenantId", "workspaceId", "actorRole", "scope", "workspace", "failureState", "failure", "health", "analytics", "counters", "metrics", "history", "snapshots", "episodes", "episodicLog", "logEntries", "export", "exportRequest", "provider", "serviceProvider", "storageProvider", "providerService", "serviceContract", "providerSync", "syncMetadata", "handoffState", "providerCommitPlan", "commitPlan", "boundaryAudit", "auditHandoff"],
+      emits: ["lifecycle", "lifecycleControls", "lifecycleCommandPlan", "settings", "validation", "validationSummary", "preview", "acceptance", "readiness", "operationalHealth", "providerContract", "providerNegotiation", "providerServiceContract", "providerSyncHandoffContract", "providerCommitPlan", "boundaryAuditHandoff", "requestWorkflowState", "requestContinuation", "persistedState", "operatorDecisionPacket", "clientHandoffReceipt", "clientWorkflowTransfer", "freshnessGateAdoption", "episodeEnvelope", "analyticsState", "analyticsReportingSnapshot", "exportSummary", "timelineReport", "operatorSummary", "durableRunEventJournal", "tenantBoundary", "nextAction", "nextSteps", "clientState", "workflowHandoff", "audit", "proof"],
       kernelRoute: `${surfaceGroup}/${surfaceName}/lifecycle`,
       providerRoute: providerContract.endpoint,
       providerServiceRoutes: providerServiceContract.routes,
@@ -4254,6 +5106,41 @@ export function describeEpisodicLogAdapterSurface(input = {}) {
         blockers: clientHandoffReceipt.blockers,
         warnings: clientHandoffReceipt.warnings,
         proofToken: clientHandoffReceipt.proofToken
+      },
+      {
+        type: "episodic-log.client-workflow-transfer-shaped",
+        at: now,
+        handoffId: clientWorkflowTransfer.handoffId,
+        status: clientWorkflowTransfer.status,
+        commitIntent: clientWorkflowTransfer.commitIntent,
+        commitReadiness: clientWorkflowTransfer.commitReadiness,
+        receiptId: clientWorkflowTransfer.acknowledgement.receiptId,
+        acknowledgementRequired: clientWorkflowTransfer.acknowledgement.required,
+        acknowledgementExpired: clientWorkflowTransfer.acknowledgement.expired,
+        clientRoute: clientWorkflowTransfer.routes.client,
+        acknowledgementRoute: clientWorkflowTransfer.routes.acknowledge,
+        expectedRevision: clientWorkflowTransfer.requiredClientState.expectedRevision,
+        nextRevision: clientWorkflowTransfer.requiredClientState.nextRevision,
+        nextCursor: clientWorkflowTransfer.requiredClientState.nextCursor,
+        providerSyncBatchId: clientWorkflowTransfer.requiredClientState.providerSyncBatchId,
+        blockers: clientWorkflowTransfer.blockers,
+        warnings: clientWorkflowTransfer.warnings,
+        proofToken: clientWorkflowTransfer.proofToken
+      },
+      {
+        type: "episodic-log.freshness-gate-adoption-shaped",
+        at: now,
+        adoptionId: freshnessGateAdoption.adoptionId,
+        state: freshnessGateAdoption.state,
+        accepted: freshnessGateAdoption.accepted,
+        receiptId: freshnessGateAdoption.receiptId,
+        route: freshnessGateAdoption.route,
+        acknowledgementRoute: freshnessGateAdoption.acknowledgementRoute,
+        commitReadiness: freshnessGateAdoption.commitReadiness,
+        acceptanceRequired: freshnessGateAdoption.acceptanceRequired,
+        requiredStepIds: freshnessGateAdoption.requiredStepIds,
+        blockedBy: freshnessGateAdoption.blockedBy,
+        proofToken: freshnessGateAdoption.proofToken
       },
       {
         type: "episodic-log.analytics-export-shaped",

@@ -43,6 +43,7 @@ const ACCEPTANCE_READINESS_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.acc
 const VALIDATION_SUMMARY_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.validationSummary.v1';
 const NEXT_STEPS_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.nextSteps.v1';
 const CLIENT_RUNTIME_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.clientRuntime.v1';
+const CLIENT_RUNTIME_ADOPTION_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.clientRuntimeAdoption.v1';
 const CLIENT_REQUEST_STATE_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.clientRequestState.v1';
 const WORKFLOW_HANDOFF_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.workflowHandoff.v1';
 const CLIENT_REVIEW_PACKET_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.clientReviewPacket.v1';
@@ -66,6 +67,8 @@ const PROVIDER_SYNC_STATUS_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.pro
 const AUTHORIZATION_SCOPE_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.authorizationScope.v1';
 const CAPABILITY_OPERATION_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.capabilityOperation.v1';
 const TARGET_BOUNDARY_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.targetBoundary.v1';
+const TARGET_CLAIM_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.targetClaim.v1';
+const TARGET_BINDING_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.targetBinding.v1';
 const OPERATION_GUARDRAIL_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.operationGuardrails.v1';
 const OPERATION_REVIEW_SCHEMA = 'aios.capabilitySecurity.policyEvaluator.operationReview.v1';
 
@@ -252,6 +255,204 @@ function buildTargetBoundary(rawTargets, path, externalHost, deploymentTarget) {
   };
 }
 
+function targetClaimKind(target, decisionClass) {
+  if (target.kind === 'url' || target.kind === 'host') return 'network';
+  if (decisionClass === 'deploy') return 'deployment';
+  if (decisionClass === 'shell') return 'command-context';
+  if (decisionClass === 'file') return 'filesystem';
+  if (decisionClass === 'external-write') return 'external-write-target';
+  return target.kind || 'unknown';
+}
+
+function targetClaimReasonCodes(target, operation) {
+  const networkRequired = operation.decisionClass === 'external-write';
+  const concreteTargetRequired = operation.mutating
+    && ['file', 'shell', 'deploy', 'external-write'].includes(operation.decisionClass);
+  return [
+    !target.normalized ? 'target.blocking.missing-normalized-target' : null,
+    target.escapedRoot ? 'target.blocking.escaped-root' : null,
+    networkRequired && !['url', 'host'].includes(target.kind) ? 'target.blocking.external-write-network-target-required' : null,
+    concreteTargetRequired && target.kind === 'empty' ? 'target.blocking.concrete-target-required' : null,
+    target.traversalCount > 0 && !target.escapedRoot ? 'target.review.path-canonicalized' : null,
+    target.changed ? 'target.info.canonicalized' : null
+  ].filter(Boolean);
+}
+
+function targetClaimRiskLevel(reasonCodes) {
+  if (reasonCodes.some((code) => code.startsWith('target.blocking.'))) return 'blocking';
+  if (reasonCodes.some((code) => code.startsWith('target.review.'))) return 'review';
+  if (reasonCodes.some((code) => code.startsWith('target.info.'))) return 'informational';
+  return 'none';
+}
+
+function buildTargetClaims(operationDraft, targetBoundary) {
+  const sourceTargets = targetBoundary.targetDetails.length
+    ? targetBoundary.targetDetails
+    : [{
+        raw: '',
+        normalized: '',
+        kind: 'empty',
+        traversalCount: 0,
+        escapedRoot: false,
+        changed: false
+      }];
+  const claims = sourceTargets.map((target, index) => {
+    const reasonCodes = targetClaimReasonCodes(target, operationDraft);
+    const blockingReasonCodes = reasonCodes.filter((code) => code.startsWith('target.blocking.'));
+    const reviewReasonCodes = reasonCodes.filter((code) => code.startsWith('target.review.'));
+    const decision = blockingReasonCodes.length
+      ? 'blocked'
+      : reviewReasonCodes.length
+        ? 'review'
+        : 'allowed';
+    return {
+      schema: TARGET_CLAIM_SCHEMA,
+      claimId: `${operationDraft.requestId || 'operation'}:target-${index + 1}`,
+      raw: target.raw,
+      canonicalTarget: target.normalized,
+      kind: target.kind,
+      targetClass: targetClaimKind(target, operationDraft.decisionClass),
+      decisionClass: operationDraft.decisionClass,
+      mutating: operationDraft.mutating,
+      routeDomain: operationDraft.routeDomain,
+      traversalCount: target.traversalCount,
+      escapedRoot: target.escapedRoot,
+      canonicalizationRequired: target.changed,
+      routeable: Boolean(target.normalized),
+      decision,
+      riskLevel: targetClaimRiskLevel(reasonCodes),
+      reasonCodes,
+      blockingReasonCodes,
+      reviewReasonCodes,
+      fingerprint: contractFingerprint({
+        schema: TARGET_CLAIM_SCHEMA,
+        requestId: operationDraft.requestId,
+        decisionClass: operationDraft.decisionClass,
+        mutating: operationDraft.mutating,
+        raw: target.raw,
+        canonicalTarget: target.normalized,
+        reasonCodes
+      })
+    };
+  });
+  return {
+    schema: TARGET_CLAIM_SCHEMA,
+    status: claims.some((claim) => claim.decision === 'blocked')
+      ? 'blocked'
+      : claims.some((claim) => claim.decision === 'review')
+        ? 'review'
+        : 'passed',
+    claimCount: claims.length,
+    claims,
+    canonicalTargets: [...new Set(claims.map((claim) => claim.canonicalTarget).filter(Boolean))],
+    blockedClaimIds: claims.filter((claim) => claim.decision === 'blocked').map((claim) => claim.claimId),
+    reviewClaimIds: claims.filter((claim) => claim.decision === 'review').map((claim) => claim.claimId),
+    blockingReasonCodes: [...new Set(claims.flatMap((claim) => claim.blockingReasonCodes))],
+    reviewReasonCodes: [...new Set(claims.flatMap((claim) => claim.reviewReasonCodes))]
+  };
+}
+
+function targetBindingEvidenceItems(operationDraft, targetBoundary) {
+  const hasCanonicalTarget = targetBoundary.normalizedTargets.length > 0;
+  const hasNetworkTarget = Boolean(operationDraft.externalHost)
+    || targetBoundary.targetDetails.some((target) => target.kind === 'url' || target.kind === 'host');
+  const hasDeploymentTarget = Boolean(operationDraft.deploymentTarget || hasCanonicalTarget);
+  const hasShellCommand = Boolean(operationDraft.command);
+
+  if (operationDraft.decisionClass === 'file') {
+    return [{
+      id: 'canonical_file_target',
+      label: 'Canonical file target',
+      required: true,
+      present: hasCanonicalTarget,
+      value: operationDraft.path || targetBoundary.normalizedTargets[0] || null
+    }];
+  }
+  if (operationDraft.decisionClass === 'shell') {
+    return [{
+      id: 'shell_command',
+      label: 'Exact shell command',
+      required: true,
+      present: hasShellCommand,
+      value: operationDraft.command || null
+    }];
+  }
+  if (operationDraft.decisionClass === 'deploy') {
+    return [{
+      id: 'deployment_target',
+      label: 'Deployment target',
+      required: true,
+      present: hasDeploymentTarget,
+      value: operationDraft.deploymentTarget || targetBoundary.normalizedTargets[0] || null
+    }];
+  }
+  if (operationDraft.decisionClass === 'external-write') {
+    return [{
+      id: 'network_destination',
+      label: 'Network destination',
+      required: true,
+      present: hasNetworkTarget,
+      value: operationDraft.externalHost || targetBoundary.normalizedTargets.find((target) => /^([a-z][a-z0-9+.-]*:\/\/|[a-z0-9.-]+(?::\d+)?$)/i.test(target)) || null
+    }];
+  }
+  if (operationDraft.decisionClass === 'syscall') {
+    return [{
+      id: 'syscall_name_or_effect',
+      label: 'Syscall name or kernel effect',
+      required: true,
+      present: Boolean(operationDraft.syscall || operationDraft.effects.length > 0),
+      value: operationDraft.syscall || operationDraft.effects[0] || null
+    }];
+  }
+  return [{
+    id: 'capability_label',
+    label: 'Capability label',
+    required: false,
+    present: true,
+    value: operationDraft.decisionClass
+  }];
+}
+
+function buildTargetBinding(operationDraft, targetBoundary) {
+  const evidence = targetBindingEvidenceItems(operationDraft, targetBoundary)
+    .map((item) => ({
+      ...item,
+      status: item.present ? 'bound' : item.required ? 'missing_required' : 'missing_optional'
+    }));
+  const missingRequiredEvidence = evidence.filter((item) => item.required && !item.present);
+  const reviewRequired = targetBoundary.canonicalizationRequired || targetBoundary.traversalDetected;
+  const blocked = missingRequiredEvidence.length > 0 || targetBoundary.unsafeRelativeTraversal;
+  const reasonCodes = [
+    ...missingRequiredEvidence.map((item) => `target.binding.missing.${item.id}`),
+    ...(targetBoundary.unsafeRelativeTraversal ? ['target.binding.blocked.escaped-root'] : []),
+    ...(targetBoundary.traversalDetected && !targetBoundary.unsafeRelativeTraversal ? ['target.binding.review.path-canonicalized'] : []),
+    ...(targetBoundary.canonicalizationRequired ? ['target.binding.info.canonicalized'] : [])
+  ];
+
+  return {
+    schema: TARGET_BINDING_SCHEMA,
+    required: evidence.some((item) => item.required),
+    status: blocked ? 'blocked' : reviewRequired ? 'review_required' : 'bound',
+    decisionClass: operationDraft.decisionClass,
+    routeDomain: operationDraft.routeDomain,
+    mutating: operationDraft.mutating,
+    evidence,
+    missingRequiredEvidenceIds: missingRequiredEvidence.map((item) => item.id),
+    boundEvidenceIds: evidence.filter((item) => item.present).map((item) => item.id),
+    reasonCodes,
+    canBindPolicyTarget: !blocked && targetBoundary.normalizedTargets.length > 0,
+    canonicalTargets: targetBoundary.normalizedTargets,
+    fingerprint: contractFingerprint({
+      schema: TARGET_BINDING_SCHEMA,
+      requestId: operationDraft.requestId,
+      decisionClass: operationDraft.decisionClass,
+      routeDomain: operationDraft.routeDomain,
+      evidence: evidence.map((item) => ({ id: item.id, status: item.status, value: item.value })),
+      reasonCodes
+    })
+  };
+}
+
 function normalizeCapabilityOperation(input, request) {
   const source = asObject(input.operation || input.capabilityOperation || request.attributes.operation);
   const effects = normalizeStringList(source.effects || source.effect || input.effects);
@@ -276,6 +477,36 @@ function normalizeCapabilityOperation(input, request) {
     || decisionClass === 'deploy'
     || decisionClass === 'external-write'
   );
+  const routeDomain = decisionClass === 'syscall'
+    ? 'hosted-kernel.syscall'
+    : decisionClass === 'file'
+      ? 'hosted-kernel.filesystem'
+      : decisionClass === 'shell'
+        ? 'hosted-kernel.shell'
+        : decisionClass === 'deploy'
+          ? 'hosted-kernel.deploy'
+          : decisionClass === 'external-write'
+            ? 'hosted-kernel.external-write'
+            : 'hosted-kernel.capability';
+  const targetClaims = buildTargetClaims({
+    requestId: request.id,
+    decisionClass,
+    mutating,
+    routeDomain
+  }, targetBoundary);
+  const targetBinding = buildTargetBinding({
+    requestId: request.id,
+    decisionClass,
+    routeDomain,
+    mutating,
+    effects,
+    syscall,
+    command: rawCommand,
+    path,
+    externalHost,
+    deploymentTarget,
+    requiresExternalHandoff
+  }, targetBoundary);
 
   return {
     schema: CAPABILITY_OPERATION_SCHEMA,
@@ -291,17 +522,9 @@ function normalizeCapabilityOperation(input, request) {
     externalHost,
     deploymentTarget,
     targetBoundary,
-    routeDomain: decisionClass === 'syscall'
-      ? 'hosted-kernel.syscall'
-      : decisionClass === 'file'
-        ? 'hosted-kernel.filesystem'
-        : decisionClass === 'shell'
-          ? 'hosted-kernel.shell'
-          : decisionClass === 'deploy'
-            ? 'hosted-kernel.deploy'
-            : decisionClass === 'external-write'
-              ? 'hosted-kernel.external-write'
-              : 'hosted-kernel.capability',
+    targetClaims,
+    targetBinding,
+    routeDomain,
     auditFingerprint: contractFingerprint({
       schema: CAPABILITY_OPERATION_SCHEMA,
       requestId: request.id,
@@ -315,7 +538,11 @@ function normalizeCapabilityOperation(input, request) {
       path,
       externalHost,
       deploymentTarget,
-      targetBoundaryStatus: targetBoundary.status
+      targetBoundaryStatus: targetBoundary.status,
+      targetClaimStatus: targetClaims.status,
+      targetClaimReasons: targetClaims.blockingReasonCodes,
+      targetBindingStatus: targetBinding.status,
+      targetBindingReasons: targetBinding.reasonCodes
     })
   };
 }
@@ -543,13 +770,29 @@ function validateCapabilityOperation(operation, input) {
   const controls = asObject(input.operationControls || input.capabilityOperationControls);
   const failures = [];
   const requireTargetsForWrites = controls.requireTargetsForWrites !== false;
+  const requireFileTargetForReads = controls.requireFileTargetForReads !== false;
   const requireShellCommand = controls.requireShellCommand !== false;
   const requireDeployTarget = controls.requireDeployTarget !== false;
   const allowExternalWriteWithoutHandoff = Boolean(controls.allowExternalWriteWithoutHandoff);
   const allowUnsafeRelativeTargets = Boolean(controls.allowUnsafeRelativeTargets);
+  const targetBindingMissing = operation.targetBinding?.missingRequiredEvidenceIds || [];
 
   if (operation.decisionClass === 'syscall' && !operation.syscall && operation.effects.length === 0) {
     failures.push(actionableError('syscall_identifier_required', 'Syscall capability decisions require a syscall name or effect', 'Attach operation.syscall or operation.effects so the evaluator can bind the syscall decision.'));
+  }
+  if (operation.decisionClass === 'file' && requireFileTargetForReads && !operation.mutating && targetBindingMissing.includes('canonical_file_target')) {
+    failures.push(actionableError(
+      'file_target_binding_required',
+      'File decisions require a canonical target path',
+      'Attach operation.path or operation.targets so file policy evaluation binds to the exact filesystem target.',
+      'error',
+      {
+        targetBindingSchema: operation.targetBinding.schema,
+        targetBindingStatus: operation.targetBinding.status,
+        missingRequiredEvidenceIds: targetBindingMissing,
+        reasonCodes: operation.targetBinding.reasonCodes
+      }
+    ));
   }
   if (operation.targetBoundary.unsafeRelativeTraversal && !allowUnsafeRelativeTargets) {
     failures.push(actionableError(
@@ -562,6 +805,21 @@ function validateCapabilityOperation(operation, input) {
         unsafeTargetCount: operation.targetBoundary.unsafeTargetCount,
         rawTargets: operation.targetBoundary.rawTargets,
         normalizedTargets: operation.targetBoundary.normalizedTargets
+      }
+    ));
+  }
+  if (operation.targetClaims?.blockingReasonCodes?.length) {
+    failures.push(actionableError(
+      'operation_target_claim_blocked',
+      'Operation target claim cannot be safely bound to the requested capability',
+      'Provide a concrete in-bound target that matches the requested decision class before policy evaluation grants the capability.',
+      'error',
+      {
+        targetClaimSchema: operation.targetClaims.schema,
+        targetClaimStatus: operation.targetClaims.status,
+        blockedClaimIds: operation.targetClaims.blockedClaimIds,
+        blockingReasonCodes: operation.targetClaims.blockingReasonCodes,
+        canonicalTargets: operation.targetClaims.canonicalTargets
       }
     ));
   }
@@ -613,6 +871,11 @@ function buildOperationGuardrails(input, operation, matchedPolicies) {
   const allowPolicies = matchedPolicies.filter((policy) => policy.effect === 'allow');
   const broadAllowPolicies = allowPolicies.filter((policy) => listHasWildcard(policy.targetPatterns));
   const targetKinds = [...new Set(operation.targetBoundary.targetDetails.map((target) => target.kind))];
+  const targetClaimStatus = operation.targetClaims?.status || 'unknown';
+  const blockedTargetClaimCount = operation.targetClaims?.blockedClaimIds?.length || 0;
+  const reviewTargetClaimCount = operation.targetClaims?.reviewClaimIds?.length || 0;
+  const targetBindingStatus = operation.targetBinding?.status || 'unknown';
+  const targetBindingMissingEvidenceIds = operation.targetBinding?.missingRequiredEvidenceIds || [];
   const targetlessMutating = operation.mutating && operation.targets.length === 0;
   const wildcardMutatingAllow = operation.mutating
     && broadAllowPolicies.length > 0
@@ -695,6 +958,34 @@ function buildOperationGuardrails(input, operation, matchedPolicies) {
       { guardrailSchema: OPERATION_GUARDRAIL_SCHEMA, targetKinds }
     ));
   }
+  if (blockedTargetClaimCount > 0) {
+    guardrailFailures.push(actionableError(
+      'target_claim_binding_blocked',
+      'Canonical target claims contain blocking boundary reasons',
+      'Resolve target claim blockers before relying on matched allow policies for mutating capabilities.',
+      'error',
+      {
+        guardrailSchema: OPERATION_GUARDRAIL_SCHEMA,
+        targetClaimSchema: operation.targetClaims.schema,
+        blockedClaimIds: operation.targetClaims.blockedClaimIds,
+        blockingReasonCodes: operation.targetClaims.blockingReasonCodes
+      }
+    ));
+  }
+  if (reviewTargetClaimCount > 0 && controls.allowTargetClaimReview !== true) {
+    guardrailFailures.push(actionableError(
+      'target_claim_review_required',
+      'Canonical target claims require elevated review',
+      'Review canonicalized or ambiguous targets, or set operationGuardrails.allowTargetClaimReview for an audited exception.',
+      'warning',
+      {
+        guardrailSchema: OPERATION_GUARDRAIL_SCHEMA,
+        targetClaimSchema: operation.targetClaims.schema,
+        reviewClaimIds: operation.targetClaims.reviewClaimIds,
+        reviewReasonCodes: operation.targetClaims.reviewReasonCodes
+      }
+    ));
+  }
 
   const blockingCodes = guardrailFailures.filter((failure) => failure.severity === 'error').map((failure) => failure.code);
   const warningCodes = guardrailFailures.filter((failure) => failure.severity === 'warning').map((failure) => failure.code);
@@ -715,11 +1006,19 @@ function buildOperationGuardrails(input, operation, matchedPolicies) {
       allowRemoteInstallerShellCommand: controls.allowRemoteInstallerShellCommand === true,
       blockElevatedShellFeatures: controls.blockElevatedShellFeatures === true,
       allowImplicitProductionDeploy: controls.allowImplicitProductionDeploy === true,
-      allowPathOnlyExternalWrite: controls.allowPathOnlyExternalWrite === true
+      allowPathOnlyExternalWrite: controls.allowPathOnlyExternalWrite === true,
+      allowTargetClaimReview: controls.allowTargetClaimReview === true,
+      requireFileTargetForReads: controls.requireFileTargetForReads !== false
     },
     shellSignals,
     productionDeploy,
     externalWriteHasNetworkTarget,
+    targetClaimStatus,
+    targetBindingStatus,
+    targetBindingMissingEvidenceIds,
+    targetBindingReasonCodes: operation.targetBinding?.reasonCodes || [],
+    targetClaimBlockingReasonCodes: operation.targetClaims?.blockingReasonCodes || [],
+    targetClaimReviewReasonCodes: operation.targetClaims?.reviewReasonCodes || [],
     status: blockingCodes.length > 0 ? 'blocked' : warningCodes.length > 0 ? 'review_required' : 'passed',
     blockingCodes,
     warningCodes,
@@ -1651,7 +1950,7 @@ function buildProjectedPersistedLedger({ persisted, stateMutation, recoveryPlan,
   };
 }
 
-function buildPersistenceRecoveryState({ input, request, lifecycleState, decision, reason, retry, externalHandoff, now }) {
+function buildPersistenceRecoveryState({ input, request, lifecycleState, decision, reason, retry, externalHandoff, clientRuntime, clientRequestState, now }) {
   const persisted = normalizePersistedEvaluatorState(input);
   const nowMs = Number.isFinite(Date.parse(now)) ? Date.parse(now) : Date.now();
   const commandInput = asObject(input.commandEnvelope || input.idempotency || input.lifecycleSettings?.commandEnvelope);
@@ -1724,6 +2023,18 @@ function buildPersistenceRecoveryState({ input, request, lifecycleState, decisio
       activeLeaseId: stateMutation.activeLease.leaseId,
       durableWriteId: recoveryPlan.durableWrite.writeId
     },
+    clientRuntimeAdoption: {
+      schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+      state: clientRequestState.adoptionBinding.state,
+      canBindDecision: clientRequestState.adoptionBinding.canBindDecision,
+      fingerprint: clientRequestState.adoptionBinding.fingerprint,
+      checkpointPath: clientRequestState.adoptionBinding.checkpointPath,
+      nextAction: clientRequestState.adoptionBinding.nextAction,
+      blockingReasons: clientRequestState.adoptionBinding.blockingReasons,
+      clientId: clientRuntime.clientId,
+      sessionId: clientRuntime.sessionId,
+      handoffId: clientRuntime.workflow.handoffId
+    },
     idempotency: {
       commandId,
       command: lifecycleState.command,
@@ -1783,7 +2094,8 @@ function buildPersistenceRecoveryState({ input, request, lifecycleState, decisio
       commandLedger: projectedLedger.commandLedger,
       committedDecisions: projectedLedger.committedDecisions,
       projectedLedger,
-      recoveryActions: stateMutation.recoveryActions
+      recoveryActions: stateMutation.recoveryActions,
+      clientRuntimeAdoption: clientRequestState.adoptionBinding.persistPatch
     }
   };
 }
@@ -3005,6 +3317,12 @@ function providerFeatureRequirementsForOperation(operation = {}) {
   if (operation.targetBoundary?.canonicalizationRequired || operation.targetBoundary?.traversalDetected) {
     requirements.add('canonical-target-boundary');
   }
+  if (operation.targetBinding?.required) {
+    requirements.add('operation-target-binding');
+  }
+  if (operation.targetBinding?.status === 'blocked') {
+    requirements.add('complete-target-binding-evidence');
+  }
 
   return [...requirements];
 }
@@ -3628,6 +3946,7 @@ function buildTenantBoundaryState(input, request, policies, operation) {
 function normalizeClientRuntimeState(input, request, now) {
   const client = asObject(input.clientRuntime || input.client || input.requestContext?.clientRuntime);
   const workflow = asObject(client.workflow || client.workflowHandoff || input.workflowHandoff);
+  const adoption = asObject(client.adoption || workflow.adoption || input.clientRuntimeAdoption);
   const session = asObject(client.session || input.session);
   const runtimeState = client.state || client.status || 'unknown';
   const acceptsDecisions = client.acceptsPolicyDecisions !== false && workflow.acceptsPolicyDecisions !== false;
@@ -3639,6 +3958,12 @@ function normalizeClientRuntimeState(input, request, now) {
   const handoffActions = supportedActions.length > 0 ? supportedActions : ['grant', 'deny', 'request-changes'];
   const activeRequestId = workflow.requestId || client.requestId || session.requestId || null;
   const canReceiveRequest = !activeRequestId || activeRequestId === request.id;
+  const adoptionRequired = Boolean(adoption.required || client.adoptionRequired || input.requireClientRuntimeAdoption);
+  const adoptionRequestId = adoption.requestId || workflow.requestId || client.requestId || request.id;
+  const adoptionRevision = finiteNumber(adoption.revision ?? workflow.revision ?? client.revision, null);
+  const adoptionCursor = adoption.cursor || adoption.handoffCursor || workflow.handoffCursor || null;
+  const adoptionToken = adoption.token || client.adoptionToken || workflow.adoptionToken || input.clientRuntimeAdoptionToken || null;
+  const adoptionRequestMatches = !adoptionRequestId || adoptionRequestId === request.id;
 
   return {
     schema: CLIENT_RUNTIME_SCHEMA,
@@ -3650,6 +3975,22 @@ function normalizeClientRuntimeState(input, request, now) {
     acceptsPolicyDecisions: acceptsDecisions,
     canReceiveRequest,
     activeRequestId,
+    adoption: {
+      schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+      required: adoptionRequired,
+      requestId: adoptionRequestId,
+      requestMatches: adoptionRequestMatches,
+      revision: adoptionRevision,
+      cursor: adoptionCursor,
+      tokenPresent: Boolean(adoptionToken),
+      checkpointPath: adoption.checkpointPath || client.adoptionCheckpointPath || 'capabilitySecurity.policyEvaluator.clientRuntimeAdoption',
+      state: adoptionRequired && (!adoptionToken || !adoptionRequestMatches)
+        ? 'blocked'
+        : adoptionRequired
+          ? 'adopted'
+          : 'optional',
+      generatedAt: now
+    },
     workflow: {
       handoffId: workflow.id || `${request.id}:client-runtime`,
       requestedAt: workflow.requestedAt || now,
@@ -3685,6 +4026,12 @@ function validateClientRuntimeState(clientRuntime) {
   if (clientRuntime.workflow.confirmationRequired && !clientRuntime.workflow.confirmationToken) {
     failures.push(actionableError('client_runtime_confirmation_required', 'Client runtime requires confirmation before acceptance', 'Collect a confirmation token from the client workflow before granting the capability.'));
   }
+  if (clientRuntime.adoption.required && !clientRuntime.adoption.tokenPresent) {
+    failures.push(actionableError('client_runtime_adoption_token_missing', 'Client runtime adoption requires a persisted adoption token', 'Attach clientRuntime.adoption.token before binding the policy decision to this client workflow.'));
+  }
+  if (clientRuntime.adoption.required && !clientRuntime.adoption.requestMatches) {
+    failures.push(actionableError('client_runtime_adoption_request_mismatch', 'Client runtime adoption is bound to a different request', 'Refresh the client runtime adoption checkpoint for the current capability request before acceptance.'));
+  }
 
   return failures;
 }
@@ -3717,6 +4064,14 @@ function normalizeClientRequestState(input, request, clientRuntime, nowMs, now) 
     ...(expectedRoute && expectedRoute !== request.route ? ['route'] : [])
   ];
   const stale = Boolean(maxAgeMs !== null && ageMs !== null && ageMs > maxAgeMs);
+  const adoptionBinding = buildClientRuntimeAdoptionCheckpoint(clientRuntime, request, {
+    phase,
+    revision,
+    handoffCursor,
+    updatedAt,
+    stale,
+    mismatches
+  });
   const failures = [];
 
   if (required && mismatches.length > 0) {
@@ -3781,15 +4136,19 @@ function normalizeClientRequestState(input, request, clientRuntime, nowMs, now) 
       mismatches,
       clientWorkflowHandoffId: clientRuntime.workflow.handoffId,
       clientWorkflowNextAction: clientRuntime.workflow.nextAction,
+      adoptionState: adoptionBinding.state,
+      adoptionFingerprint: adoptionBinding.fingerprint,
       stateFingerprint: contractFingerprint({
         schema: CLIENT_REQUEST_STATE_SCHEMA,
         requestId: expectedRequestId || request.id,
         phase,
         revision,
         handoffCursor,
-        updatedAt
+        updatedAt,
+        adoptionFingerprint: adoptionBinding.fingerprint
       })
     },
+    adoptionBinding,
     handoff: {
       action: failures.some((failure) => failure.severity === 'error')
         ? 'refresh_client_request_state'
@@ -3801,6 +4160,63 @@ function normalizeClientRequestState(input, request, clientRuntime, nowMs, now) 
       canBindPreview: mismatches.length === 0 && !stale && !terminal
     },
     failures
+  };
+}
+
+function buildClientRuntimeAdoptionCheckpoint(clientRuntime, request, requestState) {
+  const blockingReasons = [
+    ...(clientRuntime.adoption.required && !clientRuntime.adoption.tokenPresent ? ['missing_adoption_token'] : []),
+    ...(clientRuntime.adoption.required && !clientRuntime.adoption.requestMatches ? ['adoption_request_mismatch'] : []),
+    ...(requestState.stale ? ['client_request_state_stale'] : []),
+    ...(requestState.mismatches.length ? ['client_request_state_mismatch'] : [])
+  ];
+  const fingerprint = contractFingerprint({
+    schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+    requestId: request.id,
+    clientId: clientRuntime.clientId,
+    sessionId: clientRuntime.sessionId,
+    handoffId: clientRuntime.workflow.handoffId,
+    adoptionRequestId: clientRuntime.adoption.requestId,
+    adoptionRevision: clientRuntime.adoption.revision,
+    adoptionCursor: clientRuntime.adoption.cursor,
+    requestRevision: requestState.revision,
+    handoffCursor: requestState.handoffCursor
+  });
+
+  return {
+    schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+    checkpointPath: clientRuntime.adoption.checkpointPath,
+    required: clientRuntime.adoption.required,
+    state: blockingReasons.length ? 'blocked' : clientRuntime.adoption.required ? 'adopted' : 'optional',
+    canBindDecision: blockingReasons.length === 0,
+    blockingReasons,
+    requestId: request.id,
+    clientId: clientRuntime.clientId,
+    sessionId: clientRuntime.sessionId,
+    handoffId: clientRuntime.workflow.handoffId,
+    revision: clientRuntime.adoption.revision ?? requestState.revision,
+    cursor: clientRuntime.adoption.cursor || requestState.handoffCursor,
+    fingerprint,
+    persistPatch: {
+      [clientRuntime.adoption.checkpointPath]: {
+        schema: CLIENT_RUNTIME_ADOPTION_SCHEMA,
+        requestId: request.id,
+        clientId: clientRuntime.clientId,
+        sessionId: clientRuntime.sessionId,
+        handoffId: clientRuntime.workflow.handoffId,
+        revision: clientRuntime.adoption.revision ?? requestState.revision,
+        cursor: clientRuntime.adoption.cursor || requestState.handoffCursor,
+        fingerprint,
+        state: blockingReasons.length ? 'blocked' : 'adopted'
+      }
+    },
+    nextAction: blockingReasons.includes('adoption_request_mismatch')
+      ? 'refresh_client_runtime_adoption'
+      : blockingReasons.includes('missing_adoption_token')
+        ? 'persist_client_runtime_adoption_token'
+        : blockingReasons.length
+          ? 'refresh_client_request_state'
+          : 'persist_client_runtime_adoption_checkpoint'
   };
 }
 
@@ -4155,6 +4571,7 @@ function buildOperationReviewContract({ request, operation, operationGuardrails,
   const hasConcreteTarget = operation.targets.length > 0 || Boolean(operation.path || operation.externalHost || operation.deploymentTarget);
   const hasNetworkTarget = Boolean(operation.externalHost)
     || operation.targetBoundary.targetDetails.some((target) => target.kind === 'url' || target.kind === 'host');
+  const bindingEvidence = operation.targetBinding?.evidence || [];
   const productionDeploy = operationGuardrails.productionDeploy === true;
   const classEvidence = {
     syscall: [
@@ -4234,6 +4651,15 @@ function buildOperationReviewContract({ request, operation, operationGuardrails,
     ]
   };
   const commonEvidence = [
+    ...bindingEvidence
+      .filter((item) => !['shell_command', 'deployment_target', 'network_destination', 'canonical_file_target', 'syscall_name_or_effect'].includes(item.id))
+      .map((item) => ({
+        id: `binding_${item.id}`,
+        label: item.label,
+        required: item.required,
+        present: item.present,
+        value: item.value
+      })),
     {
       id: 'target_boundary',
       label: 'Target boundary',
@@ -4282,6 +4708,7 @@ function buildOperationReviewContract({ request, operation, operationGuardrails,
     routeDomain: operation.routeDomain,
     evidence: evidenceItems.map((item) => ({ id: item.id, status: item.status, value: item.value })),
     guardrailStatus: operationGuardrails.status,
+    targetBindingFingerprint: operation.targetBinding?.fingerprint || null,
     selectedProviderId: providerState.selectedProviderId,
     externalHandoffState: externalHandoff.state,
     clientRequestStateFingerprint: clientRequestState.binding.stateFingerprint
@@ -4293,6 +4720,13 @@ function buildOperationReviewContract({ request, operation, operationGuardrails,
     reviewFingerprint,
     decisionClass: operation.decisionClass,
     routeDomain: operation.routeDomain,
+    targetBinding: {
+      schema: operation.targetBinding?.schema || TARGET_BINDING_SCHEMA,
+      status: operation.targetBinding?.status || 'unknown',
+      missingRequiredEvidenceIds: operation.targetBinding?.missingRequiredEvidenceIds || [],
+      reasonCodes: operation.targetBinding?.reasonCodes || [],
+      fingerprint: operation.targetBinding?.fingerprint || null
+    },
     userVisibleSummary: missingRequired.length > 0
       ? `Missing ${operation.decisionClass} evidence: ${missingRequired.map((item) => item.label).join(', ')}.`
       : status === 'review_required'
@@ -4350,6 +4784,16 @@ function buildUserPreview({ request, operation, operationGuardrails, decision, r
         traversalDetected: operation.targetBoundary.traversalDetected,
         unsafeRelativeTraversal: operation.targetBoundary.unsafeRelativeTraversal,
         matchingMode: operation.targetBoundary.matchingMode
+      },
+      targetBinding: {
+        schema: operation.targetBinding.schema,
+        status: operation.targetBinding.status,
+        required: operation.targetBinding.required,
+        missingRequiredEvidenceIds: operation.targetBinding.missingRequiredEvidenceIds,
+        boundEvidenceIds: operation.targetBinding.boundEvidenceIds,
+        reasonCodes: operation.targetBinding.reasonCodes,
+        canBindPolicyTarget: operation.targetBinding.canBindPolicyTarget,
+        fingerprint: operation.targetBinding.fingerprint
       },
       guardrails: {
         schema: operationGuardrails.schema,
@@ -5619,6 +6063,8 @@ export function evaluateCapabilityPolicy(input = {}) {
     reason,
     retry,
     externalHandoff: resolvedExternalHandoff,
+    clientRuntime,
+    clientRequestState,
     now
   });
   const routeAcceptance = buildRouteAcceptanceContract({

@@ -4756,6 +4756,108 @@ function buildObjectiveTruthSurfaceDecision(state, contract, bootProofHandoff, a
   };
 }
 
+function buildLifecycleCommandAffordance(state, contract, objectiveTruth, now) {
+  const lifecycle = contract.lifecycle;
+  const schedule = lifecycle.schedule || {};
+  const lifecycleBlocked = lifecycle.status === "blocked";
+  const scheduled = lifecycle.status === "scheduled";
+  const disabled = lifecycle.mode === "disabled" || lifecycle.enabled === false;
+  const maintenance = lifecycle.mode === "maintenance";
+  const commandWritable = WRITABLE_COMMANDS.has(state.command);
+  const commandAllowedNow = lifecycle.commandAllowed
+    && !lifecycleBlocked
+    && !disabled
+    && (!scheduled || state.command !== "execute");
+  const nextRunMs = schedule.nextRunAt ? Date.parse(schedule.nextRunAt) : Number.NaN;
+  const nowMs = Date.parse(now);
+  const nextRunDelayMs = Number.isFinite(nextRunMs) && Number.isFinite(nowMs)
+    ? Math.max(0, nextRunMs - nowMs)
+    : null;
+  const lifecycleCommandId = [
+    contract.scope.tenantId,
+    contract.scope.workspaceKey,
+    state.command,
+    lifecycle.mode,
+    lifecycle.status,
+    schedule.mode || "none",
+    schedule.nextRunAt || "now"
+  ].join(":");
+  const controlReasons = [
+    lifecycleBlocked ? "lifecycle-validation-blocked" : "",
+    disabled ? "lifecycle-disabled" : "",
+    maintenance ? "maintenance-mode" : "",
+    scheduled ? "scheduled-window" : "",
+    !lifecycle.commandAllowed ? "command-not-allowed-by-lifecycle" : "",
+    commandWritable && contract.providers.serviceSync.status === "backpressure" ? "provider-sync-backpressure" : "",
+    commandWritable && contract.health.failureState.blocked ? "health-failure-blocked" : ""
+  ].filter(Boolean);
+  const nextAllowedCommand = disabled
+    ? "enable"
+    : lifecycleBlocked
+      ? "update-settings"
+      : scheduled
+        ? "status"
+        : maintenance
+          ? "schedule"
+          : state.command;
+  const operatorCommand = disabled
+    ? "cli-boot --lifecycle enable"
+    : lifecycleBlocked
+      ? "cli-boot --lifecycle update-settings --validate"
+      : scheduled && schedule.nextRunAt
+        ? `cli-boot ${state.command} --scheduled-for ${schedule.nextRunAt}`
+        : maintenance
+          ? "cli-boot --lifecycle schedule --mode maintenance-window"
+          : `cli-boot ${state.command}`;
+
+  return {
+    version: "cli-boot.lifecycle-command-affordance.v1",
+    lifecycleCommandId,
+    state: commandAllowedNow
+      ? "allowed"
+      : disabled
+        ? "disabled"
+        : scheduled
+          ? "scheduled"
+          : lifecycleBlocked
+            ? "blocked"
+            : "waiting",
+    command: state.command,
+    writableCommand: commandWritable,
+    commandAllowedNow,
+    nextAllowedCommand,
+    operatorCommand,
+    controlReasons,
+    lifecycle: {
+      mode: lifecycle.mode,
+      status: lifecycle.status,
+      enabled: lifecycle.enabled,
+      commandAllowed: lifecycle.commandAllowed,
+      controlFingerprint: lifecycle.controlFingerprint,
+      validationCodes: lifecycle.validationFindings.map((finding) => finding.code)
+    },
+    schedule: {
+      mode: schedule.mode || "immediate",
+      nextRunAt: schedule.nextRunAt || null,
+      nextRunDelayMs,
+      queuedUntilReady: scheduled,
+      acknowledgementRequired: objectiveTruth.status === "awaiting-ack"
+    },
+    settingsValidation: {
+      ok: !lifecycleBlocked,
+      blocksDispatch: lifecycleBlocked || disabled,
+      reasonCodes: controlReasons,
+      nextRepairAction: lifecycleBlocked
+        ? "repair-lifecycle-settings"
+        : disabled
+          ? "enable-lifecycle"
+          : scheduled
+            ? "wait-for-schedule"
+            : "dispatch-command"
+    }
+  };
+}
+
 export function describeCliBootSurface(input = {}) {
   const now = input.now || new Date().toISOString();
   const evidence = Array.isArray(input.evidence) ? input.evidence : [];
@@ -4767,6 +4869,7 @@ export function describeCliBootSurface(input = {}) {
   const analytics = buildAnalyticsSnapshot(clientState, runtimeContract, auditTrail, evidence, analyticsHistory, now);
   const bootProofHandoff = buildBootProofHandoff(clientState, runtimeContract, auditTrail, analytics, now);
   const objectiveTruth = buildObjectiveTruthSurfaceDecision(clientState, runtimeContract, bootProofHandoff, analytics, now);
+  const lifecycleCommandAffordance = buildLifecycleCommandAffordance(clientState, runtimeContract, objectiveTruth, now);
 
   return {
     ok: objectiveTruth.status !== "blocked",
@@ -4776,6 +4879,7 @@ export function describeCliBootSurface(input = {}) {
     generatedAt: now,
     wave: 'ai-os-wave1-hosted-kernel-boot-proof',
     objectiveTruth,
+    lifecycleCommandAffordance,
     contract: runtimeContract,
     clientState,
     workflowHandoff: {
@@ -4830,7 +4934,11 @@ export function describeCliBootSurface(input = {}) {
       commandPacketPendingPhases: runtimeContract.handoff.workflowCommandPacket.pendingPhaseNames,
       objectiveTruthStatus: objectiveTruth.status,
       objectiveTruthDisposition: objectiveTruth.operatorDisposition,
-      objectiveTruthReasons: objectiveTruth.decisiveReasons
+      objectiveTruthReasons: objectiveTruth.decisiveReasons,
+      lifecycleCommandState: lifecycleCommandAffordance.state,
+      lifecycleCommandAllowedNow: lifecycleCommandAffordance.commandAllowedNow,
+      lifecycleCommandOperatorCommand: lifecycleCommandAffordance.operatorCommand,
+      lifecycleCommandReasons: lifecycleCommandAffordance.controlReasons
     },
     bootProofHandoff,
     proof: {
@@ -4946,6 +5054,11 @@ export function describeCliBootSurface(input = {}) {
       lifecycleMode: runtimeContract.lifecycle.mode,
       lifecycleEnabled: runtimeContract.lifecycle.enabled,
       lifecycleCommandAllowed: runtimeContract.lifecycle.commandAllowed,
+      lifecycleCommandAffordanceState: lifecycleCommandAffordance.state,
+      lifecycleCommandAffordanceId: lifecycleCommandAffordance.lifecycleCommandId,
+      lifecycleCommandAffordanceOperatorCommand: lifecycleCommandAffordance.operatorCommand,
+      lifecycleCommandAffordanceReasons: lifecycleCommandAffordance.controlReasons,
+      lifecycleCommandAffordanceNextAllowedCommand: lifecycleCommandAffordance.nextAllowedCommand,
       lifecycleScheduleMode: runtimeContract.lifecycle.schedule.mode,
       lifecycleNextRunAt: runtimeContract.lifecycle.schedule.nextRunAt,
       lifecycleControlFingerprint: runtimeContract.lifecycle.controlFingerprint,

@@ -45,12 +45,18 @@ const COMMAND_PERMISSIONS = {
   'schedule-review-window': 'settings:write',
   'sync-provider-contracts': 'settings:write'
 };
+const MUTATING_COMMANDS = new Set(Object.keys(COMMAND_PERMISSIONS));
 const READ_ONLY_COMMANDS = new Set(['describe-review-ready', 'recover-review-ready']);
 const PROVIDER_REQUIREMENTS = {
   proof: ['proof.read', 'proof.write'],
   state: ['state.persist', 'state.restore'],
   recovery: ['recovery.write'],
   audit: ['audit.handoff']
+};
+const MAILCHIMP_PROVIDER_REQUIREMENTS = {
+  audience: ['mailchimp.audience.read'],
+  campaign: ['mailchimp.campaign.write'],
+  webhook: ['mailchimp.webhook.handoff']
 };
 const CLIENT_RUNTIME_REQUIREMENTS = ['state.preview', 'workflow.handoff', 'command.submit'];
 const DEFAULT_RETRY_POLICY = {
@@ -297,28 +303,61 @@ function normalizeProviderContracts(value, now) {
     .filter((provider) => provider && typeof provider === 'object')
     .map((provider) => {
       const capabilities = stringList(provider.capabilities || provider.supportedCapabilities);
-      const requirementEntries = Object.entries(PROVIDER_REQUIREMENTS);
+      const service = asRecord(provider.serviceContract || provider.serviceDetails);
+      const product = text(provider.product || provider.productService || service.product, null);
+      const serviceName = text(provider.service || provider.kind || service.name, 'kernel-lifecycle');
+      const mailchimp = asRecord(provider.mailchimp || service.mailchimp);
+      const mailchimpEnabled = product === 'mailchimp'
+        || serviceName.toLowerCase().includes('mailchimp')
+        || mailchimp.enabled === true;
+      const requirementEntries = [
+        ...Object.entries(PROVIDER_REQUIREMENTS),
+        ...(mailchimpEnabled ? Object.entries(MAILCHIMP_PROVIDER_REQUIREMENTS) : [])
+      ];
+      const requiredCapabilities = requirementEntries.flatMap(([, required]) => required);
       const missingCapabilities = requirementEntries.flatMap(([domain, required]) => (
         required.filter((capability) => !capabilities.includes(capability)).map((capability) => `${domain}:${capability}`)
       ));
       const sync = asRecord(provider.sync || provider.syncMetadata);
+      const handoff = asRecord(provider.handoff || provider.externalHandoff);
       const lastSyncedAt = sync.lastSyncedAt ? timestamp(sync.lastSyncedAt) : null;
       const status = text(sync.status, lastSyncedAt ? 'synced' : 'unsynced');
+      const mailchimpBlockedBy = mailchimpEnabled
+        ? [
+            ...(text(mailchimp.audienceId || mailchimp.listId, null) ? [] : ['mailchimp-audience-id-missing']),
+            ...(text(mailchimp.webhookEndpoint || handoff.endpoint || handoff.url, null) ? [] : ['mailchimp-webhook-endpoint-missing']),
+            ...(text(mailchimp.webhookSigningKeyRef || handoff.signingKeyRef || handoff.secretRef, null) ? [] : ['mailchimp-webhook-signing-key-missing']),
+            ...(mailchimp.suppressUnsubscribedContacts === false ? ['mailchimp-unsubscribed-contact-suppression-required'] : [])
+          ]
+        : [];
       return {
         providerId: text(provider.providerId || provider.id || provider.name, 'hosted-kernel-provider'),
-        service: text(provider.service || provider.kind, 'kernel-lifecycle'),
+        service: serviceName,
+        productService: mailchimpEnabled
+          ? {
+              product: 'mailchimp',
+              audienceId: text(mailchimp.audienceId || mailchimp.listId, null),
+              campaignId: text(mailchimp.campaignId, null),
+              webhookId: text(mailchimp.webhookId || handoff.webhookId, null),
+              webhookEndpoint: text(mailchimp.webhookEndpoint || handoff.endpoint || handoff.url, null),
+              webhookSigningKeyRef: text(mailchimp.webhookSigningKeyRef || handoff.signingKeyRef || handoff.secretRef, null),
+              suppressUnsubscribedContacts: mailchimp.suppressUnsubscribedContacts !== false,
+              blockedBy: mailchimpBlockedBy
+            }
+          : null,
         contractVersion: text(provider.contractVersion || provider.version, 'aios.provider.review-ready.v1'),
         endpoint: text(provider.endpoint || provider.url, 'local://kernel-lifecycle/review-ready'),
         capabilities,
-        requiredCapabilities: Object.values(PROVIDER_REQUIREMENTS).flat(),
-        missingCapabilities,
+        requiredCapabilities,
+        missingCapabilities: [...missingCapabilities, ...mailchimpBlockedBy],
         negotiation: {
-          accepted: missingCapabilities.length === 0,
-          status: missingCapabilities.length === 0 ? 'accepted' : 'capability-gap',
+          accepted: missingCapabilities.length === 0 && mailchimpBlockedBy.length === 0,
+          status: missingCapabilities.length === 0 && mailchimpBlockedBy.length === 0 ? 'accepted' : 'capability-gap',
           negotiatedAt: timestamp(provider.negotiatedAt || now),
           canSyncProofs: capabilities.includes('proof.read') && capabilities.includes('proof.write'),
           canRestoreState: capabilities.includes('state.restore'),
           canHandoffAudit: capabilities.includes('audit.handoff')
+            && (!mailchimpEnabled || (capabilities.includes('mailchimp.webhook.handoff') && mailchimpBlockedBy.length === 0))
         },
         sync: {
           status,
@@ -328,8 +367,11 @@ function normalizeProviderContracts(value, now) {
           stale: !lastSyncedAt || status === 'stale' || status === 'failed'
         },
         handoff: {
-          externalRef: text(provider.externalRef || provider.handoffRef, null),
-          state: text(provider.handoffState || provider.state, missingCapabilities.length === 0 ? 'ready' : 'blocked')
+          externalRef: text(provider.externalRef || provider.handoffRef || mailchimp.externalHandoffRef, null),
+          state: text(
+            provider.handoffState || provider.state,
+            missingCapabilities.length === 0 && mailchimpBlockedBy.length === 0 ? 'ready' : 'blocked'
+          )
         }
       };
     })
@@ -566,18 +608,385 @@ function retryHealthIncident({ incident, command, appliedAt, policy }) {
 function providerContractSummary(providers = []) {
   const accepted = providers.filter((provider) => provider.negotiation.accepted);
   const stale = providers.filter((provider) => provider.sync.stale);
+  const mailchimpProviders = providers.filter((provider) => provider.productService?.product === 'mailchimp');
+  const mailchimpReadyProviders = mailchimpProviders.filter((provider) => (
+    provider.negotiation.accepted
+    && !provider.sync.stale
+    && provider.productService.blockedBy.length === 0
+    && provider.negotiation.canHandoffAudit
+  ));
   const missingCapabilities = [
     ...new Set(providers.flatMap((provider) => provider.missingCapabilities))
+  ].sort();
+  const mailchimpBlockedReasons = [
+    ...new Set(mailchimpProviders.flatMap((provider) => stringList(provider.productService?.blockedBy)))
   ].sort();
   return {
     providerCount: providers.length,
     acceptedProviderCount: accepted.length,
     staleProviderCount: stale.length,
+    mailchimpProviderCount: mailchimpProviders.length,
+    mailchimpReadyProviderCount: mailchimpReadyProviders.length,
+    mailchimpBlockedProviderCount: Math.max(0, mailchimpProviders.length - mailchimpReadyProviders.length),
+    mailchimpBlockedReasons,
     missingCapabilities,
     readyForExternalHandoff: providers.length > 0
       && accepted.length === providers.length
       && stale.length === 0
-      && providers.some((provider) => provider.negotiation.canHandoffAudit)
+      && providers.some((provider) => provider.negotiation.canHandoffAudit),
+    readyForMailchimpHandoff: mailchimpProviders.length > 0
+      && mailchimpReadyProviders.length === mailchimpProviders.length
+  };
+}
+
+function buildMailchimpAuditHandoffContract({ providers = [], tenant, clientRuntime, updatedAt }) {
+  const mailchimpProviders = providers.filter((provider) => provider.productService?.product === 'mailchimp');
+  const audiences = [...new Set(
+    mailchimpProviders
+      .map((provider) => provider.productService?.audienceId)
+      .filter(Boolean)
+  )].sort();
+  const campaigns = [...new Set(
+    mailchimpProviders
+      .map((provider) => provider.productService?.campaignId)
+      .filter(Boolean)
+  )].sort();
+  const webhookTargets = mailchimpProviders.map((provider) => ({
+    providerId: provider.providerId,
+    audienceId: provider.productService?.audienceId || null,
+    campaignId: provider.productService?.campaignId || null,
+    webhookId: provider.productService?.webhookId || null,
+    endpoint: provider.productService?.webhookEndpoint || null,
+    signingKeyRef: provider.productService?.webhookSigningKeyRef || null,
+    suppressUnsubscribedContacts: provider.productService?.suppressUnsubscribedContacts !== false,
+    externalRef: provider.handoff.externalRef,
+    syncStatus: provider.sync.status,
+    stale: provider.sync.stale,
+    canHandoffAudit: provider.negotiation.canHandoffAudit,
+    blockedBy: [
+      ...stringList(provider.productService?.blockedBy),
+      ...stringList(provider.missingCapabilities).filter((capability) => capability.startsWith('audience:')
+        || capability.startsWith('campaign:')
+        || capability.startsWith('webhook:')
+        || capability.includes('mailchimp'))
+    ].sort()
+  }));
+  const missingAudienceCount = webhookTargets.filter((target) => !target.audienceId).length;
+  const missingWebhookCount = webhookTargets.filter((target) => !target.endpoint || !target.signingKeyRef).length;
+  const staleProviderIds = webhookTargets.filter((target) => target.stale).map((target) => target.providerId);
+  const blockedBy = [
+    ...(mailchimpProviders.length === 0 ? ['mailchimp-provider-not-configured'] : []),
+    ...(missingAudienceCount > 0 ? ['mailchimp-audience-id-missing'] : []),
+    ...(missingWebhookCount > 0 ? ['mailchimp-webhook-contract-incomplete'] : []),
+    ...(webhookTargets.some((target) => target.suppressUnsubscribedContacts === false)
+      ? ['mailchimp-unsubscribed-contact-suppression-required']
+      : []),
+    ...staleProviderIds.map((providerId) => `mailchimp-provider-stale:${providerId}`),
+    ...webhookTargets.flatMap((target) => target.blockedBy)
+  ];
+  const readyTargets = webhookTargets.filter((target) => (
+    target.canHandoffAudit
+    && !target.stale
+    && target.blockedBy.length === 0
+    && target.audienceId
+    && target.endpoint
+    && target.signingKeyRef
+    && target.suppressUnsubscribedContacts !== false
+  ));
+  const acceptance = {
+    schema: 'aios.review-ready.mailchimp-audit-acceptance.v1',
+    accepted: mailchimpProviders.length > 0 && readyTargets.length === mailchimpProviders.length,
+    acceptedAt: mailchimpProviders.length > 0 && readyTargets.length === mailchimpProviders.length ? updatedAt : null,
+    exportReady: readyTargets.length > 0 && readyTargets.length === webhookTargets.length,
+    blockedBy: [...new Set(blockedBy)].sort(),
+    readyTargetCount: readyTargets.length,
+    targetCount: webhookTargets.length,
+    requiredTargetCount: mailchimpProviders.length,
+    nextAction: mailchimpProviders.length === 0
+      ? 'attach-mailchimp-provider-contract'
+      : readyTargets.length === mailchimpProviders.length
+        ? 'deliver-mailchimp-audit-handoff'
+        : 'repair-mailchimp-audit-handoff'
+  };
+  const boundaryPayload = {
+    schema: 'aios.review-ready.mailchimp-boundary-payload.v1',
+    handoffId: `${tenant.isolationKey}:${surfaceName}:mailchimp:${digest({
+      audiences,
+      campaigns,
+      clientRequestId: clientRuntime.requestId,
+      providers: webhookTargets.map((target) => [target.providerId, target.syncStatus, target.externalRef])
+    })}`,
+    generatedAt: updatedAt,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    isolationKey: tenant.isolationKey,
+    clientRequestId: clientRuntime.requestId,
+    clientCorrelationId: clientRuntime.correlationId,
+    route: clientRuntime.routes.handoff,
+    returnRoute: clientRuntime.routes.return,
+    audienceIds: audiences,
+    campaignIds: campaigns,
+    targetProviderIds: webhookTargets.map((target) => target.providerId),
+    readyProviderIds: readyTargets.map((target) => target.providerId),
+    staleProviderIds,
+    blockedBy: acceptance.blockedBy,
+    proofDigest: digest({
+      tenant,
+      audiences,
+      campaigns,
+      webhookTargets,
+      clientRequestId: clientRuntime.requestId,
+      updatedAt
+    })
+  };
+  const syncRows = webhookTargets.map((target, index) => ({
+    sequence: index + 1,
+    providerId: target.providerId,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    isolationKey: tenant.isolationKey,
+    audienceId: target.audienceId,
+    campaignId: target.campaignId,
+    webhookId: target.webhookId,
+    externalRef: target.externalRef,
+    syncStatus: target.syncStatus,
+    stale: target.stale,
+    ready: readyTargets.some((readyTarget) => readyTarget.providerId === target.providerId),
+    canHandoffAudit: target.canHandoffAudit,
+    blockedBy: target.blockedBy,
+    route: clientRuntime.routes.handoff,
+    returnRoute: clientRuntime.routes.return
+  }));
+  const exportManifest = {
+    schema: 'aios.review-ready.mailchimp-export-manifest.v1',
+    batchId: `${boundaryPayload.handoffId}:batch:${digest({
+      providerIds: webhookTargets.map((target) => target.providerId),
+      readyProviderIds: readyTargets.map((target) => target.providerId),
+      staleProviderIds,
+      blockedBy: acceptance.blockedBy,
+      clientRequestId: clientRuntime.requestId
+    })}`,
+    generatedAt: updatedAt,
+    format: 'review-ready.mailchimp-audit-handoff.v1',
+    exportReady: acceptance.exportReady,
+    destination: 'mailchimp-webhook-handoff',
+    partitionKey: `${tenant.tenantId}/${tenant.workspaceId}/mailchimp`,
+    watermark: digest(syncRows.map((row) => ({
+      providerId: row.providerId,
+      syncStatus: row.syncStatus,
+      externalRef: row.externalRef,
+      ready: row.ready
+    }))),
+    rowCount: syncRows.length,
+    readyRowCount: syncRows.filter((row) => row.ready).length,
+    staleProviderIds,
+    blockedBy: acceptance.blockedBy,
+    clientRequestId: clientRuntime.requestId,
+    clientCorrelationId: clientRuntime.correlationId
+  };
+
+  return {
+    schema: 'aios.review-ready.mailchimp-audit-handoff.v1',
+    handoffId: boundaryPayload.handoffId,
+    generatedAt: updatedAt,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    clientRequestId: clientRuntime.requestId,
+    required: mailchimpProviders.length > 0,
+    ready: mailchimpProviders.length > 0 && readyTargets.length === mailchimpProviders.length,
+    state: mailchimpProviders.length === 0
+      ? 'not-configured'
+      : readyTargets.length === mailchimpProviders.length
+        ? 'ready'
+        : 'blocked',
+    audienceIds: audiences,
+    campaignIds: campaigns,
+    targetCount: webhookTargets.length,
+    readyTargetCount: readyTargets.length,
+    staleProviderIds,
+    blockedBy: [...new Set(blockedBy)].sort(),
+    targets: webhookTargets,
+    acceptance,
+    boundaryPayload,
+    exportManifest,
+    syncRows,
+    exportRows: syncRows.map((target) => ({
+      sequence: target.sequence,
+      handoffId: boundaryPayload.handoffId,
+      providerId: target.providerId,
+      tenantId: tenant.tenantId,
+      workspaceId: tenant.workspaceId,
+      audienceId: target.audienceId,
+      campaignId: target.campaignId,
+      webhookId: target.webhookId,
+      syncStatus: target.syncStatus,
+      stale: target.stale,
+      ready: target.ready,
+      blockedBy: target.blockedBy,
+      externalRef: target.externalRef
+    })),
+    clientHandoff: {
+      route: clientRuntime.routes.handoff,
+      returnRoute: clientRuntime.routes.return,
+      correlationId: clientRuntime.correlationId,
+      canRender: clientRuntime.canRenderAuditHandoff
+    }
+  };
+}
+
+function buildProviderRecoveryActions({
+  providers = [],
+  providerSummary,
+  mailchimpAuditHandoff,
+  tenant,
+  clientRuntime,
+  updatedAt
+}) {
+  const actions = [];
+  const addAction = ({
+    providerId,
+    action,
+    reason,
+    blockedBy = [],
+    payload = {},
+    dueAt = updatedAt,
+    replayMode = 'idempotent-sync'
+  }) => {
+    const normalizedBlockedBy = [...new Set(stringList(blockedBy))].sort();
+    const command = 'sync-provider-contracts';
+    const actionPayload = {
+      command,
+      providerId,
+      tenantId: tenant.tenantId,
+      workspaceId: tenant.workspaceId,
+      isolationKey: tenant.isolationKey,
+      reason,
+      ...payload
+    };
+
+    actions.push({
+      schema: 'aios.review-ready.provider-recovery-action.v1',
+      sequence: actions.length + 1,
+      providerId,
+      action,
+      command,
+      reason,
+      dueAt,
+      replayMode,
+      route: clientRuntime.routes.command,
+      idempotencyKey: `${tenant.isolationKey}:${surfaceName}:provider-recovery:${providerId || 'all'}:${digest(actionPayload)}`,
+      payload: actionPayload,
+      blockedBy: normalizedBlockedBy,
+      readyToDispatch: normalizedBlockedBy.length === 0 && clientRuntime.canSubmitCommands
+    });
+  };
+
+  for (const provider of providers) {
+    const capabilityBlockedBy = provider.missingCapabilities;
+    const syncBlockedBy = provider.sync.stale ? ['provider-sync-stale'] : [];
+    const mailchimpTarget = mailchimpAuditHandoff.targets.find((target) => target.providerId === provider.providerId);
+    const mailchimpBlockedBy = stringList(mailchimpTarget?.blockedBy);
+
+    if (capabilityBlockedBy.length > 0) {
+      addAction({
+        providerId: provider.providerId,
+        action: 'negotiate-provider-capabilities',
+        reason: 'provider-capability-gap',
+        blockedBy: capabilityBlockedBy,
+        payload: {
+          endpoint: provider.endpoint,
+          requiredCapabilities: provider.requiredCapabilities,
+          missingCapabilities: capabilityBlockedBy,
+          contractVersion: provider.contractVersion
+        },
+        replayMode: 'requires-provider-contract-update'
+      });
+    }
+
+    if (provider.sync.stale) {
+      addAction({
+        providerId: provider.providerId,
+        action: 'refresh-provider-sync-metadata',
+        reason: 'provider-sync-stale',
+        blockedBy: syncBlockedBy,
+        payload: {
+          endpoint: provider.endpoint,
+          currentCursor: provider.sync.cursor,
+          lastSyncedAt: provider.sync.lastSyncedAt,
+          requestedAt: updatedAt
+        }
+      });
+    }
+
+    if (provider.productService?.product === 'mailchimp' && mailchimpBlockedBy.length > 0) {
+      addAction({
+        providerId: provider.providerId,
+        action: 'repair-mailchimp-audit-handoff',
+        reason: 'mailchimp-audit-handoff-blocked',
+        blockedBy: mailchimpBlockedBy,
+        payload: {
+          product: 'mailchimp',
+          audienceId: provider.productService.audienceId,
+          campaignId: provider.productService.campaignId,
+          webhookId: provider.productService.webhookId,
+          externalRef: provider.handoff.externalRef,
+          handoffId: mailchimpAuditHandoff.handoffId,
+          blockedBy: mailchimpBlockedBy
+        },
+        replayMode: 'requires-product-contract-update'
+      });
+    }
+  }
+
+  if (providers.length === 0) {
+    addAction({
+      providerId: null,
+      action: 'attach-provider-contract',
+      reason: 'provider-contract-missing',
+      blockedBy: ['provider-contract-missing'],
+      payload: {
+        requiredCapabilities: Object.values(PROVIDER_REQUIREMENTS).flat()
+      },
+      replayMode: 'requires-provider-registration'
+    });
+  }
+
+  if (mailchimpAuditHandoff.required && !mailchimpAuditHandoff.ready) {
+    addAction({
+      providerId: 'mailchimp',
+      action: 'repair-mailchimp-external-handoff',
+      reason: 'mailchimp-external-handoff-not-ready',
+      blockedBy: mailchimpAuditHandoff.blockedBy,
+      payload: {
+        product: 'mailchimp',
+        handoffId: mailchimpAuditHandoff.handoffId,
+        audienceIds: mailchimpAuditHandoff.audienceIds,
+        campaignIds: mailchimpAuditHandoff.campaignIds,
+        targetCount: mailchimpAuditHandoff.targetCount,
+        readyTargetCount: mailchimpAuditHandoff.readyTargetCount
+      },
+      replayMode: 'requires-product-contract-update'
+    });
+  }
+
+  const dispatchable = actions.filter((action) => action.readyToDispatch);
+  const primary = dispatchable[0] || actions[0] || null;
+
+  return {
+    schema: 'aios.review-ready.provider-recovery-actions.v1',
+    generatedAt: updatedAt,
+    status: actions.length === 0
+      ? 'clear'
+      : (dispatchable.length > 0 ? 'actionable' : 'blocked'),
+    actionCount: actions.length,
+    dispatchableCount: dispatchable.length,
+    providerCount: providerSummary.providerCount,
+    staleProviderCount: providerSummary.staleProviderCount,
+    mailchimpReadyProviderCount: providerSummary.mailchimpReadyProviderCount,
+    primaryActionId: primary?.idempotencyKey || null,
+    primaryCommand: primary?.command || null,
+    primaryReason: primary?.reason || null,
+    actions
   };
 }
 
@@ -625,6 +1034,12 @@ function buildOperationalHealthRunbook(health, generatedAt) {
 
 function buildProviderServiceContract({ providers = [], tenant, clientRuntime, updatedAt }) {
   const providerSummary = providerContractSummary(providers);
+  const mailchimpAuditHandoff = buildMailchimpAuditHandoffContract({
+    providers,
+    tenant,
+    clientRuntime,
+    updatedAt
+  });
   const requiredCapabilities = Object.values(PROVIDER_REQUIREMENTS).flat();
   const advertisedCapabilities = [...new Set(providers.flatMap((provider) => provider.capabilities))].sort();
   const missingCapabilities = requiredCapabilities
@@ -683,6 +1098,14 @@ function buildProviderServiceContract({ providers = [], tenant, clientRuntime, u
     ...(handoffTargets.length === 0 ? ['audit-handoff-provider-missing'] : [])
   ];
   const state = blockedBy.length === 0 ? 'ready' : providerSummary.missingCapabilities.length > 0 || missingCapabilities.length > 0 ? 'negotiation-required' : 'sync-required';
+  const recoveryActions = buildProviderRecoveryActions({
+    providers,
+    providerSummary,
+    mailchimpAuditHandoff,
+    tenant,
+    clientRuntime,
+    updatedAt
+  });
   return {
     schema: 'aios.review-ready.provider-service-contract.v1',
     contractId: `${tenant.isolationKey}:${surfaceName}:providers:${digest({
@@ -698,6 +1121,8 @@ function buildProviderServiceContract({ providers = [], tenant, clientRuntime, u
     providerCount: providers.length,
     acceptedProviderCount: providerSummary.acceptedProviderCount,
     staleProviderCount: providerSummary.staleProviderCount,
+    mailchimpProviderCount: providerSummary.mailchimpProviderCount,
+    mailchimpReadyProviderCount: providerSummary.mailchimpReadyProviderCount,
     readyProviderIds,
     requiredCapabilities,
     advertisedCapabilities,
@@ -734,8 +1159,33 @@ function buildProviderServiceContract({ providers = [], tenant, clientRuntime, u
       handoffRef: `${tenant.isolationKey}:${surfaceName}:external-handoff:${updatedAt}`,
       targetCount: handoffTargets.length,
       targets: handoffTargets,
-      blockedBy: [...new Set(blockedBy)].sort()
+      blockedBy: [...new Set(blockedBy)].sort(),
+      mailchimp: {
+        required: mailchimpAuditHandoff.required,
+        ready: mailchimpAuditHandoff.ready,
+        state: mailchimpAuditHandoff.state,
+        handoffId: mailchimpAuditHandoff.handoffId,
+        exportBatchId: mailchimpAuditHandoff.exportManifest.batchId,
+        exportReady: mailchimpAuditHandoff.exportManifest.exportReady,
+        exportWatermark: mailchimpAuditHandoff.exportManifest.watermark,
+        exportPartitionKey: mailchimpAuditHandoff.exportManifest.partitionKey,
+        targetCount: mailchimpAuditHandoff.targetCount,
+        readyTargetCount: mailchimpAuditHandoff.readyTargetCount,
+        staleProviderIds: mailchimpAuditHandoff.staleProviderIds,
+        audienceIds: mailchimpAuditHandoff.audienceIds,
+        campaignIds: mailchimpAuditHandoff.campaignIds,
+        blockedBy: mailchimpAuditHandoff.blockedBy
+      },
+      nextProviderAction: recoveryActions.primaryReason
+        ? {
+            command: recoveryActions.primaryCommand,
+            reason: recoveryActions.primaryReason,
+            actionId: recoveryActions.primaryActionId
+          }
+        : null
     },
+    mailchimpAuditHandoff,
+    recoveryActions,
     providerSyncStates
   };
 }
@@ -1000,6 +1450,189 @@ function buildLifecycleControlPanel({ state, nextAction, readinessGates }) {
   };
 }
 
+function buildReviewCommandActionMatrix({
+  state,
+  nextAction,
+  readinessGates,
+  validationSummary,
+  auditHandoff,
+  lifecycleControls
+}) {
+  const unresolvedGates = readinessGates.filter((gate) => !gate.ready);
+  const canAccept = validationSummary.ok
+    && auditHandoff.readyForAudit
+    && state.workspaceScope.sealable
+    && state.clientRuntime.canSubmitCommands;
+  const commandCandidates = [
+    {
+      id: 'accept-review-ready',
+      command: 'seal-review-ready',
+      label: 'Accept review-ready state',
+      gate: 'acceptance',
+      enabled: canAccept,
+      reason: canAccept ? 'review-ready' : 'acceptance-blocked',
+      payload: {
+        command: 'seal-review-ready',
+        handoffId: auditHandoff.handoffId,
+        status: state.status
+      },
+      blockedBy: canAccept
+        ? []
+        : [
+            ...stringList(validationSummary.failedGates),
+            ...(auditHandoff.readyForAudit ? [] : ['audit-handoff-not-ready']),
+            ...(state.workspaceScope.sealable ? [] : ['workspace-not-sealable']),
+            ...(state.clientRuntime.canSubmitCommands ? [] : ['client-missing:command.submit'])
+          ]
+    },
+    {
+      id: 'record-missing-check',
+      command: 'record-check',
+      label: 'Record missing proof',
+      gate: 'proofs',
+      enabled: unresolvedGates.some((gate) => gate.gate === 'proofs')
+        && state.workspaceScope.writable
+        && state.clientRuntime.canSubmitCommands,
+      reason: 'missing-proof',
+      payload: {
+        command: 'record-check',
+        check: Object.entries(state.checks).find(([, check]) => !check.ok || !check.proof)?.[0] || DEFAULT_CHECKS[0],
+        requiredProof: `${surfaceName}:required-proof`
+      },
+      blockedBy: [
+        ...(state.workspaceScope.writable ? [] : ['workspace-not-writable']),
+        ...(state.clientRuntime.canSubmitCommands ? [] : ['client-missing:command.submit'])
+      ]
+    },
+    {
+      id: 'sync-provider-contracts',
+      command: 'sync-provider-contracts',
+      label: 'Sync provider contracts',
+      gate: 'providers',
+      enabled: unresolvedGates.some((gate) => gate.gate === 'providers')
+        && state.workspaceScope.configurable
+        && state.clientRuntime.canSubmitCommands,
+      reason: 'provider-contracts-not-ready',
+      payload: {
+        command: 'sync-provider-contracts',
+        providers: state.providers.map((provider) => ({
+          providerId: provider.providerId,
+          endpoint: provider.endpoint
+        }))
+      },
+      blockedBy: [
+        ...(state.workspaceScope.configurable ? [] : ['workspace-not-configurable']),
+        ...(state.clientRuntime.canSubmitCommands ? [] : ['client-missing:command.submit'])
+      ]
+    },
+    {
+      id: 'clear-health-error',
+      command: nextAction.command === 'retry-health-error' ? 'retry-health-error' : 'clear-health-error',
+      label: nextAction.command === 'retry-health-error' ? 'Retry health incident' : 'Clear health incident',
+      gate: 'health',
+      enabled: unresolvedGates.some((gate) => gate.gate === 'health')
+        && state.actor.permissions.includes('recovery:write')
+        && state.clientRuntime.canSubmitCommands,
+      reason: 'health-attention',
+      payload: {
+        command: nextAction.command === 'retry-health-error' ? 'retry-health-error' : 'clear-health-error',
+        incidentId: state.operationalHealth.activeIncidents?.[0]?.incidentId || null
+      },
+      blockedBy: [
+        ...(state.actor.permissions.includes('recovery:write') ? [] : ['missing-permission:recovery:write']),
+        ...(state.clientRuntime.canSubmitCommands ? [] : ['client-missing:command.submit'])
+      ]
+    },
+    {
+      id: 'schedule-review-window',
+      command: 'schedule-review-window',
+      label: lifecycleControls?.schedule?.due ? 'Reschedule review window' : 'Schedule review window',
+      gate: 'lifecycle',
+      enabled: Boolean(lifecycleControls?.controls?.schedule?.enabled),
+      reason: lifecycleControls?.schedule?.due ? 'review-window-due' : 'review-window-update',
+      payload: lifecycleControls?.controls?.schedule?.payload || {
+        command: 'schedule-review-window',
+        scheduledFor: lifecycleControls?.schedule?.suggestedReviewAt || state.updatedAt
+      },
+      blockedBy: stringList(lifecycleControls?.controls?.schedule?.blockedBy)
+    }
+  ];
+  const actions = commandCandidates.map((candidate, index) => {
+    const permission = COMMAND_PERMISSIONS[candidate.command] || null;
+    const permissionBlockedBy = permission && !state.actor.permissions.includes(permission)
+      ? [`missing-permission:${permission}`]
+      : [];
+    const workspaceBlockedBy = commandWorkspaceViolations(candidate.command, state.workspaceScope);
+    const blockedBy = [...new Set([
+      ...stringList(candidate.blockedBy),
+      ...permissionBlockedBy,
+      ...workspaceBlockedBy
+    ])].sort();
+    const enabled = Boolean(candidate.enabled) && blockedBy.length === 0;
+    return {
+      sequence: index + 1,
+      id: candidate.id,
+      command: candidate.command,
+      label: candidate.label,
+      gate: candidate.gate,
+      enabled,
+      state: enabled ? 'available' : 'blocked',
+      reason: candidate.reason,
+      route: state.clientRuntime.routes.command,
+      idempotencyKey: `${state.tenant.isolationKey}:${surfaceName}:action:${candidate.command}:${digest(candidate.payload)}`,
+      payload: {
+        tenantId: state.tenant.tenantId,
+        workspaceId: state.tenant.workspaceId,
+        isolationKey: state.tenant.isolationKey,
+        ...candidate.payload
+      },
+      blockedBy,
+      requiredPermission: permission
+    };
+  });
+  const primary = actions.find((action) => action.enabled)
+    || actions.find((action) => action.gate === unresolvedGates[0]?.gate)
+    || actions[0];
+
+  return {
+    schema: 'aios.review-ready.command-action-matrix.v1',
+    generatedAt: state.updatedAt,
+    state: primary?.enabled ? 'actionable' : 'blocked',
+    primaryActionId: primary?.id || null,
+    primaryCommand: primary?.command || null,
+    unresolvedGateCount: unresolvedGates.length,
+    unresolvedGates: unresolvedGates.map((gate) => ({
+      gate: gate.gate,
+      label: gate.label,
+      severity: gate.severity,
+      blockedBy: gate.blockedBy
+    })),
+    actions,
+    handoff: {
+      previewRoute: state.clientRuntime.routes.preview,
+      commandRoute: state.clientRuntime.routes.command,
+      auditRoute: state.clientRuntime.routes.handoff,
+      auditDestination: auditHandoff.destination,
+      handoffId: auditHandoff.handoffId
+    },
+    validation: {
+      status: validationSummary.status,
+      ok: validationSummary.ok,
+      failedGates: validationSummary.failedGates,
+      blockingCount: validationSummary.blockingCount
+    },
+    proof: {
+      actionMatrixDigest: digest({
+        tenant: state.tenant,
+        status: state.status,
+        actions,
+        unresolvedGates: unresolvedGates.map((gate) => gate.gate),
+        validationStatus: validationSummary.status
+      })
+    }
+  };
+}
+
 function countReadyProofRefs(checks) {
   return Object.values(checks).filter((check) => check.ok && check.proof).length;
 }
@@ -1036,6 +1669,11 @@ function normalizeHistorySnapshots(value) {
       retryQueueDepth: Number.isFinite(entry.retryQueueDepth) ? entry.retryQueueDepth : 0,
       providerCount: Number.isFinite(entry.providerCount) ? entry.providerCount : 0,
       staleProviderCount: Number.isFinite(entry.staleProviderCount) ? entry.staleProviderCount : 0,
+      mailchimpProviderCount: Number.isFinite(entry.mailchimpProviderCount) ? entry.mailchimpProviderCount : 0,
+      mailchimpReadyProviderCount: Number.isFinite(entry.mailchimpReadyProviderCount) ? entry.mailchimpReadyProviderCount : 0,
+      mailchimpExportReady: Boolean(entry.mailchimpExportReady),
+      mailchimpExportBatchId: text(entry.mailchimpExportBatchId, null),
+      mailchimpBlockedProviderCount: Number.isFinite(entry.mailchimpBlockedProviderCount) ? entry.mailchimpBlockedProviderCount : 0,
       readyForAudit: Boolean(entry.readyForAudit),
       readyForExternalHandoff: Boolean(entry.readyForExternalHandoff),
       exportRef: text(entry.exportRef, null),
@@ -1108,6 +1746,67 @@ function commandIdempotencyKey(commandName, command, tenant) {
       commandIdempotencyMaterial(commandName, command, tenant)
     )}`
   );
+}
+
+function commandPayloadDecision(commandName, command, state) {
+  const violations = [];
+  const normalized = text(commandName, null);
+  if (!normalized) violations.push('command-missing');
+  if (normalized && !MUTATING_COMMANDS.has(normalized) && !READ_ONLY_COMMANDS.has(normalized)) {
+    return {
+      status: 'ignored',
+      violations: [`command-unknown:${normalized}`]
+    };
+  }
+  if (READ_ONLY_COMMANDS.has(normalized)) {
+    return { status: 'ignored', violations };
+  }
+  if (normalized === 'record-check') {
+    const checkName = text(command.check, null);
+    const proof = proofRef(command.proof || command.proofRef, null);
+    if (!state.settings.enabled) violations.push('lifecycle-disabled');
+    if (!checkName) violations.push('check-missing');
+    if (checkName && !DEFAULT_CHECKS.includes(checkName)) violations.push(`check-unknown:${checkName}`);
+    if (booleanSetting(command.ok, false) && !proof) violations.push('check-proof-missing');
+  }
+  if (normalized === 'retry-health-error' || normalized === 'clear-health-error') {
+    const hasTarget = Boolean(text(command.incidentId || command.id || command.code || command.errorCode, null));
+    if (!hasTarget && state.operationalHealth.activeIncidentCount > 1) violations.push('health-incident-ambiguous');
+  }
+  if (normalized === 'mark-recovered') {
+    const submittedProofRefs = [
+      ...normalizeProofRefs(command.proofRefs || command.proofRef || command.proof),
+      ...proofRefsFromEvidence(asEvidenceList(command.evidence), 'recovery-proof')
+    ];
+    if (state.settings.requireRecoveryProof && submittedProofRefs.length === 0) violations.push('recovery-proof-missing');
+  }
+  if (normalized === 'set-lifecycle-enabled') {
+    const candidate = command.enabled ?? command.value;
+    const recognized = typeof candidate === 'boolean'
+      || typeof candidate === 'number'
+      || (typeof candidate === 'string'
+        && ['true', '1', 'yes', 'on', 'enabled', 'false', '0', 'no', 'off', 'disabled']
+          .includes(candidate.trim().toLowerCase()));
+    if (!recognized) violations.push('enabled-value-invalid');
+  }
+  if (normalized === 'schedule-review-window') {
+    const scheduled = normalizedScheduleDate(command.scheduledFor || command.nextReviewAt);
+    const paused = normalizedScheduleDate(command.pausedUntil);
+    const enabled = normalizedScheduleDate(command.enabledUntil);
+    if (!scheduled.valid) violations.push(`scheduledFor-invalid:${scheduled.raw}`);
+    if (!paused.valid) violations.push(`pausedUntil-invalid:${paused.raw}`);
+    if (!enabled.valid) violations.push(`enabledUntil-invalid:${enabled.raw}`);
+    if (paused.value && enabled.value && paused.value > enabled.value) violations.push('pausedUntil-after-enabledUntil');
+  }
+  const deferred = violations.some((violation) => (
+    violation === 'lifecycle-disabled'
+    || violation === 'recovery-proof-missing'
+    || violation === 'health-incident-ambiguous'
+  ));
+  return {
+    status: violations.length > 0 ? deferred ? 'deferred' : 'rejected' : 'accepted',
+    violations: [...new Set(violations)].sort()
+  };
 }
 
 function persistedStatusDecision({ requestedStatus, derivedStatus, checks, recovery, settings, health }) {
@@ -1186,6 +1885,7 @@ function restoreCommandContract({ state, command, index }) {
     tenantId: state.tenant.tenantId,
     workspaceId: state.tenant.workspaceId,
     isolationKey: state.tenant.isolationKey,
+    ...asRecord(command.payload),
     ...(command.check ? { check: command.check } : {}),
     ...(command.incidentId ? { incidentId: command.incidentId } : {}),
     ...(command.providerId ? { providerId: command.providerId } : {}),
@@ -1198,16 +1898,17 @@ function restoreCommandContract({ state, command, index }) {
     persistenceKey: `${state.tenant.isolationKey}:${surfaceName}`
   })}`;
   const blockedBy = commandWorkspaceViolations(commandName, state.workspaceScope);
+  const commandBlockedBy = [...new Set([...blockedBy, ...stringList(command.blockedBy)])].sort();
   return {
     ...command,
     sequence: index + 1,
     idempotencyKey,
     payload,
-    replaySafe: blockedBy.length === 0,
-    blockedBy,
-    replayMode: commandName === 'record-check' || commandName === 'mark-recovered'
+    replaySafe: commandBlockedBy.length === 0,
+    blockedBy: commandBlockedBy,
+    replayMode: command.replayMode || (commandName === 'record-check' || commandName === 'mark-recovered'
       ? 'requires-fresh-proof'
-      : 'idempotent-command'
+      : 'idempotent-command')
   };
 }
 
@@ -1239,6 +1940,17 @@ function buildRestorePlan({ state, readinessGates, validationSummary, proofManif
       providerId: provider.providerId,
       reason: provider.missingCapabilities.length > 0 ? 'provider-capability-gap' : 'provider-sync-stale'
     }));
+  const providerRecoveryCommands = Array.isArray(state.providerServiceContract?.recoveryActions?.actions)
+    ? state.providerServiceContract.recoveryActions.actions.map((action) => ({
+        command: action.command,
+        providerId: action.providerId,
+        reason: action.reason,
+        dueAt: action.dueAt,
+        blockedBy: action.blockedBy,
+        payload: action.payload,
+        replayMode: action.replayMode
+      }))
+    : [];
   const recoveryCommands = state.recovery.required || !recoveryProofSatisfied(state.recovery, state.settings)
     ? [{
         command: 'mark-recovered',
@@ -1246,7 +1958,7 @@ function buildRestorePlan({ state, readinessGates, validationSummary, proofManif
         reason: state.recovery.required ? text(state.recovery.reason, 'recovery-required') : 'recovery-proof-missing'
       }]
     : [];
-  const commands = [...healthCommands, ...providerCommands, ...recoveryCommands, ...missingChecks]
+  const commands = [...healthCommands, ...providerCommands, ...providerRecoveryCommands, ...recoveryCommands, ...missingChecks]
     .map((command, index) => restoreCommandContract({ state, command, index }));
   const blockedGates = readinessGates.filter((gate) => !gate.ready).map((gate) => gate.gate);
   const replayBlockedBy = commands.flatMap((command) => command.blockedBy);
@@ -1406,8 +2118,13 @@ function reviewReadyAnalytics({ checks, recovery, evidence, commandLedger, statu
     providerCount: providerSummary.providerCount,
     acceptedProviderCount: providerSummary.acceptedProviderCount,
     staleProviderCount: providerSummary.staleProviderCount,
+    mailchimpProviderCount: providerSummary.mailchimpProviderCount,
+    mailchimpReadyProviderCount: providerSummary.mailchimpReadyProviderCount,
+    mailchimpBlockedProviderCount: providerSummary.mailchimpBlockedProviderCount,
+    mailchimpBlockedReasons: providerSummary.mailchimpBlockedReasons,
     providerMissingCapabilities: providerSummary.missingCapabilities,
     readyForExternalHandoff: providerSummary.readyForExternalHandoff,
+    readyForMailchimpHandoff: providerSummary.readyForMailchimpHandoff,
     actionableErrors: health.actionableErrors
   };
 }
@@ -1486,6 +2203,17 @@ function deriveNextAction({ status, checks, recovery, settings, schedule, update
       reason: 'provider-capability-gap',
       dueAt: updatedAt,
       blockedBy: providerSummary.missingCapabilities
+    };
+  }
+  if (providerSummary.mailchimpProviderCount > 0 && !providerSummary.readyForMailchimpHandoff) {
+    return {
+      action: 'repair-mailchimp-audit-handoff',
+      command: 'sync-provider-contracts',
+      reason: 'mailchimp-audit-handoff-not-ready',
+      dueAt: updatedAt,
+      blockedBy: providerSummary.mailchimpBlockedReasons.length > 0
+        ? providerSummary.mailchimpBlockedReasons
+        : ['mailchimp-provider-not-ready']
     };
   }
   if (providerSummary.staleProviderCount > 0) {
@@ -1676,6 +2404,16 @@ function buildTimelineReportingState({ state, analytics, readinessGates, timelin
       status: analytics.staleProviderCount === 0 ? 'clear' : 'sync-required'
     },
     {
+      section: 'mailchimp',
+      metric: 'mailchimpReadyProviderCount',
+      value: `${analytics.mailchimpReadyProviderCount}/${analytics.mailchimpProviderCount}`,
+      status: analytics.mailchimpProviderCount === 0
+        ? 'not-configured'
+        : analytics.mailchimpBlockedProviderCount === 0
+          ? 'clear'
+          : 'handoff-blocked'
+    },
+    {
       section: 'cadence',
       metric: 'dueState',
       value: dueState,
@@ -1764,6 +2502,12 @@ function exportReadySummary({
     reviewDecisionPrimaryCommand: reviewDecision?.primaryAction?.command || null,
     providerServiceContractId: providerServiceContract?.contractId || null,
     providerHandoffState: providerServiceContract?.externalHandoff?.state || null,
+    mailchimpHandoffId: providerServiceContract?.mailchimpAuditHandoff?.handoffId || null,
+    mailchimpHandoffState: providerServiceContract?.mailchimpAuditHandoff?.state || null,
+    mailchimpHandoffReady: providerServiceContract?.mailchimpAuditHandoff?.ready === true,
+    mailchimpHandoffAccepted: providerServiceContract?.mailchimpAuditHandoff?.acceptance?.accepted === true,
+    mailchimpHandoffExportReady: providerServiceContract?.mailchimpAuditHandoff?.acceptance?.exportReady === true,
+    mailchimpBoundaryProofDigest: providerServiceContract?.mailchimpAuditHandoff?.boundaryPayload?.proofDigest || null,
     timelineReportId: timelineReport?.reportId || null,
     timelineDueState: timelineReport?.dueState || null,
     timelineFreshness: timelineReport?.freshness || null,
@@ -1793,6 +2537,9 @@ function exportReadySummary({
       providerCount: analytics.providerCount,
       acceptedProviderCount: analytics.acceptedProviderCount,
       staleProviderCount: analytics.staleProviderCount,
+      mailchimpProviderCount: analytics.mailchimpProviderCount,
+      mailchimpReadyProviderCount: analytics.mailchimpReadyProviderCount,
+      mailchimpBlockedProviderCount: analytics.mailchimpBlockedProviderCount,
       activeHealthIncidentCount: analytics.activeHealthIncidentCount,
       retryQueueDepth: analytics.retryQueueDepth,
       exhaustedRetryCount: analytics.exhaustedRetryCount
@@ -1806,6 +2553,20 @@ function exportReadySummary({
     boundaryViolationCounts: analytics.boundaryViolationCounts,
     providerMissingCapabilities: analytics.providerMissingCapabilities,
     readyForExternalHandoff: analytics.readyForExternalHandoff,
+    readyForMailchimpHandoff: analytics.readyForMailchimpHandoff,
+    mailchimpBlockedReasons: analytics.mailchimpBlockedReasons,
+    mailchimpAuditHandoff: providerServiceContract?.mailchimpAuditHandoff
+      ? {
+          handoffId: providerServiceContract.mailchimpAuditHandoff.handoffId,
+          state: providerServiceContract.mailchimpAuditHandoff.state,
+          ready: providerServiceContract.mailchimpAuditHandoff.ready,
+          targetCount: providerServiceContract.mailchimpAuditHandoff.targetCount,
+          readyTargetCount: providerServiceContract.mailchimpAuditHandoff.readyTargetCount,
+          acceptance: providerServiceContract.mailchimpAuditHandoff.acceptance,
+          boundaryPayload: providerServiceContract.mailchimpAuditHandoff.boundaryPayload,
+          exportRows: providerServiceContract.mailchimpAuditHandoff.exportRows
+        }
+      : null,
     providerServiceBlockedBy: providerServiceContract?.externalHandoff?.blockedBy || [],
     timelineReportRows: timelineReport?.reportRows || [],
     validationStatus: analytics.missingProofCount === 0 && settings.validation.ok ? 'pass' : 'action-required',
@@ -1872,14 +2633,19 @@ function buildReadinessGates({ state, analytics, auditHandoff }) {
     readinessGate(
       'providers',
       providerSummary.providerCount === 0 || (
-        providerSummary.missingCapabilities.length === 0 && providerSummary.staleProviderCount === 0
+        providerSummary.missingCapabilities.length === 0
+        && providerSummary.staleProviderCount === 0
+        && (providerSummary.mailchimpProviderCount === 0 || providerSummary.readyForMailchimpHandoff)
       ),
-      providerSummary.missingCapabilities.length > 0 ? 'blocking' : 'warning',
+      providerSummary.missingCapabilities.length > 0 || providerSummary.mailchimpBlockedProviderCount > 0 ? 'blocking' : 'warning',
       providerSummary.providerCount === 0
         ? 'No external provider contract is attached.'
-        : `${providerSummary.acceptedProviderCount}/${providerSummary.providerCount} provider contracts accepted.`,
+        : providerSummary.mailchimpProviderCount > 0
+          ? `${providerSummary.mailchimpReadyProviderCount}/${providerSummary.mailchimpProviderCount} Mailchimp handoff target(s) ready.`
+          : `${providerSummary.acceptedProviderCount}/${providerSummary.providerCount} provider contracts accepted.`,
       [
         ...providerSummary.missingCapabilities,
+        ...providerSummary.mailchimpBlockedReasons,
         ...(providerSummary.staleProviderCount > 0 ? ['provider-sync-stale'] : [])
       ]
     ),
@@ -2223,6 +2989,13 @@ function buildPreviewContract({ state, analytics, auditHandoff, readinessGates, 
     })),
     providerServiceContract: state.providerServiceContract,
     lifecycleControls: state.lifecycleControls,
+    operatorActions: {
+      state: state.commandActionMatrix?.state || 'unavailable',
+      primaryActionId: state.commandActionMatrix?.primaryActionId || null,
+      primaryCommand: state.commandActionMatrix?.primaryCommand || null,
+      unresolvedGateCount: state.commandActionMatrix?.unresolvedGateCount || 0,
+      actions: state.commandActionMatrix?.actions || []
+    },
     auditHandoff: {
       destination: auditHandoff.destination,
       handoffId: auditHandoff.handoffId,
@@ -2289,6 +3062,14 @@ function buildAcceptanceContract({ state, nextAction, validationSummary, auditHa
   const scopeViolations = commandWorkspaceViolations('seal-review-ready', state.workspaceScope);
   const canAccept = validationSummary.ok && auditHandoff.readyForAudit && scopeViolations.length === 0;
   const command = canAccept ? 'seal-review-ready' : nextAction.command;
+  const persistedReadiness = buildPersistedReadinessSummary({
+    state,
+    nextAction,
+    validationSummary,
+    auditHandoff,
+    scopeViolations,
+    canAccept
+  });
   return {
     schema: 'aios.review-ready.acceptance.v1',
     accepted: canAccept && READY_STATUSES.has(state.status),
@@ -2315,7 +3096,89 @@ function buildAcceptanceContract({ state, nextAction, validationSummary, auditHa
       workflowRef: state.workflowHandoff?.workflowRef || null,
       continuationToken: state.workflowHandoff?.continuation?.continuationToken || null,
       returnRoute: state.workflowHandoff?.continuation?.returnRoute || null
-    }
+    },
+    persistedReadiness
+  };
+}
+
+function buildPersistedReadinessSummary({
+  state,
+  nextAction,
+  validationSummary,
+  auditHandoff,
+  scopeViolations = [],
+  canAccept = false
+}) {
+  const persistence = state.persistence || {};
+  const restorePlan = persistence.restorePlan || {};
+  const commandLedger = asRecord(state.commandLedger);
+  const deferredCommands = Object.values(commandLedger).filter((entry) => entry.status === 'deferred');
+  const failedCommands = Object.values(commandLedger).filter((entry) => entry.status === 'failed');
+  const blockedBy = [
+    ...stringList(validationSummary.failedGates),
+    ...stringList(nextAction.blockedBy),
+    ...stringList(scopeViolations),
+    ...(auditHandoff.readyForAudit ? [] : ['audit-handoff-not-ready']),
+    ...(persistence.restartSafe === false ? ['persistence-not-restart-safe'] : []),
+    ...(restorePlan.replaySafe === false ? ['restore-plan-not-replay-safe'] : []),
+    ...(failedCommands.length > 0 ? ['failed-command-ledger-entry'] : [])
+  ];
+  const resumeCommand = restorePlan.commands?.[0] || (
+    nextAction.command
+      ? {
+          command: nextAction.command,
+          reason: nextAction.reason,
+          blockedBy: stringList(nextAction.blockedBy)
+        }
+      : null
+  );
+
+  return {
+    schema: 'aios.review-ready.persisted-readiness-summary.v1',
+    generatedAt: state.updatedAt,
+    status: state.status,
+    restartSafe: Boolean(state.restartSafe && persistence.restartSafe !== false && restorePlan.replaySafe !== false),
+    acceptanceReady: canAccept && state.workspaceScope.sealable,
+    auditReady: auditHandoff.readyForAudit,
+    externalHandoffReady: auditHandoff.readyForExternalHandoff,
+    persistence: {
+      key: persistence.persistenceKey || null,
+      status: persistence.status || 'unknown',
+      revision: persistence.revision || 0,
+      digestStatus: persistence.digestStatus || 'unknown',
+      replayCursor: persistence.replayCursor || null,
+      restorePlanStatus: restorePlan.status || null,
+      restoreCommandCount: restorePlan.commandCount || 0,
+      replaySafe: Boolean(restorePlan.replaySafe)
+    },
+    commandLedger: {
+      totalCommands: Object.keys(commandLedger).length,
+      deferredCommands: deferredCommands.length,
+      failedCommands: failedCommands.length,
+      lastCommand: state.lastCommand
+        ? {
+            command: state.lastCommand.command,
+            status: state.lastCommand.status,
+            appliedAt: state.lastCommand.appliedAt,
+            violations: stringList(state.lastCommand.violations)
+          }
+        : null
+    },
+    nextResume: resumeCommand
+      ? {
+          command: resumeCommand.command,
+          reason: resumeCommand.reason || nextAction.reason,
+          dueAt: nextAction.dueAt,
+          idempotencyKey: `${state.tenant.isolationKey}:${surfaceName}:resume:${digest({
+            command: resumeCommand.command,
+            revision: persistence.revision,
+            cursor: persistence.replayCursor,
+            status: state.status
+          })}`,
+          blockedBy: [...new Set([...blockedBy, ...stringList(resumeCommand.blockedBy)])].sort()
+        }
+      : null,
+    blockedBy: [...new Set(blockedBy)].sort()
   };
 }
 
@@ -2520,14 +3383,20 @@ function historySnapshot({ state, reason, capturedAt }) {
     commandCount: state.analytics.commandCount,
     evidenceCount: state.analytics.evidenceCount,
     rejectedCommandCount: state.analytics.rejectedCommandCount,
-    activeHealthIncidentCount: state.analytics.activeHealthIncidentCount,
-    retryQueueDepth: state.analytics.retryQueueDepth,
-    providerCount: state.analytics.providerCount,
-    staleProviderCount: state.analytics.staleProviderCount,
-    readyForAudit: Boolean(state.auditHandoff?.readyForAudit),
-    readyForExternalHandoff: Boolean(state.auditHandoff?.readyForExternalHandoff),
-    exportRef,
-    digest: digest(material)
+      activeHealthIncidentCount: state.analytics.activeHealthIncidentCount,
+      retryQueueDepth: state.analytics.retryQueueDepth,
+      providerCount: state.analytics.providerCount,
+      staleProviderCount: state.analytics.staleProviderCount,
+      mailchimpProviderCount: state.analytics.mailchimpProviderCount,
+      mailchimpReadyProviderCount: state.analytics.mailchimpReadyProviderCount,
+      mailchimpBlockedProviderCount: state.analytics.mailchimpBlockedProviderCount,
+      mailchimpExportReady: state.providerServiceContract?.mailchimpAuditHandoff?.exportManifest?.exportReady === true,
+      mailchimpExportBatchId: state.providerServiceContract?.mailchimpAuditHandoff?.exportManifest?.batchId || null,
+      readyForAudit: Boolean(state.auditHandoff?.readyForAudit),
+      readyForExternalHandoff: Boolean(state.auditHandoff?.readyForExternalHandoff),
+      readyForMailchimpHandoff: Boolean(state.analytics.readyForMailchimpHandoff),
+      exportRef,
+      digest: digest(material)
   };
 }
 
@@ -2572,7 +3441,8 @@ function buildAnalyticsHistoryReport({ state, analytics, historySnapshots, readi
       rejectedCommandCount: numericDelta(analytics, previous, 'rejectedCommandCount'),
       evidenceCount: numericDelta(analytics, previous, 'evidenceCount'),
       activeHealthIncidentCount: numericDelta(analytics, previous, 'activeHealthIncidentCount'),
-      staleProviderCount: numericDelta(analytics, previous, 'staleProviderCount')
+      staleProviderCount: numericDelta(analytics, previous, 'staleProviderCount'),
+      mailchimpReadyProviderCount: numericDelta(analytics, previous, 'mailchimpReadyProviderCount')
     },
     cadence: {
       reviewCadenceMinutes: state.settings.reviewCadenceMinutes,
@@ -2602,7 +3472,8 @@ function buildAnalyticsExportBundle({
   validationSummary,
   auditHandoff,
   nextAction,
-  timelineReport
+  timelineReport,
+  providerServiceContract
 }) {
   const exportId = `${state.tenant.isolationKey}:${surfaceName}:analytics-export:${state.updatedAt}`;
   const counterRows = Object.entries({
@@ -2618,7 +3489,10 @@ function buildAnalyticsExportBundle({
     retryQueueDepth: analytics.retryQueueDepth,
     providerCount: analytics.providerCount,
     acceptedProviderCount: analytics.acceptedProviderCount,
-    staleProviderCount: analytics.staleProviderCount
+    staleProviderCount: analytics.staleProviderCount,
+    mailchimpProviderCount: analytics.mailchimpProviderCount,
+    mailchimpReadyProviderCount: analytics.mailchimpReadyProviderCount,
+    mailchimpBlockedProviderCount: analytics.mailchimpBlockedProviderCount
   }).map(([metric, value]) => ({
     metric,
     value,
@@ -2635,6 +3509,10 @@ function buildAnalyticsExportBundle({
     status: state.status,
     auditReady: auditHandoff.readyForAudit,
     externalHandoffReady: auditHandoff.readyForExternalHandoff,
+    mailchimpHandoffReady: providerServiceContract?.mailchimpAuditHandoff?.ready === true,
+    mailchimpHandoffAccepted: providerServiceContract?.mailchimpAuditHandoff?.acceptance?.accepted === true,
+    mailchimpExportReady: providerServiceContract?.mailchimpAuditHandoff?.exportManifest?.exportReady === true,
+    mailchimpExportBatchId: providerServiceContract?.mailchimpAuditHandoff?.exportManifest?.batchId || null,
     validationStatus: validationSummary.status,
     nextAction: {
       action: nextAction.action,
@@ -2644,20 +3522,43 @@ function buildAnalyticsExportBundle({
       blockedBy: stringList(nextAction.blockedBy)
     },
     manifest: {
-      rowSets: ['counters', 'readinessGates', 'historySnapshots', 'timelineEvents', 'timelineReportRows'],
+      rowSets: [
+        'counters',
+        'readinessGates',
+        'historySnapshots',
+        'timelineEvents',
+        'timelineReportRows',
+        'mailchimpAuditTargets'
+      ],
       counterRows: counterRows.length,
       readinessGateRows: readinessGates.length,
       historyRows: historySnapshots.length,
       timelineRows: timeline.length,
       timelineReportRows: timelineReport?.reportRows?.length || 0,
+      mailchimpAuditTargetRows: providerServiceContract?.mailchimpAuditHandoff?.exportRows?.length || 0,
+      mailchimpExportBatchId: providerServiceContract?.mailchimpAuditHandoff?.exportManifest?.batchId || null,
+      mailchimpExportWatermark: providerServiceContract?.mailchimpAuditHandoff?.exportManifest?.watermark || null,
       digest: digest({
         counterRows,
         readinessGates,
         historySnapshots,
         timeline,
-        timelineReport
+        timelineReport,
+        mailchimpAuditHandoff: providerServiceContract?.mailchimpAuditHandoff || null
       })
     },
+    mailchimpAuditHandoff: providerServiceContract?.mailchimpAuditHandoff
+      ? {
+          handoffId: providerServiceContract.mailchimpAuditHandoff.handoffId,
+          state: providerServiceContract.mailchimpAuditHandoff.state,
+          ready: providerServiceContract.mailchimpAuditHandoff.ready,
+          acceptance: providerServiceContract.mailchimpAuditHandoff.acceptance,
+          boundaryPayload: providerServiceContract.mailchimpAuditHandoff.boundaryPayload,
+          exportManifest: providerServiceContract.mailchimpAuditHandoff.exportManifest,
+          syncRows: providerServiceContract.mailchimpAuditHandoff.syncRows
+        }
+      : null,
+    mailchimpAuditTargets: providerServiceContract?.mailchimpAuditHandoff?.exportRows || [],
     timelineReport: timelineReport || null,
     timelineReportRows: (timelineReport?.reportRows || []).map((row, index) => ({
       sequence: index + 1,
@@ -2801,8 +3702,20 @@ function refreshReportingState(state, reason = 'state-shaped') {
     ...stateWithProofManifest,
     lifecycleControls
   };
-  const preview = buildPreviewContract({
+  const commandActionMatrix = buildReviewCommandActionMatrix({
     state: stateWithControls,
+    nextAction,
+    readinessGates: reporting.readinessGates,
+    validationSummary,
+    auditHandoff,
+    lifecycleControls
+  });
+  const stateWithActions = {
+    ...stateWithControls,
+    commandActionMatrix
+  };
+  const preview = buildPreviewContract({
+    state: stateWithActions,
     analytics,
     auditHandoff,
     readinessGates: reporting.readinessGates,
@@ -2811,18 +3724,18 @@ function refreshReportingState(state, reason = 'state-shaped') {
     timelineReport
   });
   const acceptance = buildAcceptanceContract({
-    state: stateWithControls,
+    state: stateWithActions,
     nextAction,
     validationSummary,
     auditHandoff
   });
   const nextSteps = buildNextStepContracts({
-    state: stateWithControls,
+    state: stateWithActions,
     nextAction,
     readinessGates: reporting.readinessGates
   });
   const reviewDecision = buildReviewDecisionContract({
-    state: stateWithControls,
+    state: stateWithActions,
     preview,
     acceptance,
     validationSummary,
@@ -2833,7 +3746,7 @@ function refreshReportingState(state, reason = 'state-shaped') {
   const historySnapshots = normalizeHistorySnapshots([
     ...normalizeHistorySnapshots(state.historySnapshots),
     historySnapshot({
-      state: { ...state, analytics, auditHandoff },
+      state: { ...state, analytics, auditHandoff, providerServiceContract },
       reason,
       capturedAt: state.updatedAt
     })
@@ -2854,7 +3767,8 @@ function refreshReportingState(state, reason = 'state-shaped') {
     validationSummary,
     auditHandoff,
     nextAction,
-    timelineReport
+    timelineReport,
+    providerServiceContract
   });
 
   return {
@@ -2867,12 +3781,14 @@ function refreshReportingState(state, reason = 'state-shaped') {
     proofManifest,
     persistence,
     lifecycleControls,
+    commandActionMatrix,
     nextAction,
     analytics,
     readinessGates: reporting.readinessGates,
     validationSummary,
     preview,
     acceptance,
+    persistedReadiness: acceptance.persistedReadiness,
     reviewDecision,
     nextSteps,
     timeline: reporting.timeline,
@@ -3083,7 +3999,8 @@ export function applyReviewReadyCommand(state = {}, command = {}) {
   const commandId = commandIdempotencyKey(commandName, command, commandTenant);
   const decision = boundaryDecision(actor, commandName, shaped.tenant, commandTenant);
   const scopeViolations = commandWorkspaceViolations(commandName, commandWorkspaceScope);
-  const violations = [...new Set([...decision.violations, ...scopeViolations])].sort();
+  const payloadDecision = commandPayloadDecision(commandName, command, shaped);
+  const violations = [...new Set([...decision.violations, ...scopeViolations, ...payloadDecision.violations])].sort();
 
   if (shaped.commandLedger[commandId]) {
     return {
@@ -3105,18 +4022,22 @@ export function applyReviewReadyCommand(state = {}, command = {}) {
       ...shaped.commandLedger,
       [commandId]: {
         command: commandName || 'unknown',
-        status: 'accepted',
+        status: payloadDecision.status,
         appliedAt,
         actorId: actor.id,
         tenantId: commandTenant.tenantId,
         workspaceId: commandTenant.workspaceId,
-        violations: []
+        violations: payloadDecision.violations
       }
     }
   };
 
   if (violations.length > 0) {
-    next.commandLedger[commandId].status = 'rejected';
+    next.commandLedger[commandId].status = payloadDecision.status === 'ignored'
+      ? 'ignored'
+      : payloadDecision.status === 'deferred'
+        ? 'deferred'
+        : 'rejected';
     next.commandLedger[commandId].violations = violations;
     next.boundary = {
       allowed: false,
@@ -3130,6 +4051,11 @@ export function applyReviewReadyCommand(state = {}, command = {}) {
         allowed: commandWorkspaceScope.allowed
       }
     };
+    next.lastCommand = next.commandLedger[commandId];
+    return refreshReportingState(next, `command:${commandName || 'unknown'}`);
+  }
+
+  if (payloadDecision.status === 'ignored') {
     next.lastCommand = next.commandLedger[commandId];
     return refreshReportingState(next, `command:${commandName || 'unknown'}`);
   }
@@ -3448,6 +4374,11 @@ export function describeReviewReadySurface(input = {}) {
       requiredChecks: DEFAULT_CHECKS,
       missingProofs: state.recoveryPlan.map((item) => item.check),
       commandCount: Object.keys(state.commandLedger).length,
+      actionMatrixState: state.commandActionMatrix.state,
+      primaryActionId: state.commandActionMatrix.primaryActionId,
+      primaryCommand: state.commandActionMatrix.primaryCommand,
+      unresolvedActionGateCount: state.commandActionMatrix.unresolvedGateCount,
+      blockedActionCount: state.commandActionMatrix.actions.filter((action) => !action.enabled).length,
       workspaceBoundary: state.auditHandoff.workspaceBoundary,
       handoff: state.auditHandoff,
       persistence: {
@@ -3465,6 +4396,7 @@ export function describeReviewReadySurface(input = {}) {
     preview: state.preview,
     acceptance: state.acceptance,
     reviewDecision: state.reviewDecision,
+    commandActionMatrix: state.commandActionMatrix,
     validation: state.validationSummary,
     nextSteps: state.nextSteps
   };

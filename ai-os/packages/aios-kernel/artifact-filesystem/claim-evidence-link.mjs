@@ -27,6 +27,8 @@ const supportedProviderCapabilities = new Set([
   "sync.cursor",
   "lifecycle.observe"
 ]);
+const supportedEvidenceUriSchemes = new Set(["aios:", "https:", "http:", "ipfs:"]);
+const evidenceDigestPattern = /^(sha256|sha384|sha512|blake3)[:=-]([A-Fa-f0-9]{32,256})$/;
 const requiredProviderCapabilities = ["claim-link.write", "audit-handoff.export", "proof.verify"];
 const defaultProviderName = "hosted-kernel-artifact-filesystem";
 const requiredProviderServiceContracts = Object.freeze({
@@ -107,6 +109,139 @@ function normalizeText(value, field, errors) {
 
 function normalizeOptionalText(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function decodeLocatorPath(value) {
+  try {
+    return {
+      value: decodeURIComponent(value),
+      malformed: false
+    };
+  } catch {
+    return {
+      value,
+      malformed: true
+    };
+  }
+}
+
+function normalizeEvidenceDigest(value) {
+  const raw = normalizeOptionalText(value);
+  if (!raw) {
+    return {
+      digest: null,
+      algorithm: null,
+      valid: false,
+      reasons: ["digest-missing"]
+    };
+  }
+  const match = evidenceDigestPattern.exec(raw);
+  if (!match) {
+    return {
+      digest: raw,
+      algorithm: "unknown",
+      valid: false,
+      reasons: ["digest-format-invalid"]
+    };
+  }
+  return {
+    digest: `${match[1]}:${match[2].toLowerCase()}`,
+    algorithm: match[1],
+    valid: true,
+    reasons: []
+  };
+}
+
+function inspectEvidenceUri(value) {
+  const raw = normalizeOptionalText(value);
+  if (!raw) {
+    return {
+      uri: null,
+      canonicalUri: null,
+      kind: "missing",
+      valid: false,
+      reasons: ["uri-missing"]
+    };
+  }
+
+  const reasons = [];
+  if (/[\u0000-\u001F\u007F]/.test(raw)) {
+    reasons.push("uri-contains-control-character");
+  }
+
+  const parsedPath = decodeLocatorPath(raw);
+  if (parsedPath.malformed) {
+    reasons.push("uri-has-malformed-encoding");
+  }
+  const decoded = parsedPath.value;
+
+  try {
+    const url = new URL(decoded);
+    if (!supportedEvidenceUriSchemes.has(url.protocol)) {
+      reasons.push("uri-scheme-unsupported");
+    }
+    if (url.protocol === "aios:" && url.hostname !== "artifact-root") {
+      reasons.push("uri-aios-host-unsupported");
+    }
+    if (url.pathname.split("/").includes("..")) {
+      reasons.push("uri-path-traversal");
+    }
+    return {
+      uri: raw,
+      canonicalUri: url.toString(),
+      kind: url.protocol === "aios:" ? "artifact-root-uri" : "external-uri",
+      scheme: url.protocol.replace(/:$/, ""),
+      valid: reasons.length === 0,
+      reasons: [...new Set(reasons)].sort()
+    };
+  } catch {
+    const segments = decoded.replace(/^\/+/, "").split("/");
+    if (decoded.startsWith("/")) {
+      reasons.push("uri-relative-path-was-absolute");
+    }
+    if (segments.includes("..")) {
+      reasons.push("uri-path-traversal");
+    }
+    if (decoded.includes("\\")) {
+      reasons.push("uri-contained-backslash");
+    }
+    const canonicalPath = segments
+      .filter((segment) => segment && segment !== "." && segment !== "..")
+      .join("/");
+    return {
+      uri: raw,
+      canonicalUri: canonicalPath || null,
+      kind: "artifact-root-path",
+      scheme: null,
+      valid: reasons.length === 0 && Boolean(canonicalPath),
+      reasons: [...new Set(canonicalPath ? reasons : [...reasons, "uri-path-empty"])].sort()
+    };
+  }
+}
+
+function normalizeEvidenceLocatorFields({ uri, digest }) {
+  const uriInspection = inspectEvidenceUri(uri);
+  const digestInspection = normalizeEvidenceDigest(digest);
+  const reasons = [
+    ...uriInspection.reasons.map((reason) => `uri:${reason}`),
+    ...digestInspection.reasons
+      .filter((reason) => reason !== "digest-missing")
+      .map((reason) => `digest:${reason}`)
+  ];
+  const hasLocator = Boolean(uriInspection.canonicalUri || digestInspection.digest);
+  const trusted = (!uriInspection.canonicalUri || uriInspection.valid)
+    && (!digestInspection.digest || digestInspection.valid);
+  return {
+    uri: uriInspection.canonicalUri,
+    rawUri: uriInspection.uri,
+    digest: digestInspection.valid ? digestInspection.digest : digestInspection.digest,
+    uriInspection,
+    digestInspection,
+    hasLocator,
+    trusted,
+    status: trusted && hasLocator ? "trusted" : hasLocator ? "invalid" : "missing",
+    reasons: [...new Set(reasons)].sort()
+  };
 }
 
 function normalizeRoute(value, fallback) {
@@ -575,6 +710,125 @@ function buildLifecycleState(persisted, now) {
   };
 }
 
+function buildLifecycleCommandPlan({ command = {}, state, action, scope, actor, nextSettings, errors, now }) {
+  const currentSettings = state.lifecycle?.settings || defaultLifecycleSettings;
+  const requestedSchedule = command.schedule || command.settings?.schedule || {};
+  const actionSupported = lifecycleCommandActions.has(action);
+  const canManage = actorCanManageLifecycle(actor);
+  const currentMaxEvidenceItems = currentSettings.maxEvidenceItems || defaultLifecycleSettings.maxEvidenceItems;
+  const maxEvidenceDecrease = nextSettings.maxEvidenceItems < currentMaxEvidenceItems;
+  const digestRequirementChanged = nextSettings.requireEvidenceDigest !== currentSettings.requireEvidenceDigest;
+  const disableRequested = action === "disable" || nextSettings.enabled === false;
+  const scheduleMutation = ["schedule", "pause-schedule", "resume-schedule", "refresh-proofs"].includes(action);
+  const evidenceLimitMutation = nextSettings.maxEvidenceItems !== currentMaxEvidenceItems;
+  const controlMutations = [
+    disableRequested ? "disable-lifecycle" : null,
+    scheduleMutation ? "schedule-control" : null,
+    evidenceLimitMutation ? "evidence-limit" : null,
+    digestRequirementChanged ? "digest-requirement" : null
+  ].filter(Boolean);
+  const handoffRequired = disableRequested || maxEvidenceDecrease || digestRequirementChanged;
+  const reason = normalizeOptionalText(command.reason);
+  const providerContractReady = state.integration?.providerContract?.ready === true;
+  const providerRuntimeReady = state.integration?.providerRuntime?.readyForHandoff !== false;
+  const visibleLinks = linksForAccess(state, state.accessBoundary);
+  const affectedLinkIds = visibleLinks
+    .filter((link) => {
+      const evidenceCount = Array.isArray(link.evidence) ? link.evidence.length : 0;
+      return disableRequested
+        || (maxEvidenceDecrease && evidenceCount > nextSettings.maxEvidenceItems)
+        || (nextSettings.requireEvidenceDigest && Array.isArray(link.evidence) && link.evidence.some((item) => !item.digest));
+    })
+    .map((link) => link.linkId)
+    .sort();
+  const validationIssues = [
+    !actionSupported ? "unsupported-action" : null,
+    !canManage ? "actor-not-lifecycle-manager" : null,
+    handoffRequired && !reason ? "operator-reason-required" : null,
+    handoffRequired && !actorCanExportHandoff(actor) ? "audit-handoff-role-required" : null,
+    handoffRequired && !providerContractReady ? "provider-contract-not-ready" : null,
+    handoffRequired && !providerRuntimeReady ? "provider-runtime-not-ready" : null,
+    action === "schedule" && requestedSchedule.mode === "interval" && !requestedSchedule.nextRunAt ? "schedule-next-run-derived" : null,
+    errors.length > 0 ? "settings-validation-errors" : null
+  ].filter(Boolean);
+  const auditHandoff = {
+    contractVersion: "aios.claim-evidence-link.lifecycle-audit-handoff.v1",
+    required: handoffRequired,
+    ready: !handoffRequired || (Boolean(reason) && actorCanExportHandoff(actor) && providerContractReady && providerRuntimeReady),
+    route: "/artifact-filesystem/claim-evidence-link/handoff",
+    reason,
+    affectedLinkIds,
+    providerContractProof: state.integration?.providerContract?.proof || null,
+    providerRuntimeProof: state.integration?.providerRuntime?.proof || null
+  };
+  const status = validationIssues.some((issue) => !["schedule-next-run-derived"].includes(issue))
+    ? "blocked"
+    : action === "refresh-proofs"
+      ? "ready-to-refresh"
+      : scheduleMutation
+        ? "ready-to-schedule"
+        : "ready-to-apply";
+  const payload = {
+    surfaceId,
+    action,
+    scope,
+    actorId: actor?.actorId || null,
+    roles: actor?.roles || [],
+    currentSettings,
+    nextSettings,
+    controlMutations,
+    validationIssues,
+    auditHandoff,
+    affectedLinkIds
+  };
+
+  return {
+    contractVersion: "aios.claim-evidence-link.lifecycle-command-plan.v1",
+    generatedAt: now,
+    action,
+    status,
+    applyAllowed: status !== "blocked",
+    scope,
+    actor: {
+      actorId: actor?.actorId || null,
+      roles: actor?.roles || [],
+      canManageLifecycle: canManage,
+      canExportHandoff: actorCanExportHandoff(actor)
+    },
+    currentSettings,
+    nextSettings,
+    controlMutations,
+    schedule: {
+      requestedMode: requestedSchedule.mode || nextSettings.schedule.mode,
+      effectiveMode: nextSettings.schedule.mode,
+      intervalMinutes: nextSettings.schedule.intervalMinutes,
+      nextRunAt: nextSettings.schedule.nextRunAt,
+      due: nextSettings.schedule.nextRunAt ? Date.parse(nextSettings.schedule.nextRunAt) <= Date.parse(now) : false
+    },
+    auditHandoff,
+    affectedLinkIds,
+    validation: {
+      valid: status !== "blocked",
+      issues: validationIssues,
+      settingsErrors: errors
+    },
+    nextAction: {
+      type: status === "blocked"
+        ? "repair-lifecycle-command"
+        : action === "refresh-proofs"
+          ? "dispatch-proof-refresh"
+          : handoffRequired
+            ? "apply-lifecycle-command-with-audit-handoff"
+            : "apply-lifecycle-command",
+      status: status === "blocked" ? "blocked" : "ready",
+      route: "/artifact-filesystem/claim-evidence-link/lifecycle",
+      auditHandoffRoute: auditHandoff.required ? auditHandoff.route : null,
+      reason: validationIssues[0] || action
+    },
+    proof: proofHash(payload)
+  };
+}
+
 function scopedCommandId(scope, commandId) {
   return scope && commandId ? `${scope.scopeKey}::${commandId}` : commandId;
 }
@@ -1031,20 +1285,116 @@ function findBoundaryConflict(state, scope, linkId) {
   };
 }
 
+function evidenceIdentityDuplicateMessage(evidenceId) {
+  return `evidenceId ${evidenceId} must be unique within command.evidence`;
+}
+
+function registerEvidenceIdentity(evidenceId, index, seen, errors) {
+  if (!evidenceId) return false;
+  const firstIndex = seen.get(evidenceId);
+  if (firstIndex !== undefined) {
+    errors.push(evidenceIdentityDuplicateMessage(evidenceId));
+    errors.push(`evidence[${index}].evidenceId duplicates evidence[${firstIndex}].evidenceId`);
+    return false;
+  }
+  seen.set(evidenceId, index);
+  return true;
+}
+
+function summarizeEvidenceIdentityValidation(rawEvidence, normalizedEvidence) {
+  const source = Array.isArray(rawEvidence) ? rawEvidence : [];
+  const seen = new Map();
+  const duplicateEvidenceIds = new Set();
+  const blankEvidenceIndexes = [];
+  const malformedEvidenceIndexes = [];
+
+  source.forEach((item, index) => {
+    if (typeof item === "string") {
+      const evidenceId = item.trim();
+      if (!evidenceId) {
+        blankEvidenceIndexes.push(index);
+        return;
+      }
+      if (seen.has(evidenceId)) duplicateEvidenceIds.add(evidenceId);
+      else seen.set(evidenceId, index);
+      return;
+    }
+
+    if (!item || typeof item !== "object") {
+      malformedEvidenceIndexes.push(index);
+      return;
+    }
+
+    const evidenceId = normalizeOptionalText(item.evidenceId || item.id);
+    if (!evidenceId) {
+      blankEvidenceIndexes.push(index);
+      return;
+    }
+    if (seen.has(evidenceId)) duplicateEvidenceIds.add(evidenceId);
+    else seen.set(evidenceId, index);
+  });
+
+  const normalizedIds = normalizeIdList(normalizedEvidence.map((item) => item.evidenceId));
+  const reasons = [
+    blankEvidenceIndexes.length > 0 ? "evidence-id-missing" : null,
+    malformedEvidenceIndexes.length > 0 ? "evidence-item-malformed" : null,
+    duplicateEvidenceIds.size > 0 ? "evidence-id-duplicate" : null,
+    normalizedIds.length !== normalizedEvidence.length ? "normalized-evidence-id-collision" : null
+  ].filter(Boolean);
+
+  return {
+    contractVersion: "aios.claim-evidence-link.evidence-identity-validation.v1",
+    valid: reasons.length === 0,
+    status: reasons.length === 0 ? "stable" : "ambiguous",
+    evidenceCount: source.length,
+    normalizedEvidenceCount: normalizedEvidence.length,
+    uniqueEvidenceIdCount: normalizedIds.length,
+    duplicateEvidenceIds: [...duplicateEvidenceIds].sort(),
+    blankEvidenceIndexes,
+    malformedEvidenceIndexes,
+    reasons,
+    proof: proofHash({
+      surfaceId,
+      evidenceIds: normalizedIds,
+      duplicateEvidenceIds: [...duplicateEvidenceIds].sort(),
+      blankEvidenceIndexes,
+      malformedEvidenceIndexes,
+      reasons
+    })
+  };
+}
+
 function normalizeEvidence(value, errors) {
   if (!Array.isArray(value) || value.length === 0) {
     errors.push("evidence must include at least one evidence item");
     return [];
   }
+  const seenEvidenceIds = new Map();
   return value.map((item, index) => {
     if (typeof item === "string") {
-      return { evidenceId: item.trim(), uri: null, digest: null, claimIds: [] };
+      const evidenceId = item.trim();
+      if (!evidenceId) {
+        errors.push(`evidence[${index}].evidenceId must be a non-empty string`);
+        return null;
+      }
+      registerEvidenceIdentity(evidenceId, index, seenEvidenceIds, errors);
+      const locator = normalizeEvidenceLocatorFields({});
+      return {
+        evidenceId,
+        uri: null,
+        digest: null,
+        locator,
+        locatorStatus: locator.status,
+        locatorReasons: locator.reasons,
+        claimIds: []
+      };
     }
     if (!item || typeof item !== "object") {
       errors.push(`evidence[${index}] must be a string or object`);
       return null;
     }
     const evidenceId = normalizeText(item.evidenceId || item.id, `evidence[${index}].evidenceId`, errors);
+    registerEvidenceIdentity(evidenceId, index, seenEvidenceIds, errors);
     const claimRefs = Array.isArray(item.claimIds)
       ? item.claimIds
       : Array.isArray(item.claims)
@@ -1052,10 +1402,18 @@ function normalizeEvidence(value, errors) {
         : item.claimId
           ? [item.claimId]
           : [];
+    const locator = normalizeEvidenceLocatorFields({
+      uri: item.uri || item.path || item.artifactUri,
+      digest: item.digest || item.contentDigest || item.integrity
+    });
     return {
       evidenceId,
-      uri: typeof item.uri === "string" && item.uri.trim() ? item.uri.trim() : null,
-      digest: typeof item.digest === "string" && item.digest.trim() ? item.digest.trim() : null,
+      uri: locator.uri,
+      rawUri: locator.rawUri,
+      digest: locator.digest,
+      locator,
+      locatorStatus: locator.status,
+      locatorReasons: locator.reasons,
       claimIds: [...new Set(claimRefs.filter((claimId) => typeof claimId === "string").map((claimId) => claimId.trim()).filter(Boolean))].sort()
     };
   }).filter((item) => item && item.evidenceId);
@@ -1117,11 +1475,19 @@ function normalizeProofArtifactRefs(value) {
       const source = item && typeof item === "object" ? item : {};
       const proofArtifactId = normalizeOptionalText(source.proofArtifactId || source.evidenceId || source.id);
       if (!proofArtifactId) return null;
+      const locator = normalizeEvidenceLocatorFields({
+        uri: source.uri || source.path || source.artifactUri,
+        digest: source.digest || source.contentDigest || source.integrity
+      });
       return {
         proofArtifactId,
         evidenceId: normalizeOptionalText(source.evidenceId) || proofArtifactId,
-        uri: normalizeOptionalText(source.uri),
-        digest: normalizeOptionalText(source.digest),
+        uri: locator.uri,
+        rawUri: locator.rawUri,
+        digest: locator.digest,
+        locator,
+        locatorStatus: locator.status,
+        locatorReasons: locator.reasons,
         status: normalizeOptionalText(source.status) || "linked",
         claimIds: normalizeIdList(source.claimIds)
       };
@@ -1134,11 +1500,19 @@ function buildProofArtifactReferenceIndex(evidence = []) {
   for (const item of Array.isArray(evidence) ? evidence : []) {
     const evidenceId = normalizeOptionalText(item?.evidenceId || item?.id || (typeof item === "string" ? item : null));
     if (!evidenceId || refs.has(evidenceId)) continue;
+    const locator = normalizeEvidenceLocatorFields({
+      uri: item?.uri || item?.path || item?.artifactUri,
+      digest: item?.digest || item?.contentDigest || item?.integrity
+    });
     refs.set(evidenceId, {
       proofArtifactId: evidenceId,
       evidenceId,
-      uri: normalizeOptionalText(item?.uri),
-      digest: normalizeOptionalText(item?.digest),
+      uri: locator.uri,
+      rawUri: locator.rawUri,
+      digest: locator.digest,
+      locator,
+      locatorStatus: locator.status,
+      locatorReasons: locator.reasons,
       status: "linked",
       claimIds: normalizeIdList(item?.claimIds)
     });
@@ -1172,12 +1546,22 @@ function normalizeEvidenceReferencePolicy(value = {}) {
 
 function evaluateEvidenceReference(ref, policy = {}) {
   const evidenceId = normalizeOptionalText(ref?.evidenceId || ref?.proofArtifactId);
-  const uri = normalizeOptionalText(ref?.uri);
-  const digest = normalizeOptionalText(ref?.digest);
+  const locator = ref?.locator && typeof ref.locator === "object"
+    ? ref.locator
+    : normalizeEvidenceLocatorFields({
+      uri: ref?.uri || ref?.path || ref?.artifactUri,
+      digest: ref?.digest || ref?.contentDigest || ref?.integrity
+    });
+  const uri = normalizeOptionalText(locator.uri || ref?.uri);
+  const digest = normalizeOptionalText(locator.digest || ref?.digest);
   const normalizedPolicy = normalizeEvidenceReferencePolicy(policy);
+  const locatorInvalidReasons = Array.isArray(locator.reasons) && locator.status === "invalid"
+    ? locator.reasons
+    : [];
   const reasons = [
     normalizedPolicy.requireLocator && !uri && !digest ? "evidence-reference-locator-missing" : null,
     normalizedPolicy.requireDigest && !digest ? "evidence-reference-digest-missing" : null,
+    ...locatorInvalidReasons.map((reason) => `evidence-reference-${reason}`),
     ref?.resolved === false ? "evidence-reference-unresolved" : null
   ].filter(Boolean);
   return {
@@ -1191,7 +1575,11 @@ function evaluateEvidenceReference(ref, policy = {}) {
     ].filter(Boolean),
     policy: normalizedPolicy,
     compliant: reasons.length === 0,
-    reasons
+    reasons,
+    locatorStatus: locator.status,
+    locatorReasons: locator.reasons || [],
+    uriInspection: locator.uriInspection || null,
+    digestInspection: locator.digestInspection || null
   };
 }
 
@@ -1508,10 +1896,20 @@ function buildArtifactClaimEvidenceLinks(link, manifest, trace = null, policy = 
     .filter((item) => normalizeOptionalText(item?.evidenceId || item?.id || (typeof item === "string" ? item : null)))
     .map((item) => {
       const evidenceId = normalizeOptionalText(item?.evidenceId || item?.id || (typeof item === "string" ? item : null));
+      const locator = item?.locator && typeof item.locator === "object"
+        ? item.locator
+        : normalizeEvidenceLocatorFields({
+          uri: item?.uri || item?.path || item?.artifactUri,
+          digest: item?.digest || item?.contentDigest || item?.integrity
+        });
       return [evidenceId, {
         evidenceId,
-        uri: normalizeOptionalText(item?.uri),
-        digest: normalizeOptionalText(item?.digest),
+        uri: locator.uri,
+        rawUri: locator.rawUri,
+        digest: locator.digest,
+        locator,
+        locatorStatus: locator.status,
+        locatorReasons: locator.reasons,
         claimIds: normalizeIdList(item?.claimIds)
       }];
     }));
@@ -1528,7 +1926,14 @@ function buildArtifactClaimEvidenceLinks(link, manifest, trace = null, policy = 
         proofArtifactId,
         evidenceId: evidence?.evidenceId || proofArtifact?.evidenceId || proofArtifactId,
         uri: evidence?.uri || proofArtifact?.uri || null,
+        rawUri: evidence?.rawUri || proofArtifact?.rawUri || null,
         digest: evidence?.digest || proofArtifact?.digest || null,
+        locator: evidence?.locator || proofArtifact?.locator || normalizeEvidenceLocatorFields({}),
+        locatorStatus: evidence?.locatorStatus || proofArtifact?.locatorStatus || "missing",
+        locatorReasons: normalizeIdList([
+          ...(evidence?.locatorReasons || []),
+          ...(proofArtifact?.locatorReasons || [])
+        ]),
         resolved: resolvedProofArtifactIds.includes(proofArtifactId) && !unresolvedProofArtifactIds.includes(proofArtifactId),
         proofArtifactStatus: proofArtifact?.status || (evidence ? "linked" : "unresolved")
       };
@@ -2201,6 +2606,17 @@ function buildLinkAcceptancePreview({ state, link, now, manifest = null, artifac
         linkId: link?.linkId || null,
         claimIds: previewRows.map((row) => row.claimId).sort()
       };
+  const mailchimpPreview = buildMailchimpClaimEvidencePreview({
+    link,
+    previewRows,
+    accepted,
+    readyForHandoff,
+    exported,
+    localBlockers,
+    providerBlockers,
+    nextStep,
+    now
+  });
   const payload = {
     surfaceId,
     generatedAt: now,
@@ -2210,6 +2626,7 @@ function buildLinkAcceptancePreview({ state, link, now, manifest = null, artifac
     exported,
     localBlockers,
     providerBlockers,
+    mailchimpPreviewProof: mailchimpPreview.proof,
     claimRowProofs: previewRows.map((row) => row.proof),
     manifestProof: claimEvidenceManifest.proof || null,
     claimProofIndexProof: claimProof.proof || null,
@@ -2255,6 +2672,7 @@ function buildLinkAcceptancePreview({ state, link, now, manifest = null, artifac
     },
     claims: previewRows,
     nextStep,
+    mailchimp: mailchimpPreview,
     proofs: {
       link: link?.proof || null,
       evidenceTrace: link?.evidenceTrace?.proof || null,
@@ -2263,6 +2681,260 @@ function buildLinkAcceptancePreview({ state, link, now, manifest = null, artifac
       artifactClaimEvidenceLinks: artifactLinks.proof || null,
       claimEvidenceTraceMatrix: traceMatrix.proof || null
     },
+    proof: proofHash(payload)
+  };
+}
+
+function normalizeMailchimpLinkSettings(link = {}) {
+  const source = link.mailchimp
+    || link.mailchimpExport
+    || link.externalTargets?.mailchimp
+    || link.auditHandoff?.mailchimp
+    || {};
+  const audienceId = normalizeOptionalText(source.audienceId || source.listId || source.audience);
+  const campaignId = normalizeOptionalText(source.campaignId || source.campaign);
+  const accountId = normalizeOptionalText(source.accountId || source.providerAccountId || source.mailchimpAccountId);
+  const dataCenter = normalizeOptionalText(source.dataCenter || source.dc || source.serverPrefix)
+    ?.toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")
+    .slice(0, 24) || null;
+  const segmentId = normalizeOptionalText(source.segmentId || source.segment || source.staticSegmentId);
+  const syncCursor = normalizeOptionalText(source.syncCursor || source.cursor || source.lastWebhookCursor);
+  const memberKey = normalizeOptionalText(source.memberKey || source.emailHash || source.contactId)
+    || normalizeOptionalText(link.claimId)
+    || normalizeOptionalText(link.linkId);
+  const tagPrefix = (normalizeOptionalText(source.tagPrefix) || "AIOS_CLAIM")
+    .replace(/[^A-Za-z0-9_:-]/g, "_")
+    .slice(0, 40);
+  const mode = normalizeOptionalText(source.mode || source.exportMode) || "claim-evidence-audit";
+
+  return {
+    contractVersion: "aios.claim-evidence-link.mailchimp-settings.v1",
+    enabled: normalizeBoolean(source.enabled, Boolean(audienceId || campaignId)),
+    accountId,
+    dataCenter,
+    audienceId,
+    campaignId,
+    segmentId,
+    syncCursor,
+    memberKey,
+    mode: ["claim-evidence-audit", "campaign-proof", "audience-claim-sync"].includes(mode)
+      ? mode
+      : "claim-evidence-audit",
+    requireAcknowledgement: normalizeBoolean(source.requireAcknowledgement ?? source.requireAck, true),
+    tagPrefix,
+    webhookRoute: normalizeOptionalText(source.webhookRoute || source.callbackRoute)
+  };
+}
+
+function buildMailchimpLinkTargetScope({ link, settings, rows, now }) {
+  const targetKind = settings.mode === "campaign-proof" ? "campaign" : "audience";
+  const targetId = targetKind === "campaign" ? settings.campaignId : settings.audienceId;
+  const workspaceKey = link?.scope?.scopeKey || [
+    link?.scope?.tenantId || link?.tenantId || "tenant-unbound",
+    link?.scope?.workspaceId || link?.workspaceId || "workspace-unbound"
+  ].join("/");
+  const targetKey = [
+    "mailchimp",
+    settings.accountId || "account-unbound",
+    settings.dataCenter || "dc-unbound",
+    targetKind,
+    targetId || "target-unbound",
+    settings.segmentId || "segment-none",
+    settings.memberKey || "member-unbound"
+  ].join(":");
+  const exportableRows = rows.filter((row) => row.exportable).length;
+  const missingBindings = [
+    !settings.accountId ? "mailchimp-account-id-required" : null,
+    !settings.dataCenter ? "mailchimp-data-center-required" : null,
+    !targetId ? `mailchimp-${targetKind}-id-required` : null,
+    !settings.memberKey ? "mailchimp-member-key-required" : null
+  ].filter(Boolean);
+  const subject = {
+    surfaceId,
+    generatedAt: now,
+    linkId: link?.linkId || null,
+    claimId: link?.claimId || null,
+    workspaceKey,
+    targetKey,
+    targetKind,
+    targetId,
+    memberKey: settings.memberKey,
+    syncCursor: settings.syncCursor,
+    exportableRows
+  };
+
+  return {
+    contractVersion: "aios.claim-evidence-link.mailchimp-target-scope.v1",
+    provider: "mailchimp",
+    tenantId: link?.scope?.tenantId || link?.tenantId || null,
+    workspaceId: link?.scope?.workspaceId || link?.workspaceId || null,
+    workspaceKey,
+    accountId: settings.accountId,
+    dataCenter: settings.dataCenter,
+    audienceId: settings.audienceId,
+    campaignId: settings.campaignId,
+    segmentId: settings.segmentId,
+    memberKey: settings.memberKey,
+    targetKind,
+    targetId,
+    targetKey,
+    syncCursor: settings.syncCursor,
+    exportableRows,
+    missingBindings,
+    bound: missingBindings.length === 0,
+    proof: proofHash(subject),
+    canonicalSubject: subject
+  };
+}
+
+function buildMailchimpClaimEvidencePreview({
+  link,
+  previewRows,
+  accepted,
+  readyForHandoff,
+  exported,
+  localBlockers,
+  providerBlockers,
+  nextStep,
+  now
+}) {
+  const settings = normalizeMailchimpLinkSettings(link);
+  const blockedReasons = [
+    !settings.enabled ? "mailchimp-export-disabled" : null,
+    !settings.audienceId && settings.mode !== "campaign-proof" ? "mailchimp-audience-id-required" : null,
+    !settings.campaignId && settings.mode === "campaign-proof" ? "mailchimp-campaign-id-required" : null,
+    !accepted ? "claim-evidence-acceptance-required" : null,
+    exported ? "claim-evidence-handoff-already-exported" : null,
+    ...localBlockers.map((reason) => `local:${reason}`),
+    ...providerBlockers.map((reason) => `provider:${reason}`)
+  ].filter(Boolean);
+  const rows = previewRows.map((row) => {
+    const rowBlockedReasons = [
+      row.status !== "accepted" ? "claim-row-not-accepted" : null,
+      ...normalizeIdList(row.unresolvedEvidenceIds).map((id) => `unresolved-evidence:${id}`),
+      ...normalizeIdList(row.nonCompliantEvidenceIds).map((id) => `non-compliant-evidence:${id}`),
+      ...normalizeIdList(row.missingDigestEvidenceIds).map((id) => `missing-digest:${id}`)
+    ].filter(Boolean);
+    return {
+      rowId: proofHash({
+        surfaceId,
+        linkId: link?.linkId || null,
+        claimId: row.claimId,
+        mailchimp: settings.memberKey,
+        reasons: rowBlockedReasons
+      }),
+      linkId: link?.linkId || null,
+      claimId: row.claimId,
+      artifactId: row.artifactId || link?.artifactId || null,
+      status: rowBlockedReasons.length === 0 ? "exportable" : "blocked",
+      exportable: rowBlockedReasons.length === 0,
+      blockedReasons: rowBlockedReasons,
+      mergeFields: {
+        AIOS_LINK_ID: link?.linkId || null,
+        AIOS_CLAIM_ID: row.claimId,
+        AIOS_ARTIFACT: row.artifactId || link?.artifactId || null,
+        AIOS_SCOPE: link?.scope?.scopeKey || null,
+        AIOS_PROOF: row.proof || link?.proof || null
+      },
+      tags: [
+        `${settings.tagPrefix}:CLAIM:${row.claimId}`,
+        `${settings.tagPrefix}:ARTIFACT:${row.artifactId || link?.artifactId || "unknown"}`,
+        row.status === "accepted" ? `${settings.tagPrefix}:READY` : `${settings.tagPrefix}:REPAIR`
+      ].map((tag) => tag.toUpperCase())
+    };
+  });
+  const exportableRows = rows.filter((row) => row.exportable);
+  const targetScope = buildMailchimpLinkTargetScope({
+    link,
+    settings,
+    rows,
+    now
+  });
+  const scopeBlockedReasons = targetScope.missingBindings.map((reason) => `target:${reason}`);
+  blockedReasons.push(...scopeBlockedReasons);
+  const status = blockedReasons.length === 0 && exportableRows.length === rows.length && readyForHandoff
+    ? "ready"
+    : settings.enabled && exportableRows.length > 0
+      ? "partial"
+      : "blocked";
+  const payload = {
+    surfaceId,
+    generatedAt: now,
+    linkId: link?.linkId || null,
+    settings,
+    status,
+    blockedReasons,
+    rowIds: rows.map((row) => row.rowId),
+    nextStep
+  };
+
+  return {
+    contractVersion: "aios.claim-evidence-link.mailchimp-preview.v1",
+    generatedAt: now,
+    status,
+    ready: status === "ready",
+    partial: status === "partial",
+    settings,
+    target: {
+      provider: "mailchimp",
+      accountId: settings.accountId,
+      dataCenter: settings.dataCenter,
+      audienceId: settings.audienceId,
+      campaignId: settings.campaignId,
+      segmentId: settings.segmentId,
+      memberKey: settings.memberKey,
+      scopeKey: targetScope.targetKey,
+      webhookRoute: settings.webhookRoute
+    },
+    targetScope,
+    validationSummary: {
+      valid: status === "ready",
+      blockedReasons,
+      localBlockers,
+      providerBlockers,
+      claimRows: rows.length,
+      exportableClaimRows: exportableRows.length,
+      blockedClaimRows: rows.length - exportableRows.length
+    },
+    handoff: {
+      command: "claim-evidence-link.mailchimp.export",
+      route: "/artifact-filesystem/claim-evidence-link/handoff/mailchimp",
+      method: "POST",
+      dispatchable: status === "ready",
+      degradedDispatchable: status === "partial",
+      payloadContract: "aios.claim-evidence-link.mailchimp-payload.v1",
+      targetScopeProof: targetScope.proof,
+      resumeToken: proofHash({
+        surfaceId,
+        linkId: link?.linkId || null,
+        targetKey: targetScope.targetKey,
+        syncCursor: settings.syncCursor,
+        rowIds: rows.map((row) => row.rowId)
+      }),
+      acknowledgement: {
+        required: settings.requireAcknowledgement,
+        expectedState: settings.requireAcknowledgement ? "mailchimp-handoff-acknowledged" : "not-required",
+        webhookRoute: settings.webhookRoute,
+        syncCursor: settings.syncCursor,
+        targetScopeProof: targetScope.proof
+      },
+      idempotencyKey: proofHash({ surfaceId, linkId: link?.linkId || null, target: settings, targetScopeProof: targetScope.proof, rowIds: rows.map((row) => row.rowId) })
+    },
+    nextStep: status === "ready"
+      ? {
+        type: "export-mailchimp-handoff",
+        status: "ready",
+        route: "/artifact-filesystem/claim-evidence-link/handoff/mailchimp",
+        command: "claim-evidence-link.mailchimp.export",
+        reason: "claim evidence is ready for Mailchimp handoff"
+      }
+      : {
+        ...nextStep,
+        status: status === "partial" ? "partial-mailchimp-export" : nextStep.status,
+        reason: blockedReasons[0] || nextStep.reason
+      },
+    rows,
     proof: proofHash(payload)
   };
 }
@@ -2340,6 +3012,24 @@ function actionableError(message, boundaryConflict = null) {
       remediation: "Attach a digest to every evidence item or relax lifecycle.settings.requireEvidenceDigest with an authorized lifecycle command."
     };
   }
+  if (message.includes("must be unique within command.evidence") || message.includes("duplicates evidence[")) {
+    return {
+      code: "AFS_CEL_EVIDENCE_ID_DUPLICATE",
+      path: "evidence.evidenceId",
+      message,
+      retryable: false,
+      remediation: "Give each evidence item a unique evidenceId so claim proof artifacts and handoff manifests cannot collapse distinct evidence records."
+    };
+  }
+  if (message.startsWith("evidence[") && message.includes(".evidenceId must be a non-empty string")) {
+    return {
+      code: "AFS_CEL_EVIDENCE_ID_REQUIRED",
+      path: "evidence.evidenceId",
+      message,
+      retryable: false,
+      remediation: "Attach a stable non-empty evidenceId to every evidence item before submitting the command."
+    };
+  }
   if (message === "linkId could not be derived") {
     return {
       code: "AFS_CEL_LINK_ID_UNDERIVED",
@@ -2393,6 +3083,33 @@ function actionableError(message, boundaryConflict = null) {
       message,
       retryable: false,
       remediation: "Retry with a maintainer, artifact-curator, claim-reviewer, or kernel-admin role for audit handoff export."
+    };
+  }
+  if (message === "actor is not permitted to export claim evidence handoff for lifecycle audit") {
+    return {
+      code: "AFS_CEL_LIFECYCLE_AUDIT_HANDOFF_PERMISSION_DENIED",
+      path: "actor.roles",
+      message,
+      retryable: false,
+      remediation: "Use an actor role that can export audit handoff when disabling lifecycle controls or tightening proof requirements."
+    };
+  }
+  if (message === "provider contract is not ready for lifecycle audit handoff") {
+    return {
+      code: "AFS_CEL_LIFECYCLE_AUDIT_PROVIDER_NOT_READY",
+      path: "integration.providerContract",
+      message,
+      retryable: true,
+      remediation: "Negotiate the provider contract before applying lifecycle changes that require an audit handoff."
+    };
+  }
+  if (message === "provider runtime is not ready for lifecycle audit handoff") {
+    return {
+      code: "AFS_CEL_LIFECYCLE_AUDIT_PROVIDER_DEGRADED",
+      path: "integration.providerRuntime",
+      message,
+      retryable: true,
+      remediation: "Retry provider health-check before applying lifecycle changes that require an audit handoff."
     };
   }
   if (message === "provider contract is not ready for audit handoff export") {
@@ -2580,6 +3297,7 @@ function normalizeProviderRuntimeHealth(input = {}, persistedIntegration = {}, c
       }
     })
     : null;
+  const serviceReadiness = buildProviderServiceReadiness({ contract, status, nextRetry, now });
   const payload = {
     surfaceId,
     providerInstanceId: contract?.provider?.providerInstanceId || null,
@@ -2589,7 +3307,8 @@ function normalizeProviderRuntimeHealth(input = {}, persistedIntegration = {}, c
     observedAt,
     missingCapabilities,
     missingServiceRequirements,
-    degradedReason
+    degradedReason,
+    serviceReadinessProof: serviceReadiness.proof
   };
   return {
     contractVersion: "aios.claim-evidence-link.provider-runtime-health.v1",
@@ -2604,8 +3323,126 @@ function normalizeProviderRuntimeHealth(input = {}, persistedIntegration = {}, c
     readyForWrites: contract?.ready === true && !providerUnavailable,
     readyForHandoff: contract?.ready === true && status === "ok",
     degradedReason,
+    serviceReadiness,
     lastFailureAt: source.lastFailureAt ? asIso(source.lastFailureAt, observedAt) : providerDegraded ? observedAt : null,
     nextRetry,
+    proof: proofHash(payload)
+  };
+}
+
+function buildProviderServiceReadiness({ contract, status, nextRetry, now }) {
+  const endpoints = contract?.serviceContract?.endpoints || {};
+  const endpointChecks = Object.values(endpoints).map((endpoint) => ({
+    key: endpoint.key,
+    capability: endpoint.capability,
+    route: endpoint.route,
+    method: endpoint.method,
+    enabled: endpoint.enabled === true,
+    ready: endpoint.ready === true,
+    reasons: Array.isArray(endpoint.reasons) ? endpoint.reasons : []
+  }));
+  const missingCapabilities = Array.isArray(contract?.missingRequiredCapabilities)
+    ? contract.missingRequiredCapabilities
+    : [];
+  const missingServiceRequirements = Array.isArray(contract?.serviceContract?.missingServiceRequirements)
+    ? contract.serviceContract.missingServiceRequirements
+    : [];
+  const cursorAck = contract?.serviceContract?.cursorAck || {};
+  const runtimeBlocked = status === "outage" || status === "unknown";
+  const contractBlocked = contract?.ready !== true;
+  const cursorAckBlocked = cursorAck.required === true && cursorAck.ready !== true;
+  const blockedReasons = [
+    ...missingCapabilities.map((capability) => `missing-capability:${capability}`),
+    ...missingServiceRequirements.map((requirement) => `${requirement.key}:${requirement.reasons.join("|")}`),
+    runtimeBlocked ? `runtime-status:${status}` : null,
+    cursorAckBlocked ? "cursor-ack-not-ready" : null
+  ].filter(Boolean);
+  const handoffEndpoint = endpointChecks.find((endpoint) => endpoint.key === "auditHandoffEndpoint") || null;
+  const claimWriteEndpoint = endpointChecks.find((endpoint) => endpoint.key === "claimWriteEndpoint") || null;
+  const proofVerificationEndpoint = endpointChecks.find((endpoint) => endpoint.key === "proofVerificationEndpoint") || null;
+  const mode = contractBlocked || runtimeBlocked
+    ? "blocked"
+    : cursorAckBlocked
+      ? "degraded"
+      : "ready";
+  const nextAction = mode === "ready"
+    ? {
+        type: "continue-provider-sync",
+        status: "ready",
+        command: "claim-evidence-link.provider.sync",
+        route: contract?.serviceContract?.handoffSink?.route || handoffEndpoint?.route || "/artifact-filesystem/claim-evidence-link/handoff",
+        dueAt: null,
+        reason: "provider service contract is ready for claim writes, proof verification, and audit handoff"
+      }
+    : missingCapabilities.length > 0
+      ? {
+          type: "renegotiate-provider-capabilities",
+          status: "blocked",
+          command: "claim-evidence-link.provider.negotiate",
+          route: "/artifact-filesystem/claim-evidence-link/integration",
+          dueAt: now,
+          reason: "provider is missing required claim-evidence-link capabilities",
+          missingCapabilities
+        }
+      : runtimeBlocked
+        ? {
+            type: "retry-provider-health-check",
+            status: "blocked",
+            command: "claim-evidence-link.provider.health-check",
+            route: "/artifact-filesystem/claim-evidence-link/integration",
+            dueAt: nextRetry?.nextRetryAt || now,
+            reason: "provider runtime is unavailable for hosted-kernel handoff",
+            retryAfterMs: nextRetry?.retryAfterMs || retryDelayMs(1)
+          }
+        : {
+            type: "repair-provider-service-contract",
+            status: mode,
+            command: "claim-evidence-link.provider.configure-services",
+            route: "/artifact-filesystem/claim-evidence-link/integration",
+            dueAt: now,
+            reason: cursorAckBlocked
+              ? "cursor acknowledgement is required before incremental provider sync can advance"
+              : "provider service endpoints must satisfy required hosted-kernel routes before handoff",
+            missingServiceRequirements
+          };
+  const capabilityMatrix = requiredProviderCapabilities.map((capability) => ({
+    capability,
+    required: true,
+    accepted: Array.isArray(contract?.acceptedCapabilities) && contract.acceptedCapabilities.includes(capability),
+    missing: missingCapabilities.includes(capability)
+  }));
+  const handoffReady = mode === "ready" && handoffEndpoint?.ready === true;
+  const writeReady = mode !== "blocked" && claimWriteEndpoint?.ready === true;
+  const proofReady = mode !== "blocked" && proofVerificationEndpoint?.ready === true;
+  const payload = {
+    surfaceId,
+    providerInstanceId: contract?.provider?.providerInstanceId || null,
+    mode,
+    blockedReasons,
+    endpointChecks,
+    cursorAckReady: cursorAck.ready === true,
+    nextActionType: nextAction.type
+  };
+
+  return {
+    contractVersion: "aios.claim-evidence-link.provider-service-readiness.v1",
+    observedAt: now,
+    mode,
+    ready: mode === "ready",
+    degraded: mode === "degraded",
+    handoffReady,
+    writeReady,
+    proofReady,
+    blockedReasons,
+    capabilityMatrix,
+    endpointChecks,
+    cursorAck: {
+      required: cursorAck.required === true,
+      ready: cursorAck.ready === true,
+      route: cursorAck.route || null,
+      capability: cursorAck.capability || "sync.cursor"
+    },
+    nextAction,
     proof: proofHash(payload)
   };
 }
@@ -2635,6 +3472,7 @@ function buildOperationalHealth(state, now) {
   ));
   const recoveringCommands = commandLedger.filter((entry) => entry.recovery?.required === true);
   const providerRuntime = state.integration?.providerRuntime || null;
+  const providerServiceReadiness = providerRuntime?.serviceReadiness || null;
   const handoffState = state.integration?.externalHandoff || null;
   const syncState = state.integration?.sync || null;
   const pendingHandoffBlocked = handoffState?.status === "blocked" && (handoffState?.queueDepth || 0) > 0;
@@ -2755,6 +3593,16 @@ function buildOperationalHealth(state, now) {
         proof: providerRuntime.proof
       }
     }] : []),
+    ...(providerServiceReadiness?.mode === "degraded" ? [{
+      code: "AFS_CEL_PROVIDER_SERVICE_DEGRADED",
+      retryable: true,
+      retryAfterMs: providerRuntime?.nextRetry?.retryAfterMs || retryDelayMs(1),
+      nextRetryAt: providerRuntime?.nextRetry?.nextRetryAt || null,
+      remediation: providerServiceReadiness.nextAction?.reason || "Repair provider service readiness before relying on external handoff.",
+      serviceReadinessProof: providerServiceReadiness.proof,
+      blockedReasons: providerServiceReadiness.blockedReasons,
+      cursorAck: providerServiceReadiness.cursorAck
+    }] : []),
     ...(pendingHandoffBlocked ? [{
       code: "AFS_CEL_HANDOFF_BACKLOG_BLOCKED",
       retryable: true,
@@ -2836,6 +3684,7 @@ function buildOperationalHealth(state, now) {
       retryActions: retryActions.length
     },
     providerRuntime,
+    providerServiceReadiness,
     recoveryPlan: {
       status: recoveryPlan.status,
       restartSafe: recoveryPlan.restartSafe,
@@ -3485,6 +4334,7 @@ function buildProviderHandoffBatch(state, contract, sync, now, providerRuntime =
         readyForHandoff: acceptancePreview.readyForHandoff,
         validationSummary: acceptancePreview.validationSummary,
         nextStep: acceptancePreview.nextStep,
+        mailchimp: acceptancePreview.mailchimp,
         proof: acceptancePreview.proof
       },
       unresolvedClaimIds: normalizeIdList([
@@ -3945,6 +4795,15 @@ function buildExportSummary(state, analytics, timeline, now) {
     const claimProofIndex = buildClaimProofIndex(link, claimEvidenceManifest, link.evidenceTrace || null);
     const artifactClaimEvidenceLinks = artifactClaimEvidenceLinksForState(state, link, claimEvidenceManifest);
     const claimEvidenceTraceMatrix = buildClaimEvidenceTraceMatrix(link, artifactClaimEvidenceLinks);
+    const acceptancePreview = buildLinkAcceptancePreview({
+      state,
+      link,
+      now,
+      manifest: claimEvidenceManifest,
+      claimProofIndex,
+      artifactClaimEvidenceLinks,
+      claimEvidenceTraceMatrix
+    });
     return {
       linkId: link.linkId,
       rawLinkId: link.rawLinkId || null,
@@ -3968,19 +4827,33 @@ function buildExportSummary(state, analytics, timeline, now) {
       claimProofIndex,
       artifactClaimEvidenceLinks,
       claimEvidenceTraceMatrix,
-      acceptancePreview: buildLinkAcceptancePreview({
-        state,
-        link,
-        now,
-        manifest: claimEvidenceManifest,
-        claimProofIndex,
-        artifactClaimEvidenceLinks,
-        claimEvidenceTraceMatrix
-      }),
+      acceptancePreview,
+      mailchimpPreview: acceptancePreview.mailchimp,
       proof: link.proof || null,
       auditHandoff: link.auditHandoff || null,
       updatedAt: link.updatedAt
     };
+  });
+  const mailchimpRows = exportLinks
+    .map((link) => link.mailchimpPreview)
+    .filter(Boolean);
+  const mailchimpCounters = mailchimpRows.reduce((counters, preview) => {
+    counters.total += 1;
+    counters.ready += preview.status === "ready" ? 1 : 0;
+    counters.partial += preview.status === "partial" ? 1 : 0;
+    counters.blocked += preview.status === "blocked" ? 1 : 0;
+    counters.exportableClaimRows += preview.validationSummary?.exportableClaimRows || 0;
+    counters.blockedClaimRows += preview.validationSummary?.blockedClaimRows || 0;
+    for (const reason of preview.validationSummary?.blockedReasons || []) incrementCounter(counters.blockedByReason, reason);
+    return counters;
+  }, {
+    total: 0,
+    ready: 0,
+    partial: 0,
+    blocked: 0,
+    exportableClaimRows: 0,
+    blockedClaimRows: 0,
+    blockedByReason: {}
   });
   const payload = {
     surfaceId,
@@ -4030,6 +4903,24 @@ function buildExportSummary(state, analytics, timeline, now) {
         proof: analytics.claimEvidenceGapReport.proof
       }
       : null,
+    mailchimp: {
+      contractVersion: "aios.claim-evidence-link.mailchimp-export-summary.v1",
+      generatedAt: now,
+      counters: mailchimpCounters,
+      readyLinkIds: exportLinks
+        .filter((link) => link.mailchimpPreview?.status === "ready")
+        .map((link) => link.linkId)
+        .sort(),
+      partialLinkIds: exportLinks
+        .filter((link) => link.mailchimpPreview?.status === "partial")
+        .map((link) => link.linkId)
+        .sort(),
+      blockedLinkIds: exportLinks
+        .filter((link) => link.mailchimpPreview?.status === "blocked")
+        .map((link) => link.linkId)
+        .sort(),
+      proofs: mailchimpRows.map((preview) => preview.proof)
+    },
     latestTimeline: timeline.slice(-10)
   };
   return {
@@ -4041,6 +4932,7 @@ function buildExportSummary(state, analytics, timeline, now) {
     scopeCount: analytics.totals.scopes,
     accessBoundary: state.accessBoundary || null,
     claimEvidenceGapReport: analytics.claimEvidenceGapReport || null,
+    mailchimp: payload.mailchimp,
     proof: proofHash(payload),
     payload
   };
@@ -4524,6 +5416,172 @@ function buildClientPreviewRows(state, now) {
     });
 }
 
+function buildClaimEvidenceReportingCursor({
+  state,
+  analytics,
+  analyticsHistory,
+  timelineReport,
+  exportReadiness,
+  analyticsExportManifest,
+  now
+}) {
+  const links = linksForAccess(state, state.accessBoundary);
+  const commandLedger = commandLedgerForAccess(state, state.accessBoundary);
+  const pendingHandoffLinks = links
+    .filter((link) => link.status === "linked" && !link.auditHandoff?.exportedAt)
+    .map((link) => {
+      const artifactClaimEvidenceLinks = artifactClaimEvidenceLinksForState(state, link);
+      const claimEvidenceTraceMatrix = buildClaimEvidenceTraceMatrix(link, artifactClaimEvidenceLinks);
+      return {
+        linkId: link.linkId,
+        scopeKey: link.scope?.scopeKey || null,
+        commandId: link.commandId || null,
+        proof: link.proof || null,
+        updatedAt: link.updatedAt,
+        handoffStatus: link.auditHandoff?.status || "pending",
+        claimEvidenceGapStatus: claimEvidenceTraceMatrix.status
+      };
+    });
+  const recoveringCommands = commandLedger
+    .filter((entry) => entry.recovery?.required === true || entry.status === "recovering")
+    .map((entry) => ({
+      commandKey: entry.commandKey,
+      commandId: entry.commandId,
+      scopedCommandId: entry.scopedCommandId,
+      linkId: entry.linkId,
+      scopeKey: entry.scopeKey || null,
+      status: entry.status,
+      replayCount: entry.replayCount,
+      recoveryReason: entry.recovery?.reason || null,
+      retryAfterMs: entry.recovery?.retryAfterMs || retryDelayMs(entry.replayCount)
+    }));
+  const gapReport = analytics.claimEvidenceGapReport || {};
+  const latestTimelineAt = timelineReport.latestAt || analyticsHistory.current.at;
+  const blockers = [...new Set([
+    ...exportReadiness.blockers,
+    state.recoveryPlan?.blockingTaskCount > 0 ? "blocking-recovery-tasks" : null,
+    recoveringCommands.length > 0 ? "command-ledger-recovery" : null,
+    gapReport.status === "blocked" ? "claim-evidence-gap-report-blocked" : null
+  ].filter(Boolean))];
+  const status = blockers.length > 0
+    ? "blocked"
+    : pendingHandoffLinks.length > 0
+      ? "resume-ready"
+      : "complete";
+  const cursorToken = proofHash({
+    surfaceId,
+    cursor: "claim-evidence-reporting",
+    status,
+    generatedAt: now,
+    accessBoundaryProof: state.accessBoundary?.proof || null,
+    historyProof: analyticsHistory.proof,
+    timelineProof: timelineReport.proof,
+    exportManifestProof: analyticsExportManifest.proof
+  });
+  const persistableCursor = {
+    contractVersion: "aios.claim-evidence-link.persisted-reporting-cursor.v1",
+    cursorToken,
+    generatedAt: now,
+    status,
+    stateVersion: state.stateVersion,
+    accessBoundaryProof: state.accessBoundary?.proof || null,
+    analyticsHistoryProof: analyticsHistory.proof,
+    timelineReportProof: timelineReport.proof,
+    analyticsExportManifestProof: analyticsExportManifest.proof,
+    latestTimelineAt,
+    pendingHandoffLinkIds: pendingHandoffLinks.map((link) => link.linkId),
+    recoveringCommandKeys: recoveringCommands.map((entry) => entry.commandKey),
+    recoveryTaskCount: state.recoveryPlan?.taskCount || 0,
+    blockingRecoveryTaskCount: state.recoveryPlan?.blockingTaskCount || 0,
+    blockerCodes: blockers
+  };
+
+  const cursorProof = proofHash({
+    surfaceId,
+    cursorToken,
+    status,
+    blockers,
+    persistableCursor,
+    pendingHandoffLinkIds: persistableCursor.pendingHandoffLinkIds,
+    recoveringCommandKeys: persistableCursor.recoveringCommandKeys
+  });
+
+  return {
+    contractVersion: "aios.claim-evidence-link.reporting-cursor.v1",
+    generatedAt: now,
+    cursorToken,
+    status,
+    restartSafe: status !== "blocked",
+    blockers,
+    accessBoundary: state.accessBoundary
+      ? {
+        mode: state.accessBoundary.mode,
+        requestedScope: state.accessBoundary.requestedScope,
+        visibleLinkCount: state.accessBoundary.visibleLinkIds.length,
+        hiddenLinkCount: state.accessBoundary.hiddenLinkIds.length,
+        proof: state.accessBoundary.proof
+      }
+      : null,
+    history: {
+      currentAt: analyticsHistory.current.at,
+      previousAt: analyticsHistory.previous?.at || null,
+      windowSize: analyticsHistory.windowSize,
+      proof: analyticsHistory.proof,
+      deltas: analyticsHistory.deltas
+    },
+    timeline: {
+      eventCount: timelineReport.eventCount,
+      latestAt: timelineReport.latestAt,
+      failureEventCount: timelineReport.failureEvents.length,
+      handoffEventCount: timelineReport.handoffEvents.length,
+      proof: timelineReport.proof
+    },
+    exportManifest: {
+      status: analyticsExportManifest.status,
+      ready: analyticsExportManifest.ready,
+      sectionCount: analyticsExportManifest.sections.length,
+      counters: analyticsExportManifest.counters,
+      proof: analyticsExportManifest.proof
+    },
+    handoffResume: {
+      pendingLinkCount: pendingHandoffLinks.length,
+      pendingLinks: pendingHandoffLinks.slice(0, 25),
+      nextLink: pendingHandoffLinks[0] || null,
+      queueDepth: state.integration?.externalHandoff?.queueDepth || 0,
+      providerHandoffBatchProof: state.integration?.externalHandoff?.providerHandoffBatch?.proof || null
+    },
+    commandRecovery: {
+      recoveringCommandCount: recoveringCommands.length,
+      recoveringCommands: recoveringCommands.slice(0, 25),
+      nextCommand: recoveringCommands[0] || null
+    },
+    gapReport: {
+      status: gapReport.status || "clear",
+      rowCount: gapReport.rowCount || 0,
+      affectedLinkCount: gapReport.affectedLinkCount || 0,
+      affectedClaimCount: gapReport.affectedClaimCount || 0,
+      blockerCount: gapReport.blockerCount || 0,
+      proof: gapReport.proof || null
+    },
+    counters: {
+      links: analytics.totals.links,
+      linked: analytics.totals.linked,
+      rejected: analytics.totals.rejected,
+      commands: analytics.totals.commands,
+      recoveryTasks: state.recoveryPlan?.taskCount || 0,
+      blockingRecoveryTasks: state.recoveryPlan?.blockingTaskCount || 0,
+      handoffPending: analyticsExportManifest.counters.handoffPending,
+      handoffExported: analyticsExportManifest.counters.handoffExported,
+      claimEvidenceGapRows: analyticsExportManifest.counters.claimEvidenceGapRows
+    },
+    persistableCursor: {
+      ...persistableCursor,
+      proof: cursorProof
+    },
+    proof: cursorProof
+  };
+}
+
 function buildClientValidationSummary(state, analytics, now) {
   const visibleLinkIds = new Set(linksForAccess(state, state.accessBoundary).map((link) => link.linkId));
   const scoped = state.accessBoundary?.requestedScope && !state.accessBoundary?.actor?.canBypassTenantBoundary;
@@ -4705,6 +5763,7 @@ function previewClaimEvidenceAcceptance(state, command = {}, now, input = {}) {
   }, errors);
   const actor = normalizeActor(command.actor || input.actor || {}, errors);
   const evidence = normalizeEvidence(command.evidence, errors);
+  const evidenceIdentityValidation = summarizeEvidenceIdentityValidation(command.evidence, evidence);
   const claimIds = normalizeClaimSet(claimId, command, errors);
   const rawLinkId = command.linkId || (claimId && artifactId ? `${claimId}::${artifactId}` : null);
   const linkId = scopedLinkId(scope, rawLinkId);
@@ -4768,6 +5827,7 @@ function previewClaimEvidenceAcceptance(state, command = {}, now, input = {}) {
       scope,
       actorId: actor.actorId,
       evidence: summarizeEvidence({ evidence }),
+      evidenceIdentityValidation,
       evidenceTrace: {
         status: evidenceTrace.status,
         claimCount: evidenceTrace.claimCount,
@@ -4802,6 +5862,7 @@ function previewClaimEvidenceAcceptance(state, command = {}, now, input = {}) {
     validation: {
       valid: errors.length === 0,
       errors,
+      evidenceIdentityValidation,
       actionableErrors: failure?.actionableErrors || []
     },
     route: {
@@ -4816,6 +5877,7 @@ function previewClaimEvidenceAcceptance(state, command = {}, now, input = {}) {
       linkId: linkId || null,
       accepted: errors.length === 0,
       errorCodes: failure?.actionableErrors?.map((error) => error.code) || [],
+      evidenceIdentityValidationProof: evidenceIdentityValidation.proof,
       projectedProof: projectedLink?.proofPreview || null
     })
   };
@@ -4847,6 +5909,7 @@ function buildClientAcceptanceContract(state, validationSummary, now, input = {}
       evidence: {
         minItems: 1,
         maxItems: state.lifecycle?.settings?.maxEvidenceItems || defaultLifecycleSettings.maxEvidenceItems,
+        identity: "every evidence item must include a stable non-empty evidenceId unique within the command",
         digestRequired: state.lifecycle?.settings?.requireEvidenceDigest === true,
         claimTrace: "each claim must resolve to at least one evidence item; evidence.claimIds can target specific claims and omitted claimIds apply the artifact to all command claims"
       },
@@ -5533,6 +6596,15 @@ function attachReportingState(state, now, input = {}) {
     exportReadiness,
     now
   );
+  const reportingCursor = buildClaimEvidenceReportingCursor({
+    state: integratedState,
+    analytics,
+    analyticsHistory,
+    timelineReport,
+    exportReadiness,
+    analyticsExportManifest,
+    now
+  });
   const clientReview = buildClientReviewContract(integratedState, analytics, timeline, now, input);
   const clientWorkflow = buildClientWorkflowHandoff(integratedState, analytics, timeline, now, input);
   return {
@@ -5561,6 +6633,7 @@ function attachReportingState(state, now, input = {}) {
       },
       deltas: analyticsHistory.deltas,
       exportManifest: analyticsExportManifest,
+      reportingCursor,
       proof: analyticsHistory.proof
     },
     timeline,
@@ -5583,7 +6656,8 @@ function attachReportingState(state, now, input = {}) {
         eventCount: timelineReport.eventCount,
         latestAt: timelineReport.latestAt
       },
-      analyticsExportManifest
+      analyticsExportManifest,
+      reportingCursor
     },
     nextAction: clientReview.nextStep,
     clientReview: {
@@ -5594,6 +6668,7 @@ function attachReportingState(state, now, input = {}) {
         timelineReport,
         analyticsHistory,
         analyticsExportManifest,
+        reportingCursor,
         claimEvidenceGapReport: analytics.claimEvidenceGapReport
       }
     },
@@ -5604,11 +6679,15 @@ function attachReportingState(state, now, input = {}) {
         analyticsHistoryProof: analyticsHistory.proof,
         timelineReportProof: timelineReport.proof,
         analyticsExportManifestProof: analyticsExportManifest.proof,
+        reportingCursorToken: reportingCursor.cursorToken,
+        reportingCursorStatus: reportingCursor.status,
+        reportingCursorProof: reportingCursor.proof,
         claimEvidenceGapReportProof: analytics.claimEvidenceGapReport?.proof || null
       }
     },
     exportReadiness,
     analyticsExportManifest,
+    reportingCursor,
     historySnapshots: analyticsHistory.window
   };
 }
@@ -5736,6 +6815,7 @@ export function applyClaimEvidenceLinkCommand(command = {}, persisted = {}, inpu
   }, errors);
   const actor = normalizeActor(command.actor || input.actor || {}, errors);
   const evidence = normalizeEvidence(command.evidence, errors);
+  const evidenceIdentityValidation = summarizeEvidenceIdentityValidation(command.evidence, evidence);
   const claimIds = normalizeClaimSet(claimId, command, errors);
   const retryAttempt = normalizeAttempt(command.retryAttempt ?? command.attempt ?? input.retryAttempt);
   const rawLinkId = command.linkId || (claimId && artifactId ? `${claimId}::${artifactId}` : null);
@@ -5883,6 +6963,8 @@ export function applyClaimEvidenceLinkCommand(command = {}, persisted = {}, inpu
         cursorAck: state.integration?.sync?.cursorAck || null,
         contractProof: state.integration?.providerContract?.proof || null,
         serviceContractProof: state.integration?.providerContract?.serviceContract?.proof || null,
+        evidenceIdentityValidation,
+        evidenceIdentityValidationProof: evidenceIdentityValidation.proof,
         evidenceTraceProof: repairedEvidenceTrace.proof,
         claimEvidenceManifestProof: repairedClaimEvidenceManifest.proof,
         claimProofIndexProof: repairedClaimProofIndex.proof,
@@ -5901,6 +6983,7 @@ export function applyClaimEvidenceLinkCommand(command = {}, persisted = {}, inpu
         claimId,
         artifactId,
         evidence,
+        evidenceIdentityValidation,
         evidenceTrace: repairedEvidenceTrace,
         claimEvidenceManifest: repairedClaimEvidenceManifest,
         claimProofIndex: repairedClaimProofIndex,
@@ -5959,6 +7042,7 @@ export function applyClaimEvidenceLinkCommand(command = {}, persisted = {}, inpu
         actor: { actorId: actor.actorId, roles: actor.roles },
         recoveryTaskId: recoveryTask?.taskId || null,
         previousCommandStatus: commandStatus,
+        evidenceIdentityValidation,
         evidenceTrace: repairedEvidenceTrace,
         claimEvidenceManifest: repairedClaimEvidenceManifest,
         claimProofIndex: repairedClaimProofIndex,
@@ -6025,6 +7109,8 @@ export function applyClaimEvidenceLinkCommand(command = {}, persisted = {}, inpu
     cursorAck: state.integration?.sync?.cursorAck || null,
     contractProof: state.integration?.providerContract?.proof || null,
     serviceContractProof: state.integration?.providerContract?.serviceContract?.proof || null,
+    evidenceIdentityValidation,
+    evidenceIdentityValidationProof: evidenceIdentityValidation.proof,
     evidenceTraceProof: evidenceTrace.proof,
     claimEvidenceManifestProof: claimEvidenceManifest.proof,
     claimProofIndexProof: claimProofIndex.proof,
@@ -6043,6 +7129,7 @@ export function applyClaimEvidenceLinkCommand(command = {}, persisted = {}, inpu
     claimId,
     artifactId,
     evidence,
+    evidenceIdentityValidation,
     evidenceTrace,
     claimEvidenceManifest,
     claimProofIndex,
@@ -6079,6 +7166,7 @@ export function applyClaimEvidenceLinkCommand(command = {}, persisted = {}, inpu
     linkId,
     scope,
     actor: { actorId: actor.actorId, roles: actor.roles },
+    evidenceIdentityValidation,
     evidenceTrace,
     claimEvidenceManifest,
     claimProofIndex,
@@ -6195,6 +7283,27 @@ export function applyClaimEvidenceLinkLifecycleCommand(command = {}, persisted =
     errors.push(`settings.maxEvidenceItems ${nextSettings.maxEvidenceItems} is below current linked evidence batch size ${largestCurrentEvidenceBatch}`);
   }
   const scopedLifecycleCommandId = scopedCommandId(scope, commandId);
+  const lifecycleCommandPlan = buildLifecycleCommandPlan({
+    command,
+    state,
+    action,
+    scope,
+    actor,
+    nextSettings,
+    errors,
+    now
+  });
+  const planBlockerMessages = {
+    "audit-handoff-role-required": "actor is not permitted to export claim evidence handoff for lifecycle audit",
+    "provider-contract-not-ready": "provider contract is not ready for lifecycle audit handoff",
+    "provider-runtime-not-ready": "provider runtime is not ready for lifecycle audit handoff"
+  };
+  for (const issue of lifecycleCommandPlan.validation.issues) {
+    const message = planBlockerMessages[issue];
+    if (message && !errors.includes(message)) {
+      errors.push(message);
+    }
+  }
   if (errors.length > 0) {
     const failure = buildFailureEnvelope({
       now,
@@ -6215,13 +7324,14 @@ export function applyClaimEvidenceLinkLifecycleCommand(command = {}, persisted =
       actor: actor.actorId ? { actorId: actor.actorId, roles: actor.roles } : null,
       errors,
       actionableErrors: failure.actionableErrors,
+      lifecycleCommandPlan,
       failureId: failure.failureId
     };
     const rejectedState = attachReportingState({
       ...state,
       auditLog: [...state.auditLog, audit].slice(-100)
     }, now, { ...input, command });
-    return { ok: false, status: "rejected", errors, actionableErrors: failure.actionableErrors, failure, state: rejectedState, audit };
+    return { ok: false, status: "rejected", errors, actionableErrors: failure.actionableErrors, failure, lifecycleCommandPlan, state: rejectedState, audit };
   }
 
   const lifecycleControls = buildLifecycleControls(nextSettings, now);
@@ -6244,9 +7354,13 @@ export function applyClaimEvidenceLinkLifecycleCommand(command = {}, persisted =
       nextActionType: lifecycleNextAction.type,
       nextActionProof: lifecycleNextAction.proof,
       proofRefreshRequested: action === "refresh-proofs",
-      scheduleMutation: ["schedule", "pause-schedule", "resume-schedule", "refresh-proofs"].includes(action)
+      scheduleMutation: ["schedule", "pause-schedule", "resume-schedule", "refresh-proofs"].includes(action),
+      commandPlanProof: lifecycleCommandPlan.proof,
+      auditHandoffRequired: lifecycleCommandPlan.auditHandoff.required,
+      auditHandoffReady: lifecycleCommandPlan.auditHandoff.ready
     },
-    proof: proofHash({ surfaceId, action, settings: nextSettings, scope, actorId: actor.actorId, commandId, lifecycleNextActionProof: lifecycleNextAction.proof })
+    commandPlan: lifecycleCommandPlan,
+    proof: proofHash({ surfaceId, action, settings: nextSettings, scope, actorId: actor.actorId, commandId, lifecycleNextActionProof: lifecycleNextAction.proof, lifecycleCommandPlanProof: lifecycleCommandPlan.proof })
   };
   const audit = {
     at: now,
@@ -6261,6 +7375,7 @@ export function applyClaimEvidenceLinkLifecycleCommand(command = {}, persisted =
       controls: lifecycle.controls,
       nextAction: lifecycle.nextAction,
       command: lifecycle.command,
+      commandPlan: lifecycleCommandPlan,
       proof: lifecycle.proof
     }
   };
@@ -6275,6 +7390,7 @@ export function applyClaimEvidenceLinkLifecycleCommand(command = {}, persisted =
     ok: true,
     status: action,
     lifecycle,
+    lifecycleCommandPlan,
     lifecycleNextAction: lifecycle.nextAction,
     nextAction: reportedState.nextAction,
     commandStatus: {
@@ -6382,6 +7498,22 @@ function buildHandoffExportEnvelope({ state, link, commandId, scopedHandoffComma
   const claimProofIndex = buildClaimProofIndex(link, claimEvidenceManifest, link?.evidenceTrace || null);
   const artifactClaimEvidenceLinks = artifactClaimEvidenceLinksForState(state, link, claimEvidenceManifest);
   const claimEvidenceTraceMatrix = buildClaimEvidenceTraceMatrix(link, artifactClaimEvidenceLinks);
+  const mailchimpSettings = normalizeMailchimpLinkSettings(link);
+  const mailchimpEnvelopeRows = Array.isArray(claimEvidenceManifest.claims)
+    ? claimEvidenceManifest.claims.map((claim) => ({
+        claimId: claim.claimId,
+        artifactId: link.artifactId,
+        exportable: claim.status !== "blocked"
+      }))
+    : [];
+  const mailchimpTargetScope = mailchimpSettings.enabled
+    ? buildMailchimpLinkTargetScope({
+        link,
+        settings: mailchimpSettings,
+        rows: mailchimpEnvelopeRows,
+        now
+      })
+    : null;
   const body = {
     surfaceId,
     envelopeType: "aios.claim-evidence-link.handoff.v1",
@@ -6417,6 +7549,38 @@ function buildHandoffExportEnvelope({ state, link, commandId, scopedHandoffComma
       acceptedAt: link.createdAt,
       updatedAt: link.updatedAt
     },
+    mailchimp: mailchimpSettings.enabled
+      ? {
+          contractVersion: "aios.claim-evidence-link.mailchimp-envelope-binding.v1",
+          settings: mailchimpSettings,
+          targetScope: mailchimpTargetScope,
+          handoff: {
+            payloadContract: "aios.claim-evidence-link.mailchimp-payload.v1",
+            dispatchable: mailchimpTargetScope?.bound === true,
+            idempotencyKey: proofHash({
+              surfaceId,
+              commandId,
+              linkId: link.linkId,
+              targetScopeProof: mailchimpTargetScope?.proof || null,
+              claimEvidenceManifestProof: claimEvidenceManifest.proof || null
+            }),
+            resumeToken: proofHash({
+              surfaceId,
+              scopedCommandId: scopedHandoffCommandId,
+              targetKey: mailchimpTargetScope?.targetKey || null,
+              syncCursor: mailchimpSettings.syncCursor,
+              envelopeCursor: sync.cursor || null
+            }),
+            acknowledgement: {
+              required: mailchimpSettings.requireAcknowledgement,
+              expectedState: mailchimpSettings.requireAcknowledgement ? "mailchimp-handoff-acknowledged" : "not-required",
+              webhookRoute: mailchimpSettings.webhookRoute,
+              syncCursor: mailchimpSettings.syncCursor,
+              targetScopeProof: mailchimpTargetScope?.proof || null
+            }
+          }
+        }
+      : null,
     exporter: {
       actorId: actor.actorId,
       roles: actor.roles,
@@ -6548,6 +7712,22 @@ export function applyClaimEvidenceLinkHandoffCommand(command = {}, persisted = {
       claimEvidenceManifestProofArtifactRefCount: Array.isArray(envelope.link.claimEvidenceManifest?.proofArtifacts)
         ? envelope.link.claimEvidenceManifest.proofArtifacts.length
         : 0,
+      mailchimp: envelope.mailchimp
+        ? {
+            status: envelope.mailchimp.handoff.dispatchable ? "exported" : "target-scope-blocked",
+            exportedAt: now,
+            targetScopeProof: envelope.mailchimp.targetScope?.proof || null,
+            targetKey: envelope.mailchimp.targetScope?.targetKey || null,
+            accountId: envelope.mailchimp.targetScope?.accountId || null,
+            dataCenter: envelope.mailchimp.targetScope?.dataCenter || null,
+            audienceId: envelope.mailchimp.targetScope?.audienceId || null,
+            campaignId: envelope.mailchimp.targetScope?.campaignId || null,
+            segmentId: envelope.mailchimp.targetScope?.segmentId || null,
+            memberKey: envelope.mailchimp.targetScope?.memberKey || null,
+            resumeToken: envelope.mailchimp.handoff.resumeToken,
+            acknowledgement: envelope.mailchimp.handoff.acknowledgement
+          }
+        : null,
       envelopeProof: envelope.proof
     }
   };
@@ -6571,6 +7751,8 @@ export function applyClaimEvidenceLinkHandoffCommand(command = {}, persisted = {
     claimEvidenceManifestProofArtifactRefCount: Array.isArray(envelope.link.claimEvidenceManifest?.proofArtifacts)
       ? envelope.link.claimEvidenceManifest.proofArtifacts.length
       : 0,
+    mailchimpTargetScopeProof: envelope.mailchimp?.targetScope?.proof || null,
+    mailchimpResumeToken: envelope.mailchimp?.handoff?.resumeToken || null,
     exportPolicy,
     target: envelope.target
   };

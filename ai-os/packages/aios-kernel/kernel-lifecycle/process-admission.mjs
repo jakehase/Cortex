@@ -37,6 +37,12 @@ const HOSTED_KERNEL_PROVIDER_CAPABILITIES = [
   'kernel.process.sync-metadata',
   'kernel.process.external-handoff'
 ];
+const MAILCHIMP_PROVIDER_CAPABILITIES = [
+  'mailchimp.audience.read',
+  'mailchimp.campaign.write',
+  'mailchimp.webhook.handoff'
+];
+const MAILCHIMP_ACK_MODES = new Set(['provider-ack', 'durable-provider-ack']);
 const TERMINAL_PERSISTED_STATUSES = new Set(['admitted', 'denied', 'cancelled']);
 const RECOVERABLE_PERSISTED_STATUSES = new Set([
   'pending-authorization',
@@ -45,6 +51,11 @@ const RECOVERABLE_PERSISTED_STATUSES = new Set([
   'blocked-health',
   'spawn-dispatched',
   'degraded-spawn-dispatched'
+]);
+const KNOWN_PERSISTED_STATUSES = new Set([
+  'not-found',
+  ...TERMINAL_PERSISTED_STATUSES,
+  ...RECOVERABLE_PERSISTED_STATUSES
 ]);
 const CHECKPOINT_PHASES = new Set(['uninitialized', 'authorization', 'remediation', 'health-retry', 'handoff', 'terminal']);
 const CHECKPOINT_STATUS_PHASE = {
@@ -511,6 +522,29 @@ function derivePersistedAdmissionExpiration({ status, current, checkpoint, persi
   };
 }
 
+function classifyPersistedAdmissionStatus(status) {
+  const known = KNOWN_PERSISTED_STATUSES.has(status);
+  const terminal = TERMINAL_PERSISTED_STATUSES.has(status);
+  const recoverable = RECOVERABLE_PERSISTED_STATUSES.has(status);
+
+  return {
+    schemaVersion: 1,
+    status,
+    known,
+    category: status === 'not-found'
+      ? 'empty'
+      : (terminal ? 'terminal' : (recoverable ? 'recoverable' : 'unknown')),
+    terminal,
+    recoverable,
+    restartSafe: status === 'not-found' || known,
+    canReplay: terminal || recoverable,
+    blocksAdmissionWrite: !known,
+    recoveryAction: known
+      ? (terminal ? 'return-persisted-outcome' : (recoverable ? 'resume-or-advance-admission' : 'initialize-admission-envelope'))
+      : 'quarantine-unknown-persisted-admission-status'
+  };
+}
+
 function latestEventSequence(events) {
   return events.reduce((max, event) => Math.max(max, normalizeInteger(event.sequence, 0)), 0);
 }
@@ -841,8 +875,17 @@ function normalizeHistorySnapshots(value) {
       persistenceWriteOperation: textOrDefault(snapshot.persistenceWriteOperation, null),
       persistenceWriteRevision: normalizeInteger(snapshot.persistenceWriteRevision, 0),
       journalSequence: normalizeInteger(snapshot.journalSequence, 0),
+      persistedStatusKnown: snapshot.persistedStatusKnown !== false,
+      persistedStatusCategory: textOrDefault(snapshot.persistedStatusCategory, null),
+      persistedStatusRecoveryAction: textOrDefault(snapshot.persistedStatusRecoveryAction, null),
       checkpointPhase: textOrDefault(snapshot.checkpointPhase, null),
       checkpointNextCommand: textOrDefault(snapshot.checkpointNextCommand, null),
+      mailchimpHandoffState: textOrDefault(snapshot.mailchimpHandoffState, null),
+      mailchimpHandoffReady: snapshot.mailchimpHandoffReady === true,
+      mailchimpHandoffAccepted: snapshot.mailchimpHandoffAccepted === true,
+      mailchimpHandoffExportReady: snapshot.mailchimpHandoffExportReady === true,
+      mailchimpBoundaryProofId: textOrDefault(snapshot.mailchimpBoundaryProofId, null),
+      mailchimpBlockedBy: normalizeList(snapshot.mailchimpBlockedBy),
       operationalHealthState: textOrDefault(snapshot.operationalHealthState, null),
       operationalFailureState: textOrDefault(snapshot.operationalFailureState, null),
       handoffTarget: textOrDefault(snapshot.handoffTarget, null),
@@ -924,8 +967,16 @@ function buildReportHistorySummary(history) {
     lastSnapshotAt: history[history.length - 1]?.at || null,
     decisionCounts: {},
     persistedStatusCounts: {},
+    persistedStatusCategoryCounts: {},
+    unknownPersistedStatusCount: 0,
     recoveryModeCounts: {},
     checkpointPhaseCounts: {},
+    mailchimpHandoffStateCounts: {},
+    mailchimpReadyCount: 0,
+    mailchimpAcceptedCount: 0,
+    mailchimpExportReadyCount: 0,
+    mailchimpBlockedCount: 0,
+    mailchimpBlockedReasonCounts: {},
     operationalHealthCounts: {},
     handoffStateCounts: {},
     previewAcceptanceCounts: {},
@@ -948,8 +999,10 @@ function buildReportHistorySummary(history) {
   for (const entry of history) {
     incrementGroupCount(summary.decisionCounts, entry.status);
     incrementGroupCount(summary.persistedStatusCounts, entry.persistedStatus);
+    incrementGroupCount(summary.persistedStatusCategoryCounts, entry.persistedStatusCategory);
     incrementGroupCount(summary.recoveryModeCounts, entry.recoveryMode);
     incrementGroupCount(summary.checkpointPhaseCounts, entry.checkpointPhase);
+    incrementGroupCount(summary.mailchimpHandoffStateCounts, entry.mailchimpHandoffState);
     incrementGroupCount(summary.operationalHealthCounts, entry.operationalHealthState);
     incrementGroupCount(summary.handoffStateCounts, entry.externalHandoffState || entry.handoffTarget);
     incrementGroupCount(summary.previewAcceptanceCounts, entry.previewAcceptanceReadyState);
@@ -962,6 +1015,30 @@ function buildReportHistorySummary(history) {
       summary.admittedCount += 1;
     } else {
       summary.heldCount += 1;
+    }
+
+    if (!entry.persistedStatusKnown) {
+      summary.unknownPersistedStatusCount += 1;
+    }
+
+    if (entry.mailchimpHandoffReady) {
+      summary.mailchimpReadyCount += 1;
+    }
+
+    if (entry.mailchimpHandoffAccepted) {
+      summary.mailchimpAcceptedCount += 1;
+    }
+
+    if (entry.mailchimpHandoffExportReady) {
+      summary.mailchimpExportReadyCount += 1;
+    }
+
+    if (entry.mailchimpHandoffState && entry.mailchimpHandoffState !== 'ready') {
+      summary.mailchimpBlockedCount += 1;
+    }
+
+    for (const reason of entry.mailchimpBlockedBy) {
+      incrementGroupCount(summary.mailchimpBlockedReasonCounts, reason);
     }
 
     if (Number.isInteger(entry.retryAfterMs)) {
@@ -1022,6 +1099,127 @@ function buildExportProof({ reportId, exportRecord, historySummary, timeline }) 
     timelineEventCount: timeline.length,
     latestWriteRevision: historySummary.latestWriteRevision,
     latestJournalSequence: historySummary.latestJournalSequence
+  };
+}
+
+function buildMailchimpAdmissionExport({
+  reportId,
+  requestId,
+  command,
+  scope,
+  persistence,
+  historySummary,
+  timeline,
+  now
+}) {
+  const handoff = persistence.productHandoff?.product === 'mailchimp'
+    ? persistence.productHandoff
+    : null;
+  const ready = handoff?.ready === true
+    && handoff?.acceptance?.exportReady === true
+    && persistence.writePlan.operation !== 'reject-write';
+  const blockedBy = [
+    ...(handoff ? handoff.blockedBy : ['mailchimp-product-handoff-not-present']),
+    ...(persistence.writePlan.operation === 'reject-write' ? ['admission-persistence-write-rejected'] : []),
+    ...(persistence.checkpoint.restartSafe ? [] : ['admission-checkpoint-not-restart-safe'])
+  ];
+  const normalizedBlockedBy = [...new Set(blockedBy)].sort();
+  const row = handoff
+    ? {
+      schemaVersion: 1,
+      rowType: 'mailchimp-process-admission-handoff',
+      reportId,
+      requestId,
+      commandId: command.commandId,
+      idempotencyKey: handoff.idempotencyKey,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      isolationKey: scope.isolationKey,
+      providerId: handoff.providerId,
+      serviceContractId: handoff.serviceContractId,
+      handoffId: handoff.handoffId,
+      externalRef: handoff.externalRef,
+      audienceId: handoff.audienceId,
+      campaignId: handoff.campaignId,
+      webhookId: handoff.webhookId,
+      webhookEndpoint: handoff.webhookEndpoint,
+      webhookSigningKeyRef: handoff.webhookSigningKeyRef,
+      suppressUnsubscribedContacts: handoff.suppressUnsubscribedContacts !== false,
+      state: handoff.state,
+      ready: handoff.ready,
+      accepted: handoff.acceptance?.accepted === true,
+      exportReady: ready,
+      boundaryProofId: handoff.boundary?.proofId || null,
+      routePartition: handoff.routePartition,
+      routePartitionAccepted: handoff.boundary?.routePartitionAccepted === true,
+      scopeCursor: handoff.sync?.scopeCursor || null,
+      scopeCursorPresent: handoff.boundary?.scopeCursorPresent === true,
+      syncGeneration: handoff.sync?.generation || 0,
+      syncFreshnessState: handoff.sync?.freshnessState || 'unknown',
+      syncFreshnessAgeMs: handoff.sync?.freshnessAgeMs ?? null,
+      lastSyncedAt: handoff.sync?.lastSyncedAt || null,
+      ackMode: handoff.acknowledgement?.mode || 'none',
+      ackRequired: handoff.acknowledgement?.required === true,
+      ackDeadlineMs: handoff.acknowledgement?.deadlineMs ?? null,
+      restartCommandName: handoff.restart?.commandName || null,
+      restartIdempotencyKey: handoff.restart?.idempotencyKey || null,
+      blockedBy: normalizedBlockedBy
+    }
+    : null;
+  const mailchimpTimeline = timeline
+    .filter((event) => event.type.includes('mailchimp'))
+    .map((event) => ({
+      at: event.at,
+      type: event.type,
+      status: event.status,
+      handoffId: event.handoffId || null,
+      blockedBy: normalizeList(event.blockedBy)
+    }));
+  const batchId = `${reportId}:mailchimp:${stableAdmissionHash([
+    handoff?.handoffId || 'missing-handoff',
+    handoff?.sync?.generation || 0,
+    persistence.current.writeRevision,
+    normalizedBlockedBy.join(',')
+  ].join('|'))}`;
+
+  return {
+    schemaVersion: 1,
+    contract: 'process-admission.mailchimp-export-batch.v1',
+    batchId,
+    generatedAt: now,
+    reportId,
+    required: Boolean(handoff),
+    ready,
+    state: !handoff ? 'not-configured' : (ready ? 'ready' : 'blocked'),
+    disposition: !handoff
+      ? 'no-mailchimp-product-handoff'
+      : (ready ? 'export-ready' : 'hold-for-mailchimp-contract-repair'),
+    blockedBy: normalizedBlockedBy,
+    rowCount: row ? 1 : 0,
+    readyRowCount: ready && row ? 1 : 0,
+    rows: row ? [row] : [],
+    manifest: {
+      format: 'process-admission-mailchimp-handoff.v1',
+      destination: 'mailchimp-webhook-handoff',
+      partitionKey: `${scope.tenantId}/${scope.workspaceId}/mailchimp`,
+      watermark: `${persistence.current.writeRevision}:${persistence.current.journalSequence}:${handoff?.sync?.generation || 0}`,
+      historyRetainedCount: historySummary.retainedCount,
+      historyMailchimpReadyCount: historySummary.mailchimpReadyCount,
+      historyMailchimpExportReadyCount: historySummary.mailchimpExportReadyCount,
+      historyMailchimpBlockedCount: historySummary.mailchimpBlockedCount,
+      historyMailchimpBlockedReasonCounts: historySummary.mailchimpBlockedReasonCounts,
+      timelineEventCount: mailchimpTimeline.length,
+      commandId: command.commandId,
+      checkpointPhase: persistence.checkpoint.phase,
+      restartSafe: persistence.checkpoint.restartSafe
+    },
+    timeline: mailchimpTimeline,
+    proof: {
+      proofType: 'process-admission-mailchimp-export-batch',
+      proofId: `${surfaceId}:mailchimp-export:${stableAdmissionHash(batchId)}`,
+      boundaryProofId: handoff?.boundary?.proofId || null,
+      basis: batchId
+    }
   };
 }
 
@@ -1670,6 +1868,7 @@ function normalizePersistedAdmissionState(input, now) {
   };
   const normalizedSeenCommandIds = Array.from(seenCommandIds);
   const normalizedSeenIdempotencyKeys = Array.from(seenIdempotencyKeys);
+  const statusContract = classifyPersistedAdmissionStatus(storedStatus);
   const expiration = derivePersistedAdmissionExpiration({
     status: storedStatus,
     current: normalizedCurrent,
@@ -1682,6 +1881,7 @@ function normalizePersistedAdmissionState(input, now) {
     version: Number.isInteger(persisted.version) ? persisted.version : 1,
     found: storedStatus !== 'not-found' || events.length > 0,
     status: storedStatus,
+    statusContract,
     requestId: storedRequestId,
     commandId: storedCommandId,
     scope: {
@@ -1692,6 +1892,7 @@ function normalizePersistedAdmissionState(input, now) {
     updatedAt: normalizedCurrent.updatedAt,
     expiration,
     admittedAt: textOrDefault(current.admittedAt || persisted.admittedAt, null),
+    productHandoff: normalizePersistedProductHandoff(current.productHandoff || persisted.productHandoff),
     recoveryToken: textOrDefault(current.recoveryToken || persisted.recoveryToken, null),
     writeRevision: normalizeInteger(current.writeRevision ?? current.revision ?? persisted.writeRevision ?? persisted.revision, 0),
     journalSequence: normalizeInteger(persisted.journalSequence ?? persisted.sequence, latestEventSequence(events)),
@@ -1713,6 +1914,32 @@ function normalizePersistedAdmissionState(input, now) {
       seenIdempotencyKeys: normalizedSeenIdempotencyKeys,
       leaseStatus
     })
+  };
+}
+
+function normalizePersistedProductHandoff(value) {
+  const handoff = asPlainObject(value);
+  const mailchimp = asPlainObject(handoff.mailchimp || handoff.productService);
+
+  if (Object.keys(handoff).length === 0 && Object.keys(mailchimp).length === 0) {
+    return null;
+  }
+
+  return {
+    schemaVersion: normalizeInteger(handoff.schemaVersion, 1),
+    product: textOrDefault(handoff.product || mailchimp.product, null),
+    state: textOrDefault(handoff.state || mailchimp.state, 'unknown'),
+    handoffId: textOrDefault(handoff.handoffId || mailchimp.handoffId, null),
+    providerId: textOrDefault(handoff.providerId || mailchimp.providerId, null),
+    audienceId: textOrDefault(mailchimp.audienceId || handoff.audienceId, null),
+    campaignId: textOrDefault(mailchimp.campaignId || handoff.campaignId, null),
+    webhookId: textOrDefault(mailchimp.webhookId || handoff.webhookId, null),
+    externalRef: textOrDefault(handoff.externalRef || mailchimp.externalRef, null),
+    syncGeneration: normalizeInteger(handoff.syncGeneration ?? mailchimp.syncGeneration, 0),
+    persistedAt: textOrDefault(handoff.persistedAt || handoff.updatedAt || mailchimp.persistedAt, null),
+    recoveryAction: textOrDefault(handoff.recoveryAction || mailchimp.recoveryAction, null),
+    idempotencyKey: textOrDefault(handoff.idempotencyKey || mailchimp.idempotencyKey, null),
+    blockedBy: normalizeList(handoff.blockedBy || mailchimp.blockedBy)
   };
 }
 
@@ -2010,6 +2237,19 @@ function buildRecoveryPlan(persistedState, admission, command) {
     };
   }
 
+  if (!persistedState.statusContract.known) {
+    return {
+      mode: 'quarantine',
+      restartSafeStatus: 'unknown-persisted-status',
+      idempotentReplay: false,
+      replayBasis: null,
+      replayReceipt: null,
+      replayStatus: null,
+      canResume: false,
+      action: persistedState.statusContract.recoveryAction
+    };
+  }
+
   if (!sameTenant || !sameWorkspace) {
     return {
       mode: 'quarantine',
@@ -2239,12 +2479,195 @@ function buildPersistenceWritePlan({
   };
 }
 
-function buildPersistenceEnvelope(admission, persistedState, command, recoveryPlan, now) {
+function buildMailchimpProductHandoffIntent({
+  providerContract,
+  providerNegotiation,
+  scope,
+  requestId,
+  command,
+  status,
+  recoveryToken,
+  now
+}) {
+  if (!providerNegotiation.productServiceContract || providerNegotiation.productServiceContract.product !== 'mailchimp') {
+    return null;
+  }
+
+  const product = providerNegotiation.productServiceContract;
+  const syncFreshness = providerNegotiation.syncMetadata.freshness;
+  const missingCapabilities = providerNegotiation.missingProviderCapabilities
+    .filter((capability) => capability.startsWith('mailchimp.'));
+  const contractViolations = providerNegotiation.serviceContract.violations
+    .filter((violation) => violation.code.startsWith('mailchimp_'));
+  const routeReady = providerNegotiation.routing.allowedTenant
+    && providerNegotiation.routing.allowedWorkspace
+    && providerNegotiation.routing.allowedRoutePartition;
+  const syncReady = !providerContract.serviceLevel.requireCurrentSync || syncFreshness.state === 'fresh';
+  const ackReady = MAILCHIMP_ACK_MODES.has(providerNegotiation.serviceContract.handoffAckMode)
+    && Boolean(providerNegotiation.serviceContract.handoffAckEndpoint);
+  const blockedBy = [
+    ...missingCapabilities,
+    ...contractViolations.map((violation) => violation.code),
+    ...(routeReady ? [] : ['mailchimp_route_partition_not_ready']),
+    ...(syncReady ? [] : ['mailchimp_provider_sync_not_current']),
+    ...(ackReady ? [] : ['mailchimp_provider_ack_not_ready']),
+    ...(product.readyForHandoff ? [] : ['mailchimp_product_contract_not_ready'])
+  ];
+  const ready = blockedBy.length === 0 && status !== 'cancelled';
+  const state = status === 'cancelled'
+    ? 'cancelled'
+    : (ready ? 'ready' : (syncReady ? 'blocked' : 'sync-required'));
+  const handoffId = `${surfaceId}:mailchimp:${scope.tenantId}:${scope.workspaceId}:${requestId}:${command.commandId}`;
+  const idempotencyKey = `${recoveryToken}:mailchimp:${providerContract.providerId}:${providerNegotiation.syncMetadata.generation}`;
+  const boundaryProofBasis = [
+    handoffId,
+    scope.tenantId,
+    scope.workspaceId,
+    scope.tenantSource || 'unknown-tenant-source',
+    scope.workspaceSource || 'unknown-workspace-source',
+    providerNegotiation.routing.routePartition,
+    providerNegotiation.routing.declaredRoutePartition || 'undeclared-route-partition',
+    providerNegotiation.syncMetadata.scopeCursor || 'missing-scope-cursor',
+    providerNegotiation.serviceContract.handoffAckMode,
+    providerNegotiation.serviceContract.handoffAckEndpoint || 'missing-ack-endpoint'
+  ].join('|');
+  const boundaryProofId = `${surfaceId}:mailchimp-boundary:${stableAdmissionHash(boundaryProofBasis)}`;
+  const auditPayload = {
+    schemaVersion: 1,
+    payloadType: 'mailchimp-process-admission-boundary-audit',
+    handoffId,
+    proofId: boundaryProofId,
+    generatedAt: now,
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+    isolationKey: scope.isolationKey,
+    routePartition: providerNegotiation.routing.routePartition,
+    declaredRoutePartition: providerNegotiation.routing.declaredRoutePartition,
+    routePartitionAccepted: routeReady,
+    scopeCursor: providerNegotiation.syncMetadata.scopeCursor,
+    tenantSource: scope.tenantSource,
+    workspaceSource: scope.workspaceSource,
+    defaultedScope: scope.scopeSource?.defaulted === true,
+    providerId: providerContract.providerId,
+    serviceContractId: providerNegotiation.serviceContract.contractId,
+    product: 'mailchimp',
+    audienceId: product.audienceId,
+    campaignId: product.campaignId,
+    webhookId: product.webhookId,
+    syncGeneration: providerNegotiation.syncMetadata.generation,
+    syncFreshnessState: syncFreshness.state,
+    ackMode: providerNegotiation.serviceContract.handoffAckMode,
+    ackEndpoint: providerNegotiation.serviceContract.handoffAckEndpoint,
+    blockedBy: [...new Set(blockedBy)].sort(),
+    disposition: ready ? 'accepted-for-handoff' : 'held-for-contract-repair'
+  };
+  const acceptance = {
+    schemaVersion: 1,
+    accepted: ready,
+    acceptedAt: ready ? now : null,
+    status: ready ? 'accepted' : 'blocked',
+    requiredBeforeSpawn: true,
+    boundaryProofId,
+    exportReady: ready && ackReady && routeReady,
+    blockedBy: auditPayload.blockedBy,
+    nextAction: ready
+      ? 'deliver-mailchimp-webhook-handoff'
+      : syncReady
+        ? 'repair-mailchimp-provider-handoff-contract'
+        : 'sync-mailchimp-provider-contract'
+  };
+
+  return {
+    schemaVersion: 1,
+    product: 'mailchimp',
+    state,
+    ready,
+    handoffId,
+    idempotencyKey,
+    providerId: providerContract.providerId,
+    serviceContractId: providerNegotiation.serviceContract.contractId,
+    audienceId: product.audienceId,
+    campaignId: product.campaignId,
+    datacenter: product.datacenter,
+    webhookId: product.webhookId,
+    webhookEndpoint: product.webhookEndpoint,
+    webhookSigningKeyRef: product.webhookSigningKeyRef,
+    suppressUnsubscribedContacts: product.suppressUnsubscribedContacts,
+    externalRef: product.externalHandoffRef || providerContract.handoff.externalId || handoffId,
+    routePartition: providerNegotiation.routing.routePartition,
+    auditPayload,
+    acceptance,
+    boundary: {
+      proofId: boundaryProofId,
+      proofBasis: boundaryProofBasis,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      isolationKey: scope.isolationKey,
+      tenantSource: scope.tenantSource,
+      workspaceSource: scope.workspaceSource,
+      defaultedScope: scope.scopeSource?.defaulted === true,
+      routePartitionAccepted: routeReady,
+      scopeCursorPresent: Boolean(providerNegotiation.syncMetadata.scopeCursor)
+    },
+    sync: {
+      cursor: providerNegotiation.syncMetadata.cursor,
+      scopeCursor: providerNegotiation.syncMetadata.scopeCursor,
+      generation: providerNegotiation.syncMetadata.generation,
+      freshnessState: syncFreshness.state,
+      freshnessAgeMs: syncFreshness.ageMs,
+      lastSyncedAt: providerNegotiation.syncMetadata.lastSyncedAt
+    },
+    acknowledgement: {
+      mode: providerNegotiation.serviceContract.handoffAckMode,
+      endpoint: providerNegotiation.serviceContract.handoffAckEndpoint,
+      required: providerNegotiation.serviceContract.handoffAckMode !== 'none',
+      deadlineMs: providerNegotiation.serviceContract.handoffAckDeadlineMs
+    },
+    restart: {
+      recoveryToken,
+      commandName: ready ? 'recover-admission' : 'request-admission',
+      idempotencyKey,
+      safeToRetry: true,
+      recoveryAction: ready ? 'resume-mailchimp-webhook-handoff' : 'repair-mailchimp-provider-handoff-contract'
+    },
+    exportSummary: {
+      format: 'process-admission-mailchimp-handoff.v1',
+      ready,
+      exportReady: acceptance.exportReady,
+      handoffId,
+      proofId: boundaryProofId,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      providerId: providerContract.providerId,
+      audienceId: product.audienceId,
+      campaignId: product.campaignId,
+      syncGeneration: providerNegotiation.syncMetadata.generation,
+      ackRequired: providerNegotiation.serviceContract.handoffAckMode !== 'none',
+      blockedBy: auditPayload.blockedBy
+    },
+    blockedBy: [...new Set(blockedBy)].sort(),
+    persistedAt: now
+  };
+}
+
+function buildPersistenceEnvelope(admission, persistedState, command, recoveryPlan, now, providerContract = null, providerNegotiation = null) {
   const nextStatus = recoveryPlan.idempotentReplay
     ? (recoveryPlan.replayStatus || persistedState.status)
     : derivePersistedStatus(admission, command.name);
   const recoveryToken = persistedState.recoveryToken
     || `${surfaceId}:${admission.request.requestId}:${command.idempotencyKey}`;
+  const productHandoff = providerContract && providerNegotiation
+    ? buildMailchimpProductHandoffIntent({
+      providerContract,
+      providerNegotiation,
+      scope: admission.scope,
+      requestId: admission.request.requestId,
+      command,
+      status: nextStatus,
+      recoveryToken,
+      now
+    })
+    : null;
   const checkpointPhase = deriveCheckpointPhase(nextStatus, admission);
   const nextCheckpointCommand = deriveNextCheckpointCommand({
     phase: checkpointPhase,
@@ -2281,6 +2704,7 @@ function buildPersistenceEnvelope(admission, persistedState, command, recoveryPl
     nextEvent,
     now
   });
+  const appendMutation = !recoveryPlan.idempotentReplay && writePlan.mutation !== null;
 
   return {
     version: 2,
@@ -2299,6 +2723,7 @@ function buildPersistenceEnvelope(admission, persistedState, command, recoveryPl
       ownerId: admission.request.ownerBinding.ownerId,
       ownerBindingId: admission.request.ownerBinding.bindingId,
       intakeEvidenceProofId: admission.request.lifecycleEvidenceRefs.proof.proofId,
+      productHandoff,
       writeRevision: writePlan.mutation?.writeRevision ?? persistedState.writeRevision,
       journalSequence: writePlan.mutation?.journalSequence ?? persistedState.journalSequence
     },
@@ -2306,6 +2731,7 @@ function buildPersistenceEnvelope(admission, persistedState, command, recoveryPl
       schemaVersion: 1,
       consistency: persistedState.commandLedger.restartConsistency,
       persistedStatus: persistedState.status,
+      statusContract: persistedState.statusContract,
       replayStatus: recoveryPlan.replayStatus,
       replayReceipt: recoveryPlan.replayReceipt,
       commandReceiptCount: persistedState.commandLedger.commandReceiptCount,
@@ -2315,6 +2741,7 @@ function buildPersistenceEnvelope(admission, persistedState, command, recoveryPl
       duplicateIdempotencyKeys: persistedState.commandLedger.duplicateIdempotencyKeys,
       lease: persistedState.lease.status,
       expiration: persistedState.expiration,
+      productHandoff: persistedState.productHandoff,
       checkpointAligned: persistedState.commandLedger.checkpointAligned
     },
     checkpoint: {
@@ -2333,6 +2760,8 @@ function buildPersistenceEnvelope(admission, persistedState, command, recoveryPl
       intakeRef: admission.request.lifecycleEvidenceRefs.intakeRef,
       ownerBindingRef: admission.request.lifecycleEvidenceRefs.ownerBindingRef,
       initialEvidenceProofId: admission.request.lifecycleEvidenceRefs.proof.proofId,
+      productHandoffState: productHandoff?.state || null,
+      productHandoffId: productHandoff?.handoffId || null,
       restartSafe: !recoveryPlan.idempotentReplay || recoveryPlan.mode === 'replay'
     },
     writePlan,
@@ -2344,11 +2773,12 @@ function buildPersistenceEnvelope(admission, persistedState, command, recoveryPl
       replayReceiptStatus: recoveryPlan.replayStatus,
       seenCommandIds: Array.from(new Set([...persistedState.seenCommandIds, command.commandId])),
       seenIdempotencyKeys: Array.from(new Set([...persistedState.seenIdempotencyKeys, command.idempotencyKey])),
-      receipts: recoveryPlan.idempotentReplay ? retainedReceipts : [...retainedReceipts, writePlan.mutation.recordReceipt]
+      receipts: appendMutation ? [...retainedReceipts, writePlan.mutation.recordReceipt] : retainedReceipts
     },
+    productHandoff,
     restartCommands,
     recovery: recoveryPlan,
-    events: recoveryPlan.idempotentReplay ? retainedEvents : [...retainedEvents, nextEvent]
+    events: appendMutation ? [...retainedEvents, nextEvent] : retainedEvents
   };
 }
 
@@ -2509,6 +2939,7 @@ function buildAdmissionReporting({
   incrementCounter(counters, `commands.${command.name}`);
   incrementCounter(counters, `decisions.${decision}`);
   incrementCounter(counters, `persistedStatus.${persistence.current.status}`);
+  incrementCounter(counters, `persistedStatusCategory.${persistence.restartLedger.statusContract.category}`);
   incrementCounter(counters, `recoveryMode.${recovery.mode}`);
   incrementCounter(counters, `checkpointPhase.${persistence.checkpoint.phase}`);
   incrementCounter(counters, `persistenceWrite.${persistence.writePlan.operation}`);
@@ -2565,6 +2996,36 @@ function buildAdmissionReporting({
     incrementCounter(counters, 'warnings.providerServiceContract', providerNegotiation.serviceContract.warningCount);
   }
 
+  if (persistence.productHandoff?.product === 'mailchimp') {
+    incrementCounter(counters, 'productHandoff.mailchimp.total');
+    incrementCounter(counters, `productHandoff.mailchimp.${persistence.productHandoff.state}`);
+    incrementCounter(counters, `productHandoff.mailchimp.acceptance.${persistence.productHandoff.acceptance?.status || 'unknown'}`);
+
+    if (persistence.productHandoff.ready) {
+      incrementCounter(counters, 'productHandoff.mailchimp.ready');
+    }
+
+    if (persistence.productHandoff.acceptance?.exportReady) {
+      incrementCounter(counters, 'productHandoff.mailchimp.exportReady');
+    }
+
+    if (persistence.productHandoff.boundary?.defaultedScope) {
+      incrementCounter(counters, 'productHandoff.mailchimp.defaultedScope');
+    }
+
+    if (!persistence.productHandoff.boundary?.routePartitionAccepted) {
+      incrementCounter(counters, 'productHandoff.mailchimp.routePartitionBlocked');
+    }
+
+    if (!persistence.productHandoff.boundary?.scopeCursorPresent) {
+      incrementCounter(counters, 'productHandoff.mailchimp.scopeCursorMissing');
+    }
+
+    if (persistence.productHandoff.blockedBy.length > 0) {
+      incrementCounter(counters, 'productHandoff.mailchimp.blockers', persistence.productHandoff.blockedBy.length);
+    }
+  }
+
   if (clientRuntimeAdoption.violationCount > 0) {
     incrementCounter(counters, 'denials.clientRuntimeAdoption', clientRuntimeAdoption.violationCount);
   }
@@ -2588,6 +3049,10 @@ function buildAdmissionReporting({
   if (persistence.idempotency.replay) {
     incrementCounter(counters, 'idempotency.replays');
     incrementCounter(counters, `idempotencyReplay.${persistence.idempotency.replayBasis || 'unknown'}`);
+  }
+
+  if (!persistence.restartLedger.statusContract.known) {
+    incrementCounter(counters, 'persistence.unknownPersistedStatus');
   }
 
   if (persistence.restartCommands.resume) {
@@ -2695,8 +3160,25 @@ function buildAdmissionReporting({
     persistenceWriteOperation: persistence.writePlan.operation,
     persistenceWriteRevision: persistence.current.writeRevision,
     journalSequence: persistence.current.journalSequence,
+    persistedStatusKnown: persistence.restartLedger.statusContract.known,
+    persistedStatusCategory: persistence.restartLedger.statusContract.category,
+    persistedStatusRecoveryAction: persistence.restartLedger.statusContract.recoveryAction,
     checkpointPhase: persistence.checkpoint.phase,
     checkpointNextCommand: persistence.checkpoint.nextCommandName,
+    mailchimpHandoffState: persistence.productHandoff?.product === 'mailchimp' ? persistence.productHandoff.state : null,
+    mailchimpHandoffReady: persistence.productHandoff?.product === 'mailchimp' ? persistence.productHandoff.ready : false,
+    mailchimpHandoffAccepted: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.acceptance?.accepted === true
+      : false,
+    mailchimpHandoffExportReady: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.acceptance?.exportReady === true
+      : false,
+    mailchimpBoundaryProofId: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.boundary?.proofId || null
+      : null,
+    mailchimpBlockedBy: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.blockedBy
+      : [],
     operationalHealthState: operationalHealth.state,
     operationalFailureState: operationalHealth.failure.state,
     handoffTarget,
@@ -2773,6 +3255,22 @@ function buildAdmissionReporting({
       recoveryMode: recovery.mode,
       replay: persistence.idempotency.replay
     },
+    ...(persistence.productHandoff?.product === 'mailchimp'
+      ? [{
+        at: persistence.productHandoff.persistedAt,
+        type: 'mailchimp-product-handoff-shaped',
+        status: persistence.productHandoff.state,
+        ready: persistence.productHandoff.ready,
+        accepted: persistence.productHandoff.acceptance?.accepted === true,
+        exportReady: persistence.productHandoff.acceptance?.exportReady === true,
+        handoffId: persistence.productHandoff.handoffId,
+        providerId: persistence.productHandoff.providerId,
+        audienceId: persistence.productHandoff.audienceId,
+        campaignId: persistence.productHandoff.campaignId,
+        boundaryProofId: persistence.productHandoff.boundary?.proofId || null,
+        blockedBy: persistence.productHandoff.blockedBy
+      }]
+      : []),
     {
       at: now,
       type: 'handoff-targeted',
@@ -2892,6 +3390,27 @@ function buildAdmissionReporting({
   }
 
   const reportId = `${surfaceId}:${scope.tenantId}:${scope.workspaceId}:${requestId}:${command.commandId}`;
+  const mailchimpExport = buildMailchimpAdmissionExport({
+    reportId,
+    requestId,
+    command,
+    scope,
+    persistence,
+    historySummary,
+    timeline,
+    now
+  });
+  incrementCounter(counters, `exports.mailchimp.${mailchimpExport.state}`);
+  incrementCounter(counters, `exports.mailchimp.disposition.${mailchimpExport.disposition}`);
+
+  if (mailchimpExport.ready) {
+    incrementCounter(counters, 'exports.mailchimp.ready');
+  }
+
+  if (mailchimpExport.blockedBy.length > 0) {
+    incrementCounter(counters, 'exports.mailchimp.blockers', mailchimpExport.blockedBy.length);
+  }
+
   const exportRecord = {
     surfaceId,
     reportId,
@@ -2908,6 +3427,9 @@ function buildAdmissionReporting({
     decision,
     admitted,
     persistedStatus: persistence.current.status,
+    persistedStatusKnown: persistence.restartLedger.statusContract.known,
+    persistedStatusCategory: persistence.restartLedger.statusContract.category,
+    persistedStatusRecoveryAction: persistence.restartLedger.statusContract.recoveryAction,
     checkpointPhase: persistence.checkpoint.phase,
     checkpointNextCommand: persistence.checkpoint.nextCommandName,
     checkpointRestartSafe: persistence.checkpoint.restartSafe,
@@ -2958,6 +3480,37 @@ function buildAdmissionReporting({
     providerHandoffAckMode: providerNegotiation.serviceContract.handoffAckMode,
     providerHandoffAckRequired: providerNegotiation.serviceContract.handoffAckMode !== 'none',
     providerServiceContractProofId: providerNegotiation.serviceContract.proof.proofId,
+    mailchimpHandoffPresent: persistence.productHandoff?.product === 'mailchimp',
+    mailchimpHandoffState: persistence.productHandoff?.product === 'mailchimp' ? persistence.productHandoff.state : null,
+    mailchimpHandoffReady: persistence.productHandoff?.product === 'mailchimp' ? persistence.productHandoff.ready : false,
+    mailchimpHandoffAccepted: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.acceptance?.accepted === true
+      : false,
+    mailchimpHandoffExportReady: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.acceptance?.exportReady === true
+      : false,
+    mailchimpHandoffId: persistence.productHandoff?.product === 'mailchimp' ? persistence.productHandoff.handoffId : null,
+    mailchimpExportBatchId: mailchimpExport.batchId,
+    mailchimpExportState: mailchimpExport.state,
+    mailchimpExportDisposition: mailchimpExport.disposition,
+    mailchimpExportReadyRowCount: mailchimpExport.readyRowCount,
+    mailchimpExportBlockedBy: mailchimpExport.blockedBy,
+    mailchimpExportWatermark: mailchimpExport.manifest.watermark,
+    mailchimpBoundaryProofId: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.boundary?.proofId || null
+      : null,
+    mailchimpBoundaryDefaultedScope: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.boundary?.defaultedScope === true
+      : false,
+    mailchimpBoundaryRoutePartitionAccepted: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.boundary?.routePartitionAccepted === true
+      : false,
+    mailchimpBoundaryScopeCursorPresent: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.boundary?.scopeCursorPresent === true
+      : false,
+    mailchimpBlockedBy: persistence.productHandoff?.product === 'mailchimp'
+      ? persistence.productHandoff.blockedBy
+      : [],
     externalHandoffState: externalHandoff.state,
     externalHandoffAckState: externalHandoff.acknowledgement.state,
     previewStatus: admissionPreview.status,
@@ -3045,10 +3598,15 @@ function buildAdmissionReporting({
     retainedHistoryLastSnapshotAt: historySummary.lastSnapshotAt,
     retainedHistoryAdmittedCount: historySummary.admittedCount,
     retainedHistoryHeldCount: historySummary.heldCount,
+    retainedHistoryUnknownPersistedStatusCount: historySummary.unknownPersistedStatusCount,
     retainedHistoryRetryScheduledCount: historySummary.retryScheduledCount,
     retainedHistoryBlockedErrorCount: historySummary.blockedErrorCount,
     retainedHistoryRetryableErrorCount: historySummary.retryableErrorCount,
     retainedHistoryScopeBoundaryBlockedCount: historySummary.scopeBoundaryBlockedCount,
+    retainedHistoryMailchimpReadyCount: historySummary.mailchimpReadyCount,
+    retainedHistoryMailchimpAcceptedCount: historySummary.mailchimpAcceptedCount,
+    retainedHistoryMailchimpExportReadyCount: historySummary.mailchimpExportReadyCount,
+    retainedHistoryMailchimpBlockedCount: historySummary.mailchimpBlockedCount,
     retainedHistoryLatestWriteRevision: historySummary.latestWriteRevision,
     retainedHistoryLatestJournalSequence: historySummary.latestJournalSequence,
     timelineEventCount: timeline.length,
@@ -3070,6 +3628,7 @@ function buildAdmissionReporting({
     history,
     historySummary,
     timeline,
+    mailchimpExport,
     export: {
       format: 'process-admission-summary.v1',
       exportedAt: prior.exportedAt,
@@ -3077,7 +3636,10 @@ function buildAdmissionReporting({
       headers: Object.keys(exportRecord),
       record: exportRecord,
       summary: historySummary,
-      proof: exportProof
+      proof: exportProof,
+      productBatches: {
+        mailchimp: mailchimpExport
+      }
     }
   };
 }
@@ -3134,16 +3696,26 @@ function normalizeProviderContract(input) {
   const handoff = asPlainObject(provider.handoff || service.handoff || input.externalHandoff);
   const routing = asPlainObject(provider.routing || service.routing || handoff.routing || input.providerRouting);
   const serviceLevel = asPlainObject(service.serviceLevel || provider.serviceLevel || input.serviceLevel);
+  const mailchimp = asPlainObject(provider.mailchimp || service.mailchimp || input.mailchimp);
+  const audience = asPlainObject(mailchimp.audience || mailchimp.list || service.audience || provider.audience);
+  const campaign = asPlainObject(mailchimp.campaign || service.campaign || provider.campaign);
+  const webhook = asPlainObject(mailchimp.webhook || handoff.webhook || service.webhook);
   const state = textOrDefault(provider.state || provider.status || service.state, 'ready');
   const endpoint = textOrDefault(
     provider.endpoint || service.endpoint || handoff.endpoint,
     'kernel.lifecycle.spawn'
   );
   const ackMode = textOrDefault(handoff.ackMode || service.ackMode, handoff.requireAck === true ? 'provider-ack' : 'none');
+  const serviceKind = textOrDefault(service.kind || service.serviceKind || provider.serviceKind || provider.kind, 'hosted-kernel');
+  const serviceName = textOrDefault(service.name || provider.serviceName, 'hosted-kernel-process-service');
+  const mailchimpEnabled = serviceKind === 'mailchimp'
+    || serviceName.toLowerCase().includes('mailchimp')
+    || mailchimp.enabled === true;
 
   return {
     providerId: textOrDefault(provider.providerId || provider.id || service.providerId, 'hosted-kernel-provider'),
-    serviceName: textOrDefault(service.name || provider.serviceName, 'hosted-kernel-process-service'),
+    serviceName,
+    serviceKind,
     contractId: textOrDefault(service.contractId || provider.contractId, null),
     contractVersion: textOrDefault(service.version || provider.contractVersion, '1'),
     state,
@@ -3189,6 +3761,24 @@ function normalizeProviderContract(input) {
       ackMode,
       ackEndpoint: textOrDefault(handoff.ackEndpoint || service.ackEndpoint, null),
       ackDeadlineMs: normalizeInteger(handoff.ackDeadlineMs ?? service.ackDeadlineMs, 10000)
+    },
+    mailchimp: {
+      enabled: mailchimpEnabled,
+      audienceId: textOrDefault(mailchimp.audienceId || mailchimp.listId || audience.audienceId || audience.id, null),
+      campaignId: textOrDefault(mailchimp.campaignId || campaign.campaignId || campaign.id, null),
+      datacenter: textOrDefault(mailchimp.datacenter || mailchimp.dc || service.datacenter, null),
+      webhookId: textOrDefault(webhook.webhookId || webhook.id || mailchimp.webhookId, null),
+      webhookEndpoint: textOrDefault(webhook.endpoint || webhook.url || handoff.endpoint, null),
+      webhookSigningKeyRef: textOrDefault(webhook.signingKeyRef || webhook.secretRef || mailchimp.signingKeyRef, null),
+      suppressUnsubscribedContacts: mailchimp.suppressUnsubscribedContacts !== false,
+      requiredCapabilities: normalizeList(mailchimp.requiredCapabilities).length > 0
+        ? normalizeList(mailchimp.requiredCapabilities)
+        : MAILCHIMP_PROVIDER_CAPABILITIES,
+      mergeFieldMappings: normalizeList(mailchimp.mergeFieldMappings || mailchimp.mergeFields),
+      externalHandoffRef: textOrDefault(
+        mailchimp.externalHandoffRef || webhook.externalRef || handoff.externalId || handoff.handoffId,
+        null
+      )
     }
   };
 }
@@ -3777,6 +4367,128 @@ function buildLifecycleControlDecision({ controls, command, actor, now }) {
       settingsRevision: controls.settingsRevision,
       proofId: proof.proofId,
       evaluatedAt: now
+    },
+    commandAcknowledgement: buildLifecycleCommandAcknowledgement({
+      controls,
+      command,
+      actor,
+      windowState,
+      settingCommandPlan,
+      violations,
+      warnings,
+      nextAction,
+      proof,
+      now
+    })
+  };
+}
+
+function buildLifecycleCommandAcknowledgement({
+  controls,
+  command,
+  actor,
+  windowState,
+  settingCommandPlan,
+  violations,
+  warnings,
+  nextAction,
+  proof,
+  now
+}) {
+  const violationCodes = violations.map((violation) => violation.code);
+  const warningCodes = warnings.map((warning) => warning.code);
+  const commandDisposition = violationCodes.length > 0
+    ? 'rejected'
+    : (nextAction === 'enqueue-process-admission'
+      ? 'queued'
+      : (nextAction.startsWith('wait-') ? 'deferred' : 'accepted'));
+  const settingCommandDisposition = !controls.settingCommand.name
+    ? 'not-requested'
+    : (settingCommandPlan.canApply ? 'ready' : 'blocked');
+  const retryAfterMs = windowState.delayUntilOpenMs !== null
+    ? windowState.boundedDelayMs
+    : (nextAction === 'enqueue-process-admission' ? controls.scheduling.delayMs : null);
+  const statePatch = {
+    state: settingCommandPlan.canApply ? settingCommandPlan.projectedState : controls.state,
+    settingsRevision: settingCommandPlan.nextRevision,
+    schedulingMode: settingCommandPlan.canApply
+      ? settingCommandPlan.projectedSchedulingMode
+      : controls.scheduling.mode,
+    queueName: controls.scheduling.queueName,
+    windowState: settingCommandPlan.projectedWindowState || windowState.state
+  };
+  const handoffRequired = ['queued', 'deferred', 'rejected'].includes(commandDisposition)
+    || settingCommandDisposition === 'blocked';
+  const operatorAction = violationCodes.includes('process_admission_disabled')
+    ? 'enable-process-admission'
+    : (violationCodes.includes('admission_command_disabled')
+      ? 'enable-admission-command'
+      : (settingCommandDisposition === 'blocked'
+        ? settingCommandPlan.nextAction
+        : nextAction));
+
+  return {
+    schemaVersion: 1,
+    contractId: `${surfaceId}:lifecycle-command-ack:${command.commandId || command.name}`,
+    generatedAt: now,
+    command: {
+      commandName: command.name,
+      commandId: command.commandId,
+      disposition: commandDisposition,
+      accepted: commandDisposition === 'accepted',
+      queued: commandDisposition === 'queued',
+      deferred: commandDisposition === 'deferred',
+      retryAfterMs,
+      nextAction,
+      requiredActorRole: COMMAND_REQUIRED_PERMISSIONS[command.name]?.[0] || null,
+      actorRole: actor.effectiveRole
+    },
+    settingsCommand: {
+      commandName: controls.settingCommand.name,
+      commandId: controls.settingCommand.commandId,
+      disposition: settingCommandDisposition,
+      canApply: settingCommandPlan.canApply,
+      targetState: settingCommandPlan.projectedState,
+      schedulePatchKeys: settingCommandPlan.schedulePatchKeys,
+      requiresRevisionBump: Boolean(settingCommandPlan.requiresRevisionBump),
+      nextRevision: settingCommandPlan.nextRevision,
+      nextAction: controls.settingCommand.name
+        ? settingCommandPlan.nextAction
+        : 'observe-lifecycle-settings'
+    },
+    userVisible: {
+      state: commandDisposition,
+      status: commandDisposition === 'accepted'
+        ? 'Process admission can continue.'
+        : (commandDisposition === 'queued'
+          ? `Process admission will be queued on ${controls.scheduling.queueName}.`
+          : (commandDisposition === 'deferred'
+            ? 'Process admission is waiting for the lifecycle window.'
+            : 'Process admission needs lifecycle settings attention.')),
+      primaryAction: operatorAction,
+      secondaryAction: command.name === 'cancel-admission' ? null : 'cancel-admission',
+      handoffRequired,
+      retryAfterMs
+    },
+    statePatch,
+    validation: {
+      status: violationCodes.length > 0 ? 'invalid' : (warningCodes.length > 0 ? 'warning' : 'valid'),
+      violationCodes,
+      warningCodes,
+      blockedBy: [
+        ...violationCodes,
+        ...settingCommandPlan.blockedReasons.map((reason) => `setting-command:${reason}`)
+      ],
+      settingCommandViolations: settingCommandPlan.violations.map((violation) => violation.code)
+    },
+    audit: {
+      proofId: proof.proofId,
+      settingsRevision: controls.settingsRevision,
+      nextRevision: settingCommandPlan.nextRevision,
+      windowState: windowState.state,
+      scheduleMode: controls.scheduling.mode,
+      queueName: controls.scheduling.queueName,
+      evaluatedAt: now
     }
   };
 }
@@ -3906,6 +4618,9 @@ function buildProviderServiceContractProof({
     routePartition,
     providerContract.routing.routePartition || 'undeclared',
     providerContract.handoff.ackMode,
+    providerContract.mailchimp.enabled ? providerContract.mailchimp.audienceId || 'mailchimp-audience-missing' : 'mailchimp-disabled',
+    providerContract.mailchimp.enabled ? providerContract.mailchimp.campaignId || 'mailchimp-campaign-missing' : 'mailchimp-disabled',
+    providerContract.mailchimp.enabled ? providerContract.mailchimp.webhookId || 'mailchimp-webhook-missing' : 'mailchimp-disabled',
     requestedCapabilities.join(','),
     missingProviderCapabilities.join(','),
     contractViolations.map((violation) => violation.code).join(',')
@@ -3934,7 +4649,8 @@ function buildProviderNegotiation({ providerContract, requestedCapabilities, req
   const offered = new Set(providerContract.capabilities);
   const required = new Set([
     ...providerContract.requiredCapabilities,
-    ...(requiresHostedKernel ? HOSTED_KERNEL_PROVIDER_CAPABILITIES : [])
+    ...(requiresHostedKernel ? HOSTED_KERNEL_PROVIDER_CAPABILITIES : []),
+    ...(providerContract.mailchimp.enabled ? providerContract.mailchimp.requiredCapabilities : [])
   ]);
   const requested = new Set(requestedCapabilities);
   const negotiatedCapabilities = [];
@@ -4079,6 +4795,59 @@ function buildProviderNegotiation({ providerContract, requestedCapabilities, req
     });
   }
 
+  if (providerContract.mailchimp.enabled) {
+    if (!providerContract.mailchimp.audienceId) {
+      contractViolations.push({
+        field: 'provider.mailchimp.audienceId',
+        code: 'mailchimp_audience_id_missing',
+        providerId: providerContract.providerId,
+        serviceName: providerContract.serviceName
+      });
+    }
+
+    if (!providerContract.mailchimp.campaignId) {
+      contractWarnings.push({
+        field: 'provider.mailchimp.campaignId',
+        code: 'mailchimp_campaign_id_missing',
+        providerId: providerContract.providerId,
+        serviceName: providerContract.serviceName
+      });
+    }
+
+    if (!providerContract.mailchimp.webhookEndpoint) {
+      contractViolations.push({
+        field: 'provider.mailchimp.webhook.endpoint',
+        code: 'mailchimp_webhook_endpoint_missing',
+        providerId: providerContract.providerId
+      });
+    }
+
+    if (!providerContract.mailchimp.webhookSigningKeyRef) {
+      contractViolations.push({
+        field: 'provider.mailchimp.webhook.signingKeyRef',
+        code: 'mailchimp_webhook_signing_key_missing',
+        providerId: providerContract.providerId
+      });
+    }
+
+    if (!MAILCHIMP_ACK_MODES.has(providerContract.handoff.ackMode)) {
+      contractViolations.push({
+        field: 'provider.handoff.ackMode',
+        code: 'mailchimp_handoff_requires_provider_ack',
+        providerId: providerContract.providerId,
+        actualAckMode: providerContract.handoff.ackMode
+      });
+    }
+
+    if (!providerContract.mailchimp.suppressUnsubscribedContacts) {
+      contractViolations.push({
+        field: 'provider.mailchimp.suppressUnsubscribedContacts',
+        code: 'mailchimp_unsubscribed_contact_suppression_required',
+        providerId: providerContract.providerId
+      });
+    }
+  }
+
   const proof = buildProviderServiceContractProof({
     providerContract,
     requestedCapabilities,
@@ -4096,9 +4865,11 @@ function buildProviderNegotiation({ providerContract, requestedCapabilities, req
       ? 'refresh-hosted-kernel-provider-sync'
       : (violation.code === 'provider_scoped_sync_cursor_missing'
         ? 'refresh-hosted-kernel-provider-scoped-sync'
-        : (violation.code.includes('route')
+        : (violation.code.startsWith('mailchimp_')
+          ? 'repair-mailchimp-provider-handoff-contract'
+          : (violation.code.includes('route')
           ? 'select-provider-route-for-tenant-workspace'
-          : 'repair-hosted-kernel-provider-service-contract')),
+          : 'repair-hosted-kernel-provider-service-contract'))),
     retryable: violation.code === 'provider_sync_metadata_not_current'
       || violation.code === 'provider_scoped_sync_cursor_missing',
     retryAfterMs: violation.code === 'provider_sync_metadata_not_current'
@@ -4164,6 +4935,23 @@ function buildProviderNegotiation({ providerContract, requestedCapabilities, req
       actionableErrors,
       proof
     },
+    productServiceContract: providerContract.mailchimp.enabled
+      ? {
+        product: 'mailchimp',
+        audienceId: providerContract.mailchimp.audienceId,
+        campaignId: providerContract.mailchimp.campaignId,
+        datacenter: providerContract.mailchimp.datacenter,
+        webhookId: providerContract.mailchimp.webhookId,
+        webhookEndpoint: providerContract.mailchimp.webhookEndpoint,
+        webhookSigningKeyRef: providerContract.mailchimp.webhookSigningKeyRef,
+        suppressUnsubscribedContacts: providerContract.mailchimp.suppressUnsubscribedContacts,
+        mergeFieldMappings: providerContract.mailchimp.mergeFieldMappings,
+        requiredCapabilities: providerContract.mailchimp.requiredCapabilities,
+        externalHandoffRef: providerContract.mailchimp.externalHandoffRef,
+        readyForHandoff: contractViolations.every((violation) => !violation.code.startsWith('mailchimp_'))
+          && providerContract.mailchimp.requiredCapabilities.every((capability) => offered.has(capability))
+      }
+      : null,
     satisfied: missingProviderCapabilities.length === 0
       && contractViolations.length === 0
       && providerContract.state !== 'unavailable'
@@ -4184,11 +4972,23 @@ function buildExternalHandoffState({
   command,
   now
 }) {
-  const state = commandCancelsAdmission
+  const productHandoff = buildMailchimpProductHandoffIntent({
+    providerContract,
+    providerNegotiation,
+    scope,
+    requestId,
+    command,
+    status: commandCancelsAdmission ? 'cancelled' : (admitted ? 'spawn-dispatched' : 'pending-remediation'),
+    recoveryToken: `${surfaceId}:${requestId}:${command.idempotencyKey}`,
+    now
+  });
+  const baseState = commandCancelsAdmission
     ? 'cancelled'
     : (!admitted
       ? (operationalHealth.retryable || lifecycleControls.scheduled ? 'queued' : 'blocked')
       : (providerNegotiation.satisfied && scopeBoundary.handoffAllowed ? 'ready' : 'blocked'));
+  const productHandoffReady = !productHandoff || productHandoff.ready || commandCancelsAdmission;
+  const state = baseState === 'ready' && !productHandoffReady ? 'blocked' : baseState;
   const blockedReasons = [];
 
   if (!KNOWN_PROVIDER_STATES.has(providerContract.state)) {
@@ -4236,6 +5036,10 @@ function buildExternalHandoffState({
     blockedReasons.push('scope_boundary_blocked');
   }
 
+  if (productHandoff && !productHandoff.ready && !commandCancelsAdmission) {
+    blockedReasons.push('mailchimp_product_handoff_blocked');
+  }
+
   return {
     state,
     stateKnown: KNOWN_HANDOFF_STATES.has(state),
@@ -4267,6 +5071,7 @@ function buildExternalHandoffState({
         : 'not-started',
       proofRef: providerNegotiation.serviceContract.proof.proofId
     },
+    productHandoff,
     blockedReasons,
     scopeBoundary: {
       policyId: scopeBoundary.policyId,
@@ -4713,6 +5518,17 @@ function buildValidationSummary({
       staleDependencyCount: operationalHealth.staleDependencies.length
     },
     {
+      key: 'persistence-status-contract',
+      label: 'Persisted status contract',
+      status: persistence.restartLedger.statusContract.known ? 'passed' : 'blocked',
+      issueCount: persistence.restartLedger.statusContract.known ? 0 : 1,
+      persistedStatus: persistence.restartLedger.statusContract.status,
+      statusCategory: persistence.restartLedger.statusContract.category,
+      nextAction: persistence.restartLedger.statusContract.known
+        ? null
+        : persistence.restartLedger.statusContract.recoveryAction
+    },
+    {
       key: 'persistence-expiration',
       label: 'Persisted admission hold',
       status: persistence.restartLedger.expiration.expired
@@ -4949,6 +5765,18 @@ function buildExplainableNextSteps({
       persistedStatus: persistence.restartLedger.expiration.status,
       deadlineAt: persistence.restartLedger.expiration.deadlineAt,
       expiredByMs: Math.max(0, -(persistence.restartLedger.expiration.expiresInMs ?? 0))
+    });
+  }
+
+  if (persistence.restartLedger.statusContract.blocksAdmissionWrite) {
+    steps.push({
+      action: persistence.restartLedger.statusContract.recoveryAction,
+      owner: 'kernel.persistence.recovery',
+      required: true,
+      status: 'blocked',
+      persistedStatus: persistence.restartLedger.statusContract.status,
+      statusCategory: persistence.restartLedger.statusContract.category,
+      persistenceKey: persistence.key
     });
   }
 
@@ -5258,6 +6086,81 @@ function buildRoutePreviewAcceptance({
   };
 }
 
+function buildRouteAcceptanceChecklist({ routePreviewAcceptance, validationSummary, nextSteps, errorTriage, now }) {
+  const requiredStepsByGroup = new Map(
+    nextSteps.steps
+      .filter((step) => step.groupKey || step.action)
+      .map((step) => [step.groupKey || step.action, step])
+  );
+  const items = validationSummary.groups.map((group, index) => {
+    const matchingStep = requiredStepsByGroup.get(group.key) || requiredStepsByGroup.get(group.nextAction) || null;
+    const routeVisible = group.status !== 'passed' || group.key === 'handoff-readiness';
+    const blocking = group.status === 'blocked';
+    const waiting = group.status === 'retryable' || group.status === 'queued';
+    const warning = group.status === 'warning' || group.status === 'degraded';
+    const state = blocking
+      ? 'blocked'
+      : (waiting ? 'waiting' : (warning ? 'attention' : 'ready'));
+    const retryAfterMs = Number.isInteger(group.retryAfterMs)
+      ? group.retryAfterMs
+      : (Number.isInteger(matchingStep?.retryAfterMs) ? matchingStep.retryAfterMs : null);
+
+    return {
+      itemId: `${routePreviewAcceptance.contractId}:check:${index + 1}:${group.key}`,
+      sequence: index + 1,
+      key: group.key,
+      label: group.label,
+      state,
+      status: group.status,
+      required: group.status !== 'passed' || matchingStep?.required === true,
+      routeVisible,
+      issueCount: group.issueCount,
+      action: group.nextAction || matchingStep?.action || (state === 'ready' ? 'observe-admission-state' : nextSteps.nextRequiredAction),
+      owner: matchingStep?.owner || routePreviewAcceptance.display.primaryOwner,
+      retryAfterMs,
+      blockedBy: group.violations || group.blockedBy || [],
+      previewAnchor: `${routePreviewAcceptance.routeConsumption.handoffRef || routePreviewAcceptance.routeKey}#${group.key}`,
+      proofRef: `${routePreviewAcceptance.contractId}#check:${group.key}`
+    };
+  });
+  const requiredItems = items.filter((item) => item.required);
+  const actionableItems = items.filter((item) => item.state !== 'ready' || item.required);
+  const blockingItems = items.filter((item) => item.state === 'blocked');
+  const waitingItems = items.filter((item) => item.state === 'waiting');
+  const attentionItems = items.filter((item) => item.state === 'attention');
+  const firstUnresolved = blockingItems[0] || waitingItems[0] || attentionItems[0] || null;
+
+  return {
+    schemaVersion: 1,
+    contract: 'aios.process-admission.route-acceptance-checklist.v1',
+    generatedAt: now,
+    checklistId: `${routePreviewAcceptance.contractId}:route-checklist`,
+    ready: routePreviewAcceptance.ready,
+    accepted: routePreviewAcceptance.accepted,
+    state: routePreviewAcceptance.ready
+      ? 'ready'
+      : (waitingItems.length > 0 || errorTriage.retryableCount > 0 ? 'waiting-on-retry' : 'action-required'),
+    counts: {
+      total: items.length,
+      required: requiredItems.length,
+      actionable: actionableItems.length,
+      blocking: blockingItems.length,
+      waiting: waitingItems.length,
+      attention: attentionItems.length,
+      ready: items.filter((item) => item.state === 'ready').length
+    },
+    primaryItem: firstUnresolved,
+    routeDecision: {
+      target: routePreviewAcceptance.routeConsumption.target,
+      lane: routePreviewAcceptance.routeConsumption.lane,
+      acceptAction: routePreviewAcceptance.ready ? 'dispatch-hosted-kernel-spawn' : 'acknowledge-held-process-admission',
+      nextRequiredAction: firstUnresolved?.action || nextSteps.nextRequiredAction,
+      retryAfterMs: firstUnresolved?.retryAfterMs || errorTriage.nextRetry?.retryAfterMs || null
+    },
+    items
+  };
+}
+
 function buildClientAcceptancePacket({
   command,
   requestId,
@@ -5330,6 +6233,13 @@ function buildClientAcceptancePacket({
     counts[gate.severity] = (counts[gate.severity] || 0) + 1;
     return counts;
   }, {});
+  const routeChecklist = buildRouteAcceptanceChecklist({
+    routePreviewAcceptance,
+    validationSummary,
+    nextSteps,
+    errorTriage,
+    now
+  });
 
   return {
     schemaVersion: 1,
@@ -5359,6 +6269,7 @@ function buildClientAcceptancePacket({
       primaryGate,
       gates: acceptanceGates
     },
+    routeChecklist,
     commandAffordances: {
       accept: {
         enabled: routePreviewAcceptance.ready || acceptanceMode === 'accept-and-wait',
@@ -6006,6 +6917,15 @@ function buildAdmissionContract(input, now) {
   appendScopeViolations(violations, scope, actor);
   appendPersistedScopeViolations(violations, persistedState, scope);
   appendPersistedCheckpointViolations(violations, persistedState, requestId);
+  if (persistedState.found && !persistedState.statusContract.known) {
+    violations.push({
+      field: 'persistedAdmission.current.status',
+      code: 'unknown_persisted_admission_status',
+      actualStatus: persistedState.status,
+      recoveryAction: persistedState.statusContract.recoveryAction,
+      message: `persistedAdmission.current.status must be one of ${Array.from(KNOWN_PERSISTED_STATUSES).join(', ')}`
+    });
+  }
   if (persistedState.expiration.expired && command.name !== 'recover-admission' && command.name !== 'cancel-admission') {
     violations.push({
       field: 'persistedAdmission.expiration',
@@ -6093,7 +7013,15 @@ function buildAdmissionContract(input, now) {
     decision: { admitted, violations }
   };
   const recovery = buildRecoveryPlan(persistedState, draftAdmission, command);
-  const persistence = buildPersistenceEnvelope(draftAdmission, persistedState, command, recovery, now);
+  const persistence = buildPersistenceEnvelope(
+    draftAdmission,
+    persistedState,
+    command,
+    recovery,
+    now,
+    providerContract,
+    providerNegotiation
+  );
   const effectiveOutcome = buildEffectiveAdmissionOutcome({
     commandCancelsAdmission,
     admitted,
@@ -6174,6 +7102,15 @@ function buildAdmissionContract(input, now) {
   });
   const actionableErrors = [
     ...operationalHealth.actionableErrors,
+    ...(persistedState.found && !persistedState.statusContract.known ? [{
+      code: 'unknown_persisted_admission_status',
+      message: 'Persisted process admission status is not recognized; quarantine and repair the envelope before appending a new admission event.',
+      owner: 'kernel.persistence.recovery',
+      action: persistedState.statusContract.recoveryAction,
+      retryable: false,
+      retryAfterMs: null,
+      field: 'persistedAdmission.current.status'
+    }] : []),
     ...(persistedState.expiration.expired && recovery.mode === 'expired-hold' ? [{
       code: 'persisted_admission_hold_expired',
       message: 'Persisted process admission hold expired; recover or cancel it before appending a new admission event.',
@@ -6426,6 +7363,9 @@ function buildAdmissionContract(input, now) {
     persistenceWriteRevision: persistence.current.writeRevision,
     journalSequence: persistence.current.journalSequence,
     persistenceRestartConsistency: persistence.restartLedger.consistency,
+    persistedStatusKnown: persistence.restartLedger.statusContract.known,
+    persistedStatusCategory: persistence.restartLedger.statusContract.category,
+    persistedStatusRecoveryAction: persistence.restartLedger.statusContract.recoveryAction,
     persistenceLeaseState: persistence.restartLedger.lease.state,
     persistenceLeaseRestartAction: persistence.restartLedger.lease.restartAction,
     persistenceExpirationState: persistence.restartLedger.expiration.state,
@@ -6567,6 +7507,7 @@ function buildAdmissionContract(input, now) {
       scheduleAfterMs: lifecycleControls.scheduleAfterMs,
       nextAction: lifecycleControls.nextAction,
       settingCommand: lifecycleControls.settingCommand,
+      commandAcknowledgement: lifecycleControls.commandAcknowledgement,
       schedulingWindow: lifecycleControls.schedulingWindow,
       settingsValidation: lifecycleControls.settingsValidation,
       proof: lifecycleControls.proof,
@@ -6782,6 +7723,7 @@ function buildAdmissionContract(input, now) {
         { name: 'required-objective-evidence-accounted', ok: objective.requiredEvidence.requiredCount === objective.requiredEvidence.satisfiedCount + objective.requiredEvidence.missingCount },
         { name: 'idempotency-key-present', ok: Boolean(command.idempotencyKey) },
         { name: 'persisted-state-shaped', ok: persistence.version === 2 && Boolean(persistence.key) },
+        { name: 'persisted-status-known-before-write', ok: persistence.restartLedger.statusContract.known || persistence.writePlan.operation === 'reject-write' },
         { name: 'persistence-write-plan-shaped', ok: persistence.writePlan.schemaVersion === 1 && Boolean(persistence.writePlan.operation) },
         { name: 'persistence-write-plan-has-conflict-policy', ok: persistence.writePlan.conflict.onRevisionMismatch === 'reload-and-rebuild-recovery-plan' },
         { name: 'persistence-restart-ledger-shaped', ok: persistence.restartLedger.schemaVersion === 1 && Boolean(persistence.restartLedger.consistency) },
@@ -6844,6 +7786,9 @@ function buildAdmissionContract(input, now) {
         { name: 'lifecycle-next-action-present', ok: Boolean(lifecycleControls.nextAction) },
         { name: 'lifecycle-settings-validation-shaped', ok: Boolean(lifecycleControls.settingsValidation.status && lifecycleControls.schedulingWindow.state) },
         { name: 'lifecycle-setting-command-known', ok: lifecycleControls.settingCommand.known },
+        { name: 'lifecycle-command-ack-shaped', ok: lifecycleControls.commandAcknowledgement.schemaVersion === 1 && Boolean(lifecycleControls.commandAcknowledgement.contractId) },
+        { name: 'lifecycle-command-ack-disposition-valid', ok: ['accepted', 'queued', 'deferred', 'rejected'].includes(lifecycleControls.commandAcknowledgement.command.disposition) },
+        { name: 'lifecycle-command-ack-blockers-aligned', ok: lifecycleControls.commandAcknowledgement.validation.violationCodes.length === lifecycleControls.violations.length },
         { name: 'lifecycle-control-proof-shaped', ok: lifecycleControls.proof.schemaVersion === 1 && Boolean(lifecycleControls.proof.proofId) },
         { name: 'lifecycle-window-gates-spawn', ok: lifecycleControls.schedulingWindow.state !== 'not-open' || !admitted },
         { name: 'scope-boundary-mode-known', ok: KNOWN_SCOPE_BOUNDARY_MODES.has(scopeBoundary.mode) },
@@ -6933,6 +7878,9 @@ export function describeProcessAdmissionSurface(input = {}) {
     userVisibleWorkflow: {
       status: admission.decision.status,
       persistedStatus: admission.persistence.current.status,
+      persistedStatusKnown: admission.persistence.restartLedger.statusContract.known,
+      persistedStatusCategory: admission.persistence.restartLedger.statusContract.category,
+      persistedStatusRecoveryAction: admission.persistence.restartLedger.statusContract.recoveryAction,
       restartSafeStatus: admission.persistence.current.restartSafeStatus,
       checkpointPhase: admission.persistence.checkpoint.phase,
       checkpointNextCommand: admission.persistence.checkpoint.nextCommandName,
@@ -6985,6 +7933,11 @@ export function describeProcessAdmissionSurface(input = {}) {
       lifecycleScheduled: admission.lifecycleControls.scheduled,
       lifecycleControlNextAction: admission.lifecycleControls.nextAction,
       lifecycleControlProofId: admission.lifecycleControls.proof.proofId,
+      lifecycleCommandDisposition: admission.lifecycleControls.commandAcknowledgement.command.disposition,
+      lifecycleCommandAccepted: admission.lifecycleControls.commandAcknowledgement.command.accepted,
+      lifecycleCommandRetryAfterMs: admission.lifecycleControls.commandAcknowledgement.command.retryAfterMs,
+      lifecycleCommandUserVisibleStatus: admission.lifecycleControls.commandAcknowledgement.userVisible.status,
+      lifecycleCommandPrimaryAction: admission.lifecycleControls.commandAcknowledgement.userVisible.primaryAction,
       scopeBoundaryPolicyId: admission.scopeBoundary.policyId,
       scopeBoundaryMode: admission.scopeBoundary.mode,
       scopeBoundaryAllowed: admission.scopeBoundary.allowed,
@@ -7032,6 +7985,11 @@ export function describeProcessAdmissionSurface(input = {}) {
       actionableErrorNextRetryAfterMs: admission.decision.errorTriage.nextRetry?.retryAfterMs || null,
       reportId: admission.reporting.reportId,
       exportReady: admission.reporting.export.ready,
+      mailchimpExportBatchId: admission.reporting.mailchimpExport.batchId,
+      mailchimpExportReady: admission.reporting.mailchimpExport.ready,
+      mailchimpExportState: admission.reporting.mailchimpExport.state,
+      mailchimpExportDisposition: admission.reporting.mailchimpExport.disposition,
+      mailchimpExportBlockedBy: admission.reporting.mailchimpExport.blockedBy,
       historySnapshotCount: admission.reporting.history.length,
       previewStatus: admission.preview.status,
       previewLabel: admission.preview.previewLabel,
@@ -7103,6 +8061,9 @@ export function describeProcessAdmissionSurface(input = {}) {
         workspaceId: admission.scope.workspaceId,
         status: admission.decision.status,
         persistedStatus: admission.persistence.current.status,
+        persistedStatusKnown: admission.persistence.restartLedger.statusContract.known,
+        persistedStatusCategory: admission.persistence.restartLedger.statusContract.category,
+        persistedStatusRecoveryAction: admission.persistence.restartLedger.statusContract.recoveryAction,
         checkpointPhase: admission.persistence.checkpoint.phase,
         checkpointNextCommand: admission.persistence.checkpoint.nextCommandName,
         checkpointRestartSafe: admission.persistence.checkpoint.restartSafe,
@@ -7234,6 +8195,9 @@ export function describeProcessAdmissionSurface(input = {}) {
         tenantId: admission.scope.tenantId,
         workspaceId: admission.scope.workspaceId,
         restartSafeStatus: admission.persistence.current.restartSafeStatus,
+        persistedStatusKnown: admission.persistence.restartLedger.statusContract.known,
+        persistedStatusCategory: admission.persistence.restartLedger.statusContract.category,
+        persistedStatusRecoveryAction: admission.persistence.restartLedger.statusContract.recoveryAction,
         checkpointPhase: admission.persistence.checkpoint.phase,
         checkpointNextCommand: admission.persistence.checkpoint.nextCommandName,
         checkpointRestartSafe: admission.persistence.checkpoint.restartSafe,
@@ -7416,8 +8380,19 @@ export function describeProcessAdmissionSurface(input = {}) {
         workspaceId: admission.scope.workspaceId,
         exportFormat: admission.reporting.export.format,
         exportReady: admission.reporting.export.ready,
+        mailchimpExportBatchId: admission.reporting.mailchimpExport.batchId,
+        mailchimpExportState: admission.reporting.mailchimpExport.state,
+        mailchimpExportReady: admission.reporting.mailchimpExport.ready,
+        mailchimpExportDisposition: admission.reporting.mailchimpExport.disposition,
+        mailchimpExportReadyRowCount: admission.reporting.mailchimpExport.readyRowCount,
+        mailchimpExportBlockedBy: admission.reporting.mailchimpExport.blockedBy,
+        mailchimpExportWatermark: admission.reporting.mailchimpExport.manifest.watermark,
         historySnapshotCount: admission.reporting.history.length,
         totalCommandCount: admission.reporting.counters['commands.total'] || 0,
+        retainedHistoryMailchimpReadyCount: admission.reporting.historySummary.mailchimpReadyCount,
+        retainedHistoryMailchimpAcceptedCount: admission.reporting.historySummary.mailchimpAcceptedCount,
+        retainedHistoryMailchimpExportReadyCount: admission.reporting.historySummary.mailchimpExportReadyCount,
+        retainedHistoryMailchimpBlockedCount: admission.reporting.historySummary.mailchimpBlockedCount,
         currentDecision: admission.reporting.currentSnapshot.status,
         currentPersistedStatus: admission.reporting.currentSnapshot.persistedStatus,
         previewStatus: admission.reporting.currentSnapshot.previewStatus,
@@ -7429,6 +8404,32 @@ export function describeProcessAdmissionSurface(input = {}) {
         lifecycleSchedulingMode: admission.reporting.currentSnapshot.lifecycleSchedulingMode,
         lifecycleControlNextAction: admission.reporting.currentSnapshot.lifecycleControlNextAction,
         validationBlockingGroupCount: admission.readiness.blockingGroupCount,
+        generatedAt: now
+      },
+      {
+        type: 'process-admission-mailchimp-export-batch',
+        surfaceId,
+        reportId: admission.reporting.reportId,
+        batchId: admission.reporting.mailchimpExport.batchId,
+        requestId: admission.request.requestId,
+        commandId: admission.command.commandId,
+        tenantId: admission.scope.tenantId,
+        workspaceId: admission.scope.workspaceId,
+        state: admission.reporting.mailchimpExport.state,
+        disposition: admission.reporting.mailchimpExport.disposition,
+        ready: admission.reporting.mailchimpExport.ready,
+        required: admission.reporting.mailchimpExport.required,
+        rowCount: admission.reporting.mailchimpExport.rowCount,
+        readyRowCount: admission.reporting.mailchimpExport.readyRowCount,
+        blockedBy: admission.reporting.mailchimpExport.blockedBy,
+        partitionKey: admission.reporting.mailchimpExport.manifest.partitionKey,
+        watermark: admission.reporting.mailchimpExport.manifest.watermark,
+        historyMailchimpReadyCount: admission.reporting.mailchimpExport.manifest.historyMailchimpReadyCount,
+        historyMailchimpExportReadyCount: admission.reporting.mailchimpExport.manifest.historyMailchimpExportReadyCount,
+        historyMailchimpBlockedCount: admission.reporting.mailchimpExport.manifest.historyMailchimpBlockedCount,
+        timelineEventCount: admission.reporting.mailchimpExport.manifest.timelineEventCount,
+        proofId: admission.reporting.mailchimpExport.proof.proofId,
+        boundaryProofId: admission.reporting.mailchimpExport.proof.boundaryProofId,
         generatedAt: now
       },
       {

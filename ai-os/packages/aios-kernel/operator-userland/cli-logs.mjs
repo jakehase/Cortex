@@ -142,7 +142,13 @@ const RETRYABLE_FAILURE_CODES = new Set([
   "restart-recovery",
   "audit-attention",
   "failed-command",
+  "mailchimp-rate-limited",
+  "mailchimp-sync-degraded",
 ]);
+const MAILCHIMP_CAMPAIGN_STATUSES = new Set(["draft", "scheduled", "sending", "sent", "paused", "failed", "cancelled"]);
+const MAILCHIMP_PROVIDER_STATES = new Set(["connected", "degraded", "rate-limited", "offline", "unauthorized", "unknown"]);
+const MAILCHIMP_ACTIONABLE_ERROR_CODES = new Set(["rate_limit", "timeout", "webhook_lag", "api_unavailable", "auth_failed", "audience_missing", "campaign_failed"]);
+const MAILCHIMP_RETRYABLE_ERROR_CODES = new Set(["rate_limit", "timeout", "webhook_lag", "api_unavailable"]);
 const IDEMPOTENT_COMMAND_EFFECTS = {
   status: true,
   start: true,
@@ -1174,6 +1180,115 @@ function buildRestartRecoveryState(persistedState, lifecycle, syncMetadata, inte
   };
 }
 
+function buildRestartSafeStatusEnvelope(persistedState, restartRecovery, persistedCommand, generatedAt) {
+  const activeCommands = persistedState.commandLedger.active;
+  const replayable = restartRecovery.commandLedgerRecovery.replayable;
+  const ackRequired = restartRecovery.commandLedgerRecovery.operatorAckRequired;
+  const settledCommands = persistedState.commandLedger.entries.filter((entry) => entry.restartDisposition === "settled");
+  const failedCommands = persistedState.commandLedger.entries.filter((entry) => entry.restartDisposition === "inspect-failure");
+  const duplicateKeys = persistedState.commandLedger.duplicateIdempotencyKeys;
+  const persistedReadModel = persistedState.persistenceContract.readModel;
+  const writeAheadAvailable = Boolean(persistedState.durability.writeAheadLogId || persistedState.durability.checkpointId);
+  const commandAdmissionState = persistedCommand?.admission || "not-evaluated";
+  const blockedBy = [
+    ...(restartRecovery.restartSafe ? [] : ["restart-recovery-not-clean"]),
+    ...(persistedState.durability.stale ? ["persisted-state-stale"] : []),
+    ...(duplicateKeys.length ? ["duplicate-idempotency-keys"] : []),
+    ...(ackRequired.length ? ["operator-command-ack-required"] : []),
+    ...(failedCommands.length ? ["failed-command-ledger-entry"] : []),
+    ...(persistedCommand?.blockedReason ? ["current-command-blocked"] : []),
+  ];
+  const replayPlan = replayable.map((entry) => ({
+    transactionId: entry.transactionId,
+    command: entry.command,
+    idempotencyKey: entry.idempotencyKey,
+    replayRoute: `/operator-userland/cli-logs/replay/${encodeURIComponent(entry.transactionId)}`,
+    idempotent: true,
+  }));
+  const handoffPlan = ackRequired.map((entry) => ({
+    transactionId: entry.transactionId,
+    command: entry.command,
+    state: entry.state,
+    idempotencyKey: entry.idempotencyKey,
+    handoffRoute: `/operator-userland/cli-logs/recovery/${encodeURIComponent(entry.transactionId)}/ack`,
+    reason: "non-idempotent command was active during restart",
+  }));
+  const status =
+    blockedBy.includes("operator-command-ack-required") || blockedBy.includes("current-command-blocked")
+      ? "blocked"
+      : restartRecovery.state === "recovering" || replayPlan.length
+        ? "recovering"
+        : blockedBy.length
+          ? "degraded"
+          : "ready";
+  const canPersistStatus = status === "ready" || (status === "recovering" && replayPlan.length > 0 && handoffPlan.length === 0);
+  const statusSubject = {
+    surfaceId,
+    generatedAt,
+    tenantId: persistedState.tenantId,
+    workspaceId: persistedState.workspaceId,
+    status,
+    activeCommandIds: activeCommands.map((entry) => entry.transactionId),
+    duplicateKeys,
+    replayTransactionIds: replayPlan.map((entry) => entry.transactionId),
+    handoffTransactionIds: handoffPlan.map((entry) => entry.transactionId),
+    commandAdmissionState,
+  };
+
+  return {
+    schema: "aios.cliLogs.restartSafeStatus.v1",
+    generatedAt,
+    status,
+    restartSafe: status === "ready",
+    canPersistStatus,
+    persistedReadModel,
+    commandAdmissionState,
+    activeCommandCount: activeCommands.length,
+    settledCommandCount: settledCommands.length,
+    failedCommandCount: failedCommands.length,
+    replayableCommandCount: replayPlan.length,
+    operatorAckRequiredCount: handoffPlan.length,
+    duplicateIdempotencyKeyCount: duplicateKeys.length,
+    writeAheadAvailable,
+    blockedBy,
+    recoveryRoutes: {
+      replay: replayPlan,
+      handoff: handoffPlan,
+      checkpoint: {
+        checkpointId: restartRecovery.checkpointRecovery.preferredCheckpointId,
+        route: restartRecovery.checkpointRecovery.preferredCheckpointId
+          ? `/operator-userland/cli-logs/checkpoints/${encodeURIComponent(restartRecovery.checkpointRecovery.preferredCheckpointId)}`
+          : null,
+        disposition: restartRecovery.checkpointRecovery.disposition,
+      },
+    },
+    idempotentCommandPolicy: Object.fromEntries(
+      Object.entries(IDEMPOTENT_COMMAND_EFFECTS).map(([command, idempotent]) => [command, {
+        idempotent,
+        restartDisposition: idempotent ? "safe-replay-with-key" : "requires-operator-ack",
+      }])
+    ),
+    exportableSummary: {
+      rowKey: `${persistedState.tenantId}:${persistedState.workspaceId}:${persistedReadModel.sequence}`,
+      status,
+      lastPersistedAt: persistedState.durability.lastPersistedAt,
+      ageMs: persistedState.durability.ageMs,
+      cursorSequence: persistedState.cursor.lastSequence,
+      durableSequence: persistedState.persistenceContract.latestDurableSequence,
+      observedSequence: restartRecovery.replay.toSequence,
+      missingEvents: restartRecovery.replay.missingEvents,
+      replayableCommandCount: replayPlan.length,
+      operatorAckRequiredCount: handoffPlan.length,
+      duplicateIdempotencyKeyCount: duplicateKeys.length,
+      proofId: digestPayload(statusSubject).slice(0, 32),
+    },
+    proof: {
+      digest: digestPayload(statusSubject),
+      subject: statusSubject,
+    },
+  };
+}
+
 function projectedStatusAfterCommand(command, currentStatus, settingsEnabled) {
   if (command === "start" || command === "restart") return "active";
   if (command === "stop") return "disabled";
@@ -2107,7 +2222,7 @@ function buildAuditLifecycleQueues(events, generatedAt) {
   const chronological = sortAuditEventsForBrowser(events, "asc");
   const actionable = chronological
     .map((event) => ({ event, action: lifecycleAuditNextAction(event, generatedAt) }))
-    .filter(({ action }) => action.priority !== "low" || ["blocker", "recovery"].includes(event.auditEventType));
+    .filter(({ event, action }) => action.priority !== "low" || ["blocker", "recovery"].includes(event.auditEventType));
   const byAction = actionable.reduce((accumulator, { action }) => {
     accumulator[action.type] = (accumulator[action.type] || 0) + 1;
     return accumulator;
@@ -3141,6 +3256,265 @@ function operationalIssue(code, severity, summary, action, evidence = {}) {
   };
 }
 
+function normalizeMailchimpActionableErrors(rawErrors) {
+  const errors = Array.isArray(rawErrors) ? rawErrors : [];
+  return errors
+    .filter((error) => error !== null && error !== undefined)
+    .map((error, index) => {
+      const raw = error && typeof error === "object" ? error : { message: error };
+      const requestedCode = String(raw.code || raw.type || raw.reason || "api_unavailable").trim().toLowerCase().replaceAll("-", "_");
+      const code = MAILCHIMP_ACTIONABLE_ERROR_CODES.has(requestedCode) ? requestedCode : "api_unavailable";
+      const retryable = raw.retryable !== undefined ? asBooleanSetting(raw.retryable, MAILCHIMP_RETRYABLE_ERROR_CODES.has(code)) : MAILCHIMP_RETRYABLE_ERROR_CODES.has(code);
+      const severity =
+        raw.severity === "critical" || raw.severity === "error"
+          ? "critical"
+          : raw.severity === "info"
+            ? "info"
+            : code === "auth_failed" || code === "campaign_failed" || code === "audience_missing"
+              ? "critical"
+              : "warning";
+
+      return {
+        id: String(raw.id || raw.errorId || `mailchimp-error-${index + 1}`),
+        code,
+        severity,
+        retryable,
+        message: String(raw.message || raw.detail || `Mailchimp ${code.replaceAll("_", " ")} reported.`),
+        observedAt: asIsoTimestamp(raw.observedAt || raw.timestamp, null),
+        route: String(raw.route || raw.url || "/operator-userland/cli-logs/integrations/mailchimp/errors"),
+        campaignId: raw.campaignId ? String(raw.campaignId) : null,
+      };
+    })
+    .slice(0, 12);
+}
+
+function normalizeMailchimpCampaignContract(input, lifecycle, syncMetadata, generatedAt, tenantBoundary) {
+  const source =
+    input.mailchimp && typeof input.mailchimp === "object"
+      ? input.mailchimp
+      : input.mailchimpCampaign && typeof input.mailchimpCampaign === "object"
+        ? input.mailchimpCampaign
+        : input.campaignProvider && typeof input.campaignProvider === "object" && String(input.campaignProvider.provider || "").toLowerCase() === "mailchimp"
+          ? input.campaignProvider
+          : {};
+  const enabled = source.enabled === true || source.present === true || Boolean(source.campaignId || source.audienceId || source.providerState);
+  const requestedProviderState = String(source.providerState || source.state || source.health || (enabled ? "connected" : "unknown")).trim().toLowerCase();
+  const providerState = MAILCHIMP_PROVIDER_STATES.has(requestedProviderState) ? requestedProviderState : "unknown";
+  const requestedCampaignStatus = String(source.campaignStatus || source.status || "draft").trim().toLowerCase();
+  const campaignStatus = MAILCHIMP_CAMPAIGN_STATUSES.has(requestedCampaignStatus) ? requestedCampaignStatus : "draft";
+  const actionableErrors = normalizeMailchimpActionableErrors(source.errors || source.actionableErrors || source.failures);
+  const lastSyncAt = asIsoTimestamp(source.lastSyncAt || source.syncedAt || source.observedAt, null);
+  const retryAfterMs = source.retryAfterMs === null || source.retryAfterMs === undefined ? null : Math.max(0, Math.trunc(asFiniteNumber(source.retryAfterMs, 0)));
+  const lastSyncAgeMs = lastSyncAt ? Math.max(0, new Date(generatedAt).getTime() - new Date(lastSyncAt).getTime()) : null;
+  const staleAfterMs = Math.max(60000, Math.trunc(asFiniteNumber(source.staleAfterMs, 10 * 60 * 1000)));
+  const stale = enabled && (lastSyncAgeMs === null || lastSyncAgeMs > staleAfterMs);
+  const rateLimited = providerState === "rate-limited" || actionableErrors.some((error) => error.code === "rate_limit");
+  const authorizationBlocked = providerState === "unauthorized" || actionableErrors.some((error) => error.code === "auth_failed");
+  const campaignTerminalFailure = campaignStatus === "failed" || actionableErrors.some((error) => error.code === "campaign_failed");
+  const syncDegraded = providerState === "degraded" || providerState === "offline" || stale || actionableErrors.some((error) => error.retryable);
+  const retryable = enabled && !authorizationBlocked && !campaignTerminalFailure && (rateLimited || syncDegraded);
+  const nextRetryAt = retryable
+    ? new Date(new Date(generatedAt).getTime() + (retryAfterMs ?? Math.min(120000, Math.max(15000, (syncMetadata.providerCursors.length + actionableErrors.length + 1) * 5000)))).toISOString()
+    : null;
+  const state = !enabled
+    ? "not-configured"
+    : authorizationBlocked || campaignTerminalFailure
+      ? "blocked"
+      : rateLimited
+        ? "rate-limited"
+        : syncDegraded
+          ? "degraded"
+          : "ready";
+  const disabledCommands = state === "blocked"
+    ? ["export", "purge"]
+    : state === "rate-limited" || state === "degraded"
+      ? ["export"]
+      : [];
+  const validation = [
+    enabled && !String(source.audienceId || "").trim() ? "mailchimp audienceId is required before campaign evidence can be exported" : null,
+    enabled && !String(source.campaignId || "").trim() ? "mailchimp campaignId is required before campaign delivery proof can be linked" : null,
+    requestedProviderState !== providerState ? `unsupported mailchimp provider state '${requestedProviderState}'` : null,
+    requestedCampaignStatus !== campaignStatus ? `unsupported mailchimp campaign status '${requestedCampaignStatus}'` : null,
+  ].filter(Boolean);
+  const proofSubject = {
+    surfaceId,
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    provider: "mailchimp",
+    enabled,
+    providerState,
+    campaignStatus,
+    campaignId: source.campaignId || null,
+    audienceId: source.audienceId || null,
+    state,
+    lastSyncAt,
+    retryAfterMs,
+    errorCodes: actionableErrors.map((error) => error.code),
+  };
+
+  return {
+    schema: "aios.cliLogs.mailchimpCampaignHealth.v1",
+    generatedAt,
+    provider: "mailchimp",
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    enabled,
+    state,
+    providerState,
+    campaignStatus,
+    campaignId: source.campaignId ? String(source.campaignId) : null,
+    audienceId: source.audienceId ? String(source.audienceId) : null,
+    listId: source.listId ? String(source.listId) : null,
+    validation,
+    deliveryReadiness: {
+      canAttachLogProof: enabled && state === "ready" && validation.length === 0 && lifecycle.controls.canExport,
+      canContinueInDegradedMode: enabled && (state === "degraded" || state === "rate-limited") && lifecycle.controls.canTail,
+      disabledCommands,
+      reason:
+        !enabled
+          ? "Mailchimp campaign delivery is not configured for this log stream."
+          : validation[0] || actionableErrors.find((error) => error.severity === "critical")?.message || (stale ? "Mailchimp campaign sync is stale." : null),
+    },
+    freshness: {
+      lastSyncAt,
+      ageMs: lastSyncAgeMs,
+      stale,
+      staleAfterMs,
+      syncCursor: String(source.syncCursor || source.cursor || syncMetadata.watermark),
+    },
+    retry: {
+      retryable,
+      retryAfterMs,
+      nextRetryAt,
+      retryReason: retryable
+        ? rateLimited
+          ? "mailchimp-rate-limited"
+          : "mailchimp-sync-degraded"
+        : null,
+    },
+    actionableErrors,
+    operatorAction: {
+      id:
+        state === "blocked"
+          ? "repair-mailchimp-campaign"
+          : state === "rate-limited" || state === "degraded"
+            ? "retry-mailchimp-sync"
+            : enabled
+              ? "monitor-mailchimp-campaign"
+              : "configure-mailchimp-campaign",
+      command: state === "ready" ? "status" : "tail",
+      route: "/operator-userland/cli-logs/integrations/mailchimp",
+      priority: state === "blocked" ? "high" : state === "rate-limited" || state === "degraded" ? "medium" : "low",
+      enabled: enabled && state !== "ready",
+    },
+    handoff: {
+      exportable: enabled && state !== "blocked" && validation.length === 0,
+      target: "mailchimp-campaign-ops",
+      route: "/operator-userland/cli-logs/handoff/mailchimp",
+      proofDigest: digestPayload(proofSubject),
+    },
+  };
+}
+
+function buildMailchimpExportReadiness(mailchimpCampaignHealth, exportSummary, auditProof, reportingState, exportHistory, tenantBoundary, generatedAt) {
+  const present = Boolean(mailchimpCampaignHealth?.enabled);
+  const exportBlocked = !exportSummary.ready;
+  const proofBlocked = auditProof.status !== "ready";
+  const healthBlocked = present && ["blocked", "rate-limited", "degraded"].includes(mailchimpCampaignHealth.state);
+  const validation = [
+    !present ? "mailchimp campaign is not configured for campaign-linked log proof" : null,
+    exportBlocked ? "cli-log export summary is not ready for Mailchimp proof attachment" : null,
+    proofBlocked ? "audit proof must be ready before Mailchimp campaign proof can be attached" : null,
+    ...(mailchimpCampaignHealth?.validation || []),
+    ...(mailchimpCampaignHealth?.deliveryReadiness?.canAttachLogProof ? [] : present ? [mailchimpCampaignHealth.deliveryReadiness.reason || "Mailchimp delivery readiness is not attachable"] : []),
+  ].filter(Boolean);
+  const retryable = Boolean(mailchimpCampaignHealth?.retry?.retryable);
+  const accepted = present && validation.length === 0 && !healthBlocked;
+  const state = accepted
+    ? "export-ready"
+    : !present
+      ? "not-configured"
+      : healthBlocked
+        ? mailchimpCampaignHealth.state
+        : retryable
+          ? "retry-after-sync"
+          : "blocked";
+  const attachableRecordCount = accepted ? exportSummary.recordCount : 0;
+  const packageSubject = {
+    surfaceId,
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    campaignId: mailchimpCampaignHealth?.campaignId || null,
+    audienceId: mailchimpCampaignHealth?.audienceId || null,
+    state,
+    exportRecordCount: exportSummary.recordCount,
+    auditRootHash: auditProof.digest.rootHash,
+    reportId: reportingState.reportId,
+    exportHistoryDigest: exportHistory.audit.digest,
+  };
+
+  return {
+    schema: "aios.cliLogs.mailchimpExportReadiness.v1",
+    generatedAt,
+    provider: "mailchimp",
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    present,
+    accepted,
+    state,
+    validation,
+    counters: {
+      exportableRecords: exportSummary.recordCount,
+      attachableRecords: attachableRecordCount,
+      failedRecords: exportSummary.failedRecordCount,
+      proofIds: auditProof.proofIds.length,
+      unsupportedFormatCount: exportSummary.unsupportedFormats.length,
+      priorExports: exportHistory.counters.priorExports,
+      blockedExports: exportHistory.counters.blockedExports,
+    },
+    campaign: {
+      campaignId: mailchimpCampaignHealth?.campaignId || null,
+      audienceId: mailchimpCampaignHealth?.audienceId || null,
+      providerState: mailchimpCampaignHealth?.providerState || "unknown",
+      campaignStatus: mailchimpCampaignHealth?.campaignStatus || "unknown",
+      lastSyncAt: mailchimpCampaignHealth?.freshness?.lastSyncAt || null,
+      stale: mailchimpCampaignHealth?.freshness?.stale === true,
+    },
+    readiness: {
+      canAttachLogProof: accepted,
+      canExportWithoutCampaignLink: exportSummary.ready && auditProof.status === "ready",
+      canRetrySync: retryable,
+      disabledCommands: mailchimpCampaignHealth?.deliveryReadiness?.disabledCommands || [],
+      reason: validation[0] || "Mailchimp campaign-linked log proof is ready for export.",
+    },
+    exportPackage: {
+      reportId: reportingState.reportId,
+      exportId: exportHistory.currentSnapshot.exportId,
+      formats: exportSummary.formats,
+      recordCount: attachableRecordCount,
+      rootHash: auditProof.digest.rootHash,
+      integrityAlgorithm: auditProof.digest.algorithm || "sha256",
+      redactionRequired: exportSummary.redactionRequired,
+      redactionSafe: exportSummary.redaction?.exportSafe !== false,
+      sampleRecordIds: exportSummary.sampleRecordIds,
+      historyDigest: exportHistory.audit.digest,
+    },
+    route: {
+      attach: "/operator-userland/cli-logs/integrations/mailchimp/proof",
+      retry: "/operator-userland/cli-logs/integrations/mailchimp/sync",
+      report: "/operator-userland/cli-logs/reports/mailchimp",
+      enabled: accepted,
+    },
+    handoff: {
+      target: "mailchimp-campaign-ops",
+      exportable: accepted,
+      payloadRef: digestPayload(packageSubject).slice(0, 32),
+      proofDigest: digestPayload(packageSubject),
+      blockedBy: validation,
+    },
+  };
+}
+
 function buildBackoffPlan(issueCount, generatedAt) {
   if (issueCount === 0) {
     return {
@@ -3274,6 +3648,10 @@ function routeForOperationalIssue(code) {
     path:
       code === "provider-lag"
         ? "/operator-userland/cli-logs/sync"
+        : code === "mailchimp-rate-limited" || code === "mailchimp-sync-degraded"
+          ? "/operator-userland/cli-logs/integrations/mailchimp/sync"
+          : code === "mailchimp-campaign-blocked"
+            ? "/operator-userland/cli-logs/integrations/mailchimp"
         : code === "restart-recovery"
           ? "/operator-userland/cli-logs/recover"
           : code === "settings-control-blocked"
@@ -3300,10 +3678,12 @@ function buildOperationalRuntimePlan({ issues, lifecycle, providerContract, sync
     "redaction-unsafe",
     "persisted-command-blocked",
     "settings-control-blocked",
+    "mailchimp-campaign-blocked",
   ]);
   const readOnly = critical.some((issue) => !issue.retryable || hardBlockCodes.has(issue.code) || retryProfiles[issue.code]?.exhausted);
   const disabledCapabilities = [
     ...(codes.has("boundary-denied") || codes.has("redaction-unsafe") ? ["export", "handoff"] : []),
+    ...(codes.has("mailchimp-campaign-blocked") ? ["mailchimp-export", "mailchimp-handoff"] : []),
     ...(codes.has("missing-provider-capability") ? providerContract.missingCapabilities : []),
     ...(codes.has("lifecycle-blocked") || codes.has("persisted-command-blocked") ? ["mutate-lifecycle"] : []),
     ...(codes.has("restart-recovery") ? ["persisted-write"] : []),
@@ -3311,6 +3691,7 @@ function buildOperationalRuntimePlan({ issues, lifecycle, providerContract, sync
   const degradedCapabilities = [
     ...(codes.has("provider-degraded") ? providerContract.requiredCapabilities : []),
     ...(codes.has("provider-lag") ? ["freshness", "export"] : []),
+    ...(codes.has("mailchimp-rate-limited") || codes.has("mailchimp-sync-degraded") ? ["mailchimp-sync", "mailchimp-export"] : []),
     ...(codes.has("audit-attention") ? ["proof-handoff"] : []),
     ...(codes.has("failed-command") ? ["auto-replay"] : []),
     ...(codes.has("handoff-blocked") ? ["external-handoff"] : []),
@@ -3415,6 +3796,7 @@ function buildOperationalHealth({
   sequenceWindow,
   tenantBoundary,
   retryAttemptHistory,
+  mailchimpCampaignHealth,
   generatedAt,
 }) {
   const laggingProviders = syncMetadata.providerCursors.filter((cursor) => cursor.lagEvents > 0);
@@ -3529,6 +3911,38 @@ function buildOperationalHealth({
           }),
         ]
       : []),
+    ...(mailchimpCampaignHealth && mailchimpCampaignHealth.state === "blocked"
+      ? [
+          operationalIssue("mailchimp-campaign-blocked", "critical", mailchimpCampaignHealth.deliveryReadiness.reason || "Mailchimp campaign delivery is blocked.", "Repair Mailchimp authorization, campaign, or audience binding before exporting delivery proof.", {
+            providerState: mailchimpCampaignHealth.providerState,
+            campaignStatus: mailchimpCampaignHealth.campaignStatus,
+            campaignId: mailchimpCampaignHealth.campaignId,
+            audienceId: mailchimpCampaignHealth.audienceId,
+            validation: mailchimpCampaignHealth.validation,
+            actionableErrors: mailchimpCampaignHealth.actionableErrors,
+            handoffProofDigest: mailchimpCampaignHealth.handoff.proofDigest,
+          }),
+        ]
+      : []),
+    ...(mailchimpCampaignHealth && mailchimpCampaignHealth.state === "rate-limited"
+      ? [
+          operationalIssue("mailchimp-rate-limited", "warning", "Mailchimp campaign provider is rate limited.", "Continue log tailing in degraded mode and retry campaign sync after the provider retry window.", {
+            campaignId: mailchimpCampaignHealth.campaignId,
+            retry: mailchimpCampaignHealth.retry,
+            disabledCommands: mailchimpCampaignHealth.deliveryReadiness.disabledCommands,
+          }),
+        ]
+      : []),
+    ...(mailchimpCampaignHealth && mailchimpCampaignHealth.state === "degraded"
+      ? [
+          operationalIssue("mailchimp-sync-degraded", "warning", mailchimpCampaignHealth.deliveryReadiness.reason || "Mailchimp campaign sync is degraded.", "Refresh Mailchimp sync before exporting campaign-linked log proof.", {
+            campaignId: mailchimpCampaignHealth.campaignId,
+            freshness: mailchimpCampaignHealth.freshness,
+            retry: mailchimpCampaignHealth.retry,
+            actionableErrors: mailchimpCampaignHealth.actionableErrors,
+          }),
+        ]
+      : []),
     ...(analytics.failedCommands > 0
       ? [
           operationalIssue("failed-command", analytics.byLevel.fatal ? "critical" : "warning", "CLI command failures were observed in the active evidence window.", "Tail recent failures and retry only idempotent commands automatically.", {
@@ -3585,6 +3999,7 @@ function buildOperationalHealth({
         : buildBackoffPlan(0, generatedAt),
     },
     runtimePlan,
+    mailchimpCampaignHealth,
     actions: issues.map((issue) => ({
       code: issue.code,
       severity: issue.severity,
@@ -5014,6 +5429,138 @@ function buildRouteReadinessHandoffContract({
   };
 }
 
+function buildClientRuntimeContinuationHandoff({
+  lifecycle,
+  clientRequest,
+  persistedCommand,
+  externalHandoff,
+  restartRecovery,
+  operationalHealth,
+  workflowContinuation,
+  routeReadinessHandoff,
+  auditLogBrowser,
+  workspaceAccessManifest,
+  generatedAt,
+}) {
+  const auditAction = auditLogBrowser.lifecycleQueues.next;
+  const routeState = routeReadinessHandoff.state;
+  const routeBlocked = routeState === "blocked";
+  const commandBlocked = lifecycle.blocked || persistedCommand.blocked;
+  const recoveryBlocked = restartRecovery.state === "operator-action-required";
+  const operationalBlocked = operationalHealth.state === "unhealthy";
+  const acknowledgementBlocked = persistedCommand.blockReason === "client acknowledgement is required before persisting this command";
+  const auditReviewBlocked = Boolean(persistedCommand.auditBrowserGate.blocked);
+  const partitionBlocked = workspaceAccessManifest.deniedPartitionCount > 0 || workspaceAccessManifest.auditEventGate.restrictedPartitionCount > 0;
+  const retryableHealth = operationalHealth.retryPolicy.automaticRetryAllowed
+    || operationalHealth.actions.some((action) => action.retryable);
+  const state = routeBlocked || commandBlocked || recoveryBlocked || operationalBlocked
+    ? acknowledgementBlocked
+      ? "awaiting-client-ack"
+      : auditReviewBlocked
+        ? "audit-review-required"
+        : recoveryBlocked
+          ? "recovery-required"
+          : partitionBlocked
+            ? "boundary-review-required"
+            : retryableHealth
+              ? "retry-after-refresh"
+              : "operator-review-required"
+    : routeReadinessHandoff.routes?.primary?.enabled
+      ? "ready"
+      : workflowContinuation.state === "handoff-required"
+        ? "handoff-ready"
+        : "monitor";
+  const resumeRoute = state === "audit-review-required" && persistedCommand.auditBrowserGate.route
+    ? persistedCommand.auditBrowserGate.route
+    : state === "recovery-required"
+      ? { method: "GET", path: "/operator-userland/cli-logs/status", enabled: true, query: { view: "restart-recovery" } }
+      : state === "boundary-review-required"
+        ? { method: "GET", path: "/operator-userland/cli-logs/audit", enabled: true, query: { view: "workspace-access" } }
+        : routeReadinessHandoff.routes?.primary || routeReadinessHandoff.routes?.status || { method: "GET", path: "/operator-userland/cli-logs/status", enabled: false };
+  const nextRetryAt = operationalHealth.retryPolicy.backoff.nextRetryAt
+    || operationalHealth.runtimePlan?.retryWindows
+      ?.map((window) => window.nextRetryAt)
+      .filter(Boolean)
+      .sort()[0]
+    || null;
+  const blockerReasons = [
+    lifecycle.blockReason,
+    persistedCommand.blockReason,
+    routeReadinessHandoff.blockReason,
+    operationalHealth.runtimePlan?.operatorErrors[0]?.message,
+    routeReadinessHandoff.validation?.errors?.[0] || null,
+    partitionBlocked ? "workspace or audit-event partition restricted" : null,
+  ].filter(Boolean);
+  const statePatch = {
+    cliLogsContinuationState: state,
+    cliLogsRequestId: clientRequest.requestId,
+    cliLogsCommand: lifecycle.command.command,
+    cliLogsResumeRoute: resumeRoute?.path || null,
+    cliLogsRouteReadinessState: routeState,
+    cliLogsPersistedCommandId: persistedCommand.transactionId,
+    cliLogsExternalHandoffId: externalHandoff.idempotencyKey,
+  };
+
+  return {
+    schema: "aios.cliLogs.clientRuntimeContinuationHandoff.v1",
+    generatedAt,
+    requestId: clientRequest.requestId,
+    command: lifecycle.command.command,
+    state,
+    ready: state === "ready" || state === "handoff-ready" || state === "monitor",
+    requiresAcknowledgement: acknowledgementBlocked,
+    requiresAuditReview: auditReviewBlocked,
+    requiresRecovery: recoveryBlocked,
+    degradedRetryable: retryableHealth,
+    route: {
+      resume: resumeRoute,
+      status: routeReadinessHandoff.routes?.status || { method: "GET", path: "/operator-userland/cli-logs/status", enabled: false },
+      submit: routeReadinessHandoff.routes?.submit || { method: "POST", path: "/operator-userland/cli-logs/continue", enabled: false },
+      handoff: externalHandoff.route,
+    },
+    retry: {
+      retryable: state === "retry-after-refresh" || retryableHealth,
+      nextRetryAt,
+      retryCommand: nextRetryAt ? "status" : null,
+      idempotencyKey: operationalHealth.runtimePlan?.retryWindows?.[0]?.idempotencyKey || null,
+    },
+    blockedBy: blockerReasons,
+    auditReview: {
+      pendingEventId: persistedCommand.auditBrowserGate.pendingEventId || auditAction?.eventId || null,
+      pendingEventType: persistedCommand.auditBrowserGate.pendingEventType || auditAction?.auditEventType || null,
+      route: persistedCommand.auditBrowserGate.route || auditAction?.action?.route || null,
+      cursorToken: persistedCommand.auditBrowserGate.cursorToken,
+    },
+    persistedState: {
+      commandTransactionId: persistedCommand.transactionId,
+      admission: persistedCommand.admission,
+      restartSafe: persistedCommand.restartSafe,
+      statusAfterRestart: persistedCommand.statusAfterRestart,
+      checkpoint: persistedCommand.expectedCheckpoint,
+    },
+    workflowPatch: {
+      ...workflowContinuation.clientStatePatch,
+      ...statePatch,
+    },
+    proof: {
+      workflowProof: workflowContinuation.proof?.digest || workflowContinuation.handoff?.payloadRef || null,
+      routeReadinessDigest: routeReadinessHandoff.audit.digest,
+      persistedCommandKey: persistedCommand.idempotencyKey,
+      auditBrowserDigest: auditLogBrowser.audit.digest,
+      workspaceAccessDigest: workspaceAccessManifest.audit.digest,
+      digest: digestPayload({
+        requestId: clientRequest.requestId,
+        command: lifecycle.command.command,
+        state,
+        routeState,
+        persistedCommandId: persistedCommand.transactionId,
+        externalHandoffId: externalHandoff.idempotencyKey,
+        blockedBy: blockerReasons,
+      }),
+    },
+  };
+}
+
 export function describeCliLogsSurface(input = {}) {
   const now = input.now || new Date().toISOString();
   const rawTenantBoundary = normalizeTenantBoundary(input, now);
@@ -5055,10 +5602,12 @@ export function describeCliLogsSurface(input = {}) {
     clientRequest,
     generatedAt: now,
   });
+  const restartSafeStatus = buildRestartSafeStatusEnvelope(persistedState, restartRecovery, persistedCommand, now);
   const handoffCheckpoint = normalizeExternalHandoffCheckpoint(input, now);
   const externalHandoff = buildExternalHandoffState(lifecycle, exportSummary, providerContract, auditProof, syncMetadata, now, tenantBoundary, clientRequest, handoffCheckpoint);
   const providerSyncPlan = buildProviderSyncPlan(providers, providerContract, syncMetadata, lifecycle, externalHandoff, now);
   const retryAttemptHistory = normalizeRetryAttemptHistory(input, now);
+  const mailchimpCampaignHealth = normalizeMailchimpCampaignContract(input, lifecycle, syncMetadata, now, tenantBoundary);
   const operationalHealth = buildOperationalHealth({
     analytics,
     lifecycle,
@@ -5074,6 +5623,7 @@ export function describeCliLogsSurface(input = {}) {
     redactionContract,
     tenantBoundary,
     retryAttemptHistory,
+    mailchimpCampaignHealth,
     generatedAt: now,
   });
   const workflowContinuation = buildWorkflowContinuationContract({
@@ -5102,6 +5652,7 @@ export function describeCliLogsSurface(input = {}) {
   });
   const exportHistory = buildExportHistoryState(input, exportSummary, auditProof, externalHandoff, clientRequest, now);
   const reportingState = buildReportingState(analytics, history, timeline, exportSummary, auditProof, lifecycle, externalHandoff, redactionContract, exportHistory, auditLogBrowser, auditAnalytics, now);
+  const mailchimpExportReadiness = buildMailchimpExportReadiness(mailchimpCampaignHealth, exportSummary, auditProof, reportingState, exportHistory, tenantBoundary, now);
   const previewAcceptance = buildPreviewAcceptanceContract({
     events: permittedEvents,
     analytics,
@@ -5128,6 +5679,7 @@ export function describeCliLogsSurface(input = {}) {
     previewAcceptance,
     workflowContinuation,
     hostedKernelLifecycleControls,
+    mailchimpCampaignHealth,
     operationalHealth,
     reportingState,
     exportSummary,
@@ -5143,6 +5695,19 @@ export function describeCliLogsSurface(input = {}) {
     externalHandoff,
     clientRequest,
     operationalHealth,
+    generatedAt: now,
+  });
+  const clientRuntimeContinuationHandoff = buildClientRuntimeContinuationHandoff({
+    lifecycle,
+    clientRequest,
+    persistedCommand,
+    externalHandoff,
+    restartRecovery,
+    operationalHealth,
+    workflowContinuation,
+    routeReadinessHandoff,
+    auditLogBrowser,
+    workspaceAccessManifest,
     generatedAt: now,
   });
 
@@ -5180,18 +5745,22 @@ export function describeCliLogsSurface(input = {}) {
     clientRequest,
     persistedState,
     restartRecovery,
+    restartSafeStatus,
     persistedCommand,
     handoffCheckpoint,
     externalHandoff,
     retryAttemptHistory,
+    mailchimpCampaignHealth,
     workflowContinuation,
     hostedKernelLifecycleControls,
     operationalHealth,
     previewAcceptance,
     operatorConsoleDelivery,
     routeReadinessHandoff,
+    clientRuntimeContinuationHandoff,
     reportingState,
     exportHistory,
+    mailchimpExportReadiness,
     nextAction,
     exportSummary,
     auditProof,

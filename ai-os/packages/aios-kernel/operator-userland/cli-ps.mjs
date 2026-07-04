@@ -1569,6 +1569,164 @@ function buildProcessTableTerminalView(rows) {
   };
 }
 
+function buildProcessOperatorActionQueue({
+  generatedAt,
+  processTablePresentation,
+  dispatchReadinessGate,
+  operationalHealthTriage,
+  syncMetadata,
+  scopedProcessView,
+}) {
+  const actionRank = {
+    'repair-exit-contract': 100,
+    'restore-required-dependency': 95,
+    'renew-lease': 90,
+    'refresh-before-replay': 85,
+    'handoff-process': 80,
+    'schedule-retry': 70,
+    'refresh-process-table': 65,
+    'inspect-process': 50,
+    'review-scope-boundary': 40,
+    'monitor': 10,
+  };
+  const severityRank = { critical: 4, warning: 3, notice: 2, normal: 1 };
+  const classifyAction = (row) => {
+    const posture = row.recoveryPosture || {};
+    const attention = new Set(row.attention || []);
+    if (attention.has('exit-contract-violated')) return 'repair-exit-contract';
+    if (attention.has('dependency-blocked')) return 'restore-required-dependency';
+    if (attention.has('lease-expired')) return 'renew-lease';
+    if (attention.has('restart-replay-blocked')) return 'refresh-before-replay';
+    if (row.handoffContract?.requested || attention.has('retry-budget-exhausted')) return 'handoff-process';
+    if (posture.retryState === 'available' || posture.retryState === 'scheduled') return 'schedule-retry';
+    if (posture.writeBarrierReasons?.includes('provider-sync-stale')) return 'refresh-process-table';
+    if (row.severity !== 'normal' || attention.length > 0) return 'inspect-process';
+    return 'monitor';
+  };
+  const routeForAction = (action, row) => {
+    const encodedPid = encodeURIComponent(row.pid);
+    if (action === 'refresh-process-table' || action === 'refresh-before-replay') {
+      return `/operator-userland/cli-ps?cursor=${encodeURIComponent(syncMetadata.cursor)}`;
+    }
+    if (action === 'handoff-process') return `/operator-userland/cli-ps/processes/${encodedPid}/handoff`;
+    if (action === 'schedule-retry') return `/operator-userland/cli-ps/processes/${encodedPid}/retry`;
+    if (action === 'renew-lease') return `/operator-userland/cli-ps/processes/${encodedPid}/lease`;
+    if (action === 'restore-required-dependency') return `/operator-userland/cli-ps/processes/${encodedPid}/dependencies`;
+    if (action === 'repair-exit-contract') return `/operator-userland/cli-ps/processes/${encodedPid}/exit-contract`;
+    return `/operator-userland/cli-ps/processes/${encodedPid}`;
+  };
+  const entries = processTablePresentation.rows
+    .map((row) => {
+      const action = classifyAction(row);
+      const blocksDispatch = row.recoveryPosture?.blocksDispatch === true
+        || row.restartReconciliation?.replayBlocked === true
+        || row.handoffContract?.blocksAutomaticHandoff === true;
+      const retryReady = row.recoveryPosture?.retryState === 'available'
+        || row.recoveryPosture?.retryState === 'scheduled';
+      const actionReady = action !== 'monitor'
+        && (!syncMetadata.stale || action === 'refresh-process-table' || action === 'refresh-before-replay');
+      const priority = (actionRank[action] || 0)
+        + ((severityRank[row.severity] || 0) * 10)
+        + (blocksDispatch ? 15 : 0)
+        + (retryReady ? 5 : 0);
+
+      return {
+        schema: 'hosted-kernel.cli-ps.operator-action-queue-entry/v1',
+        pid: row.pid,
+        command: row.command,
+        action,
+        priority,
+        severity: row.severity,
+        state: row.state,
+        health: row.health,
+        reason: row.recoveryPosture?.primaryReason || row.attention[0] || 'none',
+        message: row.recoveryPosture?.message || row.operatorHint?.action || 'Process is available for monitoring.',
+        route: routeForAction(action, row),
+        ready: actionReady,
+        blocksDispatch,
+        retryReady,
+        handoffReady: row.handoffContract?.state === 'provider-ready',
+        readOnly: row.recoveryPosture?.readOnly === true || dispatchReadinessGate.readOnly,
+        notBefore: row.recoveryPosture?.notBefore || row.lifecycleSchedule?.notBefore || null,
+        idempotencyKey: lightweightChecksum({
+          cursor: syncMetadata.cursor,
+          pid: row.pid,
+          action,
+          reason: row.recoveryPosture?.primaryReason || row.attention[0] || 'none',
+          notBefore: row.recoveryPosture?.notBefore || row.lifecycleSchedule?.notBefore || null,
+        }),
+        proofRefs: {
+          rowChecksum: processTablePresentation.proof.rowChecksum,
+          syncCursor: syncMetadata.cursor,
+          recoveryState: row.recoveryPosture?.state || 'unknown',
+          handoffPayloadRef: row.handoffContract?.payloadRef || null,
+          restartProofRef: row.restartReconciliation?.proofRef || null,
+        },
+      };
+    })
+    .filter((entry) => entry.action !== 'monitor' || entry.blocksDispatch)
+    .sort((left, right) => (
+      right.priority - left.priority
+      || String(left.notBefore || '').localeCompare(String(right.notBefore || ''))
+      || String(left.pid).localeCompare(String(right.pid))
+    ));
+  const readyEntries = entries.filter((entry) => entry.ready);
+  const blockedEntries = entries.filter((entry) => entry.blocksDispatch);
+  const staleReadBarrier = syncMetadata.stale && entries.some((entry) => entry.action !== 'refresh-process-table');
+  const state = dispatchReadinessGate.blocked || blockedEntries.length
+    ? 'blocked'
+    : staleReadBarrier
+      ? 'refresh-required'
+      : readyEntries.length
+        ? 'actionable'
+        : operationalHealthTriage.degradedMode.active
+          ? 'watching-degraded'
+          : 'clear';
+  const byAction = entries.reduce((summary, entry) => {
+    summary[entry.action] = (summary[entry.action] || 0) + 1;
+    return summary;
+  }, {});
+
+  return {
+    schema: 'hosted-kernel.cli-ps.operator-action-queue/v1',
+    generatedAt,
+    state,
+    cursor: syncMetadata.cursor,
+    totalCount: entries.length,
+    readyCount: readyEntries.length,
+    blockedCount: blockedEntries.length,
+    readOnly: dispatchReadinessGate.readOnly || staleReadBarrier,
+    primaryAction: entries[0] || null,
+    entries: entries.slice(0, 20),
+    summary: {
+      byAction,
+      visibleProcessCount: processTablePresentation.rowCount,
+      redactedProcessCount: scopedProcessView.deniedCount,
+      dispatchReadinessState: dispatchReadinessGate.state,
+      operationalHealthStatus: operationalHealthTriage.status,
+      staleReadBarrier,
+      nextNotBefore: entries
+        .map((entry) => entry.notBefore)
+        .filter(Boolean)
+        .sort()[0] || null,
+    },
+    proof: {
+      processTableChecksum: processTablePresentation.proof.rowChecksum,
+      dispatchReadinessSchema: dispatchReadinessGate.schema,
+      operationalHealthSchema: operationalHealthTriage.schema,
+      scopeBoundary: scopedProcessView.proof.boundary,
+      queueChecksum: lightweightChecksum(entries.map((entry) => ({
+        pid: entry.pid,
+        action: entry.action,
+        priority: entry.priority,
+        ready: entry.ready,
+        blocksDispatch: entry.blocksDispatch,
+        notBefore: entry.notBefore,
+      }))),
+    },
+  };
+}
+
 function buildProcessTablePresentation({
   generatedAt,
   processes,
@@ -6730,6 +6888,217 @@ function buildExportSummary(
   };
 }
 
+function buildClientRuntimeContinuationHandoff({
+  generatedAt,
+  clientRequest,
+  syncMetadata,
+  scopedProcessView,
+  restartStatus,
+  restartReconciliation,
+  dispatchReadinessGate,
+  hostedKernelDispatchEnvelope,
+  operatorActionQueue,
+  inspectPanel,
+  operationalHealthTriage,
+  previewRouteContract,
+  workflowHandoffPackage,
+  providerSyncCheckpoint,
+  persistenceProjection,
+  analyticsExportReport,
+}) {
+  const primaryAction = operatorActionQueue.primaryAction;
+  const refreshRequired = syncMetadata.stale
+    || dispatchReadinessGate.blockedBy.includes('provider-sync-stale')
+    || providerSyncCheckpoint.requiresRefresh;
+  const recoveryBlocked = restartStatus.status === 'replay-blocked'
+    || restartStatus.status === 'persistence-repair-required'
+    || restartReconciliation.counts.replayBlocked > 0;
+  const dispatchReady = dispatchReadinessGate.dispatchAllowed
+    && hostedKernelDispatchEnvelope.state === 'ready';
+  const auditOnlyReady = dispatchReadinessGate.auditOnly
+    || hostedKernelDispatchEnvelope.state === 'audit-only';
+  const handoffReady = workflowHandoffPackage.state === 'ready'
+    || workflowHandoffPackage.state === 'handoff-ready'
+    || workflowHandoffPackage.routing?.target === 'external-handoff';
+  const exportReady = analyticsExportReport.ready;
+  const inspectBlocked = inspectPanel.state === 'redacted'
+    || inspectPanel.state === 'not-found'
+    || inspectPanel.state === 'target-required';
+  const state = recoveryBlocked
+    ? 'recovery-required'
+    : refreshRequired
+      ? 'refresh-required'
+      : dispatchReady
+        ? 'dispatch-ready'
+        : auditOnlyReady
+          ? 'audit-only-ready'
+          : handoffReady
+            ? 'handoff-ready'
+            : inspectBlocked
+              ? 'inspect-attention-required'
+              : operationalHealthTriage.status === 'blocked'
+                ? 'operator-review-required'
+                : operationalHealthTriage.status === 'degraded' || operatorActionQueue.state === 'actionable'
+                  ? 'actionable-degraded'
+                  : exportReady
+                    ? 'export-ready'
+                    : 'monitor';
+  const routeForState = () => {
+    if (state === 'refresh-required') {
+      return `/operator-userland/cli-ps?cursor=${encodeURIComponent(syncMetadata.cursor)}`;
+    }
+    if (state === 'recovery-required') {
+      return '/operator-userland/cli-ps/recovery';
+    }
+    if (state === 'inspect-attention-required') {
+      return inspectPanel.routePath;
+    }
+    if (state === 'handoff-ready') {
+      return workflowHandoffPackage.routing?.target || '/operator-userland/cli-ps/handoff';
+    }
+    if (state === 'export-ready') {
+      return '/operator-userland/cli-ps/export';
+    }
+    if (primaryAction?.route) {
+      return primaryAction.route;
+    }
+    return previewRouteContract.route?.path || '/operator-userland/cli-ps';
+  };
+  const blockedReasons = [
+    ...dispatchReadinessGate.blockedBy,
+    ...(recoveryBlocked ? restartStatus.persistenceIntegrity.blockingCodes : []),
+    ...(inspectBlocked ? [inspectPanel.state] : []),
+    ...(operationalHealthTriage.dispatch.blocked ? [operationalHealthTriage.dispatch.reason] : []),
+    ...analyticsExportReport.blockedReasons.map((reason) => `analytics-export:${reason}`),
+  ].filter(Boolean);
+  const acceptedCommandKeys = hostedKernelDispatchEnvelope.commands
+    .filter((command) => command.acceptedForDispatch)
+    .map((command) => command.key);
+  const auditOnlyCommandKeys = hostedKernelDispatchEnvelope.commands
+    .filter((command) => !command.acceptedForDispatch)
+    .map((command) => command.key);
+  const nextRetryAt = dispatchReadinessGate.retryBackoff.nextNotBefore
+    || operationalHealthTriage.retryWindow.nextNotBefore
+    || primaryAction?.notBefore
+    || null;
+  const statePatch = {
+    cliPsContinuationState: state,
+    cliPsRequestId: clientRequest.requestId,
+    cliPsCursor: syncMetadata.cursor,
+    cliPsRoute: routeForState(),
+    cliPsDispatchState: dispatchReadinessGate.state,
+    cliPsRestartStatus: restartStatus.status,
+    cliPsWorkflowHandoffState: workflowHandoffPackage.state,
+  };
+
+  return {
+    schema: 'hosted-kernel.cli-ps.client-runtime-continuation-handoff/v1',
+    generatedAt,
+    requestId: clientRequest.requestId,
+    correlationId: clientRequest.correlationId,
+    clientId: clientRequest.clientId,
+    command: clientRequest.command,
+    state,
+    ready: ['dispatch-ready', 'audit-only-ready', 'handoff-ready', 'export-ready', 'monitor'].includes(state),
+    readOnly: dispatchReadinessGate.readOnly || auditOnlyReady,
+    route: {
+      resume: {
+        method: 'GET',
+        path: routeForState(),
+        enabled: true,
+      },
+      dispatch: {
+        method: 'POST',
+        path: '/operator-userland/cli-ps/dispatch',
+        enabled: dispatchReady,
+        idempotencyKey: hostedKernelDispatchEnvelope.batchKey,
+      },
+      refresh: {
+        method: 'GET',
+        path: '/operator-userland/cli-ps',
+        enabled: refreshRequired || syncMetadata.stale,
+        query: {
+          cursor: syncMetadata.cursor,
+          consistency: syncMetadata.consistency,
+        },
+      },
+      export: {
+        method: 'POST',
+        path: '/operator-userland/cli-ps/export',
+        enabled: exportReady,
+      },
+    },
+    retry: {
+      retryable: Boolean(nextRetryAt || refreshRequired || operationalHealthTriage.retryWindow.retryableCount > 0),
+      nextRetryAt,
+      scheduledRetryCount: dispatchReadinessGate.retryBackoff.scheduledCount,
+      retryableIncidentCount: operationalHealthTriage.retryWindow.retryableCount,
+    },
+    persistedRecovery: {
+      restartStatus: restartStatus.status,
+      restartSafe: restartStatus.restartSafe,
+      restartDecision: restartStatus.restartDecision,
+      reconciliationState: restartReconciliation.state,
+      replayBlockedCount: restartReconciliation.counts.replayBlocked,
+      writeBarrier: persistenceProjection.writeMode,
+      blockingReasonCount: persistenceProjection.stateIntegrity.blockingReasonCount,
+      projectedSnapshotId: persistenceProjection.snapshotId,
+    },
+    commandHandoff: {
+      hostedDispatchState: hostedKernelDispatchEnvelope.state,
+      acceptedCommandKeys,
+      auditOnlyCommandKeys,
+      blockedCount: hostedKernelDispatchEnvelope.blockedCount,
+      replayPolicy: hostedKernelDispatchEnvelope.replayPolicy,
+      providerSyncState: providerSyncCheckpoint.state,
+      providerWriteBarrier: providerSyncCheckpoint.writeBarrier,
+    },
+    workflow: {
+      handoffState: workflowHandoffPackage.state,
+      handoffChannel: workflowHandoffPackage.handoffChannel,
+      nextPanel: workflowHandoffPackage.nextPanel,
+      target: workflowHandoffPackage.routing?.target || null,
+      reason: workflowHandoffPackage.routing?.reason || null,
+      statePatch,
+    },
+    attention: {
+      blockedReasons,
+      primaryAction: primaryAction
+        ? {
+            action: primaryAction.action,
+            pid: primaryAction.pid,
+            severity: primaryAction.severity,
+            route: primaryAction.route,
+            ready: primaryAction.ready,
+            reason: primaryAction.reason,
+          }
+        : null,
+      inspectState: inspectPanel.state,
+      operationalStatus: operationalHealthTriage.status,
+      scopeDeniedCount: scopedProcessView.deniedCount,
+    },
+    proof: {
+      dispatchBatchKey: hostedKernelDispatchEnvelope.batchKey,
+      dispatchProofKeys: hostedKernelDispatchEnvelope.proof.acceptedCommandKeys,
+      providerSyncChecksum: providerSyncCheckpoint.proof.outboundChecksum,
+      operatorQueueChecksum: operatorActionQueue.proof.queueChecksum,
+      restartReconciliationChecksum: restartReconciliation.proof.rowChecksum,
+      persistenceJournalChecksum: persistenceProjection.stateIntegrity.proof.journalChecksum,
+      workflowPatchChecksum: workflowHandoffPackage.proof.statePatchChecksum,
+      digest: lightweightChecksum({
+        requestId: clientRequest.requestId,
+        cursor: syncMetadata.cursor,
+        state,
+        route: routeForState(),
+        restartStatus: restartStatus.status,
+        dispatchState: hostedKernelDispatchEnvelope.state,
+        blockedReasons,
+        acceptedCommandKeys,
+      }),
+    },
+  };
+}
+
 export function describeCliPsSurface(input = {}) {
   const generatedAt = isoNow(input);
   const retryPolicy = normalizeRetryPolicy(input);
@@ -6922,6 +7291,14 @@ export function describeCliPsSurface(input = {}) {
     syncMetadata,
     lifecycleSettings,
   });
+  const operatorActionQueue = buildProcessOperatorActionQueue({
+    generatedAt,
+    processTablePresentation,
+    dispatchReadinessGate,
+    operationalHealthTriage,
+    syncMetadata,
+    scopedProcessView,
+  });
   const hostedKernelDispatchEnvelope = buildHostedKernelDispatchEnvelope({
     generatedAt,
     clientRequest,
@@ -7008,6 +7385,24 @@ export function describeCliPsSurface(input = {}) {
     analyticsExportReport,
     scopedProcessView,
   });
+  const clientRuntimeContinuationHandoff = buildClientRuntimeContinuationHandoff({
+    generatedAt,
+    clientRequest,
+    syncMetadata,
+    scopedProcessView,
+    restartStatus,
+    restartReconciliation,
+    dispatchReadinessGate,
+    hostedKernelDispatchEnvelope,
+    operatorActionQueue,
+    inspectPanel,
+    operationalHealthTriage,
+    previewRouteContract,
+    workflowHandoffPackage,
+    providerSyncCheckpoint,
+    persistenceProjection,
+    analyticsExportReport,
+  });
   const exportSummary = buildExportSummary(
     generatedAt,
     health,
@@ -7035,6 +7430,7 @@ export function describeCliPsSurface(input = {}) {
     providerSyncCheckpoint,
     previewAcceptanceReceipt,
     workflowHandoffPackage,
+    clientRuntimeContinuationHandoff,
     analyticsExportState,
     analyticsExportReport,
   );
@@ -7058,6 +7454,7 @@ export function describeCliPsSurface(input = {}) {
     validation,
     processes,
     processTablePresentation,
+    operatorActionQueue,
     inspectPanel,
     analytics,
     analyticsTrend,
@@ -7091,6 +7488,7 @@ export function describeCliPsSurface(input = {}) {
     providerSyncCheckpoint,
     explainableNextStep,
     workflowHandoffPackage,
+    clientRuntimeContinuationHandoff,
     analyticsExportState,
     analyticsExportReport,
     exportSummary,
@@ -7275,6 +7673,14 @@ export function describeCliPsSurface(input = {}) {
       processTableDelegatedVisibleCount: processTablePresentation.contracts.authoritySummary.delegatedVisibleCount,
       processTableAuthorityActionGuards: processTablePresentation.contracts.authoritySummary.actionGuards,
       processTableChecksum: processTablePresentation.proof.rowChecksum,
+      operatorActionQueueState: operatorActionQueue.state,
+      operatorActionQueueCount: operatorActionQueue.totalCount,
+      operatorActionQueueReadyCount: operatorActionQueue.readyCount,
+      operatorActionQueueBlockedCount: operatorActionQueue.blockedCount,
+      operatorActionQueueReadOnly: operatorActionQueue.readOnly,
+      operatorActionQueuePrimaryAction: operatorActionQueue.primaryAction?.action || null,
+      operatorActionQueuePrimaryPid: operatorActionQueue.primaryAction?.pid || null,
+      operatorActionQueueChecksum: operatorActionQueue.proof.queueChecksum,
       inspectPanelState: inspectPanel.state,
       inspectRequestedPid: inspectPanel.requestedPid,
       inspectIncidentCount: inspectPanel.incidents.length,

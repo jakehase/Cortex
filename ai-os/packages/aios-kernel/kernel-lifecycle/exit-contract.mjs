@@ -992,6 +992,131 @@ function normalizeProcessExitRequest(input = {}, state) {
   };
 }
 
+function buildProcessExitRequestContract({ request, outcome, resolution, tenantBoundary, runtime, auditProof, now }) {
+  const proofRefs = normalizeProcessExitEvidenceRefs(
+    request.evidenceRefs,
+    request.claim.evidenceRefs,
+    request.kill.evidenceRefs,
+    request.quarantine.evidenceRefs
+  );
+  const proofLinked = proofRefs.length > 0 || auditProof.signalSatisfied || auditProof.persistedProofCount > 0;
+  const checks = [
+    {
+      id: 'request-outcome-known',
+      label: 'Requested process exit outcome is supported',
+      passed: !request.requested || Boolean(request.outcome),
+      severity: 'error',
+      command: `${EVENT_NAMESPACE}.process-exit.outcome.normalize`
+    },
+    {
+      id: 'request-outcome-stable',
+      label: 'Requested outcome matches runtime truth or explicit override policy',
+      passed: !resolution.forcedOverride,
+      severity: ['killed', 'quarantined'].includes(outcome) ? 'warning' : 'error',
+      command: `${EVENT_NAMESPACE}.process-exit.truth.resolve`
+    },
+    {
+      id: 'request-actor-attributed',
+      label: 'Process exit request is attributable to an actor',
+      passed: Boolean(request.actorId || tenantBoundary.principalId),
+      severity: 'warning',
+      command: `${EVENT_NAMESPACE}.process-exit.actor.capture`
+    },
+    {
+      id: 'request-time-known',
+      label: 'Process exit request has a timestamp or generated contract time',
+      passed: Boolean(request.requestedAt || now),
+      severity: 'warning',
+      command: `${EVENT_NAMESPACE}.process-exit.timestamp.capture`
+    },
+    {
+      id: 'request-scope-bound',
+      label: 'Process exit request is bound to the active request and tenant scope',
+      passed: tenantBoundary.isolated && runtime.hasStableRequest,
+      severity: 'error',
+      command: `${EVENT_NAMESPACE}.process-exit.scope.bind`
+    },
+    {
+      id: 'claim-shape',
+      label: 'Claim-submitted exit includes claim id, submitter, and submitted timestamp',
+      passed: outcome !== 'claim-submitted' || Boolean(request.claim.id && request.claim.submittedBy && request.claim.submittedAt),
+      severity: 'error',
+      command: `${EVENT_NAMESPACE}.claim.capture`
+    },
+    {
+      id: 'claim-proof-link',
+      label: 'Claim-submitted exit is linked to audit proof or evidence refs',
+      passed: outcome !== 'claim-submitted' || proofLinked || request.claim.evidenceRefs.length > 0,
+      severity: 'warning',
+      command: CONTROL_COMMANDS.proof
+    },
+    {
+      id: 'kill-shape',
+      label: 'Killed exit includes a kill signal, reason, terminal proof, or terminal actor',
+      passed: outcome !== 'killed' || Boolean(request.kill.reason || request.kill.signal || request.reason || proofLinked),
+      severity: 'error',
+      command: `${EVENT_NAMESPACE}.kill.reason.capture`
+    },
+    {
+      id: 'quarantine-shape',
+      label: 'Quarantined exit includes an isolation reason or scope',
+      passed: outcome !== 'quarantined' || Boolean(request.quarantine.reason || request.quarantine.scope || resolution.truthSignals.crossScopeEvents.length > 0),
+      severity: 'error',
+      command: 'kernel.lifecycle.exit.quarantine.record'
+    },
+    {
+      id: 'done-shape',
+      label: 'Done exit is not carrying terminal kill, quarantine, or claim payloads',
+      passed: outcome !== 'done' || !request.kill.reason && !request.kill.signal && !request.quarantine.reason && !request.claim.id,
+      severity: 'error',
+      command: `${EVENT_NAMESPACE}.process-exit.payload.reconcile`
+    }
+  ];
+  const failed = checks.filter((check) => !check.passed);
+  const blocking = failed.filter((check) => check.severity === 'error');
+  const requestFingerprint = deriveFingerprint({
+    outcome,
+    requestedOutcome: request.outcome,
+    requestedAt: request.requestedAt,
+    actorId: request.actorId || tenantBoundary.principalId,
+    reason: request.reason,
+    claimId: request.claim.id,
+    killSignal: request.kill.signal,
+    quarantineScope: request.quarantine.scope,
+    proofRefs,
+    scopeKey: tenantBoundary.scopeKey,
+    requestId: runtime.requestId
+  });
+
+  return {
+    schema: `aios.kernel.lifecycle.exit.process-exit-request.v${PROCESS_EXIT_SCHEMA_VERSION}`,
+    generatedAt: now,
+    outcome,
+    requested: request.requested,
+    requestedOutcome: request.outcome,
+    source: resolution.source,
+    forcedOverride: resolution.forcedOverride,
+    requestFingerprint,
+    attributedActor: request.actorId || tenantBoundary.principalId,
+    requestedAt: request.requestedAt || now,
+    proofLinked,
+    evidenceRefs: proofRefs,
+    valid: blocking.length === 0,
+    status: blocking.length === 0 ? failed.length > 0 ? 'warning' : 'valid' : 'invalid',
+    failedCheckIds: failed.map((check) => check.id),
+    blockingReasons: blocking.map((check) => check.label),
+    warningReasons: failed.filter((check) => check.severity === 'warning').map((check) => check.label),
+    checks: checks.map((check) => ({
+      id: check.id,
+      label: check.label,
+      passed: check.passed,
+      severity: check.severity,
+      command: check.command,
+      remediationKey: `${EVENT_NAMESPACE}:exit-request-check:${outcome}:${check.id}`
+    }))
+  };
+}
+
 function buildProcessExitPermissionContract({ outcome, request, runtime, tenantBoundary, boundaryContract, providerContracts, now }) {
   const requirement = PROCESS_EXIT_PERMISSION_REQUIREMENTS[outcome] || PROCESS_EXIT_PERMISSION_REQUIREMENTS.blocked;
   const controls = requirement.controls.map((control) => {
@@ -1085,6 +1210,7 @@ function buildProcessExitOutcomeRequirements({
   outcome,
   state,
   request,
+  requestContract,
   acceptance,
   acceptanceBlocked,
   auditProof,
@@ -1111,8 +1237,26 @@ function buildProcessExitOutcomeRequirements({
     'error',
     exitPermission.requestCommand
   ];
+  const requestShapeCheck = [
+    'request-contract',
+    'Process exit request shape satisfies outcome invariants',
+    requestContract.valid,
+    'error',
+    requestContract.checks.find((check) => !check.passed && check.severity === 'error')?.command
+      || `${EVENT_NAMESPACE}.process-exit.request.repair`
+  ];
+  const requestWarningChecks = requestContract.checks
+    .filter((check) => !check.passed && check.severity !== 'error')
+    .map((check) => [
+      `request-${check.id}`,
+      check.label,
+      false,
+      check.severity,
+      check.command
+    ]);
   const outcomeRequirements = {
     done: [
+      requestShapeCheck,
       permissionCheck,
       ['provider-contract', 'Outcome-specific provider contracts are satisfied', processExitProviderContract.ready, 'error', processExitProviderContract.repairPlan[0]?.command || 'kernel.lifecycle.exit.provider.negotiate'],
       ['accepted', 'Exit acceptance is complete', acceptance.canAccept || persistedState.replayed.accept, 'error', CONTROL_COMMANDS.accept],
@@ -1123,6 +1267,7 @@ function buildProcessExitOutcomeRequirements({
       ['no-kill-signal', 'No terminal kill signal is active', !hasKillSignal, 'error', `${EVENT_NAMESPACE}.health.inspect`]
     ],
     blocked: [
+      requestShapeCheck,
       permissionCheck,
       ['provider-contract', 'Blocked outcome provider contracts are synced', processExitProviderContract.ready, 'warning', processExitProviderContract.repairPlan[0]?.command || 'kernel.lifecycle.exit.provider.sync'],
       ['has-blocker', 'A blocking reason is recorded', hasBlockingValidation || state === 'blocked', 'error', acceptanceBlocked[0]?.nextCommand || 'kernel.lifecycle.exit.inspect'],
@@ -1131,6 +1276,7 @@ function buildProcessExitOutcomeRequirements({
       ['not-terminal-fatal', 'Blocked exit is not masking a kill or quarantine condition', !hasKillSignal && !hasQuarantineSignal, 'error', hasQuarantineSignal ? 'kernel.lifecycle.exit.quarantine.record' : 'kernel.lifecycle.exit.kill.record']
     ],
     killed: [
+      requestShapeCheck,
       permissionCheck,
       ['provider-contract', 'Killed outcome provider handoff is durable', processExitProviderContract.ready, 'error', processExitProviderContract.repairPlan[0]?.command || 'kernel.lifecycle.exit.provider.negotiate'],
       ['kill-signal', 'Kill reason or terminal failure is present', hasKillSignal, 'error', `${EVENT_NAMESPACE}.kill.reason.capture`],
@@ -1139,6 +1285,7 @@ function buildProcessExitOutcomeRequirements({
       ['kill-actor', 'Kill exit is attributable to an actor or terminal component', Boolean(request.actorId || request.kill.requestedBy || terminalFailures.length > 0), 'warning', `${EVENT_NAMESPACE}.kill.actor.capture`]
     ],
     quarantined: [
+      requestShapeCheck,
       permissionCheck,
       ['provider-contract', 'Quarantine provider writes are isolated and synced', processExitProviderContract.ready, 'error', processExitProviderContract.repairPlan[0]?.command || 'kernel.lifecycle.exit.provider.negotiate'],
       ['quarantine-signal', 'Quarantine boundary is present', hasQuarantineSignal || Boolean(request.quarantine.reason), 'error', 'kernel.lifecycle.exit.quarantine.record'],
@@ -1147,6 +1294,7 @@ function buildProcessExitOutcomeRequirements({
       ['cross-scope-events-accounted', 'Cross-scope provider events are accounted for', providerRejectedEvents.every((event) => event.status !== 'cross-scope') || hasQuarantineSignal, 'error', `${EVENT_NAMESPACE}.provider.events.sync`]
     ],
     'claim-submitted': [
+      requestShapeCheck,
       permissionCheck,
       ['provider-contract', 'Claim submission provider contract accepts audit claim writes', processExitProviderContract.ready, 'error', processExitProviderContract.repairPlan[0]?.command || 'kernel.lifecycle.exit.provider.negotiate'],
       ['claim-id', 'Submitted claim has an id', Boolean(request.claim.id), 'error', `${EVENT_NAMESPACE}.claim.id.assign`],
@@ -1157,7 +1305,10 @@ function buildProcessExitOutcomeRequirements({
     ]
   };
 
-  return (outcomeRequirements[outcome] || outcomeRequirements.blocked).map(([id, label, passed, severity, command]) => ({
+  return [
+    ...(outcomeRequirements[outcome] || outcomeRequirements.blocked),
+    ...requestWarningChecks
+  ].map(([id, label, passed, severity, command]) => ({
     id,
     label,
     passed: Boolean(passed),
@@ -2223,6 +2374,15 @@ function buildProcessExitContract({
     operationalHealth
   });
   const outcome = resolution.selectedOutcome;
+  const requestContract = buildProcessExitRequestContract({
+    request,
+    outcome,
+    resolution,
+    tenantBoundary,
+    runtime,
+    auditProof,
+    now
+  });
   const processExitProviderContract = buildProcessExitProviderContract({
     outcome,
     providerContracts,
@@ -2244,6 +2404,7 @@ function buildProcessExitContract({
     outcome,
     state,
     request,
+    requestContract,
     acceptance,
     acceptanceBlocked,
     auditProof,
@@ -2295,6 +2456,7 @@ function buildProcessExitContract({
   const exitKey = `${EVENT_NAMESPACE}:process-exit:${tenantBoundary.scopeKey}:${runtime.requestId}:${outcome}`;
   const valid = readiness.recordable && controlGate.enabled;
   const blockingReasons = [
+    ...requestContract.blockingReasons,
     ...blocking.map((check) => check.label),
     ...processExitProviderContract.blockedReasons,
     ...(!controlGate.enabled ? controlGate.blockedReasons : [])
@@ -2356,6 +2518,7 @@ function buildProcessExitContract({
     effectiveOutcome: resolution.selectedOutcome,
     outcomeSource: resolution.source,
     truthResolution: resolution,
+    requestContract,
     outcome,
     terminal: TERMINAL_PROCESS_EXIT_OUTCOMES.has(outcome),
     valid,
@@ -4134,6 +4297,15 @@ function buildClientWorkflowContract({
       outcomeSource: processExitContract.outcomeSource,
       forcedOverride: processExitContract.truthResolution.forcedOverride,
       truthResolution: processExitContract.truthResolution,
+      requestContract: {
+        schema: processExitContract.requestContract.schema,
+        status: processExitContract.requestContract.status,
+        valid: processExitContract.requestContract.valid,
+        requestFingerprint: processExitContract.requestContract.requestFingerprint,
+        failedCheckIds: processExitContract.requestContract.failedCheckIds,
+        blockingReasons: processExitContract.requestContract.blockingReasons,
+        warningReasons: processExitContract.requestContract.warningReasons
+      },
       terminal: processExitContract.terminal,
       valid: processExitContract.valid,
       status: processExitContract.status,
@@ -5479,6 +5651,149 @@ function countCommandStatuses(commands) {
   });
 }
 
+function buildExitAnalyticsExportReadiness({
+  exportManifest,
+  exportRow,
+  timeline,
+  history,
+  validation,
+  settingsValidation,
+  operationalHealth,
+  auditProof,
+  providerContracts,
+  processExitContract,
+  runtime,
+  tenantBoundary,
+  now
+}) {
+  const staleCursor = exportManifest.cursor.staleCursor === true;
+  const missingPartition = !tenantBoundary.tenantId || !tenantBoundary.workspaceId || !runtime.requestId;
+  const providerRepairRequired = providerContracts.serviceContracts.some((contract) => (
+    contract.negotiation.blockingReasons.length > 0 || (contract.sync.required && !contract.sync.fresh)
+  ));
+  const eventStreamBlocked = providerContracts.eventStream.rejectedEvents.some((event) => (
+    event.status === 'cross-scope' || event.status === 'unknown-provider'
+  ));
+  const auditCsvSink = exportManifest.sinks.find((sink) => sink.id === 'audit-csv');
+  const jsonlSink = exportManifest.sinks.find((sink) => sink.id === 'ops-jsonl');
+  const blockers = [
+    ...(!validation.ok ? [{
+      code: 'runtime_validation_blocked',
+      message: 'Exit-contract analytics export is blocked until runtime validation passes.',
+      command: 'kernel.lifecycle.exit.preview'
+    }] : []),
+    ...(!settingsValidation.ok ? [{
+      code: 'settings_validation_blocked',
+      message: 'Lifecycle settings must be repaired before analytics export is considered route-ready.',
+      command: 'kernel.lifecycle.exit.settings.validate'
+    }] : []),
+    ...(missingPartition ? [{
+      code: 'analytics_partition_incomplete',
+      message: 'Analytics export partition requires tenantId, workspaceId, and requestId.',
+      command: 'kernel.lifecycle.exit.tenant.bind'
+    }] : []),
+    ...(staleCursor ? [{
+      code: 'analytics_cursor_from_future',
+      message: 'Analytics export cursor watermark is later than the current contract time.',
+      command: 'kernel.lifecycle.exit.analytics.cursor.repair'
+    }] : []),
+    ...(processExitContract.terminal && !processExitContract.valid ? [{
+      code: 'terminal_process_exit_not_recordable',
+      message: `${processExitContract.outcome} process exit is terminal but not recordable.`,
+      command: processExitContract.controlGate.nextAction.command
+    }] : []),
+    ...(eventStreamBlocked ? [{
+      code: 'provider_event_stream_blocked',
+      message: 'Provider event stream contains cross-scope or unknown-provider records.',
+      command: `${EVENT_NAMESPACE}.provider.events.sync`
+    }] : [])
+  ];
+  const warnings = [
+    ...(operationalHealth.status !== 'healthy' ? [{
+      code: 'operational_health_not_healthy',
+      message: `Operational health is ${operationalHealth.status}; export remains visible for remediation.`,
+      command: `${EVENT_NAMESPACE}.health.inspect`
+    }] : []),
+    ...(providerRepairRequired ? [{
+      code: 'provider_contract_repair_required',
+      message: 'One or more provider service contracts need negotiation or sync repair.',
+      command: 'kernel.lifecycle.exit.provider.negotiate'
+    }] : []),
+    ...(!auditProof.ready ? [{
+      code: 'audit_proof_not_ready',
+      message: auditProof.gaps[0] || 'Audit proof is not ready for durable acceptance.',
+      command: auditProof.reconciliation.repairCommand || CONTROL_COMMANDS.proof
+    }] : []),
+    ...(timeline.length === 0 ? [{
+      code: 'empty_analytics_timeline',
+      message: 'Analytics timeline is empty for this route preview.',
+      command: `${EVENT_NAMESPACE}.analytics.timeline.refresh`
+    }] : []),
+    ...(auditCsvSink && !auditCsvSink.ready ? [{
+      code: 'audit_csv_sink_not_ready',
+      message: 'Audit CSV sink is not ready because validation and proof signals are incomplete.',
+      command: CONTROL_COMMANDS.proof
+    }] : [])
+  ];
+  const publishableSinks = exportManifest.sinks
+    .filter((sink) => sink.ready)
+    .map((sink) => sink.id);
+  const blockedSinks = exportManifest.sinks
+    .filter((sink) => !sink.ready)
+    .map((sink) => sink.id);
+  const requiredActions = [
+    ...blockers.map((blocker, index) => ({
+      id: `exit-export-blocker-${index + 1}`,
+      severity: 'blocker',
+      code: blocker.code,
+      command: blocker.command,
+      reason: blocker.message
+    })),
+    ...warnings.slice(0, 4).map((warning, index) => ({
+      id: `exit-export-warning-${index + 1}`,
+      severity: 'warning',
+      code: warning.code,
+      command: warning.command,
+      reason: warning.message
+    }))
+  ];
+  const status = blockers.length > 0
+    ? 'blocked'
+    : warnings.length > 0
+      ? 'ready-with-warnings'
+      : 'ready';
+
+  return {
+    schema: `aios.kernel.lifecycle.exit.analytics-export-readiness.v${ANALYTICS_EXPORT_SCHEMA_VERSION}`,
+    generatedAt: now,
+    status,
+    ready: blockers.length === 0,
+    exportable: blockers.length === 0 && (publishableSinks.length > 0 || Boolean(jsonlSink?.ready)),
+    manifestKey: exportManifest.manifestKey,
+    cursorKey: exportManifest.cursor.cursorKey,
+    nextSequence: exportManifest.cursor.nextSequence,
+    tenantBoundary: tenantBoundary.auditSubject,
+    partition: exportManifest.partition,
+    route: runtime.route,
+    rowFingerprint: deriveFingerprint(exportRow),
+    timelineEventCount: timeline.length,
+    historySnapshotCount: history.length,
+    publishableSinks,
+    blockedSinks,
+    blockers,
+    warnings,
+    requiredActions,
+    nextAction: requiredActions[0]?.command || (status === 'ready' ? `${EVENT_NAMESPACE}.analytics.export.publish` : `${EVENT_NAMESPACE}.analytics.export.review`),
+    routePreviewPatch: {
+      analyticsExportStatus: status,
+      analyticsExportReady: blockers.length === 0,
+      analyticsExportManifestKey: exportManifest.manifestKey,
+      analyticsExportNextSequence: exportManifest.cursor.nextSequence,
+      analyticsExportBlockedSinkCount: blockedSinks.length
+    }
+  };
+}
+
 function buildAnalyticsExports({
   input,
   now,
@@ -5834,6 +6149,21 @@ function buildAnalyticsExports({
       persistenceRestartStatus: persistenceShape?.restartStatus || null
     }
   };
+  const exportReadiness = buildExitAnalyticsExportReadiness({
+    exportManifest,
+    exportRow,
+    timeline,
+    history,
+    validation,
+    settingsValidation,
+    operationalHealth,
+    auditProof,
+    providerContracts,
+    processExitContract,
+    runtime,
+    tenantBoundary,
+    now
+  });
   const reportSections = [
     {
       id: 'exit-readiness',
@@ -5895,15 +6225,32 @@ function buildAnalyticsExports({
     timeline,
     timelineBuckets,
     reportSections,
-    exportManifest,
+    exportManifest: {
+      ...exportManifest,
+      readiness: {
+        status: exportReadiness.status,
+        ready: exportReadiness.ready,
+        exportable: exportReadiness.exportable,
+        blockedSinks: exportReadiness.blockedSinks,
+        requiredActions: exportReadiness.requiredActions
+      }
+    },
+    exportReadiness,
     exportSummary: {
-      ready: validation.ok && operationalHealth.status !== 'failed',
+      ready: exportReadiness.ready && operationalHealth.status !== 'failed',
       format: 'jsonl-or-csv-row',
       row: exportRow,
       columns: Object.keys(exportRow),
       manifestKey: exportManifest.manifestKey,
       cursorKey: exportManifest.cursor.cursorKey,
       nextSequence: exportManifest.cursor.nextSequence,
+      readinessStatus: exportReadiness.status,
+      exportable: exportReadiness.exportable,
+      nextAction: exportReadiness.nextAction,
+      blockedSinkCount: exportReadiness.blockedSinks.length,
+      blockerCount: exportReadiness.blockers.length,
+      warningCount: exportReadiness.warnings.length,
+      routePreviewPatch: exportReadiness.routePreviewPatch,
       labels: {
         subject: 'hosted-kernel exit contract',
         route: DEFAULT_ROUTE_MOUNT,

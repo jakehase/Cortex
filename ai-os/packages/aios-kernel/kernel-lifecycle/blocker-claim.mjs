@@ -27,11 +27,19 @@ const SETTINGS_CONTROL_COMMANDS = new Set([
 ]);
 const REQUIRED_PROVIDER_CAPABILITIES = ['claim-sync', 'audit-proof'];
 const OPTIONAL_PROVIDER_CAPABILITIES = ['external-handoff', 'retry-schedule', 'health-mirror'];
+const MAILCHIMP_PROVIDER_CAPABILITIES = ['claim-sync', 'audit-proof', 'external-handoff', 'health-mirror'];
+const MAILCHIMP_AUDIENCE_HANDOFF_EVENTS = ['audience.sync', 'campaign.send', 'webhook.replay'];
 const PROVIDER_SYNC_MODES = new Set(['pull', 'push', 'bidirectional']);
 const PROVIDER_AUTH_SCHEMES = new Set(['none', 'signed-request', 'service-token', 'mtls']);
 const PROVIDER_CONSISTENCY_LEVELS = new Set(['best-effort', 'read-your-writes', 'strict']);
 const PROVIDER_MAX_SYNC_LAG_MS = 5 * 60 * 1000;
 const PROVIDER_HANDOFF_ACK_DEADLINE_MS = 15 * 60 * 1000;
+const PROVIDER_SYNC_FRESHNESS_BLOCKERS = {
+  invalidTimestamp: 'sync_timestamp_invalid',
+  futureTimestamp: 'sync_timestamp_future',
+  lagExceeded: 'sync_metadata_stale',
+  explicitlyStale: 'sync_marked_stale'
+};
 const MAX_RETRY_ATTEMPTS = 5;
 const PERSISTED_STATES = new Set(['accepted', 'blocked', 'retrying', 'handoff-pending', 'completed', 'paused']);
 const TERMINAL_PERSISTED_STATES = new Set(['completed', 'blocked']);
@@ -115,6 +123,54 @@ function normalizeStringList(value) {
   }
 
   return [...new Set(value.map((item) => asNonEmptyString(item)).filter(Boolean))];
+}
+
+function isMailchimpProvider(provider) {
+  return [
+    provider.providerId,
+    provider.service,
+    provider.endpoint,
+    provider.serviceContract?.serviceKey,
+    provider.serviceContract?.schemaVersion,
+    provider.mailchimp?.accountId
+  ].some((value) => String(value || '').toLowerCase().includes('mailchimp'));
+}
+
+function normalizeMailchimpProviderContract(provider, contract, handoff) {
+  const rawMailchimp = provider.mailchimp && typeof provider.mailchimp === 'object'
+    ? provider.mailchimp
+    : contract.mailchimp && typeof contract.mailchimp === 'object'
+      ? contract.mailchimp
+      : {};
+  const accountId = asNonEmptyString(rawMailchimp.accountId)
+    || asNonEmptyString(rawMailchimp.dc)
+    || asNonEmptyString(provider.mailchimpAccountId);
+  const audienceIds = normalizeStringList(rawMailchimp.audienceIds || rawMailchimp.lists || provider.audienceIds);
+  const requestedEvents = normalizeStringList(rawMailchimp.events || rawMailchimp.handoffEvents || handoff.events);
+  const acceptedEvents = requestedEvents.length
+    ? requestedEvents.filter((event) => MAILCHIMP_AUDIENCE_HANDOFF_EVENTS.includes(event))
+    : [];
+
+  return {
+    product: 'mailchimp',
+    detected: Boolean(accountId || audienceIds.length || requestedEvents.length || isMailchimpProvider({
+      ...provider,
+      serviceContract: contract
+    })),
+    accountId: accountId || null,
+    audienceIds,
+    requestedEvents,
+    acceptedEvents,
+    rejectedEvents: requestedEvents.filter((event) => !MAILCHIMP_AUDIENCE_HANDOFF_EVENTS.includes(event)),
+    webhookRoute: asNonEmptyString(rawMailchimp.webhookRoute)
+      || asNonEmptyString(contract.webhookRoute)
+      || asNonEmptyString(handoff.webhookRoute)
+      || asNonEmptyString(provider.webhookRoute),
+    webhookSecretRef: asNonEmptyString(rawMailchimp.webhookSecretRef)
+      || asNonEmptyString(rawMailchimp.secretRef)
+      || asNonEmptyString(provider.webhookSecretRef),
+    requiresExternalHandoff: handoff.requested === true || acceptedEvents.some((event) => event !== 'audience.sync')
+  };
 }
 
 function normalizeBoundaryContext(input) {
@@ -277,6 +333,68 @@ function addMillisecondsToTimestamp(value, deltaMs) {
   const baseMs = parseTimestampMs(value);
 
   return baseMs === null ? null : new Date(baseMs + deltaMs).toISOString();
+}
+
+function buildTimestampFreshness(value, now, maxAgeMs) {
+  const supplied = value !== undefined && value !== null && value !== '';
+  const timestampMs = parseTimestampMs(value);
+  const nowMs = parseTimestampMs(now);
+  const valid = !supplied || timestampMs !== null;
+  const ageMs = supplied && valid && nowMs !== null
+    ? nowMs - timestampMs
+    : null;
+  const future = Number.isFinite(ageMs) && ageMs < 0;
+  const stale = Number.isFinite(ageMs) && Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && ageMs > maxAgeMs;
+
+  return {
+    supplied,
+    valid,
+    observedAt: supplied && valid ? new Date(timestampMs).toISOString() : null,
+    ageMs: Number.isFinite(ageMs) ? Math.max(0, ageMs) : null,
+    maxAgeMs: Number.isFinite(maxAgeMs) && maxAgeMs >= 0 ? maxAgeMs : null,
+    future,
+    stale,
+    status: !valid
+      ? 'invalid'
+      : future
+        ? 'future'
+        : stale
+          ? 'stale'
+          : supplied
+            ? 'fresh'
+            : 'missing'
+  };
+}
+
+function buildProviderSyncFreshness(provider, now) {
+  const timestamp = buildTimestampFreshness(provider.sync.lastSyncedAt, now, provider.sync.maxLagMs);
+  const blockers = [
+    timestamp.supplied && !timestamp.valid ? PROVIDER_SYNC_FRESHNESS_BLOCKERS.invalidTimestamp : null,
+    timestamp.future ? PROVIDER_SYNC_FRESHNESS_BLOCKERS.futureTimestamp : null,
+    timestamp.stale ? PROVIDER_SYNC_FRESHNESS_BLOCKERS.lagExceeded : null,
+    provider.sync.stale ? PROVIDER_SYNC_FRESHNESS_BLOCKERS.explicitlyStale : null
+  ].filter(Boolean);
+  const nextAction = blockers.includes(PROVIDER_SYNC_FRESHNESS_BLOCKERS.invalidTimestamp)
+    ? 'repair-provider-sync-timestamp'
+    : blockers.includes(PROVIDER_SYNC_FRESHNESS_BLOCKERS.futureTimestamp)
+      ? 'wait-for-provider-clock-or-resync'
+      : blockers.includes(PROVIDER_SYNC_FRESHNESS_BLOCKERS.lagExceeded) ||
+        blockers.includes(PROVIDER_SYNC_FRESHNESS_BLOCKERS.explicitlyStale)
+        ? 'refresh-provider-sync'
+        : 'none';
+
+  return {
+    contractVersion: 1,
+    providerId: provider.providerId,
+    serviceKey: provider.serviceContract.serviceKey,
+    cursor: provider.sync.cursor || null,
+    watermark: provider.sync.watermark || null,
+    lastSyncedAt: timestamp.observedAt,
+    freshness: timestamp,
+    blockers,
+    current: blockers.length === 0,
+    nextAction
+  };
 }
 
 function normalizePersistedState(input) {
@@ -862,8 +980,48 @@ function normalizeClientRequest(input, boundary) {
   };
 }
 
-function buildClientRequestValidation(clientRequest, boundary) {
+function buildStateLeaseStatus(clientRequest, now) {
+  const expiresAtMs = parseTimestampMs(clientRequest.stateLease.expiresAt);
+  const nowMs = parseTimestampMs(now);
+  const hasExpiry = Boolean(clientRequest.stateLease.expiresAt);
+  const invalidExpiry = hasExpiry && expiresAtMs === null;
+  const expired = expiresAtMs !== null && nowMs !== null && expiresAtMs <= nowMs;
+  const expiresInMs = expiresAtMs !== null && nowMs !== null
+    ? Math.max(0, expiresAtMs - nowMs)
+    : null;
+  const missingRequiredToken = clientRequest.stateLease.required && !clientRequest.stateLease.token;
+  const ready = !missingRequiredToken && !invalidExpiry && !expired;
+  const blockers = [
+    ...(missingRequiredToken ? ['missing_client_state_lease'] : []),
+    ...(invalidExpiry ? ['invalid_client_state_lease_expiry'] : []),
+    ...(expired ? ['expired_client_state_lease'] : [])
+  ];
+
+  return {
+    required: clientRequest.stateLease.required,
+    ready,
+    tokenPresent: Boolean(clientRequest.stateLease.token),
+    version: clientRequest.stateLease.version,
+    holder: clientRequest.stateLease.holder,
+    expiresAt: clientRequest.stateLease.expiresAt || null,
+    expiresInMs,
+    stale: expired,
+    blockers,
+    status: ready
+      ? clientRequest.stateLease.required
+        ? 'lease-ready'
+        : 'lease-not-required'
+      : expired
+        ? 'lease-expired'
+        : invalidExpiry
+          ? 'lease-invalid'
+          : 'lease-missing'
+  };
+}
+
+function buildClientRequestValidation(clientRequest, boundary, now) {
   const errors = [];
+  const stateLease = buildStateLeaseStatus(clientRequest, now);
 
   if ((clientRequest.intent === 'claim' || clientRequest.intent === 'retry') && clientRequest.optimisticMutation && !clientRequest.requestId) {
     errors.push({
@@ -874,12 +1032,30 @@ function buildClientRequestValidation(clientRequest, boundary) {
     });
   }
 
-  if (clientRequest.stateLease.required && !clientRequest.stateLease.token) {
+  if (stateLease.blockers.includes('missing_client_state_lease')) {
     errors.push({
       code: 'missing_client_state_lease',
       field: 'clientRequest.stateLease.token',
       message: 'Client state lease is required before this blocker claim can mutate lifecycle state.',
       action: 'Acquire a hosted-kernel state lease and include stateLease.token with the claim request.'
+    });
+  }
+
+  if (stateLease.blockers.includes('invalid_client_state_lease_expiry')) {
+    errors.push({
+      code: 'invalid_client_state_lease_expiry',
+      field: 'clientRequest.stateLease.expiresAt',
+      message: 'Client state lease expiry must be a parseable timestamp.',
+      action: 'Refresh the hosted-kernel state lease and include stateLease.expiresAt as an ISO timestamp.'
+    });
+  }
+
+  if (stateLease.blockers.includes('expired_client_state_lease')) {
+    errors.push({
+      code: 'expired_client_state_lease',
+      field: 'clientRequest.stateLease.expiresAt',
+      message: 'Client state lease has expired and cannot authorize lifecycle mutation.',
+      action: 'Renew the hosted-kernel state lease before retrying the blocker claim mutation.'
     });
   }
 
@@ -904,7 +1080,8 @@ function buildClientRequestValidation(clientRequest, boundary) {
   return {
     ok: errors.length === 0,
     errors,
-    stateLeaseReady: !clientRequest.stateLease.required || Boolean(clientRequest.stateLease.token),
+    stateLease,
+    stateLeaseReady: stateLease.ready,
     mutationRequested: clientRequest.intent === 'claim' || clientRequest.intent === 'retry',
     handoffRequired: clientRequest.intent === 'handoff' || clientRequest.handoffPreference === 'external-required'
   };
@@ -935,6 +1112,45 @@ function normalizeProviderContracts(input) {
         || asNonEmptyString(sync.ackCursor)
         || asNonEmptyString(provider.acknowledgementCursor);
       const maxLagMs = asNonNegativeInteger(sync.maxLagMs ?? provider.maxSyncLagMs, PROVIDER_MAX_SYNC_LAG_MS);
+      const serviceContract = {
+        contractVersion: 1,
+        serviceKey: asNonEmptyString(contract.serviceKey)
+          || `${asNonEmptyString(provider.service) || 'hosted-kernel-lifecycle'}:${asNonEmptyString(provider.version) || 'unversioned'}`,
+        schemaVersion: asNonEmptyString(contract.schemaVersion) || asNonEmptyString(provider.schemaVersion) || 'blocker-claim-provider.v1',
+        authScheme: PROVIDER_AUTH_SCHEMES.has(rawAuthScheme) ? rawAuthScheme : 'signed-request',
+        consistency: PROVIDER_CONSISTENCY_LEVELS.has(rawConsistency) ? rawConsistency : 'read-your-writes',
+        acceptsReplay: contract.acceptsReplay !== false,
+        acceptsIdempotencyKey: contract.acceptsIdempotencyKey !== false,
+        requiresAuditProof: contract.requiresAuditProof !== false,
+        callbackRoutes: {
+          acknowledgement: asNonEmptyString(callbacks.acknowledgement)
+            || asNonEmptyString(contract.acknowledgementRoute)
+            || asNonEmptyString(provider.acknowledgementRoute),
+          failure: asNonEmptyString(callbacks.failure)
+            || asNonEmptyString(contract.failureRoute)
+            || asNonEmptyString(provider.failureRoute),
+          health: asNonEmptyString(callbacks.health)
+            || asNonEmptyString(contract.healthRoute)
+            || asNonEmptyString(provider.healthRoute)
+        },
+        advertisedCapabilities: capabilities,
+        optionalCapabilities: OPTIONAL_PROVIDER_CAPABILITIES.filter((capability) => capabilities.includes(capability))
+      };
+      const handoffContract = {
+        requested: handoff.requested === true || provider.externalHandoff === true,
+        target: asNonEmptyString(handoff.target) || asNonEmptyString(provider.handoffTarget),
+        targetKind: HANDOFF_TARGET_KINDS.has(rawHandoffTargetKind) ? rawHandoffTargetKind : 'provider-endpoint',
+        tenantId: asNonEmptyString(handoff.tenantId) || asNonEmptyString(provider.handoffTenantId),
+        workspaceId: asNonEmptyString(handoff.workspaceId) || asNonEmptyString(provider.handoffWorkspaceId),
+        dispatchMode: asNonEmptyString(handoff.dispatchMode) || 'operator-confirmed',
+        payloadVersion: asNonEmptyString(handoff.payloadVersion) || 'blocker-claim-handoff.v1',
+        requiresReceipt: handoff.requiresReceipt !== false,
+        state: asNonEmptyString(handoff.state) || 'local-only',
+        receiptId: asNonEmptyString(handoff.receiptId),
+        receiptState: HANDOFF_RECEIPT_STATES.has(rawReceiptState) ? rawReceiptState : 'missing',
+        webhookRoute: asNonEmptyString(handoff.webhookRoute) || asNonEmptyString(provider.webhookRoute)
+      };
+      const mailchimp = normalizeMailchimpProviderContract(provider, serviceContract, handoffContract);
 
       return {
         providerId: asNonEmptyString(provider.providerId) || asNonEmptyString(provider.id) || `provider-${index + 1}`,
@@ -943,30 +1159,7 @@ function normalizeProviderContracts(input) {
         endpoint: asNonEmptyString(provider.endpoint),
         capabilities,
         missingRequiredCapabilities: REQUIRED_PROVIDER_CAPABILITIES.filter((capability) => !capabilities.includes(capability)),
-        serviceContract: {
-          contractVersion: 1,
-          serviceKey: asNonEmptyString(contract.serviceKey)
-            || `${asNonEmptyString(provider.service) || 'hosted-kernel-lifecycle'}:${asNonEmptyString(provider.version) || 'unversioned'}`,
-          schemaVersion: asNonEmptyString(contract.schemaVersion) || asNonEmptyString(provider.schemaVersion) || 'blocker-claim-provider.v1',
-          authScheme: PROVIDER_AUTH_SCHEMES.has(rawAuthScheme) ? rawAuthScheme : 'signed-request',
-          consistency: PROVIDER_CONSISTENCY_LEVELS.has(rawConsistency) ? rawConsistency : 'read-your-writes',
-          acceptsReplay: contract.acceptsReplay !== false,
-          acceptsIdempotencyKey: contract.acceptsIdempotencyKey !== false,
-          requiresAuditProof: contract.requiresAuditProof !== false,
-          callbackRoutes: {
-            acknowledgement: asNonEmptyString(callbacks.acknowledgement)
-              || asNonEmptyString(contract.acknowledgementRoute)
-              || asNonEmptyString(provider.acknowledgementRoute),
-            failure: asNonEmptyString(callbacks.failure)
-              || asNonEmptyString(contract.failureRoute)
-              || asNonEmptyString(provider.failureRoute),
-            health: asNonEmptyString(callbacks.health)
-              || asNonEmptyString(contract.healthRoute)
-              || asNonEmptyString(provider.healthRoute)
-          },
-          advertisedCapabilities: capabilities,
-          optionalCapabilities: OPTIONAL_PROVIDER_CAPABILITIES.filter((capability) => capabilities.includes(capability))
-        },
+        serviceContract,
         sync: {
           cursor: asNonEmptyString(sync.cursor) || asNonEmptyString(provider.cursor),
           lastSyncedAt,
@@ -982,28 +1175,15 @@ function normalizeProviderContracts(input) {
           initialSyncAllowed: sync.initialSyncAllowed === true || provider.initialSyncAllowed === true,
           proofDigest: asNonEmptyString(sync.proofDigest) || asNonEmptyString(provider.proofDigest)
         },
-        handoff: {
-          requested: handoff.requested === true || provider.externalHandoff === true,
-          target: asNonEmptyString(handoff.target) || asNonEmptyString(provider.handoffTarget),
-          targetKind: HANDOFF_TARGET_KINDS.has(rawHandoffTargetKind) ? rawHandoffTargetKind : 'provider-endpoint',
-          tenantId: asNonEmptyString(handoff.tenantId) || asNonEmptyString(provider.handoffTenantId),
-          workspaceId: asNonEmptyString(handoff.workspaceId) || asNonEmptyString(provider.handoffWorkspaceId),
-          dispatchMode: asNonEmptyString(handoff.dispatchMode) || 'operator-confirmed',
-          payloadVersion: asNonEmptyString(handoff.payloadVersion) || 'blocker-claim-handoff.v1',
-          requiresReceipt: handoff.requiresReceipt !== false,
-          state: asNonEmptyString(handoff.state) || 'local-only',
-          receiptId: asNonEmptyString(handoff.receiptId),
-          receiptState: HANDOFF_RECEIPT_STATES.has(rawReceiptState) ? rawReceiptState : 'missing'
-        }
+        handoff: handoffContract,
+        mailchimp
       };
     });
 }
 
 function buildProviderSyncStatus(provider, lifecycleSettings, now) {
-  const nowMs = parseTimestampMs(now);
-  const lastSyncedAtMs = parseTimestampMs(provider.sync.lastSyncedAt);
-  const syncAgeMs = nowMs !== null && lastSyncedAtMs !== null ? Math.max(0, nowMs - lastSyncedAtMs) : null;
-  const lagExceeded = syncAgeMs !== null && provider.sync.maxLagMs > 0 && syncAgeMs > provider.sync.maxLagMs;
+  const syncFreshness = buildProviderSyncFreshness(provider, now);
+  const lagExceeded = syncFreshness.blockers.includes(PROVIDER_SYNC_FRESHNESS_BLOCKERS.lagExceeded);
   const ackRequired = provider.serviceContract.consistency !== 'best-effort'
     || lifecycleSettings.mode === 'automatic'
     || provider.handoff.requested;
@@ -1012,7 +1192,7 @@ function buildProviderSyncStatus(provider, lifecycleSettings, now) {
     || Boolean(provider.sync.acknowledgementCursor)
     || provider.sync.acknowledgedSequence >= provider.sync.sequence;
   const proofReady = !provider.serviceContract.requiresAuditProof || Boolean(provider.sync.proofDigest);
-  const stale = provider.sync.stale || lagExceeded;
+  const stale = !syncFreshness.current;
   const ready = provider.sync.modeAccepted
     && cursorReady
     && acknowledgementReady
@@ -1030,9 +1210,10 @@ function buildProviderSyncStatus(provider, lifecycleSettings, now) {
     acknowledgementReady,
     proofReady,
     stale,
-    syncAgeMs,
+    syncAgeMs: syncFreshness.freshness.ageMs,
     maxLagMs: provider.sync.maxLagMs,
     lagExceeded,
+    syncFreshness,
     sequence: provider.sync.sequence,
     acknowledgedSequence: provider.sync.acknowledgedSequence,
     sequenceBehind: provider.sync.sequence > provider.sync.acknowledgedSequence,
@@ -1045,7 +1226,7 @@ function buildProviderSyncStatus(provider, lifecycleSettings, now) {
       ...(!cursorReady ? ['sync_cursor_missing'] : []),
       ...(!acknowledgementReady ? ['sync_acknowledgement_missing'] : []),
       ...(!proofReady ? ['sync_audit_proof_digest_missing'] : []),
-      ...(stale ? ['sync_metadata_stale'] : []),
+      ...syncFreshness.blockers,
       ...(provider.sync.pendingMutations > 0 ? ['sync_pending_mutations'] : [])
     ]
   };
@@ -1053,11 +1234,15 @@ function buildProviderSyncStatus(provider, lifecycleSettings, now) {
 
 function buildProviderServiceCommitment(provider, syncStatus, now) {
   const externalStateClaimed = provider.handoff.requested || provider.handoff.state !== 'local-only';
+  const mailchimpExternalRequired = provider.mailchimp.detected && provider.mailchimp.requiresExternalHandoff;
   const receiptDeadlineAt = provider.handoff.requiresReceipt
     ? addMillisecondsToTimestamp(now, PROVIDER_HANDOFF_ACK_DEADLINE_MS)
     : null;
   const capabilityGaps = [
     ...provider.missingRequiredCapabilities,
+    ...(provider.mailchimp.detected
+      ? MAILCHIMP_PROVIDER_CAPABILITIES.filter((capability) => !provider.capabilities.includes(capability))
+      : []),
     ...(externalStateClaimed && !provider.capabilities.includes('external-handoff') ? ['external-handoff'] : []),
     ...(syncStatus.stale && !provider.capabilities.includes('health-mirror') ? ['health-mirror'] : [])
   ];
@@ -1066,13 +1251,16 @@ function buildProviderServiceCommitment(provider, syncStatus, now) {
     ...(!provider.serviceContract.acceptsIdempotencyKey ? ['idempotency-key'] : []),
     ...(provider.serviceContract.requiresAuditProof && !provider.sync.proofDigest ? ['audit-proof-digest'] : []),
     ...(provider.serviceContract.consistency === 'strict' && !provider.sync.acknowledgementCursor ? ['strict-acknowledgement-cursor'] : []),
-    ...(externalStateClaimed && !provider.handoff.target ? ['handoff-target'] : []),
+    ...((externalStateClaimed || mailchimpExternalRequired) && !provider.handoff.target ? ['handoff-target'] : []),
     ...(externalStateClaimed && provider.handoff.requiresReceipt && provider.handoff.receiptState === 'rejected' ? ['accepted-handoff-receipt'] : [])
   ];
   const callbackGaps = [
     ...(externalStateClaimed && !provider.serviceContract.callbackRoutes.acknowledgement ? ['acknowledgement-callback'] : []),
     ...(externalStateClaimed && !provider.serviceContract.callbackRoutes.failure ? ['failure-callback'] : []),
-    ...(provider.capabilities.includes('health-mirror') && !provider.serviceContract.callbackRoutes.health ? ['health-callback'] : [])
+    ...(provider.capabilities.includes('health-mirror') && !provider.serviceContract.callbackRoutes.health ? ['health-callback'] : []),
+    ...(provider.mailchimp.detected && !provider.mailchimp.webhookRoute ? ['mailchimp-webhook-route'] : []),
+    ...(provider.mailchimp.detected && !provider.mailchimp.webhookSecretRef ? ['mailchimp-webhook-secret-ref'] : []),
+    ...(provider.mailchimp.rejectedEvents.length > 0 ? ['mailchimp-unsupported-handoff-event'] : [])
   ];
   const ready = syncStatus.ready
     && capabilityGaps.length === 0
@@ -1091,7 +1279,7 @@ function buildProviderServiceCommitment(provider, syncStatus, now) {
       required: REQUIRED_PROVIDER_CAPABILITIES,
       optionalAdvertised: provider.serviceContract.optionalCapabilities,
       advertised: provider.serviceContract.advertisedCapabilities,
-      gaps: capabilityGaps
+      gaps: Array.from(new Set(capabilityGaps))
     },
     serviceLevel: {
       authScheme: provider.serviceContract.authScheme,
@@ -1104,12 +1292,15 @@ function buildProviderServiceCommitment(provider, syncStatus, now) {
       mode: syncStatus.mode,
       cursor: provider.sync.cursor || null,
       watermark: provider.sync.watermark || null,
+      lastSyncedAt: syncStatus.syncFreshness.lastSyncedAt,
+      freshness: syncStatus.syncFreshness.freshness,
       sequence: syncStatus.sequence,
       acknowledgedSequence: syncStatus.acknowledgedSequence,
       acknowledgementCursor: provider.sync.acknowledgementCursor || null,
       proofDigest: provider.sync.proofDigest || null,
       pendingMutations: syncStatus.pendingMutations,
       stale: syncStatus.stale,
+      nextAction: syncStatus.syncFreshness.nextAction,
       blockers: syncStatus.blockers
     },
     externalHandoffState: externalStateClaimed
@@ -1125,8 +1316,23 @@ function buildProviderServiceCommitment(provider, syncStatus, now) {
           callbacks: provider.serviceContract.callbackRoutes
         }
       : null,
+    mailchimp: provider.mailchimp.detected
+      ? {
+          accountId: provider.mailchimp.accountId,
+          audienceIds: provider.mailchimp.audienceIds,
+          acceptedEvents: provider.mailchimp.acceptedEvents,
+          rejectedEvents: provider.mailchimp.rejectedEvents,
+          webhookRoute: provider.mailchimp.webhookRoute || null,
+          webhookSecretRefPresent: Boolean(provider.mailchimp.webhookSecretRef),
+          requiresExternalHandoff: mailchimpExternalRequired,
+          readyForAudienceSync: provider.mailchimp.audienceIds.length > 0 &&
+            Boolean(provider.mailchimp.webhookRoute) &&
+            Boolean(provider.mailchimp.webhookSecretRef) &&
+            syncStatus.ready
+        }
+      : null,
     integrationGaps: {
-      capabilities: capabilityGaps,
+      capabilities: Array.from(new Set(capabilityGaps)),
       contract: contractGaps,
       callbacks: callbackGaps
     }
@@ -1204,7 +1410,12 @@ function buildProviderNegotiation(providerContracts, lifecycleSettings, now) {
         code: 'provider_sync_lag_exceeded',
         field: `providerContracts.${provider.providerId}.sync.lastSyncedAt`,
         message: `${provider.providerId} sync metadata exceeds the allowed hosted-kernel lag window.`,
-        action: `Refresh provider sync metadata within ${syncStatus.maxLagMs}ms before lifecycle mutation.`
+        action: syncStatus.syncFreshness.nextAction === 'repair-provider-sync-timestamp'
+          ? 'Repair provider sync.lastSyncedAt so the hosted-kernel can compare freshness before lifecycle mutation.'
+          : syncStatus.syncFreshness.nextAction === 'wait-for-provider-clock-or-resync'
+            ? 'Wait for provider clock convergence or refresh sync metadata with a timestamp not later than the hosted-kernel clock.'
+            : `Refresh provider sync metadata within ${syncStatus.maxLagMs}ms before lifecycle mutation.`,
+        freshness: syncStatus.syncFreshness
       });
     }
 
@@ -1271,12 +1482,62 @@ function buildProviderNegotiation(providerContracts, lifecycleSettings, now) {
       });
     }
 
+    if (provider.mailchimp.detected) {
+      MAILCHIMP_PROVIDER_CAPABILITIES
+        .filter((capability) => !provider.capabilities.includes(capability))
+        .forEach((capability) => {
+          blockingIssues.push({
+            code: 'mailchimp_provider_capability_missing',
+            field: `providerContracts.${provider.providerId}.capabilities`,
+            message: `${provider.providerId} must advertise ${capability} for Mailchimp blocker-claim handoff.`,
+            action: `Negotiate ${capability} before accepting Mailchimp audience or campaign lifecycle claims.`
+          });
+        });
+
+      if (!provider.mailchimp.accountId) {
+        blockingIssues.push({
+          code: 'mailchimp_account_missing',
+          field: `providerContracts.${provider.providerId}.mailchimp.accountId`,
+          message: `${provider.providerId} did not declare the Mailchimp account or datacenter boundary.`,
+          action: 'Attach mailchimp.accountId so external handoff state is scoped to the correct Mailchimp account.'
+        });
+      }
+
+      if (provider.mailchimp.requiresExternalHandoff && !provider.handoff.target) {
+        blockingIssues.push({
+          code: 'mailchimp_handoff_target_missing',
+          field: `providerContracts.${provider.providerId}.handoff.target`,
+          message: `${provider.providerId} needs a Mailchimp handoff target for mutating audience or campaign work.`,
+          action: 'Set handoff.target to the Mailchimp sync worker, ticket queue, or provider endpoint.'
+        });
+      }
+
+      if (!provider.mailchimp.webhookRoute || !provider.mailchimp.webhookSecretRef) {
+        blockingIssues.push({
+          code: 'mailchimp_webhook_contract_incomplete',
+          field: `providerContracts.${provider.providerId}.mailchimp.webhookRoute`,
+          message: `${provider.providerId} must provide a Mailchimp webhook route and secret reference for external reconciliation.`,
+          action: 'Add mailchimp.webhookRoute and mailchimp.webhookSecretRef before accepting the blocker claim preview.'
+        });
+      }
+
+      provider.mailchimp.rejectedEvents.forEach((event) => {
+        blockingIssues.push({
+          code: 'mailchimp_handoff_event_unsupported',
+          field: `providerContracts.${provider.providerId}.mailchimp.events`,
+          message: `${provider.providerId} requested unsupported Mailchimp handoff event ${event}.`,
+          action: `Use one of ${MAILCHIMP_AUDIENCE_HANDOFF_EVENTS.join(', ')}.`
+        });
+      });
+    }
+
     if (provider.sync.stale && lifecycleSettings.mode === 'automatic') {
       blockingIssues.push({
         code: 'provider_sync_stale',
         field: `providerContracts.${provider.providerId}.sync.lastSyncedAt`,
         message: `${provider.providerId} sync metadata is stale for automatic lifecycle mode.`,
-        action: 'Refresh provider sync metadata before automatic blocker-claim mutation.'
+        action: 'Refresh provider sync metadata before automatic blocker-claim mutation.',
+        freshness: syncStatus.syncFreshness
       });
     }
 
@@ -1296,6 +1557,24 @@ function buildProviderNegotiation(providerContracts, lifecycleSettings, now) {
     syncStatuses,
     syncReadyProviders: syncStatuses.filter((status) => status.ready).map((status) => status.providerId),
     syncBlockedProviders: syncStatuses.filter((status) => !status.ready).map((status) => status.providerId),
+    syncFreshness: {
+      currentProviderCount: syncStatuses.filter((status) => status.syncFreshness.current).length,
+      invalidTimestampProviderIds: syncStatuses
+        .filter((status) => status.syncFreshness.blockers.includes(PROVIDER_SYNC_FRESHNESS_BLOCKERS.invalidTimestamp))
+        .map((status) => status.providerId),
+      futureTimestampProviderIds: syncStatuses
+        .filter((status) => status.syncFreshness.blockers.includes(PROVIDER_SYNC_FRESHNESS_BLOCKERS.futureTimestamp))
+        .map((status) => status.providerId),
+      staleProviderIds: syncStatuses
+        .filter((status) => status.syncFreshness.blockers.some((blocker) => (
+          blocker === PROVIDER_SYNC_FRESHNESS_BLOCKERS.lagExceeded ||
+          blocker === PROVIDER_SYNC_FRESHNESS_BLOCKERS.explicitlyStale
+        )))
+        .map((status) => status.providerId),
+      nextActions: Array.from(new Set(syncStatuses
+        .map((status) => status.syncFreshness.nextAction)
+        .filter((action) => action && action !== 'none')))
+    },
     blockingIssues,
     ready: blockingIssues.length === 0,
     mode: providerContracts.length > 0 ? 'negotiated-provider-contract' : 'local-hosted-kernel-only'
@@ -2601,6 +2880,16 @@ function buildExternalHandoff({ claim, audit, providerContracts, providerNegotia
               idempotent: provider.serviceContract.acceptsIdempotencyKey,
               callbacks: provider.serviceContract.callbackRoutes
             },
+            mailchimp: provider.mailchimp.detected
+              ? {
+                  accountId: provider.mailchimp.accountId,
+                  audienceIds: provider.mailchimp.audienceIds,
+                  events: provider.mailchimp.acceptedEvents,
+                  webhookRoute: provider.mailchimp.webhookRoute || null,
+                  webhookSecretRefPresent: Boolean(provider.mailchimp.webhookSecretRef),
+                  requiresExternalHandoff: provider.mailchimp.requiresExternalHandoff
+                }
+              : null,
             serviceCommitment,
             boundaryContract: {
               isolationMode: boundaryScope.isolationMode,
@@ -2662,6 +2951,213 @@ function buildExternalHandoff({ claim, audit, providerContracts, providerNegotia
       ...blockedProviders.flatMap((provider) => provider.missing),
       ...(!lifecycleControl.mutationReady && requestedProviders.length > 0 ? ['lifecycle_mutation_not_ready'] : [])
     ]
+  };
+}
+
+function normalizeScopeMatcherMailchimpReadiness(input) {
+  const source = input.scopeMatcherMailchimpReadiness && typeof input.scopeMatcherMailchimpReadiness === 'object'
+    ? input.scopeMatcherMailchimpReadiness
+    : input.mailchimpReadinessExportDataset && typeof input.mailchimpReadinessExportDataset === 'object'
+      ? input.mailchimpReadinessExportDataset
+      : input.scopeMatcher?.mailchimpReadinessExportDataset && typeof input.scopeMatcher.mailchimpReadinessExportDataset === 'object'
+        ? input.scopeMatcher.mailchimpReadinessExportDataset
+        : input.scopeMatcher?.reporting?.mailchimpReadinessExport && typeof input.scopeMatcher.reporting.mailchimpReadinessExport === 'object'
+          ? input.scopeMatcher.reporting.mailchimpReadinessExport
+          : {};
+  const rows = Array.isArray(source.exportRows)
+    ? source.exportRows
+    : Array.isArray(source.rows)
+      ? source.rows
+      : [];
+  const normalizedRows = rows
+    .filter((row) => row && typeof row === 'object')
+    .map((row, index) => {
+      const requestedScope = asNonEmptyString(row.requestedScope) || `mailchimp-scope-${index + 1}`;
+      const state = asNonEmptyString(row.scopeState) || asNonEmptyString(row.state) || 'unknown';
+      const handoffState = asNonEmptyString(row.handoffState) || 'not_required';
+      const deniedReasons = normalizeStringList(row.deniedReasons || row.reasons || row.blockers);
+      const decision = asNonEmptyString(row.decision) || (state === 'ready' ? 'allow' : 'deny');
+
+      return {
+        requestedScope,
+        decision,
+        state,
+        handoffState,
+        mutatingScope: row.mutatingScope === true,
+        providerIds: normalizeStringList(row.providerIds),
+        readyProviderIds: normalizeStringList(row.readyProviderIds),
+        blockedProviderIds: normalizeStringList(row.blockedProviderIds),
+        requiredHandoffEvents: normalizeStringList(row.requiredHandoffEvents),
+        deniedReasons,
+        nextAction: asNonEmptyString(row.nextAction),
+        resumeWhen: asNonEmptyString(row.resumeWhen)
+      };
+    });
+  const blockedRows = normalizedRows.filter((row) => (
+    row.decision === 'deny' ||
+    row.state === 'blocked' ||
+    row.handoffState === 'blocked' ||
+    row.deniedReasons.length > 0
+  ));
+  const mutatingRows = normalizedRows.filter((row) => row.mutatingScope);
+  const reasonCounts = blockedRows.reduce((counts, row) => {
+    row.deniedReasons.forEach((reason) => {
+      counts[reason] = (counts[reason] || 0) + 1;
+    });
+    return counts;
+  }, {});
+  const nextActions = Array.from(new Set([
+    ...normalizeStringList(source.nextActions),
+    ...blockedRows.map((row) => row.nextAction)
+  ].filter(Boolean))).sort();
+
+  return {
+    contractVersion: 1,
+    sourceContract: asNonEmptyString(source.contract) || 'hosted-kernel.scope-matcher.mailchimp-readiness-export-dataset.v1',
+    supplied: Object.keys(source).length > 0,
+    detected: source.detected === true || normalizedRows.length > 0,
+    state: asNonEmptyString(source.state) || (blockedRows.length ? 'blocked' : normalizedRows.length ? 'ready' : 'not-required'),
+    canAccept: source.canAccept === true || (normalizedRows.length > 0 && blockedRows.length === 0),
+    dataset: asNonEmptyString(source.dataset),
+    rowCount: Number.isInteger(source.rowCount) ? source.rowCount : normalizedRows.length,
+    readyScopeCount: Number.isInteger(source.readyScopeCount)
+      ? source.readyScopeCount
+      : normalizedRows.filter((row) => row.decision === 'allow' && row.handoffState !== 'blocked').length,
+    blockedScopeCount: Number.isInteger(source.blockedScopeCount) ? source.blockedScopeCount : blockedRows.length,
+    mutatingScopeCount: Number.isInteger(source.mutatingScopeCount) ? source.mutatingScopeCount : mutatingRows.length,
+    requiredHandoffEventCount: Number.isInteger(source.requiredHandoffEventCount)
+      ? source.requiredHandoffEventCount
+      : normalizedRows.reduce((count, row) => count + row.requiredHandoffEvents.length, 0),
+    reasonCounts: source.reasonCounts && typeof source.reasonCounts === 'object' ? source.reasonCounts : reasonCounts,
+    nextActions,
+    resumeWhen: asNonEmptyString(source.resumeWhen) || blockedRows.find((row) => row.resumeWhen)?.resumeWhen || null,
+    blockedScopes: blockedRows.map((row) => row.requestedScope),
+    rows: normalizedRows
+  };
+}
+
+function buildMailchimpWorkflowHandoffSummary({ providerContracts, providerNegotiation, externalHandoff, clientWorkflow, validationSummary, claim, scopeMatcherMailchimp, now }) {
+  const mailchimpProviders = providerContracts.filter((provider) => provider.mailchimp.detected);
+  const mailchimpRoutes = externalHandoff.providers.filter((provider) => (
+    mailchimpProviders.some((candidate) => candidate.providerId === provider.providerId)
+  ));
+  const serviceCommitments = providerNegotiation.serviceCommitments.filter((commitment) => commitment.mailchimp);
+  const readyRoutes = mailchimpRoutes.filter((route) => route.ready);
+  const blockedRoutes = mailchimpRoutes.filter((route) => !route.ready);
+  const unsupportedEvents = Array.from(new Set(mailchimpProviders.flatMap((provider) => provider.mailchimp.rejectedEvents))).sort();
+  const audienceIds = Array.from(new Set(mailchimpProviders.flatMap((provider) => provider.mailchimp.audienceIds))).sort();
+  const acceptedEvents = Array.from(new Set(mailchimpProviders.flatMap((provider) => provider.mailchimp.acceptedEvents))).sort();
+  const providerBlockers = Array.from(new Set([
+    ...(scopeMatcherMailchimp.detected && !scopeMatcherMailchimp.canAccept ? ['scope_matcher_mailchimp_readiness_blocked'] : []),
+    ...Object.keys(scopeMatcherMailchimp.reasonCounts),
+    ...blockedRoutes.flatMap((route) => route.missing),
+    ...providerNegotiation.blockingIssues
+      .filter((issue) => issue.code.startsWith('mailchimp_') || String(issue.field || '').includes('.mailchimp.'))
+      .map((issue) => issue.code),
+    ...serviceCommitments.flatMap((commitment) => [
+      ...commitment.integrationGaps.capabilities,
+      ...commitment.integrationGaps.contract,
+      ...commitment.integrationGaps.callbacks
+    ].filter((gap) => String(gap).includes('mailchimp') || gap === 'external-handoff'))
+  ])).sort();
+  const nextActions = Array.from(new Set([
+    ...providerBlockers.map((blocker) => {
+      if (blocker === 'scope_matcher_mailchimp_readiness_blocked') return 'review-mailchimp-scope-readiness';
+      if (blocker.includes('webhook')) return 'complete-mailchimp-webhook-contract';
+      if (blocker.includes('secret')) return 'attach-mailchimp-webhook-secret';
+      if (blocker.includes('capability')) return 'negotiate-mailchimp-provider-capabilities';
+      if (blocker.includes('handoff-target') || blocker === 'handoff-target') return 'configure-mailchimp-handoff-target';
+      if (blocker.includes('unsupported')) return 'remove-unsupported-mailchimp-handoff-events';
+      if (blocker.includes('sync')) return 'refresh-mailchimp-provider-sync';
+      return 'review-mailchimp-provider-contract';
+    }),
+    ...scopeMatcherMailchimp.nextActions,
+    ...(readyRoutes.length ? ['dispatch-mailchimp-blocker-claim-handoff'] : [])
+  ])).sort();
+  const upstreamBlocked = scopeMatcherMailchimp.detected && !scopeMatcherMailchimp.canAccept;
+  const state = mailchimpProviders.length === 0 && !scopeMatcherMailchimp.detected
+    ? 'not-required'
+    : upstreamBlocked
+      ? 'blocked'
+      : readyRoutes.length > 0 && blockedRoutes.length === 0 && validationSummary.blocked === 0
+      ? 'ready'
+      : readyRoutes.length > 0
+        ? 'partial'
+        : 'blocked';
+
+  return {
+    contractVersion: 1,
+    generatedAt: now,
+    product: 'mailchimp',
+    detected: mailchimpProviders.length > 0 || scopeMatcherMailchimp.detected,
+    scopeMatcherReadiness: {
+      supplied: scopeMatcherMailchimp.supplied,
+      detected: scopeMatcherMailchimp.detected,
+      state: scopeMatcherMailchimp.state,
+      canAccept: scopeMatcherMailchimp.canAccept,
+      dataset: scopeMatcherMailchimp.dataset || null,
+      rowCount: scopeMatcherMailchimp.rowCount,
+      readyScopeCount: scopeMatcherMailchimp.readyScopeCount,
+      blockedScopeCount: scopeMatcherMailchimp.blockedScopeCount,
+      mutatingScopeCount: scopeMatcherMailchimp.mutatingScopeCount,
+      requiredHandoffEventCount: scopeMatcherMailchimp.requiredHandoffEventCount,
+      blockedScopes: scopeMatcherMailchimp.blockedScopes,
+      reasonCounts: scopeMatcherMailchimp.reasonCounts,
+      resumeWhen: scopeMatcherMailchimp.resumeWhen
+    },
+    state,
+    claimRef: {
+      claimId: claim.claimId,
+      blockerId: claim.blockerId
+    },
+    providerCount: mailchimpProviders.length,
+    readyProviderIds: readyRoutes.map((route) => route.providerId),
+    blockedProviderIds: blockedRoutes.map((route) => route.providerId),
+    audienceIds,
+    acceptedEvents,
+    unsupportedEvents,
+    providerBlockers,
+    nextActions,
+    clientRoute: {
+      state: clientWorkflow.state,
+      route: state === 'ready'
+        ? clientWorkflow.routes.handoff
+        : clientWorkflow.routes.blocked,
+      returnRoute: clientWorkflow.routes.returnRoute,
+      resumeWhen: state === 'ready'
+        ? 'mailchimp_handoff_dispatched'
+        : upstreamBlocked && scopeMatcherMailchimp.resumeWhen
+          ? scopeMatcherMailchimp.resumeWhen
+        : providerBlockers.includes('mailchimp_webhook_contract_incomplete')
+          ? 'mailchimp_webhook_contract_complete'
+          : providerBlockers.includes('mailchimp_handoff_target_missing') || providerBlockers.includes('handoff-target')
+            ? 'mailchimp_handoff_target_configured'
+            : 'mailchimp_provider_contract_ready'
+    },
+    dispatchBatch: {
+      ready: (state === 'ready' || state === 'partial') && !upstreamBlocked,
+      batchId: `${surfaceId}:${claim.claimId || 'unassigned-claim'}:mailchimp-handoff`,
+      envelopes: readyRoutes
+        .map((route) => route.dispatchEnvelope)
+        .filter(Boolean)
+        .map((envelope) => ({
+          providerId: envelope.providerId,
+          target: envelope.target,
+          payloadVersion: envelope.payloadVersion,
+          accountId: envelope.mailchimp?.accountId || null,
+          audienceIds: envelope.mailchimp?.audienceIds || [],
+          events: envelope.mailchimp?.events || [],
+          webhookRoute: envelope.mailchimp?.webhookRoute || null,
+          claimRef: envelope.claimRef,
+          providerContract: envelope.providerContract
+        }))
+    },
+    routePayload: {
+      route: `${surfaceGroup}/${surfaceName}/mailchimp-handoff`,
+      method: 'POST',
+      requiredFields: ['claimId', 'blockerId', 'providerId', 'accountId', 'audienceIds'],
+      disabledReasons: state === 'blocked' ? providerBlockers : []
+    }
   };
 }
 
@@ -2765,9 +3261,12 @@ function buildClientWorkflowHandoff({ clientRequest, clientRequestValidation, li
     stateLease: {
       required: clientRequest.stateLease.required,
       ready: clientRequestValidation.stateLeaseReady,
+      status: clientRequestValidation.stateLease.status,
+      blockers: clientRequestValidation.stateLease.blockers,
       version: clientRequest.stateLease.version,
       holder: clientRequest.stateLease.holder,
-      expiresAt: clientRequest.stateLease.expiresAt || null
+      expiresAt: clientRequest.stateLease.expiresAt || null,
+      expiresInMs: clientRequestValidation.stateLease.expiresInMs
     },
     userVisibleHandoff: {
       required: externalRequired,
@@ -2788,6 +3287,8 @@ function buildClientWorkflowHandoff({ clientRequest, clientRequestValidation, li
       replayRequired: persistedStatus.replayRequired,
       restartStatus: persistedStatus.restartStatus,
       recoveryAction: persistedStatus.nextRecoveryCommand,
+      stateLeaseStatus: clientRequestValidation.stateLease.status,
+      stateLeaseBlockers: clientRequestValidation.stateLease.blockers,
       validationIssueCount: validationSummary.issueCount,
       workflowMode: workflowCommitMode,
       workflowCheckpoint: transitionCheckpoint,
@@ -2890,6 +3391,7 @@ function summarizeValidationGroups({ validation, settingsValidation, settingsCon
     issueCount: actionableErrors.length,
     blockingIssueCount: actionableErrors.filter((error) => error.blocking !== false).length,
     groups,
+    providerSyncFreshness: providerNegotiation.syncFreshness,
     topIssues: actionableErrors.slice(0, 5).map((error) => ({
       code: error.code,
       field: error.field,
@@ -3005,7 +3507,7 @@ function buildExplainableNextSteps({ lifecycleControl, retryPolicy, persistedSta
   };
 }
 
-function buildClientPreviewContract({ claim, boundary, audit, health, lifecycleControl, persistedStatus, externalHandoff, clientRequest, clientWorkflow, validationSummary, nextSteps, proof, reporting }) {
+function buildClientPreviewContract({ claim, boundary, audit, health, lifecycleControl, persistedStatus, externalHandoff, clientRequest, clientWorkflow, validationSummary, nextSteps, proof, reporting, mailchimpWorkflowHandoff }) {
   const acceptanceCommand = lifecycleControl.commands.find((command) => command.enabled && command.command === lifecycleControl.nextAction)
     || lifecycleControl.commands.find((command) => command.enabled);
   const readinessChecks = [
@@ -3013,6 +3515,7 @@ function buildClientPreviewContract({ claim, boundary, audit, health, lifecycleC
     { key: 'evidence', label: 'Evidence attached', ready: proof.evidenceComplete },
     { key: 'health', label: 'Kernel dependencies ready', ready: proof.operationalHealthReady && health.operational.mutationSafe },
     { key: 'boundary', label: 'Boundary authorized', ready: proof.boundaryComplete },
+    { key: 'client-lease', label: 'Client state lease ready', ready: proof.clientStateLeaseReady },
     { key: 'schedule', label: 'Schedule gate open', ready: proof.scheduleReady },
     { key: 'provider', label: 'Provider contract ready', ready: proof.providerContractComplete },
     { key: 'recovery', label: 'Restart recovery ready', ready: persistedStatus.restartSafe && !persistedStatus.replayRequired },
@@ -3075,11 +3578,28 @@ function buildClientPreviewContract({ claim, boundary, audit, health, lifecycleC
       intent: clientRequest.intent,
       optimisticMutation: clientRequest.optimisticMutation,
       stateLeaseReady: clientWorkflow.stateLease.ready,
+      stateLeaseStatus: clientWorkflow.stateLease.status,
       workflowMode: clientWorkflow.transition.mode,
       workflowCheckpoint: clientWorkflow.transition.checkpoint,
       requiresClientAck: clientWorkflow.transition.requiresClientAck,
       handoffReceiptState: clientWorkflow.userVisibleHandoff.receipt.state
     },
+    mailchimpWorkflowHandoff: mailchimpWorkflowHandoff.detected
+      ? {
+          contractVersion: mailchimpWorkflowHandoff.contractVersion,
+          state: mailchimpWorkflowHandoff.state,
+          scopeMatcherReadiness: mailchimpWorkflowHandoff.scopeMatcherReadiness,
+          providerCount: mailchimpWorkflowHandoff.providerCount,
+          readyProviderIds: mailchimpWorkflowHandoff.readyProviderIds,
+          blockedProviderIds: mailchimpWorkflowHandoff.blockedProviderIds,
+          audienceIds: mailchimpWorkflowHandoff.audienceIds,
+          acceptedEvents: mailchimpWorkflowHandoff.acceptedEvents,
+          unsupportedEvents: mailchimpWorkflowHandoff.unsupportedEvents,
+          nextActions: mailchimpWorkflowHandoff.nextActions,
+          route: mailchimpWorkflowHandoff.routePayload.route,
+          disabledReasons: mailchimpWorkflowHandoff.routePayload.disabledReasons
+        }
+      : null,
     workflowHandoff: clientWorkflow,
     scheduleControl: lifecycleControl.scheduleControl,
     validationSummary,
@@ -3087,7 +3607,7 @@ function buildClientPreviewContract({ claim, boundary, audit, health, lifecycleC
   };
 }
 
-function buildRouteResponseContracts({ claim, boundary, clientContract, clientWorkflow, lifecycleControl, settingsControlPlan, providerNegotiation, externalHandoff, validationSummary, nextSteps, reporting, persistedStatus, failureStateContract }) {
+function buildRouteResponseContracts({ claim, boundary, clientContract, clientWorkflow, lifecycleControl, settingsControlPlan, providerNegotiation, externalHandoff, validationSummary, nextSteps, reporting, persistedStatus, failureStateContract, mailchimpWorkflowHandoff }) {
   const acceptanceStatus = clientContract.acceptance.accepted
     ? 202
     : persistedStatus.replayRequired
@@ -3129,6 +3649,27 @@ function buildRouteResponseContracts({ claim, boundary, clientContract, clientWo
       clientPatch
     },
     {
+      key: 'mailchimp-handoff',
+      route: `${surfaceGroup}/${surfaceName}/mailchimp-handoff`,
+      method: 'POST',
+      status: !mailchimpWorkflowHandoff.detected
+        ? 204
+        : mailchimpWorkflowHandoff.state === 'ready' || mailchimpWorkflowHandoff.state === 'partial'
+          ? 202
+          : 409,
+      cache: 'no-store',
+      visible: mailchimpWorkflowHandoff.detected,
+      ref: baseRef,
+      body: mailchimpWorkflowHandoff,
+      clientPatch: {
+        ...clientPatch,
+        mailchimpHandoffState: mailchimpWorkflowHandoff.state,
+        mailchimpReadyProviderIds: mailchimpWorkflowHandoff.readyProviderIds,
+        mailchimpBlockedProviderIds: mailchimpWorkflowHandoff.blockedProviderIds,
+        mailchimpNextActions: mailchimpWorkflowHandoff.nextActions
+      }
+    },
+    {
       key: 'acceptance',
       route: `${surfaceGroup}/${surfaceName}/accepted`,
       method: 'POST',
@@ -3161,9 +3702,45 @@ function buildRouteResponseContracts({ claim, boundary, clientContract, clientWo
           controlsOpen: lifecycleControl.controlsOpen,
           mutationReady: lifecycleControl.mutationReady,
           nextAction: lifecycleControl.nextAction
-        }
+        },
+        providerSyncFreshness: providerNegotiation.syncFreshness,
+        providerSyncBlockedProviders: providerNegotiation.syncBlockedProviders,
+        providerSyncFreshnessActions: providerNegotiation.syncFreshness.nextActions
       },
-      clientPatch
+      clientPatch: {
+        ...clientPatch,
+        providerSyncBlockedCount: providerNegotiation.syncBlockedProviders.length,
+        providerSyncFreshnessActions: providerNegotiation.syncFreshness.nextActions
+      }
+    },
+    {
+      key: 'provider-sync',
+      route: `${surfaceGroup}/${surfaceName}/provider-sync`,
+      method: 'GET',
+      status: providerNegotiation.syncBlockedProviders.length > 0 ? 409 : 200,
+      cache: 'no-store',
+      visible: providerNegotiation.providerCount > 0,
+      ref: baseRef,
+      body: {
+        ready: providerNegotiation.syncBlockedProviders.length === 0,
+        freshness: providerNegotiation.syncFreshness,
+        readyProviders: providerNegotiation.syncReadyProviders,
+        blockedProviders: providerNegotiation.syncBlockedProviders,
+        statuses: providerNegotiation.syncStatuses.map((status) => ({
+          providerId: status.providerId,
+          ready: status.ready,
+          stale: status.stale,
+          blockers: status.blockers,
+          freshness: status.syncFreshness,
+          pendingMutations: status.pendingMutations
+        }))
+      },
+      clientPatch: {
+        ...clientPatch,
+        providerSyncReady: providerNegotiation.syncBlockedProviders.length === 0,
+        providerSyncBlockedProviders: providerNegotiation.syncBlockedProviders,
+        providerSyncFreshnessActions: providerNegotiation.syncFreshness.nextActions
+      }
     },
     {
       key: 'recovery',
@@ -3400,7 +3977,7 @@ function buildRouteResponseContracts({ claim, boundary, clientContract, clientWo
   };
 }
 
-function buildExportSummary({ claim, boundary, health, failure, failureStateContract, retryPolicy, audit, proof, analytics, reporting, timeline, lifecycleControl, settingsControlPlan, providerNegotiation, externalHandoff, clientWorkflow, persistedStatus, clientContract, routeContracts }) {
+function buildExportSummary({ claim, boundary, health, failure, failureStateContract, retryPolicy, audit, proof, analytics, reporting, timeline, lifecycleControl, settingsControlPlan, providerNegotiation, externalHandoff, clientWorkflow, mailchimpWorkflowHandoff, persistedStatus, clientContract, routeContracts }) {
   return {
     exportVersion: 1,
     surfaceId,
@@ -3479,6 +4056,24 @@ function buildExportSummary({ claim, boundary, health, failure, failureStateCont
       syncReady: provider.syncStatus.ready
     })),
     externalHandoffAuditRecordCount: externalHandoff.auditHandoffRecords.length,
+    mailchimpHandoffDetected: mailchimpWorkflowHandoff.detected,
+    mailchimpHandoffState: mailchimpWorkflowHandoff.state,
+    mailchimpHandoffProviderCount: mailchimpWorkflowHandoff.providerCount,
+    mailchimpHandoffReadyProviderCount: mailchimpWorkflowHandoff.readyProviderIds.length,
+    mailchimpHandoffBlockedProviderCount: mailchimpWorkflowHandoff.blockedProviderIds.length,
+    mailchimpHandoffAudienceCount: mailchimpWorkflowHandoff.audienceIds.length,
+    mailchimpHandoffAcceptedEvents: mailchimpWorkflowHandoff.acceptedEvents,
+    mailchimpHandoffUnsupportedEvents: mailchimpWorkflowHandoff.unsupportedEvents,
+    mailchimpHandoffNextActions: mailchimpWorkflowHandoff.nextActions,
+    mailchimpHandoffRoute: mailchimpWorkflowHandoff.routePayload.route,
+    mailchimpScopeMatcherSupplied: mailchimpWorkflowHandoff.scopeMatcherReadiness.supplied,
+    mailchimpScopeMatcherState: mailchimpWorkflowHandoff.scopeMatcherReadiness.state,
+    mailchimpScopeMatcherCanAccept: mailchimpWorkflowHandoff.scopeMatcherReadiness.canAccept,
+    mailchimpScopeMatcherDataset: mailchimpWorkflowHandoff.scopeMatcherReadiness.dataset,
+    mailchimpScopeMatcherRowCount: mailchimpWorkflowHandoff.scopeMatcherReadiness.rowCount,
+    mailchimpScopeMatcherBlockedScopeCount: mailchimpWorkflowHandoff.scopeMatcherReadiness.blockedScopeCount,
+    mailchimpScopeMatcherBlockedScopes: mailchimpWorkflowHandoff.scopeMatcherReadiness.blockedScopes,
+    mailchimpScopeMatcherResumeWhen: mailchimpWorkflowHandoff.scopeMatcherReadiness.resumeWhen,
     clientIntent: clientWorkflow.intent,
     clientWorkflowState: clientWorkflow.state,
     clientWorkflowMode: clientWorkflow.transition.mode,
@@ -3487,6 +4082,9 @@ function buildExportSummary({ claim, boundary, health, failure, failureStateCont
     clientWorkflowRecoverable: clientWorkflow.transition.recoverable,
     clientWorkflowRequiresAck: clientWorkflow.transition.requiresClientAck,
     clientStateLeaseReady: clientWorkflow.stateLease.ready,
+    clientStateLeaseStatus: clientWorkflow.stateLease.status,
+    clientStateLeaseExpiresInMs: clientWorkflow.stateLease.expiresInMs,
+    clientStateLeaseBlockers: clientWorkflow.stateLease.blockers,
     clientHandoffReceiptState: clientWorkflow.userVisibleHandoff.receipt.state,
     clientHandoffReceiptExpectedBy: clientWorkflow.userVisibleHandoff.receipt.expectedBy,
     clientHandoffReceiptPendingProviders: clientWorkflow.userVisibleHandoff.receipt.pendingProviderIds,
@@ -3545,7 +4143,7 @@ export function describeBlockerClaimSurface(input = {}) {
   const boundary = normalizeBoundaryContext(input);
   const boundaryValidation = buildBoundaryValidation(boundary);
   const clientRequest = normalizeClientRequest(input, boundary);
-  const clientRequestValidation = buildClientRequestValidation(clientRequest, boundary);
+  const clientRequestValidation = buildClientRequestValidation(clientRequest, boundary, now);
   const settingsControlRequest = normalizeSettingsControlRequest(input, clientRequest);
   const settingsControlValidation = buildSettingsControlValidation(settingsControlRequest, boundary, lifecycleSettings);
   const providerContracts = normalizeProviderContracts(input);
@@ -3796,6 +4394,17 @@ export function describeBlockerClaimSurface(input = {}) {
     validationSummary,
     now
   });
+  const scopeMatcherMailchimp = normalizeScopeMatcherMailchimpReadiness(input);
+  const mailchimpWorkflowHandoff = buildMailchimpWorkflowHandoffSummary({
+    providerContracts,
+    providerNegotiation,
+    externalHandoff,
+    clientWorkflow,
+    validationSummary,
+    claim,
+    scopeMatcherMailchimp,
+    now
+  });
   const nextSteps = buildExplainableNextSteps({
     lifecycleControl,
     retryPolicy,
@@ -3819,7 +4428,8 @@ export function describeBlockerClaimSurface(input = {}) {
     validationSummary,
     nextSteps,
     proof,
-    reporting
+    reporting,
+    mailchimpWorkflowHandoff
   });
   const routeContracts = buildRouteResponseContracts({
     claim,
@@ -3833,6 +4443,7 @@ export function describeBlockerClaimSurface(input = {}) {
     validationSummary,
     nextSteps,
     reporting,
+    mailchimpWorkflowHandoff,
     persistedStatus,
     failureStateContract
   });
@@ -3877,6 +4488,8 @@ export function describeBlockerClaimSurface(input = {}) {
     clientRequest,
     clientRequestValidation,
     clientWorkflow,
+    scopeMatcherMailchimp,
+    mailchimpWorkflowHandoff,
     providerContracts,
     providerNegotiation,
     externalHandoff,
@@ -3932,6 +4545,7 @@ export function describeBlockerClaimSurface(input = {}) {
       settingsControlPlan,
       providerNegotiation,
       externalHandoff,
+      mailchimpWorkflowHandoff,
       clientWorkflow,
       persistedStatus,
       clientContract,

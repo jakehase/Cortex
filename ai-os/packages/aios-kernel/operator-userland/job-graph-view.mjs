@@ -11,6 +11,35 @@ const REQUIRED_PROVIDER_CAPABILITIES = [
   'job_graph.proof.export',
   'job_graph.lifecycle.dispatch'
 ];
+const MAILCHIMP_PROVIDER_KINDS = new Set([
+  'mailchimp',
+  'mailchimp_marketing',
+  'mailchimp_transactional'
+]);
+const MAILCHIMP_REQUIRED_CAPABILITIES = [
+  'mailchimp.audience.sync',
+  'mailchimp.campaign.handoff',
+  'mailchimp.merge_fields.write',
+  'mailchimp.webhook.ack'
+];
+const MAILCHIMP_HANDOFF_STATES = new Set([
+  'missing',
+  'draft',
+  'queued',
+  'syncing',
+  'ready',
+  'accepted',
+  'failed',
+  'paused'
+]);
+const MAILCHIMP_SYNC_ENTITY_KEYS = [
+  'audience',
+  'campaign',
+  'template',
+  'merge_field',
+  'segment',
+  'webhook'
+];
 const LIFECYCLE_CONTROL_KINDS = new Set([
   'focus_job',
   'disable_job',
@@ -24,6 +53,29 @@ const LIFECYCLE_SCHEDULE_MODES = new Set([
   'immediate',
   'paused'
 ]);
+const COMMAND_APPLIED_STATUSES = new Set([
+  'applied',
+  'complete',
+  'completed',
+  'succeeded',
+  'acknowledged',
+  'already_applied'
+]);
+const COMMAND_IN_FLIGHT_STATUSES = new Set([
+  'pending',
+  'queued',
+  'dispatching',
+  'in_flight',
+  'sent',
+  'unknown'
+]);
+const COMMAND_FAILED_STATUSES = new Set([
+  'failed',
+  'error',
+  'timeout',
+  'rejected'
+]);
+const DEFAULT_COMMAND_RECOVERY_TTL_MS = 300000;
 const ROLE_RANK = new Map([
   ['viewer', 1],
   ['operator', 2],
@@ -268,13 +320,114 @@ function normalizeNode(raw, index) {
 }
 
 function normalizeEdge(raw, index) {
+  const from = firstString(raw?.from, raw?.source, raw?.parent);
+  const to = firstString(raw?.to, raw?.target, raw?.child);
+
   return {
     id: firstString(raw?.id, `edge-${index + 1}`),
-    from: firstString(raw?.from, raw?.source, raw?.parent),
-    to: firstString(raw?.to, raw?.target, raw?.child),
+    from,
+    to,
     tenantId: firstString(raw?.tenantId, raw?.tenant, raw?.scope?.tenantId),
     workspaceId: firstString(raw?.workspaceId, raw?.workspace, raw?.scope?.workspaceId),
-    relation: firstString(raw?.relation, raw?.type, 'depends_on')
+    relation: firstString(raw?.relation, raw?.type, 'depends_on'),
+    endpointState: !from && !to
+      ? 'missing_both_endpoints'
+      : !from
+        ? 'missing_source'
+        : !to
+          ? 'missing_target'
+          : 'complete'
+  };
+}
+
+function duplicateEntries(items, valueFor, fieldName) {
+  const counts = new Map();
+  for (const item of items) {
+    const value = firstString(valueFor(item));
+    if (value) counts.set(value, (counts.get(value) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([value, count]) => ({ field: fieldName, value, count }))
+    .sort((left, right) => left.value.localeCompare(right.value));
+}
+
+function malformedEdgeEvidence(edge) {
+  const missingEndpoints = [
+    ...(!edge.from ? ['from'] : []),
+    ...(!edge.to ? ['to'] : [])
+  ];
+
+  return {
+    edgeId: edge.id,
+    from: edge.from || null,
+    to: edge.to || null,
+    relation: edge.relation,
+    tenantId: edge.tenantId || null,
+    workspaceId: edge.workspaceId || null,
+    endpointState: edge.endpointState,
+    missingEndpoints,
+    reason: edge.endpointState
+  };
+}
+
+function buildGraphIntegrity({ allNodes, allEdges, nodes, edges, deniedEdges, malformedEdges, danglingEdges, topology }) {
+  const duplicateNodeIds = duplicateEntries(nodes, (node) => node.id, 'node.id');
+  const duplicateInputNodeIds = duplicateEntries(allNodes, (node) => node.id, 'input.node.id');
+  const duplicateEdgeIds = duplicateEntries(edges, (edge) => edge.id, 'edge.id');
+  const duplicateInputEdgeIds = duplicateEntries(allEdges, (edge) => edge.id, 'input.edge.id');
+  const hiddenDependencyCount = deniedEdges.filter((entry) => entry.reason === 'endpoint_out_of_scope').length;
+  const droppedDependencyCount = malformedEdges.length + danglingEdges.length + deniedEdges.length;
+  const structuralIssueCodes = [
+    ...(malformedEdges.length > 0 ? ['malformed_dependency_endpoint'] : []),
+    ...(danglingEdges.length > 0 ? ['dangling_dependency'] : []),
+    ...(topology.cycles.length > 0 ? ['cyclic_dependency'] : []),
+    ...(duplicateNodeIds.length > 0 ? ['duplicate_visible_job_id'] : []),
+    ...(duplicateEdgeIds.length > 0 ? ['duplicate_visible_dependency_id'] : [])
+  ];
+  const executableDependencyCount = topology.proof.scopedEdgeCount;
+  const visibleDependencyLossless =
+    malformedEdges.length === 0 &&
+    danglingEdges.length === 0 &&
+    hiddenDependencyCount === 0 &&
+    duplicateNodeIds.length === 0 &&
+    duplicateEdgeIds.length === 0;
+
+  return {
+    contract: 'hosted-kernel-job-graph-integrity.v1',
+    status: structuralIssueCodes.length === 0 ? 'lossless' : 'lossy',
+    lossless: visibleDependencyLossless && topology.acyclic,
+    executableDependencyCount,
+    droppedDependencyCount,
+    hiddenDependencyCount,
+    malformedDependencyCount: malformedEdges.length,
+    danglingDependencyCount: danglingEdges.length,
+    duplicateVisibleJobIdCount: duplicateNodeIds.length,
+    duplicateVisibleDependencyIdCount: duplicateEdgeIds.length,
+    duplicateInputJobIdCount: duplicateInputNodeIds.length,
+    duplicateInputDependencyIdCount: duplicateInputEdgeIds.length,
+    structuralIssueCodes,
+    malformedDependencies: malformedEdges.map(malformedEdgeEvidence),
+    danglingDependencies: danglingEdges.map((edge) => ({
+      edgeId: edge.id,
+      from: edge.from,
+      to: edge.to,
+      relation: edge.relation,
+      missingEndpoints: [
+        ...(!nodes.some((node) => node.id === edge.from) ? ['from'] : []),
+        ...(!nodes.some((node) => node.id === edge.to) ? ['to'] : [])
+      ]
+    })),
+    duplicateNodeIds,
+    duplicateInputNodeIds,
+    duplicateEdgeIds,
+    duplicateInputEdgeIds,
+    handoffClaims: {
+      dependencyTruth: visibleDependencyLossless ? 'complete_visible_dependencies' : 'lossy_visible_dependencies',
+      executableDependencyCount,
+      droppedDependencyCount,
+      structuralIssueCodes
+    }
   };
 }
 
@@ -496,8 +649,10 @@ function buildGraph(input) {
   const deniedNodeIds = new Set(deniedNodes.map((entry) => entry.node.id));
   const nodes = allNodes.filter((node) => !deniedNodeIds.has(node.id));
   const nodeIds = new Set(nodes.map((node) => node.id));
-  const allEdges = rawEdges.map(normalizeEdge).filter((edge) => edge.from || edge.to);
-  const deniedEdges = allEdges
+  const allEdges = rawEdges.map(normalizeEdge);
+  const malformedEdges = allEdges.filter((edge) => edge.endpointState !== 'complete');
+  const completeEdges = allEdges.filter((edge) => edge.endpointState === 'complete');
+  const deniedEdges = completeEdges
     .map((edge) => {
       const reason = boundaryDenialForEdge(edge, accessContext);
       if (reason) return { edge, reason };
@@ -506,13 +661,23 @@ function buildGraph(input) {
     })
     .filter((entry) => entry.reason);
   const deniedEdgeIds = new Set(deniedEdges.map((entry) => entry.edge.id));
-  const edges = allEdges.filter((edge) => !deniedEdgeIds.has(edge.id));
+  const edges = completeEdges.filter((edge) => !deniedEdgeIds.has(edge.id));
   const danglingEdges = edges.filter((edge) => !nodeIds.has(edge.from) || !nodeIds.has(edge.to));
   const blockedNodes = nodes.filter((node) => node.status === 'blocked' || node.blockers.length > 0);
   const activeNodes = nodes.filter((node) => node.isActive && node.status !== 'blocked');
   const terminalNodes = nodes.filter((node) => node.isTerminal);
   const proofBackedNodes = nodes.filter((node) => node.proofCount > 0);
   const topology = buildTopology(nodes, edges);
+  const integrity = buildGraphIntegrity({
+    allNodes,
+    allEdges,
+    nodes,
+    edges,
+    deniedEdges,
+    malformedEdges,
+    danglingEdges,
+    topology
+  });
   const boundary = {
     contract: 'hosted-kernel-job-graph-boundary.v1',
     accessContext,
@@ -535,18 +700,32 @@ function buildGraph(input) {
       tenantId: edge.tenantId || null,
       workspaceId: edge.workspaceId || null,
       reason
-    }))
+    })),
+    malformedEdges: malformedEdges.map(malformedEdgeEvidence),
+    integrity: {
+      contract: integrity.contract,
+      status: integrity.status,
+      lossless: integrity.lossless,
+      malformedDependencyCount: integrity.malformedDependencyCount,
+      danglingDependencyCount: integrity.danglingDependencyCount,
+      duplicateVisibleJobIdCount: integrity.duplicateVisibleJobIdCount,
+      duplicateVisibleDependencyIdCount: integrity.duplicateVisibleDependencyIdCount,
+      structuralIssueCodes: integrity.structuralIssueCodes,
+      handoffClaims: integrity.handoffClaims
+    }
   };
 
   return {
     nodes,
     edges,
+    malformedEdges,
     danglingEdges,
     blockedNodes,
     activeNodes,
     terminalNodes,
     proofBackedNodes,
     topology,
+    integrity,
     boundary
   };
 }
@@ -595,6 +774,152 @@ function normalizeCapabilityList(provider) {
   ).map((capability) => capability.toLowerCase()))).sort();
 }
 
+function normalizeMailchimpEntitySync(raw, entityKey) {
+  const source = raw?.[entityKey] || raw?.[`${entityKey}Sync`] || {};
+  const count = normalizeInteger(
+    source.count ??
+    source.syncedCount ??
+    source.total ??
+    raw?.[`${entityKey}Count`] ??
+    raw?.[`${entityKey}SyncedCount`],
+    0
+  );
+  const lastSyncedAt = normalizeTimestamp(
+    source.lastSyncedAt,
+    source.syncedAt,
+    source.updatedAt,
+    raw?.[`${entityKey}LastSyncedAt`]
+  );
+  return {
+    entity: entityKey,
+    count,
+    cursor: firstString(source.cursor, source.syncCursor, raw?.[`${entityKey}Cursor`]) || null,
+    lastSyncedAt,
+    stale: normalizeBoolean(source.stale, false),
+    externalId: firstString(source.id, source.externalId, raw?.[`${entityKey}Id`]) || null
+  };
+}
+
+function collectMailchimpSource(raw) {
+  return raw?.mailchimp ||
+    raw?.mailchimpMarketing ||
+    raw?.serviceContract?.mailchimp ||
+    raw?.contract?.mailchimp ||
+    raw?.integration?.mailchimp ||
+    {};
+}
+
+function inferMailchimpEnabled(raw, kind, capabilities) {
+  const source = collectMailchimpSource(raw);
+  return Boolean(
+    source.enabled !== false &&
+    (
+      MAILCHIMP_PROVIDER_KINDS.has(kind) ||
+      firstString(raw?.externalSystem, raw?.system, source.externalSystem).toLowerCase().includes('mailchimp') ||
+      capabilities.some((capability) => capability.startsWith('mailchimp.')) ||
+      firstString(source.audienceId, source.listId, source.campaignId, source.serverPrefix)
+    )
+  );
+}
+
+function normalizeMailchimpProviderContract(raw, provider, now) {
+  const source = collectMailchimpSource(raw);
+  const handoffSource = source.handoff || raw?.mailchimpHandoff || raw?.handoff?.mailchimp || {};
+  const syncSource = source.sync || source.syncMetadata || raw?.mailchimpSync || raw?.sync?.mailchimp || {};
+  const audienceId = firstString(
+    source.audienceId,
+    source.listId,
+    raw?.audienceId,
+    raw?.listId,
+    handoffSource.audienceId
+  );
+  const campaignId = firstString(
+    source.campaignId,
+    raw?.campaignId,
+    handoffSource.campaignId,
+    handoffSource.externalCampaignId
+  );
+  const templateId = firstString(source.templateId, raw?.templateId, handoffSource.templateId);
+  const serverPrefix = firstString(source.serverPrefix, source.datacenter, raw?.serverPrefix, raw?.dc);
+  const lastSyncedAt = normalizeTimestamp(
+    syncSource.lastSyncedAt,
+    syncSource.syncedAt,
+    source.lastSyncedAt,
+    raw?.mailchimpLastSyncedAt,
+    provider.sync.lastSyncedAt
+  );
+  const nowMs = Date.parse(now);
+  const syncMs = Date.parse(lastSyncedAt || '');
+  const maxSyncAgeMs = normalizeInteger(syncSource.maxAgeMs ?? source.maxSyncAgeMs ?? provider.sync.maxSyncAgeMs, provider.sync.maxSyncAgeMs);
+  const syncAgeMs = Number.isFinite(nowMs) && Number.isFinite(syncMs) ? Math.max(0, nowMs - syncMs) : null;
+  const externalState = firstString(
+    handoffSource.externalState,
+    handoffSource.state,
+    source.externalState,
+    raw?.mailchimpExternalState,
+    provider.handoff.externalState,
+    'missing'
+  ).toLowerCase();
+  const normalizedExternalState = MAILCHIMP_HANDOFF_STATES.has(externalState) ? externalState : 'unknown';
+  const entitySync = MAILCHIMP_SYNC_ENTITY_KEYS.map((entityKey) => normalizeMailchimpEntitySync(syncSource, entityKey));
+  const syncedEntityCount = entitySync.filter((entry) => entry.count > 0 || entry.lastSyncedAt || entry.cursor).length;
+  const webhookAckMode = firstString(
+    source.webhookAckMode,
+    handoffSource.webhookAckMode,
+    raw?.webhookAckMode,
+    provider.handoff.ackMode
+  ).toLowerCase();
+  const blockedReasons = [
+    ...(!audienceId ? ['mailchimp_audience_id_missing'] : []),
+    ...(!serverPrefix ? ['mailchimp_server_prefix_missing'] : []),
+    ...(syncAgeMs === null || syncAgeMs > maxSyncAgeMs ? ['mailchimp_sync_stale'] : []),
+    ...(!campaignId && normalizeBoolean(handoffSource.requiresCampaignId ?? source.requiresCampaignId, true) ? ['mailchimp_campaign_id_missing'] : []),
+    ...(normalizedExternalState === 'failed' ? ['mailchimp_external_state_failed'] : []),
+    ...(normalizedExternalState === 'paused' ? ['mailchimp_external_state_paused'] : []),
+    ...(!['at_least_once', 'exactly_once', 'manual_ack'].includes(webhookAckMode) ? ['mailchimp_webhook_ack_mode_unsupported'] : [])
+  ];
+
+  return {
+    contract: 'mailchimp-job-graph-provider-contract.v1',
+    enabled: true,
+    product: 'mailchimp',
+    audienceId: audienceId || null,
+    campaignId: campaignId || null,
+    templateId: templateId || null,
+    serverPrefix: serverPrefix || null,
+    externalSystem: firstString(source.externalSystem, raw?.externalSystem, 'mailchimp-marketing'),
+    webhookAckMode,
+    sync: {
+      contract: 'mailchimp-job-graph-sync-metadata.v1',
+      lastSyncedAt,
+      maxSyncAgeMs,
+      syncAgeMs,
+      stale: syncAgeMs === null || syncAgeMs > maxSyncAgeMs,
+      cursor: firstString(syncSource.cursor, source.cursor, raw?.mailchimpCursor, provider.sync.cursor) || null,
+      generation: firstString(syncSource.generation, syncSource.version, provider.sync.generation) || null,
+      entitySync,
+      syncedEntityCount
+    },
+    handoff: {
+      contract: 'mailchimp-job-graph-external-handoff.v1',
+      commandSink: firstString(
+        handoffSource.commandSink,
+        source.commandSink,
+        raw?.mailchimpCommandSink,
+        provider.handoff.commandSink
+      ) || null,
+      returnRoute: firstString(handoffSource.returnRoute, source.returnRoute, provider.handoff.returnRoute),
+      externalState: normalizedExternalState,
+      externalStateRaw: externalState,
+      idempotencyField: firstString(handoffSource.idempotencyField, source.idempotencyField, 'X-Mailchimp-Webhook-Id'),
+      campaignStatusField: firstString(handoffSource.campaignStatusField, source.campaignStatusField, 'status'),
+      mergeFieldNamespace: firstString(source.mergeFieldNamespace, handoffSource.mergeFieldNamespace, 'AIOS'),
+      requiresDoubleOptIn: normalizeBoolean(source.requiresDoubleOptIn ?? handoffSource.requiresDoubleOptIn, false)
+    },
+    blockedReasons
+  };
+}
+
 function normalizeProviderContract(raw, index, now) {
   const sync = raw?.sync || raw?.syncMetadata || raw?.lastSync || {};
   const handoffSource = raw?.handoff || raw?.externalHandoff || {};
@@ -606,7 +931,7 @@ function normalizeProviderContract(raw, index, now) {
   const syncAgeMs = Number.isFinite(nowMs) && Number.isFinite(syncMs) ? Math.max(0, nowMs - syncMs) : null;
   const stale = syncAgeMs === null ? lastSyncedAt === null : syncAgeMs > maxSyncAgeMs;
 
-  return {
+  const provider = {
     providerId: firstString(raw?.providerId, raw?.id, raw?.name, `hosted-kernel-provider-${index + 1}`),
     displayName: firstString(raw?.displayName, raw?.label, raw?.name, 'Hosted kernel provider'),
     kind: firstString(raw?.kind, raw?.type, raw?.providerType, 'hosted_kernel').toLowerCase(),
@@ -633,16 +958,35 @@ function normalizeProviderContract(raw, index, now) {
       supportsDryRun: normalizeBoolean(handoffSource.supportsDryRun ?? raw?.supportsDryRun, false)
     }
   };
+
+  provider.mailchimp = inferMailchimpEnabled(raw, provider.kind, provider.capabilities)
+    ? normalizeMailchimpProviderContract(raw, provider, now)
+    : {
+        contract: 'mailchimp-job-graph-provider-contract.v1',
+        enabled: false,
+        product: 'mailchimp',
+        blockedReasons: ['mailchimp_contract_not_declared']
+      };
+
+  return provider;
 }
 
 function providerCapabilityDelta(provider) {
   const supported = new Set(provider.capabilities);
   const missingCapabilities = REQUIRED_PROVIDER_CAPABILITIES.filter((capability) => !supported.has(capability));
+  const missingMailchimpCapabilities = provider.mailchimp?.enabled
+    ? MAILCHIMP_REQUIRED_CAPABILITIES.filter((capability) => !supported.has(capability))
+    : [];
   const extraCapabilities = provider.capabilities.filter((capability) => !REQUIRED_PROVIDER_CAPABILITIES.includes(capability));
+  const effectiveCommandSink = provider.mailchimp?.enabled
+    ? firstString(provider.mailchimp.handoff?.commandSink, provider.handoff.commandSink)
+    : provider.handoff.commandSink;
   const blockedReasons = [
     ...missingCapabilities.map((capability) => `missing:${capability}`),
+    ...missingMailchimpCapabilities.map((capability) => `missing:${capability}`),
+    ...(provider.mailchimp?.enabled ? provider.mailchimp.blockedReasons : []),
     ...(provider.sync.stale ? ['sync_stale'] : []),
-    ...(!provider.handoff.commandSink ? ['command_sink_missing'] : []),
+    ...(!effectiveCommandSink ? ['command_sink_missing'] : []),
     ...(provider.handoff.handoffTtlMs < 1000 ? ['handoff_ttl_too_short'] : [])
   ];
 
@@ -651,14 +995,19 @@ function providerCapabilityDelta(provider) {
     providerId: provider.providerId,
     supportedCapabilities: provider.capabilities,
     missingCapabilities,
+    missingMailchimpCapabilities,
     extraCapabilities,
     syncFresh: !provider.sync.stale,
-    handoffBound: Boolean(provider.handoff.commandSink),
+    handoffBound: Boolean(effectiveCommandSink),
+    effectiveCommandSink: effectiveCommandSink || null,
+    mailchimpReady: !provider.mailchimp?.enabled || (missingMailchimpCapabilities.length === 0 && provider.mailchimp.blockedReasons.length === 0),
     blockedReasons,
     score:
       (REQUIRED_PROVIDER_CAPABILITIES.length - missingCapabilities.length) * 10 +
+      (provider.mailchimp?.enabled ? (MAILCHIMP_REQUIRED_CAPABILITIES.length - missingMailchimpCapabilities.length) * 4 : 0) +
       (provider.sync.stale ? 0 : 5) +
       (provider.handoff.commandSink ? 3 : 0) +
+      (provider.mailchimp?.enabled && provider.mailchimp.blockedReasons.length === 0 ? 4 : 0) +
       Math.min(extraCapabilities.length, 3)
   };
 }
@@ -683,13 +1032,29 @@ function buildProviderNegotiationPlan(providers, selectedProvider, requestState)
           stale: provider.sync.stale
         },
         handoff: {
-          commandSink: provider.handoff.commandSink,
+          commandSink: delta.effectiveCommandSink,
           externalSystem: provider.handoff.externalSystem,
           returnRoute: provider.handoff.returnRoute,
           ackMode: provider.handoff.ackMode,
           externalState: provider.handoff.externalState,
           handoffTtlMs: provider.handoff.handoffTtlMs
-        }
+        },
+        mailchimp: provider.mailchimp?.enabled
+          ? {
+              product: provider.mailchimp.product,
+              audienceId: provider.mailchimp.audienceId,
+              campaignId: provider.mailchimp.campaignId,
+              serverPrefix: provider.mailchimp.serverPrefix,
+              syncStale: provider.mailchimp.sync.stale,
+              syncedEntityCount: provider.mailchimp.sync.syncedEntityCount,
+              externalState: provider.mailchimp.handoff.externalState,
+              blockedReasons: provider.mailchimp.blockedReasons
+            }
+          : {
+              product: 'mailchimp',
+              enabled: false,
+              blockedReasons: provider.mailchimp?.blockedReasons || ['mailchimp_contract_not_declared']
+            }
       };
     })
     .sort((left, right) => right.score - left.score || left.providerId.localeCompare(right.providerId));
@@ -767,9 +1132,11 @@ function buildProviderContracts(input, requestState, now) {
     : ['provider_missing'];
   const negotiationStatus = negotiable
     ? 'ready'
+    : selectedProvider?.mailchimp?.enabled && selectedProvider.mailchimp.blockedReasons.length > 0
+      ? 'mailchimp_contract_blocked'
     : selectedProvider?.sync.stale
       ? 'sync_stale'
-      : selectedProvider && !selectedProvider.handoff.commandSink
+      : selectedProvider && !selectedCapabilityDelta?.handoffBound
         ? 'command_sink_missing'
         : missingCapabilities.length > 0
           ? 'missing_capabilities'
@@ -785,7 +1152,11 @@ function buildProviderContracts(input, requestState, now) {
       negotiable,
       supportedCapabilities,
       missingCapabilities,
+      missingMailchimpCapabilities: selectedCapabilityDelta?.missingMailchimpCapabilities || [],
       staleProviderIds: providers.filter((provider) => provider.sync.stale).map((provider) => provider.providerId),
+      staleMailchimpProviderIds: providers
+        .filter((provider) => provider.mailchimp?.enabled && provider.mailchimp.sync.stale)
+        .map((provider) => provider.providerId),
       blockedReasons,
       recommendedProviderId: negotiationPlan.recommendedProviderId,
       handoffPhase: negotiationPlan.handoffPhase
@@ -795,7 +1166,7 @@ function buildProviderContracts(input, requestState, now) {
       ? {
           status: negotiable ? 'handoff_ready' : 'handoff_blocked',
           providerId: selectedProvider.providerId,
-          commandSink: selectedProvider.handoff.commandSink,
+          commandSink: selectedCapabilityDelta?.effectiveCommandSink || null,
           externalSystem: selectedProvider.handoff.externalSystem,
           correlationId: `${surfaceId}:${requestState.requestId}:${selectedProvider.providerId}`,
           returnRoute: selectedProvider.handoff.returnRoute,
@@ -805,6 +1176,24 @@ function buildProviderContracts(input, requestState, now) {
           externalState: selectedProvider.handoff.externalState,
           handoffTtlMs: selectedProvider.handoff.handoffTtlMs,
           handoffPhase: negotiationPlan.handoffPhase,
+          mailchimp: selectedProvider.mailchimp?.enabled
+            ? {
+                contract: selectedProvider.mailchimp.handoff.contract,
+                audienceId: selectedProvider.mailchimp.audienceId,
+                campaignId: selectedProvider.mailchimp.campaignId,
+                templateId: selectedProvider.mailchimp.templateId,
+                serverPrefix: selectedProvider.mailchimp.serverPrefix,
+                commandSink: selectedProvider.mailchimp.handoff.commandSink,
+                externalSystem: selectedProvider.mailchimp.externalSystem,
+                externalState: selectedProvider.mailchimp.handoff.externalState,
+                syncCursor: selectedProvider.mailchimp.sync.cursor,
+                syncGeneration: selectedProvider.mailchimp.sync.generation,
+                webhookAckMode: selectedProvider.mailchimp.webhookAckMode,
+                idempotencyField: selectedProvider.mailchimp.handoff.idempotencyField,
+                mergeFieldNamespace: selectedProvider.mailchimp.handoff.mergeFieldNamespace,
+                blockedReasons: selectedProvider.mailchimp.blockedReasons
+              }
+            : null,
           blockedReasons
         }
       : {
@@ -820,6 +1209,7 @@ function buildProviderContracts(input, requestState, now) {
           externalState: 'missing',
           handoffTtlMs: 0,
           handoffPhase: 'provider_missing',
+          mailchimp: null,
           blockedReasons: ['provider_missing']
         }
   };
@@ -849,7 +1239,214 @@ function healthGate(code, passed, severity, message, details = {}) {
   };
 }
 
-function summarizeHealthGates(graph, validation, providerContracts, runtimeStatus, runtimeErrors, retryQueue, exhaustedFailures) {
+function severityRank(severity) {
+  if (severity === 'critical') return 4;
+  if (severity === 'error') return 3;
+  if (severity === 'warning') return 2;
+  if (severity === 'info') return 1;
+  return 0;
+}
+
+function healthGateAction(gate) {
+  if (gate.code === 'runtime_status') return 'inspect_runtime_health';
+  if (gate.code === 'graph_validation') return 'repair_graph_validation';
+  if (gate.code === 'topology_integrity') return 'repair_dependency_topology';
+  if (gate.code === 'provider_contract') return gate.details?.negotiationStatus === 'sync_stale'
+    ? 'refresh_provider_contract'
+    : 'bind_provider_handoff';
+  if (gate.code === 'retry_capacity') return 'manual_repair_failed_jobs';
+  if (gate.code === 'retry_unblocked') return 'clear_retry_blockers';
+  if (gate.code === 'retry_backoff_window') return 'inspect_retry_policy';
+  if (gate.code === 'command_recovery') return 'reconcile_persisted_commands';
+  return 'inspect_operational_health';
+}
+
+function healthGateOwner(gate) {
+  if (gate.code === 'provider_contract') return 'integration_provider';
+  if (gate.code === 'runtime_status') return 'hosted_kernel_runtime';
+  if (gate.code === 'command_recovery') return 'job_graph_persistence';
+  if (gate.code.startsWith('retry_')) return 'job_lifecycle';
+  if (gate.code === 'graph_validation' || gate.code === 'topology_integrity') return 'job_graph';
+  return 'operator';
+}
+
+function incidentFromGate(gate, index, now) {
+  return {
+    incidentId: `${surfaceId}:health:${gate.code}:${index + 1}`,
+    source: 'health_gate',
+    code: gate.code,
+    severity: gate.severity,
+    action: healthGateAction(gate),
+    owner: healthGateOwner(gate),
+    message: gate.message,
+    writeBlocking: gate.writeBlocking,
+    openedAt: now,
+    targetJobIds: normalizeStringList([
+      ...(gate.details?.failedJobIds || []),
+      ...(gate.details?.retryableJobIds || []),
+      ...(gate.details?.exhaustedJobIds || []),
+      ...(gate.details?.blockedRetryableJobIds || [])
+    ]),
+    evidence: gate.details || {}
+  };
+}
+
+function incidentFromRuntimeError(error, index, now) {
+  return {
+    incidentId: `${surfaceId}:runtime-error:${error.code}:${index + 1}`,
+    source: error.source,
+    code: error.code,
+    severity: error.severity === 'fatal' ? 'critical' : error.severity,
+    action: error.retryable ? 'retry_runtime_operation' : 'inspect_runtime_error',
+    owner: 'hosted_kernel_runtime',
+    message: error.message,
+    writeBlocking: ['critical', 'fatal', 'error'].includes(error.severity),
+    openedAt: now,
+    targetJobIds: error.jobId ? [error.jobId] : [],
+    evidence: {
+      retryable: error.retryable,
+      jobId: error.jobId
+    }
+  };
+}
+
+function incidentFromFailedJob(node, retryPlan, now) {
+  const exhausted = Boolean(retryPlan?.exhausted);
+  const retryable = Boolean(retryPlan?.retryable);
+  return {
+    incidentId: `${surfaceId}:failed-job:${node.id}`,
+    source: node.owner,
+    code: node.failure.code || `job_${node.status}`,
+    severity: exhausted ? 'error' : 'warning',
+    action: retryable ? 'schedule_retry' : exhausted ? 'manual_repair_failed_job' : 'inspect_failed_job',
+    owner: 'job_lifecycle',
+    message: node.failure.message || `${node.label} is in ${node.status} state.`,
+    writeBlocking: exhausted,
+    openedAt: now,
+    targetJobIds: [node.id],
+    evidence: {
+      jobId: node.id,
+      status: node.status,
+      attempts: retryPlan?.attempts ?? node.failure.retryAttempts,
+      maxAttempts: retryPlan?.maxAttempts ?? node.failure.maxRetryAttempts,
+      nextRetryAt: retryPlan?.nextRetryAt || null,
+      blockers: node.blockers
+    }
+  };
+}
+
+function buildIncidentResponse(graph, validation, providerContracts, runtimeStatus, runtimeErrors, retryQueue, exhaustedFailures, healthGates, now) {
+  const retryPlansByJobId = new Map([
+    ...retryQueue.map((plan) => [plan.jobId, plan]),
+    ...exhaustedFailures.map((plan) => [plan.jobId, plan])
+  ]);
+  const failedNodes = graph.nodes.filter((node) => node.isFailure);
+  const gateIncidents = healthGates
+    .filter((gate) => !gate.passed)
+    .map((gate, index) => incidentFromGate(gate, index, now));
+  const runtimeIncidents = runtimeErrors.map((error, index) => incidentFromRuntimeError(error, index, now));
+  const failedJobIncidents = failedNodes.map((node) =>
+    incidentFromFailedJob(node, retryPlansByJobId.get(node.id) || retryPlanForNode(node, now), now)
+  );
+  const providerBlocked = providerContracts?.negotiation && !providerContracts.negotiation.negotiable;
+  const providerIncident = providerBlocked
+    ? [{
+        incidentId: `${surfaceId}:provider:${providerContracts.selectedProviderId || 'unbound'}`,
+        source: 'provider_contract',
+        code: `provider_${providerContracts.negotiation.status}`,
+        severity: providerContracts.negotiation.status === 'sync_stale' ? 'error' : 'warning',
+        action: providerContracts.negotiation.status === 'sync_stale' ? 'refresh_provider_contract' : 'bind_provider_handoff',
+        owner: 'integration_provider',
+        message: 'Selected provider contract is blocking hosted-kernel handoff.',
+        writeBlocking: true,
+        openedAt: now,
+        targetJobIds: [],
+        evidence: {
+          providerId: providerContracts.selectedProviderId,
+          missingCapabilities: providerContracts.negotiation.missingCapabilities,
+          blockedReasons: providerContracts.negotiation.blockedReasons,
+          recommendedProviderId: providerContracts.negotiation.recommendedProviderId
+        }
+      }]
+    : [];
+  const validationIncidents = validation.issues
+    .filter((issue) => issue.severity === 'error')
+    .map((issue, index) => ({
+      incidentId: `${surfaceId}:validation:${issue.code}:${index + 1}`,
+      source: 'graph_validation',
+      code: issue.code,
+      severity: 'error',
+      action: 'repair_graph_validation',
+      owner: 'job_graph',
+      message: issue.message,
+      writeBlocking: true,
+      openedAt: now,
+      targetJobIds: normalizeStringList([issue.jobId]),
+      evidence: {
+        edgeId: issue.edgeId || null,
+        from: issue.from || null,
+        to: issue.to || null,
+        reason: issue.reason || null
+      }
+    }));
+  const incidents = [
+    ...gateIncidents,
+    ...runtimeIncidents,
+    ...failedJobIncidents,
+    ...providerIncident,
+    ...validationIncidents
+  ]
+    .sort((left, right) =>
+      severityRank(right.severity) - severityRank(left.severity) ||
+      Number(right.writeBlocking) - Number(left.writeBlocking) ||
+      left.code.localeCompare(right.code)
+    );
+  const primaryIncident = incidents[0] || null;
+  const writeBlockingIncidents = incidents.filter((incident) => incident.writeBlocking);
+  const retryNext = retryQueue[0] || null;
+  const recoveryChecklist = [
+    ...(runtimeStatus !== 'healthy' ? ['restore_runtime_health'] : []),
+    ...(validation.valid ? [] : ['repair_validation_errors']),
+    ...(!graph.integrity.lossless || !graph.topology.acyclic ? ['repair_dependency_integrity'] : []),
+    ...(providerBlocked ? ['negotiate_provider_contract'] : []),
+    ...(exhaustedFailures.length > 0 ? ['repair_exhausted_failures'] : []),
+    ...(retryQueue.length > 0 ? ['wait_for_retry_backoff'] : [])
+  ];
+
+  return {
+    contract: 'hosted-kernel-job-graph-incident-response.v1',
+    generatedAt: now,
+    status: writeBlockingIncidents.length > 0
+      ? 'write_blocked'
+      : incidents.length > 0
+        ? 'operator_attention'
+        : 'clear',
+    primaryIncident,
+    incidentCount: incidents.length,
+    writeBlockingIncidentCount: writeBlockingIncidents.length,
+    incidents,
+    recoveryChecklist: Array.from(new Set(recoveryChecklist)),
+    retryBackoff: {
+      nextRetryAt: retryNext?.nextRetryAt || null,
+      nextRetryJobId: retryNext?.jobId || null,
+      retryableJobIds: retryQueue.map((plan) => plan.jobId),
+      exhaustedJobIds: exhaustedFailures.map((plan) => plan.jobId)
+    },
+    commandSafety: {
+      allowReadOnlyInspection: true,
+      allowRetryScheduling: writeBlockingIncidents.every((incident) => incident.action === 'manual_repair_failed_job') && retryQueue.length > 0,
+      allowAcceptance: incidents.length === 0,
+      holdExternalHandoff: writeBlockingIncidents.length > 0 || providerBlocked
+    },
+    escalation: {
+      required: writeBlockingIncidents.length > 0,
+      owners: Array.from(new Set(writeBlockingIncidents.map((incident) => incident.owner))).sort(),
+      codes: writeBlockingIncidents.map((incident) => incident.code)
+    }
+  };
+}
+
+function summarizeHealthGates(graph, validation, providerContracts, runtimeStatus, runtimeErrors, retryQueue, exhaustedFailures, commandRecovery = null) {
   const validationErrors = validation.issues.filter((issue) => issue.severity === 'error');
   const criticalRuntimeErrors = runtimeErrors.filter((error) => ['critical', 'fatal'].includes(error.severity));
   const providerNegotiation = providerContracts?.negotiation || null;
@@ -882,14 +1479,18 @@ function summarizeHealthGates(graph, validation, providerContracts, runtimeStatu
     ),
     healthGate(
       'topology_integrity',
-      graph.topology.acyclic && graph.danglingEdges.length === 0,
+      graph.topology.acyclic && graph.integrity.lossless,
       'critical',
-      graph.topology.acyclic && graph.danglingEdges.length === 0
-        ? 'Graph topology is acyclic and all dependency endpoints are visible.'
-        : 'Graph topology has cycles or dangling dependencies.',
+      graph.topology.acyclic && graph.integrity.lossless
+        ? 'Graph topology is acyclic and all dependency endpoints are visible and executable.'
+        : 'Graph topology has cycles, malformed dependencies, duplicate identifiers, or dangling dependencies.',
       {
         cycleCount: graph.topology.cycles.length,
-        danglingDependencyIds: graph.danglingEdges.map((edge) => edge.id)
+        danglingDependencyIds: graph.danglingEdges.map((edge) => edge.id),
+        malformedDependencyIds: graph.malformedEdges.map((edge) => edge.id),
+        duplicateNodeIds: graph.integrity.duplicateNodeIds.map((entry) => entry.value),
+        duplicateDependencyIds: graph.integrity.duplicateEdgeIds.map((entry) => entry.value),
+        structuralIssueCodes: graph.integrity.structuralIssueCodes
       }
     ),
     healthGate(
@@ -904,7 +1505,12 @@ function summarizeHealthGates(graph, validation, providerContracts, runtimeStatu
         negotiationStatus: providerNegotiation?.status || 'not_evaluated',
         handoffStatus: providerHandoff?.status || 'not_evaluated',
         missingCapabilities,
-        staleProviderIds
+        missingMailchimpCapabilities: providerNegotiation?.missingMailchimpCapabilities || [],
+        staleProviderIds,
+        staleMailchimpProviderIds: providerNegotiation?.staleMailchimpProviderIds || [],
+        mailchimpExternalState: providerHandoff?.mailchimp?.externalState || null,
+        mailchimpAudienceId: providerHandoff?.mailchimp?.audienceId || null,
+        mailchimpCampaignId: providerHandoff?.mailchimp?.campaignId || null
       }
     ),
     healthGate(
@@ -936,11 +1542,27 @@ function summarizeHealthGates(graph, validation, providerContracts, runtimeStatu
         failedJobIds: failedNodes.map((node) => node.id),
         retryableJobIds: retryQueue.map((plan) => plan.jobId)
       }
+    ),
+    healthGate(
+      'command_recovery',
+      !commandRecovery || commandRecovery.restartSafe,
+      commandRecovery?.failedCommandIds?.length > 0 || commandRecovery?.staleCommandIds?.length > 0 ? 'error' : 'warning',
+      !commandRecovery || commandRecovery.restartSafe
+        ? 'Persisted command state is restart-safe for hosted-kernel replay.'
+        : 'Persisted command state requires reconciliation before hosted-kernel writes resume.',
+      {
+        recoveryStatus: commandRecovery?.status || 'not_evaluated',
+        inFlightCommandIds: commandRecovery?.inFlightCommandIds || [],
+        staleCommandIds: commandRecovery?.staleCommandIds || [],
+        failedCommandIds: commandRecovery?.failedCommandIds || [],
+        unknownCommandIds: commandRecovery?.unknownCommandIds || [],
+        blockedReasons: commandRecovery?.blockedReasons || []
+      }
     )
   ];
 }
 
-function buildOperationalHealth(graph, validation, input, now, providerContracts = null) {
+function buildOperationalHealth(graph, validation, input, now, providerContracts = null, commandRecovery = null) {
   const health = input.operationalHealth || input.kernelHealth || input.health || input.clientRuntime?.health || {};
   const runtimeStatus = normalizeHealthStatus(health.status || health.state);
   const runtimeErrors = normalizeRuntimeErrors(input);
@@ -959,7 +1581,8 @@ function buildOperationalHealth(graph, validation, input, now, providerContracts
     runtimeStatus,
     runtimeErrors,
     retryQueue,
-    exhaustedFailures
+    exhaustedFailures,
+    commandRecovery
   );
   const blockingHealthGates = healthGates.filter((gate) => gate.writeBlocking);
   const warningHealthGates = healthGates.filter((gate) => !gate.passed && !gate.writeBlocking);
@@ -1021,6 +1644,17 @@ function buildOperationalHealth(graph, validation, input, now, providerContracts
     ...blockingHealthGates.map((gate) => gate.code),
     ...warningHealthGates.map((gate) => gate.code)
   ];
+  const incidentResponse = buildIncidentResponse(
+    graph,
+    validation,
+    providerContracts,
+    runtimeStatus,
+    runtimeErrors,
+    retryQueue,
+    exhaustedFailures,
+    healthGates,
+    now
+  );
 
   return {
     contract: 'hosted-kernel-job-graph-operational-health.v1',
@@ -1039,6 +1673,7 @@ function buildOperationalHealth(graph, validation, input, now, providerContracts
     retryHorizon,
     healthGates,
     actionableErrors,
+    incidentResponse,
     proof: {
       generatedAt: now,
       gateCount: healthGates.length,
@@ -1046,7 +1681,11 @@ function buildOperationalHealth(graph, validation, input, now, providerContracts
       warningGateCodes: warningHealthGates.map((gate) => gate.code),
       providerId: providerContracts?.selectedProviderId || null,
       providerNegotiationStatus: providerContracts?.negotiation?.status || 'not_evaluated',
-      validationIssueCount: validation.issueCount
+      commandRecoveryStatus: commandRecovery?.status || 'not_evaluated',
+      commandRecoveryRestartSafe: commandRecovery?.restartSafe ?? true,
+      validationIssueCount: validation.issueCount,
+      incidentResponseStatus: incidentResponse.status,
+      primaryIncidentCode: incidentResponse.primaryIncident?.code || null
     }
   };
 }
@@ -1081,12 +1720,184 @@ function normalizeCommandIdList(value) {
     .filter(Boolean);
 }
 
+function normalizeCommandStatus(value) {
+  const status = normalizeStatus(value);
+  if (status === 'done') return 'completed';
+  if (status === 'success') return 'succeeded';
+  if (status === 'acked') return 'acknowledged';
+  if (status === 'in-flight') return 'in_flight';
+  return status;
+}
+
+function normalizePersistedCommandRecord(raw, index, now, fallbackTtlMs = DEFAULT_COMMAND_RECOVERY_TTL_MS) {
+  const commandId = firstString(raw?.commandId, raw?.id, raw?.idempotencyKey, raw);
+  const status = normalizeCommandStatus(raw?.status || raw?.dispatchStatus || raw?.state || raw?.phase || 'unknown');
+  const createdAt = normalizeTimestamp(raw?.createdAt, raw?.queuedAt, raw?.capturedAt, raw?.savedAt, raw?.timestamp);
+  const dispatchedAt = normalizeTimestamp(raw?.dispatchedAt, raw?.sentAt, raw?.startedAt, raw?.updatedAt);
+  const completedAt = normalizeTimestamp(raw?.completedAt, raw?.acknowledgedAt, raw?.finishedAt, raw?.appliedAt);
+  const updatedAt = normalizeTimestamp(raw?.updatedAt, raw?.lastUpdatedAt, completedAt, dispatchedAt, createdAt);
+  const expiresAt = normalizeTimestamp(raw?.expiresAt, raw?.ttlExpiresAt, raw?.deadlineAt);
+  const ttlMs = normalizeInteger(raw?.ttlMs ?? raw?.commandTtlMs ?? raw?.dispatchTtlMs, fallbackTtlMs);
+  const basisAt = dispatchedAt || createdAt || updatedAt;
+  const nowMs = Date.parse(now);
+  const basisMs = Date.parse(basisAt || '');
+  const expiresMs = Date.parse(expiresAt || '');
+  const ageMs = Number.isFinite(nowMs) && Number.isFinite(basisMs) ? Math.max(0, nowMs - basisMs) : null;
+  const deadlineExceeded =
+    Number.isFinite(nowMs) &&
+    (
+      (Number.isFinite(expiresMs) && expiresMs <= nowMs) ||
+      (ageMs !== null && ttlMs > 0 && ageMs > ttlMs)
+    );
+  const applied = COMMAND_APPLIED_STATUSES.has(status);
+  const failed = COMMAND_FAILED_STATUSES.has(status);
+  const inFlight = !applied && !failed && COMMAND_IN_FLIGHT_STATUSES.has(status);
+  const restartSafeStatus = applied
+    ? 'already_applied'
+    : failed
+      ? 'failed_requires_review'
+      : deadlineExceeded
+        ? 'stale_requires_reconciliation'
+        : inFlight
+          ? 'in_flight_resume_pending'
+          : 'unknown_requires_review';
+
+  return {
+    contract: 'hosted-kernel-job-graph-persisted-command.v1',
+    commandId,
+    idempotencyKey: firstString(raw?.idempotencyKey, raw?.dedupeKey, commandId),
+    kind: firstString(raw?.kind, raw?.type, raw?.commandKind, 'unknown'),
+    targetId: firstString(raw?.targetId, raw?.jobId, raw?.snapshotId, raw?.payload?.jobId, raw?.payload?.snapshotId) || null,
+    status,
+    restartSafeStatus,
+    applied,
+    failed,
+    inFlight,
+    stale: deadlineExceeded,
+    ageMs,
+    ttlMs,
+    createdAt,
+    dispatchedAt,
+    completedAt,
+    updatedAt,
+    expiresAt,
+    source: firstString(raw?.source, raw?.sink, raw?.commandSink, 'persisted_state'),
+    sequence: normalizeInteger(raw?.sequence ?? raw?.index, index + 1)
+  };
+}
+
+function collectPersistedCommandRecords(input, now) {
+  const runtime = input.clientRuntime || {};
+  const persisted = input.persistedState || input.savedState || runtime.persistedState || {};
+  const commandState = persisted.commandState || persisted.commandRecovery || runtime.commandState || input.commandState || {};
+  const fallbackTtlMs = normalizeInteger(
+    commandState.commandTtlMs ??
+    commandState.ttlMs ??
+    input.lifecycleSettings?.commandTtlMs ??
+    input.clientRuntime?.lifecycleSettings?.commandTtlMs,
+    DEFAULT_COMMAND_RECOVERY_TTL_MS
+  );
+  const rawRecords = [
+    ...asArray(persisted.commandLog || persisted.commands),
+    ...asArray(commandState.commands || commandState.inFlight || commandState.pending || commandState.ledger),
+    ...asArray(runtime.commandLog || runtime.commands || runtime.pendingCommands),
+    ...asArray(input.commandLog || input.commands || input.pendingCommands),
+    ...asArray(persisted.snapshots || persisted.snapshotLedger || persisted.recoveryLog)
+      .flatMap((snapshot) => asArray(snapshot?.commands || snapshot?.commandLog))
+  ];
+  const recordsByCommandId = new Map();
+
+  rawRecords
+    .map((record, index) => normalizePersistedCommandRecord(record, index, now, fallbackTtlMs))
+    .filter((record) => record.commandId)
+    .sort((left, right) =>
+      firstString(left.updatedAt, left.createdAt).localeCompare(firstString(right.updatedAt, right.createdAt)) ||
+      left.sequence - right.sequence
+    )
+    .forEach((record) => {
+      recordsByCommandId.set(record.commandId, record);
+    });
+
+  return Array.from(recordsByCommandId.values())
+    .sort((left, right) =>
+      firstString(left.updatedAt, left.createdAt).localeCompare(firstString(right.updatedAt, right.createdAt)) ||
+      left.commandId.localeCompare(right.commandId)
+    );
+}
+
 function normalizeCommandHistory(input) {
+  const now = input.now || new Date().toISOString();
   const persisted = input.persistedState || input.savedState || input.clientRuntime?.persistedState || {};
-  const persistedCommandIds = normalizeCommandIdList(persisted.commandLog || persisted.commands || input.commandLog);
+  const persistedRecords = collectPersistedCommandRecords(input, now);
+  const appliedRecordIds = persistedRecords
+    .filter((record) => record.applied)
+    .map((record) => record.commandId);
+  const legacyStringCommandIds = [
+    ...asArray(persisted.commandLog || persisted.commands || input.commandLog),
+    ...asArray(input.clientRuntime?.commandLog || input.clientRuntime?.commands)
+  ]
+    .filter((entry) => typeof entry === 'string')
+    .map((entry) => firstString(entry))
+    .filter(Boolean);
   const snapshotCommandIds = asArray(persisted.snapshots || persisted.snapshotLedger || persisted.recoveryLog)
-    .flatMap((snapshot) => normalizeCommandIdList(snapshot?.commandIds || snapshot?.commands || snapshot?.commandLog));
-  return Array.from(new Set([...persistedCommandIds, ...snapshotCommandIds]));
+    .flatMap((snapshot) => normalizeCommandIdList(snapshot?.commandIds));
+  return Array.from(new Set([...appliedRecordIds, ...legacyStringCommandIds, ...snapshotCommandIds]));
+}
+
+function buildCommandRecoveryState(input, requestState, now) {
+  const records = collectPersistedCommandRecords(input, now);
+  const appliedRecords = records.filter((record) => record.applied);
+  const failedRecords = records.filter((record) => record.failed);
+  const staleRecords = records.filter((record) => record.stale && !record.applied);
+  const inFlightRecords = records.filter((record) => record.inFlight && !record.stale);
+  const unknownRecords = records.filter((record) => record.restartSafeStatus === 'unknown_requires_review');
+  const replayableRecords = inFlightRecords.filter((record) => !failedRecords.some((failed) => failed.idempotencyKey === record.idempotencyKey));
+  const status = staleRecords.length > 0 || failedRecords.length > 0 || unknownRecords.length > 0
+    ? 'recovery_review_required'
+    : inFlightRecords.length > 0
+      ? 'resume_in_flight'
+      : appliedRecords.length > 0
+        ? 'stable_with_history'
+        : 'empty';
+  const blockedReasons = [
+    ...(staleRecords.length > 0 ? ['stale_in_flight_commands'] : []),
+    ...(failedRecords.length > 0 ? ['failed_persisted_commands'] : []),
+    ...(unknownRecords.length > 0 ? ['unknown_persisted_command_status'] : [])
+  ];
+
+  return {
+    contract: 'hosted-kernel-job-graph-command-recovery.v1',
+    requestId: requestState.requestId,
+    generatedAt: now,
+    status,
+    restartSafe: blockedReasons.length === 0,
+    replayAllowed: blockedReasons.length === 0,
+    records,
+    appliedCommandIds: appliedRecords.map((record) => record.commandId),
+    inFlightCommandIds: inFlightRecords.map((record) => record.commandId),
+    staleCommandIds: staleRecords.map((record) => record.commandId),
+    failedCommandIds: failedRecords.map((record) => record.commandId),
+    unknownCommandIds: unknownRecords.map((record) => record.commandId),
+    blockedReasons,
+    replayQueue: replayableRecords.map((record) => ({
+      commandId: record.commandId,
+      idempotencyKey: record.idempotencyKey,
+      kind: record.kind,
+      targetId: record.targetId,
+      dispatchStatus: record.status,
+      restartSafeStatus: record.restartSafeStatus,
+      replayable: true
+    })),
+    claims: {
+      commandCount: records.length,
+      appliedCount: appliedRecords.length,
+      inFlightCount: inFlightRecords.length,
+      staleCount: staleRecords.length,
+      failedCount: failedRecords.length,
+      unknownCount: unknownRecords.length,
+      oldestInFlightAt: inFlightRecords[0]?.createdAt || inFlightRecords[0]?.dispatchedAt || null
+    }
+  };
 }
 
 function normalizePersistedSnapshot(raw, index) {
@@ -1181,7 +1992,15 @@ function buildStateFingerprint(graph, requestState) {
     .map((edge) => `${edge.from}>${edge.to}:${edge.relation}`)
     .sort()
     .join('|');
-  return `${surfaceId}|${requestState.requestId}|${nodePart}|${edgePart}`;
+  const integrityPart = [
+    graph.integrity.status,
+    graph.integrity.malformedDependencyCount,
+    graph.integrity.danglingDependencyCount,
+    graph.integrity.duplicateVisibleJobIdCount,
+    graph.integrity.duplicateVisibleDependencyIdCount,
+    ...graph.integrity.structuralIssueCodes
+  ].join(':');
+  return `${surfaceId}|${requestState.requestId}|${nodePart}|${edgePart}|${integrityPart}`;
 }
 
 function commandEnvelope(kind, requestState, payload, history) {
@@ -1202,7 +2021,7 @@ function commandEnvelope(kind, requestState, payload, history) {
   };
 }
 
-function buildPersistedState(graph, validation, readiness, requestState, now, input) {
+function buildPersistedState(graph, validation, readiness, requestState, now, input, commandRecovery = null) {
   const persisted = input.persistedState || input.savedState || input.clientRuntime?.persistedState || {};
   const history = new Set(normalizeCommandHistory(input));
   const fingerprint = buildStateFingerprint(graph, requestState);
@@ -1314,27 +2133,39 @@ function buildPersistedState(graph, validation, readiness, requestState, now, in
     snapshotLedger: [...snapshotLedger.slice(-9), recoveryLedgerEntry],
     recoveryLedgerEntry,
     statusSemantics: {
-      canResumeWithoutOperator: validation.valid && !stalePersistedSelection,
-      safeToReplayCommands: commands.every((command) => command.commandId === command.idempotencyKey),
-      acceptanceMayBeSubmitted: readiness.ready && !persistedGraphChanged,
-      replayMode: restartRecovery.replayMode,
-      operatorReviewRequired: restartRecovery.operatorReviewRequired,
+      canResumeWithoutOperator: validation.valid && !stalePersistedSelection && (commandRecovery?.restartSafe ?? true),
+      safeToReplayCommands:
+        commands.every((command) => command.commandId === command.idempotencyKey) &&
+        (commandRecovery?.replayAllowed ?? true),
+      acceptanceMayBeSubmitted: readiness.ready && !persistedGraphChanged && (commandRecovery?.restartSafe ?? true),
+      replayMode: commandRecovery && !commandRecovery.replayAllowed ? 'hold_commands' : restartRecovery.replayMode,
+      operatorReviewRequired: restartRecovery.operatorReviewRequired || Boolean(commandRecovery && !commandRecovery.restartSafe),
       stableSnapshotMatched: Boolean(matchingSnapshot),
-      latestSnapshotId: latestSnapshot?.snapshotId || null
+      latestSnapshotId: latestSnapshot?.snapshotId || null,
+      commandRecoveryStatus: commandRecovery?.status || 'not_evaluated'
     },
+    commandRecovery,
     commands,
-    replayQueue: commands.map((command) => ({
-      commandId: command.commandId,
-      kind: command.kind,
-      idempotencyKey: command.idempotencyKey,
-      dispatchStatus: command.dispatchStatus,
-      replayable: restartRecovery.replayMode === 'idempotent_replay_allowed' && !command.alreadyApplied,
-      blockedReason: command.alreadyApplied
-        ? 'already_applied'
-        : restartRecovery.replayMode === 'idempotent_replay_allowed'
-          ? null
-          : restartRecovery.replayMode
-    })),
+    replayQueue: [
+      ...(commandRecovery?.replayQueue || []),
+      ...commands.map((command) => ({
+        commandId: command.commandId,
+        kind: command.kind,
+        idempotencyKey: command.idempotencyKey,
+        dispatchStatus: command.dispatchStatus,
+        replayable:
+          restartRecovery.replayMode === 'idempotent_replay_allowed' &&
+          !command.alreadyApplied &&
+          (commandRecovery?.replayAllowed ?? true),
+        blockedReason: command.alreadyApplied
+          ? 'already_applied'
+          : commandRecovery && !commandRecovery.replayAllowed
+            ? commandRecovery.status
+            : restartRecovery.replayMode === 'idempotent_replay_allowed'
+              ? null
+              : restartRecovery.replayMode
+      }))
+    ],
     savedAt: now
   };
 }
@@ -1359,6 +2190,40 @@ function summarizeValidation(graph) {
       edgeId: edge.id,
       from: edge.from,
       to: edge.to
+    });
+  }
+
+  for (const edge of graph.malformedEdges) {
+    issues.push({
+      code: 'malformed_dependency_endpoint',
+      severity: 'error',
+      message: `Dependency ${edge.id} is missing a required endpoint.`,
+      edgeId: edge.id,
+      from: edge.from || null,
+      to: edge.to || null,
+      relation: edge.relation,
+      endpointState: edge.endpointState,
+      missingEndpoints: malformedEdgeEvidence(edge).missingEndpoints
+    });
+  }
+
+  for (const duplicate of graph.integrity.duplicateNodeIds) {
+    issues.push({
+      code: 'duplicate_visible_job_id',
+      severity: 'error',
+      message: `Visible job id ${duplicate.value} appears ${duplicate.count} times.`,
+      jobId: duplicate.value,
+      count: duplicate.count
+    });
+  }
+
+  for (const duplicate of graph.integrity.duplicateEdgeIds) {
+    issues.push({
+      code: 'duplicate_visible_dependency_id',
+      severity: 'error',
+      message: `Visible dependency id ${duplicate.value} appears ${duplicate.count} times.`,
+      edgeId: duplicate.value,
+      count: duplicate.count
     });
   }
 
@@ -1558,7 +2423,126 @@ function normalizeLifecycleActionRequest(input, selectedJob, settings) {
   };
 }
 
-function buildLifecycleDispatchPlan(controls, actionRequest, requestState, settings, scheduledFor, now) {
+function summarizeLifecycleSettings(settings) {
+  const errorCodes = settings.invalid
+    .filter((issue) => issue.severity === 'error')
+    .map((issue) => issue.code);
+  const warningCodes = settings.invalid
+    .filter((issue) => issue.severity === 'warning')
+    .map((issue) => issue.code);
+  const controlsBlockedReasons = [
+    ...errorCodes,
+    ...(!settings.controlsEnabled ? ['controls_disabled_by_settings'] : []),
+    ...(settings.scheduleMode === 'paused' ? ['retry_scheduling_paused'] : [])
+  ];
+
+  return {
+    contract: 'hosted-kernel-job-graph-lifecycle-settings-validation.v1',
+    valid: errorCodes.length === 0,
+    status: errorCodes.length > 0
+      ? 'invalid'
+      : settings.controlsEnabled
+        ? 'active'
+        : 'controls_disabled',
+    controlsEnabled: settings.controlsEnabled,
+    scheduleMode: settings.scheduleMode,
+    errorCodes,
+    warningCodes,
+    controlsBlockedReasons,
+    proof: {
+      minRetryDelayMs: settings.minRetryDelayMs,
+      maxScheduledDelayMs: settings.maxScheduledDelayMs,
+      requestedDelayMs: settings.requestedDelayMs,
+      commandTtlMs: settings.commandTtlMs,
+      dryRun: settings.dryRun
+    }
+  };
+}
+
+function buildLifecycleScheduleDecision(settings, actionRequest, retryPlan, now) {
+  const nowMs = Date.parse(now);
+  const requestedDelayMs = actionRequest.requestedDelayMs ?? settings.requestedDelayMs;
+  const retryDelayMs = retryPlan?.backoffSeconds === null || retryPlan?.backoffSeconds === undefined
+    ? null
+    : retryPlan.backoffSeconds * 1000;
+  const baseDelayMs = requestedDelayMs ?? retryDelayMs ?? settings.minRetryDelayMs;
+  const normalizedDelayMs = normalizeInteger(baseDelayMs, settings.minRetryDelayMs);
+  const issues = [];
+  let effectiveDelayMs = normalizedDelayMs;
+  let scheduleStatus = 'ready';
+
+  if (settings.scheduleMode === 'paused') {
+    scheduleStatus = 'paused';
+    issues.push({
+      code: 'retry_scheduling_paused',
+      severity: 'error',
+      message: 'Retry scheduling is paused by lifecycle settings.'
+    });
+  } else if (settings.scheduleMode === 'immediate') {
+    effectiveDelayMs = 0;
+  } else if (settings.scheduleMode === 'operator_window') {
+    if (requestedDelayMs === null) {
+      scheduleStatus = 'blocked';
+      issues.push({
+        code: 'operator_window_delay_required',
+        severity: 'error',
+        message: 'Operator-window scheduling requires an explicit requested delay.'
+      });
+    }
+    if (normalizedDelayMs < settings.minRetryDelayMs) {
+      scheduleStatus = 'blocked';
+      issues.push({
+        code: 'operator_window_delay_below_minimum',
+        severity: 'error',
+        message: 'Operator-window scheduling requires requestedDelayMs to satisfy minRetryDelayMs.',
+        requestedDelayMs: normalizedDelayMs,
+        minRetryDelayMs: settings.minRetryDelayMs
+      });
+    }
+  } else if (settings.scheduleMode === 'bounded_backoff') {
+    effectiveDelayMs = Math.max(settings.minRetryDelayMs, normalizedDelayMs, retryDelayMs || 0);
+  }
+
+  if (effectiveDelayMs > settings.maxScheduledDelayMs) {
+    scheduleStatus = 'blocked';
+    issues.push({
+      code: 'effective_delay_exceeds_policy',
+      severity: 'error',
+      message: 'The effective lifecycle retry delay exceeds the configured schedule window.',
+      effectiveDelayMs,
+      maxScheduledDelayMs: settings.maxScheduledDelayMs
+    });
+  }
+
+  const scheduledFor = Number.isFinite(nowMs)
+    ? new Date(nowMs + Math.min(effectiveDelayMs, settings.maxScheduledDelayMs) ).toISOString()
+    : null;
+  const blockingReasons = issues
+    .filter((issue) => issue.severity === 'error')
+    .map((issue) => issue.code);
+
+  return {
+    contract: 'hosted-kernel-job-graph-lifecycle-schedule-decision.v1',
+    mode: settings.scheduleMode,
+    status: blockingReasons.length > 0 ? scheduleStatus : 'ready',
+    requestedDelayMs,
+    retryBackoffDelayMs: retryDelayMs,
+    effectiveDelayMs,
+    minRetryDelayMs: settings.minRetryDelayMs,
+    maxScheduledDelayMs: settings.maxScheduledDelayMs,
+    scheduledFor,
+    issues,
+    blockedReasons: blockingReasons,
+    claims: {
+      boundedByPolicy: effectiveDelayMs <= settings.maxScheduledDelayMs,
+      usesRetryBackoff: Boolean(retryDelayMs !== null && effectiveDelayMs >= retryDelayMs),
+      explicitOperatorDelay: requestedDelayMs !== null,
+      generatedAt: now
+    }
+  };
+}
+
+function buildLifecycleDispatchPlan(controls, actionRequest, requestState, settings, scheduleDecision, now) {
   const selectedControl = controls.find((control) => control.kind === actionRequest.kind) || null;
   const selectedCommand = selectedControl?.command || null;
   const expiresAt = Number.isFinite(Date.parse(now))
@@ -1568,7 +2552,8 @@ function buildLifecycleDispatchPlan(controls, actionRequest, requestState, setti
     ...actionRequest.problems.map((problem) => problem.code),
     ...(!actionRequest.requested ? ['no_requested_action'] : []),
     ...(actionRequest.requested && !selectedControl ? ['action_not_available'] : []),
-    ...(selectedControl && !selectedControl.enabled ? [selectedControl.disabledReason || 'control_disabled'] : [])
+    ...(selectedControl && !selectedControl.enabled ? [selectedControl.disabledReason || 'control_disabled'] : []),
+    ...(actionRequest.kind === 'schedule_retry' ? scheduleDecision.blockedReasons : [])
   ];
   const dispatchable = actionRequest.requested && blockedReasons.length === 0 && Boolean(selectedCommand);
 
@@ -1587,7 +2572,8 @@ function buildLifecycleDispatchPlan(controls, actionRequest, requestState, setti
     selectedCommandId: dispatchable ? selectedCommand.commandId : null,
     idempotencyKey: dispatchable ? selectedCommand.idempotencyKey : null,
     expiresAt,
-    scheduledFor: selectedCommand?.payload?.retryAfter || selectedCommand?.payload?.scheduledFor || scheduledFor,
+    scheduledFor: selectedCommand?.payload?.retryAfter || selectedCommand?.payload?.scheduledFor || scheduleDecision.scheduledFor,
+    scheduleDecision,
     route: {
       pathname: '/operator-userland/job-graph-view',
       query: {
@@ -1602,12 +2588,13 @@ function buildLifecycleDispatchPlan(controls, actionRequest, requestState, setti
       commandTtlMs: settings.commandTtlMs,
       controlEnabled: Boolean(selectedControl?.enabled),
       alreadyApplied: Boolean(selectedCommand?.alreadyApplied),
-      reason: actionRequest.reason
+      reason: actionRequest.reason,
+      scheduleStatus: scheduleDecision.status
     }
   };
 }
 
-function transitionBlockedReasons(kind, selectedJob, settings, retryPlan, lifecycleWritable) {
+function transitionBlockedReasons(kind, selectedJob, settings, retryPlan, lifecycleWritable, scheduleDecision) {
   const reasons = [];
   const writeTransition = kind !== 'focus_job';
 
@@ -1632,6 +2619,7 @@ function transitionBlockedReasons(kind, selectedJob, settings, retryPlan, lifecy
     if (kind === 'schedule_retry' && !retryPlan?.retryable) {
       reasons.push(retryPlan?.exhausted ? 'retry_attempts_exhausted' : 'job_not_retryable');
     }
+    if (kind === 'schedule_retry') reasons.push(...scheduleDecision.blockedReasons);
     if (kind === 'cancel_job' && !selectedJob.isActive) reasons.push('job_not_active');
     if (kind === 'cancel_job' && !settings.allowCancelRunningJobs) reasons.push('cancel_disabled_by_settings');
   }
@@ -1639,7 +2627,7 @@ function transitionBlockedReasons(kind, selectedJob, settings, retryPlan, lifecy
   return Array.from(new Set(reasons));
 }
 
-function transitionPatchFor(kind, selectedJob, settings, retryPlan, scheduledFor, now) {
+function transitionPatchFor(kind, selectedJob, settings, retryPlan, scheduleDecision, now) {
   if (!selectedJob) return null;
   if (kind === 'disable_job') {
     return {
@@ -1667,19 +2655,22 @@ function transitionPatchFor(kind, selectedJob, settings, retryPlan, scheduledFor
     return {
       lifecycle: {
         ...selectedJob.lifecycle,
-        scheduledFor: retryPlan?.nextRetryAt || scheduledFor,
+        scheduledFor: retryPlan?.nextRetryAt || scheduleDecision.scheduledFor,
         updatedAt: now
       },
       failure: {
         ...selectedJob.failure,
-        retryAfter: retryPlan?.nextRetryAt || scheduledFor,
+        retryAfter: retryPlan?.nextRetryAt || scheduleDecision.scheduledFor,
         retryAttempts: retryPlan?.attempts ?? selectedJob.failure.retryAttempts
       },
       schedule: {
         mode: settings.scheduleMode,
         requestedDelayMs: settings.requestedDelayMs,
+        effectiveDelayMs: scheduleDecision.effectiveDelayMs,
+        retryBackoffDelayMs: scheduleDecision.retryBackoffDelayMs,
         minRetryDelayMs: settings.minRetryDelayMs,
-        maxScheduledDelayMs: settings.maxScheduledDelayMs
+        maxScheduledDelayMs: settings.maxScheduledDelayMs,
+        status: scheduleDecision.status
       }
     };
   }
@@ -1701,12 +2692,12 @@ function transitionPatchFor(kind, selectedJob, settings, retryPlan, scheduledFor
   };
 }
 
-function buildLifecycleTransitionState(controls, selectedJob, settings, retryPlan, lifecycleWritable, scheduledFor, now) {
+function buildLifecycleTransitionState(controls, selectedJob, settings, retryPlan, lifecycleWritable, scheduleDecision, now) {
   const transitions = controls.map((control) => {
-    const guardReasons = transitionBlockedReasons(control.kind, selectedJob, settings, retryPlan, lifecycleWritable);
+    const guardReasons = transitionBlockedReasons(control.kind, selectedJob, settings, retryPlan, lifecycleWritable, scheduleDecision);
     const controlReasons = control.enabled ? [] : [control.disabledReason || 'control_disabled'];
     const blockedReasons = Array.from(new Set([...guardReasons, ...controlReasons].filter(Boolean)));
-    const patch = blockedReasons.length === 0 ? transitionPatchFor(control.kind, selectedJob, settings, retryPlan, scheduledFor, now) : null;
+    const patch = blockedReasons.length === 0 ? transitionPatchFor(control.kind, selectedJob, settings, retryPlan, scheduleDecision, now) : null;
 
     return {
       contract: 'hosted-kernel-job-lifecycle-transition.v1',
@@ -1738,9 +2729,13 @@ function buildLifecycleTransitionState(controls, selectedJob, settings, retryPla
       mode: settings.scheduleMode,
       paused: settings.scheduleMode === 'paused',
       requestedDelayMs: settings.requestedDelayMs,
+      effectiveDelayMs: scheduleDecision.effectiveDelayMs,
+      retryBackoffDelayMs: scheduleDecision.retryBackoffDelayMs,
       minRetryDelayMs: settings.minRetryDelayMs,
       maxScheduledDelayMs: settings.maxScheduledDelayMs,
-      scheduledFor
+      scheduledFor: scheduleDecision.scheduledFor,
+      status: scheduleDecision.status,
+      blockedReasons: scheduleDecision.blockedReasons
     },
     transitions,
     nextTransition: nextTransition
@@ -1773,13 +2768,10 @@ function controlFor(kind, enabled, reason, command) {
 
 function buildLifecycleControls(graph, validation, readiness, requestState, operationalHealth, now, input) {
   const settings = normalizeLifecycleSettings(input);
+  const settingsValidation = summarizeLifecycleSettings(settings);
   const selectedJob = graph.nodes.find((node) => node.id === requestState.selectedJobId) || null;
   const history = new Set(normalizeCommandHistory(input));
-  const nowMs = Date.parse(now);
-  const requestedDelayMs = settings.requestedDelayMs ?? settings.minRetryDelayMs;
-  const scheduledFor = Number.isFinite(nowMs)
-    ? new Date(nowMs + Math.min(requestedDelayMs, settings.maxScheduledDelayMs)).toISOString()
-    : null;
+  const retryPlan = selectedJob ? retryPlanForNode(selectedJob, now) : null;
   const settingErrors = settings.invalid.filter((issue) => issue.severity === 'error');
   const lifecycleWritable =
     settings.controlsEnabled &&
@@ -1788,13 +2780,28 @@ function buildLifecycleControls(graph, validation, readiness, requestState, oper
     graph.boundary.accessContext.canAcceptGraph &&
     graph.boundary.scopePolicy.canWriteScopedGraph &&
     operationalHealth.status !== 'critical';
+  const actionRequest = normalizeLifecycleActionRequest(input, selectedJob, settings);
+  const scheduleDecision = buildLifecycleScheduleDecision(settings, actionRequest, retryPlan, now);
+  const scheduledFor = scheduleDecision.scheduledFor;
+  const lifecycleBlockedReasons = Array.from(new Set([
+    ...settingsValidation.controlsBlockedReasons,
+    ...(!validation.valid ? ['validation_failed'] : []),
+    ...(!graph.boundary.accessContext.canAcceptGraph ? ['permission_denied'] : []),
+    ...(!graph.boundary.scopePolicy.canWriteScopedGraph ? graph.boundary.scopePolicy.writeBlockedReasons : []),
+    ...(operationalHealth.status === 'critical' ? ['critical_operational_health'] : [])
+  ]));
   const basePayload = {
     requestId: requestState.requestId,
     jobId: selectedJob?.id || null,
     scheduleMode: settings.scheduleMode,
-    scheduledFor
+    scheduledFor,
+    lifecyclePolicy: {
+      settingsStatus: settingsValidation.status,
+      scheduleStatus: scheduleDecision.status,
+      effectiveDelayMs: scheduleDecision.effectiveDelayMs,
+      commandTtlMs: settings.commandTtlMs
+    }
   };
-  const retryPlan = selectedJob ? retryPlanForNode(selectedJob, now) : null;
   const controls = [
     controlFor(
       'focus_job',
@@ -1829,9 +2836,11 @@ function buildLifecycleControls(graph, validation, readiness, requestState, oper
     ),
     controlFor(
       'schedule_retry',
-      lifecycleWritable && settings.scheduleMode !== 'paused' && Boolean(retryPlan?.retryable),
+      lifecycleWritable && scheduleDecision.blockedReasons.length === 0 && Boolean(retryPlan?.retryable),
       settings.scheduleMode === 'paused'
         ? 'Retry scheduling is paused by lifecycle settings.'
+        : scheduleDecision.blockedReasons.length > 0
+        ? 'Retry scheduling is blocked by lifecycle schedule policy.'
         : retryPlan?.exhausted
         ? 'Retry attempts are exhausted for this job.'
         : 'Only retryable failed jobs without blockers can be scheduled.',
@@ -1839,7 +2848,15 @@ function buildLifecycleControls(graph, validation, readiness, requestState, oper
         ...basePayload,
         retryAfter: retryPlan?.nextRetryAt || scheduledFor,
         attempts: retryPlan?.attempts ?? 0,
-        maxAttempts: retryPlan?.maxAttempts ?? 0
+        maxAttempts: retryPlan?.maxAttempts ?? 0,
+        scheduleDecision: {
+          mode: scheduleDecision.mode,
+          status: scheduleDecision.status,
+          requestedDelayMs: scheduleDecision.requestedDelayMs,
+          retryBackoffDelayMs: scheduleDecision.retryBackoffDelayMs,
+          effectiveDelayMs: scheduleDecision.effectiveDelayMs,
+          blockedReasons: scheduleDecision.blockedReasons
+        }
       }, history)
     ),
     controlFor(
@@ -1852,41 +2869,37 @@ function buildLifecycleControls(graph, validation, readiness, requestState, oper
     )
   ];
   const nextControl = controls.find((control) => control.enabled && control.kind !== 'focus_job') || controls.find((control) => control.enabled) || null;
-  const actionRequest = normalizeLifecycleActionRequest(input, selectedJob, settings);
-  const dispatchPlan = buildLifecycleDispatchPlan(controls, actionRequest, requestState, settings, scheduledFor, now);
+  const dispatchPlan = buildLifecycleDispatchPlan(controls, actionRequest, requestState, settings, scheduleDecision, now);
   const transitionState = buildLifecycleTransitionState(
     controls,
     selectedJob,
     settings,
     retryPlan,
     lifecycleWritable,
-    scheduledFor,
+    scheduleDecision,
     now
   );
 
   return {
     contract: 'hosted-kernel-job-graph-lifecycle-controls.v1',
     settings,
+    settingsValidation,
     selectedJobId: selectedJob?.id || null,
     writable: lifecycleWritable,
-    blockedReasons: [
-      ...settingErrors.map((issue) => issue.code),
-      ...(!settings.controlsEnabled ? ['settings_disabled'] : []),
-      ...(!validation.valid ? ['validation_failed'] : []),
-      ...(!graph.boundary.accessContext.canAcceptGraph ? ['permission_denied'] : []),
-      ...(!graph.boundary.scopePolicy.canWriteScopedGraph ? graph.boundary.scopePolicy.writeBlockedReasons : []),
-      ...(operationalHealth.status === 'critical' ? ['critical_operational_health'] : [])
-    ],
+    blockedReasons: lifecycleBlockedReasons,
     controls,
     commands: controls.map((control) => control.command).filter(Boolean),
     dispatchPlan,
     transitionState,
+    scheduleDecision,
     nextAction: nextControl
       ? {
           kind: nextControl.kind,
           jobId: nextControl.command?.payload?.jobId || selectedJob?.id || null,
           enabled: nextControl.enabled,
           scheduledFor: nextControl.command?.payload?.retryAfter || nextControl.command?.payload?.scheduledFor || null,
+          scheduleStatus: scheduleDecision.status,
+          effectiveDelayMs: nextControl.kind === 'schedule_retry' ? scheduleDecision.effectiveDelayMs : null,
           dispatchStatus: dispatchPlan.status,
           statePatch: transitionState.nextTransition?.kind === nextControl.kind ? transitionState.nextTransition.statePatch : null
         }
@@ -1895,6 +2908,8 @@ function buildLifecycleControls(graph, validation, readiness, requestState, oper
           jobId: selectedJob?.id || null,
           enabled: false,
           scheduledFor: null,
+          scheduleStatus: scheduleDecision.status,
+          effectiveDelayMs: null,
           dispatchStatus: dispatchPlan.status,
           statePatch: null
         },
@@ -1907,6 +2922,8 @@ function buildLifecycleControls(graph, validation, readiness, requestState, oper
       requestedActionKind: actionRequest.kind,
       dispatchPlanStatus: dispatchPlan.status,
       transitionStateContract: transitionState.contract,
+      settingsValidationStatus: settingsValidation.status,
+      scheduleDecisionStatus: scheduleDecision.status,
       alreadyAppliedCommandIds: controls
         .map((control) => control.command)
         .filter((command) => command?.alreadyApplied)
@@ -2050,7 +3067,193 @@ function handoffActionForStatus(status) {
   return 'inspect_graph_handoff';
 }
 
-function buildClientWorkflowHandoff(graph, requestState, operationalHealth, providerContracts, workflowHandoff, scopedMutationAuthorization, input, now) {
+function normalizeMailchimpWorkflowIntent(input, requestState, providerContracts, mailchimpPreview) {
+  const runtime = input.clientRuntime || {};
+  const request = input.request || input.clientRequest || {};
+  const source =
+    runtime.mailchimpWorkflow ||
+    runtime.mailchimpHandoff ||
+    input.mailchimpWorkflow ||
+    input.mailchimpHandoff ||
+    request.mailchimpWorkflow ||
+    request.mailchimpHandoff ||
+    {};
+  const handoffMailchimp = providerContracts.externalHandoff.mailchimp || {};
+  const previewMailchimp = mailchimpPreview.mailchimp || {};
+  const rawAction = firstString(
+    source.action,
+    source.intent,
+    source.kind,
+    request.mailchimpAction,
+    mailchimpPreview.acceptance.enabled ? 'accept_mailchimp_graph_preview' : 'review_mailchimp_preview'
+  ).toLowerCase();
+  const actionAliases = new Map([
+    ['accept', 'accept_mailchimp_graph_preview'],
+    ['handoff', 'dispatch_mailchimp_campaign_handoff'],
+    ['dispatch', 'dispatch_mailchimp_campaign_handoff'],
+    ['refresh', 'refresh_mailchimp_sync'],
+    ['review', 'review_mailchimp_preview']
+  ]);
+  const action = actionAliases.get(rawAction) || rawAction;
+  const audienceId = firstString(source.audienceId, source.listId, previewMailchimp.audienceId, handoffMailchimp.audienceId);
+  const campaignId = firstString(source.campaignId, source.externalCampaignId, previewMailchimp.campaignId, handoffMailchimp.campaignId);
+  const templateId = firstString(source.templateId, previewMailchimp.templateId, handoffMailchimp.templateId);
+  const serverPrefix = firstString(source.serverPrefix, source.datacenter, previewMailchimp.serverPrefix, handoffMailchimp.serverPrefix);
+  const segmentIds = normalizeStringList(source.segmentIds || source.segments || source.segmentId).sort();
+  const mergeFieldUpdates = asArray(source.mergeFieldUpdates || source.mergeFields || source.mergeFieldWrites)
+    .map((entry, index) => ({
+      key: firstString(entry?.key, entry?.tag, entry?.name, `MERGE${index + 1}`).toUpperCase(),
+      value: firstString(entry?.value, entry?.defaultValue, entry?.text),
+      required: normalizeBoolean(entry?.required, false)
+    }))
+    .filter((entry) => entry.key);
+  const requested = normalizeBoolean(
+    source.requested ?? source.enabled ?? request.mailchimpRequested,
+    action !== 'review_mailchimp_preview'
+  );
+  const dryRun = normalizeBoolean(source.dryRun ?? source.previewOnly ?? request.dryRun, false);
+  const requiresOperatorReview = normalizeBoolean(
+    source.requiresOperatorReview ?? source.reviewRequired,
+    !mailchimpPreview.enabled
+  );
+  const unsupportedAction = ![
+    'accept_mailchimp_graph_preview',
+    'dispatch_mailchimp_campaign_handoff',
+    'refresh_mailchimp_sync',
+    'review_mailchimp_preview'
+  ].includes(action);
+  const problems = [
+    ...(unsupportedAction ? ['unsupported_mailchimp_workflow_action'] : []),
+    ...(audienceId && previewMailchimp.audienceId && audienceId !== previewMailchimp.audienceId ? ['mailchimp_audience_mismatch'] : []),
+    ...(campaignId && previewMailchimp.campaignId && campaignId !== previewMailchimp.campaignId ? ['mailchimp_campaign_mismatch'] : []),
+    ...(serverPrefix && previewMailchimp.serverPrefix && serverPrefix !== previewMailchimp.serverPrefix ? ['mailchimp_server_prefix_mismatch'] : []),
+    ...(mergeFieldUpdates.some((entry) => entry.required && !entry.value) ? ['mailchimp_required_merge_field_value_missing'] : [])
+  ];
+
+  return {
+    contract: 'mailchimp-job-graph-client-workflow-intent.v1',
+    requested,
+    action: unsupportedAction ? 'review_mailchimp_preview' : action,
+    rawAction: rawAction || null,
+    dryRun,
+    requiresOperatorReview,
+    source: firstString(source.source, requestState.source, 'operator-client'),
+    audienceId: audienceId || null,
+    campaignId: campaignId || null,
+    templateId: templateId || null,
+    serverPrefix: serverPrefix || null,
+    segmentIds,
+    mergeFieldUpdates,
+    consent: {
+      doubleOptIn: normalizeBoolean(source.doubleOptIn ?? source.requiresDoubleOptIn, previewMailchimp.requiresDoubleOptIn || false),
+      consentField: firstString(source.consentField, source.marketingPermissionField, 'marketing_permissions'),
+      source: firstString(source.consentSource, source.optInSource, 'operator_workflow')
+    },
+    problems
+  };
+}
+
+function buildMailchimpWorkflowHandoff(mailchimpIntent, mailchimpPreview, providerContracts, scopedMutationAuthorization, requestState, workflowHandoff, history) {
+  const handoffMailchimp = providerContracts.externalHandoff.mailchimp || null;
+  const mailchimpReady = Boolean(mailchimpPreview.enabled && handoffMailchimp);
+  const commandSink = handoffMailchimp?.commandSink || providerContracts.externalHandoff.commandSink;
+  const handoffId = `${surfaceId}:${requestState.requestId}:mailchimp-workflow:${mailchimpIntent.action}:${mailchimpIntent.campaignId || mailchimpIntent.audienceId || 'unbound'}`;
+  const routeQuery = {
+    requestId: requestState.requestId,
+    selectedJobId: workflowHandoff.targetJobId || requestState.selectedJobId,
+    mode: mailchimpIntent.problems.length > 0 || !mailchimpReady ? 'triage' : requestState.mode,
+    product: 'mailchimp',
+    mailchimpAction: mailchimpIntent.action,
+    panel: mailchimpReady ? 'acceptance' : 'provider'
+  };
+  const blockedReasons = Array.from(new Set([
+    ...mailchimpIntent.problems,
+    ...(!mailchimpIntent.requested ? ['mailchimp_workflow_not_requested'] : []),
+    ...(!mailchimpReady ? mailchimpPreview.acceptance.blockedReasons : []),
+    ...(!commandSink ? ['mailchimp_command_sink_missing'] : []),
+    ...(!scopedMutationAuthorization.allowsExternalHandoff ? scopedMutationAuthorization.blockedReasons : []),
+    ...(mailchimpIntent.requiresOperatorReview && mailchimpIntent.action !== 'review_mailchimp_preview' ? ['mailchimp_operator_review_required'] : [])
+  ])).filter(Boolean).sort();
+  const dispatchable =
+    mailchimpIntent.requested &&
+    !mailchimpIntent.dryRun &&
+    blockedReasons.length === 0 &&
+    ['accept_mailchimp_graph_preview', 'dispatch_mailchimp_campaign_handoff'].includes(mailchimpIntent.action);
+  const command = commandEnvelope('dispatch_mailchimp_workflow_handoff', requestState, {
+    snapshotId: handoffId,
+    jobId: workflowHandoff.targetJobId || requestState.selectedJobId,
+    product: 'mailchimp',
+    action: mailchimpIntent.action,
+    providerId: providerContracts.selectedProviderId,
+    commandSink,
+    correlationId: providerContracts.externalHandoff.correlationId,
+    returnRoute: providerContracts.externalHandoff.returnRoute,
+    audienceId: mailchimpIntent.audienceId,
+    campaignId: mailchimpIntent.campaignId,
+    templateId: mailchimpIntent.templateId,
+    serverPrefix: mailchimpIntent.serverPrefix,
+    segmentIds: mailchimpIntent.segmentIds,
+    mergeFieldUpdates: mailchimpIntent.mergeFieldUpdates,
+    consent: mailchimpIntent.consent,
+    acceptance: mailchimpPreview.acceptance.payload,
+    scopeClaims: mailchimpPreview.acceptance.payload?.scopeClaims || null,
+    mutationAuthorizationId: scopedMutationAuthorization.authorizationId
+  }, history);
+
+  return {
+    contract: 'mailchimp-job-graph-client-workflow-handoff.v1',
+    handoffId,
+    status: dispatchable
+      ? 'dispatch_ready'
+      : mailchimpIntent.dryRun
+        ? 'preview_only'
+        : blockedReasons.length > 0
+          ? 'blocked'
+          : 'review',
+    requested: mailchimpIntent.requested,
+    action: mailchimpIntent.action,
+    dispatchable,
+    dryRun: mailchimpIntent.dryRun,
+    route: {
+      pathname: '/operator-userland/job-graph-view',
+      query: routeQuery
+    },
+    command: dispatchable
+      ? {
+          commandId: command.commandId,
+          idempotencyKey: command.idempotencyKey,
+          alreadyApplied: command.alreadyApplied,
+          payload: command.payload
+        }
+      : null,
+    provider: {
+      providerId: providerContracts.selectedProviderId,
+      commandSink,
+      correlationId: providerContracts.externalHandoff.correlationId,
+      handoffStatus: providerContracts.externalHandoff.status,
+      mailchimpReady,
+      externalState: handoffMailchimp?.externalState || null
+    },
+    target: {
+      audienceId: mailchimpIntent.audienceId,
+      campaignId: mailchimpIntent.campaignId,
+      templateId: mailchimpIntent.templateId,
+      serverPrefix: mailchimpIntent.serverPrefix,
+      segmentIds: mailchimpIntent.segmentIds
+    },
+    blockedReasons,
+    proof: {
+      previewId: mailchimpPreview.previewId,
+      previewStatus: mailchimpPreview.status,
+      acceptanceEnabled: mailchimpPreview.acceptance.enabled,
+      mutationAuthorizationStatus: scopedMutationAuthorization.status,
+      mergeFieldUpdateCount: mailchimpIntent.mergeFieldUpdates.length,
+      operatorReviewRequired: mailchimpIntent.requiresOperatorReview
+    }
+  };
+}
+
+function buildClientWorkflowHandoff(graph, requestState, operationalHealth, providerContracts, workflowHandoff, scopedMutationAuthorization, mailchimpPreview, input, now) {
   const runtime = input.clientRuntime || {};
   const handoffState = runtime.workflowHandoff || input.workflowHandoffState || input.handoffState || {};
   const history = new Set(normalizeCommandHistory(input));
@@ -2073,6 +3276,16 @@ function buildClientWorkflowHandoff(graph, requestState, operationalHealth, prov
     mode: workflowHandoff.status === 'handoff_to_blocker_triage' ? 'triage' : requestState.mode,
     handoff: workflowHandoff.status
   };
+  const mailchimpIntent = normalizeMailchimpWorkflowIntent(input, requestState, providerContracts, mailchimpPreview);
+  const mailchimpWorkflow = buildMailchimpWorkflowHandoff(
+    mailchimpIntent,
+    mailchimpPreview,
+    providerContracts,
+    scopedMutationAuthorization,
+    requestState,
+    workflowHandoff,
+    history
+  );
   const dispatchCommand = commandEnvelope('dispatch_workflow_handoff', requestState, {
     snapshotId: handoffId,
     jobId: workflowHandoff.targetJobId || selectedJob?.id || null,
@@ -2082,6 +3295,7 @@ function buildClientWorkflowHandoff(graph, requestState, operationalHealth, prov
     commandSink: providerHandoff.commandSink,
     correlationId: providerHandoff.correlationId,
     returnRoute: providerHandoff.returnRoute,
+    mailchimp: providerHandoff.mailchimp,
     scopeClaims: graph.boundary.scopePolicy.handoffClaims,
     mutationAuthorizationId: scopedMutationAuthorization.authorizationId,
     payload: workflowHandoff.payload
@@ -2098,6 +3312,23 @@ function buildClientWorkflowHandoff(graph, requestState, operationalHealth, prov
       dismissed,
       commandId: dispatchCommand.commandId
     },
+    ...(mailchimpWorkflow.requested
+      ? [{
+          handoffId: mailchimpWorkflow.handoffId,
+          action: mailchimpWorkflow.action,
+          label: mailchimpWorkflow.dispatchable
+            ? 'Dispatch Mailchimp workflow handoff'
+            : 'Review Mailchimp workflow handoff',
+          status: mailchimpWorkflow.status,
+          targetJobId: workflowHandoff.targetJobId || null,
+          dispatchable: mailchimpWorkflow.dispatchable,
+          alreadyCompleted: completedHandoffs.has(mailchimpWorkflow.handoffId),
+          dismissed: dismissedHandoffs.has(mailchimpWorkflow.handoffId),
+          commandId: mailchimpWorkflow.command?.commandId || null,
+          product: 'mailchimp',
+          blockedReasons: mailchimpWorkflow.blockedReasons
+        }]
+      : []),
     ...operationalHealth.retryQueue.slice(0, 3).map((plan) => ({
       handoffId: `${surfaceId}:${requestState.requestId}:retry:${plan.jobId}`,
       action: 'watch_retry_backoff',
@@ -2133,6 +3364,7 @@ function buildClientWorkflowHandoff(graph, requestState, operationalHealth, prov
       commandSink: providerHandoff.commandSink,
       externalSystem: providerHandoff.externalSystem,
       correlationId: providerHandoff.correlationId,
+      mailchimp: providerHandoff.mailchimp,
       blockedReasons: providerHandoff.blockedReasons,
       scopeClaims: graph.boundary.scopePolicy.handoffClaims
     },
@@ -2144,12 +3376,13 @@ function buildClientWorkflowHandoff(graph, requestState, operationalHealth, prov
     },
     dispatchRequest: dispatchable && !alreadyCompleted
       ? {
-          commandId: dispatchCommand.commandId,
-          idempotencyKey: dispatchCommand.idempotencyKey,
-          alreadyApplied: dispatchCommand.alreadyApplied,
-          payload: dispatchCommand.payload
-        }
+      commandId: dispatchCommand.commandId,
+      idempotencyKey: dispatchCommand.idempotencyKey,
+      alreadyApplied: dispatchCommand.alreadyApplied,
+      payload: dispatchCommand.payload
+    }
       : null,
+    mailchimpWorkflow,
     queue,
     proof: {
       selectedJobId: selectedJob?.id || null,
@@ -2157,12 +3390,305 @@ function buildClientWorkflowHandoff(graph, requestState, operationalHealth, prov
       completedHandoffCount: completedHandoffs.size,
       dismissedHandoffCount: dismissedHandoffs.size,
       readOnly: operationalHealth.readOnly,
-      scopeWriteBlockedReasons: graph.boundary.scopePolicy.writeBlockedReasons
+      scopeWriteBlockedReasons: graph.boundary.scopePolicy.writeBlockedReasons,
+      mailchimpWorkflowStatus: mailchimpWorkflow.status,
+      mailchimpWorkflowRequested: mailchimpWorkflow.requested
     }
   };
 }
 
-function buildClientRuntimeState(graph, validation, readiness, requestState, persistedState, operationalHealth, lifecycleControls, providerContracts, decisionPanel, workflowHandoff, clientWorkflowHandoff, scopedMutationAuthorization, analytics, clientPreview) {
+function mailchimpGate(code, passed, action, message, evidence = {}) {
+  return {
+    code,
+    passed: Boolean(passed),
+    status: passed ? 'pass' : 'fail',
+    action: passed ? null : action,
+    message,
+    evidence
+  };
+}
+
+function mailchimpNextStepFromGate(gate, fallbackTarget, requestState) {
+  if (!gate) {
+    return {
+      kind: 'accept_mailchimp_graph_preview',
+      label: 'Accept Mailchimp graph preview',
+      targetId: fallbackTarget,
+      reason: 'Mailchimp provider, graph readiness, validation, and scoped mutation authorization are aligned.',
+      routeQueryPatch: {
+        selectedJobId: fallbackTarget,
+        mode: requestState.mode,
+        panel: 'acceptance',
+        action: 'accept_mailchimp_graph_preview'
+      }
+    };
+  }
+
+  return {
+    kind: gate.action,
+    label: gate.message,
+    targetId: firstString(gate.evidence?.targetId, gate.evidence?.providerId, fallbackTarget),
+    reason: `Mailchimp acceptance is blocked by ${gate.code}.`,
+    routeQueryPatch: {
+      selectedJobId: fallbackTarget,
+      mode: gate.code.includes('validation') || gate.code.includes('scope') ? 'triage' : requestState.mode,
+      panel: gate.code.includes('provider') || gate.code.includes('mailchimp') ? 'provider' : 'readiness',
+      action: gate.action
+    }
+  };
+}
+
+function buildMailchimpPreviewAcceptanceContract(graph, validation, readiness, acceptance, requestState, operationalHealth, providerContracts, scopedMutationAuthorization, nextSteps, now) {
+  const selectedProvider = providerContracts.providers
+    .find((provider) => provider.providerId === providerContracts.selectedProviderId) || null;
+  const mailchimp = selectedProvider?.mailchimp || null;
+  const handoffMailchimp = providerContracts.externalHandoff.mailchimp;
+  const selectedJob = graph.nodes.find((node) => node.id === requestState.selectedJobId) || null;
+  const acceptanceDecision = scopedMutationAuthorization.decisions
+    .find((decision) => decision.kind === 'accept_graph_preview') || null;
+  const mailchimpEnabled = Boolean(mailchimp?.enabled && handoffMailchimp);
+  const mailchimpBlockedReasons = mailchimpEnabled
+    ? Array.from(new Set([
+        ...(mailchimp.blockedReasons || []),
+        ...(providerContracts.negotiation.missingMailchimpCapabilities || [])
+      ])).sort()
+    : ['mailchimp_contract_not_declared'];
+  const sync = mailchimp?.sync || {};
+  const handoff = mailchimp?.handoff || {};
+  const validationErrors = validation.issues.filter((issue) => issue.severity === 'error');
+  const validationWarnings = validation.issues.filter((issue) => issue.severity !== 'error');
+  const gates = [
+    mailchimpGate(
+      'mailchimp_contract_declared',
+      mailchimpEnabled,
+      'bind_mailchimp_provider_contract',
+      'Select a provider with a declared Mailchimp handoff contract.',
+      { providerId: providerContracts.selectedProviderId }
+    ),
+    mailchimpGate(
+      'mailchimp_audience_bound',
+      mailchimpEnabled && Boolean(mailchimp.audienceId),
+      'bind_mailchimp_audience',
+      'Bind a Mailchimp audience before accepting this graph preview.',
+      { audienceId: mailchimp?.audienceId || null }
+    ),
+    mailchimpGate(
+      'mailchimp_server_prefix_bound',
+      mailchimpEnabled && Boolean(mailchimp.serverPrefix),
+      'bind_mailchimp_server_prefix',
+      'Bind the Mailchimp server prefix for command routing.',
+      { serverPrefix: mailchimp?.serverPrefix || null }
+    ),
+    mailchimpGate(
+      'mailchimp_campaign_bound',
+      mailchimpEnabled && Boolean(mailchimp.campaignId),
+      'bind_mailchimp_campaign',
+      'Bind a Mailchimp campaign id before campaign handoff.',
+      { campaignId: mailchimp?.campaignId || null }
+    ),
+    mailchimpGate(
+      'mailchimp_sync_fresh',
+      mailchimpEnabled && sync.stale === false,
+      'refresh_mailchimp_sync',
+      'Refresh Mailchimp sync metadata before accepting this graph preview.',
+      {
+        lastSyncedAt: sync.lastSyncedAt || null,
+        syncAgeMs: sync.syncAgeMs ?? null,
+        maxSyncAgeMs: sync.maxSyncAgeMs ?? null
+      }
+    ),
+    mailchimpGate(
+      'mailchimp_webhook_ack_supported',
+      mailchimpEnabled && ['at_least_once', 'exactly_once', 'manual_ack'].includes(mailchimp.webhookAckMode),
+      'configure_mailchimp_webhook_ack',
+      'Configure a supported Mailchimp webhook acknowledgement mode.',
+      { webhookAckMode: mailchimp?.webhookAckMode || null }
+    ),
+    mailchimpGate(
+      'mailchimp_external_state_accepts_handoff',
+      mailchimpEnabled && !['failed', 'paused', 'missing', 'unknown'].includes(handoff.externalState),
+      'resolve_mailchimp_external_state',
+      'Move the Mailchimp handoff out of missing, paused, failed, or unknown state.',
+      { externalState: handoff.externalState || null }
+    ),
+    mailchimpGate(
+      'provider_negotiation_ready',
+      providerContracts.negotiation.negotiable,
+      'negotiate_provider_contract',
+      'Negotiate provider capabilities required for Mailchimp graph handoff.',
+      {
+        providerId: providerContracts.selectedProviderId,
+        blockedReasons: providerContracts.negotiation.blockedReasons
+      }
+    ),
+    mailchimpGate(
+      'graph_validation_ready',
+      validation.valid,
+      'repair_graph_validation',
+      'Resolve graph validation errors before Mailchimp acceptance.',
+      { issueCodes: validationErrors.map((issue) => issue.code) }
+    ),
+    mailchimpGate(
+      'acceptance_authorized',
+      Boolean(acceptanceDecision?.allowed),
+      'request_acceptance_authorization',
+      'Resolve scoped mutation authorization before Mailchimp acceptance.',
+      {
+        authorizationId: scopedMutationAuthorization.authorizationId,
+        blockedReasons: scopedMutationAuthorization.blockedReasons
+      }
+    ),
+    mailchimpGate(
+      'readiness_ready',
+      readiness.ready && !operationalHealth.readOnly,
+      operationalHealth.readOnly ? 'restore_operational_health' : 'prepare_acceptance',
+      'Clear readiness or health blockers before Mailchimp acceptance.',
+      {
+        readinessLevel: readiness.level,
+        readOnly: operationalHealth.readOnly,
+        blockedReasons: readiness.reasons
+      }
+    )
+  ];
+  const failedGates = gates.filter((gate) => !gate.passed);
+  const blockingReasons = Array.from(new Set([
+    ...mailchimpBlockedReasons,
+    ...failedGates.map((gate) => gate.code),
+    ...scopedMutationAuthorization.blockedReasons,
+    ...(operationalHealth.readOnly ? ['operational_health_read_only'] : [])
+  ])).filter(Boolean).sort();
+  const enabled = failedGates.length === 0 && Boolean(acceptance.acceptToken);
+  const firstFailedGate = failedGates[0] || null;
+  const fallbackNextStep = nextSteps[0] || null;
+  const nextStep = firstFailedGate
+    ? mailchimpNextStepFromGate(firstFailedGate, selectedJob?.id || surfaceName, requestState)
+    : mailchimpNextStepFromGate(null, selectedJob?.id || surfaceName, requestState);
+  const previewId = `${surfaceId}:${requestState.requestId}:mailchimp-preview:${providerContracts.selectedProviderId || 'provider'}:${failedGates.length}`;
+  const status = enabled
+    ? 'mailchimp_acceptance_ready'
+    : !mailchimpEnabled
+      ? 'mailchimp_provider_missing'
+      : validationErrors.length > 0
+        ? 'mailchimp_validation_blocked'
+        : operationalHealth.readOnly
+          ? 'mailchimp_read_only'
+          : 'mailchimp_readiness_blocked';
+
+  return {
+    contract: 'mailchimp-job-graph-preview-acceptance.v1',
+    previewId,
+    generatedAt: now,
+    status,
+    enabled,
+    route: {
+      pathname: '/operator-userland/job-graph-view',
+      query: {
+        requestId: requestState.requestId,
+        selectedJobId: selectedJob?.id || requestState.selectedJobId,
+        mode: nextStep.routeQueryPatch.mode,
+        preview: status,
+        panel: enabled ? 'acceptance' : nextStep.routeQueryPatch.panel,
+        product: 'mailchimp'
+      }
+    },
+    provider: {
+      providerId: providerContracts.selectedProviderId,
+      contractDeclared: mailchimpEnabled,
+      negotiationStatus: providerContracts.negotiation.status,
+      handoffStatus: providerContracts.externalHandoff.status,
+      commandSink: handoffMailchimp?.commandSink || providerContracts.externalHandoff.commandSink,
+      returnRoute: handoff.returnRoute || providerContracts.externalHandoff.returnRoute,
+      externalSystem: mailchimp?.externalSystem || 'mailchimp-marketing',
+      blockedReasons: mailchimpBlockedReasons
+    },
+    mailchimp: mailchimpEnabled
+      ? {
+          audienceId: mailchimp.audienceId,
+          campaignId: mailchimp.campaignId,
+          templateId: mailchimp.templateId,
+          serverPrefix: mailchimp.serverPrefix,
+          webhookAckMode: mailchimp.webhookAckMode,
+          externalState: handoff.externalState,
+          externalStateRaw: handoff.externalStateRaw,
+          mergeFieldNamespace: handoff.mergeFieldNamespace,
+          idempotencyField: handoff.idempotencyField,
+          requiresDoubleOptIn: handoff.requiresDoubleOptIn,
+          sync: {
+            cursor: sync.cursor,
+            generation: sync.generation,
+            lastSyncedAt: sync.lastSyncedAt,
+            syncAgeMs: sync.syncAgeMs,
+            maxSyncAgeMs: sync.maxSyncAgeMs,
+            stale: sync.stale,
+            syncedEntityCount: sync.syncedEntityCount,
+            entitySync: sync.entitySync
+          }
+        }
+      : null,
+    validationSummary: {
+      status: validation.valid ? 'valid' : 'invalid',
+      issueCount: validation.issueCount,
+      errorCount: validationErrors.length,
+      warningCount: validationWarnings.length,
+      blockingIssueCodes: validationErrors.map((issue) => issue.code),
+      warningIssueCodes: validationWarnings.map((issue) => issue.code)
+    },
+    readinessSummary: {
+      level: readiness.level,
+      ready: readiness.ready,
+      failedGates: gates.filter((gate) => !gate.passed).map((gate) => gate.code),
+      graphReadyQueue: graph.topology.readyQueue,
+      proofBackedJobIds: graph.proofBackedNodes.map((node) => node.id),
+      blockedJobIds: graph.blockedNodes.map((node) => node.id)
+    },
+    gates,
+    acceptance: {
+      enabled,
+      action: enabled ? 'accept_mailchimp_graph_preview' : 'hold_mailchimp_acceptance',
+      acceptToken: enabled ? acceptance.acceptToken : null,
+      authorizationId: scopedMutationAuthorization.authorizationId,
+      commandSink: handoffMailchimp?.commandSink || providerContracts.externalHandoff.commandSink,
+      correlationId: providerContracts.externalHandoff.correlationId,
+      idempotencyKey: enabled
+        ? `${surfaceId}:${requestState.requestId}:mailchimp:${mailchimp.audienceId}:${mailchimp.campaignId}`
+        : null,
+      blockedReasons: enabled ? [] : blockingReasons,
+      payload: enabled
+        ? {
+            requestId: requestState.requestId,
+            providerId: providerContracts.selectedProviderId,
+            audienceId: mailchimp.audienceId,
+            campaignId: mailchimp.campaignId,
+            templateId: mailchimp.templateId,
+            serverPrefix: mailchimp.serverPrefix,
+            syncCursor: sync.cursor,
+            syncGeneration: sync.generation,
+            acceptToken: acceptance.acceptToken,
+            scopeClaims: graph.boundary.scopePolicy.handoffClaims,
+            mutationAuthorizationId: scopedMutationAuthorization.authorizationId
+          }
+        : null
+    },
+    explainableNextStep: {
+      ...nextStep,
+      fallbackKind: fallbackNextStep?.kind || null,
+      fallbackReason: fallbackNextStep?.explain || null
+    },
+    proof: {
+      product: 'mailchimp',
+      selectedJobId: selectedJob?.id || null,
+      providerId: providerContracts.selectedProviderId,
+      failedGateCount: failedGates.length,
+      passedGateCount: gates.length - failedGates.length,
+      blockedReasons,
+      healthStatus: operationalHealth.status,
+      providerHandoffStatus: providerContracts.externalHandoff.status,
+      mutationAuthorizationStatus: scopedMutationAuthorization.status
+    }
+  };
+}
+
+function buildClientRuntimeState(graph, validation, readiness, requestState, persistedState, operationalHealth, lifecycleControls, providerContracts, decisionPanel, workflowHandoff, clientWorkflowHandoff, scopedMutationAuthorization, analytics, clientPreview, mailchimpPreview) {
   const selectedNode = graph.nodes.find((node) => node.id === requestState.selectedJobId) || null;
   const unresolvedDependencies = dependenciesFor(graph, selectedNode?.id)
     .filter((dependency) => !dependency.resolved)
@@ -2206,7 +3732,13 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
       leafJobIds: graph.topology.leaves,
       readyQueue: graph.topology.readyQueue,
       cycleCount: graph.topology.cycles.length,
-      dependencyBlockedJobCount: graph.topology.blockedByDependencies.length
+      dependencyBlockedJobCount: graph.topology.blockedByDependencies.length,
+      integrityStatus: graph.integrity.status,
+      lossless: graph.integrity.lossless,
+      executableDependencyCount: graph.integrity.executableDependencyCount,
+      malformedDependencyCount: graph.integrity.malformedDependencyCount,
+      droppedDependencyCount: graph.integrity.droppedDependencyCount,
+      structuralIssueCodes: graph.integrity.structuralIssueCodes
     },
     viewFlags: {
       showValidationPanel: validation.issueCount > 0,
@@ -2218,7 +3750,8 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
       showHealthPanel: operationalHealth.status !== 'healthy',
       readOnlyDegradedMode: operationalHealth.readOnly,
       showLifecycleControls: lifecycleControls.controls.length > 0,
-      lifecycleControlsWritable: lifecycleControls.writable
+      lifecycleControlsWritable: lifecycleControls.writable,
+      showCommandRecoveryPanel: Boolean(persistedState.commandRecovery && !persistedState.commandRecovery.restartSafe)
     },
     providerContracts: {
       contract: providerContracts.contract,
@@ -2233,12 +3766,26 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
       syncCursor: providerContracts.externalHandoff.syncCursor,
       ackMode: providerContracts.externalHandoff.ackMode,
       externalState: providerContracts.externalHandoff.externalState,
+      mailchimp: providerContracts.externalHandoff.mailchimp
+        ? {
+            audienceId: providerContracts.externalHandoff.mailchimp.audienceId,
+            campaignId: providerContracts.externalHandoff.mailchimp.campaignId,
+            templateId: providerContracts.externalHandoff.mailchimp.templateId,
+            serverPrefix: providerContracts.externalHandoff.mailchimp.serverPrefix,
+            externalState: providerContracts.externalHandoff.mailchimp.externalState,
+            syncCursor: providerContracts.externalHandoff.mailchimp.syncCursor,
+            webhookAckMode: providerContracts.externalHandoff.mailchimp.webhookAckMode,
+            mergeFieldNamespace: providerContracts.externalHandoff.mailchimp.mergeFieldNamespace,
+            blockedReasons: providerContracts.externalHandoff.mailchimp.blockedReasons
+          }
+        : null,
       candidateProviders: providerContracts.negotiationPlan.candidateProviders.map((provider) => ({
         providerId: provider.providerId,
         status: provider.status,
         score: provider.score,
         commandSink: provider.handoff.commandSink,
         stale: provider.sync.stale,
+        mailchimp: provider.mailchimp,
         blockedReasons: provider.blockedReasons
       }))
     },
@@ -2254,7 +3801,25 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
       commandId: clientWorkflowHandoff.dispatchRequest?.commandId || null,
       providerId: clientWorkflowHandoff.provider.providerId,
       blockedReasons: clientWorkflowHandoff.provider.blockedReasons,
-      queuedHandoffCount: clientWorkflowHandoff.queue.length
+      queuedHandoffCount: clientWorkflowHandoff.queue.length,
+      mailchimp: {
+        contract: clientWorkflowHandoff.mailchimpWorkflow.contract,
+        handoffId: clientWorkflowHandoff.mailchimpWorkflow.handoffId,
+        status: clientWorkflowHandoff.mailchimpWorkflow.status,
+        requested: clientWorkflowHandoff.mailchimpWorkflow.requested,
+        action: clientWorkflowHandoff.mailchimpWorkflow.action,
+        dispatchable: clientWorkflowHandoff.mailchimpWorkflow.dispatchable,
+        dryRun: clientWorkflowHandoff.mailchimpWorkflow.dryRun,
+        commandId: clientWorkflowHandoff.mailchimpWorkflow.command?.commandId || null,
+        route: clientWorkflowHandoff.mailchimpWorkflow.route,
+        providerId: clientWorkflowHandoff.mailchimpWorkflow.provider.providerId,
+        audienceId: clientWorkflowHandoff.mailchimpWorkflow.target.audienceId,
+        campaignId: clientWorkflowHandoff.mailchimpWorkflow.target.campaignId,
+        templateId: clientWorkflowHandoff.mailchimpWorkflow.target.templateId,
+        serverPrefix: clientWorkflowHandoff.mailchimpWorkflow.target.serverPrefix,
+        segmentIds: clientWorkflowHandoff.mailchimpWorkflow.target.segmentIds,
+        blockedReasons: clientWorkflowHandoff.mailchimpWorkflow.blockedReasons
+      }
     },
     mutationAuthorization: {
       contract: scopedMutationAuthorization.contract,
@@ -2305,6 +3870,11 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
       failedJobCount: operationalHealth.failedJobCount,
       actionableErrorCount: operationalHealth.actionableErrors.length,
       nextRetryAt: operationalHealth.retryHorizon.nextRetryAt,
+      incidentResponseStatus: operationalHealth.incidentResponse.status,
+      primaryIncidentCode: operationalHealth.incidentResponse.primaryIncident?.code || null,
+      primaryIncidentAction: operationalHealth.incidentResponse.primaryIncident?.action || null,
+      writeBlockingIncidentCount: operationalHealth.incidentResponse.writeBlockingIncidentCount,
+      recoveryChecklist: operationalHealth.incidentResponse.recoveryChecklist,
       blockingGateCount: operationalHealth.healthGates.filter((gate) => gate.writeBlocking).length,
       warningGateCount: operationalHealth.healthGates.filter((gate) => !gate.passed && !gate.writeBlocking).length
     },
@@ -2334,6 +3904,7 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
       selectedJobId: lifecycleControls.selectedJobId,
       writable: lifecycleControls.writable,
       blockedReasons: lifecycleControls.blockedReasons,
+      settingsValidation: lifecycleControls.settingsValidation,
       nextAction: lifecycleControls.nextAction,
       transitionState: {
         contract: lifecycleControls.transitionState.contract,
@@ -2353,6 +3924,36 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
           statePatch: transition.statePatch
         }))
       },
+    mailchimpPreview: {
+      contract: mailchimpPreview.contract,
+      previewId: mailchimpPreview.previewId,
+      status: mailchimpPreview.status,
+      enabled: mailchimpPreview.enabled,
+      routePanel: mailchimpPreview.route.query.panel,
+      providerId: mailchimpPreview.provider.providerId,
+      contractDeclared: mailchimpPreview.provider.contractDeclared,
+      audienceId: mailchimpPreview.mailchimp?.audienceId || null,
+      campaignId: mailchimpPreview.mailchimp?.campaignId || null,
+      serverPrefix: mailchimpPreview.mailchimp?.serverPrefix || null,
+      externalState: mailchimpPreview.mailchimp?.externalState || null,
+      syncStale: mailchimpPreview.mailchimp?.sync?.stale ?? null,
+      syncedEntityCount: mailchimpPreview.mailchimp?.sync?.syncedEntityCount ?? 0,
+      validationStatus: mailchimpPreview.validationSummary.status,
+      validationIssueCount: mailchimpPreview.validationSummary.issueCount,
+      readinessLevel: mailchimpPreview.readinessSummary.level,
+      failedGates: mailchimpPreview.readinessSummary.failedGates,
+      acceptanceEnabled: mailchimpPreview.acceptance.enabled,
+      acceptanceAction: mailchimpPreview.acceptance.action,
+      acceptanceAuthorizationId: mailchimpPreview.acceptance.authorizationId,
+      blockedReasons: mailchimpPreview.acceptance.blockedReasons,
+      nextStepKind: mailchimpPreview.explainableNextStep.kind,
+      nextStepTargetId: mailchimpPreview.explainableNextStep.targetId,
+      gateStatuses: mailchimpPreview.gates.map((gate) => ({
+        code: gate.code,
+        status: gate.status,
+        action: gate.action
+      }))
+    },
       dispatchPlan: {
         contract: lifecycleControls.dispatchPlan.contract,
         status: lifecycleControls.dispatchPlan.status,
@@ -2364,6 +3965,7 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
         selectedCommandId: lifecycleControls.dispatchPlan.selectedCommandId,
         scheduledFor: lifecycleControls.dispatchPlan.scheduledFor,
         expiresAt: lifecycleControls.dispatchPlan.expiresAt,
+        scheduleDecision: lifecycleControls.dispatchPlan.scheduleDecision,
         blockedReasons: lifecycleControls.dispatchPlan.blockedReasons,
         route: lifecycleControls.dispatchPlan.route
       },
@@ -2384,12 +3986,14 @@ function buildClientRuntimeState(graph, validation, readiness, requestState, per
       visibleNodeCount: graph.boundary.visibleNodeCount,
       deniedNodeCount: graph.boundary.deniedNodes.length,
       deniedEdgeCount: graph.boundary.deniedEdges.length,
+      malformedEdgeCount: graph.boundary.malformedEdges.length,
       canAcceptGraph: graph.boundary.accessContext.canAcceptGraph,
       canWriteScopedGraph: graph.boundary.scopePolicy.canWriteScopedGraph,
       scopeWriteBlockedReasons: graph.boundary.scopePolicy.writeBlockedReasons,
       effectiveTenantId: graph.boundary.scopePolicy.effectiveTenantId,
       effectiveWorkspaceId: graph.boundary.scopePolicy.effectiveWorkspaceId,
-      workspaceGrant: graph.boundary.scopePolicy.workspaceGrant
+      workspaceGrant: graph.boundary.scopePolicy.workspaceGrant,
+      integrity: graph.boundary.integrity
     },
     persistedState
   };
@@ -2460,7 +4064,9 @@ function buildWorkflowHandoff(graph, validation, readiness, acceptance, requestS
       payload: {
         requestId: requestState.requestId,
         issueCodes: validation.issues.map((issue) => issue.code),
-        danglingDependencyIds: graph.danglingEdges.map((edge) => edge.id)
+        danglingDependencyIds: graph.danglingEdges.map((edge) => edge.id),
+        malformedDependencyIds: graph.malformedEdges.map((edge) => edge.id),
+        structuralIssueCodes: graph.integrity.structuralIssueCodes
       }
     };
   }
@@ -2532,6 +4138,10 @@ function buildPreview(graph) {
     totals: {
       jobs: graph.nodes.length,
       dependencies: graph.edges.length,
+      executableDependencies: graph.integrity.executableDependencyCount,
+      malformedDependencies: graph.integrity.malformedDependencyCount,
+      danglingDependencies: graph.integrity.danglingDependencyCount,
+      droppedDependencies: graph.integrity.droppedDependencyCount,
       active: graph.activeNodes.length,
       blocked: graph.blockedNodes.length,
       terminal: graph.terminalNodes.length,
@@ -2554,15 +4164,27 @@ function buildPreview(graph) {
   };
 }
 
-function buildReadiness(graph, validation, operationalHealth, providerContracts) {
+function buildReadiness(graph, validation, operationalHealth, providerContracts, commandRecovery = null) {
   const hasProof = graph.proofBackedNodes.length > 0;
   const canAcceptGraph = graph.boundary.accessContext.canAcceptGraph;
   const healthAllowsAcceptance = operationalHealth.status === 'healthy';
   const providerAllowsAcceptance = providerContracts.negotiation.negotiable;
-  const topologyAllowsAcceptance = graph.topology.acyclic;
+  const topologyAllowsAcceptance = graph.topology.acyclic && graph.integrity.lossless;
   const scopeAllowsAcceptance = graph.boundary.scopePolicy.canWriteScopedGraph;
   const workspaceWriteAuthorized = graph.boundary.scopePolicy.workspaceWriteAuthorized;
-  const ready = validation.valid && graph.nodes.length > 0 && graph.blockedNodes.length === 0 && hasProof && canAcceptGraph && healthAllowsAcceptance && providerAllowsAcceptance && topologyAllowsAcceptance && scopeAllowsAcceptance && workspaceWriteAuthorized;
+  const commandRecoveryAllowsAcceptance = commandRecovery?.restartSafe ?? true;
+  const ready =
+    validation.valid &&
+    graph.nodes.length > 0 &&
+    graph.blockedNodes.length === 0 &&
+    hasProof &&
+    canAcceptGraph &&
+    healthAllowsAcceptance &&
+    providerAllowsAcceptance &&
+    topologyAllowsAcceptance &&
+    scopeAllowsAcceptance &&
+    workspaceWriteAuthorized &&
+    commandRecoveryAllowsAcceptance;
   const reasons = [];
 
   if (graph.nodes.length === 0) reasons.push('Add at least one job to the graph.');
@@ -2572,9 +4194,10 @@ function buildReadiness(graph, validation, operationalHealth, providerContracts)
   if (!canAcceptGraph) reasons.push('Use an operator role or permission that can accept the job graph.');
   if (!healthAllowsAcceptance) reasons.push('Resolve hosted-kernel health errors or wait for scheduled retry backoff.');
   if (!providerAllowsAcceptance) reasons.push('Negotiate a synced provider contract with graph acceptance, proof export, and lifecycle dispatch capabilities.');
-  if (!topologyAllowsAcceptance) reasons.push('Break dependency cycles before accepting the hosted-kernel graph.');
+  if (!topologyAllowsAcceptance) reasons.push('Resolve malformed, duplicate, dangling, or cyclic dependencies before accepting the hosted-kernel graph.');
   if (!scopeAllowsAcceptance) reasons.push('Bind tenant and workspace scope before submitting hosted-kernel write handoff.');
   if (!workspaceWriteAuthorized) reasons.push('Attach a workspace write grant for the scoped tenant/workspace before hosted-kernel handoff.');
+  if (!commandRecoveryAllowsAcceptance) reasons.push('Reconcile stale, failed, or unknown persisted commands before resuming hosted-kernel write handoff.');
 
   return {
     ready,
@@ -2582,7 +4205,10 @@ function buildReadiness(graph, validation, operationalHealth, providerContracts)
     reasons,
     gates: {
       hasJobs: graph.nodes.length > 0,
-      dependenciesResolved: graph.danglingEdges.length === 0,
+      dependenciesResolved: graph.integrity.lossless,
+      dependencyEndpointsComplete: graph.malformedEdges.length === 0,
+      dependencyIdsUnique: graph.integrity.duplicateEdgeIds.length === 0,
+      jobIdsUnique: graph.integrity.duplicateNodeIds.length === 0,
       noBlockedJobs: graph.blockedNodes.length === 0,
       hasProof,
       canAcceptGraph,
@@ -2591,6 +4217,7 @@ function buildReadiness(graph, validation, operationalHealth, providerContracts)
       topologyAllowsAcceptance,
       scopeAllowsAcceptance,
       workspaceWriteAuthorized,
+      commandRecoveryAllowsAcceptance,
       degradedMode: operationalHealth.degradedMode,
       tenantBoundaryClean: graph.boundary.deniedNodes.length === 0 && graph.boundary.deniedEdges.length === 0
     }
@@ -2602,7 +4229,7 @@ function buildAcceptance(graph, readiness, providerContracts) {
     accepted: Boolean(readiness.ready),
     action: readiness.ready ? 'accept_graph_preview' : 'hold_for_operator_review',
     acceptToken: readiness.ready
-      ? `${surfaceId}:${providerContracts.selectedProviderId}:${graph.boundary.scopePolicy.effectiveTenantId || 'tenant'}:${graph.boundary.scopePolicy.effectiveWorkspaceId || 'workspace'}:${graph.nodes.length}:${graph.edges.length}:${graph.proofBackedNodes.length}`
+      ? `${surfaceId}:${providerContracts.selectedProviderId}:${graph.boundary.scopePolicy.effectiveTenantId || 'tenant'}:${graph.boundary.scopePolicy.effectiveWorkspaceId || 'workspace'}:${graph.nodes.length}:${graph.edges.length}:${graph.integrity.executableDependencyCount}:${graph.proofBackedNodes.length}`
       : null,
     providerId: providerContracts.selectedProviderId,
     externalHandoff: providerContracts.externalHandoff,
@@ -2632,6 +4259,10 @@ function summarizeCounters(graph, validation, readiness, operationalHealth) {
     totals: {
       visibleJobs: graph.nodes.length,
       visibleDependencies: graph.edges.length,
+      executableDependencies: graph.integrity.executableDependencyCount,
+      malformedDependencies: graph.integrity.malformedDependencyCount,
+      danglingDependencies: graph.integrity.danglingDependencyCount,
+      droppedDependencies: graph.integrity.droppedDependencyCount,
       activeJobs: graph.activeNodes.length,
       terminalJobs: graph.terminalNodes.length,
       blockedJobs: graph.blockedNodes.length,
@@ -2640,7 +4271,9 @@ function summarizeCounters(graph, validation, readiness, operationalHealth) {
       validationIssues: validation.issueCount,
       readinessGateFailures: readiness.reasons.length,
       deniedJobs: graph.boundary.deniedNodes.length,
-      deniedDependencies: graph.boundary.deniedEdges.length
+      deniedDependencies: graph.boundary.deniedEdges.length,
+      duplicateVisibleJobIds: graph.integrity.duplicateVisibleJobIdCount,
+      duplicateVisibleDependencyIds: graph.integrity.duplicateVisibleDependencyIdCount
     },
     byStatus: status,
     byOwner: owners,
@@ -2650,7 +4283,8 @@ function summarizeCounters(graph, validation, readiness, operationalHealth) {
       completion: ratio(graph.terminalNodes.length, graph.nodes.length),
       proofCoverage: ratio(graph.proofBackedNodes.length, graph.nodes.length),
       blocked: ratio(graph.blockedNodes.length, graph.nodes.length),
-      boundaryDenial: ratio(graph.boundary.deniedNodes.length, graph.boundary.inputNodeCount)
+      boundaryDenial: ratio(graph.boundary.deniedNodes.length, graph.boundary.inputNodeCount),
+      dependencyLoss: ratio(graph.integrity.droppedDependencyCount, graph.boundary.inputEdgeCount)
     },
     durationMs: {
       observedCount: durations.length,
@@ -2851,6 +4485,24 @@ function buildAnalyticsFindings(graph, counters, validation, readiness, operatio
     ));
   }
 
+  if (!graph.integrity.lossless) {
+    findings.push(analyticsFinding(
+      'dependency_integrity_lossy',
+      validation.valid ? 'warning' : 'critical',
+      'The analytics report detected dependency records that cannot be executed as a complete visible graph.',
+      {
+        status: graph.integrity.status,
+        malformedDependencyCount: graph.integrity.malformedDependencyCount,
+        danglingDependencyCount: graph.integrity.danglingDependencyCount,
+        droppedDependencyCount: graph.integrity.droppedDependencyCount,
+        duplicateVisibleJobIdCount: graph.integrity.duplicateVisibleJobIdCount,
+        duplicateVisibleDependencyIdCount: graph.integrity.duplicateVisibleDependencyIdCount,
+        structuralIssueCodes: graph.integrity.structuralIssueCodes
+      },
+      validation.valid ? 'review_dependency_integrity' : 'repair_graph_validation'
+    ));
+  }
+
   return {
     contract: 'hosted-kernel-job-graph-analytics-findings.v1',
     generatedAt: now,
@@ -2912,6 +4564,202 @@ function normalizeExportRequest(input) {
   };
 }
 
+function stableExportValue(value) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.map(stableExportValue);
+  if (typeof value === 'object') {
+    return Object.keys(value)
+      .sort()
+      .reduce((result, key) => {
+        result[key] = stableExportValue(value[key]);
+        return result;
+      }, {});
+  }
+  return value;
+}
+
+function exportChecksum(value) {
+  const text = JSON.stringify(stableExportValue(value));
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function exportPayloadForFile(file) {
+  if (Array.isArray(file.rows)) {
+    return {
+      headers: file.headers || [],
+      rows: file.rows
+    };
+  }
+  return file.summary || file;
+}
+
+function classifyExportFile(key, file) {
+  if (key.endsWith('Csv')) return 'csv';
+  if (key.toLowerCase().includes('timeline')) return 'timeline';
+  if (file.summary) return 'json';
+  return 'artifact';
+}
+
+function buildExportManifestEntry(key, file, exports, exportRequest, now) {
+  const payload = exportPayloadForFile(file);
+  const rows = Array.isArray(file.rows) ? file.rows : [];
+  const rowCount = Array.isArray(file.rows) ? file.rows.length : 1;
+  const headerCount = Array.isArray(file.headers) ? file.headers.length : 0;
+  const format = classifyExportFile(key, file);
+  const contentType = format === 'csv'
+    ? 'text/csv'
+    : format === 'timeline'
+      ? 'application/vnd.aios.job-graph.timeline+json'
+      : 'application/json';
+  const sampleRow = rows[0] || null;
+  const containsScopeFilteredData =
+    key === 'reportJson' ||
+    rows.some((row) => row?.deniedJobCount > 0 || row?.deniedDependencyCount > 0 || row?.evidence);
+
+  return {
+    contract: 'hosted-kernel-job-graph-export-manifest-entry.v1',
+    exportKey: key,
+    filename: file.filename,
+    format,
+    contentType,
+    schemaVersion: file.contract || exports.contract,
+    route: exports.route,
+    requestId: exports.requestId,
+    generatedAt: now,
+    rowCount,
+    headerCount,
+    checksum: exportChecksum(payload),
+    empty: rowCount === 0,
+    requested: exportRequest.formats.includes(format) || (format === 'timeline' && exportRequest.includeTimeline),
+    destination: {
+      kind: exportRequest.destination.kind,
+      route: exportRequest.destination.route,
+      sinkId: exportRequest.destination.sinkId
+    },
+    privacy: {
+      includesDeniedScope: Boolean(exportRequest.includeDeniedScope && containsScopeFilteredData),
+      containsEvidenceText: rows.some((row) => typeof row?.evidence === 'string' && row.evidence.length > 0),
+      scope: exportRequest.includeDeniedScope ? 'operator_requested_scope_detail' : 'visible_graph_only'
+    },
+    sampleRow
+  };
+}
+
+function buildHistoryRollup(history, counters, readiness, operationalHealth, now) {
+  const ordered = history
+    .filter((snapshot) => snapshot.capturedAt)
+    .sort((left, right) => firstString(left.capturedAt).localeCompare(firstString(right.capturedAt)));
+  const first = ordered[0] || null;
+  const current = ordered[ordered.length - 1] || null;
+  const previous = ordered.length > 1 ? ordered[ordered.length - 2] : null;
+  const lastFive = ordered.slice(-5);
+  const ageMs = first && current
+    ? Date.parse(current.capturedAt) - Date.parse(first.capturedAt)
+    : 0;
+  const staleSnapshots = ordered.filter((snapshot) => {
+    const capturedMs = Date.parse(snapshot.capturedAt);
+    const nowMs = Date.parse(now);
+    return Number.isFinite(capturedMs) && Number.isFinite(nowMs) && nowMs - capturedMs > 3600000;
+  });
+  const degradedSnapshots = ordered.filter((snapshot) =>
+    snapshot.readinessLevel !== 'ready' || snapshot.healthStatus !== 'healthy'
+  );
+  const consecutiveDegradedCount = ordered
+    .slice()
+    .reverse()
+    .findIndex((snapshot) => snapshot.readinessLevel === 'ready' && snapshot.healthStatus === 'healthy');
+  const movingAverage = (field) => ratio(
+    lastFive.reduce((total, snapshot) => total + normalizeInteger(snapshot[field], 0), 0),
+    lastFive.length || 1
+  );
+  const peak = (field) => lastFive.reduce((result, snapshot) =>
+    snapshot[field] > result.value
+      ? { value: snapshot[field], snapshotId: snapshot.snapshotId, capturedAt: snapshot.capturedAt }
+      : result,
+  { value: 0, snapshotId: null, capturedAt: null });
+
+  return {
+    contract: 'hosted-kernel-job-graph-history-rollup.v1',
+    generatedAt: now,
+    snapshotCount: ordered.length,
+    window: {
+      firstSnapshotId: first?.snapshotId || null,
+      firstCapturedAt: first?.capturedAt || null,
+      currentSnapshotId: current?.snapshotId || null,
+      currentCapturedAt: current?.capturedAt || null,
+      observedWindowMs: Number.isFinite(ageMs) ? Math.max(0, ageMs) : 0
+    },
+    latestDelta: {
+      fromSnapshotId: previous?.snapshotId || null,
+      toSnapshotId: current?.snapshotId || null,
+      visibleJobs: previous && current ? current.visibleJobs - previous.visibleJobs : 0,
+      blockedJobs: previous && current ? current.blockedJobs - previous.blockedJobs : 0,
+      failedJobs: previous && current ? current.failedJobs - previous.failedJobs : 0,
+      proofBackedJobs: previous && current ? current.proofBackedJobs - previous.proofBackedJobs : 0,
+      readinessChanged: Boolean(previous && current && previous.readinessLevel !== current.readinessLevel),
+      healthChanged: Boolean(previous && current && previous.healthStatus !== current.healthStatus)
+    },
+    movingAverageLastFive: {
+      blockedJobs: movingAverage('blockedJobs'),
+      failedJobs: movingAverage('failedJobs'),
+      proofBackedJobs: movingAverage('proofBackedJobs')
+    },
+    peaksLastFive: {
+      blockedJobs: peak('blockedJobs'),
+      failedJobs: peak('failedJobs')
+    },
+    freshness: {
+      staleSnapshotCount: staleSnapshots.length,
+      staleSnapshotIds: staleSnapshots.map((snapshot) => snapshot.snapshotId),
+      freshnessWindowMs: 3600000
+    },
+    reliability: {
+      currentReadinessLevel: readiness.level,
+      currentHealthStatus: operationalHealth.status,
+      degradedSnapshotCount: degradedSnapshots.length,
+      consecutiveDegradedCount: consecutiveDegradedCount < 0 ? ordered.length : consecutiveDegradedCount,
+      currentCompletionRate: counters.rates.completion,
+      currentProofCoverageRate: counters.rates.proofCoverage
+    }
+  };
+}
+
+function buildReportingCommands(exportRequest, publishable, manifest, requestState, history, timeline, input) {
+  const commandHistory = new Set(normalizeCommandHistory(input));
+  const requestedManifest = manifest.filter((file) => file.requested);
+  const commands = [];
+
+  if (exportRequest.requested) {
+    commands.push(commandEnvelope('prepare_job_graph_export_manifest', requestState, {
+      snapshotId: `reporting:${requestState.requestId}:manifest`,
+      formats: exportRequest.formats,
+      destination: exportRequest.destination,
+      fileCount: requestedManifest.length,
+      checksums: requestedManifest.map((file) => ({
+        exportKey: file.exportKey,
+        checksum: file.checksum
+      }))
+    }, commandHistory));
+  }
+
+  if (publishable) {
+    commands.push(commandEnvelope('publish_job_graph_export_bundle', requestState, {
+      snapshotId: `reporting:${requestState.requestId}:publish`,
+      destination: exportRequest.destination,
+      manifestKeys: requestedManifest.map((file) => file.exportKey),
+      historySnapshotCount: history.length,
+      timelineEventCount: timeline.length
+    }, commandHistory));
+  }
+
+  return commands;
+}
+
 function buildExportReadySummaries(graph, counters, validation, readiness, operationalHealth, requestState, analyticsFindings, now) {
   const ownerRows = Object.entries(counters.byOwner)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -2971,6 +4819,14 @@ function buildExportReadySummaries(graph, counters, validation, readiness, opera
             fallbackMode: operationalHealth.fallbackMode,
             degradedReasons: operationalHealth.degradedReasons,
             writeBlockedReasons: operationalHealth.writeBlockedReasons,
+            incidentResponse: {
+              status: operationalHealth.incidentResponse.status,
+              incidentCount: operationalHealth.incidentResponse.incidentCount,
+              writeBlockingIncidentCount: operationalHealth.incidentResponse.writeBlockingIncidentCount,
+              primaryIncident: operationalHealth.incidentResponse.primaryIncident,
+              recoveryChecklist: operationalHealth.incidentResponse.recoveryChecklist,
+              commandSafety: operationalHealth.incidentResponse.commandSafety
+            },
             retryableJobCount: operationalHealth.retryableJobCount,
             actionableErrorCount: operationalHealth.actionableErrors.length,
             nextRetryAt: operationalHealth.retryHorizon.nextRetryAt,
@@ -2988,7 +4844,17 @@ function buildExportReadySummaries(graph, counters, validation, readiness, opera
             leafJobIds: graph.topology.leaves,
             readyQueue: graph.topology.readyQueue,
             cycleCount: graph.topology.cycles.length,
-            dependencyBlockedJobCount: graph.topology.blockedByDependencies.length
+            dependencyBlockedJobCount: graph.topology.blockedByDependencies.length,
+            integrity: {
+              contract: graph.integrity.contract,
+              status: graph.integrity.status,
+              lossless: graph.integrity.lossless,
+              executableDependencyCount: graph.integrity.executableDependencyCount,
+              malformedDependencyCount: graph.integrity.malformedDependencyCount,
+              danglingDependencyCount: graph.integrity.danglingDependencyCount,
+              droppedDependencyCount: graph.integrity.droppedDependencyCount,
+              structuralIssueCodes: graph.integrity.structuralIssueCodes
+            }
           }
         }
       }
@@ -3021,21 +4887,17 @@ function buildReportingState(graph, counters, validation, readiness, operational
   const exportRequest = normalizeExportRequest(input);
   const current = history[history.length - 1] || null;
   const previous = history.length > 1 ? history[history.length - 2] : null;
-  const manifest = Object.entries(exports.files).map(([key, file]) => ({
-    exportKey: key,
-    filename: file.filename,
-    rowCount: Array.isArray(file.rows) ? file.rows.length : 1,
-    headerCount: Array.isArray(file.headers) ? file.headers.length : 0,
-    contentType: key.endsWith('Csv') ? 'text/csv' : 'application/json',
-    route: exports.route,
-    requestId: exports.requestId
-  }));
+  const manifest = Object.entries(exports.files)
+    .map(([key, file]) => buildExportManifestEntry(key, file, exports, exportRequest, now));
   const blockedReasons = [
     ...(!validation.valid ? ['validation_failed'] : []),
     ...(operationalHealth.status === 'critical' ? ['critical_operational_health'] : []),
     ...(!graph.boundary.scopePolicy.canWriteScopedGraph && exportRequest.includeDeniedScope ? ['scope_boundary_not_write_safe'] : [])
   ];
   const publishable = exportRequest.requested && blockedReasons.length === 0;
+  const commands = buildReportingCommands(exportRequest, publishable, manifest, requestState, history, timeline, input);
+  const pendingCommands = commands.filter((command) => !command.alreadyApplied);
+  const historyRollup = buildHistoryRollup(history, counters, readiness, operationalHealth, now);
   const trend = previous && current
     ? {
         fromSnapshotId: previous.snapshotId,
@@ -3076,6 +4938,21 @@ function buildReportingState(graph, counters, validation, readiness, operational
       lanes: timelineLaneSummary(timeline)
     },
     trend,
+    historyRollup,
+    commands,
+    dispatch: {
+      status: pendingCommands.length > 0
+        ? publishable
+          ? 'ready_to_publish'
+          : 'ready_to_prepare'
+        : commands.length > 0
+          ? 'already_applied'
+          : 'idle',
+      pendingCommandCount: pendingCommands.length,
+      pendingCommandIds: pendingCommands.map((command) => command.commandId),
+      nextCommandId: pendingCommands[0]?.commandId || null,
+      idempotencyKeys: commands.map((command) => command.idempotencyKey)
+    },
     proof: {
       requestId: requestState.requestId,
       selectedJobId: requestState.selectedJobId,
@@ -3086,6 +4963,8 @@ function buildReportingState(graph, counters, validation, readiness, operational
       analyticsFindingCount: analyticsFindings.counters.total,
       criticalFindingCount: analyticsFindings.counters.critical,
       exportFileCount: manifest.length,
+      requestedExportFileCount: manifest.filter((file) => file.requested).length,
+      checksumSet: manifest.map((file) => file.checksum).sort(),
       destinationKind: exportRequest.destination.kind
     }
   };
@@ -3150,14 +5029,28 @@ function buildNextSteps(graph, validation, readiness, operationalHealth, lifecyc
   }
 
   if (operationalHealth.status !== 'healthy') {
-    return operationalHealth.actionableErrors.slice(0, 8).map((error) => ({
-      kind: error.action,
-      label: error.message,
-      target: error.jobId || surfaceName,
-      explain: operationalHealth.retryQueue.some((plan) => plan.jobId === error.jobId)
-        ? 'The hosted kernel has scheduled a bounded retry; acceptance remains disabled during backoff.'
-        : 'Hosted-kernel health must return to healthy before operator graph acceptance is enabled.'
-    }));
+    const incidentSteps = operationalHealth.incidentResponse.incidents
+      .slice(0, 8)
+      .map((incident) => ({
+        kind: incident.action,
+        label: incident.message,
+        target: incident.targetJobIds[0] || surfaceName,
+        explain: operationalHealth.retryQueue.some((plan) => incident.targetJobIds.includes(plan.jobId))
+          ? 'The hosted kernel has scheduled a bounded retry; acceptance remains disabled during backoff.'
+          : incident.writeBlocking
+            ? 'This incident blocks hosted-kernel write handoff until it is repaired.'
+            : 'Hosted-kernel health is degraded; review the incident before acceptance.'
+      }));
+    return incidentSteps.length
+      ? incidentSteps
+      : operationalHealth.actionableErrors.slice(0, 8).map((error) => ({
+          kind: error.action,
+          label: error.message,
+          target: error.jobId || surfaceName,
+          explain: operationalHealth.retryQueue.some((plan) => plan.jobId === error.jobId)
+            ? 'The hosted kernel has scheduled a bounded retry; acceptance remains disabled during backoff.'
+            : 'Hosted-kernel health must return to healthy before operator graph acceptance is enabled.'
+        }));
   }
 
   if (!graph.boundary.scopePolicy.canWriteScopedGraph && (blockingScopeOnly || validation.valid)) {
@@ -3343,9 +5236,11 @@ function buildClientPreviewAcceptanceContract(graph, validation, readiness, acce
     {
       key: 'graph',
       label: 'Graph',
-      status: graph.nodes.length > 0 && graph.topology.acyclic && graph.danglingEdges.length === 0 ? 'pass' : 'fail',
+      status: graph.nodes.length > 0 && graph.topology.acyclic && graph.integrity.lossless ? 'pass' : 'fail',
       value: graph.nodes.length,
-      detail: `${graph.edges.length} dependencies, ${graph.topology.readyQueue.length} ready jobs`
+      detail: graph.integrity.lossless
+        ? `${graph.edges.length} dependencies, ${graph.topology.readyQueue.length} ready jobs`
+        : `${graph.integrity.droppedDependencyCount} dependency issues, ${graph.topology.readyQueue.length} ready jobs`
     },
     {
       key: 'proof',
@@ -3467,8 +5362,9 @@ export function describeJobGraphViewSurface(input = {}) {
   const validationSummary = summarizeValidation(graph);
   const requestState = normalizeRequestState(input, graph);
   const providerContracts = buildProviderContracts(input, requestState, now);
-  const operationalHealth = buildOperationalHealth(graph, validationSummary, input, now, providerContracts);
-  const readiness = buildReadiness(graph, validationSummary, operationalHealth, providerContracts);
+  const commandRecovery = buildCommandRecoveryState(input, requestState, now);
+  const operationalHealth = buildOperationalHealth(graph, validationSummary, input, now, providerContracts, commandRecovery);
+  const readiness = buildReadiness(graph, validationSummary, operationalHealth, providerContracts, commandRecovery);
   const acceptance = buildAcceptance(graph, readiness, providerContracts);
   const lifecycleControls = buildLifecycleControls(graph, validationSummary, readiness, requestState, operationalHealth, now, input);
   const scopedMutationAuthorization = buildScopedMutationAuthorization(
@@ -3497,10 +5393,32 @@ export function describeJobGraphViewSurface(input = {}) {
     nextSteps,
     now
   );
-  const persistedState = buildPersistedState(graph, validationSummary, readiness, requestState, now, input);
+  const mailchimpPreview = buildMailchimpPreviewAcceptanceContract(
+    graph,
+    validationSummary,
+    readiness,
+    acceptance,
+    requestState,
+    operationalHealth,
+    providerContracts,
+    scopedMutationAuthorization,
+    nextSteps,
+    now
+  );
+  const persistedState = buildPersistedState(graph, validationSummary, readiness, requestState, now, input, commandRecovery);
   const analytics = buildAnalyticsReport(graph, validationSummary, readiness, operationalHealth, requestState, now, input);
   const workflowHandoff = buildWorkflowHandoff(graph, validationSummary, readiness, acceptance, requestState, operationalHealth, providerContracts);
-  const clientWorkflowHandoff = buildClientWorkflowHandoff(graph, requestState, operationalHealth, providerContracts, workflowHandoff, scopedMutationAuthorization, input, now);
+  const clientWorkflowHandoff = buildClientWorkflowHandoff(
+    graph,
+    requestState,
+    operationalHealth,
+    providerContracts,
+    workflowHandoff,
+    scopedMutationAuthorization,
+    mailchimpPreview,
+    input,
+    now
+  );
   const clientRuntime = buildClientRuntimeState(
     graph,
     validationSummary,
@@ -3515,7 +5433,8 @@ export function describeJobGraphViewSurface(input = {}) {
     clientWorkflowHandoff,
     scopedMutationAuthorization,
     analytics,
-    clientPreview
+    clientPreview,
+    mailchimpPreview
   );
   const evidence = asArray(input.evidence);
 
@@ -3538,6 +5457,7 @@ export function describeJobGraphViewSurface(input = {}) {
     scopedMutationAuthorization,
     decisionPanel,
     clientPreview,
+    mailchimpPreview,
     clientRuntime,
     workflowHandoff,
     clientWorkflowHandoff,
@@ -3547,7 +5467,9 @@ export function describeJobGraphViewSurface(input = {}) {
       proof: {
         evidenceCount: evidence.length,
         proofBackedJobIds: graph.proofBackedNodes.map((node) => node.id),
-        danglingDependencyIds: graph.danglingEdges.map((edge) => edge.id)
+        danglingDependencyIds: graph.danglingEdges.map((edge) => edge.id),
+        malformedDependencyIds: graph.malformedEdges.map((edge) => edge.id),
+        dependencyTruth: graph.integrity.handoffClaims.dependencyTruth
       },
       boundary: {
         contract: graph.boundary.contract,
@@ -3572,7 +5494,9 @@ export function describeJobGraphViewSurface(input = {}) {
         visibleNodeCount: graph.boundary.visibleNodeCount,
         visibleEdgeCount: graph.boundary.visibleEdgeCount,
         deniedNodeIds: graph.boundary.deniedNodes.map((node) => node.jobId),
-        deniedEdgeIds: graph.boundary.deniedEdges.map((edge) => edge.edgeId)
+        deniedEdgeIds: graph.boundary.deniedEdges.map((edge) => edge.edgeId),
+        malformedEdges: graph.boundary.malformedEdges,
+        integrity: graph.boundary.integrity
       },
       topology: {
         contract: graph.topology.contract,
@@ -3586,7 +5510,8 @@ export function describeJobGraphViewSurface(input = {}) {
         dependencyBlockedJobs: graph.topology.blockedByDependencies.map((entry) => ({
           jobId: entry.jobId,
           waitingOn: entry.waitingOn
-        }))
+        })),
+        integrity: graph.integrity
       },
       request: {
         requestId: requestState.requestId,
@@ -3607,7 +5532,22 @@ export function describeJobGraphViewSurface(input = {}) {
         alreadyApplied: Boolean(clientWorkflowHandoff.dispatchRequest?.alreadyApplied),
         queuedHandoffCount: clientWorkflowHandoff.queue.length,
         completedHandoffCount: clientWorkflowHandoff.proof.completedHandoffCount,
-        dismissedHandoffCount: clientWorkflowHandoff.proof.dismissedHandoffCount
+        dismissedHandoffCount: clientWorkflowHandoff.proof.dismissedHandoffCount,
+        mailchimpWorkflow: {
+          contract: clientWorkflowHandoff.mailchimpWorkflow.contract,
+          handoffId: clientWorkflowHandoff.mailchimpWorkflow.handoffId,
+          status: clientWorkflowHandoff.mailchimpWorkflow.status,
+          requested: clientWorkflowHandoff.mailchimpWorkflow.requested,
+          action: clientWorkflowHandoff.mailchimpWorkflow.action,
+          dispatchable: clientWorkflowHandoff.mailchimpWorkflow.dispatchable,
+          dryRun: clientWorkflowHandoff.mailchimpWorkflow.dryRun,
+          commandId: clientWorkflowHandoff.mailchimpWorkflow.command?.commandId || null,
+          alreadyApplied: Boolean(clientWorkflowHandoff.mailchimpWorkflow.command?.alreadyApplied),
+          blockedReasons: clientWorkflowHandoff.mailchimpWorkflow.blockedReasons,
+          audienceId: clientWorkflowHandoff.mailchimpWorkflow.target.audienceId,
+          campaignId: clientWorkflowHandoff.mailchimpWorkflow.target.campaignId,
+          routePanel: clientWorkflowHandoff.mailchimpWorkflow.route.query.panel
+        }
       },
       scopedMutationAuthorization: {
         contract: scopedMutationAuthorization.contract,
@@ -3657,6 +5597,11 @@ export function describeJobGraphViewSurface(input = {}) {
         snapshotId: persistedState.snapshotId,
         restartStatus: persistedState.restartStatus,
         persistedGraphChanged: persistedState.persistedGraphChanged,
+        commandRecoveryStatus: persistedState.commandRecovery?.status || 'not_evaluated',
+        commandRecoveryRestartSafe: persistedState.commandRecovery?.restartSafe ?? true,
+        inFlightCommandIds: persistedState.commandRecovery?.inFlightCommandIds || [],
+        staleCommandIds: persistedState.commandRecovery?.staleCommandIds || [],
+        failedCommandIds: persistedState.commandRecovery?.failedCommandIds || [],
         commandIds: persistedState.commands.map((command) => command.commandId),
         replaySkippedCommandIds: persistedState.commands
           .filter((command) => command.alreadyApplied)
@@ -3673,7 +5618,14 @@ export function describeJobGraphViewSurface(input = {}) {
         retryableJobCount: operationalHealth.retryableJobCount,
         exhaustedFailureCount: operationalHealth.exhaustedFailureCount,
         nextRetryAt: operationalHealth.retryHorizon.nextRetryAt,
+        incidentResponseStatus: operationalHealth.incidentResponse.status,
+        primaryIncidentCode: operationalHealth.incidentResponse.primaryIncident?.code || null,
+        primaryIncidentAction: operationalHealth.incidentResponse.primaryIncident?.action || null,
+        writeBlockingIncidentCount: operationalHealth.incidentResponse.writeBlockingIncidentCount,
+        recoveryChecklist: operationalHealth.incidentResponse.recoveryChecklist,
         actionableErrorCodes: operationalHealth.actionableErrors.map((error) => error.code),
+        incidentCodes: operationalHealth.incidentResponse.incidents.map((incident) => incident.code),
+        escalationOwners: operationalHealth.incidentResponse.escalation.owners,
         healthGates: operationalHealth.healthGates.map((gate) => ({
           code: gate.code,
           passed: gate.passed,

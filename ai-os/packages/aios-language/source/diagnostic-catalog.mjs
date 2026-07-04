@@ -1,9 +1,20 @@
 import {
   AIOS_AST_NODE_KINDS,
+  createMailchimpAstPreviewAcceptanceContract,
+  createMailchimpCampaignControlPlaneContract,
   createMailchimpLaunchGateContract,
+  createMailchimpLifecycleCommandState,
+  createMailchimpOperationalHealthExportDigest,
+  createMailchimpOperationalHealthIncidentLedger,
   createMailchimpProviderCommandContract,
   createMailchimpProviderReceiptContract,
+  createMailchimpProviderServiceHandoffExportDeck,
+  createMailchimpProviderServiceHandoffContract,
+  createMailchimpProviderServiceReadinessMatrix,
+  createMailchimpTenantPermissionAuditLedger,
   createMailchimpTenantPermissionBoundaryContract,
+  createMailchimpTenantPermissionDecision,
+  createMailchimpTenantSourceAnchorCorrelations,
   getAstNodeKindContract,
   normalizeAstNodeKind,
 } from "./ast-node-kinds.mjs";
@@ -159,6 +170,56 @@ export const AIOS_DIAGNOSTIC_CATALOG = Object.freeze({
     status: "review",
     handoff: "format-preview",
   }),
+  AIOS_FORMATTER_LIFECYCLE: catalogEntry({
+    code: "AIOS_FORMATTER_LIFECYCLE",
+    severity: "warning",
+    stage: "format",
+    nodeKind: null,
+    message: "Formatter lifecycle settings must allow a safe preview and export handoff.",
+    recovery: "repair-formatter-lifecycle-settings",
+    status: "review",
+    handoff: "formatter-lifecycle-controls",
+  }),
+  AIOS_FORMATTER_ANALYTICS_EXPORT: catalogEntry({
+    code: "AIOS_FORMATTER_ANALYTICS_EXPORT",
+    severity: "warning",
+    stage: "format",
+    nodeKind: null,
+    message: "Formatter analytics export reports must be restart-safe, accepted, and actionable before handoff.",
+    recovery: "repair-formatter-analytics-export-report",
+    status: "review",
+    handoff: "formatter-analytics-export",
+  }),
+  AIOS_MAILCHIMP_AST_ANALYTICS_EXPORT: catalogEntry({
+    code: "AIOS_MAILCHIMP_AST_ANALYTICS_EXPORT",
+    severity: "warning",
+    stage: "release",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp AST analytics export rows must be accepted, restart-safe, and export-ready before campaign handoff.",
+    recovery: "repair-mailchimp-ast-analytics-export-bundle",
+    status: "review",
+    handoff: "mailchimp-ast-analytics-export",
+  }),
+  AIOS_MAILCHIMP_AST_PREVIEW_ACCEPTANCE: catalogEntry({
+    code: "AIOS_MAILCHIMP_AST_PREVIEW_ACCEPTANCE",
+    severity: "error",
+    stage: "release",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp AST preview acceptance rows must be accepted, restart-safe, and actionable before client preview handoff.",
+    recovery: "complete-mailchimp-ast-preview-acceptance",
+    status: "blocked",
+    handoff: "mailchimp-ast-preview-acceptance",
+  }),
+  AIOS_FORMATTER_PRODUCT_SLICE_READINESS: catalogEntry({
+    code: "AIOS_FORMATTER_PRODUCT_SLICE_READINESS",
+    severity: "error",
+    stage: "release",
+    nodeKind: null,
+    message: "Formatter Mailchimp product-slice readiness rows must be accepted, restart-safe, and exportable before client handoff.",
+    recovery: "complete-formatter-product-slice-readiness",
+    status: "blocked",
+    handoff: "formatter-product-slice-readiness",
+  }),
   AIOS_MAILCHIMP_PROVIDER_CONTRACT: catalogEntry({
     code: "AIOS_MAILCHIMP_PROVIDER_CONTRACT",
     severity: "error",
@@ -219,6 +280,36 @@ export const AIOS_DIAGNOSTIC_CATALOG = Object.freeze({
     status: "review",
     handoff: "mailchimp-provider-receipt",
   }),
+  AIOS_MAILCHIMP_SERVICE_SYNC_WINDOW: catalogEntry({
+    code: "AIOS_MAILCHIMP_SERVICE_SYNC_WINDOW",
+    severity: "warning",
+    stage: "provider",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp provider service sync windows must be ready or accepted before external handoff.",
+    recovery: "accept-mailchimp-service-sync-window",
+    status: "review",
+    handoff: "mailchimp-service-sync-window",
+  }),
+  AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF: catalogEntry({
+    code: "AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF",
+    severity: "error",
+    stage: "provider",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp provider service handoff lanes must be settled, restart-safe, and exportable before external handoff.",
+    recovery: "complete-mailchimp-provider-service-handoff",
+    status: "blocked",
+    handoff: "mailchimp-provider-service-handoff",
+  }),
+  AIOS_MAILCHIMP_PROVIDER_SOURCE_DEPLOYMENT: catalogEntry({
+    code: "AIOS_MAILCHIMP_PROVIDER_SOURCE_DEPLOYMENT",
+    severity: "error",
+    stage: "provider",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp provider service deployment rows must be paired with accepted source anchors before external handoff.",
+    recovery: "complete-mailchimp-provider-source-deployment",
+    status: "blocked",
+    handoff: "mailchimp-provider-source-deployment",
+  }),
   AIOS_MAILCHIMP_LAUNCH_GATE: catalogEntry({
     code: "AIOS_MAILCHIMP_LAUNCH_GATE",
     severity: "error",
@@ -229,6 +320,26 @@ export const AIOS_DIAGNOSTIC_CATALOG = Object.freeze({
     status: "blocked",
     handoff: "mailchimp-launch-gate",
   }),
+  AIOS_MAILCHIMP_RELEASE_CONTRACT: catalogEntry({
+    code: "AIOS_MAILCHIMP_RELEASE_CONTRACT",
+    severity: "error",
+    stage: "release",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp campaign release lanes must be ready, restart-safe, and accepted before export.",
+    recovery: "complete-mailchimp-campaign-release-contract",
+    status: "blocked",
+    handoff: "mailchimp-campaign-release",
+  }),
+  AIOS_MAILCHIMP_LIFECYCLE_COMMAND: catalogEntry({
+    code: "AIOS_MAILCHIMP_LIFECYCLE_COMMAND",
+    severity: "warning",
+    stage: "lifecycle",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp lifecycle commands must be valid, restart-safe, and settled before provider handoff.",
+    recovery: "repair-mailchimp-lifecycle-command",
+    status: "review",
+    handoff: "mailchimp-lifecycle-command-queue",
+  }),
   AIOS_MAILCHIMP_SOURCE_ANCHOR: catalogEntry({
     code: "AIOS_MAILCHIMP_SOURCE_ANCHOR",
     severity: "error",
@@ -238,6 +349,106 @@ export const AIOS_DIAGNOSTIC_CATALOG = Object.freeze({
     recovery: "accept-mailchimp-source-anchors",
     status: "blocked",
     handoff: "mailchimp-source-anchor",
+  }),
+  AIOS_MAILCHIMP_HANDOFF_READINESS: catalogEntry({
+    code: "AIOS_MAILCHIMP_HANDOFF_READINESS",
+    severity: "error",
+    stage: "release",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp workflow handoff readiness lanes must be restart-safe, accepted, and exportable before campaign release.",
+    recovery: "complete-mailchimp-workflow-handoff-readiness",
+    status: "blocked",
+    handoff: "mailchimp-workflow-handoff-readiness",
+  }),
+  AIOS_MAILCHIMP_CLIENT_RUNTIME_ADOPTION: catalogEntry({
+    code: "AIOS_MAILCHIMP_CLIENT_RUNTIME_ADOPTION",
+    severity: "error",
+    stage: "release",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp client runtime adoption rows must be restart-safe, accepted, and actionable before release handoff.",
+    recovery: "complete-mailchimp-client-runtime-adoption",
+    status: "blocked",
+    handoff: "mailchimp-client-runtime-adoption",
+  }),
+  AIOS_MAILCHIMP_CLIENT_RUNTIME_REQUEST: catalogEntry({
+    code: "AIOS_MAILCHIMP_CLIENT_RUNTIME_REQUEST",
+    severity: "error",
+    stage: "release",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp client runtime requests must bind request, session, workspace, and route state before handoff.",
+    recovery: "bind-mailchimp-runtime-request",
+    status: "blocked",
+    handoff: "mailchimp-client-runtime-request",
+  }),
+  AIOS_MAILCHIMP_CLIENT_RUNTIME_CHECKPOINT: catalogEntry({
+    code: "AIOS_MAILCHIMP_CLIENT_RUNTIME_CHECKPOINT",
+    severity: "error",
+    stage: "release",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp client runtime checkpoint rows must settle request binding, workflow lanes, and adoption state before handoff.",
+    recovery: "complete-mailchimp-client-runtime-checkpoint",
+    status: "blocked",
+    handoff: "mailchimp-client-runtime-checkpoint",
+  }),
+  AIOS_MAILCHIMP_CONTROL_PLANE: catalogEntry({
+    code: "AIOS_MAILCHIMP_CONTROL_PLANE",
+    severity: "error",
+    stage: "lifecycle",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp campaign control-plane rows must be enabled, scheduled, restart-safe, and exportable before client handoff.",
+    recovery: "repair-mailchimp-campaign-control-plane",
+    status: "blocked",
+    handoff: "mailchimp-control-plane",
+  }),
+  AIOS_SOURCE_RANGE_RUNTIME_RESUME: catalogEntry({
+    code: "AIOS_SOURCE_RANGE_RUNTIME_RESUME",
+    severity: "warning",
+    stage: "source-map",
+    nodeKind: null,
+    message: "Source range runtime resume rows must be restart-safe and accepted before client handoff.",
+    recovery: "repair-source-range-runtime-resume",
+    status: "review",
+    handoff: "source-range-runtime-resume",
+  }),
+  AIOS_SOURCE_RANGE_FAILURE_RECOVERY: catalogEntry({
+    code: "AIOS_SOURCE_RANGE_FAILURE_RECOVERY",
+    severity: "error",
+    stage: "source-map",
+    nodeKind: null,
+    message: "Source range failure recovery rows must be retryable, restart-safe, or explicitly degraded before handoff.",
+    recovery: "repair-source-range-failure-recovery",
+    status: "blocked",
+    handoff: "source-range-failure-recovery",
+  }),
+  AIOS_SOURCE_RANGE_RECOVERY_COMMAND_EXPORT: catalogEntry({
+    code: "AIOS_SOURCE_RANGE_RECOVERY_COMMAND_EXPORT",
+    severity: "error",
+    stage: "source-map",
+    nodeKind: null,
+    message: "Source range recovery command exports must be accepted, restart-safe, and idempotent before formatter handoff.",
+    recovery: "repair-source-range-recovery-command-export",
+    status: "blocked",
+    handoff: "source-range-recovery-command-export",
+  }),
+  AIOS_SOURCE_RANGE_CLIENT_ROUTE_HANDOFF: catalogEntry({
+    code: "AIOS_SOURCE_RANGE_CLIENT_ROUTE_HANDOFF",
+    severity: "error",
+    stage: "source-map",
+    nodeKind: null,
+    message: "Source range client route handoff rows must be accepted, restart-safe, and actionable before client preview handoff.",
+    recovery: "complete-source-range-client-route-handoff",
+    status: "blocked",
+    handoff: "source-range-client-route-handoff",
+  }),
+  AIOS_MAILCHIMP_PREVIEW_ACTION_STRIP: catalogEntry({
+    code: "AIOS_MAILCHIMP_PREVIEW_ACTION_STRIP",
+    severity: "error",
+    stage: "source-map",
+    nodeKind: AIOS_AST_NODE_KINDS.JobDeclaration,
+    message: "Mailchimp preview action strip rows must be accepted, actionable, and restart-safe before campaign preview handoff.",
+    recovery: "complete-mailchimp-preview-action-strip",
+    status: "blocked",
+    handoff: "mailchimp-preview-action-strip",
   }),
 });
 
@@ -415,6 +626,537 @@ export function createDiagnosticLifecycleState(diagnostics = [], settings = {}) 
   });
 }
 
+export function createMailchimpDiagnosticCheckpointControls(diagnostics = [], checkpointReport = {}, settings = {}) {
+  const lifecycle = settings.lifecycle?.state
+    ? settings.lifecycle
+    : createDiagnosticLifecycleState(diagnostics, settings);
+  const checkpoints = Array.isArray(checkpointReport.checkpoints) ? checkpointReport.checkpoints : [];
+  const requested = normalizeCodeSet(settings.requestedCheckpointCommandIds);
+  const completed = normalizeCodeSet(settings.completedCheckpointCommandIds);
+  const failed = normalizeCodeSet(settings.failedCheckpointCommandIds);
+  const controls = checkpoints.map((checkpoint) => createMailchimpDiagnosticCheckpointControl(checkpoint, {
+    requested,
+    completed,
+    failed,
+    checkpointReport,
+    lifecycle,
+  }));
+  const diagnosticRows = (lifecycle.controls ?? []).map((control) => Object.freeze({
+    id: `diagnostic:${control.code}:${control.command}`,
+    kind: "diagnosticLifecycle",
+    status: normalizeDiagnosticCheckpointStatus(control.status ?? control.state),
+    label: `${control.command} ${control.code}`,
+    detail: control.reason ?? control.recovery,
+    handoff: explainDiagnosticCode(control.code).handoff,
+    restartSafe: control.status !== "blocked" && control.state !== "required",
+    idempotencyKey: `${control.code}:${control.command}:${control.status ?? control.state}`,
+    nextAction: control.nextAction,
+  }));
+  const rows = Object.freeze([...controls, ...diagnosticRows]
+    .sort(compareMailchimpDiagnosticCheckpointControls));
+  const blocked = rows.filter((row) => row.status === "blocked");
+  const pending = rows.filter((row) => row.status === "pending");
+  const review = rows.filter((row) => row.status === "review");
+  const status = lifecycle.state === "blocked" || checkpointReport.status === "blocked" || blocked.length
+    ? "blocked"
+    : pending.length || checkpointReport.status === "pending"
+      ? "pending"
+      : review.length || checkpointReport.status === "review"
+        ? "review"
+        : rows.length
+          ? "ready"
+          : "idle";
+
+  return Object.freeze({
+    version: "mailchimp-diagnostic-checkpoint-controls.v1",
+    status,
+    ok: status === "ready" || status === "idle" || status === "review",
+    exportAllowed: status === "ready" || (status === "review" && settings.allowReviewCheckpointExport === true),
+    providerId: checkpointReport.providerId ?? "mailchimp",
+    fileName: checkpointReport.fileName ?? settings.fileName ?? "inline.aios",
+    revision: checkpointReport.revision ?? settings.revision ?? "working",
+    controls: rows,
+    counters: Object.freeze({
+      byStatus: freezeSortedRecord(countBy(rows, "status")),
+      byKind: freezeSortedRecord(countBy(rows, "kind")),
+      byHandoff: freezeSortedRecord(countBy(rows, "handoff")),
+    }),
+    totals: Object.freeze({
+      controlCount: rows.length,
+      checkpointControlCount: controls.length,
+      diagnosticControlCount: diagnosticRows.length,
+      blockedCount: blocked.length,
+      pendingCount: pending.length,
+      reviewCount: review.length,
+      suppressedDiagnosticCount: lifecycle.suppressed?.length ?? 0,
+    }),
+    lifecycle: Object.freeze({
+      state: lifecycle.state,
+      exportAllowed: lifecycle.exportAllowed,
+      nextAction: lifecycle.nextAction,
+      suppressedCount: lifecycle.suppressed?.length ?? 0,
+      scheduledRecoveryCount: lifecycle.scheduledRecoveries?.length ?? 0,
+    }),
+    restartEnvelope: Object.freeze({
+      route: status === "blocked"
+        ? "diagnostics/mailchimp-checkpoints/recovery"
+        : status === "pending"
+          ? "diagnostics/mailchimp-checkpoints/actions"
+          : status === "review"
+            ? "diagnostics/mailchimp-checkpoints/review"
+            : "diagnostics/mailchimp-checkpoints/summary",
+      restartSafe: blocked.length === 0,
+      blockedControlIds: Object.freeze(blocked.map((row) => row.id).sort()),
+      pendingControlIds: Object.freeze(pending.map((row) => row.id).sort()),
+      reviewControlIds: Object.freeze(review.map((row) => row.id).sort()),
+      idempotencyKeys: Object.freeze(rows.map((row) => row.idempotencyKey).filter(Boolean).sort()),
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? review[0]?.nextAction
+        ?? lifecycle.nextAction
+        ?? "publish-mailchimp-diagnostic-checkpoint-controls",
+    }),
+    checkpointReport,
+  });
+}
+
+export function createFormatterAnalyticsExportDiagnostics(report = {}, options = {}) {
+  const rows = Array.isArray(report.rows) ? report.rows : [];
+  const diagnostics = [];
+  const blockedRows = rows.filter((row) => row.status === "blocked" || row.restartSafe === false);
+  const pendingRows = rows.filter((row) => row.status === "pending");
+  const reviewRows = rows.filter((row) => row.status === "review");
+
+  for (const row of blockedRows) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_ANALYTICS_EXPORT", {
+      severity: "error",
+      message: `Formatter analytics export row "${row.id}" is blocked or not restart-safe.`,
+      hint: `Recovery: ${row.nextAction ?? "repair-formatter-analytics-export-report"}; handoff: formatter-analytics-export.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByReportRowId?.[row.id] ?? null,
+    }));
+  }
+
+  if (!blockedRows.length && pendingRows.length && report.acceptance?.mode === "explicit") {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_ANALYTICS_EXPORT", {
+      severity: "warning",
+      message: `${pendingRows.length} formatter analytics export row(s) still need acceptance before report handoff.`,
+      hint: "Recovery: accept-formatter-analytics-export-report; handoff: formatter-analytics-export.",
+      preview: pendingRows.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (!blockedRows.length && !pendingRows.length && reviewRows.length && report.exportSummary?.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_ANALYTICS_EXPORT", {
+      severity: "warning",
+      message: `${reviewRows.length} formatter analytics export row(s) require review before export evidence is finalized.`,
+      hint: "Recovery: review-formatter-analytics-export-report; handoff: formatter-analytics-export.",
+      preview: reviewRows.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (report.restartEnvelope?.restartSafe === false && !blockedRows.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_ANALYTICS_EXPORT", {
+      severity: "error",
+      message: "Formatter analytics export report is not restart-safe.",
+      hint: `Recovery: ${report.restartEnvelope.nextAction ?? "repair-formatter-analytics-export-report"}; handoff: formatter-analytics-export.`,
+      preview: report.restartEnvelope.route ?? "formatter/analytics/export/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpAstAnalyticsExportDiagnostics(bundle = {}, options = {}) {
+  if (!bundle || bundle.version !== "mailchimp-ast-analytics-export-bundle.v1") {
+    return Object.freeze([createCatalogDiagnostic("AIOS_MAILCHIMP_AST_ANALYTICS_EXPORT", {
+      severity: "error",
+      message: "Mailchimp AST analytics export bundle is missing or uses an unsupported version.",
+      hint: "Recovery: rebuild-mailchimp-ast-analytics-export-bundle; handoff: mailchimp-ast-analytics-export.",
+      preview: "mailchimp-ast-analytics-export-bundle.v1",
+    })]);
+  }
+
+  const rows = Array.isArray(bundle.rows) ? bundle.rows : [];
+  const blockedRows = rows.filter((row) => row.status === "blocked" || row.restartSafe === false);
+  const pendingRows = rows.filter((row) => row.status === "pending");
+  const reviewRows = rows.filter((row) => row.status === "review");
+  const diagnostics = [];
+
+  for (const row of blockedRows) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_ANALYTICS_EXPORT", {
+      severity: "error",
+      message: `Mailchimp AST analytics row "${row.id}" is blocked or not restart-safe.`,
+      hint: `Recovery: ${row.nextAction ?? "repair-mailchimp-ast-analytics-export-bundle"}; handoff: mailchimp-ast-analytics-export.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByAstAnalyticsRowId?.[row.id] ?? null,
+    }));
+  }
+
+  if (!blockedRows.length && pendingRows.length && bundle.acceptance?.mode === "explicit") {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_ANALYTICS_EXPORT", {
+      severity: "warning",
+      message: `${pendingRows.length} Mailchimp AST analytics row(s) need acceptance before export.`,
+      hint: "Recovery: accept-mailchimp-ast-analytics-export-bundle; handoff: mailchimp-ast-analytics-export.",
+      preview: pendingRows.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (!blockedRows.length && !pendingRows.length && reviewRows.length && bundle.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_ANALYTICS_EXPORT", {
+      severity: "warning",
+      message: `${reviewRows.length} Mailchimp AST analytics row(s) need review before export.`,
+      hint: "Recovery: review-mailchimp-ast-analytics-export-bundle; handoff: mailchimp-ast-analytics-export.",
+      preview: reviewRows.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (bundle.restartEnvelope?.restartSafe === false && !blockedRows.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_ANALYTICS_EXPORT", {
+      severity: "error",
+      message: "Mailchimp AST analytics export bundle is not restart-safe.",
+      hint: `Recovery: ${bundle.restartEnvelope.nextAction ?? "repair-mailchimp-ast-analytics-export-bundle"}; handoff: mailchimp-ast-analytics-export.`,
+      preview: bundle.restartEnvelope.route ?? "mailchimp/ast-analytics/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpAstPreviewAcceptanceDiagnostics(packetOrAst = {}, options = {}) {
+  const packet = packetOrAst?.version === "mailchimp-ast-preview-acceptance.v1"
+    ? packetOrAst
+    : createMailchimpAstPreviewAcceptanceContract(packetOrAst, options);
+  if (packet.status === "ready" || packet.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(packet.rows) ? packet.rows : [];
+  const diagnostics = [];
+  const blocked = rows.filter((row) => row.status === "blocked" || row.restartSafe === false);
+  const pending = rows.filter((row) => row.status === "pending" || row.status === "needsAcceptance");
+  const review = rows.filter((row) => row.status === "review" || row.status === "changed");
+
+  for (const row of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_PREVIEW_ACCEPTANCE", {
+      severity: "error",
+      message: `Mailchimp AST preview row "${row.id}" is blocked before client preview handoff.`,
+      hint: `Recovery: ${row.nextAction ?? packet.restartEnvelope?.nextAction ?? "complete-mailchimp-ast-preview-acceptance"}; handoff: mailchimp-ast-preview-acceptance.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByPreviewRowId?.[row.id]
+        ?? options.rangeByAstPreviewRowId?.[row.id]
+        ?? options.rangeByNodeKind?.[row.nodeKind]
+        ?? null,
+      mailchimpAstPreview: Object.freeze({
+        id: row.id,
+        kind: row.kind,
+        nodeKind: row.nodeKind,
+        status: row.status,
+        sourceStatus: row.sourceStatus,
+        route: row.route,
+        restartSafe: row.restartSafe,
+        accepted: row.accepted,
+        completed: row.completed,
+        nextAction: row.nextAction,
+      }),
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_PREVIEW_ACCEPTANCE", {
+      severity: "warning",
+      message: packet.acceptance?.mode === "explicit"
+        ? `${pending.length} Mailchimp AST preview row(s) need acceptance before client preview handoff.`
+        : `${pending.length} Mailchimp AST preview row(s) need runtime settlement before client preview handoff.`,
+      hint: `Recovery: ${pending[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "accept-mailchimp-ast-preview-acceptance"}; handoff: mailchimp-ast-preview-acceptance.`,
+      preview: pending.map((row) => row.id).sort().join(", "),
+      mailchimpAstPreview: Object.freeze({
+        status: packet.status,
+        pendingPreviewIds: packet.acceptance?.pendingPreviewIds ?? Object.freeze([]),
+        route: packet.restartEnvelope?.route ?? "mailchimp/ast-preview/acceptance",
+        nextAction: packet.restartEnvelope?.nextAction ?? pending[0]?.nextAction,
+      }),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && packet.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_PREVIEW_ACCEPTANCE", {
+      severity: "warning",
+      message: `${review.length} Mailchimp AST preview row(s) require review before client preview handoff.`,
+      hint: `Recovery: ${review[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "review-mailchimp-ast-preview-acceptance"}; handoff: mailchimp-ast-preview-acceptance.`,
+      preview: review.map((row) => row.id).sort().join(", "),
+      mailchimpAstPreview: Object.freeze({
+        status: packet.status,
+        reviewPreviewIds: packet.restartEnvelope?.reviewPreviewIds ?? Object.freeze([]),
+        route: packet.restartEnvelope?.route ?? "mailchimp/ast-preview/review",
+        nextAction: packet.restartEnvelope?.nextAction ?? review[0]?.nextAction,
+      }),
+    }));
+  }
+
+  if (packet.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_PREVIEW_ACCEPTANCE", {
+      severity: "error",
+      message: "Mailchimp AST preview acceptance restart envelope is not restart-safe.",
+      hint: `Recovery: ${packet.restartEnvelope.nextAction ?? "repair-mailchimp-ast-preview-acceptance"}; handoff: mailchimp-ast-preview-acceptance.`,
+      preview: packet.restartEnvelope.route ?? "mailchimp/ast-preview/recovery",
+    }));
+  }
+
+  if (!diagnostics.length && packet.validationSummary?.readyForPreview === false) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_AST_PREVIEW_ACCEPTANCE", {
+      severity: "warning",
+      message: "Mailchimp AST preview validation summary is not ready for preview handoff.",
+      hint: `Recovery: ${packet.restartEnvelope?.nextAction ?? "complete-mailchimp-ast-preview-acceptance"}; handoff: mailchimp-ast-preview-acceptance.`,
+      preview: packet.validationSummary.exportSummaryStatus ?? packet.status,
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createFormatterProductSliceReadinessDiagnostics(packet = {}, options = {}) {
+  if (!packet
+    || packet.version !== "formatter-product-slice-readiness.v1"
+    || packet.status === "ready"
+    || packet.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(packet.rows) ? packet.rows : [];
+  const blocked = rows.filter((row) => row.status === "blocked" || row.restartSafe === false || row.exportAllowed === false);
+  const pending = rows.filter((row) => row.status === "pending" || row.status === "needsAcceptance");
+  const review = rows.filter((row) => row.status === "review" || row.status === "degraded");
+  const diagnostics = [];
+
+  for (const row of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_PRODUCT_SLICE_READINESS", {
+      severity: "error",
+      message: `Formatter product-slice readiness row "${row.id}" is blocked before client handoff.`,
+      hint: `Recovery: ${row.nextAction ?? packet.restartEnvelope?.nextAction ?? "complete-formatter-product-slice-readiness"}; handoff: formatter-product-slice-readiness.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByReadinessRowId?.[row.id] ?? options.rangeByLaneId?.[row.laneId] ?? null,
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_PRODUCT_SLICE_READINESS", {
+      severity: "warning",
+      message: `${pending.length} formatter product-slice readiness row(s) need acceptance or runtime settlement.`,
+      hint: `Recovery: ${pending[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "accept-formatter-product-slice-readiness"}; handoff: formatter-product-slice-readiness.`,
+      preview: pending.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && packet.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_PRODUCT_SLICE_READINESS", {
+      severity: "warning",
+      message: `${review.length} formatter product-slice readiness row(s) require review before client handoff.`,
+      hint: `Recovery: ${review[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "review-formatter-product-slice-readiness"}; handoff: formatter-product-slice-readiness.`,
+      preview: review.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (packet.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_FORMATTER_PRODUCT_SLICE_READINESS", {
+      severity: "error",
+      message: "Formatter product-slice readiness packet is not restart-safe.",
+      hint: `Recovery: ${packet.restartEnvelope.nextAction ?? "repair-formatter-product-slice-readiness"}; handoff: formatter-product-slice-readiness.`,
+      preview: packet.restartEnvelope.route ?? "formatter/product-slice/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpCampaignControlPlaneDiagnostics(controlPlaneOrState = {}, options = {}) {
+  const controlPlane = controlPlaneOrState?.version === "mailchimp-campaign-control-plane.v1"
+    ? controlPlaneOrState
+    : createMailchimpCampaignControlPlaneContract(controlPlaneOrState, options);
+  if (controlPlane.status === "ready" || controlPlane.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(controlPlane.rows) ? controlPlane.rows : [];
+  const actionableRows = rows.filter((row) => (
+    row.status === "blocked"
+    || row.status === "pending"
+    || row.restartSafe === false
+    || row.exportAllowed === false
+  ));
+  const reviewRows = rows.filter((row) => row.status === "review" || row.status === "degraded");
+  const diagnostics = [];
+
+  for (const row of actionableRows) {
+    const severity = row.status === "blocked" || row.restartSafe === false || row.exportAllowed === false
+      ? "error"
+      : "warning";
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_CONTROL_PLANE", {
+      severity,
+      message: `Mailchimp campaign control-plane row "${row.id}" is ${row.status} before client handoff.`,
+      hint: `Recovery: ${row.nextAction ?? controlPlane.restartEnvelope?.nextAction ?? "repair-mailchimp-campaign-control-plane"}; handoff: ${row.handoff ?? "mailchimp-control-plane"}.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByControlPlaneRowId?.[row.id]
+        ?? options.rangeByJobName?.[row.jobName]
+        ?? null,
+      mailchimpControlPlane: Object.freeze({
+        id: row.id,
+        kind: row.kind,
+        jobName: row.jobName,
+        commandId: row.commandId,
+        status: row.status,
+        route: row.route,
+        handoff: row.handoff,
+        restartSafe: row.restartSafe,
+        exportAllowed: row.exportAllowed,
+        nextAction: row.nextAction,
+      }),
+    }));
+  }
+
+  if (!diagnostics.length && reviewRows.length && controlPlane.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_CONTROL_PLANE", {
+      severity: "warning",
+      message: `${reviewRows.length} Mailchimp campaign control-plane row(s) require review before client handoff.`,
+      hint: `Recovery: ${reviewRows[0]?.nextAction ?? controlPlane.restartEnvelope?.nextAction ?? "review-mailchimp-campaign-control-plane"}; handoff: mailchimp-control-plane.`,
+      preview: reviewRows.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (controlPlane.restartEnvelope?.restartSafe === false && !diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_CONTROL_PLANE", {
+      severity: "error",
+      message: "Mailchimp campaign control-plane restart envelope is not restart-safe.",
+      hint: `Recovery: ${controlPlane.restartEnvelope.nextAction ?? "repair-mailchimp-campaign-control-plane"}; handoff: mailchimp-control-plane.`,
+      preview: controlPlane.restartEnvelope.route ?? "mailchimp/control-plane/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createSourceRangeFailureRecoveryDiagnostics(recoveryState = {}, options = {}) {
+  const rows = Array.isArray(recoveryState.rows) ? recoveryState.rows : [];
+  const diagnostics = [];
+  const actionableRows = rows.filter((row) => (
+    row.status === "blocked"
+    || row.status === "pending"
+    || row.status === "degraded"
+    || row.exhausted === true
+    || row.restartSafe === false
+  ));
+
+  for (const row of actionableRows) {
+    const severity = row.status === "blocked" || row.restartSafe === false || row.exhausted === true
+      ? "error"
+      : "warning";
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_FAILURE_RECOVERY", {
+      severity,
+      message: createSourceRangeFailureRecoveryDiagnosticMessage(row),
+      hint: `Recovery: ${row.nextAction ?? recoveryState.restartEnvelope?.nextAction ?? "repair-source-range-failure-recovery"}; handoff: source-range-failure-recovery.`,
+      preview: row.previewAddress ?? row.label ?? row.id,
+      range: options.rangeByRecoveryRowId?.[row.id]
+        ?? options.rangeBySourceId?.[row.targetId]
+        ?? null,
+      sourceRangeRecovery: Object.freeze({
+        id: row.id,
+        kind: row.kind,
+        targetId: row.targetId,
+        status: row.status,
+        sourceStatus: row.sourceStatus,
+        restartSafe: row.restartSafe,
+        retryable: row.retryable,
+        attempts: row.attempts,
+        maxAttempts: row.maxAttempts,
+        exhausted: row.exhausted,
+        degradedAllowed: row.degradedAllowed,
+        retryAfterSeconds: row.retryAfterSeconds,
+        route: row.route,
+        nextAction: row.nextAction,
+      }),
+    }));
+  }
+
+  if (!diagnostics.length && recoveryState.status === "degraded") {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_FAILURE_RECOVERY", {
+      severity: "warning",
+      message: "Source range handoff is running in degraded mode.",
+      hint: `Recovery: ${recoveryState.restartEnvelope?.nextAction ?? "review-source-range-failure-recovery"}; handoff: source-range-failure-recovery.`,
+      preview: recoveryState.userVisible?.detail ?? recoveryState.syncKey ?? "source-range-degraded-mode",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createSourceRangeRecoveryCommandExportDiagnostics(commandExport = {}, options = {}) {
+  if (!commandExport || commandExport.version !== "source-range-recovery-command-export.v1") {
+    return Object.freeze([]);
+  }
+
+  const commands = Array.isArray(commandExport.commands) ? commandExport.commands : [];
+  const diagnostics = [];
+  const blocked = commands.filter((command) => command.status === "blocked" || command.restartSafe === false);
+  const pending = commands.filter((command) => command.status === "pending" || command.status === "needsAcceptance");
+  const review = commands.filter((command) => command.status === "review");
+
+  for (const command of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_RECOVERY_COMMAND_EXPORT", {
+      severity: "error",
+      message: `Source range recovery command "${command.commandId}" is blocked before formatter handoff.`,
+      hint: `Recovery: ${command.nextAction ?? commandExport.restartEnvelope?.nextAction ?? "repair-source-range-recovery-command-export"}; handoff: source-range-recovery-command-export.`,
+      preview: command.previewAddress ?? command.targetId ?? command.commandId,
+      range: options.rangeByRecoveryCommandId?.[command.commandId]
+        ?? options.rangeByRecoveryRowId?.[command.recoveryRowId]
+        ?? options.rangeBySourceId?.[command.targetId]
+        ?? null,
+      sourceRangeRecoveryCommand: Object.freeze({
+        commandId: command.commandId,
+        recoveryRowId: command.recoveryRowId,
+        targetId: command.targetId,
+        status: command.status,
+        intent: command.intent,
+        restartSafe: command.restartSafe,
+        retryable: command.retryable,
+        attempts: command.attempts,
+        maxAttempts: command.maxAttempts,
+        retryAfterSeconds: command.retryAfterSeconds,
+        route: command.route,
+        nextAction: command.nextAction,
+      }),
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_RECOVERY_COMMAND_EXPORT", {
+      severity: "warning",
+      message: `${pending.length} source range recovery command(s) need acceptance or retry settlement.`,
+      hint: `Recovery: ${pending[0]?.nextAction ?? commandExport.restartEnvelope?.nextAction ?? "accept-source-range-recovery-command-export"}; handoff: source-range-recovery-command-export.`,
+      preview: pending.map((command) => command.commandId).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && commandExport.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_RECOVERY_COMMAND_EXPORT", {
+      severity: "warning",
+      message: `${review.length} source range recovery command(s) require review before formatter handoff.`,
+      hint: `Recovery: ${review[0]?.nextAction ?? commandExport.restartEnvelope?.nextAction ?? "review-source-range-recovery-command-export"}; handoff: source-range-recovery-command-export.`,
+      preview: review.map((command) => command.commandId).sort().join(", "),
+    }));
+  }
+
+  if (commandExport.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_RECOVERY_COMMAND_EXPORT", {
+      severity: "error",
+      message: "Source range recovery command export restart envelope is not restart-safe.",
+      hint: `Recovery: ${commandExport.restartEnvelope.nextAction ?? "repair-source-range-recovery-command-export"}; handoff: source-range-recovery-command-export.`,
+      preview: commandExport.restartEnvelope.route ?? "source-ranges/recovery-commands/repair",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
 export function createMailchimpWorkflowDiagnostics(workflowState = {}, overrides = {}) {
   const issues = Array.isArray(workflowState.issues) ? workflowState.issues : [];
   return Object.freeze(issues.map((issue) => {
@@ -427,6 +1169,39 @@ export function createMailchimpWorkflowDiagnostics(workflowState = {}, overrides
       range: overrides.rangeByJobName?.[issue.jobName] ?? null,
     });
   }));
+}
+
+export function createMailchimpLifecycleCommandDiagnostics(commandState = {}, options = {}) {
+  const state = commandState?.version === "mailchimp-lifecycle-command-state.v1"
+    ? commandState
+    : createMailchimpLifecycleCommandState(commandState, options);
+  const rows = Array.isArray(state.rows) ? state.rows : [];
+  const actionable = rows.filter((row) => (
+    row.status === "blocked"
+    || row.status === "pending"
+    || row.status === "review"
+  ));
+
+  return Object.freeze(actionable.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_LIFECYCLE_COMMAND", {
+    severity: row.status === "blocked" ? "error" : "warning",
+    range: options.rangeByJobName?.[row.jobName] ?? null,
+    message: `Mailchimp lifecycle command "${row.commandId}" for "${row.jobName}" is ${row.status}.`,
+    hint: `Recovery: ${row.nextAction}; handoff: mailchimp-lifecycle-command-queue.`,
+    preview: row.detail,
+    lifecycleCommand: Object.freeze({
+      id: row.id,
+      commandId: row.commandId,
+      jobName: row.jobName,
+      status: row.status,
+      jobStatus: row.jobStatus,
+      requested: row.requested,
+      completed: row.completed,
+      failed: row.failed,
+      restartSafe: state.restartEnvelope?.restartSafe !== false && row.status !== "blocked",
+      idempotencyKey: row.idempotencyKey,
+      nextAction: row.nextAction,
+    }),
+  })));
 }
 
 export function createMailchimpProviderHandoffState(workflowState = {}, diagnostics = [], settings = {}) {
@@ -481,7 +1256,19 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
   const healthDiagnostics = createMailchimpOperationalHealthDiagnostics(commandContract.operationalHealth, {
     rangeByJobName: settings.rangeByJobName,
   });
+  const operationalHealthReport = createMailchimpOperationalHealthReport(commandContract.operationalHealth, {
+    rangeByJobName: settings.rangeByJobName,
+  });
   const receiptDiagnostics = createMailchimpProviderReceiptDiagnostics(receiptContract, {
+    rangeByJobName: settings.rangeByJobName,
+  });
+  const lifecycleCommandState = workflowState.lifecycleCommandState?.version === "mailchimp-lifecycle-command-state.v1"
+    ? workflowState.lifecycleCommandState
+    : createMailchimpLifecycleCommandState(workflowState, settings);
+  const lifecycleCommandDiagnostics = createMailchimpLifecycleCommandDiagnostics(lifecycleCommandState, {
+    rangeByJobName: settings.rangeByJobName,
+  });
+  const serviceSyncWindowDiagnostics = createMailchimpProviderServiceSyncWindowDiagnostics(serviceContract?.serviceSyncWindows, {
     rangeByJobName: settings.rangeByJobName,
   });
   const tenantBoundaryContract = createMailchimpTenantPermissionBoundaryContract(workflowState, {
@@ -490,11 +1277,19 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
   });
   const tenantBoundaryDiagnostics = createMailchimpTenantPermissionBoundaryDiagnostics(tenantBoundaryContract, {
     rangeByJobName: settings.rangeByJobName,
+    acceptedMailchimpTenantAuditRowIds: settings.acceptedMailchimpTenantAuditRowIds,
+    acceptedMailchimpTenantJobNames: settings.acceptedMailchimpTenantJobNames,
+    requiredMailchimpTenantOperationIds: settings.requiredMailchimpTenantOperationIds,
+    requireMailchimpTenantPermissionAcceptance: settings.requireMailchimpTenantPermissionAcceptance,
+    allowReviewTenantPermissionHandoff: settings.allowReviewTenantPermissionHandoff,
   });
   const activeDiagnostics = Object.freeze([
     ...(Array.isArray(diagnostics) ? diagnostics : []),
     ...healthDiagnostics,
+    ...operationalHealthReport.diagnostics,
     ...receiptDiagnostics,
+    ...lifecycleCommandDiagnostics,
+    ...serviceSyncWindowDiagnostics,
     ...tenantBoundaryDiagnostics,
   ]);
   const recoveryPlan = createDiagnosticRecoveryPlan(activeDiagnostics);
@@ -515,6 +1310,7 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
     ok: workflowState.ok !== false
       && recoveryPlan.exportAllowed
       && readinessPreview.status !== "blocked"
+      && lifecycleCommandState.status !== "blocked"
       && commandContract.status !== "blocked"
       && commandContract.operationalHealth.status !== "blocked"
       && receiptContract.status !== "blocked"
@@ -524,11 +1320,13 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
       || commandContract.operationalHealth.status === "blocked"
       || receiptContract.status === "blocked"
       || receiptContract.status === "failed"
+      || lifecycleCommandState.status === "blocked"
       || tenantBoundaryContract.status === "blocked"
       ? "blocked"
       : commandContract.status === "degraded"
         || commandContract.operationalHealth.status === "degraded"
         || receiptContract.status === "pending"
+        || lifecycleCommandState.status === "pending"
         || tenantBoundaryContract.status === "review"
         ? "review"
         : readinessPreview.status,
@@ -537,6 +1335,7 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
     exportAllowed: workflowState.handoff?.exportAllowed !== false
       && recoveryPlan.exportAllowed
       && readinessPreview.acceptance.acceptable
+      && lifecycleCommandState.exportAllowed
       && commandContract.status !== "blocked"
       && commandContract.operationalHealth.status !== "blocked"
       && receiptContract.externalHandoff.exportAllowed
@@ -550,7 +1349,10 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
     operationalHealth: Object.freeze({
       ...commandContract.operationalHealth,
       diagnostics: healthDiagnostics,
+      report: operationalHealthReport,
+      exportDigest: operationalHealthReport.exportDigest,
     }),
+    lifecycleCommands: lifecycleCommandState,
     recoveryPlan,
     readinessPreview,
     syncMetadata: Object.freeze({
@@ -570,8 +1372,16 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
       receiptStatus: receiptContract.status,
       receiptCount: receiptContract.receiptCount,
       receiptCommandStatus: receiptContract.counters,
+      serviceSyncWindowStatus: serviceContract?.serviceSyncWindows?.status ?? "unbound",
+      serviceSyncWindowCount: serviceContract?.serviceSyncWindows?.windowCount ?? 0,
+      serviceSyncWindowByStatus: serviceContract?.serviceSyncWindows?.counters?.byStatus ?? {},
+      lifecycleCommandStatus: lifecycleCommandState.status,
+      lifecycleCommandCount: lifecycleCommandState.totals?.rowCount ?? 0,
+      lifecycleCommandByStatus: lifecycleCommandState.counters?.byStatus ?? {},
       operationalHealthStatus: commandContract.operationalHealth.status,
       operationalHealthIssueCount: commandContract.operationalHealth.issueCount,
+      operationalHealthActionableCount: operationalHealthReport.totals.actionableCount,
+      operationalHealthRetryScheduleCount: operationalHealthReport.totals.retryScheduleCount,
       tenantBoundaryContractStatus: tenantBoundaryContract.status,
       tenantBoundaryBlockedCount: tenantBoundaryContract.totals.blockedCount,
       tenantBoundaryReviewCount: tenantBoundaryContract.totals.reviewCount,
@@ -579,6 +1389,8 @@ export function createMailchimpProviderHandoffState(workflowState = {}, diagnost
     tenantPermissionBoundary: tenantBoundaryContract,
     nextAction: receiptContract.status === "blocked" || receiptContract.status === "failed" || receiptContract.status === "pending"
       ? receiptContract.recovery.nextAction
+      : lifecycleCommandState.status === "blocked" || lifecycleCommandState.status === "pending"
+      ? lifecycleCommandState.nextAction
       : tenantBoundaryContract.status === "blocked" || tenantBoundaryContract.status === "review"
       ? tenantBoundaryContract.recovery.nextAction
       : commandContract.operationalHealth.status === "blocked" || commandContract.operationalHealth.status === "degraded"
@@ -620,6 +1432,217 @@ export function createMailchimpOperationalHealthDiagnostics(operationalHealth = 
   return Object.freeze(diagnostics);
 }
 
+export function createMailchimpOperationalHealthReport(operationalHealth = {}, options = {}) {
+  const exportDigest = operationalHealth.exportDigest?.version === "mailchimp-operational-health-export-digest.v1"
+    ? operationalHealth.exportDigest
+    : createMailchimpOperationalHealthExportDigest(operationalHealth, options);
+  const incidentLedger = operationalHealth.incidentLedger?.version === "mailchimp-operational-health-incident-ledger.v1"
+    ? operationalHealth.incidentLedger
+    : createMailchimpOperationalHealthIncidentLedger(exportDigest, {
+      ...options,
+      commandHealth: operationalHealth.commandHealth,
+      recoverySnapshot: operationalHealth.recoverySnapshot,
+      degradedMode: operationalHealth.degradedMode,
+    });
+  const diagnostics = Object.freeze([
+    ...createMailchimpOperationalHealthDigestDiagnostics(exportDigest, options),
+    ...createMailchimpOperationalHealthIncidentDiagnostics(incidentLedger, options),
+  ]);
+  const recoveryPlan = options.recoveryPlan?.actions
+    ? options.recoveryPlan
+    : createDiagnosticRecoveryPlan(diagnostics);
+  const rows = Array.isArray(exportDigest.actionableRows) ? exportDigest.actionableRows : [];
+  const incidents = Array.isArray(incidentLedger.rows) ? incidentLedger.rows : [];
+  const retryRows = Array.isArray(exportDigest.retrySchedule) ? exportDigest.retrySchedule : [];
+  const blockedRows = rows.filter((row) => row.status === "blocked");
+  const pendingRows = rows.filter((row) => row.status === "pending");
+  const degradedRows = rows.filter((row) => row.status === "degraded");
+  const errorIncidents = incidents.filter((row) => row.severity === "error");
+  const warningIncidents = incidents.filter((row) => row.severity === "warning");
+  const status = exportDigest.status === "blocked" || blockedRows.length
+    ? "blocked"
+    : incidentLedger.status === "blocked" || errorIncidents.length
+      ? "blocked"
+    : exportDigest.status === "degraded" || degradedRows.length
+      ? "review"
+      : incidentLedger.status === "degraded" || warningIncidents.length
+        ? "review"
+      : exportDigest.status === "pending" || pendingRows.length
+        ? "pending"
+        : incidentLedger.status === "pending"
+          ? "pending"
+        : exportDigest.status ?? "idle";
+
+  return Object.freeze({
+    version: "mailchimp-operational-health-report.v1",
+    status,
+    ok: status === "ready" || status === "idle",
+    providerId: exportDigest.providerId,
+    revision: exportDigest.revision,
+    externalRunId: exportDigest.externalRunId,
+    exportAllowed: exportDigest.handoff?.exportAllowed === true
+      && incidentLedger.handoff?.exportAllowed !== false
+      && recoveryPlan.exportAllowed,
+    restartSafe: exportDigest.restartSafe
+      && exportDigest.handoff?.restartSafe !== false
+      && incidentLedger.restartSafe !== false
+      && incidentLedger.handoff?.restartSafe !== false,
+    route: exportDigest.route,
+    syncKey: exportDigest.syncKey,
+    counters: Object.freeze({
+      byStatus: exportDigest.counters?.byStatus ?? {},
+      byIssue: exportDigest.counters?.byIssue ?? {},
+      byJob: exportDigest.counters?.byJob ?? {},
+      byIncidentSeverity: incidentLedger.counters?.bySeverity ?? {},
+      byIncidentAction: incidentLedger.counters?.byAction ?? {},
+      recoveryByAction: freezeSortedRecord(countBy(recoveryPlan.actions ?? [], "id")),
+    }),
+    totals: Object.freeze({
+      commandCount: exportDigest.totals?.commandCount ?? 0,
+      actionableCount: rows.length,
+      blockedCount: blockedRows.length,
+      degradedCount: degradedRows.length,
+      pendingCount: pendingRows.length,
+      incidentCount: incidents.length,
+      incidentErrorCount: errorIncidents.length,
+      incidentWarningCount: warningIncidents.length,
+      retryBudgetExhaustedIncidentCount: incidentLedger.totals?.retryBudgetExhaustedCount ?? 0,
+      retryScheduleCount: retryRows.length,
+      diagnosticCount: recoveryPlan.actions?.reduce((sum, action) => sum + (action.count ?? 0), 0) ?? 0,
+    }),
+    timeline: Object.freeze(rows.map((row, index) => Object.freeze({
+      index,
+      id: row.id,
+      commandId: row.commandId,
+      jobName: row.jobName,
+      status: row.status,
+      route: row.route ?? exportDigest.route,
+      retryAfter: row.retryAfter,
+      restartSafe: row.restartSafe,
+      nextAction: row.nextAction,
+    }))),
+    retrySchedule: Object.freeze(retryRows),
+    incidentLedger,
+    diagnostics,
+    recoveryPlan,
+    exportDigest,
+    handoff: Object.freeze({
+      ...exportDigest.handoff,
+      exportAllowed: exportDigest.handoff?.exportAllowed === true
+        && incidentLedger.handoff?.exportAllowed !== false
+        && recoveryPlan.exportAllowed,
+      restartSafe: exportDigest.handoff?.restartSafe !== false
+        && incidentLedger.restartSafe !== false
+        && incidentLedger.handoff?.restartSafe !== false,
+      nextAction: blockedRows[0]?.nextAction
+        ?? errorIncidents[0]?.nextAction
+        ?? degradedRows[0]?.nextAction
+        ?? warningIncidents[0]?.nextAction
+        ?? pendingRows[0]?.nextAction
+        ?? recoveryPlan.actions?.[0]?.id
+        ?? incidentLedger.handoff?.nextAction
+        ?? exportDigest.nextAction,
+    }),
+    nextAction: blockedRows[0]?.nextAction
+      ?? errorIncidents[0]?.nextAction
+      ?? degradedRows[0]?.nextAction
+      ?? warningIncidents[0]?.nextAction
+      ?? pendingRows[0]?.nextAction
+      ?? incidentLedger.recovery?.nextAction
+      ?? exportDigest.nextAction,
+  });
+}
+
+export function createMailchimpOperationalHealthDigestDiagnostics(exportDigest = {}, options = {}) {
+  if (!exportDigest || exportDigest.status === "ready" || exportDigest.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(exportDigest.actionableRows) ? exportDigest.actionableRows : [];
+  const diagnostics = rows.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_OPERATIONAL_HEALTH", {
+    severity: row.status === "blocked" ? "error" : "warning",
+    range: options.rangeByJobName?.[row.jobName] ?? null,
+    message: `Mailchimp operational health export row "${row.id}" is ${row.status}.`,
+    hint: `Recovery: ${row.nextAction}; route: ${row.route ?? exportDigest.route}; handoff: mailchimp-operational-health.`,
+    preview: row.detail,
+  }));
+
+  if (!rows.length && exportDigest.restartSafe === false) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_OPERATIONAL_HEALTH", {
+      severity: "error",
+      message: "Mailchimp operational health digest is not restart-safe.",
+      hint: `Recovery: ${exportDigest.nextAction ?? "repair-mailchimp-operational-health"}; handoff: mailchimp-operational-health.`,
+      preview: exportDigest.route ?? "mailchimp/operational-health/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpOperationalHealthIncidentDiagnostics(incidentLedger = {}, options = {}) {
+  if (!incidentLedger
+    || incidentLedger.version !== "mailchimp-operational-health-incident-ledger.v1"
+    || incidentLedger.status === "ready"
+    || incidentLedger.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(incidentLedger.rows) ? incidentLedger.rows : [];
+  const actionable = rows.filter((row) => (
+    row.severity === "error"
+    || row.severity === "warning"
+    || row.retryBudgetStatus === "exhausted"
+    || row.restartSafe === false
+    || row.status === "pending"
+  ));
+  const diagnostics = actionable.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_OPERATIONAL_HEALTH", {
+    severity: row.severity === "error" || row.retryBudgetStatus === "exhausted" || row.restartSafe === false
+      ? "error"
+      : "warning",
+    range: options.rangeByJobName?.[row.jobName]
+      ?? options.rangeByCommandId?.[row.commandId]
+      ?? null,
+    message: `Mailchimp operational incident "${row.commandId ?? row.id}" is ${row.status}.`,
+    hint: [
+      `Recovery: ${row.nextAction ?? incidentLedger.recovery?.nextAction ?? "repair-mailchimp-operational-health"}`,
+      `route: ${row.route ?? incidentLedger.handoff?.route ?? "mailchimp/operational-health/incidents"}`,
+      `handoff: ${incidentLedger.handoff?.channel ?? "mailchimp-operational-health-incidents"}.`,
+      row.retryAfter ? `retryAfter=${row.retryAfter}.` : null,
+      row.retryBudgetStatus === "exhausted" ? "retryBudget=exhausted." : null,
+      row.restartSafe === false ? "restartSafe=false." : null,
+    ].filter(Boolean).join("; "),
+    preview: row.detail ?? `${row.jobName ?? "unbound job"} ${row.service ?? "unknown"}.${row.operation ?? "unknown"}`,
+    operationalIncident: Object.freeze({
+      id: row.id,
+      commandId: row.commandId,
+      operationId: row.operationId,
+      jobName: row.jobName,
+      severity: row.severity,
+      status: row.status,
+      issueCodes: row.issueCodes ?? Object.freeze([]),
+      retryable: row.retryable,
+      retryAfter: row.retryAfter,
+      retryBudgetStatus: row.retryBudgetStatus,
+      remainingAttempts: row.remainingAttempts,
+      restartSafe: row.restartSafe,
+      route: row.route,
+      nextAction: row.nextAction,
+      ledgerSyncKey: incidentLedger.syncKey ?? null,
+    }),
+  }));
+
+  if (!diagnostics.length && incidentLedger.handoff?.restartSafe === false) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_OPERATIONAL_HEALTH", {
+      severity: "error",
+      message: "Mailchimp operational incident ledger is not restart-safe.",
+      hint: `Recovery: ${incidentLedger.handoff.nextAction ?? "repair-mailchimp-operational-health-incidents"}; handoff: ${incidentLedger.handoff.channel ?? "mailchimp-operational-health-incidents"}.`,
+      preview: incidentLedger.handoff.route ?? "mailchimp/operational-health/incidents/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
 export function createMailchimpProviderReceiptDiagnostics(receiptContract = {}, options = {}) {
   if (!receiptContract || receiptContract.status === "acknowledged" || receiptContract.status === "idle" || receiptContract.status === "duplicate") {
     return Object.freeze([]);
@@ -651,14 +1674,407 @@ export function createMailchimpProviderReceiptDiagnostics(receiptContract = {}, 
   })));
 }
 
+export function createMailchimpProviderServiceSyncWindowDiagnostics(serviceSyncWindows = {}, options = {}) {
+  if (!serviceSyncWindows
+    || serviceSyncWindows.status === "ready"
+    || serviceSyncWindows.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const windows = Array.isArray(serviceSyncWindows.windows) ? serviceSyncWindows.windows : [];
+  const actionable = windows.filter((window) => (
+    window.status === "blocked"
+    || window.status === "pending"
+    || window.status === "review"
+  ));
+
+  return Object.freeze(actionable.map((window) => {
+    const jobName = inferMailchimpWindowJobName(window);
+    const severity = window.status === "blocked" ? "error" : "warning";
+    return createCatalogDiagnostic("AIOS_MAILCHIMP_SERVICE_SYNC_WINDOW", {
+      severity,
+      range: jobName ? options.rangeByJobName?.[jobName] ?? null : null,
+      message: `Mailchimp service sync window "${window.channel}" is ${window.status}.`,
+      hint: `Recovery: ${window.nextAction}; handoff: mailchimp-service-sync-window.`,
+      preview: [
+        `${window.operationCount ?? 0} provider operations share ${window.channel}.`,
+        `services=${(window.services ?? []).join(",") || "unbound"}`,
+        `tenants=${(window.tenants ?? []).join(",") || "unbound"}`,
+      ].join(" "),
+      serviceSyncWindow: Object.freeze({
+        id: window.id,
+        channel: window.channel,
+        status: window.status,
+        accepted: Boolean(window.accepted),
+        requireAcceptance: Boolean(window.requireAcceptance),
+        operationIds: window.operationIds ?? Object.freeze([]),
+        operationCount: window.operationCount ?? 0,
+        services: window.services ?? Object.freeze([]),
+        tenants: window.tenants ?? Object.freeze([]),
+        workspaces: window.workspaces ?? Object.freeze([]),
+        restartSafe: window.restartSafe !== false,
+        idempotencyKey: window.idempotencyKey ?? null,
+        nextAction: window.nextAction,
+      }),
+    });
+  }));
+}
+
+export function createMailchimpProviderServiceSyncCheckpointDiagnostics(checkpoint = {}, options = {}) {
+  if (!checkpoint
+    || checkpoint.status === "ready"
+    || checkpoint.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(checkpoint.rows) ? checkpoint.rows : [];
+  const actionable = rows.filter((row) => (
+    row.status === "blocked"
+    || row.status === "pending"
+    || row.status === "review"
+    || row.restartSafe === false
+  ));
+
+  if (!actionable.length && checkpoint.restartEnvelope?.restartSafe === false) {
+    return Object.freeze([createCatalogDiagnostic("AIOS_MAILCHIMP_SERVICE_SYNC_WINDOW", {
+      severity: "error",
+      message: "Mailchimp service sync checkpoint is not restart-safe.",
+      hint: `Recovery: ${checkpoint.restartEnvelope.nextAction ?? "repair-mailchimp-service-sync-checkpoint"}; handoff: mailchimp-service-sync-window.`,
+      preview: checkpoint.restartEnvelope.route ?? "mailchimp/service-sync-checkpoint/recovery",
+      serviceSyncCheckpoint: Object.freeze({
+        status: checkpoint.status,
+        route: checkpoint.restartEnvelope.route ?? null,
+        restartSafe: false,
+        syncKey: checkpoint.syncKey ?? null,
+        nextAction: checkpoint.restartEnvelope.nextAction ?? "repair-mailchimp-service-sync-checkpoint",
+      }),
+    })]);
+  }
+
+  return Object.freeze(actionable.map((row) => {
+    const jobName = inferMailchimpWindowJobName(row);
+    const severity = row.status === "blocked" || row.restartSafe === false ? "error" : "warning";
+    const pendingReason = row.status === "pending"
+      ? row.accepted
+        ? "completion is pending"
+        : "acceptance is pending"
+      : row.status;
+    return createCatalogDiagnostic("AIOS_MAILCHIMP_SERVICE_SYNC_WINDOW", {
+      severity,
+      range: jobName ? options.rangeByJobName?.[jobName] ?? null : null,
+      message: `Mailchimp service sync checkpoint "${row.channel}" is ${row.status}.`,
+      hint: `Recovery: ${row.nextAction}; handoff: mailchimp-service-sync-window.`,
+      preview: [
+        `${row.operationCount ?? 0} provider operations are in checkpoint ${row.windowId}.`,
+        `state=${pendingReason}`,
+        `services=${(row.services ?? []).join(",") || "unbound"}`,
+      ].join(" "),
+      serviceSyncCheckpoint: Object.freeze({
+        id: row.id,
+        windowId: row.windowId,
+        channel: row.channel,
+        status: row.status,
+        sourceStatus: row.sourceStatus,
+        accepted: Boolean(row.accepted),
+        completed: Boolean(row.completed),
+        required: Boolean(row.required),
+        restartSafe: row.restartSafe !== false,
+        operationIds: row.operationIds ?? Object.freeze([]),
+        idempotencyKey: row.idempotencyKey ?? null,
+        route: checkpoint.restartEnvelope?.route ?? "mailchimp/service-sync-checkpoint/summary",
+        syncKey: checkpoint.syncKey ?? null,
+        nextAction: row.nextAction,
+      }),
+    });
+  }));
+}
+
+export function createMailchimpProviderServiceReadinessDiagnostics(matrixOrServiceContract = {}, options = {}) {
+  const matrix = matrixOrServiceContract?.version === "mailchimp-provider-service-readiness-matrix.v1"
+    ? matrixOrServiceContract
+    : createMailchimpProviderServiceReadinessMatrix(matrixOrServiceContract, options);
+  if (!matrix
+    || matrix.status === "ready"
+    || matrix.status === "idle"
+    || (matrix.status === "degraded" && matrix.exportAllowed === true)) {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(matrix.rows) ? matrix.rows : [];
+  const actionable = rows.filter((row) => (
+    row.status === "blocked"
+    || row.status === "pending"
+    || row.status === "review"
+    || row.status === "degraded"
+    || row.restartSafe === false
+  ));
+
+  if (!actionable.length && matrix.restartEnvelope?.restartSafe === false) {
+    return Object.freeze([createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_CONTRACT", {
+      severity: "error",
+      message: "Mailchimp provider service readiness matrix is not restart-safe.",
+      hint: `Recovery: ${matrix.restartEnvelope.nextAction ?? "repair-mailchimp-provider-service-readiness"}; handoff: mailchimp-provider-service-readiness.`,
+      preview: matrix.restartEnvelope.route ?? "mailchimp/provider-service-readiness/recovery",
+    })]);
+  }
+
+  return Object.freeze(actionable.map((row) => {
+    const severity = row.status === "blocked" || row.restartSafe === false ? "error" : "warning";
+    const missing = (row.missingCapabilities ?? []).join(", ");
+    const serviceLabel = `${row.service}.${row.operation}`;
+    return createCatalogDiagnostic(row.status === "degraded"
+      ? "AIOS_MAILCHIMP_SERVICE_SYNC_WINDOW"
+      : "AIOS_MAILCHIMP_PROVIDER_CONTRACT", {
+      severity,
+      range: options.rangeByServiceReadinessRowId?.[row.id]
+        ?? options.rangeByService?.[row.service]
+        ?? null,
+      message: `Mailchimp provider service "${serviceLabel}" is ${row.status}.`,
+      hint: `Recovery: ${row.nextAction}; handoff: mailchimp-provider-service-readiness.`,
+      preview: [
+        `operations=${row.operationCount ?? 0}`,
+        `capability=${row.capabilityStatus ?? "unknown"}`,
+        `checkpoint=${row.checkpointStatus ?? "unknown"}`,
+        missing ? `missing=${missing}` : null,
+      ].filter(Boolean).join(" "),
+    });
+  }));
+}
+
+export function createMailchimpProviderServiceHandoffDiagnostics(handoffOrServiceContract = {}, options = {}) {
+  const handoff = handoffOrServiceContract?.version === "mailchimp-provider-service-handoff.v1"
+    ? handoffOrServiceContract
+    : createMailchimpProviderServiceHandoffContract(handoffOrServiceContract, options);
+  if (!handoff
+    || handoff.status === "ready"
+    || handoff.status === "idle"
+    || (handoff.status === "review" && handoff.exportAllowed === true)) {
+    return Object.freeze([]);
+  }
+
+  const lanes = Array.isArray(handoff.lanes) ? handoff.lanes : [];
+  const blocked = lanes.filter((lane) => lane.status === "blocked" || lane.restartSafe === false || lane.exportAllowed === false);
+  const pending = lanes.filter((lane) => lane.status === "pending" || lane.status === "needsAcceptance");
+  const review = lanes.filter((lane) => lane.status === "review" || lane.status === "degraded");
+  const diagnostics = [];
+
+  for (const lane of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "error",
+      message: `Mailchimp provider service handoff lane "${lane.id}" is blocked before external handoff.`,
+      hint: `Recovery: ${lane.nextAction ?? handoff.restartEnvelope?.nextAction ?? "complete-mailchimp-provider-service-handoff"}; handoff: ${lane.handoff ?? "mailchimp-provider-service-handoff"}.`,
+      preview: lane.detail ?? lane.label ?? lane.id,
+      range: options.rangeByProviderServiceHandoffLaneId?.[lane.id]
+        ?? options.rangeByLaneId?.[lane.id]
+        ?? null,
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "warning",
+      message: `${pending.length} Mailchimp provider service handoff lane(s) need runtime settlement or acceptance.`,
+      hint: `Recovery: ${pending[0]?.nextAction ?? handoff.restartEnvelope?.nextAction ?? "settle-mailchimp-provider-service-handoff"}; handoff: mailchimp-provider-service-handoff.`,
+      preview: pending.map((lane) => lane.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && handoff.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "warning",
+      message: `${review.length} Mailchimp provider service handoff lane(s) require review before external handoff.`,
+      hint: `Recovery: ${review[0]?.nextAction ?? handoff.restartEnvelope?.nextAction ?? "review-mailchimp-provider-service-handoff"}; handoff: mailchimp-provider-service-handoff.`,
+      preview: review.map((lane) => lane.id).sort().join(", "),
+    }));
+  }
+
+  if (handoff.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "error",
+      message: "Mailchimp provider service handoff contract is not restart-safe.",
+      hint: `Recovery: ${handoff.restartEnvelope.nextAction ?? "repair-mailchimp-provider-service-handoff"}; handoff: mailchimp-provider-service-handoff.`,
+      preview: handoff.restartEnvelope.route ?? "mailchimp/provider-service-handoff/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpProviderServiceHandoffExportDiagnostics(deckOrHandoff = {}, options = {}) {
+  const deck = deckOrHandoff?.version === "mailchimp-provider-service-handoff-export-deck.v1"
+    ? deckOrHandoff
+    : createMailchimpProviderServiceHandoffExportDeck(deckOrHandoff, options);
+  if (!deck
+    || deck.status === "ready"
+    || deck.status === "idle"
+    || (deck.status === "review" && deck.exportAllowed === true)) {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(deck.rows) ? deck.rows : [];
+  const blocked = rows.filter((row) => row.status === "blocked" || row.restartSafe === false || row.exportAllowed === false);
+  const pending = rows.filter((row) => row.status === "pending");
+  const review = rows.filter((row) => row.status === "review");
+  const diagnostics = [];
+
+  for (const row of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "error",
+      message: `Mailchimp provider service handoff export row "${row.id}" is blocked before product health export.`,
+      hint: `Recovery: ${row.nextAction ?? deck.restartEnvelope?.nextAction ?? "repair-mailchimp-provider-service-handoff-export"}; handoff: mailchimp-provider-service-handoff.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByProviderServiceHandoffExportRowId?.[row.id]
+        ?? options.rangeByProviderServiceHandoffLaneId?.[row.laneId]
+        ?? options.rangeByLaneId?.[row.laneId]
+        ?? null,
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "warning",
+      message: `${pending.length} Mailchimp provider service handoff export row(s) need acceptance before product health export.`,
+      hint: `Recovery: ${pending[0]?.nextAction ?? deck.restartEnvelope?.nextAction ?? "accept-mailchimp-provider-service-handoff-export"}; handoff: mailchimp-provider-service-handoff.`,
+      preview: pending.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && deck.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "warning",
+      message: `${review.length} Mailchimp provider service handoff export row(s) need review before product health export.`,
+      hint: `Recovery: ${review[0]?.nextAction ?? deck.restartEnvelope?.nextAction ?? "review-mailchimp-provider-service-handoff-export"}; handoff: mailchimp-provider-service-handoff.`,
+      preview: review.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (deck.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SERVICE_HANDOFF", {
+      severity: "error",
+      message: "Mailchimp provider service handoff export deck is not restart-safe.",
+      hint: `Recovery: ${deck.restartEnvelope.nextAction ?? "repair-mailchimp-provider-service-handoff-export"}; handoff: mailchimp-provider-service-handoff.`,
+      preview: deck.restartEnvelope.route ?? "mailchimp/provider-service-handoff/export/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpProviderSourceDeploymentDiagnostics(packet = {}, options = {}) {
+  if (!packet
+    || packet.version !== "mailchimp-provider-source-deployment.v1"
+    || packet.status === "ready"
+    || packet.status === "idle"
+    || (packet.status === "review" && packet.exportAllowed === true)) {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(packet.rows) ? packet.rows : [];
+  const diagnostics = [];
+  const blocked = rows.filter((row) => row.status === "blocked" || row.restartSafe === false || row.exportAllowed === false);
+  const pending = rows.filter((row) => row.status === "pending");
+  const review = rows.filter((row) => row.status === "review" || row.status === "degraded");
+
+  for (const row of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SOURCE_DEPLOYMENT", {
+      severity: "error",
+      message: `Mailchimp provider source deployment row "${row.id}" is blocked before external handoff.`,
+      hint: `Recovery: ${row.nextAction ?? packet.restartEnvelope?.nextAction ?? "complete-mailchimp-provider-source-deployment"}; handoff: mailchimp-provider-source-deployment.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByProviderSourceDeploymentRowId?.[row.id]
+        ?? options.rangeByProviderServiceHandoffLaneId?.[row.laneId]
+        ?? options.rangeByService?.[row.service]
+        ?? null,
+      providerSourceDeployment: Object.freeze({
+        id: row.id,
+        laneId: row.laneId,
+        service: row.service,
+        status: row.status,
+        providerLaneStatus: row.providerLaneStatus,
+        providerExportStatus: row.providerExportStatus,
+        sourceStatus: row.sourceStatus,
+        anchoredOperationCount: row.anchoredOperationCount,
+        sourceOperationCount: row.sourceOperationCount,
+        blockedSourceOperationIds: row.blockedSourceOperationIds,
+        pendingSourceOperationIds: row.pendingSourceOperationIds,
+        restartSafe: row.restartSafe,
+        exportAllowed: row.exportAllowed,
+        nextAction: row.nextAction,
+      }),
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SOURCE_DEPLOYMENT", {
+      severity: "warning",
+      message: `${pending.length} Mailchimp provider source deployment row(s) need acceptance before external handoff.`,
+      hint: `Recovery: ${pending[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "accept-mailchimp-provider-source-deployment"}; handoff: mailchimp-provider-source-deployment.`,
+      preview: pending.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && packet.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SOURCE_DEPLOYMENT", {
+      severity: "warning",
+      message: `${review.length} Mailchimp provider source deployment row(s) require review before external handoff.`,
+      hint: `Recovery: ${review[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "review-mailchimp-provider-source-deployment"}; handoff: mailchimp-provider-source-deployment.`,
+      preview: review.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (packet.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PROVIDER_SOURCE_DEPLOYMENT", {
+      severity: "error",
+      message: "Mailchimp provider source deployment restart envelope is not restart-safe.",
+      hint: `Recovery: ${packet.restartEnvelope.nextAction ?? "repair-mailchimp-provider-source-deployment"}; handoff: mailchimp-provider-source-deployment.`,
+      preview: packet.restartEnvelope.route ?? "mailchimp/provider-source-deployment/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
 export function createMailchimpTenantPermissionBoundaryDiagnostics(boundaryContract = {}, options = {}) {
   const contract = boundaryContract?.version === "mailchimp-tenant-permission-boundary.v1"
     ? boundaryContract
     : createMailchimpTenantPermissionBoundaryContract(boundaryContract, options);
+  const decision = options.tenantPermissionDecision?.version === "mailchimp-tenant-permission-decision.v1"
+    ? options.tenantPermissionDecision
+    : createMailchimpTenantPermissionDecision(contract, {
+        acceptedMailchimpTenantAuditRowIds: options.acceptedMailchimpTenantAuditRowIds,
+        acceptedMailchimpTenantJobNames: options.acceptedMailchimpTenantJobNames,
+        requiredMailchimpTenantOperationIds: options.requiredMailchimpTenantOperationIds,
+        requireMailchimpTenantPermissionAcceptance: options.requireMailchimpTenantPermissionAcceptance,
+        allowReviewTenantPermissionHandoff: options.allowReviewTenantPermissionHandoff,
+        allowTenantBoundaryDegradedMode: options.allowTenantBoundaryDegradedMode,
+        retryAfterSecondsByReason: options.retryAfterSecondsByReason,
+        retryAfterSecondsByRowId: options.retryAfterSecondsByRowId,
+        mailchimpTenantBoundaryMaxRetryAttempts: options.mailchimpTenantBoundaryMaxRetryAttempts,
+        mailchimpTenantBoundaryAttemptByRowId: options.mailchimpTenantBoundaryAttemptByRowId,
+      });
   if (!contract || contract.status === "ready" || contract.status === "idle") {
-    return Object.freeze([]);
+    if (!decision || decision.status === "ready" || decision.status === "idle") {
+      return Object.freeze([]);
+    }
   }
 
+  const auditLedger = decision.auditLedger?.version === "mailchimp-tenant-permission-audit-ledger.v1"
+    ? decision.auditLedger
+    : contract.auditLedger?.version === "mailchimp-tenant-permission-audit-ledger.v1"
+      ? contract.auditLedger
+      : createMailchimpTenantPermissionAuditLedger(decision, {
+        revision: options.revision,
+        externalRunId: options.externalRunId,
+        allowTenantBoundaryDegradedMode: options.allowTenantBoundaryDegradedMode,
+        retryAfterSecondsByReason: options.retryAfterSecondsByReason,
+        retryAfterSecondsByRowId: options.retryAfterSecondsByRowId,
+        mailchimpTenantBoundaryMaxRetryAttempts: options.mailchimpTenantBoundaryMaxRetryAttempts,
+        mailchimpTenantBoundaryAttemptByRowId: options.mailchimpTenantBoundaryAttemptByRowId,
+      });
+  const ledgerByAuditRowId = new Map((auditLedger.rows ?? [])
+    .map((row) => [row.auditRowId ?? row.id, row]));
+  const ledgerByDecisionId = new Map((auditLedger.rows ?? [])
+    .map((row) => [row.id, row]));
   const actionableRows = Array.isArray(contract.auditRows)
     ? contract.auditRows.filter((row) => row.status === "blocked" || row.status === "review")
     : [];
@@ -681,17 +2097,58 @@ export function createMailchimpTenantPermissionBoundaryDiagnostics(boundaryContr
         restartSafe: boundary.status !== "blocked",
         nextAction: boundary.nextAction,
       }));
+  const decisionRows = Array.isArray(decision.rows)
+    ? decision.rows.filter((row) => row.status === "blocked" || row.status === "pending" || row.status === "review")
+    : [];
+  const decisionDiagnostics = decisionRows.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_TENANT_PERMISSION", {
+    severity: row.status === "blocked" || ledgerByAuditRowId.get(row.auditRowId)?.retryBudget?.status === "exhausted" ? "error" : "warning",
+    range: options.rangeByJobName?.[row.jobName] ?? null,
+    message: `Mailchimp tenant permission decision for "${row.jobName ?? "workflow"}" is ${row.status}.`,
+    hint: createMailchimpTenantPermissionDiagnosticHint(
+      ledgerByAuditRowId.get(row.auditRowId) ?? ledgerByDecisionId.get(row.id),
+      row.nextAction,
+      decision.handoff?.channel ?? "mailchimp-tenant-permission-decision",
+    ),
+    preview: [
+      row.detail,
+      `tenant=${row.tenantId ?? "unbound"}`,
+      `workspace=${row.workspaceId ?? "unbound"}`,
+      `accepted=${row.accepted ? "yes" : "no"}`,
+      createMailchimpTenantPermissionPreviewSuffix(ledgerByAuditRowId.get(row.auditRowId) ?? ledgerByDecisionId.get(row.id)),
+    ].join(" "),
+    tenantPermissionDecision: Object.freeze({
+      id: row.id,
+      auditRowId: row.auditRowId,
+      jobName: row.jobName,
+      operationId: row.operationId,
+      status: row.status,
+      accepted: row.accepted,
+      requiresAcceptance: row.requiresAcceptance,
+      restartSafe: row.restartSafe,
+      nextAction: row.nextAction,
+      syncKey: decision.boundaryContract?.syncKey ?? contract.syncKey ?? null,
+      auditLedger: createMailchimpTenantPermissionDiagnosticLedgerSummary(
+        ledgerByAuditRowId.get(row.auditRowId) ?? ledgerByDecisionId.get(row.id),
+        auditLedger,
+      ),
+    }),
+  }));
 
-  return Object.freeze(fallbackRows.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_TENANT_PERMISSION", {
-    severity: row.status === "blocked" ? "error" : "warning",
+  const boundaryDiagnostics = fallbackRows.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_TENANT_PERMISSION", {
+    severity: row.status === "blocked" || ledgerByAuditRowId.get(row.id)?.retryBudget?.status === "exhausted" ? "error" : "warning",
     range: options.rangeByJobName?.[row.jobName] ?? null,
     message: `Mailchimp tenant boundary for "${row.jobName}" is ${row.status}.`,
-    hint: `Recovery: ${row.nextAction}; handoff: ${row.handoff}.`,
+    hint: createMailchimpTenantPermissionDiagnosticHint(
+      ledgerByAuditRowId.get(row.id),
+      row.nextAction,
+      row.handoff,
+    ),
     preview: [
       row.detail,
       `tenant=${row.tenantId ?? "unbound"}`,
       `workspace=${row.workspaceId ?? "unbound"}`,
       `role=${row.role ?? "unbound"}`,
+      createMailchimpTenantPermissionPreviewSuffix(ledgerByAuditRowId.get(row.id)),
     ].join(" "),
     tenantBoundary: Object.freeze({
       id: row.id,
@@ -706,8 +2163,208 @@ export function createMailchimpTenantPermissionBoundaryDiagnostics(boundaryContr
       restartSafe: row.restartSafe,
       nextAction: row.nextAction,
       syncKey: contract.syncKey ?? null,
+      auditLedger: createMailchimpTenantPermissionDiagnosticLedgerSummary(ledgerByAuditRowId.get(row.id), auditLedger),
     }),
-  })));
+  }));
+  const ledgerDiagnostics = createMailchimpTenantPermissionAuditLedgerDiagnostics(auditLedger, options);
+
+  return Object.freeze([...boundaryDiagnostics, ...decisionDiagnostics, ...ledgerDiagnostics]
+    .sort((left, right) => left.severity.localeCompare(right.severity) || left.message.localeCompare(right.message)));
+}
+
+export function createMailchimpTenantPermissionAuditLedgerDiagnostics(auditLedger = {}, options = {}) {
+  const ledger = auditLedger?.version === "mailchimp-tenant-permission-audit-ledger.v1"
+    ? auditLedger
+    : createMailchimpTenantPermissionAuditLedger(auditLedger, options);
+  const rows = Array.isArray(ledger.rows) ? ledger.rows : [];
+  const actionableRows = rows.filter((row) => row.status === "blocked"
+    || row.status === "pending"
+    || row.status === "review"
+    || row.retryBudget?.status === "exhausted");
+  const diagnostics = actionableRows.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_OPERATIONAL_HEALTH", {
+    severity: row.status === "blocked" || row.retryBudget?.status === "exhausted" ? "error" : "warning",
+    range: options.rangeByJobName?.[row.jobName] ?? null,
+    message: `Mailchimp tenant permission ledger row "${row.auditRowId ?? row.id}" is ${row.status}.`,
+    hint: createMailchimpTenantPermissionDiagnosticHint(row, row.nextAction, ledger.handoff?.channel),
+    preview: [
+      row.detail,
+      `retryClass=${row.retryClass}`,
+      `retryable=${row.retryable ? "yes" : "no"}`,
+      `degradedMode=${row.degradedMode}`,
+      `remainingRetries=${row.retryBudget?.remaining ?? 0}`,
+    ].join(" "),
+    tenantPermissionAuditLedger: Object.freeze({
+      id: row.id,
+      auditRowId: row.auditRowId,
+      jobName: row.jobName,
+      operationId: row.operationId,
+      status: row.status,
+      retryClass: row.retryClass,
+      retryable: row.retryable,
+      retryAfterSeconds: row.retryPolicy?.retryAfterSeconds ?? null,
+      retryBudgetStatus: row.retryBudget?.status ?? "unknown",
+      degradedModeAllowed: row.degradedModeAllowed,
+      route: row.handoff?.route ?? ledger.handoff?.route ?? null,
+      nextAction: row.nextAction,
+      ledgerSyncKey: ledger.syncKey ?? null,
+    }),
+  }));
+
+  if (ledger.status === "ready" || ledger.status === "idle") return Object.freeze(diagnostics);
+
+  return Object.freeze([
+    ...diagnostics,
+    createCatalogDiagnostic("AIOS_MAILCHIMP_OPERATIONAL_HEALTH", {
+      severity: ledger.status === "blocked" ? "error" : "warning",
+      message: `Mailchimp tenant permission audit ledger is ${ledger.status}.`,
+      hint: `Recovery: ${ledger.health?.nextAction ?? ledger.handoff?.nextAction ?? "repair-mailchimp-tenant-permission-ledger"}; handoff: ${ledger.handoff?.channel ?? "mailchimp-tenant-permission-audit-ledger"}.`,
+      preview: [
+        `health=${ledger.health?.state ?? "unknown"}`,
+        `retryable=${ledger.health?.retryable ? "yes" : "no"}`,
+        `degradedAllowed=${ledger.health?.degradedModeAllowed ? "yes" : "no"}`,
+        `nextRetryAfterSeconds=${ledger.health?.nextRetryAfterSeconds ?? "none"}`,
+      ].join(" "),
+      tenantPermissionAuditLedger: Object.freeze({
+        status: ledger.status,
+        healthState: ledger.health?.state ?? "unknown",
+        retryableCount: ledger.totals?.retryableCount ?? 0,
+        retryExhaustedCount: ledger.totals?.retryExhaustedCount ?? 0,
+        degradedAllowedCount: ledger.totals?.degradedAllowedCount ?? 0,
+        route: ledger.handoff?.route ?? null,
+        nextAction: ledger.health?.nextAction ?? ledger.handoff?.nextAction ?? null,
+        syncKey: ledger.syncKey ?? null,
+      }),
+    }),
+  ]);
+}
+
+function createMailchimpTenantPermissionDiagnosticHint(ledgerRow = null, fallbackNextAction = null, handoff = null) {
+  if (!ledgerRow) {
+    return `Recovery: ${fallbackNextAction ?? "bind-mailchimp-tenant-permissions"}; handoff: ${handoff ?? "mailchimp-tenant-permission-audit"}.`;
+  }
+
+  const retryHint = ledgerRow.retryable
+    ? ` retryAfterSeconds=${ledgerRow.retryPolicy?.retryAfterSeconds ?? 0}; remainingRetries=${ledgerRow.retryBudget?.remaining ?? 0}.`
+    : ledgerRow.retryBudget?.status === "exhausted"
+      ? " retryBudget=exhausted."
+      : "";
+  const degradedHint = ledgerRow.degradedModeAllowed
+    ? " degradedMode=allowed."
+    : ledgerRow.degradedMode === "requires-acceptance"
+      ? " degradedMode=requires-acceptance."
+      : "";
+
+  return [
+    `Recovery: ${ledgerRow.nextAction ?? fallbackNextAction ?? "bind-mailchimp-tenant-permissions"};`,
+    `handoff: ${ledgerRow.handoff?.channel ?? handoff ?? "mailchimp-tenant-permission-audit-ledger"}.`,
+    `retryClass=${ledgerRow.retryClass ?? "unknown"}.`,
+    retryHint,
+    degradedHint,
+  ].join(" ").replace(/\s+/g, " ").trim();
+}
+
+function createMailchimpTenantPermissionPreviewSuffix(ledgerRow = null) {
+  if (!ledgerRow) return "ledger=unbound";
+  return [
+    `retryClass=${ledgerRow.retryClass ?? "unknown"}`,
+    `retryable=${ledgerRow.retryable ? "yes" : "no"}`,
+    `degradedMode=${ledgerRow.degradedMode ?? "unknown"}`,
+    `retryBudget=${ledgerRow.retryBudget?.status ?? "unknown"}`,
+  ].join(" ");
+}
+
+function createMailchimpTenantPermissionDiagnosticLedgerSummary(ledgerRow = null, ledger = {}) {
+  return Object.freeze({
+    ledgerStatus: ledger.status ?? "unbound",
+    ledgerHealth: ledger.health?.state ?? "unknown",
+    ledgerRoute: ledger.handoff?.route ?? null,
+    retryableCount: ledger.totals?.retryableCount ?? 0,
+    retryExhaustedCount: ledger.totals?.retryExhaustedCount ?? 0,
+    row: ledgerRow
+      ? Object.freeze({
+        id: ledgerRow.id,
+        auditRowId: ledgerRow.auditRowId,
+        retryClass: ledgerRow.retryClass,
+        retryable: ledgerRow.retryable,
+        retryAfterSeconds: ledgerRow.retryPolicy?.retryAfterSeconds ?? null,
+        retryBudgetStatus: ledgerRow.retryBudget?.status ?? "unknown",
+        degradedMode: ledgerRow.degradedMode,
+        degradedModeAllowed: ledgerRow.degradedModeAllowed,
+        handoffRoute: ledgerRow.handoff?.route ?? null,
+      })
+      : null,
+  });
+}
+
+export function createMailchimpTenantSourceAnchorDiagnostics(sourceBoundaryAudit = {}, options = {}) {
+  const correlation = sourceBoundaryAudit.mailchimpTenantCorrelations?.version === "mailchimp-tenant-source-anchor-correlations.v1"
+    ? sourceBoundaryAudit.mailchimpTenantCorrelations
+    : options.mailchimpTenantSourceAnchorCorrelations?.version === "mailchimp-tenant-source-anchor-correlations.v1"
+      ? options.mailchimpTenantSourceAnchorCorrelations
+      : options.tenantPermissionDecision || options.mailchimpTenantPermissionDecision
+        ? createMailchimpTenantSourceAnchorCorrelations(
+            options.tenantPermissionDecision ?? options.mailchimpTenantPermissionDecision,
+            sourceBoundaryAudit.persistence?.anchors ?? options.sourceAnchors ?? [],
+            options,
+          )
+        : null;
+  const auditRows = Array.isArray(sourceBoundaryAudit.auditEvents) ? sourceBoundaryAudit.auditEvents : [];
+  const correlatedRows = correlation?.rows ?? [];
+  const rows = correlatedRows.length
+    ? correlatedRows.filter((row) => row.status === "blocked" || row.status === "pending" || row.status === "review")
+    : auditRows
+      .filter((row) => row.mailchimpTenantStatus && row.mailchimpTenantStatus !== "unbound" && row.mailchimpTenantStatus !== "ready")
+      .map((row) => Object.freeze({
+        id: row.mailchimpTenantDecisionId ?? row.id,
+        anchorId: row.anchorId,
+        anchorType: "source",
+        previewAddress: row.previewAddress,
+        jobName: null,
+        operationId: null,
+        auditRowId: row.mailchimpAuditRowId,
+        status: row.mailchimpTenantStatus,
+        accepted: row.accepted,
+        tenantId: row.tenantId,
+        workspaceId: row.workspaceId,
+        role: row.role,
+        reasonCodes: Object.freeze([row.reason].filter(Boolean)),
+        detail: row.reason,
+        restartSafe: row.restartSafe,
+        nextAction: row.nextAction,
+      }));
+
+  return Object.freeze(rows.map((row) => createCatalogDiagnostic("AIOS_MAILCHIMP_TENANT_PERMISSION", {
+    severity: row.status === "blocked" || row.restartSafe === false ? "error" : "warning",
+    range: options.rangeBySourceAnchorId?.[row.anchorId]
+      ?? options.rangeByMailchimpTenantAuditRowId?.[row.auditRowId]
+      ?? null,
+    message: row.anchorId
+      ? `Mailchimp tenant permission source anchor "${row.anchorId}" is ${row.status}.`
+      : `Mailchimp tenant permission decision "${row.auditRowId ?? row.id}" has no source anchor.`,
+    hint: `Recovery: ${row.nextAction ?? correlation?.recovery?.nextAction ?? "bind-mailchimp-tenant-source-anchor"}; handoff: mailchimp-tenant-source-anchor-boundary.`,
+    preview: [
+      row.previewAddress ?? row.detail ?? row.id,
+      `tenant=${row.tenantId ?? "unbound"}`,
+      `workspace=${row.workspaceId ?? "unbound"}`,
+      `accepted=${row.accepted ? "yes" : "no"}`,
+    ].join(" "),
+    tenantSourceAnchor: Object.freeze({
+      id: row.id,
+      anchorId: row.anchorId,
+      anchorType: row.anchorType,
+      auditRowId: row.auditRowId,
+      jobName: row.jobName,
+      operationId: row.operationId,
+      status: row.status,
+      tenantId: row.tenantId,
+      workspaceId: row.workspaceId,
+      role: row.role,
+      restartSafe: row.restartSafe,
+      reasonCodes: row.reasonCodes,
+      syncKey: correlation?.syncKey ?? sourceBoundaryAudit.syncKey ?? null,
+      nextAction: row.nextAction,
+    }),
+  })).sort((left, right) => left.severity.localeCompare(right.severity) || left.message.localeCompare(right.message)));
 }
 
 export function createMailchimpLaunchGateDiagnostics(astOrGate = {}, settings = {}) {
@@ -800,6 +2457,57 @@ export function createMailchimpLaunchGateRuntimeState(astOrGate = {}, settings =
         ?? launchGate.handoff.nextAction,
     }),
   });
+}
+
+export function createMailchimpCampaignReleaseDiagnostics(releaseContract = {}, options = {}) {
+  if (!releaseContract
+    || releaseContract.status === "ready"
+    || releaseContract.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const lanes = Array.isArray(releaseContract.lanes) ? releaseContract.lanes : [];
+  const actionableLanes = lanes.filter((lane) => (
+    lane.status === "blocked"
+    || lane.status === "pending"
+    || lane.status === "needsAcceptance"
+    || lane.status === "review"
+    || lane.status === "degraded"
+    || lane.exportAllowed === false
+    || lane.restartSafe === false
+    || lane.acceptanceState === "pending"
+    || lane.acceptanceState === "notReady"
+  ));
+
+  return Object.freeze(actionableLanes.map((lane) => {
+    const blocked = lane.status === "blocked" || lane.exportAllowed === false || lane.restartSafe === false;
+    const acceptance = lane.acceptanceState === "pending"
+      ? " release acceptance is pending."
+      : lane.acceptanceState === "notReady"
+        ? " release acceptance is waiting for lane readiness."
+        : "";
+    return createCatalogDiagnostic("AIOS_MAILCHIMP_RELEASE_CONTRACT", {
+      severity: blocked ? "error" : "warning",
+      range: options.rangeByLaneId?.[lane.id] ?? null,
+      message: `Mailchimp campaign release lane "${lane.id}" is ${lane.status}.`,
+      hint: `Recovery: ${lane.nextAction}; handoff: mailchimp-campaign-release.`,
+      preview: `${lane.label ?? lane.id}: route=${lane.route ?? "mailchimp/campaign-release"} count=${lane.count ?? 0}.${acceptance}`,
+      releaseLane: Object.freeze({
+        id: lane.id,
+        label: lane.label,
+        status: lane.status,
+        route: lane.route,
+        exportAllowed: lane.exportAllowed !== false,
+        restartSafe: lane.restartSafe !== false,
+        accepted: Boolean(lane.accepted),
+        acceptanceState: lane.acceptanceState ?? "unbound",
+        count: lane.count ?? 0,
+        nextAction: lane.nextAction,
+        releaseId: releaseContract.releaseId ?? null,
+        syncKey: releaseContract.restartEnvelope?.idempotencyKeys?.join("|") ?? null,
+      }),
+    });
+  }));
 }
 
 export function createMailchimpProviderReadinessPreview(workflowState = {}, diagnostics = [], options = {}) {
@@ -1100,6 +2808,671 @@ export function createDiagnosticLifecycleCommandSummary(diagnostics = [], settin
   });
 }
 
+export function createDiagnosticProviderActionDeck(state = {}, options = {}) {
+  const clientState = state.clientState?.clientStateVersion === "diagnostic-client-runtime.v1"
+    ? state.clientState
+    : createDiagnosticClientRuntimeState(state.diagnostics ?? [], options);
+  const commandSummary = state.commandSummary?.version === "diagnostic-lifecycle-command-summary.v1"
+    ? state.commandSummary
+    : createDiagnosticLifecycleCommandSummary(state.diagnostics ?? [], {
+        ...options,
+        lifecycle: clientState.lifecycle,
+      });
+  const providerHandoff = state.providerHandoff ?? state.mailchimpHandoff ?? null;
+  const releaseChecklist = state.releaseChecklist ?? state.diagnosticReleaseChecklist ?? null;
+  const adoptionState = state.adoptionState ?? state.diagnosticClientRuntimeAdoption ?? null;
+  const cards = [
+    ...createDiagnosticDeckRowsFromClient(clientState),
+    ...createDiagnosticDeckRowsFromCommands(commandSummary),
+    ...createDiagnosticDeckRowsFromProvider(providerHandoff),
+    ...createDiagnosticDeckRowsFromRelease(releaseChecklist),
+    ...createDiagnosticDeckRowsFromAdoption(adoptionState),
+  ].sort(compareDiagnosticProviderActionRows);
+  const blocked = cards.filter((card) => card.status === "blocked" || card.restartSafe === false);
+  const pending = cards.filter((card) => card.status === "pending" || card.status === "needsAcceptance");
+  const review = cards.filter((card) => card.status === "review" || card.status === "degraded");
+  const status = blocked.length
+    ? "blocked"
+    : pending.length
+      ? "pending"
+      : review.length
+        ? "review"
+        : cards.length
+          ? "ready"
+          : "idle";
+
+  return Object.freeze({
+    version: "diagnostic-provider-action-deck.v1",
+    status,
+    ok: status === "ready" || status === "idle" || status === "review",
+    exportAllowed: status === "ready" || status === "idle" || status === "review",
+    providerId: providerHandoff?.providerId ?? options.providerId ?? "mailchimp",
+    fileName: options.fileName ?? releaseChecklist?.fileName ?? adoptionState?.fileName ?? "inline.aios",
+    revision: options.revision ?? releaseChecklist?.revision ?? "working",
+    cards: Object.freeze(cards),
+    counters: Object.freeze({
+      byStatus: freezeSortedRecord(countBy(cards, "status")),
+      byKind: freezeSortedRecord(countBy(cards, "kind")),
+      byRoute: freezeSortedRecord(countBy(cards, "route")),
+      bySource: freezeSortedRecord(countBy(cards, "source")),
+    }),
+    totals: Object.freeze({
+      cardCount: cards.length,
+      blockedCount: blocked.length,
+      pendingCount: pending.length,
+      reviewCount: review.length,
+      diagnosticActionCount: cards.filter((card) => card.source === "diagnostic").length,
+      providerActionCount: cards.filter((card) => card.source === "provider").length,
+      releaseActionCount: cards.filter((card) => card.source === "release").length,
+    }),
+    restartEnvelope: Object.freeze({
+      route: status === "blocked"
+        ? "diagnostics/provider-actions/recovery"
+        : status === "pending"
+          ? "diagnostics/provider-actions/acceptance"
+          : status === "review"
+            ? "diagnostics/provider-actions/review"
+            : "diagnostics/provider-actions/summary",
+      restartSafe: blocked.length === 0,
+      blockedCardIds: Object.freeze(blocked.map((card) => card.id).sort()),
+      pendingCardIds: Object.freeze(pending.map((card) => card.id).sort()),
+      reviewCardIds: Object.freeze(review.map((card) => card.id).sort()),
+      idempotencyKeys: Object.freeze(cards.map((card) => card.idempotencyKey).filter(Boolean).sort()),
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? review[0]?.nextAction
+        ?? adoptionState?.restartEnvelope?.nextAction
+        ?? commandSummary.recovery?.nextAction
+        ?? clientState.handoff?.nextAction
+        ?? "publish-diagnostic-provider-action-deck",
+    }),
+    userVisible: Object.freeze({
+      title: "Diagnostic provider actions",
+      detail: status === "ready" || status === "idle"
+        ? "Diagnostic and provider handoff actions are ready for client adoption."
+        : `${blocked.length} blocked, ${pending.length} pending, and ${review.length} review diagnostic provider actions remain.`,
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? review[0]?.nextAction
+        ?? "publish-diagnostic-provider-action-deck",
+    }),
+  });
+}
+
+export function createDiagnosticHandoffAcceptanceGate(state = {}, options = {}) {
+  const reviewBoard = state.reviewBoard?.version === "diagnostic-review-board-lanes.v1"
+    ? state.reviewBoard
+    : null;
+  const providerActionDeck = state.providerActionDeck?.version === "diagnostic-provider-action-deck.v1"
+    ? state.providerActionDeck
+    : null;
+  const releaseChecklist = state.releaseChecklist?.version === "diagnostic-release-checklist.v1"
+    ? state.releaseChecklist
+    : null;
+  const persistedResume = state.persistedResume?.version === "diagnostic-persisted-resume.v1"
+    ? state.persistedResume
+    : null;
+  const commandSummary = state.commandSummary?.version === "diagnostic-lifecycle-command-summary.v1"
+    ? state.commandSummary
+    : null;
+  const adoptionState = state.adoptionState?.version === "diagnostic-client-runtime-adoption.v1"
+    ? state.adoptionState
+    : null;
+  const acceptedGateIds = normalizeCodeSet(options.acceptedDiagnosticHandoffGateIds);
+  const completedGateIds = normalizeCodeSet(options.completedDiagnosticHandoffGateIds);
+  const requireAcceptance = options.requireDiagnosticHandoffAcceptance !== false;
+  const rows = [
+    ...createDiagnosticGateRowsFromReviewBoard(reviewBoard),
+    ...createDiagnosticGateRowsFromProviderDeck(providerActionDeck),
+    ...createDiagnosticGateRowsFromReleaseChecklist(releaseChecklist),
+    ...createDiagnosticGateRowsFromPersistedResume(persistedResume),
+    ...createDiagnosticGateRowsFromCommandSummary(commandSummary),
+    ...createDiagnosticGateRowsFromAdoption(adoptionState),
+  ].map((row) => normalizeDiagnosticHandoffGateRow(row, {
+    acceptedGateIds,
+    completedGateIds,
+    requireAcceptance,
+    fileName: options.fileName,
+    revision: options.revision,
+  })).sort(compareDiagnosticHandoffGateRows);
+  const blocked = rows.filter((row) => row.status === "blocked" || row.restartSafe === false);
+  const pending = rows.filter((row) => row.status === "pending" || row.status === "needsAcceptance");
+  const review = rows.filter((row) => row.status === "review" || row.status === "degraded");
+  const incomplete = rows.filter((row) => !row.completed && row.completionRequired);
+  const status = blocked.length
+    ? "blocked"
+    : pending.length || incomplete.length
+      ? "pending"
+      : review.length
+        ? "review"
+        : rows.length
+          ? "ready"
+          : "idle";
+
+  return Object.freeze({
+    version: "diagnostic-handoff-acceptance-gate.v1",
+    status,
+    ok: status === "ready" || status === "idle" || status === "review",
+    exportAllowed: status === "ready" || status === "idle" || (status === "review" && options.allowReviewDiagnosticHandoff === true),
+    fileName: options.fileName ?? releaseChecklist?.fileName ?? providerActionDeck?.fileName ?? "inline.aios",
+    revision: options.revision ?? providerActionDeck?.revision ?? "working",
+    providerId: options.providerId ?? providerActionDeck?.providerId ?? "mailchimp",
+    gates: Object.freeze(rows),
+    counters: Object.freeze({
+      byStatus: freezeSortedRecord(countBy(rows, "status")),
+      bySource: freezeSortedRecord(countBy(rows, "source")),
+      byRoute: freezeSortedRecord(countBy(rows, "route")),
+      byHandoff: freezeSortedRecord(countBy(rows, "handoff")),
+      byAcceptance: freezeSortedRecord(countBy(rows, "acceptanceState")),
+    }),
+    totals: Object.freeze({
+      gateCount: rows.length,
+      blockedGateCount: blocked.length,
+      pendingGateCount: pending.length,
+      reviewGateCount: review.length,
+      completedGateCount: rows.filter((row) => row.completed).length,
+      acceptedGateCount: rows.filter((row) => row.accepted).length,
+      incompleteGateCount: incomplete.length,
+    }),
+    acceptance: Object.freeze({
+      mode: requireAcceptance ? "explicit" : "implicit",
+      acceptable: status !== "blocked" && (!requireAcceptance || pending.length === 0) && incomplete.length === 0,
+      requiredGateIds: Object.freeze(rows.map((row) => row.id).sort()),
+      acceptedGateIds: Object.freeze(rows.filter((row) => row.accepted).map((row) => row.id).sort()),
+      pendingGateIds: Object.freeze(requireAcceptance ? pending.map((row) => row.id).sort() : []),
+      completedGateIds: Object.freeze(rows.filter((row) => row.completed).map((row) => row.id).sort()),
+    }),
+    restartEnvelope: Object.freeze({
+      route: status === "blocked"
+        ? "diagnostics/handoff-gate/recovery"
+        : status === "pending"
+          ? "diagnostics/handoff-gate/acceptance"
+          : status === "review"
+            ? "diagnostics/handoff-gate/review"
+            : "diagnostics/handoff-gate/summary",
+      restartSafe: blocked.length === 0,
+      blockedGateIds: Object.freeze(blocked.map((row) => row.id).sort()),
+      pendingGateIds: Object.freeze(pending.map((row) => row.id).sort()),
+      reviewGateIds: Object.freeze(review.map((row) => row.id).sort()),
+      incompleteGateIds: Object.freeze(incomplete.map((row) => row.id).sort()),
+      idempotencyKeys: Object.freeze(rows.map((row) => row.idempotencyKey).filter(Boolean).sort()),
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? incomplete[0]?.nextAction
+        ?? review[0]?.nextAction
+        ?? "publish-diagnostic-handoff-gate",
+    }),
+    userVisible: Object.freeze({
+      title: "Diagnostic handoff gate",
+      detail: status === "ready" || status === "idle"
+        ? "Diagnostic review, provider actions, release checklist, and resume state are accepted for handoff."
+        : `${blocked.length} blocked, ${pending.length} pending, and ${review.length} review diagnostic gates remain.`,
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? incomplete[0]?.nextAction
+        ?? review[0]?.nextAction
+        ?? "publish-diagnostic-handoff-gate",
+    }),
+  });
+}
+
+function createDiagnosticDeckRowsFromClient(clientState = {}) {
+  const actions = Array.isArray(clientState.runtimeActions) ? clientState.runtimeActions : [];
+  return actions.map((action) => Object.freeze({
+    id: `diagnostic-action:${action.id}`,
+    source: "diagnostic",
+    kind: action.kind ?? "runtimeAction",
+    status: normalizeDiagnosticActionDeckStatus(action.status),
+    label: action.target ?? action.kind ?? action.id,
+    detail: `${action.kind ?? "Diagnostic action"} routes through ${action.handoff ?? "diagnostic-summary"}.`,
+    route: action.route ?? clientState.handoff?.route ?? "diagnostics/runtime",
+    handoff: action.handoff ?? "diagnostic-summary",
+    targetId: action.target ?? null,
+    restartSafe: action.restartSafe !== false,
+    idempotencyKey: action.idempotencyKey ?? action.id,
+    nextAction: action.nextAction ?? clientState.handoff?.nextAction ?? "review-diagnostic-action",
+  }));
+}
+
+function createDiagnosticDeckRowsFromCommands(commandSummary = {}) {
+  const commands = Array.isArray(commandSummary.commands) ? commandSummary.commands : [];
+  return commands
+    .filter((command) => command.enabled !== false || command.status !== "ready")
+    .map((command) => Object.freeze({
+      id: `diagnostic-command:${command.id}`,
+      source: "diagnostic",
+      kind: command.commandId ?? "lifecycleCommand",
+      status: command.enabled === false ? "review" : normalizeDiagnosticActionDeckStatus(command.status),
+      label: `${command.code} ${command.commandId}`,
+      detail: command.scheduled
+        ? `Diagnostic command is scheduled for ${command.code}.`
+        : `Diagnostic command ${command.commandId} is available for ${command.code}.`,
+      route: "diagnostics/lifecycle-commands",
+      handoff: command.handoff ?? explainDiagnosticCode(command.code).handoff,
+      targetId: command.code,
+      restartSafe: command.status !== "blocked",
+      idempotencyKey: command.scheduleId ? `${command.id}:${command.scheduleId}` : command.id,
+      nextAction: command.enabled === false
+        ? "enable-diagnostic-command"
+        : command.nextAction ?? commandSummary.recovery?.nextAction ?? "review-diagnostic-command",
+    }));
+}
+
+function createDiagnosticDeckRowsFromProvider(providerHandoff = {}) {
+  const operations = Array.isArray(providerHandoff?.operations) ? providerHandoff.operations : [];
+  const jobs = Array.isArray(providerHandoff?.jobs) ? providerHandoff.jobs : [];
+  const operationRows = operations
+    .filter((operation) => operation.status !== "ready" || operation.acceptanceState !== "accepted")
+    .map((operation) => Object.freeze({
+      id: `provider-operation:${operation.id ?? operation.operationId ?? operation.jobName}`,
+      source: "provider",
+      kind: `${operation.service ?? "mailchimp"}:${operation.operation ?? "handoff"}`,
+      status: normalizeDiagnosticActionDeckStatus(operation.status === "ready" && operation.acceptanceState !== "accepted"
+        ? "pending"
+        : operation.status),
+      label: operation.jobName ?? operation.id ?? "Mailchimp operation",
+      detail: `${operation.service ?? "mailchimp"} ${operation.operation ?? "operation"} provider handoff.`,
+      route: "mailchimp/provider-handoff",
+      handoff: operation.handoff ?? "mailchimp-provider-contract",
+      targetId: operation.id ?? operation.operationId ?? null,
+      restartSafe: operation.restartSafe !== false,
+      idempotencyKey: operation.idempotencyKey ?? operation.id ?? null,
+      nextAction: operation.nextAction ?? providerHandoff.nextAction ?? "review-mailchimp-provider-operation",
+    }));
+  const jobRows = jobs
+    .filter((job) => job.status === "blocked" || job.status === "review" || job.tenantBoundaryStatus === "blocked" || job.tenantBoundaryStatus === "review")
+    .map((job) => Object.freeze({
+      id: `provider-job:${job.jobName}`,
+      source: "provider",
+      kind: "mailchimpJob",
+      status: job.status === "blocked" || job.tenantBoundaryStatus === "blocked" ? "blocked" : "review",
+      label: job.jobName,
+      detail: `Mailchimp job uses ${job.operationCount ?? 0} provider operations.`,
+      route: "mailchimp/provider-jobs",
+      handoff: "mailchimp-provider-contract",
+      targetId: job.jobName,
+      restartSafe: job.status !== "blocked" && job.tenantBoundaryStatus !== "blocked",
+      idempotencyKey: `${job.jobName}:${job.scheduleMode ?? "manual"}:${job.tenantBoundaryStatus ?? "unbound"}`,
+      nextAction: job.nextAction ?? providerHandoff.nextAction ?? "review-mailchimp-provider-job",
+    }));
+
+  return [...operationRows, ...jobRows];
+}
+
+function createDiagnosticDeckRowsFromRelease(releaseChecklist = {}) {
+  const items = Array.isArray(releaseChecklist?.checklistItems) ? releaseChecklist.checklistItems : [];
+  return items
+    .filter((item) => item.status !== "ready")
+    .map((item) => Object.freeze({
+      id: `release-checklist:${item.id}`,
+      source: "release",
+      kind: item.kind ?? "releaseChecklist",
+      status: normalizeDiagnosticActionDeckStatus(item.status),
+      label: item.label ?? item.id,
+      detail: item.detail ?? "Release checklist item needs action.",
+      route: releaseChecklist.route?.clientRoute ?? "diagnostics/release-summary",
+      handoff: item.handoff ?? "diagnostic-release-checklist",
+      targetId: item.id,
+      restartSafe: item.restartSafe !== false,
+      idempotencyKey: item.idempotencyKey ?? item.id,
+      nextAction: item.nextAction ?? releaseChecklist.restartEnvelope?.nextAction ?? "review-diagnostic-release-item",
+    }));
+}
+
+function createDiagnosticDeckRowsFromAdoption(adoptionState = {}) {
+  const rows = Array.isArray(adoptionState?.rows) ? adoptionState.rows : [];
+  return rows
+    .filter((row) => row.status !== "ready")
+    .map((row) => Object.freeze({
+      id: `runtime-adoption:${row.id}`,
+      source: "runtimeAdoption",
+      kind: row.kind ?? "clientRuntimeAdoption",
+      status: normalizeDiagnosticActionDeckStatus(row.status),
+      label: row.label ?? row.id,
+      detail: row.detail ?? "Diagnostic client runtime adoption item needs action.",
+      route: row.route ?? adoptionState.restartEnvelope?.route ?? "diagnostics/client-runtime-adoption",
+      handoff: row.handoff ?? "diagnostic-client-runtime-adoption",
+      targetId: row.targetId ?? row.id,
+      restartSafe: row.restartSafe !== false,
+      idempotencyKey: row.idempotencyKey ?? row.id,
+      nextAction: row.nextAction ?? adoptionState.restartEnvelope?.nextAction ?? "review-diagnostic-runtime-adoption",
+    }));
+}
+
+function normalizeDiagnosticActionDeckStatus(status) {
+  if (status === "blocked" || status === "failed") return "blocked";
+  if (status === "pending" || status === "needsAcceptance" || status === "scheduled") return "pending";
+  if (status === "review" || status === "degraded" || status === "disabled") return "review";
+  if (status === "idle") return "idle";
+  return "ready";
+}
+
+function compareDiagnosticProviderActionRows(left, right) {
+  return left.status.localeCompare(right.status)
+    || left.source.localeCompare(right.source)
+    || left.kind.localeCompare(right.kind)
+    || left.id.localeCompare(right.id);
+}
+
+function createDiagnosticGateRowsFromReviewBoard(reviewBoard = {}) {
+  return (reviewBoard?.rows ?? [])
+    .filter((row) => row.status !== "ready" || row.restartSafe === false)
+    .map((row) => diagnosticHandoffGateRow({
+      id: `review:${row.id}`,
+      source: "reviewBoard",
+      kind: row.kind,
+      status: row.status,
+      label: row.label,
+      detail: row.detail,
+      route: row.route,
+      handoff: row.handoff,
+      restartSafe: row.restartSafe,
+      completionRequired: row.status === "blocked",
+      idempotencyKey: row.idempotencyKey,
+      nextAction: row.nextAction,
+    }));
+}
+
+function createDiagnosticGateRowsFromProviderDeck(providerActionDeck = {}) {
+  return (providerActionDeck?.cards ?? [])
+    .filter((card) => card.status !== "ready" || card.restartSafe === false)
+    .map((card) => diagnosticHandoffGateRow({
+      id: `provider-action:${card.id}`,
+      source: card.source ?? "providerActionDeck",
+      kind: card.kind,
+      status: card.status,
+      label: card.label,
+      detail: card.detail,
+      route: card.route,
+      handoff: card.handoff,
+      restartSafe: card.restartSafe,
+      completionRequired: card.status === "blocked",
+      idempotencyKey: card.idempotencyKey,
+      nextAction: card.nextAction,
+    }));
+}
+
+function createDiagnosticGateRowsFromReleaseChecklist(releaseChecklist = {}) {
+  return (releaseChecklist?.checklistItems ?? [])
+    .filter((item) => item.status !== "ready" || item.restartSafe === false)
+    .map((item) => diagnosticHandoffGateRow({
+      id: `release:${item.id}`,
+      source: "releaseChecklist",
+      kind: item.kind,
+      status: item.status,
+      label: item.label,
+      detail: item.detail,
+      route: releaseChecklist.route?.clientRoute ?? "diagnostics/release-summary",
+      handoff: item.handoff,
+      restartSafe: item.restartSafe,
+      completionRequired: item.status === "blocked",
+      idempotencyKey: item.idempotencyKey,
+      nextAction: item.nextAction ?? releaseChecklist.route?.nextAction,
+    }));
+}
+
+function createDiagnosticGateRowsFromPersistedResume(persistedResume = {}) {
+  return (persistedResume?.persistedActions ?? [])
+    .filter((action) => action.status !== "ready" || action.restartSafe === false)
+    .map((action) => diagnosticHandoffGateRow({
+      id: `resume:${action.id}`,
+      source: "persistedResume",
+      kind: action.kind,
+      status: action.status,
+      label: action.target ?? action.id,
+      detail: `Persisted diagnostic action routes through ${action.route ?? "diagnostics/resume"}.`,
+      route: action.route,
+      handoff: action.handoff ?? "diagnostic-persisted-resume",
+      restartSafe: action.restartSafe,
+      completionRequired: action.status === "blocked",
+      idempotencyKey: action.idempotencyKey,
+      nextAction: action.nextAction ?? persistedResume.restartEnvelope?.nextAction,
+    }));
+}
+
+function createDiagnosticGateRowsFromCommandSummary(commandSummary = {}) {
+  return (commandSummary?.commands ?? [])
+    .filter((command) => command.status !== "ready" || command.enabled === false)
+    .map((command) => diagnosticHandoffGateRow({
+      id: `command:${command.id}`,
+      source: "lifecycleCommand",
+      kind: command.commandId,
+      status: command.enabled === false ? "review" : command.status,
+      label: `${command.code} ${command.commandId}`,
+      detail: command.scheduled
+        ? `Diagnostic lifecycle command is scheduled for ${command.code}.`
+        : `Diagnostic lifecycle command is available for ${command.code}.`,
+      route: "diagnostics/lifecycle-commands",
+      handoff: command.handoff,
+      restartSafe: command.status !== "blocked",
+      completionRequired: command.status === "blocked",
+      idempotencyKey: command.scheduleId ? `${command.id}:${command.scheduleId}` : command.id,
+      nextAction: command.nextAction ?? commandSummary.recovery?.nextAction,
+    }));
+}
+
+function createDiagnosticGateRowsFromAdoption(adoptionState = {}) {
+  return (adoptionState?.rows ?? [])
+    .filter((row) => row.status !== "ready" || row.restartSafe === false)
+    .map((row) => diagnosticHandoffGateRow({
+      id: `adoption:${row.id}`,
+      source: "clientRuntimeAdoption",
+      kind: row.kind,
+      status: row.status,
+      label: row.label,
+      detail: row.detail,
+      route: row.route,
+      handoff: row.handoff,
+      restartSafe: row.restartSafe,
+      completionRequired: row.status === "blocked",
+      idempotencyKey: row.idempotencyKey,
+      nextAction: row.nextAction ?? adoptionState.restartEnvelope?.nextAction,
+    }));
+}
+
+function diagnosticHandoffGateRow(row = {}) {
+  return Object.freeze({
+    id: row.id,
+    source: row.source ?? "diagnostic",
+    kind: row.kind ?? "handoff",
+    status: normalizeDiagnosticActionDeckStatus(row.status),
+    label: row.label ?? row.id,
+    detail: row.detail ?? "Diagnostic handoff gate requires attention.",
+    route: row.route ?? "diagnostics/handoff-gate",
+    handoff: row.handoff ?? "diagnostic-handoff-gate",
+    restartSafe: row.restartSafe !== false,
+    completionRequired: Boolean(row.completionRequired),
+    idempotencyKey: row.idempotencyKey ?? row.id ?? null,
+    nextAction: row.nextAction ?? "review-diagnostic-handoff-gate",
+  });
+}
+
+function normalizeDiagnosticHandoffGateRow(row, context) {
+  const accepted = !context.requireAcceptance || context.acceptedGateIds.has(row.id);
+  const completed = !row.completionRequired || context.completedGateIds.has(row.id);
+  const needsAcceptance = context.requireAcceptance && !accepted && row.status !== "blocked";
+  const status = row.status === "blocked" || row.restartSafe === false
+    ? "blocked"
+    : !completed
+      ? "pending"
+      : needsAcceptance
+        ? "pending"
+        : row.status;
+
+  return Object.freeze({
+    ...row,
+    status,
+    accepted,
+    completed,
+    acceptanceState: accepted ? "accepted" : "pending",
+    idempotencyKey: [
+      context.fileName ?? "inline.aios",
+      context.revision ?? "working",
+      row.idempotencyKey ?? row.id,
+      status,
+    ].join(":"),
+    nextAction: status === "blocked"
+      ? row.nextAction
+      : !completed
+        ? `complete-diagnostic-handoff-gate:${row.id}`
+        : needsAcceptance
+          ? `accept-diagnostic-handoff-gate:${row.id}`
+          : row.nextAction,
+  });
+}
+
+function compareDiagnosticHandoffGateRows(left, right) {
+  return diagnosticCheckpointStatusOrder(left.status) - diagnosticCheckpointStatusOrder(right.status)
+    || left.source.localeCompare(right.source)
+    || left.kind.localeCompare(right.kind)
+    || left.id.localeCompare(right.id);
+}
+
+export function createDiagnosticReviewBoardLanes(diagnostics = [], settings = {}) {
+  const activeDiagnostics = Array.isArray(diagnostics) ? diagnostics : [];
+  const clientState = settings.clientState?.clientStateVersion === "diagnostic-client-runtime.v1"
+    ? settings.clientState
+    : createDiagnosticClientRuntimeState(activeDiagnostics, settings);
+  const commandSummary = settings.commandSummary?.version === "diagnostic-lifecycle-command-summary.v1"
+    ? settings.commandSummary
+    : createDiagnosticLifecycleCommandSummary(activeDiagnostics, {
+        ...settings,
+        lifecycle: clientState.lifecycle,
+      });
+  const releaseChecklist = settings.releaseChecklist?.version === "diagnostic-release-checklist.v1"
+    ? settings.releaseChecklist
+    : null;
+  const extraLanes = Array.isArray(settings.extraLanes) ? settings.extraLanes : [];
+  const rows = [
+    ...activeDiagnostics.map((diagnostic, index) => createDiagnosticReviewBoardRow({
+      id: `diagnostic:${diagnostic.code}:${index}`,
+      source: "diagnostic",
+      kind: diagnostic.catalog?.stage ?? "diagnostic",
+      status: diagnostic.severity === "error" || diagnostic.catalog?.status === "blocked" ? "blocked" : diagnostic.catalog?.status ?? "review",
+      severity: diagnostic.severity,
+      label: diagnostic.code,
+      detail: diagnostic.message,
+      handoff: diagnostic.catalog?.handoff ?? "diagnostic-summary",
+      route: selectDiagnosticReviewRoute(diagnostic.catalog?.handoff, clientState.handoff.route),
+      targetId: diagnostic.code,
+      restartSafe: diagnostic.severity !== "error" && diagnostic.catalog?.status !== "blocked",
+      idempotencyKey: `${diagnostic.code}:${diagnostic.catalog?.handoff ?? "diagnostic-summary"}:${index}`,
+      nextAction: diagnostic.catalog?.recovery ?? "inspect-diagnostic",
+    })),
+    ...(clientState.runtimeActions ?? []).map((action) => createDiagnosticReviewBoardRow({
+      id: `runtime:${action.id}`,
+      source: "runtimeAction",
+      kind: action.kind,
+      status: action.status,
+      severity: action.status === "blocked" ? "error" : action.status === "pending" ? "warning" : "info",
+      label: action.target,
+      detail: `${action.kind} will hand off through ${action.handoff}.`,
+      handoff: action.handoff,
+      route: action.route ?? clientState.handoff.route,
+      targetId: action.target,
+      restartSafe: action.restartSafe,
+      idempotencyKey: action.idempotencyKey,
+      nextAction: action.nextAction,
+    })),
+    ...(commandSummary.commands ?? []).map((command) => createDiagnosticReviewBoardRow({
+      id: `command:${command.id}`,
+      source: "lifecycleCommand",
+      kind: command.commandId,
+      status: command.enabled ? command.status : "disabled",
+      severity: command.status === "blocked" ? "error" : command.status === "review" ? "warning" : "info",
+      label: `${command.code} ${command.commandId}`,
+      detail: command.scheduled
+        ? `Diagnostic command ${command.commandId} is scheduled for ${command.code}.`
+        : `Diagnostic command ${command.commandId} is available for ${command.code}.`,
+      handoff: command.handoff,
+      route: "diagnostics/lifecycle-commands",
+      targetId: command.code,
+      restartSafe: command.status !== "blocked",
+      idempotencyKey: command.scheduleId ? `${command.id}:${command.scheduleId}` : command.id,
+      nextAction: command.nextAction,
+    })),
+    ...((releaseChecklist?.checklistItems ?? []).map((item) => createDiagnosticReviewBoardRow({
+      id: `release:${item.id}`,
+      source: "releaseChecklist",
+      kind: item.kind,
+      status: item.status,
+      severity: item.severity,
+      label: item.label,
+      detail: item.detail,
+      handoff: item.handoff,
+      route: releaseChecklist.route?.clientRoute ?? "diagnostics/release-summary",
+      targetId: item.id,
+      restartSafe: item.restartSafe,
+      idempotencyKey: item.idempotencyKey,
+      nextAction: item.nextAction,
+    }))),
+    ...extraLanes.map((lane, index) => createDiagnosticReviewBoardRow({
+      id: `external:${lane.id ?? index}`,
+      source: lane.source ?? "externalLane",
+      kind: lane.kind ?? "handoff",
+      status: lane.status ?? "ready",
+      severity: lane.severity ?? (lane.status === "blocked" ? "error" : lane.status === "pending" || lane.status === "review" ? "warning" : "info"),
+      label: lane.label ?? lane.id ?? `External lane ${index + 1}`,
+      detail: lane.detail ?? lane.handoff ?? "External diagnostic handoff.",
+      handoff: lane.handoff ?? "diagnostic-review-board",
+      route: lane.route ?? "diagnostics/review-board",
+      targetId: lane.targetId ?? lane.id ?? null,
+      restartSafe: lane.restartSafe !== false,
+      idempotencyKey: lane.idempotencyKey ?? null,
+      nextAction: lane.nextAction ?? "review-diagnostic-lane",
+    })),
+  ].sort(compareDiagnosticReviewBoardRows);
+  const blocked = rows.filter((row) => row.status === "blocked" || row.restartSafe === false);
+  const pending = rows.filter((row) => row.status === "pending" || row.status === "review");
+  const disabled = rows.filter((row) => row.status === "disabled");
+  const status = blocked.length
+    ? "blocked"
+    : pending.length
+      ? "pending"
+      : disabled.length
+        ? "review"
+        : "ready";
+
+  return Object.freeze({
+    version: "diagnostic-review-board-lanes.v1",
+    status,
+    ok: status === "ready" || status === "review",
+    exportAllowed: status === "ready" || status === "review",
+    rows: Object.freeze(rows),
+    sections: Object.freeze(createDiagnosticReviewSections(rows)),
+    counters: Object.freeze({
+      byStatus: freezeSortedRecord(countBy(rows, "status")),
+      bySource: freezeSortedRecord(countBy(rows, "source")),
+      byHandoff: freezeSortedRecord(countBy(rows, "handoff")),
+      byRoute: freezeSortedRecord(countBy(rows, "route")),
+    }),
+    totals: Object.freeze({
+      rowCount: rows.length,
+      blockedCount: blocked.length,
+      pendingCount: pending.length,
+      disabledCount: disabled.length,
+      diagnosticCount: activeDiagnostics.length,
+      commandCount: commandSummary.totals?.commandCount ?? 0,
+      releaseChecklistCount: releaseChecklist?.totals?.checklistCount ?? 0,
+    }),
+    restartEnvelope: Object.freeze({
+      route: status === "blocked"
+        ? "diagnostics/review-board/recovery"
+        : status === "pending"
+          ? "diagnostics/review-board/actions"
+          : "diagnostics/review-board/summary",
+      restartSafe: blocked.length === 0,
+      blockedRowIds: Object.freeze(blocked.map((row) => row.id).sort()),
+      pendingRowIds: Object.freeze(pending.map((row) => row.id).sort()),
+      idempotencyKeys: Object.freeze(rows.map((row) => row.idempotencyKey).filter(Boolean).sort()),
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? commandSummary.recovery?.nextAction
+        ?? clientState.handoff.nextAction,
+    }),
+  });
+}
+
 export function createDiagnosticReleaseChecklist(diagnostics = [], settings = {}) {
   const clientState = settings.clientState?.clientStateVersion === "diagnostic-client-runtime.v1"
     ? settings.clientState
@@ -1272,6 +3645,574 @@ export function createDiagnosticPersistedResumeState(diagnostics = [], settings 
     exportState,
     releaseChecklist,
   });
+}
+
+export function createDiagnosticClientRuntimeAdoptionState(diagnostics = [], settings = {}) {
+  const clientState = settings.clientState?.clientStateVersion === "diagnostic-client-runtime.v1"
+    ? settings.clientState
+    : createDiagnosticClientRuntimeState(diagnostics, settings);
+  const exportState = settings.exportState?.version === "diagnostic-lifecycle-export.v1"
+    ? settings.exportState
+    : createDiagnosticLifecycleExportState(diagnostics, {
+        ...settings,
+        clientState,
+      });
+  const persistedResume = settings.persistedResume?.version === "diagnostic-persisted-resume.v1"
+    ? settings.persistedResume
+    : createDiagnosticPersistedResumeState(diagnostics, {
+        ...settings,
+        clientState,
+        exportState,
+      });
+  const sourceCommandPacket = settings.sourceCommandPacket?.version === "source-range-client-command-packet.v1"
+    ? settings.sourceCommandPacket
+    : settings.clientCommandPacket?.version === "source-range-client-command-packet.v1"
+      ? settings.clientCommandPacket
+      : null;
+  const adoptionRows = [
+    ...createDiagnosticAdoptionRowsFromRuntime(clientState, persistedResume),
+    ...createDiagnosticAdoptionRowsFromSourceCommands(sourceCommandPacket),
+    ...createDiagnosticAdoptionRowsFromExportState(exportState),
+  ].sort(compareDiagnosticAdoptionRows);
+  const dedupedRows = dedupeDiagnosticAdoptionRows(adoptionRows);
+  const blocked = dedupedRows.filter((row) => row.status === "blocked" || row.restartSafe === false);
+  const pending = dedupedRows.filter((row) => row.status === "pending");
+  const review = dedupedRows.filter((row) => row.status === "review");
+  const status = clientState.status === "blocked"
+    || exportState.status === "blocked"
+    || persistedResume.status === "blocked"
+    || sourceCommandPacket?.status === "blocked"
+    || blocked.length
+    ? "blocked"
+    : clientState.status === "pending"
+      || exportState.status === "pending"
+      || persistedResume.status === "pending"
+      || sourceCommandPacket?.status === "pending"
+      || pending.length
+      ? "pending"
+      : review.length || persistedResume.status === "review" || sourceCommandPacket?.status === "review"
+        ? "review"
+        : dedupedRows.length
+          ? "ready"
+          : "idle";
+
+  return Object.freeze({
+    version: "diagnostic-client-runtime-adoption.v1",
+    status,
+    ok: status === "ready" || status === "idle" || status === "review",
+    exportAllowed: status === "ready" || status === "idle" || status === "review",
+    providerId: settings.providerId ?? "aios-diagnostics",
+    fileName: settings.fileName ?? "inline.aios",
+    revision: settings.revision ?? "working",
+    syncKey: [
+      settings.fileName ?? "inline.aios",
+      settings.revision ?? "working",
+      persistedResume.syncKey,
+      sourceCommandPacket?.syncKey ?? "source-commands-unbound",
+    ].join("|"),
+    rows: Object.freeze(dedupedRows),
+    counters: Object.freeze({
+      byStatus: freezeSortedRecord(countBy(dedupedRows, "status")),
+      byKind: freezeSortedRecord(countBy(dedupedRows, "kind")),
+      byRoute: freezeSortedRecord(countBy(dedupedRows, "route")),
+      byOrigin: freezeSortedRecord(countBy(dedupedRows, "origin")),
+    }),
+    totals: Object.freeze({
+      rowCount: dedupedRows.length,
+      blockedCount: blocked.length,
+      pendingCount: pending.length,
+      reviewCount: review.length,
+      runtimeActionCount: clientState.runtimeActions.length,
+      persistedActionCount: persistedResume.persistedActions.length,
+      sourceCommandCount: sourceCommandPacket?.totals?.commandCount ?? 0,
+    }),
+    restartEnvelope: Object.freeze({
+      route: status === "blocked"
+        ? "diagnostics/client-adoption/recovery"
+        : status === "pending"
+          ? "diagnostics/client-adoption/actions"
+          : status === "review"
+            ? "diagnostics/client-adoption/review"
+            : "diagnostics/client-adoption/summary",
+      restartSafe: blocked.length === 0
+        && clientState.restartEnvelope.restartSafe
+        && persistedResume.restartEnvelope.restartSafe
+        && sourceCommandPacket?.restartEnvelope?.restartSafe !== false,
+      blockedRowIds: Object.freeze(blocked.map((row) => row.id).sort()),
+      pendingRowIds: Object.freeze(pending.map((row) => row.id).sort()),
+      reviewRowIds: Object.freeze(review.map((row) => row.id).sort()),
+      idempotencyKeys: Object.freeze(dedupedRows
+        .map((row) => row.idempotencyKey)
+        .filter(Boolean)
+        .sort()),
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? review[0]?.nextAction
+        ?? sourceCommandPacket?.restartEnvelope?.nextAction
+        ?? persistedResume.restartEnvelope.nextAction,
+    }),
+    userVisible: Object.freeze({
+      title: "Diagnostic client adoption",
+      detail: status === "ready" || status === "idle"
+        ? "Diagnostic and source client commands are persisted for runtime adoption."
+        : `${blocked.length} blocked, ${pending.length} pending, and ${review.length} review runtime adoption rows remain.`,
+      nextAction: blocked[0]?.nextAction
+        ?? pending[0]?.nextAction
+        ?? review[0]?.nextAction
+        ?? persistedResume.restartEnvelope.nextAction,
+    }),
+    clientState,
+    exportState,
+    persistedResume,
+    sourceCommandPacket,
+  });
+}
+
+export function createMailchimpWorkflowHandoffReadinessDiagnostics(packet = {}, options = {}) {
+  if (!packet
+    || packet.version !== "mailchimp-workflow-handoff-readiness.v1"
+    || packet.status === "ready"
+    || packet.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const diagnostics = [];
+  const lanes = Array.isArray(packet.lanes) ? packet.lanes : [];
+  const blocked = lanes.filter((lane) => lane.status === "blocked" || lane.restartSafe === false || lane.exportAllowed === false);
+  const pending = lanes.filter((lane) => lane.status === "pending" || lane.status === "needsAcceptance");
+  const review = lanes.filter((lane) => lane.status === "review" || lane.status === "degraded");
+  const rangeByLaneId = options.rangeByLaneId ?? {};
+
+  for (const lane of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_HANDOFF_READINESS", {
+      severity: "error",
+      message: `Mailchimp workflow handoff lane "${lane.id}" is blocked before campaign release.`,
+      hint: `Recovery: ${lane.nextAction ?? packet.restartEnvelope?.nextAction ?? "complete-mailchimp-workflow-handoff-readiness"}; handoff: mailchimp-workflow-handoff-readiness.`,
+      preview: lane.detail ?? lane.label ?? lane.id,
+      range: rangeByLaneId[lane.id] ?? null,
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_HANDOFF_READINESS", {
+      severity: "warning",
+      message: `${pending.length} Mailchimp workflow handoff readiness lane(s) need acceptance or runtime action.`,
+      hint: `Recovery: ${pending[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "accept-mailchimp-workflow-handoff-readiness"}; handoff: mailchimp-workflow-handoff-readiness.`,
+      preview: pending.map((lane) => lane.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && packet.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_HANDOFF_READINESS", {
+      severity: "warning",
+      message: `${review.length} Mailchimp workflow handoff readiness lane(s) require review before release.`,
+      hint: `Recovery: ${review[0]?.nextAction ?? packet.restartEnvelope?.nextAction ?? "review-mailchimp-workflow-handoff-readiness"}; handoff: mailchimp-workflow-handoff-readiness.`,
+      preview: review.map((lane) => lane.id).sort().join(", "),
+    }));
+  }
+
+  if (packet.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_HANDOFF_READINESS", {
+      severity: "error",
+      message: "Mailchimp workflow handoff readiness packet is not restart-safe.",
+      hint: `Recovery: ${packet.restartEnvelope.nextAction ?? "repair-mailchimp-workflow-handoff-readiness"}; handoff: mailchimp-workflow-handoff-readiness.`,
+      preview: packet.restartEnvelope.route ?? "mailchimp/workflow-handoff/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpClientRuntimeAdoptionDiagnostics(packet = {}, options = {}) {
+  const requestPacket = packet?.version === "mailchimp-client-runtime-request.v1";
+  const checkpointPacket = packet?.version === "mailchimp-client-runtime-handoff-checkpoint.v1";
+  if (!packet
+    || (packet.version !== "mailchimp-client-runtime-adoption.v1" && !requestPacket && !checkpointPacket)
+    || packet.status === "ready"
+    || packet.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(packet.rows) ? packet.rows : [];
+  const blocked = rows.filter((row) => row.status === "blocked" || row.restartSafe === false);
+  const pending = rows.filter((row) => row.status === "pending");
+  const review = rows.filter((row) => row.status === "review" || row.status === "degraded");
+  const diagnostics = [];
+  const diagnosticCode = requestPacket
+    ? "AIOS_MAILCHIMP_CLIENT_RUNTIME_REQUEST"
+    : checkpointPacket
+      ? "AIOS_MAILCHIMP_CLIENT_RUNTIME_CHECKPOINT"
+    : "AIOS_MAILCHIMP_CLIENT_RUNTIME_ADOPTION";
+  const handoff = requestPacket
+    ? "mailchimp-client-runtime-request"
+    : checkpointPacket
+      ? "mailchimp-client-runtime-checkpoint"
+    : "mailchimp-client-runtime-adoption";
+
+  if (requestPacket && packet.totals?.missingRequestFieldCount > 0) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_CLIENT_RUNTIME_REQUEST", {
+      severity: "error",
+      message: "Mailchimp client runtime request is missing request, session, workspace, or route state.",
+      hint: `Recovery: ${packet.restartEnvelope?.nextAction ?? "bind-mailchimp-runtime-request"}; handoff: mailchimp-client-runtime-request.`,
+      preview: packet.userVisible?.detail ?? packet.restartEnvelope?.route ?? "mailchimp/runtime-request/recovery",
+      range: options.rangeByRuntimeRequestId?.[packet.request?.clientRequestId] ?? null,
+    }));
+  }
+
+  for (const row of blocked) {
+    diagnostics.push(createCatalogDiagnostic(diagnosticCode, {
+      severity: "error",
+      message: requestPacket
+        ? `Mailchimp runtime request row "${row.id}" is blocked or not restart-safe.`
+        : checkpointPacket
+          ? `Mailchimp client runtime checkpoint row "${row.id}" is blocked, unexportable, or not restart-safe.`
+        : `Mailchimp client adoption row "${row.id}" is blocked or not restart-safe.`,
+      hint: `Recovery: ${row.nextAction ?? packet.restartEnvelope?.nextAction ?? "complete-mailchimp-client-runtime-adoption"}; handoff: ${handoff}.`,
+      preview: row.detail ?? row.label ?? row.id,
+      range: options.rangeByRuntimeRowId?.[row.id] ?? options.rangeByLaneId?.[row.laneId] ?? null,
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic(diagnosticCode, {
+      severity: "warning",
+      message: requestPacket
+        ? `${pending.length} Mailchimp runtime request row(s) need acceptance or command settlement before release handoff.`
+        : checkpointPacket
+          ? `${pending.length} Mailchimp client runtime checkpoint row(s) need acceptance before release handoff.`
+        : `${pending.length} Mailchimp client adoption row(s) need acceptance or command settlement before release handoff.`,
+      hint: `Recovery: ${packet.restartEnvelope?.nextAction ?? "accept-mailchimp-client-runtime-adoption"}; handoff: ${handoff}.`,
+      preview: pending.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && packet.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic(diagnosticCode, {
+      severity: "warning",
+      message: requestPacket
+        ? `${review.length} Mailchimp runtime request row(s) require review before client handoff can be exported.`
+        : checkpointPacket
+          ? `${review.length} Mailchimp client runtime checkpoint row(s) require review before client handoff can be exported.`
+        : `${review.length} Mailchimp client adoption row(s) require review before client handoff can be exported.`,
+      hint: `Recovery: ${packet.restartEnvelope?.nextAction ?? "review-mailchimp-client-runtime-adoption"}; handoff: ${handoff}.`,
+      preview: review.map((row) => row.id).sort().join(", "),
+    }));
+  }
+
+  if (packet.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic(diagnosticCode, {
+      severity: "error",
+      message: requestPacket
+        ? "Mailchimp client runtime request packet is not restart-safe."
+        : checkpointPacket
+          ? "Mailchimp client runtime checkpoint packet is not restart-safe."
+        : "Mailchimp client runtime adoption packet is not restart-safe.",
+      hint: `Recovery: ${packet.restartEnvelope.nextAction ?? "complete-mailchimp-client-runtime-adoption"}; handoff: ${handoff}.`,
+      preview: packet.restartEnvelope.route ?? "mailchimp/client-runtime-adoption/recovery",
+    }));
+  }
+
+  if (checkpointPacket && packet.acceptance?.acceptable === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_CLIENT_RUNTIME_CHECKPOINT", {
+      severity: "warning",
+      message: "Mailchimp client runtime checkpoint acceptance is incomplete.",
+      hint: `Recovery: ${packet.restartEnvelope?.nextAction ?? "accept-mailchimp-client-runtime-checkpoint"}; handoff: mailchimp-client-runtime-checkpoint.`,
+      preview: packet.acceptance.pendingCheckpointIds?.join(", ") ?? packet.restartEnvelope?.route ?? "mailchimp/client-runtime-checkpoint/acceptance",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createSourceRangeRuntimeResumeDiagnostics(resumePacket = {}, options = {}) {
+  if (!resumePacket
+    || resumePacket.status === "ready"
+    || resumePacket.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const rows = Array.isArray(resumePacket.rows) ? resumePacket.rows : [];
+  const actionableRows = rows.filter((row) => (
+    row.status === "blocked"
+    || row.status === "pending"
+    || row.status === "review"
+    || row.restartSafe === false
+  ));
+  const fallbackRows = actionableRows.length
+    ? actionableRows
+    : createSourceRuntimeResumeFallbackRows(resumePacket);
+
+  return Object.freeze(fallbackRows.map((row) => {
+    const blocked = row.status === "blocked" || row.restartSafe === false;
+    return createCatalogDiagnostic("AIOS_SOURCE_RANGE_RUNTIME_RESUME", {
+      severity: blocked ? "error" : "warning",
+      range: options.rangeBySourceId?.[row.targetId] ?? options.rangeByResumeRowId?.[row.id] ?? null,
+      message: `Source range resume row "${row.id}" is ${row.status}.`,
+      hint: `Recovery: ${row.nextAction}; handoff: source-range-runtime-resume.`,
+      preview: row.previewAddress
+        ? `${row.label ?? row.id} resumes from ${row.previewAddress}.`
+        : row.detail ?? `${row.label ?? row.id} needs source runtime resume review.`,
+      sourceRuntimeResume: Object.freeze({
+        id: row.id,
+        origin: row.origin ?? "sourceRange",
+        kind: row.kind ?? "resume",
+        status: row.status,
+        route: row.route ?? resumePacket.restartEnvelope?.route ?? "source-ranges/runtime-resume/summary",
+        targetId: row.targetId ?? null,
+        accepted: Boolean(row.accepted),
+        restartSafe: row.restartSafe !== false,
+        previewAddress: row.previewAddress ?? null,
+        externalUri: row.externalUri ?? null,
+        idempotencyKey: row.idempotencyKey ?? null,
+        packetSyncKey: resumePacket.syncKey ?? null,
+        nextAction: row.nextAction
+          ?? resumePacket.restartEnvelope?.nextAction
+          ?? "review-source-range-runtime-resume",
+      }),
+    });
+  }));
+}
+
+export function createSourceRangeClientRouteHandoffDiagnostics(packet = {}, options = {}) {
+  if (!packet
+    || packet.version !== "source-range-client-route-handoff.v1"
+    || packet.status === "ready"
+    || packet.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const routes = Array.isArray(packet.routes) ? packet.routes : [];
+  const blocked = routes.filter((route) => route.status === "blocked" || route.restartSafe === false || route.exportAllowed === false);
+  const pending = routes.filter((route) => route.status === "pending");
+  const review = routes.filter((route) => route.status === "review" || route.status === "degraded");
+  const diagnostics = [];
+
+  for (const route of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_CLIENT_ROUTE_HANDOFF", {
+      severity: "error",
+      range: options.rangeByRouteId?.[route.id] ?? options.rangeBySourceId?.[route.targetId] ?? null,
+      message: `Source range client route "${route.id}" is blocked before preview handoff.`,
+      hint: `Recovery: ${route.nextAction ?? packet.restartEnvelope?.nextAction ?? "complete-source-range-client-route-handoff"}; handoff: source-range-client-route-handoff.`,
+      preview: route.userVisible?.detail ?? route.detail ?? route.route,
+      sourceClientRouteHandoff: Object.freeze({
+        id: route.id,
+        kind: route.kind,
+        status: route.status,
+        route: route.route,
+        targetId: route.targetId ?? null,
+        accepted: Boolean(route.accepted),
+        restartSafe: route.restartSafe !== false,
+        exportAllowed: route.exportAllowed !== false,
+        idempotencyKey: route.idempotencyKey ?? null,
+        nextAction: route.nextAction ?? packet.restartEnvelope?.nextAction ?? "complete-source-range-client-route-handoff",
+      }),
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_CLIENT_ROUTE_HANDOFF", {
+      severity: "warning",
+      message: `${pending.length} source range client route handoff row(s) need acceptance or runtime settlement.`,
+      hint: `Recovery: ${packet.restartEnvelope?.nextAction ?? "accept-source-range-client-route-handoff"}; handoff: source-range-client-route-handoff.`,
+      preview: pending.map((route) => route.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && packet.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_CLIENT_ROUTE_HANDOFF", {
+      severity: "warning",
+      message: `${review.length} source range client route handoff row(s) require review before preview handoff.`,
+      hint: `Recovery: ${packet.restartEnvelope?.nextAction ?? "review-source-range-client-route-handoff"}; handoff: source-range-client-route-handoff.`,
+      preview: review.map((route) => route.id).sort().join(", "),
+    }));
+  }
+
+  if (packet.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_SOURCE_RANGE_CLIENT_ROUTE_HANDOFF", {
+      severity: "error",
+      message: "Source range client route handoff packet is not restart-safe.",
+      hint: `Recovery: ${packet.restartEnvelope.nextAction ?? "repair-source-range-client-route-handoff"}; handoff: source-range-client-route-handoff.`,
+      preview: packet.restartEnvelope.route ?? "source-ranges/client-route-handoff/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+export function createMailchimpPreviewActionStripDiagnostics(actionStrip = {}, options = {}) {
+  if (!actionStrip
+    || actionStrip.version !== "mailchimp-preview-action-strip.v1"
+    || actionStrip.status === "ready"
+    || actionStrip.status === "idle") {
+    return Object.freeze([]);
+  }
+
+  const actions = Array.isArray(actionStrip.actions) ? actionStrip.actions : [];
+  const blocked = actions.filter((action) => action.status === "blocked" || action.restartSafe === false);
+  const pending = actions.filter((action) => action.status === "pending" || action.acceptanceState === "pending");
+  const review = actions.filter((action) => action.status === "review");
+  const diagnostics = [];
+
+  for (const action of blocked) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PREVIEW_ACTION_STRIP", {
+      severity: "error",
+      range: options.rangeByActionId?.[action.id]
+        ?? options.rangeByJobName?.[action.jobName]
+        ?? options.rangeBySourceId?.[action.sourceAnchorId]
+        ?? null,
+      message: `Mailchimp preview action "${action.id}" is blocked before campaign preview handoff.`,
+      hint: `Recovery: ${action.nextAction ?? actionStrip.restartEnvelope?.nextAction ?? "complete-mailchimp-preview-action-strip"}; handoff: mailchimp-preview-action-strip.`,
+      preview: action.userVisible?.detail ?? action.detail ?? action.route,
+      mailchimpPreviewActionStrip: Object.freeze({
+        id: action.id,
+        kind: action.kind,
+        status: action.status,
+        route: action.route,
+        jobName: action.jobName ?? null,
+        sourceAnchorId: action.sourceAnchorId ?? null,
+        accepted: Boolean(action.accepted),
+        restartSafe: action.restartSafe !== false,
+        idempotencyKey: action.idempotencyKey ?? null,
+        nextAction: action.nextAction ?? actionStrip.restartEnvelope?.nextAction ?? "complete-mailchimp-preview-action-strip",
+      }),
+    }));
+  }
+
+  if (!blocked.length && pending.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PREVIEW_ACTION_STRIP", {
+      severity: "warning",
+      message: `${pending.length} Mailchimp preview action strip row(s) need acceptance before campaign preview handoff.`,
+      hint: `Recovery: ${actionStrip.restartEnvelope?.nextAction ?? "accept-mailchimp-preview-action-strip"}; handoff: mailchimp-preview-action-strip.`,
+      preview: pending.map((action) => action.id).sort().join(", "),
+    }));
+  }
+
+  if (!blocked.length && !pending.length && review.length && actionStrip.exportAllowed !== true) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PREVIEW_ACTION_STRIP", {
+      severity: "warning",
+      message: `${review.length} Mailchimp preview action strip row(s) require review before handoff.`,
+      hint: `Recovery: ${actionStrip.restartEnvelope?.nextAction ?? "review-mailchimp-preview-action-strip"}; handoff: mailchimp-preview-action-strip.`,
+      preview: review.map((action) => action.id).sort().join(", "),
+    }));
+  }
+
+  if (actionStrip.restartEnvelope?.restartSafe === false && !blocked.length) {
+    diagnostics.push(createCatalogDiagnostic("AIOS_MAILCHIMP_PREVIEW_ACTION_STRIP", {
+      severity: "error",
+      message: "Mailchimp preview action strip is not restart-safe.",
+      hint: `Recovery: ${actionStrip.restartEnvelope.nextAction ?? "repair-mailchimp-preview-action-strip"}; handoff: mailchimp-preview-action-strip.`,
+      preview: actionStrip.restartEnvelope.route ?? "mailchimp/preview-actions/recovery",
+    }));
+  }
+
+  return Object.freeze(diagnostics);
+}
+
+function createDiagnosticAdoptionRowsFromRuntime(clientState, persistedResume) {
+  const persistedByActionId = new Map((persistedResume.persistedActions ?? [])
+    .map((action) => [String(action.sourceActionId ?? action.id), action]));
+
+  return (clientState.runtimeActions ?? []).map((action) => {
+    const persisted = persistedByActionId.get(String(action.id)) ?? null;
+    const blocked = action.status === "blocked" || action.restartSafe === false || persisted?.status === "blocked";
+    const pending = !blocked && (action.status === "pending" || persisted?.status === "pending");
+    const review = !blocked && !pending && persisted?.status === "review";
+    const status = blocked ? "blocked" : pending ? "pending" : review ? "review" : "ready";
+
+    return diagnosticAdoptionRow({
+      id: `runtime:${action.id}`,
+      origin: "diagnosticRuntime",
+      kind: action.kind,
+      status,
+      route: action.route ?? clientState.handoff.route,
+      targetId: action.target,
+      label: action.target,
+      detail: `${action.kind} diagnostic runtime action for ${action.handoff}.`,
+      restartSafe: action.restartSafe !== false && persisted?.restartSafe !== false,
+      idempotencyKey: persisted?.idempotencyKey ?? action.idempotencyKey,
+      nextAction: persisted?.nextAction ?? action.nextAction,
+    });
+  });
+}
+
+function createDiagnosticAdoptionRowsFromSourceCommands(sourceCommandPacket) {
+  if (!sourceCommandPacket) return [];
+
+  return (sourceCommandPacket.commands ?? []).map((command) => diagnosticAdoptionRow({
+    id: `source-command:${command.id}`,
+    origin: "sourceRangeCommand",
+    kind: command.kind,
+    status: command.status,
+    route: command.route,
+    targetId: command.sourceRowId,
+    label: command.label,
+    detail: `${command.intent} source range command for ${command.handoff}.`,
+    restartSafe: command.restartSafe,
+    idempotencyKey: command.idempotencyKey,
+    nextAction: command.nextAction,
+  }));
+}
+
+function createDiagnosticAdoptionRowsFromExportState(exportState) {
+  const blockedActionIds = new Set(exportState.recovery?.blockedActionIds ?? []);
+  const pendingActionIds = new Set(exportState.recovery?.pendingActionIds ?? []);
+
+  return (exportState.controls ?? [])
+    .filter((control) => control.status === "blocked" || control.status === "review" || control.enabled === false)
+    .map((control) => {
+      const blocked = control.status === "blocked" || [...blockedActionIds].some((id) => String(id).startsWith(control.code));
+      const pending = !blocked && (control.status === "review" || [...pendingActionIds].some((id) => String(id).startsWith(control.code)));
+      return diagnosticAdoptionRow({
+        id: `control:${control.code}`,
+        origin: "diagnosticControl",
+        kind: "lifecycleControl",
+        status: blocked ? "blocked" : pending ? "pending" : control.enabled === false ? "review" : "ready",
+        route: exportState.route?.clientRoute ?? "diagnostics/lifecycle",
+        targetId: control.code,
+        label: control.code,
+        detail: `Diagnostic lifecycle control is ${control.status}.`,
+        restartSafe: !blocked,
+        idempotencyKey: `${control.code}:${control.handoff}:${control.status}`,
+        nextAction: control.enabled === false ? "enable-diagnostic-control" : control.recovery,
+      });
+    });
+}
+
+function diagnosticAdoptionRow(row) {
+  return Object.freeze({
+    id: row.id,
+    origin: row.origin,
+    kind: row.kind ?? "runtimeAdoption",
+    status: row.status ?? "ready",
+    route: row.route ?? "diagnostics/client-adoption",
+    targetId: row.targetId ?? null,
+    label: row.label ?? row.id,
+    detail: row.detail ?? "Runtime adoption row.",
+    restartSafe: row.restartSafe !== false,
+    idempotencyKey: row.idempotencyKey ?? null,
+    nextAction: row.nextAction ?? "review-diagnostic-client-adoption",
+  });
+}
+
+function dedupeDiagnosticAdoptionRows(rows) {
+  const deduped = new Map();
+  for (const row of rows) {
+    const current = deduped.get(row.id);
+    if (!current || rankDiagnosticAdoptionStatus(row.status) > rankDiagnosticAdoptionStatus(current.status)) {
+      deduped.set(row.id, row);
+    }
+  }
+  return [...deduped.values()].sort(compareDiagnosticAdoptionRows);
+}
+
+function rankDiagnosticAdoptionStatus(status) {
+  return status === "blocked" ? 4 : status === "pending" ? 3 : status === "review" ? 2 : status === "ready" ? 1 : 0;
+}
+
+function compareDiagnosticAdoptionRows(left, right) {
+  return rankDiagnosticAdoptionStatus(right.status) - rankDiagnosticAdoptionStatus(left.status)
+    || left.origin.localeCompare(right.origin)
+    || left.id.localeCompare(right.id);
 }
 
 export function createMailchimpDiagnosticIncidentReport(diagnostics = [], settings = {}) {
@@ -2101,6 +5042,111 @@ function compareDiagnosticChecklistItems(left, right) {
     || left.id.localeCompare(right.id);
 }
 
+function createDiagnosticReviewBoardRow(row = {}) {
+  return Object.freeze({
+    id: String(row.id ?? "diagnostic-review-row"),
+    source: String(row.source ?? "diagnostic"),
+    kind: String(row.kind ?? "diagnostic"),
+    status: normalizeDiagnosticReviewStatus(row.status),
+    severity: row.severity ?? "info",
+    label: String(row.label ?? row.id ?? "Diagnostic review"),
+    detail: String(row.detail ?? ""),
+    handoff: String(row.handoff ?? "diagnostic-review-board"),
+    route: String(row.route ?? "diagnostics/review-board"),
+    targetId: row.targetId ?? null,
+    restartSafe: row.restartSafe !== false,
+    idempotencyKey: row.idempotencyKey ? String(row.idempotencyKey) : null,
+    nextAction: String(row.nextAction ?? "review-diagnostic-lane"),
+  });
+}
+
+function normalizeDiagnosticReviewStatus(status) {
+  if (status === "blocked" || status === "pending" || status === "review" || status === "disabled" || status === "ready") {
+    return status;
+  }
+  if (status === "needsAcceptance") return "pending";
+  if (status === "error" || status === "failed") return "blocked";
+  return "ready";
+}
+
+function compareDiagnosticReviewBoardRows(left, right) {
+  return diagnosticReviewStatusOrder(left.status) - diagnosticReviewStatusOrder(right.status)
+    || left.source.localeCompare(right.source)
+    || left.handoff.localeCompare(right.handoff)
+    || left.id.localeCompare(right.id);
+}
+
+function diagnosticReviewStatusOrder(status) {
+  return {
+    blocked: 0,
+    pending: 1,
+    review: 2,
+    disabled: 3,
+    ready: 4,
+  }[status] ?? 5;
+}
+
+function createDiagnosticReviewSections(rows = []) {
+  const sections = new Map();
+
+  for (const row of rows) {
+    const sectionId = row.handoff;
+    const section = sections.get(sectionId) ?? {
+      id: sectionId,
+      route: row.route,
+      status: "ready",
+      rowIds: [],
+      blockedCount: 0,
+      pendingCount: 0,
+      reviewCount: 0,
+      disabledCount: 0,
+      restartSafe: true,
+      nextAction: row.nextAction,
+    };
+    section.rowIds.push(row.id);
+    section.status = selectDiagnosticReviewSectionStatus(section.status, row.status);
+    section.blockedCount += row.status === "blocked" ? 1 : 0;
+    section.pendingCount += row.status === "pending" ? 1 : 0;
+    section.reviewCount += row.status === "review" ? 1 : 0;
+    section.disabledCount += row.status === "disabled" ? 1 : 0;
+    section.restartSafe = section.restartSafe && row.restartSafe;
+    if (diagnosticReviewStatusOrder(row.status) < diagnosticReviewStatusOrder(section.status)) {
+      section.nextAction = row.nextAction;
+    }
+    sections.set(sectionId, section);
+  }
+
+  return [...sections.values()]
+    .sort((left, right) => diagnosticReviewStatusOrder(left.status) - diagnosticReviewStatusOrder(right.status)
+      || left.id.localeCompare(right.id))
+    .map((section) => Object.freeze({
+      id: section.id,
+      route: section.route,
+      status: section.status,
+      rowIds: Object.freeze(section.rowIds.sort()),
+      blockedCount: section.blockedCount,
+      pendingCount: section.pendingCount,
+      reviewCount: section.reviewCount,
+      disabledCount: section.disabledCount,
+      restartSafe: section.restartSafe,
+      nextAction: section.nextAction,
+    }));
+}
+
+function selectDiagnosticReviewSectionStatus(current, next) {
+  return diagnosticReviewStatusOrder(next) < diagnosticReviewStatusOrder(current) ? next : current;
+}
+
+function selectDiagnosticReviewRoute(handoff, fallbackRoute) {
+  if (handoff === "mailchimp-tenant-permission-audit") return "mailchimp/tenant-boundary";
+  if (handoff === "mailchimp-source-anchor") return "mailchimp/source-anchor/review";
+  if (handoff === "mailchimp-launch-gate") return "mailchimp/launch/actions";
+  if (handoff === "mailchimp-provider-receipt") return "mailchimp/provider-receipts";
+  if (handoff === "mailchimp-service-sync-window") return "mailchimp/service-sync-window";
+  if (handoff === "mailchimp-operational-health") return "mailchimp/operational-health";
+  return fallbackRoute ?? "diagnostics/review-board";
+}
+
 function createMailchimpClientCards(mailchimpPreview) {
   if (!mailchimpPreview?.preview?.jobs) return [];
   return mailchimpPreview.preview.jobs.map((job) => Object.freeze({
@@ -2139,9 +5185,149 @@ function countBy(items = [], field) {
   return counts;
 }
 
+function createSourceRuntimeResumeFallbackRows(resumePacket = {}) {
+  const envelope = resumePacket.restartEnvelope ?? {};
+  const blockedRows = (envelope.blockedRowIds ?? []).map((id) => sourceRuntimeResumeFallbackRow(id, {
+    status: "blocked",
+    resumePacket,
+    nextAction: envelope.nextAction ?? "repair-source-range-runtime-resume",
+  }));
+  const pendingRows = (envelope.pendingRowIds ?? []).map((id) => sourceRuntimeResumeFallbackRow(id, {
+    status: "pending",
+    resumePacket,
+    nextAction: envelope.nextAction ?? "accept-source-range-runtime-resume",
+  }));
+  const reviewRows = (envelope.reviewRowIds ?? []).map((id) => sourceRuntimeResumeFallbackRow(id, {
+    status: "review",
+    resumePacket,
+    nextAction: envelope.nextAction ?? "review-source-range-runtime-resume",
+  }));
+
+  if (blockedRows.length || pendingRows.length || reviewRows.length) {
+    return Object.freeze([...blockedRows, ...pendingRows, ...reviewRows]);
+  }
+
+  return Object.freeze([sourceRuntimeResumeFallbackRow("source-range-runtime-resume", {
+    status: resumePacket.status ?? "review",
+    resumePacket,
+    nextAction: envelope.nextAction ?? "review-source-range-runtime-resume",
+  })]);
+}
+
+function sourceRuntimeResumeFallbackRow(id, context) {
+  return Object.freeze({
+    id: String(id),
+    origin: "sourceRange",
+    kind: "runtimeResume",
+    status: context.status,
+    label: String(id),
+    detail: context.resumePacket.userVisible?.detail ?? "Source range runtime resume needs review.",
+    route: context.resumePacket.restartEnvelope?.route ?? "source-ranges/runtime-resume/summary",
+    targetId: String(id),
+    accepted: false,
+    restartSafe: context.status !== "blocked" && context.resumePacket.restartEnvelope?.restartSafe !== false,
+    previewAddress: null,
+    externalUri: null,
+    idempotencyKey: context.resumePacket.syncKey ?? null,
+    nextAction: context.nextAction,
+  });
+}
+
+function createSourceRangeFailureRecoveryDiagnosticMessage(row = {}) {
+  if (row.exhausted) {
+    return `Source range recovery row "${row.id}" exhausted ${row.attempts} retry attempt(s).`;
+  }
+  if (row.restartSafe === false) {
+    return `Source range recovery row "${row.id}" is not restart-safe.`;
+  }
+  if (row.status === "blocked") {
+    return `Source range recovery row "${row.id}" is blocked.`;
+  }
+  if (row.status === "pending") {
+    return `Source range recovery row "${row.id}" is pending retry or acceptance.`;
+  }
+  if (row.status === "degraded") {
+    return `Source range recovery row "${row.id}" is using degraded-mode handoff.`;
+  }
+  return `Source range recovery row "${row.id}" needs review.`;
+}
+
+function inferMailchimpWindowJobName(window = {}) {
+  const operationId = Array.isArray(window.operationIds)
+    ? window.operationIds.find(Boolean)
+    : null;
+  if (!operationId) return null;
+  const [jobName] = String(operationId).split(":");
+  return jobName || null;
+}
+
 function incrementDiagnosticCounter(record, key) {
   const safeKey = key ?? "unknown";
   record[safeKey] = (record[safeKey] ?? 0) + 1;
+}
+
+function createMailchimpDiagnosticCheckpointControl(checkpoint = {}, state = {}) {
+  const requested = state.requested.has(checkpoint.id);
+  const completed = state.completed.has(checkpoint.id) || checkpoint.completed === true;
+  const failed = state.failed.has(checkpoint.id);
+  const sourceStatus = normalizeDiagnosticCheckpointStatus(checkpoint.status);
+  const status = failed || sourceStatus === "blocked"
+    ? "blocked"
+    : completed
+      ? "ready"
+      : requested || sourceStatus === "pending"
+        ? "pending"
+        : sourceStatus;
+
+  return Object.freeze({
+    id: `checkpoint:${checkpoint.id}`,
+    checkpointId: checkpoint.id,
+    kind: "mailchimpAstCheckpoint",
+    status,
+    sourceStatus,
+    label: checkpoint.label ?? checkpoint.id,
+    detail: checkpoint.detail ?? "",
+    handoff: checkpoint.handoff ?? "mailchimp-ast-checkpoint",
+    requested,
+    completed,
+    failed,
+    restartSafe: status !== "blocked",
+    idempotencyKey: [
+      state.checkpointReport.fileName ?? "inline.aios",
+      state.checkpointReport.revision ?? "working",
+      checkpoint.id,
+      checkpoint.sourceStatus ?? checkpoint.status ?? "unknown",
+    ].join(":"),
+    nextAction: status === "blocked"
+      ? checkpoint.nextAction ?? "repair-mailchimp-ast-checkpoint"
+      : completed
+        ? "retain-mailchimp-diagnostic-checkpoint"
+        : requested || status === "pending"
+          ? checkpoint.nextAction ?? `run-mailchimp-diagnostic-checkpoint:${checkpoint.id}`
+          : checkpoint.nextAction ?? "review-mailchimp-diagnostic-checkpoint",
+  });
+}
+
+function normalizeDiagnosticCheckpointStatus(status) {
+  if (status === "ready" || status === "idle" || status === "empty") return "ready";
+  if (status === "pending" || status === "needsAcceptance") return "pending";
+  if (status === "blocked" || status === "failed" || status === "disabled" || status === "required") return "blocked";
+  return "review";
+}
+
+function compareMailchimpDiagnosticCheckpointControls(left, right) {
+  return diagnosticCheckpointStatusOrder(left.status) - diagnosticCheckpointStatusOrder(right.status)
+    || left.kind.localeCompare(right.kind)
+    || left.id.localeCompare(right.id);
+}
+
+function diagnosticCheckpointStatusOrder(status) {
+  return {
+    blocked: 0,
+    pending: 1,
+    review: 2,
+    ready: 3,
+  }[status] ?? 4;
 }
 
 function compareDiagnosticControls(left, right) {

@@ -23,6 +23,7 @@ const OPERATOR_EVENT_TYPES = Object.freeze(["status", "validation", "command", "
 const ANALYTICS_EXPORT_FORMATS = Object.freeze(["jsonl", "csv", "summary"]);
 const ANALYTICS_HISTORY_LIMIT = 24;
 const PERSISTED_COMMAND_HISTORY_LIMIT = 16;
+const CLI_RUN_EXPORT_HANDOFF_STALE_MS = 15 * 60 * 1000;
 const LIFECYCLE_MODES = Object.freeze(["enabled", "disabled", "maintenance"]);
 const LIFECYCLE_SCHEDULE_MODES = Object.freeze(["manual", "interval", "window"]);
 const HEALTH_COMPONENTS = Object.freeze(["control-plane", "status-stream", "sync-writer", "handoff-broker"]);
@@ -721,6 +722,362 @@ function normalizeExternalHandoff(input, provider, capabilityNegotiation, worksp
       ? proofToken({ providerId: provider.id, target, endpoint: provider.endpoint, workspace: workspaceBoundary?.workspaceId })
       : null,
     tenantScopedClaim
+  };
+}
+
+function normalizeCliRunDashboardExportHandoff(input, workspaceBoundary, syncMetadata, now) {
+  const cliRun = input && typeof input.cliRun === "object" && input.cliRun !== null ? input.cliRun : {};
+  const handoff = input && typeof input.cliRunDashboardExportHandoff === "object" && input.cliRunDashboardExportHandoff !== null
+    ? input.cliRunDashboardExportHandoff
+    : input && typeof input.dashboardExportHandoff === "object" && input.dashboardExportHandoff !== null
+      ? input.dashboardExportHandoff
+      : cliRun.dashboardExportHandoff && typeof cliRun.dashboardExportHandoff === "object"
+        ? cliRun.dashboardExportHandoff
+        : cliRun.state && typeof cliRun.state === "object" && cliRun.state.dashboardExportHandoff && typeof cliRun.state.dashboardExportHandoff === "object"
+          ? cliRun.state.dashboardExportHandoff
+          : null;
+
+  if (!handoff) {
+    return {
+      contractVersion: "dashboard-cli-run-export-handoff.v1",
+      present: false,
+      state: "not-present",
+      accepted: false,
+      reason: "No cli-run dashboard export handoff was supplied.",
+      validationCodes: [],
+      action: null,
+      proofId: proofToken({
+        workspace: workspaceBoundary.workspaceId,
+        cursor: syncMetadata.cursor,
+        state: "not-present"
+      })
+    };
+  }
+
+  const contract = normalizeString(handoff.contract || handoff.contractVersion || handoff.format, "unknown");
+  const generatedAt = normalizeString(handoff.generatedAt, null);
+  const generatedMs = generatedAt ? Date.parse(generatedAt) : NaN;
+  const nowMs = Date.parse(now);
+  const safeNowMs = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const ageMs = Number.isFinite(generatedMs) ? Math.max(0, safeNowMs - generatedMs) : null;
+  const fromFuture = Number.isFinite(generatedMs) ? generatedMs - safeNowMs > HEALTH_OBSERVATION_FUTURE_DRIFT_MS : false;
+  const stale = ageMs === null || ageMs > CLI_RUN_EXPORT_HANDOFF_STALE_MS;
+  const scopeMatches = handoff.tenantId === workspaceBoundary.tenantId && handoff.workspaceId === workspaceBoundary.workspaceId;
+  const exportToken = normalizeString(handoff.exportToken, "");
+  const blockedReasons = normalizeStringList(handoff.blockedReasons);
+  const counters = handoff.counters && typeof handoff.counters === "object" ? handoff.counters : {};
+  const freshness = handoff.freshness && typeof handoff.freshness === "object" ? handoff.freshness : {};
+  const rowSetChecksums = handoff.rowSetChecksums && typeof handoff.rowSetChecksums === "object" ? handoff.rowSetChecksums : {};
+  const datasets = Array.isArray(handoff.datasets)
+    ? handoff.datasets
+        .filter((dataset) => dataset && typeof dataset === "object")
+        .map((dataset) => ({
+          dataset: normalizeString(dataset.dataset, "unknown"),
+          included: dataset.included !== false,
+          checksum: normalizeString(dataset.checksum, null)
+        }))
+    : [];
+  const validationCodes = [
+    contract !== "aios.cli-run.dashboard-export-handoff.v1" ? "contract-mismatch" : null,
+    !scopeMatches ? "scope-mismatch" : null,
+    !exportToken.startsWith("cli_run_export_") ? "missing-export-token" : null,
+    !generatedAt || !Number.isFinite(generatedMs) ? "generated-at-invalid" : null,
+    fromFuture ? "generated-at-future-drift" : null,
+    stale ? "handoff-stale" : null,
+    blockedReasons.length > 0 ? "source-blocked" : null,
+    workspaceBoundary.permissionBoundary.canReadDashboard ? null : "dashboard-read-denied"
+  ].filter(Boolean);
+  const state = !scopeMatches
+    ? "scope-blocked"
+    : validationCodes.includes("contract-mismatch") || validationCodes.includes("missing-export-token") || validationCodes.includes("generated-at-invalid") || validationCodes.includes("generated-at-future-drift")
+      ? "invalid"
+      : blockedReasons.length > 0
+        ? "source-blocked"
+        : stale
+          ? "stale"
+          : "ready";
+  const accepted = state === "ready";
+  const reason = accepted
+    ? "cli-run analytics export handoff is scoped, fresh, and ready for dashboard ingestion."
+    : state === "scope-blocked"
+      ? "cli-run analytics export handoff belongs to a different tenant or workspace."
+      : state === "source-blocked"
+        ? blockedReasons[0]
+        : state === "stale"
+          ? "cli-run analytics export handoff is older than the dashboard freshness window."
+          : validationCodes[0] || "cli-run analytics export handoff cannot be accepted.";
+
+  return {
+    contractVersion: "dashboard-cli-run-export-handoff.v1",
+    present: true,
+    state,
+    accepted,
+    reason,
+    contract,
+    tenantId: handoff.tenantId || null,
+    workspaceId: handoff.workspaceId || null,
+    runId: normalizeString(handoff.runId, null),
+    epoch: Math.trunc(normalizeNumber(handoff.epoch, 0, { min: 0 })),
+    generatedAt,
+    ageMs,
+    staleAfterMs: CLI_RUN_EXPORT_HANDOFF_STALE_MS,
+    exportToken,
+    route: normalizeString(handoff.route, `${workspaceBoundary.routeScope}/cli-run/export`),
+    scopeMatches,
+    validationCodes,
+    blockedReasons,
+    counters: {
+      totalCommands: Math.trunc(normalizeNumber(counters.totalCommands, 0, { min: 0 })),
+      activeCommands: Math.trunc(normalizeNumber(counters.activeCommands, 0, { min: 0 })),
+      terminalCommands: Math.trunc(normalizeNumber(counters.terminalCommands, 0, { min: 0 })),
+      staleCommands: Math.trunc(normalizeNumber(counters.staleCommands, 0, { min: 0 })),
+      exportRows: Math.trunc(normalizeNumber(counters.exportRows, 0, { min: 0 })),
+      historySnapshots: Math.trunc(normalizeNumber(counters.historySnapshots, 0, { min: 0 })),
+      timelineEvents: Math.trunc(normalizeNumber(counters.timelineEvents, 0, { min: 0 })),
+      warningCodes: Math.trunc(normalizeNumber(counters.warningCodes, 0, { min: 0 }))
+    },
+    freshness: {
+      latestSnapshotAt: normalizeString(freshness.latestSnapshotAt, null),
+      previousSnapshotAt: normalizeString(freshness.previousSnapshotAt, null),
+      latestTimelineAt: normalizeString(freshness.latestTimelineAt, null),
+      latestTimelineAgeMs: freshness.latestTimelineAgeMs === null || freshness.latestTimelineAgeMs === undefined
+        ? null
+        : Math.trunc(normalizeNumber(freshness.latestTimelineAgeMs, 0, { min: 0 })),
+      trendSampleCount: Math.trunc(normalizeNumber(freshness.trendSampleCount, 0, { min: 0 })),
+      boundedByHistoryLimit: freshness.boundedByHistoryLimit === true
+    },
+    datasets,
+    rowSetChecksums,
+    action: {
+      id: accepted ? "ingest-cli-run-export" : stale ? "refresh-cli-run-export" : "repair-cli-run-export",
+      label: accepted ? "Ingest cli-run analytics export" : stale ? "Refresh cli-run analytics export" : "Repair cli-run analytics export",
+      route: accepted ? `${workspaceBoundary.routeScope}/analytics/cli-run/import` : `${workspaceBoundary.routeScope}/analytics/cli-run/export`,
+      enabled: accepted && workspaceBoundary.permissionBoundary.canReadDashboard,
+      reason
+    },
+    proofId: proofToken({
+      workspace: workspaceBoundary.workspaceId,
+      cursor: syncMetadata.cursor,
+      contract,
+      runId: handoff.runId,
+      epoch: handoff.epoch,
+      generatedAt,
+      state,
+      exportToken,
+      rowSetChecksums
+    })
+  };
+}
+
+function normalizeMailchimpCampaignHandoff(input, workspaceBoundary, syncMetadata, operationalHealth, now) {
+  const direct = input && typeof input.mailchimpCampaignHealth === "object" && input.mailchimpCampaignHealth !== null
+    ? input.mailchimpCampaignHealth
+    : input && typeof input.cliLogs === "object" && input.cliLogs !== null && input.cliLogs.mailchimpCampaignHealth && typeof input.cliLogs.mailchimpCampaignHealth === "object"
+      ? input.cliLogs.mailchimpCampaignHealth
+      : input && typeof input.cliRunMailchimpCampaignHandoff === "object" && input.cliRunMailchimpCampaignHandoff !== null
+        ? input.cliRunMailchimpCampaignHandoff
+        : input && typeof input.cliRun === "object" && input.cliRun !== null && input.cliRun.mailchimpCampaignHandoff && typeof input.cliRun.mailchimpCampaignHandoff === "object"
+          ? input.cliRun.mailchimpCampaignHandoff
+          : input && typeof input.cliRun === "object" && input.cliRun !== null && input.cliRun.state && typeof input.cliRun.state === "object" && input.cliRun.state.mailchimpCampaignHandoff && typeof input.cliRun.state.mailchimpCampaignHandoff === "object"
+            ? input.cliRun.state.mailchimpCampaignHandoff
+            : input && typeof input.cliRun === "object" && input.cliRun !== null && input.cliRun.processCreation?.source?.mailchimpCampaign && typeof input.cliRun.processCreation.source.mailchimpCampaign === "object"
+              ? input.cliRun.processCreation.source.mailchimpCampaign
+              : null;
+  const fallback = input && typeof input.mailchimp === "object" && input.mailchimp !== null ? input.mailchimp : {};
+  const source = direct || fallback;
+  const present = Boolean(direct || fallback.enabled === true || fallback.present === true || fallback.campaignId || fallback.providerState);
+  const generatedAt = normalizeString(source.generatedAt, now);
+  const generatedMs = Date.parse(generatedAt);
+  const nowMs = Date.parse(now);
+  const safeNowMs = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const ageMs = Number.isFinite(generatedMs) ? Math.max(0, safeNowMs - generatedMs) : null;
+  const fromFuture = Number.isFinite(generatedMs) ? generatedMs - safeNowMs > HEALTH_OBSERVATION_FUTURE_DRIFT_MS : false;
+  const freshness = source.freshness && typeof source.freshness === "object" ? source.freshness : {};
+  const retry = source.retry && typeof source.retry === "object" ? source.retry : {};
+  const handoff = source.handoff && typeof source.handoff === "object" ? source.handoff : {};
+  const exportReadinessSource = source.exportReadiness && typeof source.exportReadiness === "object"
+    ? source.exportReadiness
+    : source.mailchimpExportReadiness && typeof source.mailchimpExportReadiness === "object"
+      ? source.mailchimpExportReadiness
+      : input && typeof input.mailchimpExportReadiness === "object" && input.mailchimpExportReadiness !== null
+        ? input.mailchimpExportReadiness
+        : input && typeof input.cliLogs === "object" && input.cliLogs !== null && input.cliLogs.mailchimpExportReadiness && typeof input.cliLogs.mailchimpExportReadiness === "object"
+          ? input.cliLogs.mailchimpExportReadiness
+          : {};
+  const deliveryReadiness = source.deliveryReadiness && typeof source.deliveryReadiness === "object" ? source.deliveryReadiness : {};
+  const actionableErrors = Array.isArray(source.actionableErrors)
+    ? source.actionableErrors
+        .filter((error) => error && typeof error === "object")
+        .map((error, index) => ({
+          id: normalizeString(error.id, `mailchimp-error-${index + 1}`),
+          code: normalizeString(error.code, "mailchimp_error"),
+          severity: error.severity === "critical" || error.severity === "error" ? "error" : "warning",
+          message: normalizeString(error.message, "Mailchimp campaign handoff reported an error."),
+          retryable: error.retryable === true,
+          route: normalizeString(error.route, `${workspaceBoundary.routeScope}/integrations/mailchimp/errors`)
+        }))
+    : [];
+  const validation = normalizeStringList(source.validation);
+  const state = normalizeString(source.state, present ? "unknown" : "not-present");
+  const scopeTenant = normalizeString(source.tenantId, workspaceBoundary.tenantId);
+  const scopeWorkspace = normalizeString(source.workspaceId, workspaceBoundary.workspaceId);
+  const scopeMatches = scopeTenant === workspaceBoundary.tenantId && scopeWorkspace === workspaceBoundary.workspaceId;
+  const exportScopeTenant = normalizeString(exportReadinessSource.tenantId, scopeTenant);
+  const exportScopeWorkspace = normalizeString(exportReadinessSource.workspaceId, scopeWorkspace);
+  const exportScopeMatches = exportScopeTenant === workspaceBoundary.tenantId && exportScopeWorkspace === workspaceBoundary.workspaceId;
+  const exportReadinessPresent = Object.keys(exportReadinessSource).length > 0;
+  const exportReadinessAccepted = exportReadinessSource.accepted === true;
+  const exportReadinessValidation = normalizeStringList(exportReadinessSource.validation);
+  const exportReadinessState = normalizeString(exportReadinessSource.state, exportReadinessPresent ? "unknown" : "not-present");
+  const exportReadinessCounters = exportReadinessSource.counters && typeof exportReadinessSource.counters === "object" ? exportReadinessSource.counters : {};
+  const exportPackage = exportReadinessSource.exportPackage && typeof exportReadinessSource.exportPackage === "object" ? exportReadinessSource.exportPackage : {};
+  const retryableErrors = actionableErrors.filter((error) => error.retryable);
+  const blockingErrors = actionableErrors.filter((error) => error.severity === "error" && !error.retryable);
+  const stale = freshness.stale === true || (ageMs !== null && ageMs > CLI_RUN_EXPORT_HANDOFF_STALE_MS);
+  const attachProofReady = deliveryReadiness.canAttachLogProof === true
+    || (deliveryReadiness.canAttachLogProof === undefined && state === "ready");
+  const validationCodes = [
+    present ? null : "not-present",
+    !scopeMatches ? "scope-mismatch" : null,
+    exportReadinessPresent && !exportScopeMatches ? "export-readiness-scope-mismatch" : null,
+    exportReadinessPresent && !exportReadinessAccepted ? "mailchimp-export-readiness-blocked" : null,
+    fromFuture ? "generated-at-future-drift" : null,
+    stale && state !== "not-configured" ? "mailchimp-sync-stale" : null,
+    validation.length > 0 ? "source-validation" : null,
+    blockingErrors.length > 0 ? "blocking-mailchimp-errors" : null,
+    workspaceBoundary.permissionBoundary.canReadDashboard ? null : "dashboard-read-denied",
+    operationalHealth.state === "blocked" ? "dashboard-health-blocked" : null
+  ].filter(Boolean);
+  const accepted = present
+    && scopeMatches
+    && !fromFuture
+    && (!exportReadinessPresent || (exportScopeMatches && exportReadinessAccepted))
+    && validation.length === 0
+    && blockingErrors.length === 0
+    && (state === "not-configured" || attachProofReady)
+    && workspaceBoundary.permissionBoundary.canReadDashboard
+    && operationalHealth.state !== "blocked";
+  const dashboardState = !present
+    ? "not-present"
+    : !scopeMatches
+      ? "scope-blocked"
+      : exportReadinessPresent && !exportScopeMatches
+        ? "scope-blocked"
+        : exportReadinessPresent && !exportReadinessAccepted && exportReadinessState !== "retry-after-sync"
+          ? "export-blocked"
+          : accepted && (state === "ready" || state === "not-configured")
+            ? "ready"
+            : state === "blocked" || blockingErrors.length > 0
+              ? "blocked"
+              : state === "rate-limited"
+                ? "rate-limited"
+                : stale || retryableErrors.length > 0 || state === "degraded"
+                  ? "degraded"
+                  : accepted
+                    ? "ready"
+                    : "needs-attention";
+  const primaryReason = !present
+    ? "No Mailchimp campaign handoff was supplied."
+    : !scopeMatches
+      ? "Mailchimp campaign handoff belongs to a different tenant or workspace."
+      : exportReadinessPresent && !exportScopeMatches
+        ? "Mailchimp export readiness belongs to a different tenant or workspace."
+        : exportReadinessValidation[0] || validation[0] || blockingErrors[0]?.message || deliveryReadiness.reason || (stale ? "Mailchimp campaign sync is stale." : null) || "Mailchimp campaign handoff is ready.";
+  const route = normalizeString(handoff.route, `${workspaceBoundary.routeScope}/integrations/mailchimp`);
+  const retryAfterMs = retry.retryAfterMs === null || retry.retryAfterMs === undefined
+    ? null
+    : Math.trunc(normalizeNumber(retry.retryAfterMs, 0, { min: 0, max: 300000 }));
+  const retryable = retry.retryable === true || retryableErrors.length > 0 || dashboardState === "rate-limited" || dashboardState === "degraded";
+  const retryToken = retryable
+    ? proofToken({
+        workspace: workspaceBoundary.workspaceId,
+        cursor: syncMetadata.cursor,
+        campaignId: source.campaignId,
+        state: dashboardState,
+        retryAfterMs,
+        errors: actionableErrors.map((error) => error.code)
+      })
+    : null;
+
+  return {
+    contractVersion: "dashboard-mailchimp-campaign-handoff.v1",
+    sourceContract: normalizeString(source.contract || source.contractVersion, null),
+    present,
+    accepted,
+    state: dashboardState,
+    sourceState: state,
+    provider: "mailchimp",
+    campaignId: normalizeString(source.campaignId, null),
+    audienceId: normalizeString(source.audienceId, null),
+    providerState: normalizeString(source.providerState, "unknown"),
+    campaignStatus: normalizeString(source.campaignStatus, "unknown"),
+    generatedAt,
+    ageMs,
+    scopeMatches,
+    validationCodes,
+    validation,
+    exportReadiness: {
+      present: exportReadinessPresent,
+      accepted: exportReadinessAccepted,
+      state: exportReadinessState,
+      scopeMatches: exportScopeMatches,
+      validation: exportReadinessValidation,
+      counters: {
+        exportableRecords: Math.trunc(normalizeNumber(exportReadinessCounters.exportableRecords, 0, { min: 0, max: 1000000 })),
+        attachableRecords: Math.trunc(normalizeNumber(exportReadinessCounters.attachableRecords, 0, { min: 0, max: 1000000 })),
+        proofIds: Math.trunc(normalizeNumber(exportReadinessCounters.proofIds, 0, { min: 0, max: 1000000 })),
+        priorExports: Math.trunc(normalizeNumber(exportReadinessCounters.priorExports, 0, { min: 0, max: 1000000 })),
+        blockedExports: Math.trunc(normalizeNumber(exportReadinessCounters.blockedExports, 0, { min: 0, max: 1000000 })),
+      },
+      package: {
+        reportId: normalizeString(exportPackage.reportId, null),
+        exportId: normalizeString(exportPackage.exportId, null),
+        recordCount: Math.trunc(normalizeNumber(exportPackage.recordCount, 0, { min: 0, max: 1000000 })),
+        rootHash: normalizeString(exportPackage.rootHash, null),
+        formats: normalizeStringList(exportPackage.formats),
+        redactionSafe: exportPackage.redactionSafe !== false,
+        payloadRef: normalizeString(exportReadinessSource.handoff?.payloadRef, null),
+        proofDigest: normalizeString(exportReadinessSource.handoff?.proofDigest, null)
+      }
+    },
+    freshness: {
+      lastSyncAt: normalizeString(freshness.lastSyncAt, null),
+      ageMs: freshness.ageMs === null || freshness.ageMs === undefined ? null : Math.trunc(normalizeNumber(freshness.ageMs, 0, { min: 0 })),
+      stale,
+      syncCursor: normalizeString(freshness.syncCursor, syncMetadata.cursor)
+    },
+    retry: {
+      retryable,
+      retryAfterMs,
+      nextRetryAt: normalizeString(retry.nextRetryAt, retryable && retryAfterMs !== null ? new Date(safeNowMs + retryAfterMs).toISOString() : null),
+      retryToken
+    },
+    actionableErrors,
+    deliveryReadiness: {
+      canAttachLogProof: deliveryReadiness.canAttachLogProof === true && accepted && (!exportReadinessPresent || exportReadinessAccepted),
+      canContinueInDegradedMode: deliveryReadiness.canContinueInDegradedMode === true || dashboardState === "degraded" || dashboardState === "rate-limited",
+      disabledCommands: normalizeStringList(deliveryReadiness.disabledCommands),
+      reason: primaryReason
+    },
+    action: {
+      id: dashboardState === "ready" ? "attach-mailchimp-log-proof" : retryable ? "retry-mailchimp-campaign-sync" : dashboardState === "export-blocked" ? "repair-mailchimp-export-package" : present ? "repair-mailchimp-campaign-handoff" : "configure-mailchimp-campaign",
+      label: dashboardState === "ready" ? "Attach Mailchimp log proof" : retryable ? "Retry Mailchimp campaign sync" : dashboardState === "export-blocked" ? "Repair Mailchimp export package" : present ? "Repair Mailchimp campaign handoff" : "Configure Mailchimp campaign",
+      route: dashboardState === "ready" ? `${workspaceBoundary.routeScope}/integrations/mailchimp/proof` : route,
+      enabled: present && workspaceBoundary.permissionBoundary.canReadDashboard && dashboardState !== "ready",
+      reason: primaryReason
+    },
+    proofId: proofToken({
+      workspace: workspaceBoundary.workspaceId,
+      cursor: syncMetadata.cursor,
+      sourceState: state,
+      dashboardState,
+      campaignId: source.campaignId,
+      audienceId: source.audienceId,
+      validationCodes,
+      exportReadinessState,
+      exportPackageRootHash: exportPackage.rootHash || null,
+      retryToken
+    })
   };
 }
 
@@ -2505,7 +2862,281 @@ function buildClientWorkflowLaunchContract({
   };
 }
 
-function buildValidationSummary({ provider, capabilityNegotiation, syncMetadata, handoff, previewRequest, clientRuntime, clientWorkflow, workspaceBoundary, operationalHealth, healthValidation, lifecycleControl, providerServiceContract, recovery, operationalSnapshotRecovery, commandRecovery, commandOutcome }) {
+function normalizeProcessActionPressure(input = {}, workspaceBoundary, syncMetadata, now) {
+  const cliPs = input.cliPs && typeof input.cliPs === "object" && input.cliPs !== null ? input.cliPs : {};
+  const rawQueue = input.processActionQueue && typeof input.processActionQueue === "object" && input.processActionQueue !== null
+    ? input.processActionQueue
+    : cliPs.operatorActionQueue && typeof cliPs.operatorActionQueue === "object" && cliPs.operatorActionQueue !== null
+      ? cliPs.operatorActionQueue
+      : cliPs.contract?.operatorActionQueue && typeof cliPs.contract.operatorActionQueue === "object"
+        ? cliPs.contract.operatorActionQueue
+        : {};
+  const rawEntries = Array.isArray(rawQueue.entries)
+    ? rawQueue.entries
+    : Array.isArray(input.processActions)
+      ? input.processActions
+      : [];
+  const fallbackProcesses = Array.isArray(input.processes)
+    ? input.processes
+    : Array.isArray(input.runningJobs)
+      ? input.runningJobs
+      : [];
+  const derivedEntries = rawEntries.length > 0
+    ? rawEntries
+    : fallbackProcesses
+      .filter((process) => process && typeof process === "object")
+      .map((process, index) => {
+        const state = normalizeString(process.state || process.status, "unknown");
+        const health = normalizeString(process.health, state === "failed" ? "failed" : state === "blocked" ? "degraded" : "unknown");
+        const pid = normalizeString(process.pid || process.id || process.jobId, `process-${index + 1}`);
+        const failed = state === "failed" || health === "failed";
+        const blocked = state === "blocked" || process.blocked === true || process.attentionRequired === true;
+        const retryable = process.retryable === true || process.retry?.retryable === true || process.attemptsRemaining > 0;
+        const action = failed || blocked
+          ? retryable ? "schedule-retry" : "handoff-process"
+          : health === "degraded"
+            ? "inspect-process"
+            : "monitor";
+
+        return {
+          pid,
+          command: normalizeString(process.command || process.name, pid),
+          action,
+          severity: failed ? "critical" : blocked ? "warning" : health === "degraded" ? "notice" : "normal",
+          reason: normalizeString(process.reason || process.lastError || process.blockedReason, action === "monitor" ? "none" : state),
+          ready: action !== "monitor",
+          blocksDispatch: failed || blocked,
+          retryReady: retryable,
+          notBefore: normalizeString(process.notBefore || process.nextRetryAt, null)
+        };
+      });
+  const severityWeight = { critical: 4, error: 4, warning: 3, notice: 2, info: 1, normal: 0 };
+  const actionWeight = {
+    "repair-exit-contract": 100,
+    "restore-required-dependency": 95,
+    "renew-lease": 90,
+    "refresh-before-replay": 85,
+    "handoff-process": 80,
+    "schedule-retry": 70,
+    "refresh-process-table": 65,
+    "inspect-process": 50,
+    monitor: 10
+  };
+  const entries = derivedEntries
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry, index) => {
+      const action = normalizeString(entry.action || entry.nextAction || entry.operatorAction, "inspect-process");
+      const pid = normalizeString(entry.pid || entry.processId || entry.id, `process-${index + 1}`);
+      const severity = normalizeString(entry.severity, entry.blocksDispatch ? "warning" : "notice");
+      const priority = Math.trunc(normalizeNumber(
+        entry.priority,
+        (actionWeight[action] || 0) + ((severityWeight[severity] || 0) * 10),
+        { min: 0, max: 1000 }
+      ));
+
+      return {
+        contractVersion: "dashboard-process-action-entry.v1",
+        index,
+        pid,
+        command: normalizeString(entry.command || entry.name, pid),
+        action,
+        priority,
+        severity,
+        reason: normalizeString(entry.reason || entry.code, "process-action-required"),
+        message: normalizeString(entry.message || entry.label, `Process ${pid} requires ${action}.`),
+        route: normalizeString(entry.route, `${workspaceBoundary.routeScope}/processes/${encodeURIComponent(pid)}`),
+        ready: entry.ready !== false,
+        blocksDispatch: entry.blocksDispatch === true || severity === "critical" || severity === "error",
+        retryReady: entry.retryReady === true || action === "schedule-retry",
+        handoffReady: entry.handoffReady === true || action === "handoff-process",
+        readOnly: entry.readOnly === true,
+        notBefore: normalizeString(entry.notBefore || entry.nextRetryAt, null),
+        idempotencyKey: normalizeString(
+          entry.idempotencyKey,
+          proofToken({ workspace: workspaceBoundary.workspaceId, cursor: syncMetadata.cursor, pid, action, reason: entry.reason || entry.code }).replace("proof_", "process_action_")
+        ),
+        proofRefs: entry.proofRefs && typeof entry.proofRefs === "object" ? entry.proofRefs : {}
+      };
+    })
+    .sort((left, right) => (
+      right.priority - left.priority
+      || String(left.notBefore || "").localeCompare(String(right.notBefore || ""))
+      || left.pid.localeCompare(right.pid)
+    ))
+    .slice(0, 20);
+  const readyEntries = entries.filter((entry) => entry.ready);
+  const blockedEntries = entries.filter((entry) => entry.blocksDispatch);
+  const handoffEntries = entries.filter((entry) => entry.handoffReady);
+  const retryEntries = entries.filter((entry) => entry.retryReady);
+  const byAction = entries.reduce((summary, entry) => {
+    summary[entry.action] = (summary[entry.action] || 0) + 1;
+    return summary;
+  }, {});
+  const upstreamState = normalizeString(rawQueue.state, null);
+  const state = upstreamState || (blockedEntries.length
+    ? "blocked"
+    : readyEntries.length
+      ? "actionable"
+      : entries.length
+        ? "watching"
+        : "clear");
+
+  return {
+    contractVersion: "dashboard-process-action-pressure.v1",
+    state,
+    generatedAt: normalizeString(rawQueue.generatedAt, now),
+    cursor: normalizeString(rawQueue.cursor, syncMetadata.cursor),
+    totalCount: entries.length,
+    readyCount: readyEntries.length,
+    blockedCount: blockedEntries.length,
+    retryReadyCount: retryEntries.length,
+    handoffReadyCount: handoffEntries.length,
+    readOnly: rawQueue.readOnly === true || entries.some((entry) => entry.readOnly),
+    primaryAction: entries[0] || null,
+    entries,
+    summary: {
+      byAction,
+      source: rawEntries.length > 0 ? "cli-ps-action-queue" : fallbackProcesses.length > 0 ? "derived-processes" : "empty",
+      upstreamState,
+      visibleProcessCount: normalizeNumber(rawQueue.summary?.visibleProcessCount, fallbackProcesses.length, { min: 0 }),
+      redactedProcessCount: normalizeNumber(rawQueue.summary?.redactedProcessCount, 0, { min: 0 }),
+      nextNotBefore: entries
+        .map((entry) => entry.notBefore)
+        .filter(Boolean)
+        .sort()[0] || null
+    },
+    route: `${workspaceBoundary.routeScope}/process-actions`,
+    proofId: proofToken({
+      workspace: workspaceBoundary.workspaceId,
+      cursor: syncMetadata.cursor,
+      state,
+      entries: entries.map((entry) => [entry.pid, entry.action, entry.priority, entry.blocksDispatch, entry.notBefore]),
+      upstreamProof: rawQueue.proof?.queueChecksum || rawQueue.proofId || null
+    })
+  };
+}
+
+function normalizeCliRunStatusBridge(input = {}, workspaceBoundary, syncMetadata, now) {
+  const raw = input.cliRunStatusBridge && typeof input.cliRunStatusBridge === "object"
+    ? input.cliRunStatusBridge
+    : input.cliRunStatus && typeof input.cliRunStatus === "object"
+      ? input.cliRunStatus
+      : input.cliRun && typeof input.cliRun === "object"
+        ? input.cliRun.clientStatusBridge || input.cliRun
+        : {};
+  const present = Object.keys(raw).length > 0;
+  const tenantId = normalizeString(raw.tenantId, workspaceBoundary.tenantId);
+  const workspaceId = normalizeString(raw.workspaceId, workspaceBoundary.workspaceId);
+  const commandId = normalizeString(raw.persistedCommandId || raw.commandId, null);
+  const validation = raw.validation && typeof raw.validation === "object" ? raw.validation : {};
+  const readiness = raw.readiness && typeof raw.readiness === "object" ? raw.readiness : {};
+  const recovery = raw.recovery && typeof raw.recovery === "object" ? raw.recovery : {};
+  const nextStep = raw.nextStep && typeof raw.nextStep === "object" ? raw.nextStep : {};
+  const clientPatch = raw.clientStatePatch && typeof raw.clientStatePatch === "object" ? raw.clientStatePatch : {};
+  const lease = raw.lease && typeof raw.lease === "object" ? raw.lease : null;
+  const validationCodes = normalizeStringList(validation.violationCodes);
+  const recoveryRoutes = Array.isArray(recovery.routes)
+    ? recovery.routes
+        .filter((route) => route && typeof route === "object")
+        .slice(0, 8)
+        .map((route, index) => ({
+          id: normalizeString(route.rel, `recovery-${index + 1}`),
+          commandId: normalizeString(route.commandId, commandId),
+          action: normalizeString(route.action, "inspect-command"),
+          enabled: route.enabled !== false,
+          route: normalizeString(route.route, `${workspaceBoundary.routeScope}/cli-run/recovery/${encodeURIComponent(normalizeString(route.commandId, commandId || "unknown"))}`),
+          expectedAck: normalizeString(route.expectedAck, null),
+          resumeToken: normalizeString(route.resumeToken, null),
+          nextPollAfter: normalizeString(route.nextPollAfter, null)
+        }))
+    : [];
+  const scopeMatches = tenantId === workspaceBoundary.tenantId && workspaceId === workspaceBoundary.workspaceId;
+  const upstreamReadiness = normalizeString(readiness.state || clientPatch.readinessState, present ? "unknown" : "not-reported");
+  const upstreamRecoveryState = normalizeString(recovery.state || clientPatch.recoveryState, present ? "unknown" : "not-reported");
+  const restartSafeStatus = normalizeString(clientPatch.restartSafeStatus || lease?.restartSafeStatus, "unknown");
+  const recoveryRequired = present && (
+    upstreamReadiness === "recovery-required"
+      || upstreamRecoveryState === "operator-action-required"
+      || restartSafeStatus === "expired-needs-recovery"
+      || recoveryRoutes.some((route) => route.enabled && route.action.includes("recover"))
+  );
+  const validationBlocked = present && (validation.ok === false || validationCodes.length > 0);
+  const scopeBlocked = present && !scopeMatches;
+  const state = !present
+    ? "not-reported"
+    : scopeBlocked
+      ? "scope-blocked"
+      : validationBlocked
+        ? "blocked"
+        : recoveryRequired
+          ? "recovery-required"
+          : upstreamReadiness === "blocked"
+            ? "blocked"
+            : upstreamReadiness === "degraded"
+              ? "degraded"
+              : "ready";
+  const primaryRoute = normalizeString(
+    nextStep.route,
+    recoveryRoutes.find((route) => route.enabled)?.route || `${workspaceBoundary.routeScope}/cli-run/status`
+  );
+  const proofId = proofToken({
+    workspace: workspaceBoundary.workspaceId,
+    cursor: syncMetadata.cursor,
+    present,
+    scopeMatches,
+    commandId,
+    upstreamReadiness,
+    upstreamRecoveryState,
+    restartSafeStatus,
+    validationCodes,
+    routeIds: recoveryRoutes.map((route) => [route.id, route.commandId, route.action])
+  });
+
+  return {
+    contractVersion: "dashboard-cli-run-status-bridge.v1",
+    present,
+    state,
+    tenantId,
+    workspaceId,
+    commandId,
+    requestId: normalizeString(raw.requestId, null),
+    idempotencyKey: normalizeString(raw.idempotencyKey || clientPatch.idempotencyKey, null),
+    scopeMatches,
+    validationCodes,
+    upstreamReadiness,
+    upstreamRecoveryState,
+    restartSafeStatus,
+    accepted: raw.accepted === true,
+    idempotentReplay: raw.idempotentReplay === true || clientPatch.idempotentReplay === true,
+    safeResume: readiness.safeResume === true,
+    safeRetry: readiness.safeRetry === true,
+    safeHandoff: readiness.safeHandoff === true,
+    leaseExpired: lease?.expired === true || restartSafeStatus === "expired-needs-recovery",
+    recoveryRequired,
+    recoveryRoutes,
+    primaryAction: {
+      id: normalizeString(nextStep.action, recoveryRequired ? "recover-cli-run-command" : "inspect-cli-run-status"),
+      reason: normalizeString(
+        nextStep.reason,
+        scopeBlocked
+          ? "cli-run status bridge belongs to a different tenant or workspace."
+          : validationCodes[0] || upstreamRecoveryState
+      ),
+      route: primaryRoute,
+      pollAfter: normalizeString(nextStep.pollAfter, null)
+    },
+    clientStatePatch: {
+      ...clientPatch,
+      dashboardCliRunBridgeState: state,
+      dashboardCliRunBridgeProofId: proofId,
+      scopedToDashboardWorkspace: scopeMatches
+    },
+    proofId,
+    route: `${workspaceBoundary.routeScope}/cli-run/status`
+  };
+}
+
+function buildValidationSummary({ provider, capabilityNegotiation, syncMetadata, handoff, previewRequest, clientRuntime, clientWorkflow, workspaceBoundary, operationalHealth, healthValidation, lifecycleControl, providerServiceContract, recovery, operationalSnapshotRecovery, commandRecovery, commandOutcome, processActionPressure, cliRunStatusBridge, cliRunExportHandoff, mailchimpCampaignHandoff }) {
   const findings = [];
 
   if (workspaceBoundary && workspaceBoundary.isolationState === "blocked") {
@@ -2718,6 +3349,118 @@ function buildValidationSummary({ provider, capabilityNegotiation, syncMetadata,
       message: operationalSnapshotRecovery.driftReasons[0] || "Persisted operational dashboard snapshot changed after restart."
     });
   }
+  if (processActionPressure && processActionPressure.blockedCount > 0) {
+    findings.push({
+      severity: "error",
+      code: "process_action_queue_blocked",
+      message: `${processActionPressure.blockedCount} process action(s) block operator dispatch.`
+    });
+  }
+  if (processActionPressure && processActionPressure.readyCount > 0 && processActionPressure.blockedCount === 0) {
+    findings.push({
+      severity: "warning",
+      code: "process_action_queue_ready",
+      message: `${processActionPressure.readyCount} process action(s) are ready for operator review.`
+    });
+  }
+  if (processActionPressure && processActionPressure.readOnly) {
+    findings.push({
+      severity: "warning",
+      code: "process_action_queue_read_only",
+      message: "Process actions are currently read-only until the process table or provider sync barrier clears."
+    });
+  }
+  if (cliRunStatusBridge?.scopeMatches === false) {
+    findings.push({
+      severity: "error",
+      code: "cli_run_status_bridge_scope_mismatch",
+      message: "cli-run status bridge was produced for a different tenant or workspace boundary."
+    });
+  }
+  if (cliRunStatusBridge?.state === "blocked") {
+    findings.push({
+      severity: "error",
+      code: "cli_run_status_bridge_blocked",
+      message: cliRunStatusBridge.validationCodes[0] || cliRunStatusBridge.primaryAction.reason || "cli-run status bridge is blocked."
+    });
+  }
+  if (cliRunStatusBridge?.state === "recovery-required") {
+    findings.push({
+      severity: "warning",
+      code: "cli_run_recovery_required",
+      message: cliRunStatusBridge.primaryAction.reason || "cli-run has restart-safe command recovery work before dashboard dispatch."
+    });
+  }
+  if (cliRunStatusBridge?.state === "degraded") {
+    findings.push({
+      severity: "warning",
+      code: "cli_run_status_bridge_degraded",
+      message: "cli-run reports degraded readiness for the active command surface."
+    });
+  }
+  if (cliRunExportHandoff?.state === "scope-blocked") {
+    findings.push({
+      severity: "error",
+      code: "cli_run_export_handoff_scope_mismatch",
+      message: cliRunExportHandoff.reason
+    });
+  }
+  if (cliRunExportHandoff?.state === "invalid") {
+    findings.push({
+      severity: "error",
+      code: "cli_run_export_handoff_invalid",
+      message: cliRunExportHandoff.reason
+    });
+  }
+  if (cliRunExportHandoff?.state === "source-blocked") {
+    findings.push({
+      severity: "warning",
+      code: "cli_run_export_handoff_source_blocked",
+      message: cliRunExportHandoff.reason
+    });
+  }
+  if (cliRunExportHandoff?.state === "stale") {
+    findings.push({
+      severity: "warning",
+      code: "cli_run_export_handoff_stale",
+      message: cliRunExportHandoff.reason
+    });
+  }
+  if (cliRunExportHandoff?.accepted) {
+    findings.push({
+      severity: "info",
+      code: "cli_run_export_handoff_ready",
+      message: `${cliRunExportHandoff.counters.exportRows} cli-run analytics export row(s) are ready for dashboard ingestion.`
+    });
+  }
+  if (mailchimpCampaignHandoff?.state === "scope-blocked") {
+    findings.push({
+      severity: "error",
+      code: "mailchimp_campaign_scope_blocked",
+      message: mailchimpCampaignHandoff.deliveryReadiness.reason
+    });
+  }
+  if (mailchimpCampaignHandoff?.state === "blocked" || mailchimpCampaignHandoff?.state === "export-blocked") {
+    findings.push({
+      severity: "error",
+      code: "mailchimp_campaign_export_blocked",
+      message: mailchimpCampaignHandoff.exportReadiness?.validation?.[0] || mailchimpCampaignHandoff.deliveryReadiness.reason
+    });
+  }
+  if (mailchimpCampaignHandoff?.state === "degraded" || mailchimpCampaignHandoff?.state === "rate-limited") {
+    findings.push({
+      severity: "warning",
+      code: "mailchimp_campaign_sync_degraded",
+      message: mailchimpCampaignHandoff.deliveryReadiness.reason || "Mailchimp campaign-linked log proof is waiting for provider sync."
+    });
+  }
+  if (mailchimpCampaignHandoff?.accepted && mailchimpCampaignHandoff.exportReadiness?.present) {
+    findings.push({
+      severity: "info",
+      code: "mailchimp_campaign_export_ready",
+      message: `${mailchimpCampaignHandoff.exportReadiness.counters.attachableRecords} Mailchimp campaign log proof row(s) are ready to attach.`
+    });
+  }
   if (commandRecovery && commandRecovery.dispatchMode === "repair-ledger") {
     findings.push({
       severity: "error",
@@ -2825,7 +3568,7 @@ function buildDashboardPreview({ provider, capabilityNegotiation, syncMetadata, 
   };
 }
 
-function buildAcceptanceContract({ provider, capabilityNegotiation, syncMetadata, handoff, validationSummary, operationalHealth, providerServiceContract, audit, workspaceBoundary }) {
+function buildAcceptanceContract({ provider, capabilityNegotiation, syncMetadata, handoff, validationSummary, operationalHealth, providerServiceContract, audit, workspaceBoundary, mailchimpCampaignHandoff }) {
   const requiredSignals = [
     { id: "workspace-scoped", accepted: workspaceBoundary.isolationState === "scoped" },
     { id: "permission-boundary-ready", accepted: workspaceBoundary.permissionState === "ready" },
@@ -2835,6 +3578,12 @@ function buildAcceptanceContract({ provider, capabilityNegotiation, syncMetadata
     { id: "provider-services-ready", accepted: !providerServiceContract || providerServiceContract.state === "ready" },
     { id: "sync-ready", accepted: syncMetadata.status === "ready" },
     { id: "handoff-resolvable", accepted: handoff.state !== "blocked" },
+    ...(mailchimpCampaignHandoff?.present
+      ? [
+          { id: "mailchimp-campaign-scope-ready", accepted: mailchimpCampaignHandoff.scopeMatches && mailchimpCampaignHandoff.exportReadiness.scopeMatches },
+          { id: "mailchimp-campaign-export-ready", accepted: mailchimpCampaignHandoff.accepted && mailchimpCampaignHandoff.deliveryReadiness.canAttachLogProof },
+        ]
+      : []),
     { id: "audit-proof-issued", accepted: Boolean(audit.proofId) }
   ];
   const accepted = validationSummary.ok && requiredSignals.every((signal) => signal.accepted);
@@ -2849,7 +3598,7 @@ function buildAcceptanceContract({ provider, capabilityNegotiation, syncMetadata
   };
 }
 
-function buildReadinessContract({ provider, capabilityNegotiation, syncMetadata, validationSummary, acceptance, operationalHealth, healthValidation, lifecycleControl, providerServiceContract, recovery, operationalSnapshotRecovery, commandRecovery, commandOutcome, workspaceBoundary }) {
+function buildReadinessContract({ provider, capabilityNegotiation, syncMetadata, validationSummary, acceptance, operationalHealth, healthValidation, lifecycleControl, providerServiceContract, recovery, operationalSnapshotRecovery, commandRecovery, commandOutcome, processActionPressure, cliRunStatusBridge, mailchimpCampaignHandoff, workspaceBoundary }) {
   const readinessScore = [
     workspaceBoundary.isolationState === "scoped",
     workspaceBoundary.permissionState === "ready",
@@ -2864,9 +3613,12 @@ function buildReadinessContract({ provider, capabilityNegotiation, syncMetadata,
     !recovery || !recovery.replayRequired,
     !operationalSnapshotRecovery || operationalSnapshotRecovery.restartSafe,
     !commandRecovery || ["dispatch-new", "degraded-dispatch", "replay-existing"].includes(commandRecovery.dispatchMode),
-    !commandOutcome || commandOutcome.state !== "blocked"
+    !commandOutcome || commandOutcome.state !== "blocked",
+    !processActionPressure || processActionPressure.blockedCount === 0,
+    !cliRunStatusBridge || ["not-reported", "ready"].includes(cliRunStatusBridge.state),
+    !mailchimpCampaignHandoff?.present || mailchimpCampaignHandoff.accepted || mailchimpCampaignHandoff.state === "not-present"
   ].filter(Boolean).length;
-  const maxScore = 14;
+  const maxScore = 17;
   const healthBlocked = operationalHealth?.state === "blocked";
   const healthValidationBlocked = healthValidation?.state === "blocked";
   const lifecycleBlocked = lifecycleControl?.state === "blocked" || lifecycleControl?.settingErrors?.length > 0;
@@ -2875,10 +3627,17 @@ function buildReadinessContract({ provider, capabilityNegotiation, syncMetadata,
   const commandRecoveryBlocked = commandRecovery?.dispatchMode === "repair-ledger" || commandRecovery?.dispatchMode === "blocked";
   const commandHealthBlocked = commandRecovery?.dispatchMode === "health-blocked";
   const commandRetryBackoffActive = commandRecovery?.dispatchMode === "wait-for-health-retry";
+  const processActionBlocked = processActionPressure?.blockedCount > 0;
+  const processActionReady = processActionPressure?.readyCount > 0;
+  const cliRunBridgeBlocked = cliRunStatusBridge?.state === "scope-blocked" || cliRunStatusBridge?.state === "blocked";
+  const cliRunBridgeRecoveryRequired = cliRunStatusBridge?.state === "recovery-required";
+  const cliRunBridgeDegraded = cliRunStatusBridge?.state === "degraded";
+  const mailchimpBlocked = mailchimpCampaignHandoff?.state === "scope-blocked" || mailchimpCampaignHandoff?.state === "blocked" || mailchimpCampaignHandoff?.state === "export-blocked";
+  const mailchimpDegraded = mailchimpCampaignHandoff?.state === "degraded" || mailchimpCampaignHandoff?.state === "rate-limited";
   const operationalSnapshotRefreshRequired = operationalSnapshotRecovery?.state === "refresh-required";
   const operationalSnapshotScopeBlocked = operationalSnapshotRecovery?.quarantinedScopeViolationCount > 0;
-  const blocked = workspaceBoundary.isolationState === "blocked" || permissionBlocked || commandOutcome?.state === "blocked" || commandRecoveryBlocked || commandHealthBlocked || healthBlocked || healthValidationBlocked || lifecycleBlocked || serviceBlocked || operationalSnapshotScopeBlocked || readinessScore < 3;
-  const degraded = operationalHealth?.degradedModeActive || healthValidation?.state === "degraded" || lifecycleControl?.state === "paused" || providerServiceContract?.state === "degraded" || recovery?.replayRequired || operationalSnapshotRefreshRequired || operationalSnapshotRecovery?.state === "drift-detected" || commandRecovery?.dispatchMode === "defer-until-replay" || commandRetryBackoffActive || commandRecovery?.degradedDispatch || readinessScore < maxScore;
+  const blocked = workspaceBoundary.isolationState === "blocked" || permissionBlocked || commandOutcome?.state === "blocked" || commandRecoveryBlocked || commandHealthBlocked || healthBlocked || healthValidationBlocked || lifecycleBlocked || serviceBlocked || operationalSnapshotScopeBlocked || processActionBlocked || cliRunBridgeBlocked || mailchimpBlocked || readinessScore < 3;
+  const degraded = operationalHealth?.degradedModeActive || healthValidation?.state === "degraded" || lifecycleControl?.state === "paused" || providerServiceContract?.state === "degraded" || recovery?.replayRequired || operationalSnapshotRefreshRequired || operationalSnapshotRecovery?.state === "drift-detected" || commandRecovery?.dispatchMode === "defer-until-replay" || commandRetryBackoffActive || commandRecovery?.degradedDispatch || processActionReady || cliRunBridgeRecoveryRequired || cliRunBridgeDegraded || mailchimpDegraded || readinessScore < maxScore;
 
   return {
     contractVersion: "dashboard-readiness.v1",
@@ -2903,6 +3662,24 @@ function buildReadinessContract({ provider, capabilityNegotiation, syncMetadata,
     operationalSnapshotRecoveryProofId: operationalSnapshotRecovery?.proofId || null,
     operationalSnapshotScopeState: operationalSnapshotRecovery?.persistedScopeState || "unknown",
     operationalSnapshotQuarantinedScopeViolationCount: operationalSnapshotRecovery?.quarantinedScopeViolationCount || 0,
+    processActionState: processActionPressure?.state || "unknown",
+    processActionReadyCount: processActionPressure?.readyCount || 0,
+    processActionBlockedCount: processActionPressure?.blockedCount || 0,
+    processActionPrimaryAction: processActionPressure?.primaryAction?.action || null,
+    processActionProofId: processActionPressure?.proofId || null,
+    cliRunStatusBridgeState: cliRunStatusBridge?.state || "not-reported",
+    cliRunStatusBridgeProofId: cliRunStatusBridge?.proofId || null,
+    cliRunCommandId: cliRunStatusBridge?.commandId || null,
+    cliRunRestartSafeStatus: cliRunStatusBridge?.restartSafeStatus || "unknown",
+    cliRunRecoveryRequired: cliRunStatusBridge?.recoveryRequired === true,
+    cliRunSafeResume: cliRunStatusBridge?.safeResume === true,
+    cliRunSafeRetry: cliRunStatusBridge?.safeRetry === true,
+    cliRunSafeHandoff: cliRunStatusBridge?.safeHandoff === true,
+    mailchimpCampaignState: mailchimpCampaignHandoff?.state || "not-reported",
+    mailchimpCampaignAccepted: mailchimpCampaignHandoff?.accepted === true,
+    mailchimpExportReadinessState: mailchimpCampaignHandoff?.exportReadiness?.state || "not-reported",
+    mailchimpAttachableRecords: mailchimpCampaignHandoff?.exportReadiness?.counters?.attachableRecords || 0,
+    mailchimpRetryable: mailchimpCampaignHandoff?.retry?.retryable === true,
     permissionState: workspaceBoundary.permissionState,
     missingRequiredPermissions: workspaceBoundary.missingRequiredPermissions,
     unsupportedPermissions: workspaceBoundary.unsupportedPermissions,
@@ -2915,8 +3692,107 @@ function buildReadinessContract({ provider, capabilityNegotiation, syncMetadata,
   };
 }
 
-function buildNextStepContract({ handoff, validationSummary, acceptance, readiness, operationalHealth, healthValidation, lifecycleControl, lifecycleActionPlan, workflowHandoff, handoffEnvelope, workspaceBoundary }) {
+function buildNextStepContract({ handoff, validationSummary, acceptance, readiness, operationalHealth, healthValidation, lifecycleControl, lifecycleActionPlan, processActionPressure, cliRunStatusBridge, cliRunExportHandoff, mailchimpCampaignHandoff, workflowHandoff, handoffEnvelope, workspaceBoundary }) {
   const nextSteps = [];
+  if (mailchimpCampaignHandoff?.accepted && mailchimpCampaignHandoff.deliveryReadiness.canAttachLogProof) {
+    nextSteps.push({
+      id: "attach-mailchimp-log-proof",
+      label: "Attach Mailchimp log proof",
+      reason: `${mailchimpCampaignHandoff.exportReadiness.counters.attachableRecords} campaign log proof row(s) are ready.`,
+      route: mailchimpCampaignHandoff.action.route,
+      proofRef: mailchimpCampaignHandoff.exportReadiness.package.proofDigest || mailchimpCampaignHandoff.proofId
+    });
+  }
+  if (mailchimpCampaignHandoff?.state === "degraded" || mailchimpCampaignHandoff?.state === "rate-limited") {
+    nextSteps.push({
+      id: "retry-mailchimp-campaign-sync",
+      label: "Retry Mailchimp campaign sync",
+      reason: mailchimpCampaignHandoff.deliveryReadiness.reason,
+      route: mailchimpCampaignHandoff.action.route,
+      proofRef: mailchimpCampaignHandoff.proofId
+    });
+  }
+  if (mailchimpCampaignHandoff?.state === "blocked" || mailchimpCampaignHandoff?.state === "export-blocked" || mailchimpCampaignHandoff?.state === "scope-blocked") {
+    nextSteps.push({
+      id: "repair-mailchimp-campaign-export",
+      label: "Repair Mailchimp campaign export",
+      reason: mailchimpCampaignHandoff.deliveryReadiness.reason,
+      route: mailchimpCampaignHandoff.action.route,
+      proofRef: mailchimpCampaignHandoff.proofId
+    });
+  }
+  if (cliRunExportHandoff?.accepted && lifecycleControl?.commandAllowed) {
+    nextSteps.push({
+      id: "ingest-cli-run-export",
+      label: "Ingest cli-run analytics export",
+      reason: cliRunExportHandoff.reason,
+      route: cliRunExportHandoff.action.route,
+      proofRef: cliRunExportHandoff.proofId
+    });
+  }
+  if (cliRunExportHandoff?.state === "stale") {
+    nextSteps.push({
+      id: "refresh-cli-run-export",
+      label: "Refresh cli-run analytics export",
+      reason: cliRunExportHandoff.reason,
+      route: cliRunExportHandoff.action.route,
+      proofRef: cliRunExportHandoff.proofId
+    });
+  }
+  if (cliRunExportHandoff?.state === "invalid" || cliRunExportHandoff?.state === "scope-blocked") {
+    nextSteps.push({
+      id: "repair-cli-run-export",
+      label: "Repair cli-run analytics export",
+      reason: cliRunExportHandoff.reason,
+      route: cliRunExportHandoff.action.route,
+      proofRef: cliRunExportHandoff.proofId
+    });
+  }
+  if (cliRunStatusBridge?.state === "scope-blocked") {
+    nextSteps.push({
+      id: "repair-cli-run-status-scope",
+      label: "Repair cli-run status scope",
+      reason: cliRunStatusBridge.primaryAction.reason,
+      route: cliRunStatusBridge.route,
+      proofRef: cliRunStatusBridge.proofId
+    });
+  }
+  if (cliRunStatusBridge?.state === "blocked") {
+    nextSteps.push({
+      id: "repair-cli-run-status",
+      label: "Repair cli-run status",
+      reason: cliRunStatusBridge.primaryAction.reason,
+      route: cliRunStatusBridge.primaryAction.route,
+      proofRef: cliRunStatusBridge.proofId
+    });
+  }
+  if (cliRunStatusBridge?.state === "recovery-required") {
+    nextSteps.push({
+      id: "recover-cli-run-command",
+      label: "Recover cli-run command",
+      reason: cliRunStatusBridge.primaryAction.reason,
+      route: cliRunStatusBridge.primaryAction.route,
+      proofRef: cliRunStatusBridge.proofId
+    });
+  }
+  if (processActionPressure?.primaryAction && processActionPressure.blockedCount > 0) {
+    nextSteps.push({
+      id: `process-action-${processActionPressure.primaryAction.action}`,
+      label: "Resolve blocking process action",
+      reason: processActionPressure.primaryAction.message,
+      route: processActionPressure.primaryAction.route,
+      proofRef: processActionPressure.proofId
+    });
+  }
+  if (processActionPressure?.primaryAction && processActionPressure.readyCount > 0 && processActionPressure.blockedCount === 0) {
+    nextSteps.push({
+      id: `process-action-${processActionPressure.primaryAction.action}`,
+      label: "Review ready process action",
+      reason: processActionPressure.primaryAction.message,
+      route: processActionPressure.primaryAction.route,
+      proofRef: processActionPressure.proofId
+    });
+  }
   if (handoffEnvelope?.state === "dispatch-ready") {
     nextSteps.push({
       id: "dispatch-hosted-kernel-handoff",
@@ -3044,7 +3920,7 @@ function buildNextStepContract({ handoff, validationSummary, acceptance, readine
   };
 }
 
-function buildClientRouteContract({ clientRuntime, clientWorkflow, workspaceBoundary, preview, acceptance, readiness, validationSummary, healthValidation, lifecycleActionPlan, nextSteps, workflowHandoff, handoffEnvelope, workflowLaunch, providerServiceContract, audit, stateCheckpoint }) {
+function buildClientRouteContract({ clientRuntime, clientWorkflow, workspaceBoundary, preview, acceptance, readiness, validationSummary, healthValidation, lifecycleActionPlan, nextSteps, workflowHandoff, handoffEnvelope, workflowLaunch, providerServiceContract, cliRunStatusBridge, audit, stateCheckpoint }) {
   const severityRank = { error: 3, warning: 2, info: 1 };
   const sortedFindings = [...validationSummary.findings].sort((left, right) => (
     (severityRank[right.severity] || 0) - (severityRank[left.severity] || 0)
@@ -3136,6 +4012,7 @@ function buildClientRouteContract({ clientRuntime, clientWorkflow, workspaceBoun
     workflowState: clientWorkflow.state,
     workflowProofId: clientWorkflow.proofId,
     workflowLaunchProofId: workflowLaunch?.proofId || null,
+    cliRunStatusBridgeProofId: cliRunStatusBridge?.proofId || null,
     auditProofId: audit.proofId,
     writeId: stateCheckpoint.writeId
   });
@@ -3159,6 +4036,23 @@ function buildClientRouteContract({ clientRuntime, clientWorkflow, workspaceBoun
       healthValidationProofId: healthValidation?.proofId || null,
       acceptanceToken: acceptance.acceptanceToken
     },
+    cliRunStatusBridge: cliRunStatusBridge
+      ? {
+        state: cliRunStatusBridge.state,
+        commandId: cliRunStatusBridge.commandId,
+        requestId: cliRunStatusBridge.requestId,
+        idempotencyKey: cliRunStatusBridge.idempotencyKey,
+        restartSafeStatus: cliRunStatusBridge.restartSafeStatus,
+        recoveryRequired: cliRunStatusBridge.recoveryRequired,
+        safeResume: cliRunStatusBridge.safeResume,
+        safeRetry: cliRunStatusBridge.safeRetry,
+        safeHandoff: cliRunStatusBridge.safeHandoff,
+        primaryAction: cliRunStatusBridge.primaryAction,
+        recoveryRoutes: cliRunStatusBridge.recoveryRoutes,
+        clientStatePatch: cliRunStatusBridge.clientStatePatch,
+        proofId: cliRunStatusBridge.proofId
+      }
+      : null,
     providerServices: providerServiceContract
       ? providerServiceContract.services.map((service) => ({
         id: service.id,
@@ -3465,6 +4359,36 @@ function buildAnalyticsReportingContract({
   now
 }) {
   const analytics = input && typeof input.analytics === "object" && input.analytics !== null ? input.analytics : {};
+  const sourceSurfaces = input && typeof input.surfaces === "object" && input.surfaces !== null ? input.surfaces : {};
+  const cliRunSource = input.cliRun && typeof input.cliRun === "object" && input.cliRun !== null
+    ? input.cliRun
+    : sourceSurfaces.cliRun && typeof sourceSurfaces.cliRun === "object" && sourceSurfaces.cliRun !== null
+      ? sourceSurfaces.cliRun
+      : {};
+  const cliLogsSource = input.cliLogs && typeof input.cliLogs === "object" && input.cliLogs !== null
+    ? input.cliLogs
+    : sourceSurfaces.cliLogs && typeof sourceSurfaces.cliLogs === "object" && sourceSurfaces.cliLogs !== null
+      ? sourceSurfaces.cliLogs
+      : {};
+  const cliRunRecoveryHealth = cliRunSource.recoveryHealthHandoff && typeof cliRunSource.recoveryHealthHandoff === "object"
+    ? cliRunSource.recoveryHealthHandoff
+    : input.recoveryHealthHandoff && typeof input.recoveryHealthHandoff === "object"
+      ? input.recoveryHealthHandoff
+      : {};
+  const cliLogsRestartSafe = cliLogsSource.restartSafeStatus && typeof cliLogsSource.restartSafeStatus === "object"
+    ? cliLogsSource.restartSafeStatus
+    : input.restartSafeStatus && typeof input.restartSafeStatus === "object"
+      ? input.restartSafeStatus
+      : {};
+  const cliRunRecoveryCounters = cliRunRecoveryHealth.counters && typeof cliRunRecoveryHealth.counters === "object"
+    ? cliRunRecoveryHealth.counters
+    : {};
+  const cliLogsExportableSummary = cliLogsRestartSafe.exportableSummary && typeof cliLogsRestartSafe.exportableSummary === "object"
+    ? cliLogsRestartSafe.exportableSummary
+    : {};
+  const cliRunExportableSummary = cliRunRecoveryHealth.exportableSummary && typeof cliRunRecoveryHealth.exportableSummary === "object"
+    ? cliRunRecoveryHealth.exportableSummary
+    : {};
   const rawHistory = Array.isArray(analytics.history)
     ? analytics.history
     : Array.isArray(input.history)
@@ -3499,7 +4423,22 @@ function buildAnalyticsReportingContract({
     blockingEventCount: operatorEventStream.blockingEventCount,
     readyPanelCount: preview.readyPanelCount,
     degradedPanelCount: preview.degradedPanelCount,
-    durableCheckpoint: stateCheckpoint.durable
+    durableCheckpoint: stateCheckpoint.durable,
+    cliRunRecoveryState: normalizeString(cliRunRecoveryHealth.state || cliRunExportableSummary.state, "unknown"),
+    cliRunRestartSafeStatus: normalizeString(cliRunRecoveryHealth.restartSafeStatus || cliRunExportableSummary.restartSafeStatus, "unknown"),
+    cliRunLifecycleReadiness: normalizeString(cliRunRecoveryHealth.lifecycleReadiness || cliRunExportableSummary.lifecycleReadiness, "unknown"),
+    cliRunStaleCommands: Math.trunc(normalizeNumber(cliRunRecoveryCounters.staleCommands ?? cliRunExportableSummary.staleCommands, 0, { min: 0, max: 10000 })),
+    cliRunExpiredLeases: Math.trunc(normalizeNumber(cliRunRecoveryCounters.expiredLeases ?? cliRunExportableSummary.expiredLeases, 0, { min: 0, max: 10000 })),
+    cliRunRetryableCommands: Math.trunc(normalizeNumber(cliRunRecoveryCounters.retryRows ?? cliRunExportableSummary.retryableCommands, 0, { min: 0, max: 10000 })),
+    cliRunActionableErrors: Math.trunc(normalizeNumber(cliRunRecoveryCounters.actionableErrors ?? cliRunExportableSummary.actionableErrors, 0, { min: 0, max: 10000 })),
+    cliRunNextAttemptAt: normalizeString(cliRunRecoveryHealth.retryWindow?.nextAttemptAt || cliRunExportableSummary.nextAttemptAt, null),
+    cliLogsRestartSafeStatus: normalizeString(cliLogsRestartSafe.status || cliLogsExportableSummary.status, "unknown"),
+    cliLogsCanPersistStatus: cliLogsRestartSafe.canPersistStatus === true,
+    cliLogsReplayableCommands: Math.trunc(normalizeNumber(cliLogsRestartSafe.replayableCommandCount ?? cliLogsExportableSummary.replayableCommandCount, 0, { min: 0, max: 10000 })),
+    cliLogsOperatorAckRequired: Math.trunc(normalizeNumber(cliLogsRestartSafe.operatorAckRequiredCount ?? cliLogsExportableSummary.operatorAckRequiredCount, 0, { min: 0, max: 10000 })),
+    cliLogsDuplicateIdempotencyKeys: Math.trunc(normalizeNumber(cliLogsRestartSafe.duplicateIdempotencyKeyCount ?? cliLogsExportableSummary.duplicateIdempotencyKeyCount, 0, { min: 0, max: 10000 })),
+    cliLogsMissingEvents: Math.trunc(normalizeNumber(cliLogsExportableSummary.missingEvents, 0, { min: 0, max: 1000000 })),
+    cliLogsRecoveryProofId: cliLogsRestartSafe.proof?.digest || cliLogsExportableSummary.proofId || null
   };
   const normalizedHistory = rawHistory
     .filter((snapshot) => snapshot && typeof snapshot === "object")
@@ -3537,7 +4476,24 @@ function buildAnalyticsReportingContract({
         blockingEventCount: Math.trunc(normalizeNumber(snapshot.blockingEventCount, 0, { min: 0, max: 10000 })),
         readyPanelCount: Math.trunc(normalizeNumber(snapshot.readyPanelCount, 0, { min: 0, max: 10000 })),
         degradedPanelCount: Math.trunc(normalizeNumber(snapshot.degradedPanelCount, 0, { min: 0, max: 10000 })),
-        durableCheckpoint: snapshot.durableCheckpoint === true
+        durableCheckpoint: snapshot.durableCheckpoint === true,
+        cliRunRecoveryState: normalizeString(snapshot.cliRunRecoveryState, "unknown"),
+        cliRunRestartSafeStatus: normalizeString(snapshot.cliRunRestartSafeStatus, "unknown"),
+        cliRunLifecycleReadiness: normalizeString(snapshot.cliRunLifecycleReadiness, "unknown"),
+        cliRunStaleCommands: Math.trunc(normalizeNumber(snapshot.cliRunStaleCommands, 0, { min: 0, max: 10000 })),
+        cliRunExpiredLeases: Math.trunc(normalizeNumber(snapshot.cliRunExpiredLeases, 0, { min: 0, max: 10000 })),
+        cliRunRetryableCommands: Math.trunc(normalizeNumber(snapshot.cliRunRetryableCommands, 0, { min: 0, max: 10000 })),
+        cliRunActionableErrors: Math.trunc(normalizeNumber(snapshot.cliRunActionableErrors, 0, { min: 0, max: 10000 })),
+        cliRunNextAttemptAt: normalizeString(snapshot.cliRunNextAttemptAt, null),
+        cliLogsRestartSafeStatus: normalizeString(snapshot.cliLogsRestartSafeStatus, "unknown"),
+        cliLogsCanPersistStatus: snapshot.cliLogsCanPersistStatus === true,
+        cliLogsReplayableCommands: Math.trunc(normalizeNumber(snapshot.cliLogsReplayableCommands, 0, { min: 0, max: 10000 })),
+        cliLogsOperatorAckRequired: Math.trunc(normalizeNumber(snapshot.cliLogsOperatorAckRequired, 0, { min: 0, max: 10000 })),
+        cliLogsDuplicateIdempotencyKeys: Math.trunc(normalizeNumber(snapshot.cliLogsDuplicateIdempotencyKeys, 0, { min: 0, max: 10000 })),
+        cliLogsMissingEvents: Math.trunc(normalizeNumber(snapshot.cliLogsMissingEvents, 0, { min: 0, max: 1000000 })),
+        cliLogsRecoveryProofId: typeof snapshot.cliLogsRecoveryProofId === "string" && snapshot.cliLogsRecoveryProofId.trim()
+          ? snapshot.cliLogsRecoveryProofId.trim()
+          : null
       };
     });
   const snapshots = [...normalizedHistory, currentSnapshot].sort((left, right) => {
@@ -3566,7 +4522,20 @@ function buildAnalyticsReportingContract({
     totalValidationErrors: snapshots.reduce((total, snapshot) => total + snapshot.validationErrors, 0),
     totalValidationWarnings: snapshots.reduce((total, snapshot) => total + snapshot.validationWarnings, 0),
     totalOperatorEvents: snapshots.reduce((total, snapshot) => total + snapshot.eventCount, 0),
-    totalBlockingEvents: snapshots.reduce((total, snapshot) => total + snapshot.blockingEventCount, 0)
+    totalBlockingEvents: snapshots.reduce((total, snapshot) => total + snapshot.blockingEventCount, 0),
+    cliRunRecoveryBlockedSnapshots: snapshots.filter((snapshot) => snapshot.cliRunRecoveryState === "blocked").length,
+    cliRunRecoveryActiveSnapshots: snapshots.filter((snapshot) => ["blocked", "recovering", "retry-wait"].includes(snapshot.cliRunRecoveryState)).length,
+    cliRunRestartSafeRecoveries: snapshots.filter((snapshot) => snapshot.cliRunRestartSafeStatus === "needs-recovery").length,
+    cliLogsRestartBlockedSnapshots: snapshots.filter((snapshot) => snapshot.cliLogsRestartSafeStatus === "blocked").length,
+    cliLogsPersistBlockedSnapshots: snapshots.filter((snapshot) => !snapshot.cliLogsCanPersistStatus && snapshot.cliLogsRestartSafeStatus !== "unknown").length,
+    totalCliRunStaleCommands: snapshots.reduce((total, snapshot) => total + snapshot.cliRunStaleCommands, 0),
+    totalCliRunExpiredLeases: snapshots.reduce((total, snapshot) => total + snapshot.cliRunExpiredLeases, 0),
+    totalCliRunRetryableCommands: snapshots.reduce((total, snapshot) => total + snapshot.cliRunRetryableCommands, 0),
+    totalCliRunActionableErrors: snapshots.reduce((total, snapshot) => total + snapshot.cliRunActionableErrors, 0),
+    totalCliLogsReplayableCommands: snapshots.reduce((total, snapshot) => total + snapshot.cliLogsReplayableCommands, 0),
+    totalCliLogsOperatorAckRequired: snapshots.reduce((total, snapshot) => total + snapshot.cliLogsOperatorAckRequired, 0),
+    totalCliLogsDuplicateIdempotencyKeys: snapshots.reduce((total, snapshot) => total + snapshot.cliLogsDuplicateIdempotencyKeys, 0),
+    totalCliLogsMissingEvents: snapshots.reduce((total, snapshot) => total + snapshot.cliLogsMissingEvents, 0)
   };
   const timeline = snapshots.map((snapshot, index) => ({
     sequence: index + 1,
@@ -3579,6 +4548,9 @@ function buildAnalyticsReportingContract({
     permissionState: snapshot.permissionState,
     handoff: snapshot.handoffEnvelopeState,
     handoffDispatchable: snapshot.handoffDispatchable,
+    cliRunRecoveryState: snapshot.cliRunRecoveryState,
+    cliRunRestartSafeStatus: snapshot.cliRunRestartSafeStatus,
+    cliLogsRestartSafeStatus: snapshot.cliLogsRestartSafeStatus,
     eventCount: snapshot.eventCount,
     blockingEventCount: snapshot.blockingEventCount,
     exportRowKey: `${workspaceBoundary.workspaceId}:${snapshot.cursor}:${index + 1}`
@@ -3610,6 +4582,8 @@ function buildAnalyticsReportingContract({
       validationErrorDelta: latestSnapshot.validationErrors - previousSnapshot.validationErrors,
       validationWarningDelta: latestSnapshot.validationWarnings - previousSnapshot.validationWarnings,
       blockingEventDelta: latestSnapshot.blockingEventCount - previousSnapshot.blockingEventCount,
+      cliRunRetryableCommandDelta: latestSnapshot.cliRunRetryableCommands - previousSnapshot.cliRunRetryableCommands,
+      cliLogsOperatorAckDelta: latestSnapshot.cliLogsOperatorAckRequired - previousSnapshot.cliLogsOperatorAckRequired,
       readyPanelDelta: latestSnapshot.readyPanelCount - previousSnapshot.readyPanelCount,
       degradedPanelDelta: latestSnapshot.degradedPanelCount - previousSnapshot.degradedPanelCount,
       cursorAdvanced: previousSnapshot.cursor !== latestSnapshot.cursor
@@ -3621,6 +4595,8 @@ function buildAnalyticsReportingContract({
       validationErrorDelta: 0,
       validationWarningDelta: 0,
       blockingEventDelta: 0,
+      cliRunRetryableCommandDelta: 0,
+      cliLogsOperatorAckDelta: 0,
       readyPanelDelta: 0,
       degradedPanelDelta: 0,
       cursorAdvanced: false
@@ -3652,7 +4628,22 @@ function buildAnalyticsReportingContract({
     degradedPanels: snapshot.degradedPanelCount,
     durableCheckpoint: snapshot.durableCheckpoint,
     handoffEnvelopeProofId: snapshot.handoffEnvelopeProofId,
-    handoffClaimProof: snapshot.handoffClaimProof
+    handoffClaimProof: snapshot.handoffClaimProof,
+    cliRunRecoveryState: snapshot.cliRunRecoveryState,
+    cliRunRestartSafeStatus: snapshot.cliRunRestartSafeStatus,
+    cliRunLifecycleReadiness: snapshot.cliRunLifecycleReadiness,
+    cliRunStaleCommands: snapshot.cliRunStaleCommands,
+    cliRunExpiredLeases: snapshot.cliRunExpiredLeases,
+    cliRunRetryableCommands: snapshot.cliRunRetryableCommands,
+    cliRunActionableErrors: snapshot.cliRunActionableErrors,
+    cliRunNextAttemptAt: snapshot.cliRunNextAttemptAt,
+    cliLogsRestartSafeStatus: snapshot.cliLogsRestartSafeStatus,
+    cliLogsCanPersistStatus: snapshot.cliLogsCanPersistStatus,
+    cliLogsReplayableCommands: snapshot.cliLogsReplayableCommands,
+    cliLogsOperatorAckRequired: snapshot.cliLogsOperatorAckRequired,
+    cliLogsDuplicateIdempotencyKeys: snapshot.cliLogsDuplicateIdempotencyKeys,
+    cliLogsMissingEvents: snapshot.cliLogsMissingEvents,
+    cliLogsRecoveryProofId: snapshot.cliLogsRecoveryProofId
   }));
   const exportColumns = Object.freeze([
     "rowNumber",
@@ -3681,11 +4672,34 @@ function buildAnalyticsReportingContract({
     "degradedPanels",
     "durableCheckpoint",
     "handoffEnvelopeProofId",
-    "handoffClaimProof"
+    "handoffClaimProof",
+    "cliRunRecoveryState",
+    "cliRunRestartSafeStatus",
+    "cliRunLifecycleReadiness",
+    "cliRunStaleCommands",
+    "cliRunExpiredLeases",
+    "cliRunRetryableCommands",
+    "cliRunActionableErrors",
+    "cliRunNextAttemptAt",
+    "cliLogsRestartSafeStatus",
+    "cliLogsCanPersistStatus",
+    "cliLogsReplayableCommands",
+    "cliLogsOperatorAckRequired",
+    "cliLogsDuplicateIdempotencyKeys",
+    "cliLogsMissingEvents",
+    "cliLogsRecoveryProofId"
   ]);
-  const reportState = counters.blockedSnapshots > 0 || counters.totalValidationErrors > 0
+  const reportState = counters.blockedSnapshots > 0
+    || counters.totalValidationErrors > 0
+    || counters.cliRunRecoveryBlockedSnapshots > 0
+    || counters.cliLogsRestartBlockedSnapshots > 0
+    || counters.totalCliLogsOperatorAckRequired > 0
     ? "needs-attention"
-    : counters.degradedSnapshots > 0 || counters.totalBlockingEvents > 0
+    : counters.degradedSnapshots > 0
+      || counters.totalBlockingEvents > 0
+      || counters.cliRunRecoveryActiveSnapshots > 0
+      || counters.totalCliRunRetryableCommands > 0
+      || counters.cliLogsPersistBlockedSnapshots > 0
       ? "watch"
       : "ready";
 
@@ -3762,6 +4776,18 @@ function buildAnalyticsReportingContract({
           label: "Dispatchable handoffs",
           value: counters.dispatchableHandoffs,
           trend: latestSnapshot.handoffDispatchable ? "ready" : "waiting"
+        },
+        {
+          id: "cli-run-recovery",
+          label: "CLI run recovery",
+          value: latestSnapshot.cliRunRecoveryState,
+          trend: latestDelta.cliRunRetryableCommandDelta > 0 ? "more-retries" : latestDelta.cliRunRetryableCommandDelta < 0 ? "fewer-retries" : "stable"
+        },
+        {
+          id: "cli-logs-restart",
+          label: "CLI logs restart",
+          value: latestSnapshot.cliLogsRestartSafeStatus,
+          trend: latestDelta.cliLogsOperatorAckDelta > 0 ? "more-acks" : latestDelta.cliLogsOperatorAckDelta < 0 ? "fewer-acks" : "stable"
         }
       ],
       includesAuditProof: Boolean(audit.proofId),
@@ -3769,6 +4795,7 @@ function buildAnalyticsReportingContract({
         auditProofId: audit.proofId,
         eventStreamProofId: operatorEventStream.proofId,
         handoffEnvelopeProofId: handoffEnvelope?.proofId || null,
+        cliLogsRecoveryProofId: latestSnapshot.cliLogsRecoveryProofId,
         checkpointWriteId: stateCheckpoint.writeId
       }
     },
@@ -4829,6 +5856,9 @@ export function describeDashboardModelSurface(input = {}) {
     clientWorkflow,
     now
   });
+  const cliRunStatusBridge = normalizeCliRunStatusBridge(input, workspaceBoundary, syncMetadata, now);
+  const cliRunExportHandoff = normalizeCliRunDashboardExportHandoff(input, workspaceBoundary, syncMetadata, now);
+  const mailchimpCampaignHandoff = normalizeMailchimpCampaignHandoff(input, workspaceBoundary, syncMetadata, operationalHealth, now);
   const baseValidationSummary = buildValidationSummary({
     provider,
     capabilityNegotiation,
@@ -4841,7 +5871,10 @@ export function describeDashboardModelSurface(input = {}) {
     operationalHealth,
     healthValidation,
     lifecycleControl,
-    providerServiceContract
+    providerServiceContract,
+    cliRunStatusBridge,
+    cliRunExportHandoff,
+    mailchimpCampaignHandoff
   });
   const audit = buildAuditProof({
     provider,
@@ -4862,7 +5895,8 @@ export function describeDashboardModelSurface(input = {}) {
     operationalHealth,
     providerServiceContract,
     audit,
-    workspaceBoundary
+    workspaceBoundary,
+    mailchimpCampaignHandoff
   });
   const recovery = buildRestartRecoveryContract({
     persistedState,
@@ -4892,6 +5926,7 @@ export function describeDashboardModelSurface(input = {}) {
     commandRecovery
   });
   const runningJobs = normalizeRunningJobs(input, workspaceBoundary, syncMetadata, now);
+  const processActionPressure = normalizeProcessActionPressure(input, workspaceBoundary, syncMetadata, now);
   const recoveryProofRefs = {
     auditProofId: audit.proofId,
     healthProofId: operationalHealth.proofId,
@@ -4930,6 +5965,30 @@ export function describeDashboardModelSurface(input = {}) {
       severity: "error",
       message: commandOutcome.blockedReason || "Dashboard command was blocked.",
       route: `${workspaceBoundary.routeScope}/commands/${encodeURIComponent(commandOutcome.commandId)}`
+    } : null,
+    processActionPressure.blockedCount > 0 ? {
+      id: "process-action-pressure",
+      severity: "error",
+      message: processActionPressure.primaryAction?.message || "Process action queue has blocking entries.",
+      route: processActionPressure.route
+    } : null,
+    cliRunStatusBridge.state === "scope-blocked" || cliRunStatusBridge.state === "blocked" ? {
+      id: "cli-run-status-bridge",
+      severity: "error",
+      message: cliRunStatusBridge.primaryAction.reason || "cli-run status bridge blocks dashboard dispatch.",
+      route: cliRunStatusBridge.primaryAction.route
+    } : null,
+    cliRunExportHandoff.state === "scope-blocked" || cliRunExportHandoff.state === "invalid" ? {
+      id: "cli-run-export-handoff",
+      severity: "error",
+      message: cliRunExportHandoff.reason,
+      route: cliRunExportHandoff.action?.route || `${workspaceBoundary.routeScope}/analytics/cli-run/export`
+    } : null,
+    mailchimpCampaignHandoff.state === "scope-blocked" || mailchimpCampaignHandoff.state === "blocked" || mailchimpCampaignHandoff.state === "export-blocked" ? {
+      id: "mailchimp-campaign-handoff",
+      severity: "error",
+      message: mailchimpCampaignHandoff.deliveryReadiness.reason,
+      route: mailchimpCampaignHandoff.action.route
     } : null
   ].filter(Boolean);
   const operationalSnapshotRecovery = buildOperationalSnapshotRecovery({
@@ -4957,7 +6016,11 @@ export function describeDashboardModelSurface(input = {}) {
     recovery,
     operationalSnapshotRecovery,
     commandRecovery,
-    commandOutcome
+    commandOutcome,
+    processActionPressure,
+    cliRunStatusBridge,
+    cliRunExportHandoff,
+    mailchimpCampaignHandoff
   });
   const acceptance = buildAcceptanceContract({
     provider,
@@ -4968,7 +6031,8 @@ export function describeDashboardModelSurface(input = {}) {
     operationalHealth,
     providerServiceContract,
     audit,
-    workspaceBoundary
+    workspaceBoundary,
+    mailchimpCampaignHandoff
   });
   const readiness = buildReadinessContract({
     provider,
@@ -4984,6 +6048,9 @@ export function describeDashboardModelSurface(input = {}) {
     operationalSnapshotRecovery,
     commandRecovery,
     commandOutcome,
+    processActionPressure,
+    cliRunStatusBridge,
+    mailchimpCampaignHandoff,
     workspaceBoundary
   });
   const stateCheckpoint = buildPersistedStateEnvelope({
@@ -5057,6 +6124,10 @@ export function describeDashboardModelSurface(input = {}) {
     healthValidation,
     lifecycleControl,
     lifecycleActionPlan,
+    processActionPressure,
+    cliRunStatusBridge,
+    cliRunExportHandoff,
+    mailchimpCampaignHandoff,
     workflowHandoff,
     handoffEnvelope,
     workspaceBoundary
@@ -5076,6 +6147,7 @@ export function describeDashboardModelSurface(input = {}) {
     handoffEnvelope,
     workflowLaunch,
     providerServiceContract,
+    cliRunStatusBridge,
     audit,
     stateCheckpoint
   });
@@ -5208,6 +6280,9 @@ export function describeDashboardModelSurface(input = {}) {
       command,
       commandRecovery,
       commandOutcome,
+      processActionPressure,
+      cliRunStatusBridge,
+      mailchimpCampaignHandoff,
       stateCheckpoint,
       handoff,
       workflowHandoff,
@@ -5307,6 +6382,39 @@ export function describeDashboardModelSurface(input = {}) {
       commandRecoveryHealthGateBackoffActive: commandRecovery.healthGate.backoffActive,
       commandRecoveryHealthGateNextAttemptAt: commandRecovery.healthGate.nextAttemptAt,
       commandRecoveryDegradedDispatch: commandRecovery.degradedDispatch,
+      processActionPressureState: processActionPressure.state,
+      processActionPressureReadyCount: processActionPressure.readyCount,
+      processActionPressureBlockedCount: processActionPressure.blockedCount,
+      processActionPressureRetryReadyCount: processActionPressure.retryReadyCount,
+      processActionPressureHandoffReadyCount: processActionPressure.handoffReadyCount,
+      processActionPressureReadOnly: processActionPressure.readOnly,
+      processActionPressurePrimaryAction: processActionPressure.primaryAction?.action || null,
+      processActionPressurePrimaryPid: processActionPressure.primaryAction?.pid || null,
+      processActionPressureProofId: processActionPressure.proofId,
+      cliRunStatusBridgeState: cliRunStatusBridge.state,
+      cliRunStatusBridgeProofId: cliRunStatusBridge.proofId,
+      cliRunStatusBridgePresent: cliRunStatusBridge.present,
+      cliRunStatusCommandId: cliRunStatusBridge.commandId,
+      cliRunStatusRequestId: cliRunStatusBridge.requestId,
+      cliRunStatusRestartSafeStatus: cliRunStatusBridge.restartSafeStatus,
+      cliRunStatusRecoveryRequired: cliRunStatusBridge.recoveryRequired,
+      cliRunStatusSafeResume: cliRunStatusBridge.safeResume,
+      cliRunStatusSafeRetry: cliRunStatusBridge.safeRetry,
+      cliRunStatusSafeHandoff: cliRunStatusBridge.safeHandoff,
+      cliRunStatusPrimaryAction: cliRunStatusBridge.primaryAction.id,
+      cliRunStatusPrimaryRoute: cliRunStatusBridge.primaryAction.route,
+      cliRunExportHandoffState: cliRunExportHandoff.state,
+      cliRunExportHandoffAccepted: cliRunExportHandoff.accepted,
+      cliRunExportHandoffProofId: cliRunExportHandoff.proofId,
+      cliRunExportHandoffRunId: cliRunExportHandoff.runId || null,
+      cliRunExportHandoffEpoch: cliRunExportHandoff.epoch || 0,
+      cliRunExportHandoffAgeMs: cliRunExportHandoff.ageMs,
+      cliRunExportHandoffExportRows: cliRunExportHandoff.counters?.exportRows || 0,
+      cliRunExportHandoffHistorySnapshots: cliRunExportHandoff.counters?.historySnapshots || 0,
+      cliRunExportHandoffTimelineEvents: cliRunExportHandoff.counters?.timelineEvents || 0,
+      cliRunExportHandoffValidationCodes: cliRunExportHandoff.validationCodes || [],
+      cliRunExportHandoffActionId: cliRunExportHandoff.action?.id || null,
+      cliRunExportHandoffActionRoute: cliRunExportHandoff.action?.route || null,
       commandIdempotencyKey: command.idempotencyKey,
       commandDuplicate: commandOutcome.duplicate,
       commandDuplicateReason: commandOutcome.duplicateReason,
@@ -5404,7 +6512,18 @@ export function describeDashboardModelSurface(input = {}) {
       analyticsHistoryLimitApplied: analyticsReporting.timelineState.observedWindow.boundedByHistoryLimit,
       analyticsLatestReadinessChanged: analyticsReporting.timelineState.latestDelta.readinessChanged,
       analyticsLatestBlockingEventDelta: analyticsReporting.timelineState.latestDelta.blockingEventDelta,
-      analyticsProofId: analyticsReporting.proofId
+      analyticsProofId: analyticsReporting.proofId,
+      mailchimpCampaignHandoffState: mailchimpCampaignHandoff.state,
+      mailchimpCampaignHandoffAccepted: mailchimpCampaignHandoff.accepted,
+      mailchimpCampaignHandoffSourceContract: mailchimpCampaignHandoff.sourceContract,
+      mailchimpCampaignRetryable: mailchimpCampaignHandoff.retry.retryable,
+      mailchimpCampaignActionId: mailchimpCampaignHandoff.action.id,
+      mailchimpCampaignProofId: mailchimpCampaignHandoff.proofId,
+      mailchimpExportReadinessState: mailchimpCampaignHandoff.exportReadiness.state,
+      mailchimpExportReadinessAccepted: mailchimpCampaignHandoff.exportReadiness.accepted,
+      mailchimpExportAttachableRecords: mailchimpCampaignHandoff.exportReadiness.counters.attachableRecords,
+      mailchimpExportPackageId: mailchimpCampaignHandoff.exportReadiness.package.exportId,
+      mailchimpExportPackageProofDigest: mailchimpCampaignHandoff.exportReadiness.package.proofDigest
     },
     audit,
     kernelHealth,
@@ -5423,6 +6542,10 @@ export function describeDashboardModelSurface(input = {}) {
     command,
     commandRecovery,
     commandOutcome,
+    processActionPressure,
+    cliRunStatusBridge,
+    cliRunExportHandoff,
+    mailchimpCampaignHandoff,
     stateCheckpoint,
     workflowHandoff,
     handoffEnvelope,

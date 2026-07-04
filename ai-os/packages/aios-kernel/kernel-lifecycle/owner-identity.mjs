@@ -39,6 +39,19 @@ const providerHandoffModes = new Set(["manual-review", "automatic", "audit-only"
 const providerRuntimeHealthStatuses = new Set(["healthy", "degraded", "down", "unknown"]);
 const providerCircuitStates = new Set(["closed", "half-open", "open", "manual-review"]);
 const authorizationSubjectTypes = new Set(["owner", "operator", "service", "provider", "system"]);
+const mailchimpProviderCapabilities = new Set([
+  "owner.claim.read",
+  "kernel.lifecycle.read",
+  "kernel.lifecycle.handoff",
+  "audit.proof.read"
+]);
+const mailchimpRetryableFailureCodes = new Set([
+  "mailchimp-rate-limited",
+  "mailchimp-webhook-delayed",
+  "mailchimp-sync-stale",
+  "mailchimp-api-timeout",
+  "provider-health-degraded"
+]);
 
 const lifecycleCommandPermissionByType = {
   "kernel.enable": "kernel.lifecycle.command",
@@ -90,6 +103,7 @@ const lifecycleSettingDefaults = {
   disableRequiresReason: true,
   allowRetireFromHosted: false
 };
+const maxPersistedRuntimeRecoveryAgeMinutes = 24 * 60;
 
 function stableText(value, fallback = "unknown") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -590,6 +604,497 @@ function normalizeProviderContract(provider = {}, index = 0, now, workspaceScope
   };
 }
 
+function isMailchimpOwnerProvider(provider) {
+  return [
+    provider.providerId,
+    provider.displayName,
+    provider.endpoint,
+    provider.contractVersion,
+    provider.proofRef
+  ].some((value) => String(value || "").toLowerCase().includes("mailchimp"));
+}
+
+function buildMailchimpOwnerProviderProfile(provider) {
+  if (!isMailchimpOwnerProvider(provider)) return null;
+  const grantedCapabilitySet = new Set(provider.requestedCapabilities);
+  const missingCapabilities = Array.from(mailchimpProviderCapabilities)
+    .filter((capability) => !grantedCapabilitySet.has(capability));
+  const webhookReady = provider.authMode === "signed-webhook" && Boolean(provider.callbackEndpoint);
+  return {
+    product: "mailchimp",
+    accountRef: provider.providerId,
+    requiredCapabilities: Array.from(mailchimpProviderCapabilities),
+    missingCapabilities,
+    webhookReady,
+    callbackEndpoint: provider.callbackEndpoint || null,
+    handoffMode: provider.handoffMode,
+    syncCursor: provider.syncCursor,
+    readiness: missingCapabilities.length
+      ? "capability-negotiation-required"
+      : !webhookReady
+        ? "webhook-contract-required"
+        : provider.handoffMode === "audit-only"
+          ? "audit-only"
+          : "handoff-ready",
+    nextAction: missingCapabilities.length
+      ? "negotiate-mailchimp-owner-provider-capabilities"
+      : !webhookReady
+        ? "configure-mailchimp-signed-webhook-callback"
+        : provider.handoffMode === "audit-only"
+          ? "enable-mailchimp-provider-handoff"
+          : "monitor-mailchimp-provider-health"
+  };
+}
+
+function buildMailchimpProviderAcknowledgementProfile(contract, now) {
+  const commandCount = contract.externalHandoff.commandIds.length;
+  const lease = contract.externalHandoff.lease || {};
+  const leaseExpiresAt = lease.expiresAt || null;
+  const leaseExpiresAtMs = leaseExpiresAt ? new Date(leaseExpiresAt).getTime() : null;
+  const nowMs = new Date(now).getTime();
+  const leaseExpired = Number.isFinite(leaseExpiresAtMs) && Number.isFinite(nowMs) && leaseExpiresAtMs <= nowMs;
+  const acknowledgementRoute = lease.acknowledgementRoute ||
+    `${surfaceGroup}/${surfaceName}/providers/${contract.providerId}/mailchimp-handoff-ack`;
+  const requiresAcknowledgement = commandCount > 0 && contract.externalHandoff.state === "ready";
+  const blockers = [
+    contract.mailchimp.webhookReady ? null : "mailchimp-ack-webhook-not-ready",
+    contract.sync.stale ? "mailchimp-ack-sync-stale" : null,
+    requiresAcknowledgement && !lease.leaseId ? "mailchimp-ack-lease-missing" : null,
+    requiresAcknowledgement && leaseExpired ? "mailchimp-ack-lease-expired" : null,
+    contract.externalHandoff.state === "ready" || contract.externalHandoff.state === "idle"
+      ? null
+      : "mailchimp-ack-handoff-not-ready"
+  ].filter(Boolean);
+  const waiting = requiresAcknowledgement && blockers.length === 0;
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.mailchimp-provider-acknowledgement.v1",
+    providerId: contract.providerId,
+    requiresAcknowledgement,
+    state: blockers.length
+      ? "blocked"
+      : waiting
+        ? "waiting"
+        : "not-required",
+    acknowledgementRoute,
+    leaseId: lease.leaseId || null,
+    leaseExpiresAt,
+    leaseExpired,
+    commandIds: contract.externalHandoff.commandIds,
+    expectedReceipt: requiresAcknowledgement
+      ? {
+          receiptId: `mailchimp-handoff-receipt:${contract.providerId}:${contract.sync.cursor}`,
+          providerId: contract.providerId,
+          commandIds: contract.externalHandoff.commandIds,
+          syncCursor: contract.sync.cursor,
+          proofRef: contract.externalHandoff.proofRef,
+          acceptedStates: ["accepted", "completed", "failed"],
+          idempotencyKey: [
+            "mailchimp-provider-ack",
+            contract.providerId,
+            contract.sync.cursor,
+            contract.externalHandoff.commandIds.join(",") || "no-command"
+          ].join(":")
+        }
+      : null,
+    blockers,
+    nextAction: blockers.includes("mailchimp-ack-webhook-not-ready")
+      ? "configure-mailchimp-signed-webhook-callback"
+      : blockers.includes("mailchimp-ack-sync-stale")
+        ? "refresh-mailchimp-owner-provider-sync"
+        : blockers.includes("mailchimp-ack-lease-missing") || blockers.includes("mailchimp-ack-lease-expired")
+          ? "renew-mailchimp-handoff-lease"
+          : blockers.includes("mailchimp-ack-handoff-not-ready")
+            ? "prepare-mailchimp-provider-handoff"
+            : waiting
+              ? "await-mailchimp-handoff-acknowledgement"
+              : "none",
+    resumeWhen: blockers.length
+      ? "mailchimp_provider_acknowledgement_ready"
+      : waiting
+        ? "mailchimp_handoff_acknowledged"
+        : null
+  };
+}
+
+function buildMailchimpProviderAcceptanceBoundary(contract) {
+  const boundary = contract.boundary || {};
+  const evaluation = boundary.evaluation || {};
+  const violationCodes = Array.isArray(evaluation.violations)
+    ? evaluation.violations.map((violation) => violation.code)
+    : [];
+  const missingCapabilities = contract.mailchimp?.missingCapabilities || [];
+  const contractIssues = contract.contractIssues || [];
+  const webhookReady = Boolean(contract.mailchimp?.webhookReady);
+  const syncReady = !contract.sync?.stale;
+  const handoffReady = contract.externalHandoff?.state === "ready" ||
+    (contract.mailchimp?.handoffMode === "audit-only" && contract.externalHandoff?.state === "audit-observe-only");
+  const blockers = [
+    ...(boundary.status === "blocked" ? ["mailchimp-provider-boundary-blocked"] : []),
+    ...violationCodes,
+    ...(missingCapabilities.length ? ["mailchimp-provider-capability-missing"] : []),
+    ...(webhookReady ? [] : ["mailchimp-provider-webhook-not-ready"]),
+    ...(syncReady ? [] : ["mailchimp-provider-sync-stale"]),
+    ...(handoffReady ? [] : ["mailchimp-provider-handoff-not-ready"]),
+    ...(contractIssues.includes("provider-auth-mode-requires-manual-review") ? ["mailchimp-provider-auth-manual-review"] : [])
+  ];
+  const warnings = [
+    ...(contract.mailchimp?.handoffMode === "audit-only" ? ["mailchimp-provider-audit-only-handoff"] : []),
+    ...(contract.status === "negotiated" && contract.sync?.stale ? ["mailchimp-provider-sync-warning"] : [])
+  ];
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.mailchimp-provider-acceptance-boundary.v1",
+    providerId: contract.providerId,
+    tenantId: contract.tenantId,
+    workspaceId: contract.workspaceId,
+    boundaryStatus: boundary.status || "unknown",
+    boundaryMode: boundary.mode || evaluation.mode || "unknown",
+    tenantInScope: boundary.tenantInScope !== false && evaluation.tenantInScope !== false,
+    workspaceInScope: boundary.workspaceInScope !== false && evaluation.workspaceInScope !== false,
+    grantedCapabilities: contract.grantedCapabilities,
+    missingCapabilities,
+    webhookReady,
+    syncReady,
+    handoffReady,
+    acceptedForPreview: blockers.length === 0,
+    blockers: Array.from(new Set(blockers)).sort(),
+    warnings: Array.from(new Set(warnings)).sort(),
+    nextAction: blockers.includes("mailchimp-provider-boundary-blocked") ||
+      violationCodes.some((code) => code.includes("tenant") || code.includes("workspace"))
+      ? "repair-mailchimp-provider-workspace-boundary"
+      : blockers.includes("mailchimp-provider-capability-missing")
+        ? "negotiate-mailchimp-owner-provider-capabilities"
+        : blockers.includes("mailchimp-provider-webhook-not-ready")
+          ? "configure-mailchimp-signed-webhook-callback"
+          : blockers.includes("mailchimp-provider-sync-stale")
+            ? "refresh-mailchimp-owner-provider-sync"
+            : blockers.includes("mailchimp-provider-handoff-not-ready")
+              ? "prepare-mailchimp-provider-handoff"
+              : blockers.includes("mailchimp-provider-auth-manual-review")
+                ? "activate-mailchimp-provider-auth"
+                : warnings.length
+                  ? "review-mailchimp-provider-warning"
+                  : "accept-mailchimp-provider-preview"
+  };
+}
+
+function buildMailchimpProviderReporting({ contracts, now }) {
+  const mailchimpContracts = contracts.filter((contract) => contract.mailchimp);
+  const acknowledgementProfiles = mailchimpContracts.map((contract) =>
+    buildMailchimpProviderAcknowledgementProfile(contract, now)
+  );
+  const acknowledgementByProvider = new Map(acknowledgementProfiles.map((profile) => [
+    profile.providerId,
+    profile
+  ]));
+  const rows = mailchimpContracts.map((contract) => {
+    const acceptanceBoundary = buildMailchimpProviderAcceptanceBoundary(contract);
+
+    return {
+      providerId: contract.providerId,
+      displayName: contract.displayName,
+      status: contract.status,
+      readiness: contract.mailchimp.readiness,
+      nextAction: acceptanceBoundary.nextAction === "accept-mailchimp-provider-preview"
+        ? contract.mailchimp.nextAction
+        : acceptanceBoundary.nextAction,
+      accountRef: contract.mailchimp.accountRef,
+      webhookReady: contract.mailchimp.webhookReady,
+      callbackEndpoint: contract.mailchimp.callbackEndpoint,
+      handoffMode: contract.mailchimp.handoffMode,
+      externalHandoffState: contract.externalHandoff.state,
+      externalHandoffCommandCount: contract.externalHandoff.commandIds.length,
+      tenantId: contract.tenantId,
+      workspaceId: contract.workspaceId,
+      grantedCapabilities: contract.grantedCapabilities,
+      missingCapabilities: contract.mailchimp.missingCapabilities,
+      contractIssues: contract.contractIssues,
+      acceptanceBoundary,
+      syncCursor: contract.sync.cursor,
+      lastSyncedAt: contract.sync.lastSyncedAt,
+      syncStale: contract.sync.stale,
+      syncLagSeconds: contract.sync.lagSeconds,
+      proofRef: contract.externalHandoff.proofRef,
+      acknowledgement: acknowledgementByProvider.get(contract.providerId)
+    };
+  });
+  const ackBlockedRows = rows.filter((row) => row.acknowledgement?.state === "blocked");
+  const ackWaitingRows = rows.filter((row) => row.acknowledgement?.state === "waiting");
+  const boundaryBlockedRows = rows.filter((row) => !row.acceptanceBoundary.acceptedForPreview);
+  const blockedRows = rows.filter((row) =>
+    row.status === "blocked" ||
+      row.readiness !== "handoff-ready" ||
+      !row.acceptanceBoundary.acceptedForPreview ||
+      row.acknowledgement?.state === "blocked"
+  );
+  const webhookBlockedRows = rows.filter((row) => !row.webhookReady);
+  const auditOnlyRows = rows.filter((row) => row.handoffMode === "audit-only");
+  const syncStaleRows = rows.filter((row) => row.syncStale);
+  const nextActions = Array.from(new Set([
+    ...rows.map((row) => row.nextAction),
+    ...rows.map((row) => row.acknowledgement?.nextAction)
+  ].filter(Boolean))).sort();
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.mailchimp-provider-reporting.v1",
+    generatedAt: now,
+    detected: rows.length > 0,
+    status: blockedRows.length
+      ? "attention"
+      : rows.length
+        ? "ready"
+        : "not-required",
+    counters: {
+      providers: rows.length,
+      readyProviders: rows.filter((row) => row.readiness === "handoff-ready").length,
+      blockedProviders: blockedRows.length,
+      webhookBlockedProviders: webhookBlockedRows.length,
+      auditOnlyProviders: auditOnlyRows.length,
+      syncStaleProviders: syncStaleRows.length,
+      boundaryBlockedProviders: boundaryBlockedRows.length,
+      acknowledgementBlockedProviders: ackBlockedRows.length,
+      acknowledgementWaitingProviders: ackWaitingRows.length,
+      handoffCommandCount: rows.reduce((count, row) => count + row.externalHandoffCommandCount, 0)
+    },
+    readyProviderIds: rows
+      .filter((row) => row.readiness === "handoff-ready" && row.acknowledgement?.state !== "blocked")
+      .map((row) => row.providerId),
+    blockedProviderIds: blockedRows.map((row) => row.providerId),
+    webhookBlockedProviderIds: webhookBlockedRows.map((row) => row.providerId),
+    boundaryBlockedProviderIds: boundaryBlockedRows.map((row) => row.providerId),
+    syncStaleProviderIds: syncStaleRows.map((row) => row.providerId),
+    acknowledgementBlockedProviderIds: ackBlockedRows.map((row) => row.providerId),
+    acknowledgementWaitingProviderIds: ackWaitingRows.map((row) => row.providerId),
+    nextActions,
+    acknowledgementProfiles,
+    rows,
+    exportContract: {
+      route: `${surfaceGroup}/${surfaceName}/export-rows/mailchimp-providers`,
+      format: "json,csv",
+      columns: [
+        "providerId",
+        "status",
+        "readiness",
+        "nextAction",
+        "webhookReady",
+        "handoffMode",
+        "externalHandoffState",
+        "externalHandoffCommandCount",
+        "tenantId",
+        "workspaceId",
+        "acceptanceBoundaryState",
+        "acceptanceBoundaryNextAction",
+        "lastSyncedAt",
+        "syncStale",
+        "acknowledgementState",
+        "acknowledgementNextAction",
+        "proofRef"
+      ],
+      rowCount: rows.length,
+      proofRefs: rows.map((row) => row.proofRef).filter(Boolean)
+    }
+  };
+}
+
+function buildMailchimpLifecycleHandoffControl({ providerServiceContracts, lifecycleControlState, clientRequestState, now }) {
+  const reporting = providerServiceContracts.mailchimpReporting;
+  const rows = reporting.rows || [];
+  const scopeAcknowledgement = clientRequestState.mailchimpScopeAcknowledgement;
+  const scopeAcknowledgementRows = scopeAcknowledgement.rows || [];
+  const readyRows = rows.filter((row) =>
+    row.readiness === "handoff-ready" && row.acknowledgement?.state !== "blocked"
+  );
+  const blockedRows = rows.filter((row) =>
+    row.status === "blocked" ||
+      row.readiness !== "handoff-ready" ||
+      row.acknowledgement?.state === "blocked"
+  );
+  const queue = lifecycleControlState.queue || {};
+  const pendingCommands = lifecycleControlState.pendingCommands || [];
+  const readyCommands = pendingCommands.filter((command) => command.status === "ready");
+  const handoffCommands = readyRows.flatMap((row) => {
+    const maxCommands = row.externalHandoffCommandCount > 0
+      ? row.externalHandoffCommandCount
+      : readyCommands.length;
+    return readyCommands.slice(0, maxCommands || readyCommands.length).map((command) => ({
+      providerId: row.providerId,
+      commandId: command.commandId,
+      type: command.type,
+      kernelId: command.kernelId,
+      ownerId: command.ownerId,
+      scheduleAt: command.scheduleAt,
+      effect: command.effect,
+      proofRef: command.proofRef,
+      idempotencyKey: [
+        "mailchimp-lifecycle-handoff",
+        row.providerId,
+        command.commandId,
+        command.scheduleAt,
+        scopeAcknowledgement.receiptDigest || "no-scope-ack"
+      ].join(":")
+    }));
+  });
+  const acknowledgedProviderIds = new Set(scopeAcknowledgementRows
+    .filter((row) => row.accepted)
+    .map((row) => row.providerId)
+    .filter(Boolean));
+  const providersRequiringScopeAck = readyRows.filter((row) =>
+    scopeAcknowledgement.required &&
+      scopeAcknowledgementRows.some((ack) => ack.providerId === row.providerId)
+  );
+  const missingScopeAckProviderIds = providersRequiringScopeAck
+    .filter((row) => !acknowledgedProviderIds.has(row.providerId))
+    .map((row) => row.providerId);
+  const blockers = Array.from(new Set([
+    ...blockedRows.flatMap((row) => row.contractIssues),
+    ...rows.flatMap((row) => row.acknowledgement?.blockers || []),
+    ...(scopeAcknowledgement.status === "blocked" ? scopeAcknowledgement.blockers : []),
+    ...(missingScopeAckProviderIds.length ? ["mailchimp-scope-acknowledgement-missing"] : []),
+    ...(reporting.counters.providers === 0 ? ["mailchimp-provider-contract-missing"] : []),
+    ...(queue.blocked ? ["lifecycle-command-queue-blocked"] : []),
+    ...(readyCommands.length === 0 && reporting.detected ? ["mailchimp-lifecycle-command-not-ready"] : []),
+    ...(clientRequestState?.actorIdentity?.actorId ? [] : ["client-request-actor-missing"])
+  ])).sort();
+  const nextActions = Array.from(new Set([
+    ...reporting.nextActions,
+    ...(blockers.includes("mailchimp-provider-contract-missing")
+      ? ["register-mailchimp-owner-provider"]
+      : []),
+    ...(blockers.includes("mailchimp-lifecycle-command-not-ready")
+      ? ["prepare-owner-lifecycle-command"]
+      : []),
+    ...(blockers.includes("client-request-actor-missing")
+      ? ["attach-client-request-actor"]
+      : []),
+    ...(blockers.includes("mailchimp-scope-acknowledgement-missing")
+      ? ["acknowledge-mailchimp-scope-handoff"]
+      : []),
+    ...(handoffCommands.length ? ["dispatch-mailchimp-lifecycle-handoff"] : [])
+  ])).sort();
+  const providerPayloads = readyRows.map((row) => {
+    const commands = handoffCommands.filter((command) => command.providerId === row.providerId);
+    const scopeAckRows = scopeAcknowledgementRows.filter((ack) => ack.providerId === row.providerId);
+    return {
+      contractVersion: "hosted-kernel-owner-identity.mailchimp-lifecycle-provider-payload.v1",
+      providerId: row.providerId,
+      accountRef: row.accountRef,
+      callbackEndpoint: row.callbackEndpoint,
+      handoffMode: row.handoffMode,
+      syncCursor: row.syncCursor,
+      lastSyncedAt: row.lastSyncedAt,
+      proofRef: row.proofRef,
+      acknowledgement: row.acknowledgement,
+      scopeAcknowledgement: {
+        required: scopeAckRows.length > 0,
+        accepted: scopeAckRows.length === 0 || scopeAckRows.some((ack) => ack.accepted),
+        rows: scopeAckRows,
+        receiptIds: scopeAckRows.map((ack) => ack.receiptId).filter(Boolean),
+        receiptLedgerStatus: scopeAcknowledgement.receiptLedger?.status || "not-supplied",
+        receiptLedgerBlockers: scopeAcknowledgement.receiptLedger?.blockers || [],
+        nextAction: scopeAckRows.some((ack) => !ack.accepted)
+          ? "acknowledge-mailchimp-scope-handoff"
+          : "none"
+      },
+      commandCount: commands.length,
+      commands,
+      acknowledgementRoute: row.acknowledgement?.acknowledgementRoute ||
+        `${surfaceGroup}/${surfaceName}/providers/${row.providerId}/mailchimp-handoff-ack`,
+      failureRoute: `${surfaceGroup}/${surfaceName}/providers/${row.providerId}/mailchimp-handoff-failure`
+    };
+  });
+  const routePayload = {
+    contractVersion: "hosted-kernel-owner-identity.mailchimp-lifecycle-handoff-route.v1",
+    route: `${surfaceGroup}/${surfaceName}/mailchimp-lifecycle-handoff`,
+    method: "POST",
+    requestId: clientRequestState.requestId,
+    sessionId: clientRequestState.sessionId,
+    actorId: clientRequestState.actorIdentity?.actorId || null,
+    requiredFields: ["providerId", "commandId", "proofRef", "acknowledgementRoute", "scopeAcknowledgement"],
+    idempotencyKey: [
+      "mailchimp-owner-lifecycle",
+      clientRequestState.requestId || "request",
+      reporting.counters.providers,
+      handoffCommands.length,
+      lifecycleControlState.restartRecovery?.status || "runtime",
+      scopeAcknowledgement.receiptDigest || "no-scope-ack"
+    ].join(":"),
+    providers: providerPayloads
+  };
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.mailchimp-lifecycle-handoff-control.v1",
+    generatedAt: now,
+    detected: reporting.detected,
+    status: !reporting.detected
+      ? "not-required"
+      : blockers.length
+        ? "blocked"
+        : handoffCommands.length
+          ? "dispatch-ready"
+          : "waiting-for-command",
+    providerCount: reporting.counters.providers,
+    readyProviderIds: readyRows.map((row) => row.providerId),
+    blockedProviderIds: blockedRows.map((row) => row.providerId),
+    acknowledgementBlockedProviderIds: reporting.acknowledgementBlockedProviderIds,
+    acknowledgementWaitingProviderIds: reporting.acknowledgementWaitingProviderIds,
+    scopeAcknowledgement: {
+      contractVersion: "hosted-kernel-owner-identity.mailchimp-scope-acknowledgement-adoption.v1",
+      status: scopeAcknowledgement.status,
+      required: scopeAcknowledgement.required,
+      supplied: scopeAcknowledgement.supplied,
+      acceptedCount: scopeAcknowledgement.acceptedCount,
+      blockedCount: scopeAcknowledgement.blockedCount,
+      missingProviderIds: missingScopeAckProviderIds,
+      receiptDigest: scopeAcknowledgement.receiptDigest,
+      receiptLedger: scopeAcknowledgement.receiptLedger,
+      nextAction: missingScopeAckProviderIds.length
+        ? "acknowledge-mailchimp-scope-handoff"
+        : scopeAcknowledgement.nextAction,
+      rows: scopeAcknowledgementRows
+    },
+    commandCount: handoffCommands.length,
+    blockers,
+    nextActions,
+    routePayload,
+    providerPayloads,
+    exportContract: {
+      route: `${surfaceGroup}/${surfaceName}/export-rows/mailchimp-lifecycle-handoff`,
+      format: "json,csv",
+      rowCount: handoffCommands.length,
+      columns: [
+        "providerId",
+        "commandId",
+        "type",
+        "kernelId",
+        "ownerId",
+        "scheduleAt",
+        "effect",
+        "proofRef",
+        "scopeAcknowledgementStatus",
+        "scopeAcknowledgementReceiptIds",
+        "idempotencyKey"
+      ],
+      proofRefs: Array.from(new Set([
+        ...providerPayloads.map((payload) => payload.proofRef),
+        ...handoffCommands.map((command) => command.proofRef),
+        ...scopeAcknowledgementRows.map((row) => row.proofRef)
+      ].filter(Boolean)))
+    },
+    resumeWhen: !reporting.detected
+      ? null
+      : blockers.includes("mailchimp-provider-contract-missing")
+        ? "mailchimp_owner_provider_registered"
+        : blockers.includes("mailchimp-lifecycle-command-not-ready")
+        ? "owner_lifecycle_command_ready"
+        : blockers.includes("mailchimp-scope-acknowledgement-missing")
+          ? "mailchimp_scope_handoff_acknowledged"
+        : blockers.length
+          ? "mailchimp_provider_reporting_ready"
+          : "mailchimp_lifecycle_handoff_acknowledged"
+  };
+}
+
 function normalizeProviderRuntimeHealthSignal(providerId, signal = {}, now) {
   const status = stableText(signal.status || signal.state, "unknown");
   const circuitState = stableText(signal.circuitState || signal.circuit || signal.breakerState, "");
@@ -795,6 +1300,247 @@ function normalizePersistedKernelState(kernel = {}, index = 0, now, workspaceSco
   };
 }
 
+function buildPersistedReceiptIntegrity(receipts = [], {
+  receiptKind,
+  idField,
+  subjectField
+}) {
+  const byReceiptId = new Map();
+  const byFingerprint = new Map();
+  for (const receipt of receipts) {
+    const receiptId = stableText(receipt[idField], "");
+    const subjectId = stableText(receipt[subjectField], "");
+    const fingerprint = stableText(receipt.fingerprint, "");
+    const receiptGroup = byReceiptId.get(receiptId) || [];
+    receiptGroup.push(receipt);
+    byReceiptId.set(receiptId, receiptGroup);
+    if (fingerprint) {
+      const fingerprintGroup = byFingerprint.get(fingerprint) || [];
+      fingerprintGroup.push(receipt);
+      byFingerprint.set(fingerprint, fingerprintGroup);
+    }
+  }
+
+  const duplicateReceiptIds = [];
+  const conflictingReceiptGroups = [];
+  for (const [receiptId, group] of byReceiptId.entries()) {
+    if (group.length < 2) continue;
+    duplicateReceiptIds.push(receiptId);
+    const signatures = new Set(group.map((receipt) => [
+      receipt[subjectField],
+      receipt.fingerprint,
+      receipt.status,
+      receipt.type,
+      receipt.kernelId,
+      receipt.ownerId,
+      receipt.tenantId,
+      receipt.workspaceId
+    ].join("|")));
+    if (signatures.size > 1) {
+      conflictingReceiptGroups.push({
+        receiptId,
+        receiptKind,
+        receiptCount: group.length,
+        subjectIds: Array.from(new Set(group.map((receipt) => receipt[subjectField]))).sort(),
+        statuses: Array.from(new Set(group.map((receipt) => receipt.status))).sort(),
+        fingerprints: Array.from(new Set(group.map((receipt) => receipt.fingerprint))).sort(),
+        proofRefs: Array.from(new Set(group.map((receipt) => receipt.proofRef))).sort()
+      });
+    }
+  }
+
+  const sharedFingerprintGroups = Array.from(byFingerprint.entries())
+    .map(([fingerprint, group]) => ({
+      fingerprint,
+      receiptKind,
+      receiptIds: Array.from(new Set(group.map((receipt) => receipt[idField]))).sort(),
+      subjectIds: Array.from(new Set(group.map((receipt) => receipt[subjectField]))).sort(),
+      statuses: Array.from(new Set(group.map((receipt) => receipt.status))).sort(),
+      proofRefs: Array.from(new Set(group.map((receipt) => receipt.proofRef))).sort()
+    }))
+    .filter((group) => group.receiptIds.length > 1 || group.subjectIds.length > 1);
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.persisted-receipt-integrity.v1",
+    receiptKind,
+    receiptCount: receipts.length,
+    uniqueReceiptIds: byReceiptId.size,
+    duplicateReceiptIds: duplicateReceiptIds.sort(),
+    conflictingReceiptGroups,
+    sharedFingerprintGroups,
+    status: conflictingReceiptGroups.length
+      ? "conflicting"
+      : duplicateReceiptIds.length
+        ? "duplicate"
+        : "unique"
+  };
+}
+
+function evaluatePersistedRuntimeTruth({
+  source,
+  commandReceipts,
+  privilegedJobReceipts,
+  kernelStates,
+  now,
+  workspaceScope
+}) {
+  const recoveryWatermark = source.recoveryWatermark || source.watermark
+    ? normalizeTimestamp(source.recoveryWatermark || source.watermark, now)
+    : null;
+  const sourceUpdatedAt = source.updatedAt || source.persistedAt || source.snapshotAt || recoveryWatermark;
+  const sourceUpdatedAtIso = sourceUpdatedAt ? normalizeTimestamp(sourceUpdatedAt, null) : null;
+  const nowMs = new Date(now).getTime();
+  const updatedAtMs = sourceUpdatedAtIso ? new Date(sourceUpdatedAtIso).getTime() : null;
+  const ageMinutes = updatedAtMs && Number.isFinite(nowMs)
+    ? Math.max(0, Math.round((nowMs - updatedAtMs) / 60000))
+    : null;
+  const present = Boolean(
+    Object.keys(source).length ||
+      commandReceipts.length ||
+      privilegedJobReceipts.length ||
+      kernelStates.length
+  );
+  const sourceTenantId = stableText(source.tenantId || source.tenant, workspaceScope.tenantId);
+  const sourceWorkspaceId = stableText(source.workspaceId || source.workspace, workspaceScope.workspaceId);
+  const sourceBoundary = evaluateWorkspaceBoundaryRecord({
+    subjectType: "persisted-runtime-state",
+    subjectId: stableText(source.storageKey || source.key, "persisted-runtime-state"),
+    tenantId: sourceTenantId,
+    workspaceId: sourceWorkspaceId,
+    workspaceScope,
+    proofRef: stableText(source.proofRef || source.proof, `persisted-runtime-state:${sourceTenantId}:${sourceWorkspaceId}`),
+    tenantViolationCode: "persisted-runtime-tenant-outside-workspace-scope",
+    workspaceViolationCode: "persisted-runtime-workspace-outside-workspace-scope"
+  });
+  const receiptBoundaryViolations = [
+    ...commandReceipts
+      .filter((receipt) => {
+        const boundary = evaluateWorkspaceBoundaryRecord({
+          subjectType: "persisted-command-receipt",
+          subjectId: receipt.receiptId,
+          tenantId: receipt.tenantId,
+          workspaceId: receipt.workspaceId,
+          workspaceScope,
+          proofRef: receipt.proofRef
+        });
+        return boundary.status === "blocked";
+      })
+      .map((receipt) => ({
+        scope: "command-receipt",
+        receiptId: receipt.receiptId,
+        commandId: receipt.commandId,
+        tenantId: receipt.tenantId,
+        workspaceId: receipt.workspaceId
+      })),
+    ...privilegedJobReceipts
+      .filter((receipt) => {
+        const boundary = evaluateWorkspaceBoundaryRecord({
+          subjectType: "persisted-privileged-job-receipt",
+          subjectId: receipt.receiptId,
+          tenantId: receipt.tenantId,
+          workspaceId: receipt.workspaceId,
+          workspaceScope,
+          proofRef: receipt.proofRef
+        });
+        return boundary.status === "blocked";
+      })
+      .map((receipt) => ({
+        scope: "privileged-job-receipt",
+        receiptId: receipt.receiptId,
+        jobId: receipt.jobId,
+        tenantId: receipt.tenantId,
+        workspaceId: receipt.workspaceId
+      }))
+  ];
+  const kernelBoundaryViolations = kernelStates
+    .filter((kernel) => {
+      const boundary = evaluateWorkspaceBoundaryRecord({
+        subjectType: "persisted-kernel-state",
+        subjectId: kernel.kernelId,
+        tenantId: kernel.tenantId,
+        workspaceId: kernel.workspaceId,
+        workspaceScope,
+        proofRef: kernel.lastProofRef
+      });
+      return boundary.status === "blocked";
+    })
+    .map((kernel) => ({
+      kernelId: kernel.kernelId,
+      tenantId: kernel.tenantId,
+      workspaceId: kernel.workspaceId,
+      proofRef: kernel.lastProofRef
+    }));
+  const commandReceiptIntegrity = buildPersistedReceiptIntegrity(commandReceipts, {
+    receiptKind: "lifecycle-command",
+    idField: "receiptId",
+    subjectField: "commandId"
+  });
+  const privilegedJobReceiptIntegrity = buildPersistedReceiptIntegrity(privilegedJobReceipts, {
+    receiptKind: "privileged-job",
+    idField: "receiptId",
+    subjectField: "jobId"
+  });
+  const stale = ageMinutes !== null && ageMinutes > maxPersistedRuntimeRecoveryAgeMinutes;
+  const futureSnapshot = updatedAtMs !== null && updatedAtMs > nowMs + 60_000;
+  const failures = [
+    ...(present && sourceBoundary.status === "blocked" ? ["persisted-runtime-boundary-mismatch"] : []),
+    ...(present && receiptBoundaryViolations.length ? ["persisted-receipt-boundary-mismatch"] : []),
+    ...(present && kernelBoundaryViolations.length ? ["persisted-kernel-boundary-mismatch"] : []),
+    ...(present && commandReceiptIntegrity.duplicateReceiptIds.length ? ["persisted-command-receipt-duplicate-id"] : []),
+    ...(present && commandReceiptIntegrity.conflictingReceiptGroups.length ? ["persisted-command-receipt-conflict"] : []),
+    ...(present && privilegedJobReceiptIntegrity.duplicateReceiptIds.length ? ["persisted-privileged-job-receipt-duplicate-id"] : []),
+    ...(present && privilegedJobReceiptIntegrity.conflictingReceiptGroups.length ? ["persisted-privileged-job-receipt-conflict"] : []),
+    ...(present && sourceUpdatedAt && !sourceUpdatedAtIso ? ["persisted-runtime-timestamp-invalid"] : []),
+    ...(present && stale ? ["persisted-runtime-snapshot-stale"] : []),
+    ...(present && futureSnapshot ? ["persisted-runtime-snapshot-from-future"] : [])
+  ];
+  const trustedForKernelRecovery = present && failures.every((failure) =>
+    failure !== "persisted-runtime-boundary-mismatch" &&
+      failure !== "persisted-kernel-boundary-mismatch" &&
+      failure !== "persisted-runtime-timestamp-invalid" &&
+      failure !== "persisted-runtime-snapshot-from-future"
+  );
+  const trustedForReceiptReplay = present && failures.length === 0;
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.persisted-runtime-truth.v1",
+    present,
+    sourceUpdatedAt: sourceUpdatedAtIso,
+    recoveryWatermark,
+    ageMinutes,
+    maxRecoveryAgeMinutes: maxPersistedRuntimeRecoveryAgeMinutes,
+    stale,
+    futureSnapshot,
+    sourceBoundary,
+    receiptBoundaryViolations,
+    kernelBoundaryViolations,
+    duplicateReceiptIds: commandReceiptIntegrity.duplicateReceiptIds,
+    duplicatePrivilegedJobReceiptIds: privilegedJobReceiptIntegrity.duplicateReceiptIds,
+    commandReceiptIntegrity,
+    privilegedJobReceiptIntegrity,
+    trustedForKernelRecovery,
+    trustedForReceiptReplay,
+    trustLevel: !present
+      ? "absent"
+      : trustedForReceiptReplay
+        ? "trusted"
+        : trustedForKernelRecovery
+          ? "kernel-state-only"
+          : "untrusted",
+    failures,
+    replayDisposition: !present
+      ? "cold-start"
+      : trustedForReceiptReplay
+        ? "replay-receipts-and-kernel-state"
+        : trustedForKernelRecovery
+          ? "recover-kernel-state-without-receipt-replay"
+          : "quarantine-persisted-runtime-state",
+    repairAction: failures.length
+      ? "repair-or-refresh-persisted-owner-identity-runtime-state"
+      : "retain-persisted-runtime-state"
+  };
+}
+
 function normalizePersistedOwnerIdentityState(input = {}, now, workspaceScope) {
   const source = input.persistedState || input.recoveredState || input.previousState || input.durableState || {};
   const rawReceipts = Array.isArray(source.commandReceipts)
@@ -823,6 +1569,14 @@ function normalizePersistedOwnerIdentityState(input = {}, now, workspaceScope) {
   const kernelStates = rawKernels.map((kernel, index) =>
     normalizePersistedKernelState(kernel, index, now, workspaceScope)
   );
+  const recoveryTruth = evaluatePersistedRuntimeTruth({
+    source,
+    commandReceipts,
+    privilegedJobReceipts,
+    kernelStates,
+    now,
+    workspaceScope
+  });
   return {
     contractVersion: "hosted-kernel-owner-identity.persisted-runtime-state.v1",
     storageKey: stableText(
@@ -835,6 +1589,7 @@ function normalizePersistedOwnerIdentityState(input = {}, now, workspaceScope) {
       ? normalizeTimestamp(source.recoveryWatermark || source.watermark, now)
       : null,
     snapshotId: stableText(source.snapshotId || source.lastSnapshotId, "none"),
+    recoveryTruth,
     commandReceipts,
     privilegedJobReceipts,
     kernelStates,
@@ -943,9 +1698,23 @@ function buildKernelOwnerBindings({ latestStates, ownerIdentityRegistry, now }) 
   };
 }
 
-function mergePersistedKernelStates(latestStates, persistedKernelStates = []) {
+function mergePersistedKernelStates(latestStates, persistedKernelStates = [], recoveryTruth = null) {
   const merged = new Map(latestStates);
   const recoveryFindings = [];
+  if (recoveryTruth && recoveryTruth.present && !recoveryTruth.trustedForKernelRecovery) {
+    return {
+      states: merged,
+      recoveryFindings: [{
+        kernelId: null,
+        status: "persisted-kernel-state-quarantined",
+        persistedUpdatedAt: recoveryTruth.sourceUpdatedAt,
+        timelineUpdatedAt: null,
+        proofRef: recoveryTruth.sourceBoundary?.proofRef || null,
+        failureCodes: recoveryTruth.failures,
+        repairAction: recoveryTruth.repairAction
+      }]
+    };
+  }
   for (const kernel of persistedKernelStates) {
     const current = merged.get(kernel.kernelId);
     const persistedIsNewer = !current || kernel.updatedAt.localeCompare(current.updatedAt) > 0;
@@ -1659,7 +2428,11 @@ function buildPrivilegedJobReceiptWrite(job, now) {
 
 function buildRestartSafePrivilegedJobAuthorizationState({ privilegedJobAuthorizationState, persistedRuntimeState, now }) {
   const receiptsByJob = new Map();
-  for (const receipt of persistedRuntimeState.privilegedJobReceipts || []) {
+  const recoveryTruth = persistedRuntimeState.recoveryTruth || {};
+  const replayableReceipts = recoveryTruth.trustedForReceiptReplay === false
+    ? []
+    : persistedRuntimeState.privilegedJobReceipts || [];
+  for (const receipt of replayableReceipts) {
     const bucket = receiptsByJob.get(receipt.jobId) || [];
     bucket.push(receipt);
     receiptsByJob.set(receipt.jobId, bucket);
@@ -1670,7 +2443,7 @@ function buildRestartSafePrivilegedJobAuthorizationState({ privilegedJobAuthoriz
   const jobs = privilegedJobAuthorizationState.jobs.map((job) => {
     const jobReceipts = [
       ...(receiptsByJob.get(job.jobId) || []),
-      ...(persistedRuntimeState.privilegedJobReceipts || []).filter((receipt) =>
+      ...replayableReceipts.filter((receipt) =>
         receipt.jobId !== job.jobId && receiptMatchesPrivilegedJob(receipt, job)
       )
     ];
@@ -1743,12 +2516,15 @@ function buildRestartSafePrivilegedJobAuthorizationState({ privilegedJobAuthoriz
         ? "recovered-with-job-blockers"
         : completedJobs.length
           ? "recovered-idempotent-jobs"
-          : (persistedRuntimeState.privilegedJobReceipts || []).length
-            ? "recovered"
+            : (persistedRuntimeState.privilegedJobReceipts || []).length
+            ? recoveryTruth.trustedForReceiptReplay === false
+              ? "receipt-replay-quarantined"
+              : "recovered"
             : "cold-start",
       recoveredAt: now,
       bootId: persistedRuntimeState.bootId,
       storageKey: persistedRuntimeState.storageKey,
+      recoveryTruth,
       completedJobIds: completedJobs.map((job) => job.jobId),
       blockedAfterRecoveryJobIds: blockedJobs.map((job) => job.jobId),
       newJobIds: jobs
@@ -1757,7 +2533,7 @@ function buildRestartSafePrivilegedJobAuthorizationState({ privilegedJobAuthoriz
       observedReceiptIds: Array.from(new Set(jobs.flatMap((job) => job.restartSafety.durableReceiptIds))),
       proofRefs: Array.from(new Set([
         persistedRuntimeState.proofRef,
-        ...(persistedRuntimeState.privilegedJobReceipts || []).map((receipt) => receipt.proofRef),
+        ...replayableReceipts.map((receipt) => receipt.proofRef),
         ...jobs.flatMap((job) => job.restartSafety.proofRefs)
       ].filter(Boolean))),
       durableStateProjection: {
@@ -2026,7 +2802,11 @@ function buildOwnerTransferContract({ owners, lifecycleControlState, timeline, w
 function buildLifecycleControlState({ commands, owners, timeline, settings, workspaceScope, now, persistedRuntimeState, ownerIdentityRegistry }) {
   const ownerMap = ownerIdentityRegistry?.ownerMap || new Map(owners.map((owner) => [owner.ownerId, owner]));
   const timelineStates = getLatestKernelStates(timeline);
-  const recoveredKernelState = mergePersistedKernelStates(timelineStates, persistedRuntimeState?.kernelStates || []);
+  const recoveredKernelState = mergePersistedKernelStates(
+    timelineStates,
+    persistedRuntimeState?.kernelStates || [],
+    persistedRuntimeState?.recoveryTruth || null
+  );
   const latestStates = recoveredKernelState.states;
   const kernelOwnerBindings = buildKernelOwnerBindings({
     latestStates,
@@ -2062,6 +2842,8 @@ function buildLifecycleControlState({ commands, owners, timeline, settings, work
     recoveredKernelState: {
       contractVersion: "hosted-kernel-owner-identity.recovered-kernel-state.v1",
       source: persistedRuntimeState?.kernelStates?.length ? "timeline-and-persisted-state" : "timeline-only",
+      trustLevel: persistedRuntimeState?.recoveryTruth?.trustLevel || "unknown",
+      trustedForKernelRecovery: persistedRuntimeState?.recoveryTruth?.trustedForKernelRecovery !== false,
       restoredKernelIds: recoveredKernelState.recoveryFindings
         .filter((finding) => finding.status === "persisted-state-restored")
         .map((finding) => finding.kernelId),
@@ -2255,7 +3037,11 @@ function buildDurableRuntimeStateProjection({ lifecycleControlState, privilegedJ
 
 function buildRestartSafeLifecycleState({ lifecycleControlState, privilegedJobAuthorizationState, persistedRuntimeState, now }) {
   const receiptsByCommand = new Map();
-  for (const receipt of persistedRuntimeState.commandReceipts) {
+  const recoveryTruth = persistedRuntimeState.recoveryTruth || {};
+  const replayableReceipts = recoveryTruth.trustedForReceiptReplay === false
+    ? []
+    : persistedRuntimeState.commandReceipts;
+  for (const receipt of replayableReceipts) {
     const bucket = receiptsByCommand.get(receipt.commandId) || [];
     bucket.push(receipt);
     receiptsByCommand.set(receipt.commandId, bucket);
@@ -2266,7 +3052,7 @@ function buildRestartSafeLifecycleState({ lifecycleControlState, privilegedJobAu
   const pendingCommands = lifecycleControlState.pendingCommands.map((command) => {
     const commandReceipts = [
       ...(receiptsByCommand.get(command.commandId) || []),
-      ...persistedRuntimeState.commandReceipts.filter((receipt) =>
+      ...replayableReceipts.filter((receipt) =>
         receipt.commandId !== command.commandId && receipt.fingerprint === commandFingerprint(command)
       )
     ];
@@ -2450,7 +3236,14 @@ function buildProviderServiceContractState({ providers, owners, timeline, lifecy
       ? requested.filter((capability) => ownerIdentityCapabilities.has(capability) && baseAvailable.has(capability))
       : [];
     const denied = requested.filter((capability) => !granted.includes(capability));
-    const missingRequired = provider.requiredCapabilities.filter((capability) => !granted.includes(capability));
+    const mailchimpProfile = buildMailchimpOwnerProviderProfile({
+      ...provider,
+      requestedCapabilities: granted
+    });
+    const missingRequired = Array.from(new Set([
+      ...provider.requiredCapabilities.filter((capability) => !granted.includes(capability)),
+      ...(mailchimpProfile?.missingCapabilities || [])
+    ]));
     const lastSyncedAt = provider.lastSyncedAt || now;
     const syncLagSeconds = Math.max(0, Math.round((new Date(now).getTime() - new Date(lastSyncedAt).getTime()) / 1000));
     const syncStale = syncLagSeconds > provider.syncIntervalMinutes * 60;
@@ -2480,7 +3273,9 @@ function buildProviderServiceContractState({ providers, owners, timeline, lifecy
       ...(missingRequired.length ? ["provider-missing-required-capabilities"] : []),
       ...(authReady ? [] : ["provider-auth-mode-requires-manual-review"]),
       ...(needsCallback && !hasCallback ? ["provider-callback-endpoint-required"] : []),
-      ...(syncStale ? ["provider-sync-stale"] : [])
+      ...(syncStale ? ["provider-sync-stale"] : []),
+      ...(mailchimpProfile && !mailchimpProfile.webhookReady ? ["mailchimp-webhook-contract-required"] : []),
+      ...(mailchimpProfile && mailchimpProfile.handoffMode === "audit-only" ? ["mailchimp-handoff-audit-only"] : [])
     ];
     const handoffState = !providerInScope
       ? "blocked-by-workspace-boundary"
@@ -2523,6 +3318,7 @@ function buildProviderServiceContractState({ providers, owners, timeline, lifecy
       deniedCapabilityReasons: deniedReasons,
       missingRequiredCapabilities: missingRequired,
       contractIssues,
+      mailchimp: mailchimpProfile,
       sync: {
         cursor: provider.syncCursor,
         lastSyncedAt,
@@ -2570,6 +3366,7 @@ function buildProviderServiceContractState({ providers, owners, timeline, lifecy
 
   const blocked = contracts.filter((contract) => contract.status === "blocked");
   const stale = contracts.filter((contract) => contract.sync.stale);
+  const mailchimpReporting = buildMailchimpProviderReporting({ contracts, now });
   return {
     contractVersion: "hosted-kernel-owner-provider.v1",
     availableCapabilities: Array.from(baseAvailable).sort(),
@@ -2586,6 +3383,7 @@ function buildProviderServiceContractState({ providers, owners, timeline, lifecy
         .map((contract) => contract.sync.nextSyncAt)
         .sort()[0] || now
     },
+    mailchimpReporting,
     externalHandoffState: {
       state: blocked.length ? "blocked-provider-contracts" : contracts.some((contract) => contract.externalHandoff.state === "ready") ? "ready" : "idle",
       blockedProviderIds: blocked.map((contract) => contract.providerId),
@@ -3059,6 +3857,12 @@ function buildAnalytics({ events, owners, evidence, timeline, lifecycleControlSt
     observedOwnerTransferEvents: ownerTransferState.summary.observedTransferEvents,
     negotiatedProviders: providerServiceContracts.syncMetadata.negotiated,
     blockedProviders: providerServiceContracts.syncMetadata.blocked,
+    mailchimpProviders: providerServiceContracts.mailchimpReporting.counters.providers,
+    mailchimpReadyProviders: providerServiceContracts.mailchimpReporting.counters.readyProviders,
+    mailchimpBlockedProviders: providerServiceContracts.mailchimpReporting.counters.blockedProviders,
+    mailchimpWebhookBlockedProviders: providerServiceContracts.mailchimpReporting.counters.webhookBlockedProviders,
+    mailchimpSyncStaleProviders: providerServiceContracts.mailchimpReporting.counters.syncStaleProviders,
+    mailchimpHandoffCommandCount: providerServiceContracts.mailchimpReporting.counters.handoffCommandCount,
     workspaceBoundaryViolations: workspaceBoundaryState.violations.length,
     workspaceBoundaryEvaluations: workspaceBoundaryState.evaluations.length,
     proofReferences: proofReferences.size
@@ -3084,11 +3888,14 @@ function buildAnalytics({ events, owners, evidence, timeline, lifecycleControlSt
         blockedCommands.length ||
         privilegedJobAuthorizationState?.blockedJobIds?.length ||
         providerServiceContracts.syncMetadata.blocked ||
+        providerServiceContracts.mailchimpReporting.status === "attention" ||
         lifecycleControlState.kernelOwnerBindings.status === "blocked" ||
         authorizationReporting.status === "review-required"
         ? "attention"
         : "ready",
       latestLifecycleWatermark: providerServiceContracts.syncMetadata.latestLifecycleWatermark,
+      mailchimpProviderStatus: providerServiceContracts.mailchimpReporting.status,
+      mailchimpNextActions: providerServiceContracts.mailchimpReporting.nextActions,
       latestEventAt: timeline.at(-1)?.at || null,
       exportReady: owners.length > 0 && timeline.length > 0,
       proofCoverage: {
@@ -3224,6 +4031,33 @@ function buildExportSummary({ now, owners, events, evidence, analytics, snapshot
     proofRef: row.proofRef,
     authorizationProofRef: row.authorizationProofRef
   }));
+  const mailchimpProviderRows = providerServiceContracts.mailchimpReporting.rows.map((row) => ({
+    providerId: row.providerId,
+    displayName: row.displayName,
+    status: row.status,
+    readiness: row.readiness,
+    nextAction: row.nextAction,
+    accountRef: row.accountRef,
+    webhookReady: row.webhookReady,
+    callbackEndpoint: row.callbackEndpoint,
+    handoffMode: row.handoffMode,
+    externalHandoffState: row.externalHandoffState,
+    externalHandoffCommandCount: row.externalHandoffCommandCount,
+    tenantId: row.tenantId,
+    workspaceId: row.workspaceId,
+    acceptanceBoundaryStatus: row.acceptanceBoundary.boundaryStatus,
+    acceptanceBoundaryAccepted: row.acceptanceBoundary.acceptedForPreview,
+    acceptanceBoundaryBlockers: row.acceptanceBoundary.blockers,
+    acceptanceBoundaryNextAction: row.acceptanceBoundary.nextAction,
+    grantedCapabilities: row.grantedCapabilities,
+    missingCapabilities: row.missingCapabilities,
+    contractIssues: row.contractIssues,
+    syncCursor: row.syncCursor,
+    lastSyncedAt: row.lastSyncedAt,
+    syncStale: row.syncStale,
+    syncLagSeconds: row.syncLagSeconds,
+    proofRef: row.proofRef
+  }));
   return {
     exportVersion: "owner-identity.analytics.v1",
     generatedAt: now,
@@ -3236,6 +4070,7 @@ function buildExportSummary({ now, owners, events, evidence, analytics, snapshot
       privilegedJobs: privilegedJobRows.length,
       authorizationDecisions: authorizationRows.length,
       kernelOwnerBindings: kernelOwnerBindingRows.length,
+      mailchimpProviderRows: mailchimpProviderRows.length,
       snapshots: snapshots.length,
       evidence: evidence.length,
       providerContracts: providerServiceContracts.providers.length
@@ -3290,6 +4125,16 @@ function buildExportSummary({ now, owners, events, evidence, analytics, snapshot
     timelineBuckets: analytics.timelineBuckets,
     reportingState: analytics.reportingState,
     providerSync: providerServiceContracts.syncMetadata,
+    mailchimpProviders: {
+      status: providerServiceContracts.mailchimpReporting.status,
+      counters: providerServiceContracts.mailchimpReporting.counters,
+      readyProviderIds: providerServiceContracts.mailchimpReporting.readyProviderIds,
+      blockedProviderIds: providerServiceContracts.mailchimpReporting.blockedProviderIds,
+      webhookBlockedProviderIds: providerServiceContracts.mailchimpReporting.webhookBlockedProviderIds,
+      syncStaleProviderIds: providerServiceContracts.mailchimpReporting.syncStaleProviderIds,
+      nextActions: providerServiceContracts.mailchimpReporting.nextActions,
+      exportContract: providerServiceContracts.mailchimpReporting.exportContract
+    },
     restartRecovery: restartRecovery
       ? {
           status: restartRecovery.status,
@@ -3324,6 +4169,7 @@ function buildExportSummary({ now, owners, events, evidence, analytics, snapshot
       privilegedJobsJson: privilegedJobRows,
       authorizationDecisionsJson: authorizationRows,
       kernelOwnerBindingsJson: kernelOwnerBindingRows,
+      mailchimpProvidersJson: mailchimpProviderRows,
       ownerTransfersJson: ownerTransferState.transfers,
       snapshotJson: snapshots,
       csvReady: true,
@@ -3403,6 +4249,13 @@ function buildAnalyticsExportManifest({ now, exportSummary, analytics, snapshots
       proofRefs: exportSummary.exports.kernelOwnerBindingsJson.flatMap((binding) => binding.proofRefs)
     },
     {
+      sectionId: "mailchimp-providers",
+      route: providerServiceContracts.mailchimpReporting.exportContract.route,
+      format: providerServiceContracts.mailchimpReporting.exportContract.format,
+      rows: exportSummary.exports.mailchimpProvidersJson.length,
+      proofRefs: providerServiceContracts.mailchimpReporting.exportContract.proofRefs
+    },
+    {
       sectionId: "history-snapshots",
       route: `${surfaceGroup}/${surfaceName}/history-snapshots`,
       format: "json",
@@ -3422,6 +4275,7 @@ function buildAnalyticsExportManifest({ now, exportSummary, analytics, snapshots
     ...(analytics.reportingState.status === "attention" ? ["analytics-reporting-attention"] : []),
     ...(blockedCommandIds.length ? ["blocked-lifecycle-commands"] : []),
     ...(providerServiceContracts.syncMetadata.blocked ? ["blocked-provider-contracts"] : []),
+    ...(providerServiceContracts.mailchimpReporting.status === "attention" ? ["mailchimp-provider-reporting-attention"] : []),
     ...(workspaceBoundaryState.violations.length ? ["workspace-boundary-violations"] : []),
     ...(ownerIdentityRegistry?.status === "blocked" ? ["owner-identity-registry-conflicts"] : []),
     ...(lifecycleControlState.kernelOwnerBindings.status === "blocked" ? ["kernel-owner-binding-blocked"] : []),
@@ -3445,6 +4299,7 @@ function buildAnalyticsExportManifest({ now, exportSummary, analytics, snapshots
       privilegedJobs: exportSummary.recordCounts.privilegedJobs,
       authorizationDecisions: exportSummary.recordCounts.authorizationDecisions,
       kernelOwnerBindings: exportSummary.recordCounts.kernelOwnerBindings,
+      mailchimpProviders: exportSummary.recordCounts.mailchimpProviderRows,
       historySnapshots: exportSummary.recordCounts.snapshots,
       ownerTransfers: ownerTransferState.transfers.length,
       providerContracts: exportSummary.recordCounts.providerContracts,
@@ -3625,6 +4480,13 @@ function remediationForIssue(issue) {
     };
   }
   if (issue.scope === "provider-contract") {
+    if (issue.product === "mailchimp" || issue.code?.startsWith("mailchimp-")) {
+      return {
+        action: issue.retryEligible ? "retry-mailchimp-provider-sync" : "repair-mailchimp-provider-contract",
+        route: `${surfaceGroup}/${surfaceName}/provider-contracts/${issue.providerId || "mailchimp"}/health`,
+        label: issue.providerId ? `Repair Mailchimp provider ${issue.providerId}` : "Repair Mailchimp provider"
+      };
+    }
     return {
       action: "renegotiate-provider-contract",
       route: `${surfaceGroup}/${surfaceName}/provider-contracts`,
@@ -3769,7 +4631,48 @@ function buildProviderRuntimeHealthFailures(providerServiceContracts, operationa
       health: signal
     }];
   });
-  return [...staleProviderFailures, ...runtimeFailures];
+  const mailchimpFailures = providerServiceContracts.providers.flatMap((contract) => {
+    if (!contract.mailchimp) return [];
+    const signal = operationalTelemetry.providerHealth[contract.providerId] || null;
+    const issues = [];
+    if (contract.mailchimp.readiness !== "handoff-ready") {
+      issues.push({
+        scope: "provider-contract",
+        product: "mailchimp",
+        code: `mailchimp-${contract.mailchimp.readiness}`,
+        providerId: contract.providerId,
+        causeCodes: [
+          contract.mailchimp.readiness,
+          ...contract.mailchimp.missingCapabilities,
+          ...(contract.mailchimp.webhookReady ? [] : ["mailchimp-webhook-not-ready"])
+        ],
+        retryEligible: contract.mailchimp.readiness === "webhook-contract-required",
+        mailchimp: contract.mailchimp,
+        health: signal
+      });
+    }
+    if (signal && signal.status !== "healthy") {
+      const retryEligible = signal.retryEligible ||
+        mailchimpRetryableFailureCodes.has(signal.failureCode) ||
+        signal.status === "degraded";
+      issues.push({
+        scope: "provider-contract",
+        product: "mailchimp",
+        code: signal.status === "down" ? "mailchimp-provider-down" : "mailchimp-provider-degraded",
+        providerId: contract.providerId,
+        causeCodes: Array.from(new Set([
+          signal.failureCode,
+          `mailchimp-health-status:${signal.status}`,
+          `mailchimp-circuit-state:${signal.circuitState}`
+        ].filter(Boolean))),
+        retryEligible,
+        mailchimp: contract.mailchimp,
+        health: signal
+      });
+    }
+    return issues;
+  });
+  return [...staleProviderFailures, ...runtimeFailures, ...mailchimpFailures];
 }
 
 function buildProviderFailoverPlan({ providerServiceContracts, operationalTelemetry, issues, now }) {
@@ -3784,6 +4687,7 @@ function buildProviderFailoverPlan({ providerServiceContracts, operationalTeleme
       !issueCodes.includes("provider-circuit-open");
     return {
       providerId: contract.providerId,
+      product: contract.mailchimp?.product || "generic-provider",
       status: availableForHandoff
         ? "primary-ready"
         : issueCodes.length
@@ -3797,6 +4701,8 @@ function buildProviderFailoverPlan({ providerServiceContracts, operationalTeleme
       handoffState: contract.externalHandoff.state,
       issueCodes,
       impactedCapabilities: signal?.impactedCapabilities || [],
+      productReadiness: contract.mailchimp?.readiness || null,
+      productNextAction: contract.mailchimp?.nextAction || null,
       nextAttemptAt: providerIssues
         .filter((issue) => issue.providerId === contract.providerId)
         .map((issue) => issue.retry.retryAfter)
@@ -3894,7 +4800,9 @@ function buildOperationalHealthState({ now, lifecycleControlState, providerServi
       commandId: issue.commandId || null,
       jobId: issue.jobId || null,
       providerId: issue.providerId || null,
+      product: issue.product || null,
       eventId: issue.eventId || null,
+      mailchimp: issue.mailchimp || null,
       health: issue.health || null,
       retryDisposition: issue.retryDisposition || null,
       remediation: remediationForIssue(issue)
@@ -3913,6 +4821,9 @@ function buildOperationalHealthState({ now, lifecycleControlState, providerServi
     ...(providerServiceContracts.externalHandoffState.blockedProviderIds.length ? ["kernel.lifecycle.handoff"] : []),
     ...(providerRuntimeFailures.some((failure) => failure.code === "provider-health-down" || failure.code === "provider-circuit-open")
       ? ["kernel.lifecycle.handoff"]
+      : []),
+    ...(providerRuntimeFailures.some((failure) => failure.product === "mailchimp")
+      ? ["kernel.lifecycle.handoff", "audit.proof.read"]
       : []),
     ...(workspaceBoundaryState.violations.length ? ["owner.claim.write", "kernel.lifecycle.command"] : []),
     ...(ownerIdentityRegistry?.status === "blocked" ? ["owner.claim.write", "kernel.lifecycle.command", "kernel.lifecycle.handoff"] : []),
@@ -4700,6 +5611,209 @@ function buildAcceptanceDecisionContract({
   };
 }
 
+function normalizeMailchimpScopeReceiptRows(providerAcknowledgements = {}, submittedReceipts = [], now) {
+  const receiptContract = providerAcknowledgements.receiptContract &&
+    typeof providerAcknowledgements.receiptContract === "object"
+    ? providerAcknowledgements.receiptContract
+    : {};
+  const contractRows = Array.isArray(receiptContract.rows) ? receiptContract.rows : [];
+  const rows = [...contractRows, ...submittedReceipts]
+    .filter((receipt) => receipt && typeof receipt === "object")
+    .map((receipt, index) => {
+      const providerId = stableText(receipt.providerId || receipt.provider, "");
+      const requestedScope = stableText(receipt.requestedScope || receipt.scope, "");
+      const idempotencyKey = stableText(receipt.idempotencyKey || receipt.key, "");
+      const receiptId = stableText(receipt.receiptId || receipt.id || receipt.submittedReceiptId, "");
+      const rawState = stableText(receipt.state || receipt.status || receipt.receiptStatus, "pending");
+      const accepted = receipt.accepted === true || ["accepted", "completed", "acknowledged"].includes(rawState);
+      const failed = receipt.failed === true || ["failed", "rejected", "blocked"].includes(rawState);
+      const inheritedBlockers = normalizeStringList(receipt.blockers);
+      const blockers = [
+        ...(providerId ? [] : ["mailchimp-scope-receipt-provider-missing"]),
+        ...(requestedScope ? [] : ["mailchimp-scope-receipt-scope-missing"]),
+        ...(receiptId || idempotencyKey ? [] : ["mailchimp-scope-receipt-identity-missing"]),
+        ...(failed ? inheritedBlockers.length ? inheritedBlockers : ["mailchimp-scope-receipt-rejected"] : [])
+      ];
+
+      return {
+        contractVersion: "hosted-kernel-owner-identity.mailchimp-scope-receipt-row.v1",
+        index,
+        providerId,
+        providerContractId: stableText(receipt.providerContractId || receipt.contractId, ""),
+        requestedScope,
+        receiptId,
+        idempotencyKey,
+        state: accepted && blockers.length === 0 ? "accepted" : failed || blockers.length ? "blocked" : "pending",
+        accepted: accepted && blockers.length === 0,
+        failed: failed || blockers.length > 0,
+        receivedAt: normalizeTimestamp(receipt.receivedAt || receipt.at || receipt.timestamp, now),
+        proofRef: stableText(
+          receipt.proofRef || receipt.proof || receipt.suppliedReceiptProofRef,
+          `mailchimp-scope-receipt:${providerId || "provider"}:${requestedScope || index}:${now}`
+        ),
+        source: contractRows.includes(receipt) ? "scope-matcher-receipt-contract" : "submitted-receipt",
+        blockers: Array.from(new Set(blockers)).sort(),
+        matchKeys: [
+          [providerId, requestedScope, idempotencyKey].join("|"),
+          [providerId, requestedScope, receiptId].join("|")
+        ].filter((key) => !key.endsWith("|"))
+      };
+    });
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.mailchimp-scope-receipt-ledger.v1",
+    supplied: rows.length > 0,
+    status: rows.some((row) => row.state === "blocked")
+      ? "blocked"
+      : rows.some((row) => row.state === "pending")
+        ? "pending"
+        : rows.some((row) => row.state === "accepted")
+          ? "accepted"
+          : "not-supplied",
+    acceptedCount: rows.filter((row) => row.accepted).length,
+    pendingCount: rows.filter((row) => row.state === "pending").length,
+    blockedCount: rows.filter((row) => row.state === "blocked").length,
+    blockers: Array.from(new Set(rows.flatMap((row) => row.blockers))).sort(),
+    rows
+  };
+}
+
+function normalizeMailchimpScopeAcknowledgement(input = {}, source = {}, now) {
+  const clientState = input.clientState && typeof input.clientState === "object" ? input.clientState : {};
+  const scopeMatcher = input.scopeMatcher && typeof input.scopeMatcher === "object"
+    ? input.scopeMatcher
+    : clientState.scopeMatcher && typeof clientState.scopeMatcher === "object"
+      ? clientState.scopeMatcher
+      : {};
+  const bridge = scopeMatcher.mailchimpClientAdoptionBridge ||
+    input.mailchimpClientAdoptionBridge ||
+    source.mailchimpClientAdoptionBridge ||
+    source.mailchimpScopeAcknowledgement ||
+    {};
+  const providerAcknowledgements = bridge.providerAcknowledgements ||
+    input.mailchimpProviderAcknowledgements ||
+    source.mailchimpProviderAcknowledgements ||
+    source.providerAcknowledgements ||
+    {};
+  const rawRows = Array.isArray(providerAcknowledgements.rows)
+    ? providerAcknowledgements.rows
+    : Array.isArray(providerAcknowledgements.route?.rows)
+      ? providerAcknowledgements.route.rows
+      : Array.isArray(input.mailchimpScopeAcknowledgements)
+        ? input.mailchimpScopeAcknowledgements
+      : Array.isArray(source.mailchimpScopeAcknowledgements)
+        ? source.mailchimpScopeAcknowledgements
+        : [];
+  const submittedReceipts = Array.isArray(source.mailchimpScopeReceipts)
+    ? source.mailchimpScopeReceipts
+    : Array.isArray(input.mailchimpScopeReceipts)
+      ? input.mailchimpScopeReceipts
+    : Array.isArray(source.providerAcknowledgementReceipts)
+      ? source.providerAcknowledgementReceipts
+      : [];
+  const receiptLedger = normalizeMailchimpScopeReceiptRows(providerAcknowledgements, submittedReceipts, now);
+  const receiptByKey = new Map(receiptLedger.rows.flatMap((receipt) =>
+    receipt.matchKeys.map((key) => [key, receipt])
+  ));
+  const rows = rawRows
+    .filter((row) => row && typeof row === "object")
+    .map((row, index) => {
+      const expectedReceipt = row.expectedReceipt && typeof row.expectedReceipt === "object"
+        ? row.expectedReceipt
+        : {};
+      const providerId = stableText(row.providerId || expectedReceipt.providerId, "");
+      const requestedScope = stableText(row.requestedScope || expectedReceipt.requestedScope, "");
+      const idempotencyKey = stableText(row.idempotencyKey || expectedReceipt.idempotencyKey, `mailchimp-scope-ack:${index + 1}`);
+      const receipt = receiptByKey.get([providerId, requestedScope, idempotencyKey].join("|")) ||
+        receiptByKey.get([providerId, requestedScope, expectedReceipt.receiptId || row.receiptId || ""].join("|")) ||
+        {};
+      const rawState = stableText(receipt.state || row.dispatchState, "pending");
+      const accepted = receipt.accepted === true || ["accepted", "completed", "acknowledged"].includes(rawState);
+      const failed = receipt.failed === true || ["failed", "rejected", "blocked"].includes(rawState);
+      const expectedProviderMismatch = Boolean(receipt.providerId && providerId && receipt.providerId !== providerId);
+      const expectedScopeMismatch = Boolean(receipt.requestedScope && requestedScope && receipt.requestedScope !== requestedScope);
+      const expectedIdMismatch = Boolean(
+        receipt.idempotencyKey &&
+          expectedReceipt.idempotencyKey &&
+          receipt.idempotencyKey !== expectedReceipt.idempotencyKey
+      );
+      const rowBlockers = Array.from(new Set([
+        ...normalizeStringList(row.blockers),
+        ...normalizeStringList(receipt.blockers),
+        ...(expectedProviderMismatch ? ["mailchimp-scope-ack-provider-mismatch"] : []),
+        ...(expectedScopeMismatch ? ["mailchimp-scope-ack-scope-mismatch"] : []),
+        ...(expectedIdMismatch ? ["mailchimp-scope-ack-idempotency-mismatch"] : [])
+      ])).sort();
+      const rowAccepted = accepted && rowBlockers.length === 0;
+      const rowFailed = failed || rowBlockers.length > 0;
+
+      return {
+        contractVersion: "hosted-kernel-owner-identity.mailchimp-scope-acknowledgement-row.v1",
+        providerId,
+        providerContractId: stableText(row.providerContractId || expectedReceipt.providerContractId, ""),
+        requestedScope,
+        requiredEvents: normalizeStringList(row.requiredEvents || expectedReceipt.requiredEvents),
+        receiptRoute: stableText(row.receiptRoute || providerAcknowledgements.route?.route, ""),
+        receiptId: stableText(receipt.receiptId || expectedReceipt.receiptId || row.receiptId, ""),
+        state: rowAccepted ? "accepted" : rowFailed ? "blocked" : rawState === "ready" ? "pending" : rawState,
+        accepted: rowAccepted,
+        failed: rowFailed,
+        supplied: Object.keys(receipt).length > 0,
+        idempotencyKey,
+        receiptStatus: receipt.state || "missing",
+        receiptReceivedAt: receipt.receivedAt || null,
+        expectedReceiptId: stableText(expectedReceipt.receiptId, ""),
+        proofRef: stableText(
+          receipt.proofRef || receipt.proof || expectedReceipt.proofRef || row.proofRef,
+          `mailchimp-scope-ack:${providerId || "provider"}:${requestedScope || index}:${now}`
+        ),
+        blockers: rowBlockers,
+        nextAction: rowAccepted
+          ? "continue-mailchimp-lifecycle-handoff"
+          : rowFailed
+            ? "repair-mailchimp-scope-acknowledgement"
+            : "submit-mailchimp-scope-acknowledgement"
+      };
+    });
+  const required = providerAcknowledgements.required === true || rows.length > 0;
+  const missingRows = rows.filter((row) => !row.accepted && !row.failed);
+  const failedRows = rows.filter((row) => row.failed);
+  const blockers = Array.from(new Set([
+    ...failedRows.flatMap((row) => row.blockers.length ? row.blockers : ["mailchimp-scope-acknowledgement-failed"]),
+    ...(missingRows.length ? ["mailchimp-scope-acknowledgement-pending"] : [])
+  ])).sort();
+
+  return {
+    contractVersion: "hosted-kernel-owner-identity.mailchimp-scope-acknowledgement.v1",
+    supplied: Object.keys(providerAcknowledgements).length > 0 || rawRows.length > 0 || receiptLedger.supplied,
+    required,
+    status: !required
+      ? "not-required"
+      : failedRows.length
+        ? "blocked"
+        : missingRows.length
+          ? "pending"
+          : "accepted",
+    acceptedCount: rows.filter((row) => row.accepted).length,
+    pendingCount: missingRows.length,
+    blockedCount: failedRows.length,
+    receiptDigest: rows
+      .map((row) => [row.providerId, row.requestedScope, row.receiptId || row.idempotencyKey, row.state].join(":"))
+      .sort()
+      .join("|"),
+    receiptLedger,
+    blockers,
+    nextAction: failedRows.length
+      ? "repair-mailchimp-scope-acknowledgement"
+      : missingRows.length
+        ? "submit-mailchimp-scope-acknowledgement"
+        : required
+          ? "continue-mailchimp-lifecycle-handoff"
+          : "none",
+    rows
+  };
+}
+
 function normalizeClientRequestState(input = {}, now, workspaceScope) {
   const source = input.clientRequest || input.request || input.clientState || {};
   const actorSource = source.authorizationSubject || source.actorIdentity || source.principal || source.actorSubject || {};
@@ -4733,6 +5847,7 @@ function normalizeClientRequestState(input = {}, now, workspaceScope) {
     ? source.preferredWorkflow || source.workflow
     : "preview";
   const rawCapabilities = normalizeStringList(source.clientCapabilities || source.capabilities);
+  const mailchimpScopeAcknowledgement = normalizeMailchimpScopeAcknowledgement(input, source, now);
   return {
     contractVersion: "hosted-kernel-owner-identity.client-request.v1",
     requestId: stableText(source.requestId || source.id, `owner-identity-request:${now}`),
@@ -4762,6 +5877,7 @@ function normalizeClientRequestState(input = {}, now, workspaceScope) {
     workspaceId: scopedText(source.workspaceId || source.workspace, workspaceScope.workspaceId),
     requestedCapabilities: rawCapabilities.filter((capability) => ownerIdentityCapabilities.has(capability)),
     rejectedCapabilities: rawCapabilities.filter((capability) => !ownerIdentityCapabilities.has(capability)),
+    mailchimpScopeAcknowledgement,
     requestedAt: normalizeTimestamp(source.requestedAt || source.at, now),
     proofRef: stableText(source.proofRef || source.proof, `client-request:${workspaceScope.tenantId}:${workspaceScope.workspaceId}:${now}`)
   };
@@ -4802,6 +5918,11 @@ function buildClientRuntimeHandoff({
   const readyProviders = providerServiceContracts.providers.filter((contract) =>
     providerServiceContracts.externalHandoffState.readyProviderIds.includes(contract.providerId)
   );
+  const mailchimpScopeAcknowledgement = clientRequestState.mailchimpScopeAcknowledgement || {
+    status: "not-required",
+    required: false,
+    rows: []
+  };
   const requestInScope = workspaceScope.boundaryMode === "permissive" ||
     (workspaceScope.allowedTenantIds.includes(clientRequestState.tenantId) &&
       workspaceScope.allowedWorkspaceIds.includes(clientRequestState.workspaceId));
@@ -4850,6 +5971,10 @@ function buildClientRuntimeHandoff({
       requestId: selectedCommand?.requestAuthorization?.requestId || clientRequestState.requestId,
       sessionId: selectedCommand?.requestAuthorization?.sessionId || clientRequestState.sessionId,
       actorDelegated: Boolean(selectedCommand?.authorization?.delegated),
+      mailchimpScopeAcknowledgementStatus: mailchimpScopeAcknowledgement.status,
+      mailchimpScopeAcknowledgementRequired: mailchimpScopeAcknowledgement.required,
+      mailchimpScopeAcknowledgementAcceptedCount: mailchimpScopeAcknowledgement.acceptedCount || 0,
+      mailchimpScopeAcknowledgementPendingCount: mailchimpScopeAcknowledgement.pendingCount || 0,
       nextAction: lifecycleControlState.nextAction.action,
       readinessStatus: previewClientContract.status,
       operationalMode: operationalHealth.mode
@@ -4898,7 +6023,30 @@ function buildClientRuntimeHandoff({
         method: "POST",
         disabled: !operationalHealth.executionGuards.allowProviderHandoff,
         proofRef: provider.externalHandoff.proofRef
-      }))
+      })),
+      ...(mailchimpScopeAcknowledgement.required
+        ? [{
+            action: mailchimpScopeAcknowledgement.status === "accepted"
+              ? "continue-mailchimp-lifecycle-handoff"
+              : "submit-mailchimp-scope-acknowledgement",
+            route: `${surfaceGroup}/${surfaceName}/mailchimp-lifecycle-handoff`,
+            method: "POST",
+            disabled: mailchimpScopeAcknowledgement.status === "blocked",
+            status: mailchimpScopeAcknowledgement.status,
+            nextAction: mailchimpScopeAcknowledgement.nextAction,
+            acceptedCount: mailchimpScopeAcknowledgement.acceptedCount,
+            pendingCount: mailchimpScopeAcknowledgement.pendingCount,
+            blockedCount: mailchimpScopeAcknowledgement.blockedCount,
+            receiptDigest: mailchimpScopeAcknowledgement.receiptDigest,
+            rows: mailchimpScopeAcknowledgement.rows.map((row) => ({
+              providerId: row.providerId,
+              requestedScope: row.requestedScope,
+              receiptId: row.receiptId,
+              state: row.state,
+              nextAction: row.nextAction
+            }))
+          }]
+        : [])
     ],
     audit: {
       proofRefs: Array.from(new Set([
@@ -4906,7 +6054,8 @@ function buildClientRuntimeHandoff({
         selectedOwner?.proofRef,
         selectedCommand?.proofRef,
         ...(selectedTransfer?.proofRefs || []),
-        ...readyProviders.map((provider) => provider.externalHandoff.proofRef)
+        ...readyProviders.map((provider) => provider.externalHandoff.proofRef),
+        ...mailchimpScopeAcknowledgement.rows.map((row) => row.proofRef)
       ].filter(Boolean))),
       workspace: {
         tenantId: workspaceScope.tenantId,
@@ -4993,6 +6142,12 @@ export function describeOwnerIdentitySurface(input = {}) {
     timeline,
     lifecycleControlState,
     workspaceScope,
+    now
+  });
+  const mailchimpLifecycleHandoffControl = buildMailchimpLifecycleHandoffControl({
+    providerServiceContracts,
+    lifecycleControlState,
+    clientRequestState,
     now
   });
   const workspaceBoundaryState = buildWorkspaceBoundaryState({
@@ -5140,6 +6295,13 @@ export function describeOwnerIdentitySurface(input = {}) {
       privilegedJobRestartRecovery: "HostedKernelOwnerPrivilegedJobRestartRecovery",
       providerContracts: "HostedKernelOwnerProviderContract[]",
       providerServiceContracts: "HostedKernelOwnerProviderContractState",
+      mailchimpProviderReporting: "HostedKernelOwnerIdentityMailchimpProviderReporting",
+      mailchimpProviderRows: "HostedKernelOwnerIdentityMailchimpProviderRow[]",
+      mailchimpProviderAcceptanceBoundary: "HostedKernelOwnerIdentityMailchimpProviderAcceptanceBoundary",
+      mailchimpLifecycleHandoffControl: "HostedKernelOwnerIdentityMailchimpLifecycleHandoffControl",
+      mailchimpLifecycleHandoffProviderPayload: "HostedKernelOwnerIdentityMailchimpLifecycleHandoffProviderPayload[]",
+      mailchimpScopeAcknowledgement: "HostedKernelOwnerIdentityMailchimpScopeAcknowledgement",
+      mailchimpScopeAcknowledgementRows: "HostedKernelOwnerIdentityMailchimpScopeAcknowledgementRow[]",
       previewAcceptance: "HostedKernelOwnerIdentityPreviewAcceptance",
       previewClientContract: "HostedKernelOwnerIdentityPreviewClientContract",
       clientRequestState: "HostedKernelOwnerIdentityClientRequest",
@@ -5200,6 +6362,7 @@ export function describeOwnerIdentitySurface(input = {}) {
     privilegedJobRestartRecovery: privilegedJobAuthorizationState.restartRecovery,
     providerContracts: providers,
     providerServiceContracts,
+    mailchimpLifecycleHandoffControl,
     previewAcceptance,
     previewClientContract,
     authorizationReview,
@@ -5242,6 +6405,10 @@ export function describeOwnerIdentitySurface(input = {}) {
         ...(ownerTransferState.summary.blockedTransfers ? ["blocked-owner-transfers"] : []),
         ...(ownerTransferState.audit.status === "ready" ? ["owner-transfer-handoff-ready"] : []),
         ...(providerServiceContracts.externalHandoffState.blockedProviderIds.length ? ["blocked-provider-contracts"] : []),
+        ...(mailchimpLifecycleHandoffControl.status === "blocked" ? ["mailchimp-lifecycle-handoff-blocked"] : []),
+        ...(mailchimpLifecycleHandoffControl.status === "dispatch-ready" ? ["mailchimp-lifecycle-handoff-dispatch-ready"] : []),
+        ...(mailchimpLifecycleHandoffControl.scopeAcknowledgement?.status === "pending" ? ["mailchimp-scope-acknowledgement-pending"] : []),
+        ...(mailchimpLifecycleHandoffControl.scopeAcknowledgement?.status === "blocked" ? ["mailchimp-scope-acknowledgement-blocked"] : []),
         ...(workspaceBoundaryState.violations.length ? ["workspace-boundary-violations"] : []),
         ...(previewAcceptance.readiness.status === "blocked" ? ["preview-acceptance-blocked"] : []),
         ...(previewClientContract.status === "review-enabled" ? ["preview-acceptance-review-required"] : []),
@@ -5276,6 +6443,22 @@ export function describeOwnerIdentitySurface(input = {}) {
         route: analyticsExportManifest.audit.route,
         proofRefCount: analyticsExportManifest.audit.proofRefCount
       },
+      mailchimpLifecycleHandoff: {
+        status: mailchimpLifecycleHandoffControl.status,
+        providerCount: mailchimpLifecycleHandoffControl.providerCount,
+        commandCount: mailchimpLifecycleHandoffControl.commandCount,
+        blockers: mailchimpLifecycleHandoffControl.blockers,
+        nextActions: mailchimpLifecycleHandoffControl.nextActions,
+        route: mailchimpLifecycleHandoffControl.routePayload.route,
+        scopeAcknowledgement: {
+          status: mailchimpLifecycleHandoffControl.scopeAcknowledgement.status,
+          required: mailchimpLifecycleHandoffControl.scopeAcknowledgement.required,
+          acceptedCount: mailchimpLifecycleHandoffControl.scopeAcknowledgement.acceptedCount,
+          blockedCount: mailchimpLifecycleHandoffControl.scopeAcknowledgement.blockedCount,
+          missingProviderIds: mailchimpLifecycleHandoffControl.scopeAcknowledgement.missingProviderIds
+        },
+        proofRefs: mailchimpLifecycleHandoffControl.exportContract.proofRefs
+      },
       restartRecovery: {
         status: lifecycleControlState.restartRecovery.status,
         storageKey: lifecycleControlState.restartRecovery.storageKey,
@@ -5287,7 +6470,7 @@ export function describeOwnerIdentitySurface(input = {}) {
     },
     integrationPoints: {
       accepts: ["ownerClaims", "lifecycleEvents", "lifecycleCommands", "privilegedJobs", "jobs", "jobQueue", "lifecycleSettings", "workspaceScope", "tenantBoundary", "providerContracts", "integrationProviders", "operationalTelemetry", "healthTelemetry", "providerHealth", "providerRuntimeHealth", "providerStatus", "persistedState", "recoveredState", "previousState", "durableState", "clientRequest", "request", "clientState", "acceptanceSubmission", "acceptanceRequest", "acceptance", "evidence"],
-      emits: ["analytics", "analytics.counters", "analytics.authorizationReporting", "analytics.authorizationReporting.exportRows", "analytics.timelineBuckets", "analytics.reportingState", "ownerIdentityRegistry", "ownerIdentityRegistry.duplicateClaimGroups", "ownerIdentityRegistry.integrityErrors", "kernelOwnerBindings", "kernelOwnerBindings.bindings", "kernelOwnerBindings.bindingErrors", "timeline", "historySnapshots", "workspaceBoundaryState", "workspaceBoundaryState.evaluations", "workspaceBoundaryState.auditHandoff", "lifecycleControlState", "lifecycleControlState.pendingCommands.authorization", "lifecycleControlState.pendingCommands.requestAuthorization", "lifecycleControlState.pendingCommands.boundary.kernelOwnerBinding", "privilegedJobs", "privilegedJobAuthorizationState", "privilegedJobAuthorizationState.jobs", "privilegedJobAuthorizationState.jobs.requestAuthorization", "privilegedJobAuthorizationState.authorizationErrors", "lifecycleSettingsControlState", "lifecycleQueueControls", "recoveredKernelState", "ownerTransferState", "ownerTransferState.transfers", "providerServiceContracts", "providerServiceContracts.providers.boundary.evaluation", "previewAcceptance", "previewClientContract", "authorizationReview", "authorizationReview.items", "authorizationReview.nextReviewTarget", "clientRequestState", "clientRuntimeHandoff", "clientRuntimeHandoff.handoffActions", "previewClientContract.acceptancePayload", "acceptanceSubmission", "acceptanceDecision", "acceptanceDecision.gateDigest", "acceptanceDecision.commandAcceptance", "previewClientContract.validationBadges", "readiness", "validationSummary", "operationalHealth", "operationalTelemetry", "operationalTelemetry.providerHealth", "degradedMode.providerFailoverPlan", "persistedRuntimeState", "durableStateProjection", "durableStateProjection.commandReceiptWrites", "restartRecovery", "actionableErrors", "retryPlan", "degradedMode", "executionGuards", "nextSteps", "exportSummary", "exportSummary.exports", "exportSummary.exports.lifecycleCommandsJson", "exportSummary.exports.privilegedJobsJson", "exportSummary.exports.authorizationDecisionsJson", "exportSummary.exports.kernelOwnerBindingsJson", "analyticsExportManifest", "analyticsExportManifest.sections", "analyticsExportManifest.commandLedger", "analyticsExportManifest.timelineReport", "auditProof"],
+      emits: ["analytics", "analytics.counters", "analytics.authorizationReporting", "analytics.authorizationReporting.exportRows", "analytics.timelineBuckets", "analytics.reportingState", "ownerIdentityRegistry", "ownerIdentityRegistry.duplicateClaimGroups", "ownerIdentityRegistry.integrityErrors", "kernelOwnerBindings", "kernelOwnerBindings.bindings", "kernelOwnerBindings.bindingErrors", "timeline", "historySnapshots", "workspaceBoundaryState", "workspaceBoundaryState.evaluations", "workspaceBoundaryState.auditHandoff", "lifecycleControlState", "lifecycleControlState.pendingCommands.authorization", "lifecycleControlState.pendingCommands.requestAuthorization", "lifecycleControlState.pendingCommands.boundary.kernelOwnerBinding", "privilegedJobs", "privilegedJobAuthorizationState", "privilegedJobAuthorizationState.jobs", "privilegedJobAuthorizationState.jobs.requestAuthorization", "privilegedJobAuthorizationState.authorizationErrors", "lifecycleSettingsControlState", "lifecycleQueueControls", "recoveredKernelState", "ownerTransferState", "ownerTransferState.transfers", "providerServiceContracts", "providerServiceContracts.providers.boundary.evaluation", "providerServiceContracts.mailchimpReporting", "mailchimpLifecycleHandoffControl", "mailchimpLifecycleHandoffControl.providerPayloads", "mailchimpLifecycleHandoffControl.routePayload", "previewAcceptance", "previewClientContract", "authorizationReview", "authorizationReview.items", "authorizationReview.nextReviewTarget", "clientRequestState", "clientRuntimeHandoff", "clientRuntimeHandoff.handoffActions", "previewClientContract.acceptancePayload", "acceptanceSubmission", "acceptanceDecision", "acceptanceDecision.gateDigest", "acceptanceDecision.commandAcceptance", "previewClientContract.validationBadges", "readiness", "validationSummary", "operationalHealth", "operationalTelemetry", "operationalTelemetry.providerHealth", "degradedMode.providerFailoverPlan", "persistedRuntimeState", "durableStateProjection", "durableStateProjection.commandReceiptWrites", "restartRecovery", "actionableErrors", "retryPlan", "degradedMode", "executionGuards", "nextSteps", "exportSummary", "exportSummary.exports", "exportSummary.exports.lifecycleCommandsJson", "exportSummary.exports.privilegedJobsJson", "exportSummary.exports.authorizationDecisionsJson", "exportSummary.exports.kernelOwnerBindingsJson", "exportSummary.exports.mailchimpProvidersJson", "analyticsExportManifest", "analyticsExportManifest.sections", "analyticsExportManifest.commandLedger", "analyticsExportManifest.timelineReport", "auditProof"],
       routes: {
         analyticsExport: `${surfaceGroup}/${surfaceName}/analytics-export`,
         analyticsExportManifest: `${surfaceGroup}/${surfaceName}/analytics-export-manifest`,
@@ -5311,6 +6494,10 @@ export function describeOwnerIdentitySurface(input = {}) {
         lifecycleQueueControls: `${surfaceGroup}/${surfaceName}/lifecycle-queue-controls`,
         ownerTransferHandoff: `${surfaceGroup}/${surfaceName}/owner-transfer-handoff`,
         providerContracts: `${surfaceGroup}/${surfaceName}/provider-contracts`,
+        mailchimpProviderReporting: `${surfaceGroup}/${surfaceName}/mailchimp-provider-reporting`,
+        mailchimpProviderRows: `${surfaceGroup}/${surfaceName}/export-rows/mailchimp-providers`,
+        mailchimpLifecycleHandoff: mailchimpLifecycleHandoffControl.routePayload.route,
+        mailchimpLifecycleHandoffRows: mailchimpLifecycleHandoffControl.exportContract.route,
         externalHandoff: `${surfaceGroup}/${surfaceName}/external-handoff`,
         workspaceBoundary: `${surfaceGroup}/${surfaceName}/workspace-boundary`,
         workspaceBoundaryEvaluations: `${surfaceGroup}/${surfaceName}/workspace-boundary/evaluations`,

@@ -329,6 +329,90 @@ function normalizeEvidenceLabels(value) {
   return Array.from(new Set(labels)).slice(0, 12);
 }
 
+function normalizeDigestValue(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function buildEvidenceTruthContract({ source, artifactId, path, tenantId, workspaceId, boundaryState, generatedAt }) {
+  const digest = normalizeDigestValue(source.digest);
+  const expectedDigest = normalizeDigestValue(source.expectedDigest);
+  const digestState = digest && expectedDigest
+    ? digest === expectedDigest ? "matched" : "mismatched"
+    : digest || expectedDigest
+      ? "incomplete"
+      : "missing";
+  const rawStatus = typeof source.status === "string" ? source.status.trim().toLowerCase() : "";
+  const suppliedStatus = VALID_STATUSES.has(rawStatus) ? rawStatus : null;
+  const validationFindings = [
+    !digest ? {
+      code: "observed-digest-missing",
+      severity: "warning",
+      message: "Evidence record did not include an observed artifact digest."
+    } : null,
+    !expectedDigest ? {
+      code: "expected-digest-missing",
+      severity: "warning",
+      message: "Evidence record did not include an expected baseline digest."
+    } : null,
+    suppliedStatus === "clean" && digestState !== "matched" ? {
+      code: "clean-status-without-matching-digest",
+      severity: "critical",
+      message: "Evidence cannot be treated as clean unless observed and expected digests match."
+    } : null,
+    suppliedStatus && suppliedStatus !== "clean" && digestState === "matched" ? {
+      code: "flagged-status-with-matching-digest",
+      severity: "info",
+      message: "Evidence status was supplied as flagged even though digest material matches."
+    } : null
+  ].filter(Boolean);
+  const derivedStatus = boundaryState === "blocked"
+    ? "quarantined"
+    : digestState === "mismatched"
+      ? "tampered"
+      : digestState === "matched"
+        ? suppliedStatus || "clean"
+        : suppliedStatus && suppliedStatus !== "clean"
+          ? suppliedStatus
+          : "suspect";
+  const confidence = boundaryState === "blocked"
+    ? "blocked"
+    : digestState === "matched"
+      ? "high"
+      : digestState === "mismatched"
+        ? "high"
+        : digestState === "incomplete"
+          ? "low"
+          : "unknown";
+  const checkedAt = asIsoTimestamp(source.checkedAt || source.timestamp, generatedAt);
+
+  return {
+    digest,
+    expectedDigest,
+    digestState,
+    suppliedStatus,
+    status: derivedStatus,
+    confidence,
+    validationFindings,
+    checkedAt,
+    claimHash: stableProofHash({
+      artifactId,
+      path,
+      tenantId,
+      workspaceId,
+      boundaryState,
+      digest,
+      expectedDigest,
+      digestState,
+      suppliedStatus,
+      checkedAt
+    })
+  };
+}
+
 function normalizeProviderHandoffAcknowledgements(input, generatedAt) {
   const handoffSource = input.externalHandoff && typeof input.externalHandoff === "object"
     ? input.externalHandoff
@@ -1284,13 +1368,21 @@ function normalizeEvidenceRecord(record, index, generatedAt, tenantBoundary, wor
     : tenantBoundary.scoped
       ? "scoped"
       : "implicit-default-scope";
-  const digest = typeof source.digest === "string" ? source.digest : null;
-  const expectedDigest = typeof source.expectedDigest === "string" ? source.expectedDigest : null;
-  const derivedStatus = VALID_STATUSES.has(source.status) ? source.status : digest && expectedDigest && digest !== expectedDigest ? "tampered" : "clean";
-  const status = boundaryState === "blocked" ? "quarantined" : derivedStatus;
+  const truth = buildEvidenceTruthContract({
+    source,
+    artifactId,
+    path: workspacePathBoundary.path,
+    tenantId,
+    workspaceId,
+    boundaryState,
+    generatedAt
+  });
+  const status = truth.status;
   const severity = VALID_SEVERITIES.has(source.severity)
     ? source.severity
-    : boundaryState === "blocked" || status === "tampered" || status === "quarantined"
+    : truth.validationFindings.some((finding) => finding.severity === "critical")
+      ? "critical"
+      : boundaryState === "blocked" || status === "tampered" || status === "quarantined"
       ? "critical"
       : status === "suspect"
         ? "warning"
@@ -1301,6 +1393,10 @@ function normalizeEvidenceRecord(record, index, generatedAt, tenantBoundary, wor
       ? workspacePathBoundary.violations.length > 0
         ? "workspace-path-scope-violation"
         : "tenant-workspace-boundary-violation"
+      : truth.digestState === "missing"
+        ? "digest-proof-missing"
+        : truth.digestState === "incomplete"
+          ? "digest-proof-incomplete"
       : status === "clean"
         ? "digest-match"
         : "digest-or-policy-mismatch";
@@ -1326,15 +1422,20 @@ function normalizeEvidenceRecord(record, index, generatedAt, tenantBoundary, wor
     },
     status,
     severity,
-    digest,
-    expectedDigest,
+    digest: truth.digest,
+    expectedDigest: truth.expectedDigest,
     proofId: typeof source.proofId === "string" ? source.proofId : `${surfaceName}:${artifactId}:${index + 1}`,
-    checkedAt: asIsoTimestamp(source.checkedAt || source.timestamp, generatedAt),
+    checkedAt: truth.checkedAt,
     actor: typeof source.actor === "string" ? source.actor : tenantBoundary.actor.actorId,
     reason,
     proofMaterial: {
       schema: "aios.tamper-check.evidence-proof.v1",
       algorithm: normalizeDigestAlgorithm(source.algorithm || source.digestAlgorithm || source.hashAlgorithm),
+      digestState: truth.digestState,
+      suppliedStatus: truth.suppliedStatus,
+      confidence: truth.confidence,
+      validationFindings: truth.validationFindings,
+      claimHash: truth.claimHash,
       source: typeof source.proofSource === "string" && source.proofSource.trim() ? source.proofSource.trim() : "artifact-filesystem",
       baselineId: typeof source.baselineId === "string" && source.baselineId.trim() ? source.baselineId.trim() : null,
       labels: normalizeEvidenceLabels(source.labels || source.tags),
@@ -1346,11 +1447,13 @@ function normalizeEvidenceRecord(record, index, generatedAt, tenantBoundary, wor
         path: workspacePathBoundary.path,
         tenantId,
         workspaceId,
-        digest,
-        expectedDigest,
+        digest: truth.digest,
+        expectedDigest: truth.expectedDigest,
+        digestState: truth.digestState,
+        confidence: truth.confidence,
         status,
         boundaryState,
-        checkedAt: asIsoTimestamp(source.checkedAt || source.timestamp, generatedAt)
+        checkedAt: truth.checkedAt
       })
     }
   };
@@ -1366,7 +1469,12 @@ function summarizeEvidence(records) {
     info: 0,
     warning: 0,
     critical: 0,
-    digestMismatches: 0
+    digestMismatches: 0,
+    digestMissing: 0,
+    digestIncomplete: 0,
+    proofValidationFindings: 0,
+    proofCriticalFindings: 0,
+    lowConfidenceProofs: 0
   };
 
   for (const record of records) {
@@ -1375,6 +1483,19 @@ function summarizeEvidence(records) {
     if (record.digest && record.expectedDigest && record.digest !== record.expectedDigest) {
       counters.digestMismatches += 1;
     }
+    if (record.proofMaterial.digestState === "missing") {
+      counters.digestMissing += 1;
+    }
+    if (record.proofMaterial.digestState === "incomplete") {
+      counters.digestIncomplete += 1;
+    }
+    if (record.proofMaterial.confidence === "low" || record.proofMaterial.confidence === "unknown") {
+      counters.lowConfidenceProofs += 1;
+    }
+    counters.proofValidationFindings += record.proofMaterial.validationFindings.length;
+    counters.proofCriticalFindings += record.proofMaterial.validationFindings
+      .filter((finding) => finding.severity === "critical")
+      .length;
   }
 
   return counters;
@@ -1537,6 +1658,89 @@ function buildTimeline(records, history, generatedAt) {
     });
 }
 
+function buildHistoryRecoveryAnalytics({ generatedAt, counters, history, timeline, persistedState }) {
+  const latestSnapshot = history.at(-1) || null;
+  const priorSnapshot = history.length > 1 ? history.at(-2) : null;
+  const activeRecoveryActions = Array.isArray(persistedState.restartRecoveryPlan)
+    ? persistedState.restartRecoveryPlan
+    : [];
+  const unresolvedRecoveredProofIds = persistedState.evidenceCursor?.unresolvedFlaggedProofIds || [];
+  const currentFlaggedArtifacts = counters.suspect + counters.tampered + counters.quarantined;
+  const previousFlaggedArtifacts = latestSnapshot?.flaggedArtifacts ?? 0;
+  const previousDigestMismatches = latestSnapshot?.counters?.digestMismatches ?? 0;
+  const priorFlaggedArtifacts = priorSnapshot?.flaggedArtifacts ?? null;
+  const minutesSinceSnapshot = latestSnapshot
+    ? Math.max(0, Math.round((Date.parse(generatedAt) - Date.parse(latestSnapshot.capturedAt)) / 60000))
+    : null;
+  const recoveryTimelineEvents = activeRecoveryActions.map((action, index) => ({
+    at: generatedAt,
+    kind: "restart-recovery-action",
+    label: action.action,
+    sequence: index + 1,
+    command: action.command || null,
+    receiptId: action.receiptId || null,
+    proofCount: action.proofIds?.length || 0,
+    reason: action.reason
+  }));
+  const recentTimelineEvents = timeline
+    .slice(-10)
+    .map((event) => ({
+      at: event.at,
+      kind: event.kind,
+      label: event.label,
+      status: event.status || null,
+      severity: event.severity || null,
+      proofId: event.proofId || null
+    }));
+  const trendDirection = currentFlaggedArtifacts > previousFlaggedArtifacts
+    ? "worsening"
+    : currentFlaggedArtifacts < previousFlaggedArtifacts
+      ? "improving"
+      : "stable";
+  const acceleration = priorFlaggedArtifacts === null
+    ? null
+    : (currentFlaggedArtifacts - previousFlaggedArtifacts) - (previousFlaggedArtifacts - priorFlaggedArtifacts);
+
+  return {
+    schema: "aios.tamper-check.history-recovery-analytics.v1",
+    generatedAt,
+    persistedStateId: persistedState.stateId,
+    recoveryState: persistedState.recoveryState,
+    lastStableStatus: persistedState.lastStableStatus,
+    minutesSinceSnapshot,
+    restartRecovered: persistedState.loaded,
+    activeRecoveryActionCount: activeRecoveryActions.length,
+    activeRecoveryActions,
+    unresolvedRecoveredProofIds,
+    trend: {
+      direction: trendDirection,
+      currentFlaggedArtifacts,
+      previousFlaggedArtifacts,
+      flaggedDelta: currentFlaggedArtifacts - previousFlaggedArtifacts,
+      digestMismatchDelta: counters.digestMismatches - previousDigestMismatches,
+      acceleration,
+      staleHistory: minutesSinceSnapshot !== null && minutesSinceSnapshot > MAX_SCHEDULE_INTERVAL_MINUTES
+    },
+    exportMarkers: {
+      includeRecoveryAppendix: activeRecoveryActions.length > 0 || unresolvedRecoveredProofIds.length > 0,
+      includeHistoryAppendix: history.length > 0,
+      snapshotCount: history.length,
+      timelineEventCount: timeline.length,
+      recoveryFingerprint: stableProofHash({
+        stateId: persistedState.stateId,
+        recoveryState: persistedState.recoveryState,
+        activeRecoveryActions,
+        unresolvedRecoveredProofIds,
+        currentFlaggedArtifacts,
+        previousFlaggedArtifacts
+      })
+    },
+    timelineOverlay: recoveryTimelineEvents.length > 0
+      ? recentTimelineEvents.concat(recoveryTimelineEvents)
+      : recentTimelineEvents
+  };
+}
+
 function buildExportSummary({ generatedAt, records, counters, history, timeline }) {
   const flagged = records.filter((record) => record.status !== "clean");
   const recordsByStatus = records.reduce((groups, record) => {
@@ -1555,7 +1759,7 @@ function buildExportSummary({ generatedAt, records, counters, history, timeline 
     format: "aios.tamper-check.report.v1",
     generatedAt,
     rowCount: records.length,
-    columns: ["artifactId", "path", "status", "severity", "digest", "expectedDigest", "proofId", "checkedAt", "actor", "reason"],
+    columns: ["artifactId", "path", "status", "severity", "digest", "expectedDigest", "digestState", "proofConfidence", "proofId", "checkedAt", "actor", "reason"],
     counters,
     exportReadiness: {
       state: counters.total === 0 ? "empty" : digestMismatchProofIds.length > 0 || flagged.length > 0 ? "review-required" : "ready",
@@ -1578,7 +1782,9 @@ function buildExportSummary({ generatedAt, records, counters, history, timeline 
       severity: record.severity,
       proofId: record.proofId,
       checkedAt: record.checkedAt,
-      boundaryState: record.boundary.state
+      boundaryState: record.boundary.state,
+      digestState: record.proofMaterial.digestState,
+      proofConfidence: record.proofMaterial.confidence
     })),
     boundaryHeldArtifacts: flagged
       .filter((record) => record.boundary.state === "blocked")
@@ -1592,7 +1798,7 @@ function buildExportSummary({ generatedAt, records, counters, history, timeline 
   };
 }
 
-function buildAnalyticsReportState({ generatedAt, counters, history, timeline, records, settings }) {
+function buildAnalyticsReportState({ generatedAt, counters, history, timeline, records, settings, persistedState }) {
   const flaggedArtifacts = counters.suspect + counters.tampered + counters.quarantined;
   const currentSnapshot = {
     snapshotId: `tamper-history-current:${generatedAt}`,
@@ -1695,6 +1901,13 @@ function buildAnalyticsReportState({ generatedAt, counters, history, timeline, r
     buckets.set(day, existing);
     return buckets;
   }, new Map());
+  const historyRecoveryAnalytics = buildHistoryRecoveryAnalytics({
+    generatedAt,
+    counters,
+    history,
+    timeline,
+    persistedState
+  });
 
   return {
     schema: "aios.tamper-check.analytics-reporting.v1",
@@ -1720,7 +1933,11 @@ function buildAnalyticsReportState({ generatedAt, counters, history, timeline, r
       cleanRatio: currentSnapshot.ratios.clean,
       digestMismatchRatio: currentSnapshot.ratios.digestMismatch,
       priorFlaggedRatio: previousSnapshot?.ratios?.flagged ?? null,
-      ratioDelta: previousSnapshot?.ratios ? currentSnapshot.ratios.flagged - previousSnapshot.ratios.flagged : currentSnapshot.ratios.flagged
+      ratioDelta: previousSnapshot?.ratios ? currentSnapshot.ratios.flagged - previousSnapshot.ratios.flagged : currentSnapshot.ratios.flagged,
+      recoveryAwareDirection: historyRecoveryAnalytics.trend.direction,
+      recoveryFlaggedDelta: historyRecoveryAnalytics.trend.flaggedDelta,
+      recoveryDigestMismatchDelta: historyRecoveryAnalytics.trend.digestMismatchDelta,
+      staleHistory: historyRecoveryAnalytics.trend.staleHistory
     },
     counters: {
       status: statusCounters,
@@ -1733,7 +1950,8 @@ function buildAnalyticsReportState({ generatedAt, counters, history, timeline, r
       bucketCount: timelineBuckets.size,
       buckets: Array.from(timelineBuckets.values()).slice(-14),
       severityBuckets: timelineSeverityBuckets,
-      latestEvent: timeline.at(-1) || null
+      latestEvent: timeline.at(-1) || null,
+      recoveryOverlay: historyRecoveryAnalytics.timelineOverlay
     },
     exportSummaryState: {
       summaryId: `tamper-analytics:${generatedAt}`,
@@ -1746,6 +1964,9 @@ function buildAnalyticsReportState({ generatedAt, counters, history, timeline, r
       recommendedFormats: digestMismatchProofIds.length > 0 || counters.critical > 0
         ? ["json", "proof-bundle", "csv"]
         : ["json", "csv"],
+      includeRecoveryAppendix: historyRecoveryAnalytics.exportMarkers.includeRecoveryAppendix,
+      includeHistoryAppendix: historyRecoveryAnalytics.exportMarkers.includeHistoryAppendix,
+      recoveryFingerprint: historyRecoveryAnalytics.exportMarkers.recoveryFingerprint,
       partitions: [
         {
           partitionId: "all-artifacts",
@@ -1761,9 +1982,15 @@ function buildAnalyticsReportState({ generatedAt, counters, history, timeline, r
           partitionId: "digest-mismatches",
           rowCount: counters.digestMismatches,
           filter: "digestMatches:false"
+        },
+        {
+          partitionId: "low-confidence-proofs",
+          rowCount: counters.lowConfidenceProofs,
+          filter: "proofConfidence:low|unknown"
         }
       ]
     },
+    historyRecoveryAnalytics,
     scheduledReport: {
       enabled: settings.enabled && settings.schedule.mode === "interval",
       cadenceMinutes: settings.schedule.intervalMinutes,
@@ -1784,6 +2011,13 @@ function buildAnalyticsReportState({ generatedAt, counters, history, timeline, r
         value: counters.digestMismatches,
         total: counters.total,
         tone: counters.digestMismatches > 0 ? "critical" : "success"
+      },
+      {
+        cardId: "low-confidence-proofs",
+        label: "Low confidence proofs",
+        value: counters.lowConfidenceProofs,
+        total: counters.total,
+        tone: counters.lowConfidenceProofs > 0 ? "warning" : "success"
       },
       {
         cardId: "history-trend",
@@ -1902,7 +2136,7 @@ function buildProofLedger({ generatedAt, records, counters, settings, providerCo
   let previousChainHash = stableProofHash(`${surfaceId}:proof-ledger-root:${generatedAt}`);
   const entries = records.map((record, index) => {
     const priorChainHash = previousChainHash;
-    const digestMatches = !(record.digest && record.expectedDigest) || record.digest === record.expectedDigest;
+    const digestMatches = record.proofMaterial.digestState === "matched";
     const evidenceState = record.status === "clean" && digestMatches
       ? "verified"
       : record.status === "quarantined"
@@ -1921,6 +2155,10 @@ function buildProofLedger({ generatedAt, records, counters, settings, providerCo
       digest: record.digest,
       expectedDigest: record.expectedDigest,
       digestMatches,
+      digestState: record.proofMaterial.digestState,
+      proofConfidence: record.proofMaterial.confidence,
+      proofClaimHash: record.proofMaterial.claimHash,
+      proofValidationFindings: record.proofMaterial.validationFindings,
       checkedAt: record.checkedAt,
       proofMaterial: record.proofMaterial
     };
@@ -1947,6 +2185,10 @@ function buildProofLedger({ generatedAt, records, counters, settings, providerCo
       status: record.status,
       severity: record.severity,
       digestMatches,
+      digestState: record.proofMaterial.digestState,
+      proofConfidence: record.proofMaterial.confidence,
+      proofClaimHash: record.proofMaterial.claimHash,
+      proofValidationFindings: record.proofMaterial.validationFindings,
       checkedAt: record.checkedAt,
       reason: record.reason,
       algorithm: record.proofMaterial.algorithm,
@@ -2009,6 +2251,147 @@ function buildProofLedger({ generatedAt, records, counters, settings, providerCo
     },
     quarantinePlan,
     entries
+  };
+}
+
+function buildExportHandoffAcceptanceReceipt({
+  generatedAt,
+  clientRuntime,
+  workflowHandoff,
+  exportDelivery,
+  proofLedger,
+  acceptance,
+  readinessSummary,
+  validationSummary,
+  providerContracts,
+  tenantBoundarySummary,
+  analyticsReport
+}) {
+  const requested = clientRuntime.entrypoint === "handoff"
+    || clientRuntime.entrypoint === "acceptance"
+    || clientRuntime.preferredHandoffTarget === "proof-export"
+    || workflowHandoff.handoffTarget === "proof-export";
+  const readyManifest = exportDelivery.manifests.find((manifest) => manifest.state === "ready")
+    || exportDelivery.manifests[0]
+    || null;
+  const proofBundleManifest = exportDelivery.manifests.find((manifest) => manifest.format === "proof-bundle") || null;
+  const preferredManifest = proofBundleManifest && proofBundleManifest.state === "ready"
+    ? proofBundleManifest
+    : readyManifest;
+  const providerPendingProofIds = providerContracts.handoff.flaggedProofs
+    .map((proof) => proof.proofId)
+    .filter((proofId) => !providerContracts.handoff.correlation.deliveredProofIds.includes(proofId));
+  const boundaryHeldProofIds = tenantBoundarySummary.boundaryHold.heldProofIds;
+  const blockers = [
+    requested ? null : "export-handoff-not-requested",
+    readinessSummary.state === "blocked" ? "readiness-blocked" : null,
+    validationSummary.state === "failed" ? "validation-failed" : null,
+    exportDelivery.state === "ready" ? null : "export-delivery-blocked",
+    acceptance.accepted ? null : "preview-acceptance-required",
+    tenantBoundarySummary.state === "blocked" ? "tenant-boundary-blocked" : null,
+    providerContracts.handoff.state === "blocked" ? "provider-handoff-blocked" : null,
+    providerContracts.handoff.writebackState === "failed" ? "provider-writeback-failed" : null,
+    !preferredManifest ? "export-manifest-missing" : null,
+    boundaryHeldProofIds.length > 0 ? "boundary-held-proofs-present" : null
+  ].filter(Boolean);
+  const warnings = [
+    providerPendingProofIds.length > 0 ? "provider-acknowledgement-pending" : null,
+    proofLedger.integrityState !== "verified" ? `proof-ledger-${proofLedger.integrityState}` : null,
+    analyticsReport.trend.staleHistory ? "analytics-history-stale" : null,
+    exportDelivery.summary.historySnapshots === 0 ? "history-snapshots-not-included" : null
+  ].filter(Boolean);
+  const state = !requested
+    ? "idle"
+    : blockers.length > 0
+      ? "blocked"
+      : warnings.length > 0
+        ? "accepted-with-warnings"
+        : "accepted";
+  const receiptId = `tamper-export-handoff:${stableProofHash({
+    sessionId: clientRuntime.sessionId,
+    requestId: clientRuntime.requestId,
+    ledgerId: proofLedger.ledgerId,
+    manifestId: preferredManifest?.manifestId || null,
+    finalChainHash: proofLedger.finalChainHash,
+    destination: exportDelivery.destination
+  })}`;
+  const route = `/kernel/${surfaceGroup}/${surfaceName}/export/handoff/${encodeURIComponent(receiptId)}`;
+  const routePayload = requested ? {
+    schema: "aios.tamper-check.export-handoff-acceptance-payload.v1",
+    receiptId,
+    generatedAt,
+    sessionId: clientRuntime.sessionId,
+    requestId: clientRuntime.requestId,
+    route,
+    command: state === "blocked" ? "resolve-export-handoff-blockers" : "claim-proof-export-handoff",
+    destination: exportDelivery.destination,
+    manifest: preferredManifest ? {
+      manifestId: preferredManifest.manifestId,
+      format: preferredManifest.format,
+      state: preferredManifest.state,
+      rowCount: preferredManifest.rowCount,
+      includesProofMaterial: preferredManifest.includesProofMaterial,
+      includesTimeline: preferredManifest.includesTimeline,
+      includesHistory: preferredManifest.includesHistory,
+      checksum: exportDelivery.manifestIndex[preferredManifest.format]?.checksum || null
+    } : null,
+    ledger: {
+      ledgerId: proofLedger.ledgerId,
+      entryCount: proofLedger.entryCount,
+      flaggedEntryCount: proofLedger.flaggedEntryCount,
+      integrityState: proofLedger.integrityState,
+      finalChainHash: proofLedger.finalChainHash,
+      providerHandoffState: proofLedger.providerHandoff.state,
+      deliveredProofIds: proofLedger.providerHandoff.deliveredProofIds,
+      pendingProofIds: providerPendingProofIds,
+      boundaryHeldProofIds
+    },
+    acceptance: {
+      decision: acceptance.decision,
+      accepted: acceptance.accepted,
+      acceptedAt: acceptance.acceptedAt,
+      acceptedBy: acceptance.acceptedBy,
+      unreviewedProofIds: acceptance.unreviewedProofIds
+    },
+    blockers,
+    warnings
+  } : null;
+
+  return {
+    schema: "aios.tamper-check.export-handoff-acceptance.v1",
+    generatedAt,
+    requested,
+    state,
+    ready: state === "accepted" || state === "accepted-with-warnings",
+    receiptId: requested ? receiptId : null,
+    route: requested ? route : null,
+    command: routePayload?.command || null,
+    blockers,
+    warnings,
+    destination: exportDelivery.destination,
+    manifestId: preferredManifest?.manifestId || null,
+    proofBundleRequested: Boolean(proofBundleManifest),
+    proofBundleReady: proofBundleManifest?.state === "ready",
+    providerWriteback: {
+      state: providerContracts.handoff.writebackState,
+      acknowledgementCount: providerContracts.handoff.correlation.acknowledgementCount,
+      deliveredProofIds: providerContracts.handoff.correlation.deliveredProofIds,
+      pendingProofIds: providerPendingProofIds,
+      failedAcknowledgementIds: providerContracts.handoff.correlation.failedAcknowledgementIds
+    },
+    routePayload,
+    auditEvent: requested ? {
+      eventName: "tamper-check.export-handoff.acceptance-evaluated",
+      generatedAt,
+      receiptId,
+      state,
+      manifestId: preferredManifest?.manifestId || null,
+      ledgerId: proofLedger.ledgerId,
+      finalChainHash: proofLedger.finalChainHash,
+      tenantBoundaryState: tenantBoundarySummary.state,
+      providerHandoffState: providerContracts.handoff.state,
+      accepted: acceptance.accepted
+    } : null
   };
 }
 
@@ -2272,6 +2655,26 @@ function buildLifecycleControls({ settings, counters, evidence, generatedAt }) {
 }
 
 function buildValidationSummary({ settings, counters, providerContracts, tenantBoundarySummary }) {
+  const proofMaterialFindings = [
+    counters.digestMissing > 0 ? {
+      code: "digest-proof-material-missing",
+      severity: "warning",
+      count: counters.digestMissing,
+      message: "One or more evidence records did not include observed or expected digest material."
+    } : null,
+    counters.digestIncomplete > 0 ? {
+      code: "digest-proof-material-incomplete",
+      severity: "warning",
+      count: counters.digestIncomplete,
+      message: "One or more evidence records only included one side of the digest comparison."
+    } : null,
+    counters.proofCriticalFindings > 0 ? {
+      code: "digest-proof-claim-conflict",
+      severity: "critical",
+      count: counters.proofCriticalFindings,
+      message: "One or more evidence records supplied a clean or flagged status that conflicts with digest proof material."
+    } : null
+  ].filter(Boolean);
   const checks = [
     {
       checkId: "settings-contract",
@@ -2288,6 +2691,28 @@ function buildValidationSummary({ settings, counters, providerContracts, tenantB
         severity: "warning",
         message: "Run a tamper-check baseline before accepting this preview."
       }]
+    },
+    {
+      checkId: "proof-material",
+      state: proofMaterialFindings.some((finding) => finding.severity === "critical")
+        ? "failed"
+        : proofMaterialFindings.length > 0
+          ? "warning"
+          : counters.total > 0
+            ? "passed"
+            : "warning",
+      message: proofMaterialFindings.length > 0
+        ? "Evidence proof material has incomplete or conflicting digest claims."
+        : counters.total > 0
+          ? "Evidence proof material includes comparable digest claims."
+          : "Proof material cannot be evaluated until evidence exists.",
+      findings: counters.total > 0
+        ? proofMaterialFindings
+        : [{
+          code: "proof-material-unavailable",
+          severity: "warning",
+          message: "No evidence records were supplied for proof material validation."
+        }]
     },
     {
       checkId: "provider-negotiation",
@@ -2792,6 +3217,8 @@ function buildUserPreview({ generatedAt, settings, counters, evidence, controls,
       status: record.status,
       severity: record.severity,
       proofId: record.proofId,
+      digestState: record.proofMaterial.digestState,
+      proofConfidence: record.proofMaterial.confidence,
       reason: record.reason,
       checkedAt: record.checkedAt
     })),
@@ -2846,9 +3273,7 @@ function buildClientReviewContract({ generatedAt, preview, acceptance, validatio
     message: finding.message || check.message
   })));
   const reviewQueue = flaggedRecords.slice(0, 25).map((record, index) => {
-    const digestState = record.digest && record.expectedDigest
-      ? record.digest === record.expectedDigest ? "matched" : "mismatched"
-      : "not-supplied";
+    const digestState = record.proofMaterial.digestState;
     const providerPending = providerContracts.handoff.flaggedProofs.some((proof) => proof.proofId === record.proofId)
       && !providerContracts.handoff.correlation.deliveredProofIds.includes(record.proofId);
     return {
@@ -2860,6 +3285,8 @@ function buildClientReviewContract({ generatedAt, preview, acceptance, validatio
       severity: record.severity,
       reason: record.reason,
       digestState,
+      proofConfidence: record.proofMaterial.confidence,
+      proofValidationFindings: record.proofMaterial.validationFindings,
       boundaryState: record.boundary.state,
       boundaryViolations: record.boundary.violations,
       checkedAt: record.checkedAt,
@@ -3571,7 +3998,15 @@ export function describeTamperCheckSurface(input = {}) {
   const history = normalizeHistorySnapshots(input.history, generatedAt, retentionLimit);
   const timeline = buildTimeline(evidence, history, generatedAt);
   const exportSummary = buildExportSummary({ generatedAt, records: evidence, counters, history, timeline });
-  const analyticsReport = buildAnalyticsReportState({ generatedAt, counters, history, timeline, records: evidence, settings });
+  const analyticsReport = buildAnalyticsReportState({
+    generatedAt,
+    counters,
+    history,
+    timeline,
+    records: evidence,
+    settings,
+    persistedState
+  });
   const controls = buildLifecycleControls({ settings, counters, evidence, generatedAt });
   const providerContracts = normalizeProviderContracts(input, settings, counters, evidence, generatedAt);
   const validationSummary = buildValidationSummary({ settings, counters, providerContracts, tenantBoundarySummary });
@@ -3626,6 +4061,19 @@ export function describeTamperCheckSurface(input = {}) {
   });
   const clientRuntime = normalizeClientRuntimeState(input, generatedAt);
   const workflowHandoff = buildClientWorkflowHandoff({ clientRuntime, providerContracts, nextSteps, acceptance, readinessSummary, preview, clientReview, evidence, tenantBoundarySummary });
+  const exportHandoffAcceptance = buildExportHandoffAcceptanceReceipt({
+    generatedAt,
+    clientRuntime,
+    workflowHandoff,
+    exportDelivery,
+    proofLedger,
+    acceptance,
+    readinessSummary,
+    validationSummary,
+    providerContracts,
+    tenantBoundarySummary,
+    analyticsReport
+  });
   const operationalHealth = buildOperationalHealth({
     input,
     generatedAt,
@@ -3695,6 +4143,7 @@ export function describeTamperCheckSurface(input = {}) {
     nextSteps,
     clientRuntime,
     workflowHandoff,
+    exportHandoffAcceptance,
     analytics: {
       counters,
       report: analyticsReport,
@@ -3738,7 +4187,10 @@ export function describeTamperCheckSurface(input = {}) {
       commandReplay: settings.lifecycle.idempotency.replayed,
       proofLedgerState: proofLedger.integrityState,
       proofLedgerEntryCount: proofLedger.entryCount,
-      proofLedgerFinalChainHash: proofLedger.finalChainHash
+      proofLedgerFinalChainHash: proofLedger.finalChainHash,
+      exportHandoffAcceptanceState: exportHandoffAcceptance.state,
+      exportHandoffAcceptanceReady: exportHandoffAcceptance.ready,
+      exportHandoffPendingProofCount: exportHandoffAcceptance.providerWriteback.pendingProofIds.length
     },
     providerContracts,
     tenantBoundary: tenantBoundarySummary,
@@ -3749,6 +4201,7 @@ export function describeTamperCheckSurface(input = {}) {
     exportSummary: {
       ...exportSummary,
       delivery: exportDelivery,
+      handoffAcceptance: exportHandoffAcceptance,
       proofLedgerManifest: {
         ledgerId: proofLedger.ledgerId,
         entryCount: proofLedger.entryCount,
@@ -3787,6 +4240,8 @@ export function describeTamperCheckSurface(input = {}) {
           boundaryHash: tenantBoundarySummary.boundaryHash
         },
         tenantBoundarySummary.boundaryHold.auditEvent
+        ,
+        exportHandoffAcceptance.auditEvent
       ].filter(Boolean)
     },
     routes: {
@@ -3807,6 +4262,7 @@ export function describeTamperCheckSurface(input = {}) {
       nextSteps: `/kernel/${surfaceGroup}/${surfaceName}/next-steps`,
       workflowHandoff: workflowHandoff.route
       ,
+      exportHandoffAcceptance: exportHandoffAcceptance.route,
       boundary: `/kernel/${surfaceGroup}/${surfaceName}/boundary`
     }
   };

@@ -47,6 +47,7 @@ const MAX_RETRY_ATTEMPTS = 5;
 const BASE_RETRY_DELAY_SECONDS = 15;
 const MAX_RETRY_DELAY_SECONDS = 900;
 const HEALTH_STALE_AFTER_SECONDS = 300;
+const SOURCE_CONTRACT_CLOCK_SKEW_SECONDS = 120;
 const MIN_SCHEDULE_INTERVAL_MINUTES = 5;
 const MAX_SCHEDULE_INTERVAL_MINUTES = 1440;
 const MAX_SCHEDULE_JITTER_SECONDS = 300;
@@ -60,6 +61,7 @@ const MAX_ANALYTICS_TIMELINE = 24;
 const MAX_COMMAND_LOG_ENTRIES = 25;
 const MAX_STATE_JOURNAL_ENTRIES = 20;
 const MAX_COMMAND_EXECUTION_RECORDS = 32;
+const MAX_MAILCHIMP_CONTINUITY_SUBJECTS = 12;
 const MOUNT_KIND_ALIASES = {
   conversation: 'episodic',
   workspace: 'project',
@@ -275,6 +277,9 @@ const PROVIDER_SYNC_MODE_BY_MOUNT_KIND = {
 };
 const PROVIDER_EXTERNAL_HANDOFF_REQUIRED_KINDS = new Set(['project', 'structural', 'artifact']);
 const HEALTH_WRITE_COMMANDS = new Set(['attach', 'detach', 'recover', 'enable', 'disable', 'schedule']);
+const MAILCHIMP_MEMORY_SOURCE_KINDS = new Set(['workspace-index', 'agent-cache', 'artifact-store']);
+const MAILCHIMP_SYNC_EVENT_KINDS = new Set(['audience-sync', 'campaign-sync', 'segment-sync', 'automation-sync']);
+const MAILCHIMP_REQUIRED_SYNC_FIELDS = ['audienceId'];
 
 function stableString(value) {
   if (Array.isArray(value)) {
@@ -323,9 +328,365 @@ function normalizeIsoString(value) {
     : null;
 }
 
+function normalizeMailchimpMountContext(value = {}, fallback = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const source = raw.mailchimp && typeof raw.mailchimp === 'object' ? raw.mailchimp : raw;
+  const identifiers = source.identifiers && typeof source.identifiers === 'object' ? source.identifiers : {};
+  const audienceId = normalizeNonEmptyString(source.audienceId ?? source.listId ?? identifiers.audienceId, fallback.audienceId ?? null);
+  const campaignId = normalizeNonEmptyString(source.campaignId ?? identifiers.campaignId, fallback.campaignId ?? null);
+  const segmentId = normalizeNonEmptyString(source.segmentId ?? identifiers.segmentId, fallback.segmentId ?? null);
+  const automationId = normalizeNonEmptyString(source.automationId ?? identifiers.automationId, fallback.automationId ?? null);
+  const rawEventKinds = normalizeStringList(source.eventKinds ?? source.events);
+  const eventKinds = (rawEventKinds.length ? rawEventKinds : ['audience-sync'])
+    .filter((kind, index, list) => MAILCHIMP_SYNC_EVENT_KINDS.has(kind) && list.indexOf(kind) === index);
+  const unsupportedEventKinds = rawEventKinds.filter((kind) => !MAILCHIMP_SYNC_EVENT_KINDS.has(kind));
+  const requestedSyncMode = normalizeNonEmptyString(source.syncMode ?? source.mode, fallback.syncMode ?? 'incremental');
+  const syncMode = ['incremental', 'snapshot', 'webhook'].includes(requestedSyncMode)
+    ? requestedSyncMode
+    : 'incremental';
+  const missingRequiredFields = [
+    ...(!audienceId ? ['audienceId'] : [])
+  ];
+  const externalRevision = normalizeNonEmptyString(source.externalRevision ?? source.revision, fallback.externalRevision ?? null);
+  const lastSyncedAt = normalizeIsoString(source.lastSyncedAt ?? source.syncedAt) || fallback.lastSyncedAt || null;
+  const ready = missingRequiredFields.length === 0 && eventKinds.length > 0;
+
+  return {
+    schemaVersion: 1,
+    provider: 'mailchimp',
+    ready,
+    subjectKey: `mailchimp:${audienceId || 'audience-unbound'}:${campaignId || segmentId || automationId || 'workspace'}`,
+    identifiers: {
+      audienceId,
+      campaignId,
+      segmentId,
+      automationId,
+      missingRequiredFields
+    },
+    sync: {
+      mode: syncMode,
+      eventKinds,
+      unsupportedEventKinds,
+      externalRevision,
+      lastSyncedAt
+    },
+    validationIssues: [
+      ...missingRequiredFields.map((field) => ({
+        field: `mailchimp.${field}`,
+        reason: 'mailchimp_required_sync_field_missing',
+        requiredFields: MAILCHIMP_REQUIRED_SYNC_FIELDS
+      })),
+      ...unsupportedEventKinds.map((kind) => ({
+        field: 'mailchimp.eventKinds',
+        reason: 'unsupported_mailchimp_sync_event_kind',
+        value: kind,
+        allowed: [...MAILCHIMP_SYNC_EVENT_KINDS].sort()
+      })),
+      ...(requestedSyncMode === syncMode ? [] : [{
+        field: 'mailchimp.syncMode',
+        reason: 'unsupported_mailchimp_sync_mode',
+        value: requestedSyncMode,
+        normalizedValue: syncMode
+      }])
+    ],
+    nextAction: ready
+      ? {
+          action: 'sync_mailchimp_memory_scope',
+          requiredCapability: syncMode === 'snapshot' ? 'sync:snapshot' : 'sync:incremental'
+        }
+      : {
+          action: 'collect_mailchimp_sync_scope',
+          missingRequiredFields
+        }
+  };
+}
+
+function buildMailchimpMountSyncContract({ mountId, sourceKind, providerMailchimp, mountMailchimp, lifecycle, shapedState }) {
+  const context = normalizeMailchimpMountContext(mountMailchimp, providerMailchimp.identifiers);
+  const sourceSupported = MAILCHIMP_MEMORY_SOURCE_KINDS.has(sourceKind);
+  const scheduleAligned = lifecycle.settings.schedule.enabled
+    ? lifecycle.settings.schedule.nextRunAt !== null
+    : true;
+  const ready = context.ready && sourceSupported && scheduleAligned;
+  const blockers = [
+    ...context.identifiers.missingRequiredFields.map((field) => `missing:${field}`),
+    ...(!sourceSupported ? [`unsupported-source:${sourceKind}`] : []),
+    ...(!scheduleAligned ? ['schedule-next-run-missing'] : [])
+  ];
+  const contract = {
+    schemaVersion: 1,
+    mountId,
+    provider: 'mailchimp',
+    sourceKind,
+    ready,
+    status: ready ? 'ready' : 'blocked',
+    subjectKey: context.subjectKey,
+    identifiers: context.identifiers,
+    eventKinds: context.sync.eventKinds,
+    syncMode: context.sync.mode,
+    externalRevision: context.sync.externalRevision,
+    lastSyncedAt: context.sync.lastSyncedAt,
+    nextSyncAt: lifecycle.settings.schedule.enabled ? lifecycle.settings.schedule.nextRunAt : null,
+    stateEpoch: shapedState.persistedStatePatch.epoch,
+    blockers,
+    validationIssues: [
+      ...context.validationIssues,
+      ...(!sourceSupported ? [{
+        field: `mounts.${mountId}.source.kind`,
+        reason: 'mailchimp_source_kind_not_syncable',
+        value: sourceKind,
+        allowed: [...MAILCHIMP_MEMORY_SOURCE_KINDS].sort()
+      }] : [])
+    ],
+    nextAction: ready
+      ? {
+          action: 'publish_mailchimp_mount_sync',
+          payload: {
+            mountId,
+            audienceId: context.identifiers.audienceId,
+            campaignId: context.identifiers.campaignId,
+            externalRevision: context.sync.externalRevision
+          }
+        }
+      : {
+          action: 'repair_mailchimp_mount_sync',
+          blockers
+        }
+  };
+
+  return {
+    ...contract,
+    proof: proofToken(contract)
+  };
+}
+
+function buildMailchimpMountClientWorkflow({ request, command, lifecycle, shapedState, mailchimpMountSync }) {
+  const routeBase = `${request.route}/provider/mailchimp-sync`;
+  const readyMounts = mailchimpMountSync.filter((entry) => entry.ready);
+  const blockedMounts = mailchimpMountSync.filter((entry) => !entry.ready);
+  const validationIssueCount = mailchimpMountSync
+    .reduce((total, entry) => total + entry.validationIssues.length, 0);
+  const acceptanceToken = proofToken({
+    surfaceId,
+    commandId: command.commandId,
+    stateEpoch: shapedState.persistedStatePatch.epoch,
+    readyMountIds: readyMounts.map((entry) => entry.mountId),
+    blockedMountIds: blockedMounts.map((entry) => entry.mountId),
+    subjects: mailchimpMountSync.map((entry) => entry.subjectKey)
+  });
+  const status = blockedMounts.length
+    ? 'needs_review'
+    : (readyMounts.length ? 'ready_for_acceptance' : 'not_requested');
+  const routeCards = mailchimpMountSync.map((entry) => ({
+    mountId: entry.mountId,
+    subjectKey: entry.subjectKey,
+    status: entry.ready ? 'ready' : 'blocked',
+    route: entry.ready ? `${routeBase}/preview/${entry.mountId}` : `${routeBase}/scope/${entry.mountId}`,
+    nextAction: entry.nextAction.action,
+    blockers: entry.blockers,
+    validationIssueCount: entry.validationIssues.length,
+    proof: proofToken({
+      mountId: entry.mountId,
+      subjectKey: entry.subjectKey,
+      ready: entry.ready,
+      blockers: entry.blockers,
+      nextAction: entry.nextAction.action
+    })
+  }));
+
+  return {
+    schemaVersion: 1,
+    contentType: 'application/vnd.aios.memory-mount.mailchimp-workflow+json',
+    status,
+    routeBase,
+    commandId: command.commandId,
+    commandType: command.type,
+    stateEpoch: shapedState.persistedStatePatch.epoch,
+    lifecycle: {
+      enabled: lifecycle.settings.enabled,
+      scheduleEnabled: lifecycle.settings.schedule.enabled,
+      nextRunAt: lifecycle.settings.schedule.nextRunAt
+    },
+    preview: {
+      route: `${routeBase}/preview`,
+      readyMountIds: readyMounts.map((entry) => entry.mountId),
+      blockedMountIds: blockedMounts.map((entry) => entry.mountId),
+      cards: routeCards,
+      validationIssueCount
+    },
+    acceptance: {
+      route: `${routeBase}/accept`,
+      method: 'POST',
+      required: readyMounts.length > 0,
+      enabled: readyMounts.length > 0 && blockedMounts.length === 0,
+      token: readyMounts.length > 0 && blockedMounts.length === 0 ? acceptanceToken : null,
+      blockedReason: blockedMounts.length ? 'mailchimp_mount_sync_blocked' : null,
+      body: readyMounts.length > 0 && blockedMounts.length === 0
+        ? {
+            commandId: command.commandId,
+            stateEpoch: shapedState.persistedStatePatch.epoch,
+            mountIds: readyMounts.map((entry) => entry.mountId),
+            token: acceptanceToken
+          }
+        : null
+    },
+    validationSummary: {
+      route: `${routeBase}/validation`,
+      status: blockedMounts.length ? 'review' : 'clean',
+      issueCount: validationIssueCount,
+      blockedMountIds: blockedMounts.map((entry) => entry.mountId),
+      issues: blockedMounts.flatMap((entry) =>
+        entry.validationIssues.map((issue) => ({
+          mountId: entry.mountId,
+          subjectKey: entry.subjectKey,
+          ...issue
+        }))
+      )
+    },
+    nextSteps: blockedMounts.length
+      ? blockedMounts.map((entry) => ({
+          action: 'repair_mailchimp_mount_sync',
+          route: `${routeBase}/scope/${entry.mountId}`,
+          mountId: entry.mountId,
+          blockers: entry.blockers
+        }))
+      : readyMounts.map((entry) => ({
+          action: 'publish_mailchimp_mount_sync',
+          route: `${routeBase}/accept`,
+          mountId: entry.mountId,
+          token: acceptanceToken
+        })),
+    proof: proofToken({
+      commandId: command.commandId,
+      status,
+      routeProofs: routeCards.map((card) => card.proof),
+      acceptanceToken,
+      validationIssueCount
+    })
+  };
+}
+
+function evaluateSourceClockBoundary(source, rawMount, retentionContract, now, id) {
+  const observedAt = normalizeIsoString(
+    source.observedAt ?? source.checkedAt ?? source.syncedAt ?? rawMount.observedAt ?? rawMount.lastSyncedAt
+  );
+  const issuedAt = normalizeIsoString(
+    source.issuedAt ?? source.generatedAt ?? source.createdAt ?? rawMount.issuedAt
+  );
+  const nowMs = Date.parse(now);
+  const observedMs = observedAt ? Date.parse(observedAt) : NaN;
+  const issuedMs = issuedAt ? Date.parse(issuedAt) : NaN;
+  const maxFutureSkewMs = SOURCE_CONTRACT_CLOCK_SKEW_SECONDS * 1000;
+  const ttlMs = retentionContract.ttlMinutes * 60 * 1000;
+  const staleAfterMs = Number.isFinite(observedMs) ? observedMs + ttlMs : NaN;
+  const violations = [];
+
+  if (!observedAt) {
+    violations.push('source_observed_at_missing');
+  } else if (Number.isFinite(nowMs) && observedMs > nowMs + maxFutureSkewMs) {
+    violations.push('source_observed_at_from_future');
+  } else if (Number.isFinite(nowMs) && Number.isFinite(staleAfterMs) && staleAfterMs < nowMs) {
+    violations.push('source_contract_stale');
+  }
+
+  if (issuedAt && Number.isFinite(nowMs) && issuedMs > nowMs + maxFutureSkewMs) {
+    violations.push('source_issued_at_from_future');
+  }
+
+  const status = violations.some((violation) => violation.endsWith('_from_future'))
+    ? 'clock_skew'
+    : violations.includes('source_contract_stale')
+      ? 'stale'
+      : violations.includes('source_observed_at_missing')
+        ? 'unproven'
+        : 'fresh';
+
+  return {
+    schemaVersion: 1,
+    mountId: id,
+    status,
+    observedAt,
+    issuedAt,
+    evaluatedAt: now,
+    maxFutureSkewSeconds: SOURCE_CONTRACT_CLOCK_SKEW_SECONDS,
+    ttlMinutes: retentionContract.ttlMinutes,
+    staleAfterAt: Number.isFinite(staleAfterMs) ? new Date(staleAfterMs).toISOString() : null,
+    restartSafe: status === 'fresh',
+    violations,
+    proof: proofToken({
+      id,
+      observedAt,
+      issuedAt,
+      now,
+      ttlMinutes: retentionContract.ttlMinutes,
+      violations
+    })
+  };
+}
+
 function canonicalMountKind(kind) {
   const requested = typeof kind === 'string' && kind.trim() ? kind.trim() : 'project';
   return MOUNT_KIND_ALIASES[requested] || requested;
+}
+
+function normalizeMountKindContract(rawKind, id, field = 'mounts.kind') {
+  const requestedKind = typeof rawKind === 'string' && rawKind.trim() ? rawKind.trim() : 'project';
+  const canonicalKind = canonicalMountKind(requestedKind);
+  const aliasKind = MOUNT_KIND_ALIASES[requestedKind] || null;
+  const requestedAllowed = ALLOWED_MOUNT_KINDS.has(requestedKind);
+  const descriptorAvailable = Boolean(MEMORY_MOUNT_DESCRIPTORS[canonicalKind]);
+  const accepted = requestedAllowed && descriptorAvailable;
+  const issues = [];
+
+  if (!requestedAllowed) {
+    issues.push({
+      field,
+      reason: 'unsupported_mount_kind',
+      value: requestedKind,
+      normalizedValue: descriptorAvailable ? canonicalKind : null
+    });
+  }
+
+  if (requestedAllowed && aliasKind) {
+    issues.push({
+      field,
+      reason: 'legacy_mount_kind_alias_canonicalized',
+      value: requestedKind,
+      normalizedValue: canonicalKind
+    });
+  }
+
+  if (requestedAllowed && !descriptorAvailable) {
+    issues.push({
+      field,
+      reason: 'mount_kind_descriptor_missing',
+      value: requestedKind,
+      normalizedValue: canonicalKind
+    });
+  }
+
+  const contract = {
+    schemaVersion: 1,
+    mountId: id || null,
+    requestedKind,
+    canonicalKind,
+    aliasKind,
+    requestedAllowed,
+    descriptorAvailable,
+    accepted,
+    descriptorRoute: descriptorAvailable
+      ? `/kernel/memory-manager/memory-mount/descriptors/${MEMORY_MOUNT_DESCRIPTORS[canonicalKind].routeSegment}`
+      : null,
+    status: accepted
+      ? (aliasKind ? 'canonicalized' : 'accepted')
+      : 'rejected',
+    issues
+  };
+
+  return {
+    ...contract,
+    proof: proofToken(contract)
+  };
 }
 
 function descriptorDefaultScopeValue(defaultScopeKind, clientState) {
@@ -586,7 +947,8 @@ function buildRequiredDescriptorRepairs({ rawDescriptor, canonicalKind, requeste
 }
 
 function buildMemoryMountDescriptor({ rawDescriptor, kind, id, scope, sourceKind, clientState }) {
-  const canonicalKind = canonicalMountKind(kind);
+  const kindContract = normalizeMountKindContract(kind, id, 'descriptor.kind');
+  const canonicalKind = kindContract.canonicalKind;
   const template = MEMORY_MOUNT_DESCRIPTORS[canonicalKind] || MEMORY_MOUNT_DESCRIPTORS.project;
   const descriptor = rawDescriptor && typeof rawDescriptor === 'object' ? rawDescriptor : {};
   const scopeKind = DESCRIPTOR_SCOPE_KINDS.has(template.defaultScopeKind) ? template.defaultScopeKind : 'session';
@@ -629,6 +991,7 @@ function buildMemoryMountDescriptor({ rawDescriptor, kind, id, scope, sourceKind
     kind: canonicalKind,
     requestedKind: kind,
     legacyKind: canonicalKind === kind ? null : kind,
+    kindContract,
     label: normalizeNonEmptyString(descriptor.label, template.label),
     summary: normalizeNonEmptyString(descriptor.summary, template.summary),
     sourceKind,
@@ -651,6 +1014,7 @@ function buildMemoryMountDescriptor({ rawDescriptor, kind, id, scope, sourceKind
     repairIssues,
     repairProof: proofToken({
       canonicalKind,
+      kindContractProof: kindContract.proof,
       id,
       sourceKind,
       commandPolicyProof: commandPolicy.proof,
@@ -957,9 +1321,10 @@ function buildMemoryMountDescriptorCatalog({ request, clientState }) {
   };
 }
 
-function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope, clientState }) {
+function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope, clientState, now }) {
   const source = rawMount.source && typeof rawMount.source === 'object' ? rawMount.source : {};
-  const canonicalKind = canonicalMountKind(kind);
+  const kindContract = normalizeMountKindContract(requestedKind || kind, id, `mounts.${id}.kind`);
+  const canonicalKind = kindContract.canonicalKind;
   const descriptorTemplate = MEMORY_MOUNT_DESCRIPTORS[canonicalKind] || MEMORY_MOUNT_DESCRIPTORS.project;
   const requestedSourceKind = normalizeNonEmptyString(source.kind ?? rawMount.sourceKind, descriptorTemplate.sourceKind);
   const baseSourceKind = ALLOWED_SOURCE_KINDS.has(requestedSourceKind)
@@ -992,13 +1357,14 @@ function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope
     canonicalKind,
     id
   });
+  const sourceFreshness = evaluateSourceClockBoundary(source, rawMount, retentionContract, now, id);
   const scopeContract = parseMemoryMountScope(scope, {
     descriptorScopeKind: descriptorTemplate.defaultScopeKind,
     fallbackScope: scope,
     clientState
   });
   const labels = normalizeStringList(source.labels ?? rawMount.labels).slice(0, 12);
-  const issues = [];
+  const issues = [...kindContract.issues];
 
   if (!ALLOWED_SOURCE_KINDS.has(requestedSourceKind)) {
     issues.push({ field: `mounts.${id}.source.kind`, reason: 'unsupported_source_kind', value: requestedSourceKind, normalizedValue: sourceKind });
@@ -1008,6 +1374,14 @@ function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope
   }
   issues.push(...sourceBinding.issues);
   issues.push(...retentionContract.issues);
+  issues.push(...sourceFreshness.violations.map((violation) => ({
+    field: `mounts.${id}.source.observedAt`,
+    reason: violation,
+    value: source.observedAt ?? source.checkedAt ?? source.syncedAt ?? rawMount.observedAt ?? rawMount.lastSyncedAt ?? null,
+    normalizedValue: sourceFreshness.observedAt,
+    status: sourceFreshness.status,
+    staleAfterAt: sourceFreshness.staleAfterAt
+  })));
   issues.push(...scopeContract.issues.map((issue) => ({
     ...issue,
     field: `mounts.${id}.${issue.field}`
@@ -1029,6 +1403,7 @@ function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope
     id,
     canonicalKind,
     sourceKind,
+    kindContract,
     uri,
     accessMode,
     sourceEpoch,
@@ -1057,6 +1432,7 @@ function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope
       ttlMinutes: retentionContract.ttlMinutes,
       proof: retentionContract.proof
     },
+    sourceFreshness,
     providerContract,
     kernelRoute: `/kernel/memory-manager/memory-mount/sources/${sourceKind}`,
     consistency: sourceEpoch > 0 || checksum ? 'source_backed' : 'declared',
@@ -1067,6 +1443,7 @@ function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope
       kind,
       canonicalKind,
       sourceKind,
+      kindContractProof: kindContract.proof,
       uri,
       scope,
       accessMode,
@@ -1077,6 +1454,7 @@ function normalizeMountSourceContract(rawMount, { kind, requestedKind, id, scope
       ttlMinutes: retentionContract.ttlMinutes,
       scopeContractProof: scopeContract.proof,
       retentionProof: retentionContract.proof,
+      sourceFreshnessProof: sourceFreshness.proof,
       descriptorSourceBindingProof: sourceBinding.binding.proof,
       providerContractProof: providerContract.proof,
       descriptorProof: descriptor.proof
@@ -1266,7 +1644,10 @@ function normalizePersistedState(input) {
         committedAt: normalizeIsoString(entry.committedAt)
       })),
     commandJournal: normalizeStateCommitJournal(state.commandJournal ?? state.stateJournal),
-    commandExecutions: normalizeCommandExecutionLedger(state.commandExecutions ?? state.commandExecutionLedger)
+    commandExecutions: normalizeCommandExecutionLedger(state.commandExecutions ?? state.commandExecutionLedger),
+    mailchimpContinuity: normalizePersistedMailchimpContinuityState(
+      state.mailchimpContinuity ?? state.mailchimpSyncState ?? state.providerContinuity?.mailchimp
+    )
   };
 }
 
@@ -1466,6 +1847,46 @@ function normalizeAnalyticsState(value) {
       ? analytics.lastSnapshotId.trim()
       : null,
     lastExportedAt: normalizeIsoString(analytics.lastExportedAt)
+  };
+}
+
+function normalizePersistedMailchimpContinuityState(value) {
+  const state = value && typeof value === 'object' ? value : {};
+  const subjects = Array.isArray(state.subjects) ? state.subjects : [];
+
+  return {
+    schemaVersion: 1,
+    provider: 'mailchimp',
+    status: normalizeNonEmptyString(state.status, 'not_requested'),
+    checkpointKey: normalizeNonEmptyString(state.checkpointKey, null),
+    lastCommittedAt: normalizeIsoString(state.lastCommittedAt),
+    lastAcceptedToken: normalizeNonEmptyString(state.lastAcceptedToken, null),
+    replaySafe: normalizeBoolean(state.replaySafe, false),
+    pendingHandoff: state.pendingHandoff && typeof state.pendingHandoff === 'object'
+      ? {
+          route: normalizeNonEmptyString(state.pendingHandoff.route, null),
+          payloadRef: normalizeNonEmptyString(state.pendingHandoff.payloadRef, null),
+          subjectKeys: normalizeStringList(state.pendingHandoff.subjectKeys),
+          reason: normalizeNonEmptyString(state.pendingHandoff.reason, null)
+        }
+      : null,
+    subjects: subjects
+      .filter((entry) => entry && typeof entry === 'object')
+      .slice(-MAX_MAILCHIMP_CONTINUITY_SUBJECTS)
+      .map((entry) => ({
+        subjectKey: normalizeNonEmptyString(entry.subjectKey, 'mailchimp:audience-unbound:workspace'),
+        status: normalizeNonEmptyString(entry.status, 'blocked'),
+        mountIds: normalizeStringList(entry.mountIds),
+        readyMountIds: normalizeStringList(entry.readyMountIds),
+        blockedMountIds: normalizeStringList(entry.blockedMountIds),
+        eventKinds: normalizeStringList(entry.eventKinds).filter((kind) => MAILCHIMP_SYNC_EVENT_KINDS.has(kind)),
+        syncMode: ['incremental', 'snapshot', 'webhook'].includes(entry.syncMode) ? entry.syncMode : 'incremental',
+        externalRevision: normalizeNonEmptyString(entry.externalRevision, null),
+        lastSyncedAt: normalizeIsoString(entry.lastSyncedAt),
+        nextSyncAt: normalizeIsoString(entry.nextSyncAt),
+        blockerCount: normalizeInteger(entry.blockerCount, 0, 0, Number.MAX_SAFE_INTEGER),
+        proof: normalizeNonEmptyString(entry.proof, proofToken(entry))
+      }))
   };
 }
 
@@ -2189,7 +2610,7 @@ function buildLifecycleControlState({ request, command, lifecycle, principal, mo
   };
 }
 
-function normalizeMounts(input, clientState) {
+function normalizeMounts(input, clientState, now) {
   const sourceMounts = Array.isArray(input.mounts) ? input.mounts : [];
   const seen = new Set();
   const rejected = [];
@@ -2198,8 +2619,9 @@ function normalizeMounts(input, clientState) {
   for (const [index, rawMount] of sourceMounts.entries()) {
     const mount = rawMount && typeof rawMount === 'object' ? rawMount : {};
     const id = typeof mount.id === 'string' && mount.id.trim() ? mount.id.trim() : '';
-    const requestedKind = typeof mount.kind === 'string' && mount.kind.trim() ? mount.kind.trim() : 'project';
-    const kind = canonicalMountKind(requestedKind);
+    const kindContract = normalizeMountKindContract(mount.kind, id, `mounts.${index}.kind`);
+    const requestedKind = kindContract.requestedKind;
+    const kind = kindContract.canonicalKind;
     const scope = typeof mount.scope === 'string' && mount.scope.trim() ? mount.scope.trim() : clientState.sessionId;
     const tenantId = normalizeNonEmptyString(mount.tenantId, clientState.tenantId);
     const workspaceId = normalizeNonEmptyString(mount.workspaceId, clientState.workspaceId);
@@ -2213,17 +2635,25 @@ function normalizeMounts(input, clientState) {
       rejected.push({ id, index, reason: 'duplicate_mount_id' });
       continue;
     }
-    if (!ALLOWED_MOUNT_KINDS.has(requestedKind) || !MEMORY_MOUNT_DESCRIPTORS[kind]) {
-      rejected.push({ id, index, reason: 'unsupported_mount_kind', kind: requestedKind });
+    if (!kindContract.accepted) {
+      rejected.push({
+        id,
+        index,
+        reason: kindContract.issues[0]?.reason || 'unsupported_mount_kind',
+        kind: requestedKind,
+        normalizedKind: kindContract.descriptorAvailable ? kind : null,
+        kindContract
+      });
       continue;
     }
 
-    const source = normalizeMountSourceContract(mount, { kind, requestedKind, id, scope, clientState });
+    const source = normalizeMountSourceContract(mount, { kind, requestedKind, id, scope, clientState, now });
     seen.add(id);
     accepted.push({
       id,
       kind,
       requestedKind,
+      kindContract,
       scope,
       tenantId,
       workspaceId,
@@ -2232,9 +2662,11 @@ function normalizeMounts(input, clientState) {
       selected: clientState.selectedMountId === id,
       descriptor: source.descriptor,
       sourceContract: source.contract,
+      mailchimpSync: normalizeMailchimpMountContext(mount.mailchimpSync ?? mount.mailchimp),
       sourceValidationIssues: source.issues,
       evidence: [
         ...normalizeStringList(mount.evidence),
+        `kind:${id}:${source.contract.kindContract.status}:${source.contract.kindContract.proof}`,
         `descriptor:${id}:${source.descriptor.kind}:${source.descriptor.proof}`,
         `descriptor-source-binding:${id}:${source.contract.descriptorSourceBinding.status}:${source.contract.descriptorSourceBinding.proof}`,
         `source:${id}:${source.contract.sourceKind}:${source.contract.proof}`
@@ -2246,29 +2678,37 @@ function normalizeMounts(input, clientState) {
   return { accepted, rejected };
 }
 
-function recoverMountsFromPersistedState(persistedState, clientState) {
+function recoverMountsFromPersistedState(persistedState, clientState, now) {
   const accepted = [];
   const rejected = [];
 
   for (const [id, rawMount] of Object.entries(persistedState.mountsById)) {
     const mount = rawMount && typeof rawMount === 'object' ? rawMount : {};
-    const requestedKind = typeof mount.kind === 'string' && mount.kind.trim() ? mount.kind.trim() : '';
-    const kind = ALLOWED_MOUNT_KINDS.has(requestedKind) ? canonicalMountKind(requestedKind) : null;
+    const trimmedId = id.trim();
+    const kindContract = normalizeMountKindContract(mount.kind, trimmedId, `persistedState.mountsById.${trimmedId || id}.kind`);
+    const requestedKind = kindContract.requestedKind;
+    const kind = kindContract.accepted ? kindContract.canonicalKind : null;
     const scope = typeof mount.scope === 'string' && mount.scope.trim() ? mount.scope.trim() : clientState.sessionId;
     const tenantId = normalizeNonEmptyString(mount.tenantId, clientState.tenantId);
     const workspaceId = normalizeNonEmptyString(mount.workspaceId, clientState.workspaceId);
     const priority = Number.isFinite(mount.priority) ? Math.max(0, Math.min(100, Math.round(mount.priority))) : 50;
 
-    if (!id.trim()) {
+    if (!trimmedId) {
       rejected.push({ id, reason: 'persisted_mount_id_empty' });
       continue;
     }
     if (!kind) {
-      rejected.push({ id, reason: 'persisted_mount_kind_invalid', kind: mount.kind });
+      rejected.push({
+        id: trimmedId,
+        reason: kindContract.issues[0]?.reason || 'persisted_mount_kind_invalid',
+        kind: mount.kind,
+        normalizedKind: kindContract.descriptorAvailable ? kindContract.canonicalKind : null,
+        kindContract
+      });
       continue;
     }
 
-    const source = normalizeMountSourceContract(mount, { kind, requestedKind, id: id.trim(), scope, clientState });
+    const source = normalizeMountSourceContract(mount, { kind, requestedKind, id: trimmedId, scope, clientState, now });
     const persistedSource = mount.sourceContract && typeof mount.sourceContract === 'object'
       ? mount.sourceContract
       : {};
@@ -2317,7 +2757,7 @@ function recoverMountsFromPersistedState(persistedState, clientState) {
       : source.contract.descriptorSourceBinding;
     const persistedSourceIssues = persistedSourceKindNormalized
       ? [{
-          field: `persistedState.mountsById.${id.trim()}.sourceContract.sourceKind`,
+          field: `persistedState.mountsById.${trimmedId}.sourceContract.sourceKind`,
           reason: 'descriptor_source_kind_normalized',
           value: persistedSourceKind,
           normalizedValue: source.contract.sourceKind,
@@ -2327,7 +2767,7 @@ function recoverMountsFromPersistedState(persistedState, clientState) {
       : [];
     if (retentionChanged) {
       persistedSourceIssues.push({
-        field: `persistedState.mountsById.${id.trim()}.sourceContract.retention`,
+        field: `persistedState.mountsById.${trimmedId}.sourceContract.retention`,
         reason: 'persisted_retention_contract_repaired',
         value: persistedRetention,
         normalizedValue: source.contract.retention,
@@ -2336,7 +2776,22 @@ function recoverMountsFromPersistedState(persistedState, clientState) {
     }
     persistedSourceIssues.push(...retainedScopeContract.issues.map((issue) => ({
       ...issue,
-      field: `persistedState.mountsById.${id.trim()}.sourceContract.${issue.field}`
+      field: `persistedState.mountsById.${trimmedId}.sourceContract.${issue.field}`
+    })));
+    const persistedSourceFreshness = evaluateSourceClockBoundary(
+      persistedSource,
+      mount,
+      source.contract.retention,
+      now,
+      trimmedId
+    );
+    persistedSourceIssues.push(...persistedSourceFreshness.violations.map((violation) => ({
+      field: `persistedState.mountsById.${trimmedId}.sourceContract.observedAt`,
+      reason: violation,
+      value: persistedSource.observedAt ?? persistedSource.checkedAt ?? persistedSource.syncedAt ?? mount.observedAt ?? mount.lastSyncedAt ?? null,
+      normalizedValue: persistedSourceFreshness.observedAt,
+      status: persistedSourceFreshness.status,
+      staleAfterAt: persistedSourceFreshness.staleAfterAt
     })));
     const descriptor = {
       ...source.descriptor,
@@ -2344,7 +2799,7 @@ function recoverMountsFromPersistedState(persistedState, clientState) {
       label: normalizeNonEmptyString(persistedDescriptor.label, source.descriptor.label),
       summary: normalizeNonEmptyString(persistedDescriptor.summary, source.descriptor.summary),
       proof: proofToken({
-        id: id.trim(),
+        id: trimmedId,
         kind,
         persistedDescriptor,
         fallbackProof: source.descriptor.proof
@@ -2365,7 +2820,7 @@ function recoverMountsFromPersistedState(persistedState, clientState) {
         ttlMinutes: source.contract.retention.ttlMinutes,
         requestedPolicy: retainedPolicy,
         proof: proofToken({
-          id: id.trim(),
+          id: trimmedId,
           kind,
           retainedPolicy,
           retainedTtlMinutes,
@@ -2373,11 +2828,12 @@ function recoverMountsFromPersistedState(persistedState, clientState) {
           normalizedTtlMinutes: source.contract.retention.ttlMinutes
         })
       },
+      sourceFreshness: persistedSourceFreshness,
       descriptorSourceBinding,
       descriptorKind: descriptor.kind,
       descriptorProof: descriptor.proof,
       proof: proofToken({
-        id: id.trim(),
+        id: trimmedId,
         kind,
         persistedSourceKind: persistedSource.sourceKind,
         persistedUri: persistedSource.uri,
@@ -2385,29 +2841,32 @@ function recoverMountsFromPersistedState(persistedState, clientState) {
         persistedEpoch: persistedSource.sourceEpoch,
         retainedScopeProof: retainedScopeContract.proof,
         retentionProof: source.contract.retention.proof,
+        sourceFreshnessProof: persistedSourceFreshness.proof,
         descriptorSourceBindingProof: descriptorSourceBinding?.proof || null,
         descriptorProof: descriptor.proof,
         fallbackProof: source.contract.proof
       })
     };
     accepted.push({
-      id: id.trim(),
+      id: trimmedId,
       kind,
       requestedKind,
+      kindContract,
       scope,
       tenantId,
       workspaceId,
       priority,
       writable: mount.writable === true,
-      selected: clientState.selectedMountId === id || persistedState.activeMountId === id,
+      selected: clientState.selectedMountId === trimmedId || persistedState.activeMountId === trimmedId,
       descriptor,
       sourceContract,
       sourceValidationIssues: [...source.issues, ...persistedSourceIssues],
       evidence: [
-        `persisted:${persistedState.epoch}:${id}`,
-        `descriptor:${id}:${descriptor.kind}:${descriptor.proof}`,
-        `descriptor-source-binding:${id}:${descriptorSourceBinding.status}:${descriptorSourceBinding.proof}`,
-        `source:${id}:${sourceContract.sourceKind}:${sourceContract.proof}`
+        `persisted:${persistedState.epoch}:${trimmedId}`,
+        `kind:${trimmedId}:${sourceContract.kindContract.status}:${sourceContract.kindContract.proof}`,
+        `descriptor:${trimmedId}:${descriptor.kind}:${descriptor.proof}`,
+        `descriptor-source-binding:${trimmedId}:${descriptorSourceBinding.status}:${descriptorSourceBinding.proof}`,
+        `source:${trimmedId}:${sourceContract.sourceKind}:${sourceContract.proof}`
       ]
     });
   }
@@ -2809,8 +3268,16 @@ function buildPersistedStateContract({ persistedStatePatch, recovery, command })
     const descriptor = mount.descriptor && typeof mount.descriptor === 'object'
       ? mount.descriptor
       : {};
+    const kindContract = sourceContract.kindContract && typeof sourceContract.kindContract === 'object'
+      ? sourceContract.kindContract
+      : normalizeMountKindContract(mount.kind || descriptor.kind, mountId, `persistedState.mountsById.${mountId}.kind`);
     return {
       mountId,
+      requestedKind: kindContract.requestedKind,
+      canonicalKind: kindContract.canonicalKind,
+      kindStatus: kindContract.status,
+      kindProof: kindContract.proof,
+      kindIssueCount: Array.isArray(kindContract.issues) ? kindContract.issues.length : 0,
       descriptorKind: descriptor.kind || mount.kind || null,
       descriptorLabel: descriptor.label || null,
       descriptorStatus: descriptor.descriptorStatus || null,
@@ -2862,6 +3329,19 @@ function buildPersistedStateContract({ persistedStatePatch, recovery, command })
     analyticsHistoryCount: Array.isArray(persistedStatePatch.analytics?.history)
       ? persistedStatePatch.analytics.history.length
       : 0,
+    mailchimpContinuity: {
+      status: persistedStatePatch.mailchimpContinuity?.status || 'not_requested',
+      checkpointKey: persistedStatePatch.mailchimpContinuity?.checkpointKey || null,
+      subjectCount: persistedStatePatch.mailchimpContinuity?.subjects?.length || 0,
+      readySubjectCount: (persistedStatePatch.mailchimpContinuity?.subjects || [])
+        .filter((subject) => subject.status === 'ready')
+        .length,
+      blockedSubjectCount: (persistedStatePatch.mailchimpContinuity?.subjects || [])
+        .filter((subject) => subject.status === 'blocked')
+        .length,
+      replaySafe: persistedStatePatch.mailchimpContinuity?.replaySafe === true,
+      pendingHandoff: persistedStatePatch.mailchimpContinuity?.pendingHandoff || null
+    },
     analyticsDescriptorCounters: {
       descriptorStatuses: persistedStatePatch.analytics?.counters?.descriptorStatuses || {},
       descriptorLifecycles: persistedStatePatch.analytics?.counters?.descriptorLifecycles || {},
@@ -2888,6 +3368,7 @@ function buildPersistedStateContract({ persistedStatePatch, recovery, command })
       mountIds,
       sourceContracts,
       lifecycle: persistedStatePatch.lifecycle,
+      mailchimpContinuity: persistedStatePatch.mailchimpContinuity,
       analytics: {
         counters: persistedStatePatch.analytics?.counters,
         lastSnapshotId: persistedStatePatch.analytics?.lastSnapshotId,
@@ -2906,6 +3387,154 @@ function buildPersistedStateContract({ persistedStatePatch, recovery, command })
       commandExecutionProofs: commandExecutions.map((entry) => entry.proof),
       replayCheckpoint: recovery.replayCheckpoint || null,
       recoveryStatus: recovery.status
+    })
+  };
+}
+
+function buildMailchimpContinuityState({ previousState, mountsById, lifecycle, command, epoch, now }) {
+  const mountEntries = Object.values(mountsById)
+    .filter((mount) => mount && typeof mount === 'object')
+    .map((mount) => {
+      const sourceKind = mount.sourceContract?.sourceKind || SOURCE_KIND_BY_MOUNT_KIND[mount.kind] || 'workspace-index';
+      const context = normalizeMailchimpMountContext(mount.mailchimpSync ?? mount.mailchimp);
+      const requested = Boolean(
+        context.identifiers.audienceId ||
+        context.identifiers.campaignId ||
+        context.identifiers.segmentId ||
+        context.identifiers.automationId ||
+        context.sync.externalRevision ||
+        context.sync.unsupportedEventKinds.length > 0 ||
+        context.subjectKey !== 'mailchimp:audience-unbound:workspace'
+      );
+      const sourceSupported = MAILCHIMP_MEMORY_SOURCE_KINDS.has(sourceKind);
+      const scheduleAligned = lifecycle.schedule.enabled ? lifecycle.schedule.nextRunAt !== null : true;
+      const ready = context.ready && sourceSupported && scheduleAligned;
+      const blockers = [
+        ...context.identifiers.missingRequiredFields.map((field) => `missing:${field}`),
+        ...(!sourceSupported ? [`unsupported-source:${sourceKind}`] : []),
+        ...(!scheduleAligned ? ['schedule-next-run-missing'] : [])
+      ];
+
+      return {
+        mountId: mount.id,
+        sourceKind,
+        subjectKey: context.subjectKey,
+        requested,
+        ready,
+        status: ready ? 'ready' : 'blocked',
+        eventKinds: context.sync.eventKinds,
+        syncMode: context.sync.mode,
+        externalRevision: context.sync.externalRevision,
+        lastSyncedAt: context.sync.lastSyncedAt,
+        nextSyncAt: lifecycle.schedule.enabled ? lifecycle.schedule.nextRunAt : null,
+        blockers,
+        proof: proofToken({
+          mountId: mount.id,
+          sourceKind,
+          subjectKey: context.subjectKey,
+          requested,
+          ready,
+          blockers,
+          epoch
+        })
+      };
+    })
+    .filter((entry) => entry.requested);
+  const subjects = Object.values(mountEntries.reduce((groups, entry) => {
+    const existing = groups[entry.subjectKey] || {
+      subjectKey: entry.subjectKey,
+      status: 'ready',
+      mountIds: [],
+      readyMountIds: [],
+      blockedMountIds: [],
+      eventKinds: [],
+      syncMode: entry.syncMode,
+      externalRevision: entry.externalRevision,
+      lastSyncedAt: entry.lastSyncedAt,
+      nextSyncAt: entry.nextSyncAt,
+      blockerCount: 0,
+      proofs: []
+    };
+    existing.mountIds.push(entry.mountId);
+    if (entry.ready) {
+      existing.readyMountIds.push(entry.mountId);
+    } else {
+      existing.blockedMountIds.push(entry.mountId);
+      existing.status = 'blocked';
+    }
+    existing.eventKinds = [...new Set([...existing.eventKinds, ...entry.eventKinds])].sort();
+    existing.externalRevision = existing.externalRevision || entry.externalRevision;
+    existing.lastSyncedAt = existing.lastSyncedAt || entry.lastSyncedAt;
+    existing.nextSyncAt = existing.nextSyncAt || entry.nextSyncAt;
+    existing.blockerCount += entry.blockers.length;
+    existing.proofs.push(entry.proof);
+    groups[entry.subjectKey] = existing;
+    return groups;
+  }, {}))
+    .map((subject) => ({
+      subjectKey: subject.subjectKey,
+      status: subject.status,
+      mountIds: subject.mountIds.sort(),
+      readyMountIds: subject.readyMountIds.sort(),
+      blockedMountIds: subject.blockedMountIds.sort(),
+      eventKinds: subject.eventKinds,
+      syncMode: subject.syncMode,
+      externalRevision: subject.externalRevision,
+      lastSyncedAt: subject.lastSyncedAt,
+      nextSyncAt: subject.nextSyncAt,
+      blockerCount: subject.blockerCount,
+      proof: proofToken({
+        subjectKey: subject.subjectKey,
+        status: subject.status,
+        mountIds: subject.mountIds.sort(),
+        readyMountIds: subject.readyMountIds.sort(),
+        blockedMountIds: subject.blockedMountIds.sort(),
+        eventKinds: subject.eventKinds,
+        epoch,
+        proofs: subject.proofs
+      })
+    }))
+    .slice(-MAX_MAILCHIMP_CONTINUITY_SUBJECTS);
+  const blockedSubjects = subjects.filter((subject) => subject.status === 'blocked');
+  const readySubjects = subjects.filter((subject) => subject.status === 'ready');
+  const status = subjects.length === 0 ? 'not_requested' : blockedSubjects.length > 0 ? 'blocked' : 'ready';
+  const checkpointKey = proofToken({
+    provider: 'mailchimp',
+    epoch,
+    commandId: command.commandId,
+    subjectProofs: subjects.map((subject) => subject.proof),
+    previousCheckpointKey: previousState.checkpointKey
+  });
+
+  return {
+    schemaVersion: 1,
+    provider: 'mailchimp',
+    status,
+    checkpointKey,
+    lastCommittedAt: now,
+    lastAcceptedToken: readySubjects.length > 0 ? checkpointKey : previousState.lastAcceptedToken,
+    replaySafe: status !== 'blocked',
+    pendingHandoff: status === 'ready'
+      ? {
+          route: '/kernel/memory-manager/memory-mount/provider/mailchimp-sync/accept',
+          payloadRef: checkpointKey,
+          subjectKeys: readySubjects.map((subject) => subject.subjectKey),
+          reason: 'mailchimp_mount_sync_ready'
+        }
+      : blockedSubjects.length > 0
+        ? {
+            route: '/kernel/memory-manager/memory-mount/provider/mailchimp-sync/validation',
+            payloadRef: checkpointKey,
+            subjectKeys: blockedSubjects.map((subject) => subject.subjectKey),
+            reason: 'mailchimp_mount_sync_blocked'
+          }
+        : null,
+    subjects,
+    proof: proofToken({
+      status,
+      checkpointKey,
+      subjects: subjects.map((subject) => subject.proof),
+      replaySafe: status !== 'blocked'
     })
   };
 }
@@ -3407,7 +4036,8 @@ function shapePersistedState({ persistedState, command, mounts, clientState, lif
       analytics: persistedState.analytics,
       commandLog: persistedState.commandLog,
       commandJournal: persistedState.commandJournal,
-      commandExecutions: persistedState.commandExecutions
+      commandExecutions: persistedState.commandExecutions,
+      mailchimpContinuity: persistedState.mailchimpContinuity
     };
     const persistedMountIds = Object.keys(persistedState.mountsById);
     const recovery = {
@@ -3448,7 +4078,8 @@ function shapePersistedState({ persistedState, command, mounts, clientState, lif
       analytics: persistedState.analytics,
       commandLog: persistedState.commandLog,
       commandJournal: persistedState.commandJournal,
-      commandExecutions: persistedState.commandExecutions
+      commandExecutions: persistedState.commandExecutions,
+      mailchimpContinuity: persistedState.mailchimpContinuity
     };
     const recovery = {
       status: 'boundary_blocked',
@@ -3524,6 +4155,7 @@ function shapePersistedState({ persistedState, command, mounts, clientState, lif
       boundary: mount.boundary,
       descriptor: mount.descriptor,
       sourceContract: mount.sourceContract,
+      mailchimpSync: mount.mailchimpSync,
       sourceValidationIssues: mount.sourceValidationIssues,
       committedAt: now,
       source: existingIds.has(mount.id) ? 'persisted-refresh' : 'request'
@@ -3566,7 +4198,19 @@ function shapePersistedState({ persistedState, command, mounts, clientState, lif
       }
     ].slice(-MAX_COMMAND_LOG_ENTRIES),
     commandJournal: persistedState.commandJournal,
-    commandExecutions: persistedState.commandExecutions
+    commandExecutions: persistedState.commandExecutions,
+    mailchimpContinuity: null
+  };
+  persistedStatePatch = {
+    ...persistedStatePatch,
+    mailchimpContinuity: buildMailchimpContinuityState({
+      previousState: persistedState.mailchimpContinuity,
+      mountsById: persistedStatePatch.mountsById,
+      lifecycle: persistedStatePatch.lifecycle,
+      command,
+      epoch: persistedStatePatch.epoch,
+      now
+    })
   };
   const recovery = {
     status,
@@ -3999,6 +4643,7 @@ function buildValidationSummary({ mounts, lifecycle, principal, command, boundar
           }
         : null,
       scopeContract: mount.sourceContract.scopeContract || null,
+    sourceFreshness: mount.sourceContract.sourceFreshness || null,
     canonicalScope: mount.sourceContract.canonicalScope || mount.scope,
     retention: mount.sourceContract.retention || null,
     sourceKind: mount.sourceContract.sourceKind,
@@ -5571,6 +6216,155 @@ function buildAnalyticsReportingWindow({ timeline, analytics, now }) {
   };
 }
 
+function incidentSeverityRank(severity) {
+  if (severity === 'critical') return 4;
+  if (severity === 'error') return 3;
+  if (severity === 'warning') return 2;
+  if (severity === 'info') return 1;
+  return 0;
+}
+
+function normalizeHealthIncidentForExport(incident, index, now) {
+  const source = incident && typeof incident === 'object' ? incident : {};
+  const severity = normalizeNonEmptyString(source.severity, 'warning');
+  const status = normalizeNonEmptyString(source.status, 'attention_required');
+  const retryAfter = normalizeIsoString(source.retryAfter);
+
+  return {
+    incidentId: normalizeNonEmptyString(source.incidentId, proofToken({ index, source, now })),
+    source: normalizeNonEmptyString(source.source, 'memory-mount'),
+    status,
+    severity,
+    code: normalizeNonEmptyString(source.code, status),
+    mountId: typeof source.mountId === 'string' && source.mountId.trim() ? source.mountId.trim() : null,
+    sourceKind: ALLOWED_SOURCE_KINDS.has(source.sourceKind) ? source.sourceKind : null,
+    serviceId: normalizeNonEmptyString(source.serviceId, null),
+    retryable: normalizeBoolean(source.retryable, false),
+    retryAfter,
+    operatorAction: normalizeNonEmptyString(source.operatorAction, source.retryable ? 'retry_after_backoff' : 'review_memory_mount_health'),
+    route: normalizeNonEmptyString(source.route, null),
+    proof: normalizeNonEmptyString(source.proof, proofToken({ index, source, retryAfter }))
+  };
+}
+
+function normalizeHealthRepairStepForExport(step, index, now) {
+  const source = step && typeof step === 'object' ? step : {};
+  const retryAfter = normalizeIsoString(source.retryAfter);
+  return {
+    stepId: normalizeNonEmptyString(source.stepId, proofToken({ index, source, now })),
+    type: normalizeNonEmptyString(source.type, 'review_memory_mount_health'),
+    route: normalizeNonEmptyString(source.route, null),
+    label: normalizeNonEmptyString(source.label, 'Review memory mount health'),
+    reason: normalizeNonEmptyString(source.reason, 'operational_health_attention_required'),
+    retryable: normalizeBoolean(source.retryable, false),
+    retryAfter,
+    backoffSeconds: normalizeInteger(source.backoffSeconds, 0, 0, MAX_RETRY_DELAY_SECONDS),
+    sourceKinds: Array.isArray(source.sourceKinds)
+      ? [...new Set(source.sourceKinds.filter((kind) => ALLOWED_SOURCE_KINDS.has(kind)))].sort()
+      : [],
+    proof: normalizeNonEmptyString(source.proof, proofToken({ index, source, retryAfter }))
+  };
+}
+
+function buildHealthIncidentAnalyticsExport({ operationalHealth, timeline, now }) {
+  const incidentPlan = operationalHealth?.incidentPlan && typeof operationalHealth.incidentPlan === 'object'
+    ? operationalHealth.incidentPlan
+    : {};
+  const incidents = Array.isArray(incidentPlan.incidents)
+    ? incidentPlan.incidents
+        .map((incident, index) => normalizeHealthIncidentForExport(incident, index, now))
+        .sort((left, right) =>
+          incidentSeverityRank(right.severity) - incidentSeverityRank(left.severity)
+          || left.code.localeCompare(right.code)
+          || (left.mountId || '').localeCompare(right.mountId || '')
+        )
+    : [];
+  const repairSteps = Array.isArray(incidentPlan.repairSteps)
+    ? incidentPlan.repairSteps.map((step, index) => normalizeHealthRepairStepForExport(step, index, now))
+    : [];
+  const currentWritePolicy = incidentPlan.writePolicy && typeof incidentPlan.writePolicy === 'object'
+    ? incidentPlan.writePolicy
+    : operationalHealth?.writePolicy || {};
+  const retryBudget = incidentPlan.retryBudget && typeof incidentPlan.retryBudget === 'object'
+    ? incidentPlan.retryBudget
+    : operationalHealth?.retryBudget || {};
+  const timelineHealth = countBy(timeline, (entry) => entry.healthStatus || 'unknown');
+  const blockedTimelineEntries = timeline.filter((entry) =>
+    entry.outcome === 'blocked' || entry.healthStatus === 'blocked' || entry.healthStatus === 'degraded');
+  const incidentsBySeverity = countBy(incidents, (incident) => incident.severity);
+  const incidentsByStatus = countBy(incidents, (incident) => incident.status);
+  const incidentsBySourceKind = countBy(incidents, (incident) => incident.sourceKind || 'unspecified');
+  const incidentsByMountId = countBy(incidents, (incident) => incident.mountId || 'unscoped');
+  const retryableIncidentCount = incidents.filter((incident) => incident.retryable).length;
+  const nextRetryAt = incidents
+    .map((incident) => incident.retryAfter)
+    .filter(Boolean)
+    .sort()[0] || retryBudget.nextRetryAt || null;
+  const highestSeverity = incidents[0]?.severity || (operationalHealth.status === 'healthy' ? 'info' : 'warning');
+  const currentState = currentWritePolicy.allowed === false
+    ? 'write-blocked'
+    : incidents.length
+      ? 'incident-open'
+      : operationalHealth.status === 'healthy'
+        ? 'clear'
+        : 'attention-required';
+
+  return {
+    schemaVersion: 1,
+    generatedAt: now,
+    state: currentState,
+    healthStatus: operationalHealth.status,
+    providerStatus: operationalHealth.providerHealth?.status || 'unknown',
+    highestSeverity,
+    degradedMode: Boolean(operationalHealth.degradedMode),
+    writePolicy: {
+      mode: currentWritePolicy.mode || 'unknown',
+      allowed: currentWritePolicy.allowed !== false,
+      blockedReasons: Array.isArray(currentWritePolicy.blockedReasons) ? currentWritePolicy.blockedReasons : [],
+      affectedMountIds: Array.isArray(currentWritePolicy.affectedMountIds) ? currentWritePolicy.affectedMountIds : [],
+      affectedSourceKinds: Array.isArray(currentWritePolicy.affectedSourceKinds) ? currentWritePolicy.affectedSourceKinds : [],
+      proof: currentWritePolicy.proof || null
+    },
+    retryBudget: {
+      attemptsUsed: normalizeInteger(retryBudget.attemptsUsed, 0, 0, MAX_RETRY_ATTEMPTS),
+      attemptsRemaining: normalizeInteger(retryBudget.attemptsRemaining, MAX_RETRY_ATTEMPTS, 0, MAX_RETRY_ATTEMPTS),
+      exhausted: normalizeBoolean(retryBudget.exhausted, false),
+      nextRetryAt,
+      backoffSeconds: normalizeInteger(retryBudget.backoffSeconds, 0, 0, MAX_RETRY_DELAY_SECONDS),
+      proof: retryBudget.proof || null
+    },
+    counters: {
+      incidentCount: incidents.length,
+      retryableIncidentCount,
+      repairStepCount: repairSteps.length,
+      timelineHealthEvents: timeline.length,
+      blockedTimelineEvents: blockedTimelineEntries.length,
+      bySeverity: incidentsBySeverity,
+      byStatus: incidentsByStatus,
+      bySourceKind: incidentsBySourceKind,
+      byMountId: incidentsByMountId,
+      timelineHealth
+    },
+    incidents,
+    repairSteps,
+    routes: {
+      health: operationalHealth.incidentPlan?.repairSteps?.[0]?.route || null,
+      report: null,
+      retry: nextRetryAt ? operationalHealth.incidentPlan?.repairSteps?.find((step) => step.retryable)?.route || null : null
+    },
+    proof: proofToken({
+      healthStatus: operationalHealth.status,
+      providerStatus: operationalHealth.providerHealth?.status || null,
+      incidentProofs: incidents.map((incident) => incident.proof),
+      repairStepProofs: repairSteps.map((step) => step.proof),
+      writePolicyProof: currentWritePolicy.proof || null,
+      retryBudgetProof: retryBudget.proof || null,
+      timelineHealth,
+      nextRetryAt
+    })
+  };
+}
+
 function buildAnalyticsReport({ request, command, shapedState, validationSummary, operationalHealth, previewAcceptance, now }) {
   const analytics = shapedState.persistedStatePatch.analytics;
   const history = Array.isArray(analytics.history) ? analytics.history : [];
@@ -5603,6 +6397,8 @@ function buildAnalyticsReport({ request, command, shapedState, validationSummary
     proof: entry.proof
   }));
   const reportingWindow = buildAnalyticsReportingWindow({ timeline, analytics, now });
+  const healthIncidentExport = buildHealthIncidentAnalyticsExport({ operationalHealth, timeline, now });
+  healthIncidentExport.routes.report = `${request.route}/analytics/health-incidents`;
   const csvColumns = [
     'capturedAt',
     'epoch',
@@ -5615,6 +6411,10 @@ function buildAnalyticsReport({ request, command, shapedState, validationSummary
     'lifecycleIssueCount',
     'restartLevel',
     'healthStatus',
+    'healthIncidentState',
+    'healthIncidentCount',
+    'healthWritePolicyMode',
+    'healthRetryAfter',
     'validationStatus',
     'readinessLevel',
     'mountKinds',
@@ -5639,6 +6439,18 @@ function buildAnalyticsReport({ request, command, shapedState, validationSummary
       'sourceAccessModes'
     ].includes(column)) {
       return compactCounterList(entry[column]);
+    }
+    if (column === 'healthIncidentState') {
+      return healthIncidentExport.state;
+    }
+    if (column === 'healthIncidentCount') {
+      return healthIncidentExport.counters.incidentCount;
+    }
+    if (column === 'healthWritePolicyMode') {
+      return healthIncidentExport.writePolicy.mode;
+    }
+    if (column === 'healthRetryAfter') {
+      return healthIncidentExport.retryBudget.nextRetryAt;
     }
     return entry[column];
   };
@@ -5685,6 +6497,13 @@ function buildAnalyticsReport({ request, command, shapedState, validationSummary
     validationStatus: validationSummary.status,
     readinessLevel: previewAcceptance.readiness.level,
     healthStatus: operationalHealth.status,
+    healthIncidentState: healthIncidentExport.state,
+    healthIncidentCount: healthIncidentExport.counters.incidentCount,
+    healthIncidentHighestSeverity: healthIncidentExport.highestSeverity,
+    healthWritePolicyMode: healthIncidentExport.writePolicy.mode,
+    healthWriteAllowed: healthIncidentExport.writePolicy.allowed,
+    healthRetryAfter: healthIncidentExport.retryBudget.nextRetryAt,
+    healthIncidentProof: healthIncidentExport.proof,
     restartLevel: shapedState.recovery.restartStatus.level,
     latestSnapshotId: analytics.lastSnapshotId,
     latestSnapshotProof: latestSnapshot?.proof || null,
@@ -5705,7 +6524,8 @@ function buildAnalyticsReport({ request, command, shapedState, validationSummary
           surfaceId,
           summary,
           timeline,
-          reportingWindow
+          reportingWindow,
+          healthIncidentExport
         }
       },
       csv: {
@@ -5726,6 +6546,7 @@ function buildAnalyticsReport({ request, command, shapedState, validationSummary
           epoch: shapedState.persistedStatePatch.epoch,
           exportWatermark: reportingWindow.exportWatermark,
           summaryProof: reportingWindow.proof,
+          healthIncidentProof: healthIncidentExport.proof,
           csvRows
         })
       }
@@ -5736,11 +6557,13 @@ function buildAnalyticsReport({ request, command, shapedState, validationSummary
       timelineRoute: `${request.route}/analytics/timeline`,
       exportRoute: `${request.route}/analytics/export`
     },
+    healthIncidentExport,
     proof: proofToken({
       summary,
       timelineProofs: timeline.map((entry) => entry.proof),
       csvRows,
       reportingProof: reportingWindow.proof,
+      healthIncidentProof: healthIncidentExport.proof,
       exportManifestProof: reportingWindow.exportWatermark,
       analyticsProof: analytics.proof
     })
@@ -5852,6 +6675,7 @@ function normalizeProviderIntegration(input, request) {
         .slice(0, ALLOWED_SOURCE_KINDS.size)
         .map((entry, index) => normalizeProviderServiceBinding(entry, index, request))
     : [];
+  const mailchimpSync = normalizeMailchimpMountContext(provider.mailchimpSync ?? provider.mailchimp);
 
   return {
     providerId: normalizeNonEmptyString(provider.providerId, 'hosted-kernel-memory-provider'),
@@ -5864,11 +6688,16 @@ function normalizeProviderIntegration(input, request) {
     acceptsExternalHandoff: normalizeBoolean(provider.acceptsExternalHandoff, true),
     declaredSchemaVersion: normalizeInteger(provider.schemaVersion, 1, 1, Number.MAX_SAFE_INTEGER),
     serviceBindings,
+    mailchimpSync,
     validationIssues: [
       ...(ALLOWED_PROVIDER_SYNC_MODES.has(requestedSyncMode)
         ? []
         : [{ field: 'provider.sync.mode', reason: 'unsupported_provider_sync_mode', value: requestedSyncMode, normalizedValue: syncMode }]),
-      ...serviceBindings.flatMap((binding) => binding.validationIssues)
+      ...serviceBindings.flatMap((binding) => binding.validationIssues),
+      ...mailchimpSync.validationIssues.map((issue) => ({
+        ...issue,
+        field: `provider.${issue.field}`
+      }))
     ]
   };
 }
@@ -6096,9 +6925,52 @@ function buildProviderServiceContract({ input, request, clientState, principal, 
       nextSyncAt: provider.syncMode !== 'disabled' && lifecycle.settings.schedule.enabled
         ? lifecycle.settings.schedule.nextRunAt
         : null,
+      mailchimpSync: buildMailchimpMountSyncContract({
+        mountId: mount.id,
+        sourceKind,
+        providerMailchimp: provider.mailchimpSync,
+        mountMailchimp: mount.mailchimpSync,
+        lifecycle,
+        shapedState
+      }),
       proof: proofToken({ mountId: mount.id, serviceBinding, cursor, accessMode: contract.accessMode, boundary: mount.boundary?.proof })
     };
   });
+  const mailchimpMountSync = mountSyncMetadata.map((entry) => entry.mailchimpSync);
+  const mailchimpSyncSummary = {
+    schemaVersion: 1,
+    provider: 'mailchimp',
+    status: mailchimpMountSync.some((entry) => entry.status === 'blocked')
+      ? 'blocked'
+      : (mailchimpMountSync.length ? 'ready' : 'not_requested'),
+    readyMountIds: mailchimpMountSync.filter((entry) => entry.ready).map((entry) => entry.mountId),
+    blockedMounts: mailchimpMountSync
+      .filter((entry) => !entry.ready)
+      .map((entry) => ({
+        mountId: entry.mountId,
+        subjectKey: entry.subjectKey,
+        blockers: entry.blockers,
+        validationIssues: entry.validationIssues
+      })),
+    eventKinds: [...new Set(mailchimpMountSync.flatMap((entry) => entry.eventKinds))].sort(),
+    nextAction: mailchimpMountSync.some((entry) => !entry.ready)
+      ? {
+          action: 'repair_mailchimp_sync_scope',
+          mountIds: mailchimpMountSync.filter((entry) => !entry.ready).map((entry) => entry.mountId)
+        }
+      : {
+          action: 'publish_mailchimp_sync_metadata',
+          mountIds: mailchimpMountSync.map((entry) => entry.mountId)
+        }
+  };
+  const mailchimpClientWorkflow = buildMailchimpMountClientWorkflow({
+    request,
+    command,
+    lifecycle,
+    shapedState,
+    mailchimpMountSync
+  });
+  const mailchimpContinuity = shapedState.persistedStatePatch.mailchimpContinuity || normalizePersistedMailchimpContinuityState();
   const sourceServiceContracts = buildProviderSourceServiceContracts({
     provider,
     request,
@@ -6134,7 +7006,8 @@ function buildProviderServiceContract({ input, request, clientState, principal, 
       value: providerCriticalFailure.sourceKind || providerCriticalFailure.serviceId,
       normalizedValue: providerCriticalFailure.status,
       proof: providerCriticalFailure.failureId
-    }] : [])
+    }] : []),
+    ...mailchimpMountSync.flatMap((entry) => entry.validationIssues)
   ];
   const handoffState = {
     status: blocked || sourceServiceContracts.serviceStatus === 'blocked'
@@ -6152,6 +7025,7 @@ function buildProviderServiceContract({ input, request, clientState, principal, 
       activeMountId: activeMount?.id || null,
       stateEpoch: shapedState.persistedStatePatch.epoch,
       mountProofs: mountSyncMetadata.map((entry) => entry.proof),
+      mailchimpProofs: mailchimpMountSync.map((entry) => entry.proof),
       serviceProofs: sourceServiceContracts.serviceContracts.map((entry) => entry.proof),
       handoffTicketProofs: sourceServiceContracts.handoffTickets.map((entry) => entry.proof)
     }),
@@ -6198,7 +7072,8 @@ function buildProviderServiceContract({ input, request, clientState, principal, 
       serviceId: provider.serviceId,
       serviceVersion: provider.serviceVersion,
       displayName: provider.displayName,
-      declaredSchemaVersion: provider.declaredSchemaVersion
+      declaredSchemaVersion: provider.declaredSchemaVersion,
+      mailchimpSync: provider.mailchimpSync
     },
     capabilityNegotiation: {
       requestedCapabilities,
@@ -6213,6 +7088,22 @@ function buildProviderServiceContract({ input, request, clientState, principal, 
       mode: provider.syncMode,
       sourceKinds,
       mountSyncMetadata,
+      mailchimpSyncSummary: {
+        ...mailchimpSyncSummary,
+        workflowStatus: mailchimpClientWorkflow.status,
+        workflowRoute: mailchimpClientWorkflow.routeBase,
+        acceptanceRequired: mailchimpClientWorkflow.acceptance.required,
+        acceptanceEnabled: mailchimpClientWorkflow.acceptance.enabled,
+        acceptanceToken: mailchimpClientWorkflow.acceptance.token,
+        continuityStatus: mailchimpContinuity.status,
+        continuityCheckpointKey: mailchimpContinuity.checkpointKey,
+        replaySafe: mailchimpContinuity.replaySafe,
+        persistedSubjectCount: mailchimpContinuity.subjects.length,
+        pendingHandoff: mailchimpContinuity.pendingHandoff,
+        proof: proofToken(mailchimpSyncSummary)
+      },
+      mailchimpClientWorkflow,
+      mailchimpContinuity,
       nextScheduledSyncAt: lifecycle.settings.schedule.enabled ? lifecycle.settings.schedule.nextRunAt : null
     },
     sourceServiceContracts: {
@@ -6242,6 +7133,8 @@ function buildProviderServiceContract({ input, request, clientState, principal, 
       operationalStatus,
       mountSyncProofs: mountSyncMetadata.map((entry) => entry.proof),
       sourceServiceProof: sourceServiceContracts.proof,
+      mailchimpClientWorkflowProof: mailchimpClientWorkflow.proof,
+      mailchimpContinuityProof: mailchimpContinuity.proof,
       handoffState
     })
   };
@@ -6628,7 +7521,7 @@ export function describeMemoryMountSurface(input = {}) {
   const command = normalizeCommand(input, request, clientState);
   const lifecycleSettings = normalizeLifecycleSettings(input, persistedState);
   const lifecycle = applyLifecycleCommand({ settings: lifecycleSettings, command, now });
-  const requestedMounts = normalizeMounts(input, clientState);
+  const requestedMounts = normalizeMounts(input, clientState, now);
   const recoveryDecision = shouldRecoverFromPersistedState({
     requestedMounts,
     persistedState,
@@ -6636,7 +7529,7 @@ export function describeMemoryMountSurface(input = {}) {
     clientRuntime
   });
   const recoveredMounts = recoveryDecision.recover
-    ? recoverMountsFromPersistedState(persistedState, clientState)
+    ? recoverMountsFromPersistedState(persistedState, clientState, now)
     : { accepted: [], rejected: [] };
   const mounts = recoveredMounts.accepted.length
     ? {
@@ -6854,6 +7747,12 @@ export function describeMemoryMountSurface(input = {}) {
         timelineLength: analyticsReport.timeline.length,
         reportingWindow: analyticsReport.reportingWindow.window,
         windowSignals: analyticsReport.reportingWindow.windowSignals,
+        healthIncidentState: analyticsReport.healthIncidentExport.state,
+        healthIncidentCount: analyticsReport.healthIncidentExport.counters.incidentCount,
+        healthIncidentHighestSeverity: analyticsReport.healthIncidentExport.highestSeverity,
+        healthIncidentRetryAfter: analyticsReport.healthIncidentExport.retryBudget.nextRetryAt,
+        healthIncidentWritePolicy: analyticsReport.healthIncidentExport.writePolicy,
+        healthIncidentRoutes: analyticsReport.healthIncidentExport.routes,
         descriptorMix: analyticsReport.reportingWindow.windowSignals.descriptorMix,
         latestDescriptorState: analyticsReport.reportingWindow.windowSignals.latestDescriptorState,
         descriptorCounters: {

@@ -1408,6 +1408,287 @@ function buildRestartPersistencePlan(input, persistedState, recoveryContract, id
   };
 }
 
+function buildRestartClientActionContract({
+  clientRuntimeState,
+  recoveryContract,
+  restartPersistencePlan,
+  idempotentCommand,
+  replayRows,
+  blockedReasons,
+  state,
+  selectedRoute,
+  instruction,
+  generatedAt
+}) {
+  const cachedResultAvailable = idempotentCommand.alreadyApplied
+    && restartPersistencePlan.commandPatch?.action === "return-cached-result";
+  const replayReadyRows = replayRows.filter((row) => row.dispatchReady);
+  const replayBlockedRows = replayRows.filter((row) => !row.dispatchReady);
+  const selectedCommand = cachedResultAvailable
+    ? {
+      commandId: idempotentCommand.commandId,
+      commandType: idempotentCommand.commandType,
+      idempotencyKey: idempotentCommand.idempotencyKey,
+      source: "cached-result"
+    }
+    : replayReadyRows[0]
+      ? {
+        commandId: replayReadyRows[0].commandId,
+        commandType: replayReadyRows[0].commandType,
+        idempotencyKey: replayReadyRows[0].idempotencyKey,
+        source: replayReadyRows[0].source
+      }
+      : restartPersistencePlan.commandPatch
+        ? {
+          commandId: restartPersistencePlan.commandPatch.commandId,
+          commandType: restartPersistencePlan.commandPatch.commandType || idempotentCommand.commandType,
+          idempotencyKey: restartPersistencePlan.commandPatch.idempotencyKey,
+          source: restartPersistencePlan.commandPatch.action
+        }
+        : null;
+  const action = cachedResultAvailable
+    ? "reuse-cached-result"
+    : state === "blocked"
+      ? "show-restart-blockers"
+      : replayReadyRows.length > 0
+        ? "dispatch-replay-command"
+        : restartPersistencePlan.commandPatch
+          ? "persist-command-patch"
+          : recoveryContract.restartSafeStatus === "needs-recovery"
+            ? "wait-for-recovery"
+            : "render-clean-state";
+  const actionState = state === "blocked"
+    ? "blocked"
+    : cachedResultAvailable || replayReadyRows.length > 0 || Boolean(restartPersistencePlan.commandPatch)
+      ? "ready"
+      : recoveryContract.restartSafeStatus === "needs-recovery"
+        ? "waiting"
+        : "complete";
+  const idempotencyKey = selectedCommand?.idempotencyKey
+    || restartPersistencePlan.writePlanId
+    || `${clientRuntimeState.requestId}:${action}`;
+  const routePatch = {
+    contractVersion: "artifact-root.restart-client-route-patch.v1",
+    route: selectedRoute,
+    activePanel: selectedRoute === CLIENT_ROUTE_BY_ACTION.recover
+      ? "recovery"
+      : selectedRoute === CLIENT_ROUTE_BY_ACTION.export
+        ? "export"
+        : selectedRoute === CLIENT_ROUTE_BY_ACTION.apply
+          ? "commit"
+          : clientRuntimeState.activePanel,
+    requestId: clientRuntimeState.requestId,
+    sessionId: clientRuntimeState.sessionId,
+    commandId: selectedCommand?.commandId || idempotentCommand.commandId,
+    idempotencyKey,
+    restartSafeStatus: recoveryContract.restartSafeStatus,
+    updatedAt: generatedAt
+  };
+
+  return {
+    contractVersion: "artifact-root.restart-client-action.v1",
+    actionId: stableProofId([
+      clientRuntimeState.sessionId,
+      recoveryContract.restartSafeStatus,
+      restartPersistencePlan.writePlanId,
+      action,
+      selectedCommand ? selectedCommand.commandId : "no-command"
+    ]),
+    generatedAt,
+    action,
+    state: actionState,
+    instruction,
+    route: selectedRoute,
+    method: ["reuse-cached-result", "render-clean-state", "show-restart-blockers", "wait-for-recovery"].includes(action)
+      ? "GET"
+      : "POST",
+    dispatchReady: actionState === "ready",
+    selectedCommand,
+    idempotencyKey,
+    blockedReasons,
+    replayReadiness: {
+      readyReplayCommandIds: replayReadyRows.map((row) => row.commandId),
+      blockedReplayCommandIds: replayBlockedRows.map((row) => row.commandId),
+      replayQueueCount: replayRows.length,
+      writePlanId: restartPersistencePlan.writePlanId
+    },
+    routePatch,
+    userVisibleStatus: {
+      status: actionState,
+      message: actionState === "ready"
+        ? action === "reuse-cached-result"
+          ? "The artifact-root command already has a persisted result and can be rendered without replay."
+          : `Artifact-root restart action ${action} is ready.`
+        : actionState === "blocked"
+          ? `Artifact-root restart action is blocked by ${blockedReasons[0] || "recovery state"}.`
+          : actionState === "waiting"
+            ? "Artifact-root restart is waiting for recovery state to settle."
+            : "Artifact-root restart state is clean.",
+      nextAction: action
+    }
+  };
+}
+
+function buildRuntimeRestartHandoffState({
+  client,
+  clientRuntimeState,
+  recoveryContract,
+  restartPersistencePlan,
+  idempotentCommand,
+  lifecycleSettingsControl,
+  generatedAt
+}) {
+  const requestedRestartMode = typeof client.restartMode === "string" && ["observe", "replay", "recover", "block"].includes(client.restartMode)
+    ? client.restartMode
+    : recoveryContract.restartSafeStatus === "blocked"
+      ? "block"
+      : recoveryContract.replayQueue.length > 0
+        ? "replay"
+        : recoveryContract.restartSafeStatus === "needs-recovery"
+          ? "recover"
+          : "observe";
+  const replayRows = recoveryContract.replayQueue.map((entry) => {
+    const persistedRow = restartPersistencePlan.replayQueue.find((row) => row.commandId === entry.commandId) || null;
+    const blockedReasons = normalizeStringList([
+      ...(persistedRow?.blockedReason ? [persistedRow.blockedReason] : []),
+      ...(restartPersistencePlan.blockedReasons || []),
+      ...(lifecycleSettingsControl.commandGate.runnableNow ? [] : lifecycleSettingsControl.commandGate.blockedReasons)
+    ]);
+
+    return {
+      contractVersion: "artifact-root.runtime-restart-replay-row.v1",
+      replayOrder: entry.replayOrder,
+      commandId: entry.commandId,
+      commandType: entry.commandType,
+      cursor: entry.cursor,
+      idempotencyKey: entry.idempotencyKey,
+      source: entry.source,
+      persistedAckState: persistedRow?.persistedAckState || "pending",
+      journalState: persistedRow?.journalState || "pending",
+      dispatchRoute: CLIENT_ROUTE_BY_ACTION.recover,
+      dispatchReady: blockedReasons.length === 0,
+      blockedReasons
+    };
+  });
+  const readyReplayRows = replayRows.filter((row) => row.dispatchReady);
+  const blockedReplayRows = replayRows.filter((row) => !row.dispatchReady);
+  const commandPatchReady = Boolean(restartPersistencePlan.commandPatch)
+    && restartPersistencePlan.writeMode !== "blocked";
+  const restartBlockedReasons = normalizeStringList([
+    ...restartPersistencePlan.blockedReasons,
+    ...blockedReplayRows.flatMap((row) => row.blockedReasons.map((reason) => `replay:${row.commandId}:${reason}`)),
+    ...(idempotentCommand.status === "blocked" ? idempotentCommand.blockedReasons.map((reason) => `command:${reason}`) : []),
+    ...(lifecycleSettingsControl.commandGate.runnableNow ? [] : lifecycleSettingsControl.commandGate.blockedReasons.map((reason) => `lifecycle:${reason}`))
+  ]);
+  const state = recoveryContract.restartSafeStatus === "blocked" || restartBlockedReasons.length > 0
+    ? "blocked"
+    : readyReplayRows.length > 0 || commandPatchReady
+      ? "ready"
+      : recoveryContract.restartSafeStatus === "needs-recovery"
+        ? "waiting"
+        : "clean";
+  const selectedRoute = state === "blocked" || requestedRestartMode === "recover"
+    ? CLIENT_ROUTE_BY_ACTION.recover
+    : commandPatchReady && idempotentCommand.commandType === "export"
+      ? CLIENT_ROUTE_BY_ACTION.export
+      : readyReplayRows.length > 0
+        ? CLIENT_ROUTE_BY_ACTION.recover
+        : CLIENT_ROUTE_BY_ACTION.refresh;
+  const instruction = state === "ready"
+    ? readyReplayRows.length > 0
+      ? "dispatch-replay-queue"
+      : restartPersistencePlan.commandPatch?.action === "return-cached-result"
+        ? "return-cached-command-result"
+        : "persist-command-patch"
+    : state === "blocked"
+      ? "show-restart-blockers"
+      : state === "waiting"
+        ? "wait-for-recovery"
+        : "render-clean-state";
+  const handoffId = stableProofId([
+    clientRuntimeState.requestId,
+    clientRuntimeState.sessionId,
+    recoveryContract.restartSafeStatus,
+    restartPersistencePlan.writePlanId,
+    replayRows.map((row) => [row.commandId, row.journalState, row.dispatchReady])
+  ]);
+  const clientStatePatch = {
+    contractVersion: "artifact-root.runtime-restart-client-state-patch.v1",
+    requestId: clientRuntimeState.requestId,
+    sessionId: clientRuntimeState.sessionId,
+    route: selectedRoute,
+    activePanel: selectedRoute === CLIENT_ROUTE_BY_ACTION.recover ? "recovery" : clientRuntimeState.activePanel,
+    restartSafeStatus: recoveryContract.restartSafeStatus,
+    runtimeRestartState: state,
+    runtimeRestartInstruction: instruction,
+    replayCommandIds: replayRows.map((row) => row.commandId),
+    readyReplayCommandIds: readyReplayRows.map((row) => row.commandId),
+    blockedReasons: restartBlockedReasons,
+    writePlanId: restartPersistencePlan.writePlanId,
+    updatedAt: generatedAt
+  };
+  const clientAction = buildRestartClientActionContract({
+    clientRuntimeState,
+    recoveryContract,
+    restartPersistencePlan,
+    idempotentCommand,
+    replayRows,
+    blockedReasons: restartBlockedReasons,
+    state,
+    selectedRoute,
+    instruction,
+    generatedAt
+  });
+
+  return {
+    contractVersion: "artifact-root.runtime-restart-handoff.v1",
+    handoffId,
+    generatedAt,
+    requestedRestartMode,
+    state,
+    instruction,
+    restartSafeStatus: recoveryContract.restartSafeStatus,
+    replayRequired: recoveryContract.proof.replayRequired,
+    route: selectedRoute,
+    dispatchReady: state === "ready",
+    recoverySteps: recoveryContract.recoverySteps,
+    replayRows,
+    readyReplayCount: readyReplayRows.length,
+    blockedReplayCount: blockedReplayRows.length,
+    commandPatch: restartPersistencePlan.commandPatch,
+    writeMode: restartPersistencePlan.writeMode,
+    writePlanId: restartPersistencePlan.writePlanId,
+    blockedReasons: restartBlockedReasons,
+    clientAction,
+    clientStatePatch,
+    persistedStatePatch: {
+      contractVersion: "artifact-root.runtime-restart-persisted-state-patch.v1",
+      ...restartPersistencePlan.nextPersistedState,
+      writePlanId: restartPersistencePlan.writePlanId,
+      replayQueueCount: restartPersistencePlan.replayQueue.length
+    },
+    userVisibleStatus: {
+      mode: state,
+      message: state === "ready"
+        ? `${readyReplayRows.length || 1} artifact-root restart action${(readyReplayRows.length || 1) === 1 ? "" : "s"} can continue safely.`
+        : state === "blocked"
+          ? `Artifact-root restart is blocked by ${restartBlockedReasons[0] || "recovery state"}.`
+          : state === "waiting"
+            ? "Artifact-root restart is waiting for recovery state to settle."
+            : "Artifact-root persisted state is clean.",
+      nextAction: instruction
+    },
+    proof: {
+      handoffId,
+      commandLedgerDigest: recoveryContract.proof.commandLedgerDigest,
+      writePlanId: restartPersistencePlan.writePlanId,
+      replayQueueCount: replayRows.length,
+      readyReplayCount: readyReplayRows.length,
+      blockedReasonCount: restartBlockedReasons.length
+    }
+  };
+}
+
 function normalizePersistedBootArtifactRecords(value, requiredArtifacts, persistedState, now) {
   const records = Array.isArray(value) ? value : [];
   const byKey = new Map(records
@@ -1595,15 +1876,92 @@ function normalizeProviderEndpoint(value, providerId) {
   };
 }
 
+function inspectProviderSyncStateRecords(providerSyncStates, providers, now) {
+  const knownProviderIds = new Set(providers.map((provider) => provider.providerId));
+  const acceptedByProviderId = new Map();
+  const duplicateProviderIds = new Set();
+  const ignoredRecords = [];
+  const duplicateRecords = [];
+
+  providerSyncStates.forEach((record, index) => {
+    const recordRef = `provider-sync:${index + 1}`;
+
+    if (!record || typeof record !== "object") {
+      ignoredRecords.push({
+        recordRef,
+        providerId: null,
+        reason: "record-not-object"
+      });
+      return;
+    }
+
+    const providerId = typeof record.providerId === "string" ? record.providerId.trim() : "";
+    if (providerId.length === 0) {
+      ignoredRecords.push({
+        recordRef,
+        providerId: null,
+        reason: "provider-id-missing"
+      });
+      return;
+    }
+
+    if (!knownProviderIds.has(providerId)) {
+      ignoredRecords.push({
+        recordRef,
+        providerId,
+        reason: "provider-id-not-registered"
+      });
+      return;
+    }
+
+    if (acceptedByProviderId.has(providerId)) {
+      const previousRecord = acceptedByProviderId.get(providerId);
+      duplicateProviderIds.add(providerId);
+      duplicateRecords.push({
+        providerId,
+        previousRecordRef: previousRecord.recordRef,
+        replacementRecordRef: recordRef,
+        reason: "provider-sync-state-replaced-by-later-record"
+      });
+    }
+
+    acceptedByProviderId.set(providerId, {
+      ...record,
+      providerId,
+      recordRef,
+      observedAt: toIsoTimestamp(record.observedAt || record.lastSeenAt, now)
+    });
+  });
+
+  const acceptedRecords = [...acceptedByProviderId.values()];
+
+  return {
+    byProviderId: acceptedByProviderId,
+    acceptedRecords,
+    ignoredRecords,
+    duplicateRecords,
+    duplicateProviderIds: [...duplicateProviderIds].sort(),
+    inputRecordCount: providerSyncStates.length,
+    acceptedRecordCount: acceptedRecords.length,
+    ignoredRecordCount: ignoredRecords.length,
+    duplicateRecordCount: duplicateRecords.length,
+    clean: ignoredRecords.length === 0 && duplicateRecords.length === 0,
+    digest: stableProofId([
+      acceptedRecords.map((record) => [record.providerId, record.recordRef, record.cursor, record.rootGeneration]),
+      ignoredRecords.map((record) => [record.recordRef, record.providerId, record.reason]),
+      duplicateRecords.map((record) => [record.providerId, record.previousRecordRef, record.replacementRecordRef])
+    ])
+  };
+}
+
 function normalizeProviderSyncRegistry(input, providers, syncMetadata, now) {
   const providerSyncStates = Array.isArray(input.providerSyncStates)
     ? input.providerSyncStates
     : Array.isArray(input.providerSync)
       ? input.providerSync
       : [];
-  const byProviderId = new Map(providerSyncStates
-    .filter((state) => state && typeof state === "object")
-    .map((state) => [state.providerId, state]));
+  const recordInspection = inspectProviderSyncStateRecords(providerSyncStates, providers, now);
+  const byProviderId = recordInspection.byProviderId;
   const nowMs = Date.parse(now);
   const entries = providers.map((provider) => {
     const state = byProviderId.get(provider.providerId) || {};
@@ -1640,6 +1998,8 @@ function normalizeProviderSyncRegistry(input, providers, syncMetadata, now) {
       lagGenerations,
       cursorMatches,
       generationMatches,
+      recordRef: state.recordRef || null,
+      observedAt: state.observedAt || null,
       leaseExpiresAt,
       leaseExpired,
       lastSeenAt: toIsoTimestamp(state.lastSeenAt, now),
@@ -1670,6 +2030,20 @@ function normalizeProviderSyncRegistry(input, providers, syncMetadata, now) {
     currentProviderCount: entries.filter((entry) => entry.syncState === "current").length,
     staleProviderCount: stale.length,
     blockedProviderCount: blocked.length,
+    inputRecordCount: recordInspection.inputRecordCount,
+    acceptedRecordCount: recordInspection.acceptedRecordCount,
+    ignoredRecordCount: recordInspection.ignoredRecordCount,
+    duplicateRecordCount: recordInspection.duplicateRecordCount,
+    duplicateProviderIds: recordInspection.duplicateProviderIds,
+    ignoredRecords: recordInspection.ignoredRecords,
+    duplicateRecords: recordInspection.duplicateRecords,
+    recordValidation: {
+      valid: recordInspection.clean,
+      acceptedRecordCount: recordInspection.acceptedRecordCount,
+      ignoredRecordCount: recordInspection.ignoredRecordCount,
+      duplicateRecordCount: recordInspection.duplicateRecordCount,
+      digest: recordInspection.digest
+    },
     entries,
     byProviderId: Object.fromEntries(entries.map((entry) => [entry.providerId, entry])),
     proof: {
@@ -1679,8 +2053,10 @@ function normalizeProviderSyncRegistry(input, providers, syncMetadata, now) {
         entry.cursor,
         entry.rootGeneration,
         entry.leaseExpiresAt,
-        entry.writeFence.token
+        entry.writeFence.token,
+        entry.recordRef
       ])),
+      recordDigest: recordInspection.digest,
       evaluatedAt: now
     }
   };
@@ -2812,6 +3188,14 @@ function buildValidationSummary(
         code: "audit-provider-route-limited",
         detail: route.blockedReasons.join("|")
       })),
+    ...providerSyncRegistry.ignoredRecords.map((record) => ({
+      code: "provider-sync-record-ignored",
+      detail: `${record.recordRef}:${record.providerId || "missing"}:${record.reason}`
+    })),
+    ...providerSyncRegistry.duplicateRecords.map((record) => ({
+      code: "provider-sync-record-duplicate",
+      detail: `${record.providerId}:${record.previousRecordRef}->${record.replacementRecordRef}`
+    })),
     ...providerServiceContract.routes
       .filter((route) => route.routable && !route.executionReady)
       .map((route) => ({
@@ -3065,6 +3449,10 @@ function buildAnalyticsCounters(
       blockedProviderRoutes: providerServiceContract.blockedRouteCount,
       executionGatedProviderRoutes: providerServiceContract.executionBlockedRouteCount,
       activeProviders: providerServiceContract.activeProviderIds.length,
+      providerSyncInputRecords: providerSyncRegistry.inputRecordCount,
+      acceptedProviderSyncRecords: providerSyncRegistry.acceptedRecordCount,
+      ignoredProviderSyncRecords: providerSyncRegistry.ignoredRecordCount,
+      duplicateProviderSyncRecords: providerSyncRegistry.duplicateRecordCount,
       currentProviderSyncStates: providerSyncRegistry.currentProviderCount,
       staleProviderSyncStates: providerSyncRegistry.staleProviderCount,
       blockedProviderSyncStates: providerSyncRegistry.blockedProviderCount
@@ -4163,6 +4551,8 @@ function buildClientRuntimeState(
   previewContract,
   idempotentCommand,
   lifecycleSettingsControl,
+  recoveryContract,
+  restartPersistencePlan,
   generatedAt
 ) {
   const client = input && typeof input.client === "object" && input.client !== null ? input.client : {};
@@ -4226,6 +4616,28 @@ function buildClientRuntimeState(
     idempotentCommand.commandId,
     selectedPaths
   ]);
+  const baseRuntimeState = {
+    sessionId,
+    requestId,
+    route,
+    activePanel: panel,
+    networkState,
+    offline: networkState === "offline",
+    routeIntent: {
+      routeIntentId,
+      requestedAction,
+      requestedRoute
+    }
+  };
+  const runtimeRestartHandoff = buildRuntimeRestartHandoffState({
+    client,
+    clientRuntimeState: baseRuntimeState,
+    recoveryContract,
+    restartPersistencePlan,
+    idempotentCommand,
+    lifecycleSettingsControl,
+    generatedAt
+  });
 
   return {
     contractVersion: "artifact-root.client-runtime-state.v1",
@@ -4268,6 +4680,8 @@ function buildClientRuntimeState(
         selectedPaths
       }
     },
+    runtimeRestartHandoff,
+    restartStatePatch: runtimeRestartHandoff.clientStatePatch,
     lifecycleControls: {
       enablement: lifecycleSettingsControl.enablement,
       scheduleMode: lifecycleSettingsControl.schedule.mode,
@@ -4813,6 +5227,11 @@ function buildClientRouteSubmissionContracts(
       : recoveryContract.replayQueue.length === 0
         ? ["recovery-has-empty-replay-queue"]
         : [];
+  const runtimeRestartHandoff = clientRuntimeState.runtimeRestartHandoff;
+  const runtimeRestartBlockedReasons = [
+    ...recoveryBlockedReasons,
+    ...(runtimeRestartHandoff.dispatchReady ? [] : runtimeRestartHandoff.blockedReasons.map((reason) => `runtime-restart:${reason}`))
+  ];
 
   return {
     contractVersion: "artifact-root.client-route-submissions.v1",
@@ -4875,16 +5294,25 @@ function buildClientRouteSubmissionContracts(
       recoverArtifactRoot: buildSubmission(
         "recoverArtifactRoot",
         CLIENT_ROUTE_BY_ACTION.recover,
-        recoveryContract.restartSafeStatus !== "clean",
-        recoveryBlockedReasons,
+        recoveryContract.restartSafeStatus !== "clean" && runtimeRestartHandoff.state !== "clean",
+        runtimeRestartBlockedReasons,
         {
           restartSafeStatus: recoveryContract.restartSafeStatus,
+          runtimeRestartState: runtimeRestartHandoff.state,
+          runtimeRestartInstruction: runtimeRestartHandoff.instruction,
+          runtimeRestartHandoffId: runtimeRestartHandoff.handoffId,
           replayableCommandIds: recoveryContract.replayableCommandIds,
+          readyReplayCommandIds: runtimeRestartHandoff.replayRows
+            .filter((row) => row.dispatchReady)
+            .map((row) => row.commandId),
+          replayRows: runtimeRestartHandoff.replayRows,
           nextPersistedStatePatch: recoveryContract.nextPersistedStatePatch,
           writePlanId: restartPersistencePlan.writePlanId,
           writeMode: restartPersistencePlan.writeMode,
           durableAfterWrite: restartPersistencePlan.durableAfterWrite,
-          restartPersistencePatch: restartPersistencePlan.nextPersistedState
+          restartPersistencePatch: restartPersistencePlan.nextPersistedState,
+          runtimeRestartClientStatePatch: runtimeRestartHandoff.clientStatePatch,
+          runtimeRestartPersistedStatePatch: runtimeRestartHandoff.persistedStatePatch
         }
       )
     },
@@ -4893,11 +5321,15 @@ function buildClientRouteSubmissionContracts(
       readiness: readinessContract.readiness,
       acceptanceDecision: acceptanceContract.decision,
       handoffEnvelopeId: clientWorkflowHandoff.envelopeId,
+      runtimeRestartHandoffId: runtimeRestartHandoff.handoffId,
+      runtimeRestartState: runtimeRestartHandoff.state,
       submissionDigest: stableProofId([
         validationDigest,
         selectionDigest,
         clientWorkflowHandoff.auditTrail.dispatchToken,
-        exportArtifactPackage.manifestProof.proofId
+        exportArtifactPackage.manifestProof.proofId,
+        runtimeRestartHandoff.handoffId,
+        runtimeRestartHandoff.state
       ])
     }
   };
@@ -5241,6 +5673,8 @@ export function describeArtifactRootSurface(input = {}) {
     previewContract,
     idempotentCommand,
     lifecycleSettingsControl,
+    recoveryContract,
+    restartPersistencePlan,
     generatedAt
   );
   const clientPreviewAcceptance = buildClientPreviewAcceptanceContract(
@@ -5343,6 +5777,7 @@ export function describeArtifactRootSurface(input = {}) {
       `path-access-write-blocks:${pathAccessManifest.writeBlockedPathCount}:${pathAccessManifest.auditHandoff.refs.length}:audit-refs`,
       `provider-routes:${providerServiceContract.activeProviderIds.join(",") || "none"}:${providerServiceContract.blockedRouteCount}`,
       `provider-sync:${providerSyncRegistry.proof.registryDigest}:${providerSyncRegistry.currentProviderCount}/${providerSyncRegistry.providerCount}:current`,
+      `provider-sync-records:${providerSyncRegistry.proof.recordDigest}:${providerSyncRegistry.acceptedRecordCount}/${providerSyncRegistry.inputRecordCount}:accepted:${providerSyncRegistry.ignoredRecordCount}:ignored:${providerSyncRegistry.duplicateRecordCount}:duplicate`,
       `boot-root:${bootArtifactRoot.rootFingerprint}:${bootArtifactRoot.initialized ? "initialized" : "blocked"}:${bootArtifactRoot.requiredArtifacts.length}`,
       `boot-root-metadata:${bootArtifactRoot.rootMetadataValidation.status}:${bootArtifactRoot.rootMetadataValidation.proof.validationDigest}:${bootArtifactRoot.rootMetadataValidation.nextAction}`,
       `boot-recovery:${bootRecoveryManifest.manifestId}:${bootRecoveryManifest.repairRequired ? "repair" : "consistent"}:${bootRecoveryManifest.proof.repairItemCount}`,
@@ -5357,6 +5792,7 @@ export function describeArtifactRootSurface(input = {}) {
       `lifecycle-controls:${lifecycleSettingsControl.proof.settingsDigest}:${lifecycleSettingsControl.controls.requested.action || "none"}:${lifecycleSettingsControl.controls.requestedExecutable ? "executable" : "blocked"}`,
       `client-runtime:${clientRuntimeState.requestId}:${clientRuntimeState.activePanel}:${clientRuntimeState.networkState}`,
       `client-route-intent:${clientRuntimeState.routeIntent.routeIntentId}:${clientRuntimeState.routeIntent.requestedAction}:${clientRuntimeState.routeIntent.dispatchReady ? "ready" : "blocked"}`,
+      `restart-client-action:${clientRuntimeState.runtimeRestartHandoff.clientAction.actionId}:${clientRuntimeState.runtimeRestartHandoff.clientAction.action}:${clientRuntimeState.runtimeRestartHandoff.clientAction.state}`,
       `client-preview:${clientPreviewAcceptance.cursor}:${clientPreviewAcceptance.primaryAction?.action || "no-action"}`,
       `client-handoff:${clientWorkflowHandoff.envelopeId}:${clientWorkflowHandoff.clientInstruction}:${clientWorkflowHandoff.auditTrail.dispatchToken}`,
       `client-handoff-receipts:${clientWorkflowHandoff.receiptState.matchingReceiptCount}:${clientWorkflowHandoff.receiptState.latestReceipt?.state || "none"}:${clientWorkflowHandoff.receiptState.replayToken}`,

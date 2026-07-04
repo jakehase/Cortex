@@ -79,6 +79,8 @@ const PROVIDER_SERVICE_ROUTES = {
 const PROVIDER_SYNC_MODES = new Set(['checkpoint', 'delta', 'metadata-only']);
 const PREVIEW_DECISIONS = new Set(['accept', 'reject', 'defer']);
 const MAX_PROVIDER_SYNC_SUBJECT_KEYS = 100;
+const PRODUCT_WORKFLOW_PROVIDERS = new Set(['mailchimp', 'hosted-kernel', 'external']);
+const PRODUCT_WORKFLOW_STAGES = new Set(['draft', 'preview', 'approval', 'sync', 'sent', 'archived']);
 const PROVIDER_CAPABILITIES = [
   'trustMetadata.read',
   'trustMetadata.write',
@@ -511,6 +513,253 @@ function normalizeStringList(value) {
   return Array.isArray(value)
     ? [...new Set(value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))]
     : [];
+}
+
+function normalizeProductWorkflowContext(input = {}, clientRequestSource = {}, runtime = {}) {
+  const source = input.productWorkflow && typeof input.productWorkflow === 'object'
+    ? input.productWorkflow
+    : input.mailchimp && typeof input.mailchimp === 'object'
+      ? input.mailchimp
+      : clientRequestSource.productWorkflow && typeof clientRequestSource.productWorkflow === 'object'
+        ? clientRequestSource.productWorkflow
+        : runtime.productWorkflow && typeof runtime.productWorkflow === 'object'
+          ? runtime.productWorkflow
+          : {};
+  const provider = typeof source.provider === 'string' && PRODUCT_WORKFLOW_PROVIDERS.has(source.provider.trim())
+    ? source.provider.trim()
+    : source.campaignId || source.audienceId || source.segmentId
+      ? 'mailchimp'
+      : 'hosted-kernel';
+  const stage = typeof source.stage === 'string' && PRODUCT_WORKFLOW_STAGES.has(source.stage.trim())
+    ? source.stage.trim()
+    : source.sentAt
+      ? 'sent'
+      : source.approvalRequired === true
+        ? 'approval'
+        : 'preview';
+  const campaignId = normalizeBoundaryPart(source.campaignId || source.campaign?.id, null);
+  const audienceId = normalizeBoundaryPart(source.audienceId || source.listId || source.audience?.id, null);
+  const segmentId = normalizeBoundaryPart(source.segmentId || source.segment?.id, null);
+  const workflowId = normalizeBoundaryPart(
+    source.workflowId || source.journeyId || source.automationId,
+    campaignId ? `mailchimp:${campaignId}` : null
+  );
+  const requestedTags = normalizeStringList(source.tags || source.mergeTags || source.interests);
+  const externalReference = normalizeBoundaryPart(
+    source.externalReference || source.externalId || source.url || source.webId,
+    null
+  );
+  const validation = [
+    provider === 'mailchimp' && !campaignId ? 'mailchimp.campaignId.required_for_campaign_handoff' : null,
+    provider === 'mailchimp' && !audienceId ? 'mailchimp.audienceId.required_for_audience_scoped_trust' : null,
+    source.sentAt && !normalizeIsoTimestamp(source.sentAt) ? 'mailchimp.sentAt.invalid_iso_timestamp' : null,
+    source.updatedAt && !normalizeIsoTimestamp(source.updatedAt) ? 'mailchimp.updatedAt.invalid_iso_timestamp' : null
+  ].filter(Boolean);
+  const identityParts = [
+    provider,
+    workflowId || 'no-workflow',
+    campaignId || 'no-campaign',
+    audienceId || 'no-audience',
+    segmentId || 'no-segment'
+  ];
+
+  return {
+    format: 'aios.trustMetadata.productWorkflowContext.v1',
+    provider,
+    stage,
+    workflowId,
+    campaignId,
+    audienceId,
+    segmentId,
+    externalReference,
+    requestedTags,
+    approvalRequired: source.approvalRequired === true || stage === 'approval',
+    sentAt: normalizeIsoTimestamp(source.sentAt),
+    updatedAt: normalizeIsoTimestamp(source.updatedAt),
+    stateKey: identityParts.join(':'),
+    validation,
+    valid: validation.length === 0,
+    proof: proofFor({ surfaceId, identityParts, stage, requestedTags, validation })
+  };
+}
+
+function buildMailchimpCampaignContinuityContract({ productWorkflow, clientRequest, currentState, operationalHealth, recoveryState, now }) {
+  const applies = productWorkflow.provider === 'mailchimp';
+  const scopedSubjectKeys = applies
+    ? Object.values(currentState.subjects)
+      .filter((record) => record.tenantId === clientRequest.tenantId && record.workspaceId === clientRequest.workspaceId)
+      .filter((record) => record.productWorkflow?.stateKey === productWorkflow.stateKey
+        || record.subjectId === productWorkflow.campaignId
+        || record.subjectId === productWorkflow.audienceId)
+      .map((record) => record.subjectKey)
+      .sort()
+    : [];
+  const scopedSubjects = applies
+    ? scopedSubjectKeys.map((subjectKey) => currentState.subjects[subjectKey]).filter(Boolean)
+    : [];
+  const trustDistribution = scopedSubjects.reduce((counts, record) => {
+    counts[record.trustLevel] = (counts[record.trustLevel] || 0) + 1;
+    return counts;
+  }, {});
+  const untrustedSubjectKeys = scopedSubjects
+    .filter((record) => record.trustLevel === 'untrusted' || record.trustLevel === 'unknown')
+    .map((record) => record.subjectKey)
+    .sort();
+  const reviewSubjectKeys = scopedSubjects
+    .filter((record) => record.integrity?.requiresReview || record.integrity?.warnings?.length > 0)
+    .map((record) => record.subjectKey)
+    .sort();
+  const requiredIdentifiers = [
+    { field: 'campaignId', present: Boolean(productWorkflow.campaignId) },
+    { field: 'audienceId', present: Boolean(productWorkflow.audienceId) }
+  ];
+  const missingIdentifiers = requiredIdentifiers.filter((item) => !item.present).map((item) => item.field);
+  const campaignScoped = scopedSubjectKeys.length > 0;
+  const canExportTrustSnapshot = applies
+    && missingIdentifiers.length === 0
+    && operationalHealth.readEnabled
+    && recoveryState.restartSafe;
+  const restartSafe = applies
+    ? recoveryState.restartSafe && operationalHealth.writeEnabled && missingIdentifiers.length === 0
+    : true;
+  const auditDisposition = !applies
+    ? 'not_applicable'
+    : missingIdentifiers.length > 0
+      ? 'blocked_missing_mailchimp_scope'
+      : !operationalHealth.writeEnabled
+        ? 'blocked_trust_metadata_degraded'
+        : recoveryState.restartSafe
+          ? 'ready_for_campaign_handoff'
+          : 'requires_recovery_before_campaign_handoff';
+  const readinessBlockedReasons = !applies
+    ? []
+    : [
+      ...missingIdentifiers.map((field) => `mailchimp.${field}.required`),
+      ...(!campaignScoped ? ['mailchimp.trust_subject_scope.empty'] : []),
+      ...(untrustedSubjectKeys.length > 0 ? ['mailchimp.trust_subjects.untrusted_present'] : []),
+      ...(reviewSubjectKeys.length > 0 ? ['mailchimp.trust_subjects.review_required'] : []),
+      ...(!operationalHealth.readEnabled ? ['trust_metadata.read_unavailable'] : []),
+      ...(!operationalHealth.writeEnabled ? ['trust_metadata.write_barrier_active'] : []),
+      ...(!recoveryState.restartSafe ? ['trust_metadata.recovery_required'] : [])
+    ];
+  const readinessStatus = !applies
+    ? 'not_applicable'
+    : readinessBlockedReasons.length === 0
+      ? 'ready'
+      : operationalHealth.retrying
+        ? 'retrying'
+        : 'blocked';
+  const nextAction = !applies
+    ? 'observe-hosted-kernel-trust'
+    : missingIdentifiers.length > 0
+      ? 'provide-mailchimp-campaign-and-audience'
+      : !campaignScoped
+        ? 'bind-trust-subjects-to-mailchimp-campaign'
+        : reviewSubjectKeys.length > 0
+          ? 'review-mailchimp-trust-subjects'
+          : untrustedSubjectKeys.length > 0
+            ? 'repair-untrusted-mailchimp-subjects'
+            : !recoveryState.restartSafe
+              ? 'recover-trust-metadata-before-mailchimp-handoff'
+              : !operationalHealth.writeEnabled
+                ? operationalHealth.degradedMode.recoveryRoute
+                : 'continue-mailchimp-campaign-handoff';
+  const dispatchReadiness = {
+    format: 'aios.trustMetadata.mailchimp-campaign-dispatch-readiness.v1',
+    status: readinessStatus,
+    ready: readinessStatus === 'ready',
+    nextAction,
+    canExportTrustSnapshot,
+    campaignScoped,
+    trustDistribution,
+    trustedSubjectCount: scopedSubjects.filter((record) => record.trustLevel === 'trusted' || record.trustLevel === 'pinned').length,
+    untrustedSubjectKeys,
+    reviewSubjectKeys,
+    healthStatus: operationalHealth.status,
+    healthMode: operationalHealth.mode,
+    recoveryStatus: recoveryState.restartStatus,
+    blockedReasons: [...new Set(readinessBlockedReasons)],
+    proof: proofFor({
+      surfaceId,
+      stateKey: productWorkflow.stateKey,
+      readinessStatus,
+      nextAction,
+      scopedSubjectKeys,
+      untrustedSubjectKeys,
+      reviewSubjectKeys,
+      healthStatus: operationalHealth.status,
+      recoveryStatus: recoveryState.restartStatus
+    })
+  };
+
+  return {
+    format: 'aios.trustMetadata.mailchimp-campaign-continuity.v1',
+    generatedAt: now,
+    applies,
+    provider: productWorkflow.provider,
+    stage: productWorkflow.stage,
+    tenantId: clientRequest.tenantId,
+    workspaceId: clientRequest.workspaceId,
+    campaignId: productWorkflow.campaignId,
+    audienceId: productWorkflow.audienceId,
+    segmentId: productWorkflow.segmentId,
+    workflowId: productWorkflow.workflowId,
+    stateKey: productWorkflow.stateKey,
+    scopedSubjectKeys,
+    missingIdentifiers,
+    restartSafe,
+    auditDisposition,
+    dispatchReadiness,
+    replayKey: applies
+      ? `${clientRequest.tenantId}:${clientRequest.workspaceId}:${productWorkflow.stateKey}`
+      : null,
+    handoff: {
+      route: CLIENT_HANDOFF_ROUTES.resume,
+      resumeToken: applies
+        ? proofFor({
+          surfaceId,
+          clientId: clientRequest.clientId,
+          requestId: clientRequest.requestId,
+          stateKey: productWorkflow.stateKey,
+          epoch: currentState.epoch
+        })
+        : null,
+      blockedReasons: [
+        ...dispatchReadiness.blockedReasons
+      ],
+      nextAction: dispatchReadiness.nextAction,
+      readinessStatus: dispatchReadiness.status
+    },
+    exportRecord: {
+      dataset: 'mailchimpCampaignContinuity',
+      recordId: applies ? `${clientRequest.requestId}:${productWorkflow.stateKey}` : null,
+      tenantId: clientRequest.tenantId,
+      workspaceId: clientRequest.workspaceId,
+      subjectCount: scopedSubjectKeys.length,
+      ready: dispatchReadiness.ready,
+      readinessStatus: dispatchReadiness.status,
+      nextAction: dispatchReadiness.nextAction,
+      blockedReasons: dispatchReadiness.blockedReasons,
+      checksum: proofFor({
+        stateKey: productWorkflow.stateKey,
+        scopedSubjectKeys,
+        auditDisposition,
+        restartSafe,
+        readinessStatus: dispatchReadiness.status
+      })
+    },
+    proof: proofFor({
+      surfaceId,
+      applies,
+      tenantId: clientRequest.tenantId,
+      workspaceId: clientRequest.workspaceId,
+      stateKey: productWorkflow.stateKey,
+      scopedSubjectKeys,
+      restartSafe,
+      auditDisposition,
+      dispatchReadinessProof: dispatchReadiness.proof
+    })
+  };
 }
 
 function boundedInteger(value, fallback, limits) {
@@ -1016,6 +1265,7 @@ function normalizeClientRuntimeRequest(input = {}) {
   const returnRoute = typeof source.returnRoute === 'string' && source.returnRoute.trim()
     ? source.returnRoute.trim()
     : CLIENT_HANDOFF_ROUTES.resume;
+  const productWorkflow = normalizeProductWorkflowContext(input, source, runtime);
 
   return {
     requestId: normalizeBoundaryPart(source.requestId || input.requestId, `request:${scope.tenantId}:${scope.workspaceId}`),
@@ -1026,6 +1276,7 @@ function normalizeClientRuntimeRequest(input = {}) {
     requestedCommandIds,
     continuationToken,
     returnRoute,
+    productWorkflow,
     wantsPreview: source.wantsPreview !== false,
     wantsCheckpoint: source.wantsCheckpoint !== false,
     acceptsPartialApply: Boolean(source.acceptsPartialApply),
@@ -1036,7 +1287,8 @@ function normalizeClientRuntimeRequest(input = {}) {
       scope,
       requestedCommandIds,
       continuationToken,
-      returnRoute
+      returnRoute,
+      productWorkflow: productWorkflow.proof
     })
   };
 }
@@ -2213,8 +2465,12 @@ function buildClientWorkflowHandoff({ clientRequest, commands, audit, currentSta
     .filter((commandId) => requestedSet.size === 0 || requestedSet.has(commandId))
     .filter((commandId) => !scopedCommandIds.includes(commandId));
   const hasWritableState = operationalHealth.writeEnabled && previewAcceptance.readiness.writeEnabled;
+  const productWorkflowBlocked = !clientRequest.productWorkflow.valid
+    || (clientRequest.productWorkflow.approvalRequired && rejectedCommandIds.length > 0);
   const phase = rejectedCommandIds.length > 0 || missingCommandIds.length > 0
     ? 'client-review-required'
+    : productWorkflowBlocked
+      ? 'client-review-required'
     : pendingCommandIds.length > 0
       ? 'client-reconcile-required'
       : acceptedCommandIds.length > 0 && hasWritableState
@@ -2258,9 +2514,35 @@ function buildClientWorkflowHandoff({ clientRequest, commands, audit, currentSta
       missingCommandIds,
       pendingCommandIds,
       previewProof: previewAcceptance.proof,
-      analyticsSnapshotId: analytics.snapshot.snapshotId
+      analyticsSnapshotId: analytics.snapshot.snapshotId,
+      productWorkflow: {
+        provider: clientRequest.productWorkflow.provider,
+        stage: clientRequest.productWorkflow.stage,
+        workflowId: clientRequest.productWorkflow.workflowId,
+        campaignId: clientRequest.productWorkflow.campaignId,
+        audienceId: clientRequest.productWorkflow.audienceId,
+        segmentId: clientRequest.productWorkflow.segmentId,
+        stateKey: clientRequest.productWorkflow.stateKey,
+        validation: clientRequest.productWorkflow.validation,
+        proof: clientRequest.productWorkflow.proof
+      }
     },
     workflowActions: [
+      ...(clientRequest.productWorkflow.validation.length > 0 ? [{
+        actionId: 'repair-product-workflow-context',
+        route: CLIENT_HANDOFF_ROUTES.review,
+        commandIds: scopedCommandIds,
+        required: true,
+        validation: clientRequest.productWorkflow.validation
+      }] : []),
+      ...(clientRequest.productWorkflow.approvalRequired && rejectedCommandIds.length > 0 ? [{
+        actionId: 'resolve-product-approval-before-campaign-handoff',
+        route: CLIENT_HANDOFF_ROUTES.review,
+        commandIds: rejectedCommandIds,
+        required: true,
+        provider: clientRequest.productWorkflow.provider,
+        workflowId: clientRequest.productWorkflow.workflowId
+      }] : []),
       ...(missingCommandIds.length > 0 ? [{
         actionId: 'resubmit-missing-client-commands',
         route: CLIENT_HANDOFF_ROUTES.reconcile,
@@ -2284,11 +2566,16 @@ function buildClientWorkflowHandoff({ clientRequest, commands, audit, currentSta
       sink: 'hosted-kernel.memory-manager.trust-metadata.client-workflow',
       routes: CLIENT_HANDOFF_ROUTES,
       continuationToken: clientRequest.continuationToken || resumeToken,
-      canResumeWrites: hasWritableState && rejectedCommandIds.length === 0 && missingCommandIds.length === 0,
+      canResumeWrites: hasWritableState
+        && rejectedCommandIds.length === 0
+        && missingCommandIds.length === 0
+        && !productWorkflowBlocked,
       canRenderPreview: clientRequest.wantsPreview,
-      proof: proofFor({ surfaceId, phase, route, resumeToken, hasWritableState })
+      productWorkflowStateKey: clientRequest.productWorkflow.stateKey,
+      proof: proofFor({ surfaceId, phase, route, resumeToken, hasWritableState, productWorkflow: clientRequest.productWorkflow.proof })
     },
-    proof: proofFor({ surfaceId, clientRequest, phase, route, resumeToken, scopedAudit })
+    productWorkflow: clientRequest.productWorkflow,
+    proof: proofFor({ surfaceId, clientRequest, phase, route, resumeToken, scopedAudit, productWorkflow: clientRequest.productWorkflow.proof })
   };
 }
 
@@ -2333,6 +2620,7 @@ function buildClientRuntimeAdoption({
     lastResumeToken: clientWorkflowHandoff.resumeToken,
     previewProof: patch.previewProof,
     analyticsSnapshotId: patch.analyticsSnapshotId,
+    productWorkflow: patch.productWorkflow,
     proof: proofFor({ surfaceId, clientRuntimeState, patch, phase: clientWorkflowHandoff.phase, previewDecisionReconciliation })
   };
   const conflicts = [];
@@ -2361,6 +2649,17 @@ function buildClientRuntimeAdoption({
       severity: issue.severity,
       message: issue.message,
       commandId: issue.commandId || null
+    });
+  }
+  for (const issue of clientRequest.productWorkflow.validation) {
+    conflicts.push({
+      code: issue,
+      severity: 'blocking',
+      message: 'product workflow handoff metadata is incomplete for trust metadata adoption',
+      provider: clientRequest.productWorkflow.provider,
+      workflowId: clientRequest.productWorkflow.workflowId,
+      campaignId: clientRequest.productWorkflow.campaignId,
+      audienceId: clientRequest.productWorkflow.audienceId
     });
   }
 
@@ -2401,13 +2700,15 @@ function buildClientRuntimeAdoption({
         && clientWorkflowHandoff.integration.canResumeWrites
         && previewDecisionReconciliation.handoffEffect.canResumeWrites,
       providerHandoffRoute: providerServiceContract.externalHandoffState.route,
-      proof: proofFor({ surfaceId, route, resumeToken: clientWorkflowHandoff.resumeToken, blocked, previewDecisionReconciliation: previewDecisionReconciliation.proof })
+      productWorkflowStateKey: clientRequest.productWorkflow.stateKey,
+      proof: proofFor({ surfaceId, route, resumeToken: clientWorkflowHandoff.resumeToken, blocked, previewDecisionReconciliation: previewDecisionReconciliation.proof, productWorkflow: clientRequest.productWorkflow.proof })
     },
     exportBinding: {
       analyticsSnapshotId: analytics.snapshot.snapshotId,
       previewProof: previewAcceptance.proof,
       providerSyncCursor: providerServiceContract.syncMetadata.syncCursor,
-      proof: proofFor({ surfaceId, snapshot: analytics.snapshot.snapshotId, provider: providerServiceContract.syncMetadata.syncCursor })
+      productWorkflow: clientRequest.productWorkflow,
+      proof: proofFor({ surfaceId, snapshot: analytics.snapshot.snapshotId, provider: providerServiceContract.syncMetadata.syncCursor, productWorkflow: clientRequest.productWorkflow.proof })
     },
     proof: proofFor({ surfaceId, adoptedState, conflicts, route, now })
   };
@@ -3723,6 +4024,14 @@ export function shapeTrustMetadataState(input = {}) {
     audit,
     now
   });
+  const mailchimpCampaignContinuity = buildMailchimpCampaignContinuityContract({
+    productWorkflow: clientRequest.productWorkflow,
+    clientRequest,
+    currentState,
+    operationalHealth,
+    recoveryState,
+    now
+  });
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -3827,6 +4136,7 @@ export function shapeTrustMetadataState(input = {}) {
     providerRouteDataContracts: providerServiceContract.routeDataContracts,
     clientRouteDataContracts,
     statePersistence,
+    mailchimpCampaignContinuity,
     validationSummary: previewAcceptance.validationSummary,
     readiness: previewAcceptance.readiness,
     nextSteps: previewAcceptance.nextSteps,
@@ -3912,6 +4222,13 @@ export function shapeTrustMetadataState(input = {}) {
       statePersistenceRecoveryCommandCount: statePersistence.recoveryCommands.retryCommands.length
         + statePersistence.recoveryCommands.reviewCommands.length,
       statePersistenceCheckpointRequired: statePersistence.restartSemantics.checkpointRequired,
+      mailchimpCampaignContinuityApplies: mailchimpCampaignContinuity.applies,
+      mailchimpCampaignContinuityDisposition: mailchimpCampaignContinuity.auditDisposition,
+      mailchimpCampaignContinuityRestartSafe: mailchimpCampaignContinuity.restartSafe,
+      mailchimpCampaignContinuityProof: mailchimpCampaignContinuity.proof,
+      mailchimpCampaignContinuityReplayKey: mailchimpCampaignContinuity.replayKey,
+      mailchimpCampaignContinuitySubjectCount: mailchimpCampaignContinuity.scopedSubjectKeys.length,
+      mailchimpCampaignContinuityBlockedReasons: mailchimpCampaignContinuity.handoff.blockedReasons,
       recoveryRestartStatus: recoveryState.restartStatus,
       recoveryRetryableCommandIds: recoveryState.retryableCommandIds,
       recoveryManualReviewCommandIds: recoveryState.manualReviewCommandIds,
@@ -3945,6 +4262,9 @@ export function describeTrustMetadataSurface(input = {}) {
       subjectProvenanceFields: ['lastActorId', 'lastCommandId', 'revision'],
       persistedFields: ['schemaVersion', 'epoch', 'appliedCommandIds', 'commandLedger', 'subjects', 'checkpointProof', 'analyticsHistory', 'lifecycleControls'],
       statePersistenceFields: ['format', 'generatedAt', 'persistStatus', 'restartSafe', 'canonicalState', 'manifest', 'restartSemantics', 'recoveryCommands', 'routeContract', 'proof'],
+      mailchimpCampaignContinuityFields: ['format', 'generatedAt', 'applies', 'provider', 'stage', 'tenantId', 'workspaceId', 'campaignId', 'audienceId', 'segmentId', 'workflowId', 'stateKey', 'scopedSubjectKeys', 'missingIdentifiers', 'restartSafe', 'auditDisposition', 'replayKey', 'handoff', 'exportRecord', 'proof'],
+      mailchimpCampaignContinuityHandoffFields: ['route', 'resumeToken', 'blockedReasons'],
+      mailchimpCampaignContinuityExportFields: ['dataset', 'recordId', 'tenantId', 'workspaceId', 'subjectCount', 'checksum'],
       canonicalPersistedStateFields: ['schemaVersion', 'epoch', 'appliedCommandIds', 'commandLedger', 'subjects', 'checkpointProof', 'analyticsHistory', 'lifecycleControls', 'stateProof'],
       statePersistenceManifestFields: ['schemaVersion', 'epoch', 'subjectCount', 'commandLedgerEntryCount', 'analyticsSnapshotCount', 'lifecycleRevision', 'checkpointProof', 'stateProof', 'subjectContractsProof', 'analyticsSnapshotId', 'providerSyncCursor', 'clientResumeToken', 'proof'],
       restartSemanticsFields: ['status', 'checkpointRequired', 'writeModeAfterRestart', 'duplicateCommandBehavior', 'rejectedCommandBehavior', 'appliedAuditCommandIds', 'rejectedAuditCommandIds', 'recoveryRoute', 'proof'],
@@ -4031,6 +4351,7 @@ export function describeTrustMetadataSurface(input = {}) {
     providerRouteDataContracts: shaped.providerRouteDataContracts,
     clientRouteDataContracts: shaped.clientRouteDataContracts,
     statePersistence: shaped.statePersistence,
+    mailchimpCampaignContinuity: shaped.mailchimpCampaignContinuity,
     validationSummary: shaped.validationSummary,
     readiness: shaped.readiness,
     nextSteps: shaped.nextSteps,

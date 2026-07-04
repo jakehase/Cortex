@@ -166,6 +166,13 @@ const ACTIONABLE_ERROR_CATALOG = Object.freeze({
     retryable: false,
     degradedMode: 'proof_gated_preview'
   },
+  evidence_scope_mismatch: {
+    owner: 'auditor',
+    commandType: 'recover_state',
+    action: 'attach_scoped_audit_evidence',
+    retryable: false,
+    degradedMode: 'proof_gated_preview'
+  },
   sync_backlog_present: {
     owner: 'operator',
     commandType: 'retry_sync',
@@ -198,6 +205,27 @@ const DEFAULT_CAPABILITIES = Object.freeze({
 });
 
 const BASE_FAILURE_CLASSES = Object.freeze([
+  {
+    code: 'mailchimp_campaign_audit_missing',
+    severity: 'critical',
+    recoveryMode: 'quarantine',
+    retryable: false,
+    proofRequired: ['incidentId', 'campaignId', 'audienceId', 'auditTrailId']
+  },
+  {
+    code: 'mailchimp_audience_sync_gap',
+    severity: 'degraded',
+    recoveryMode: 'retry',
+    retryable: true,
+    proofRequired: ['incidentId', 'audienceId', 'lastSyncedAt', 'watermark']
+  },
+  {
+    code: 'mailchimp_campaign_handoff_pending',
+    severity: 'warning',
+    recoveryMode: 'handoff',
+    retryable: true,
+    proofRequired: ['incidentId', 'campaignId', 'handoffId', 'status']
+  },
   {
     code: 'provider_contract_mismatch',
     severity: 'degraded',
@@ -642,11 +670,27 @@ function normalizeRequestContext(input = {}, now) {
 }
 
 function normalizeIncident(raw = {}, index = 0, now) {
+  const product = raw.product && typeof raw.product === 'object' ? raw.product : {};
+  const mailchimp = raw.mailchimp && typeof raw.mailchimp === 'object'
+    ? raw.mailchimp
+    : product.mailchimp && typeof product.mailchimp === 'object'
+      ? product.mailchimp
+      : {};
+  const campaign = mailchimp.campaign && typeof mailchimp.campaign === 'object' ? mailchimp.campaign : {};
+  const audience = mailchimp.audience && typeof mailchimp.audience === 'object' ? mailchimp.audience : {};
   const severity = FAILURE_SEVERITY.has(raw.severity) ? raw.severity : 'warning';
   const recoveryMode = RECOVERY_MODES.has(raw.recoveryMode) ? raw.recoveryMode : 'observe';
   const incidentId = cleanString(raw.incidentId, `incident-${index + 1}`);
   const failureCode = cleanString(raw.failureCode || raw.code, 'unclassified_failure');
+  const campaignId = cleanString(raw.campaignId || campaign.campaignId || campaign.id || mailchimp.campaignId, null);
+  const audienceId = cleanString(raw.audienceId || raw.listId || audience.audienceId || audience.listId || audience.id || mailchimp.audienceId || mailchimp.listId, null);
+  const templateId = cleanString(raw.templateId || mailchimp.templateId, null);
   const observedAt = cleanString(raw.observedAt, now);
+  const mailchimpEvidenceRefs = [
+    campaignId ? `mailchimp:campaign:${campaignId}` : null,
+    audienceId ? `mailchimp:audience:${audienceId}` : null,
+    templateId ? `mailchimp:template:${templateId}` : null
+  ].filter(Boolean);
 
   return {
     incidentId,
@@ -657,31 +701,99 @@ function normalizeIncident(raw = {}, index = 0, now) {
     observedAt,
     tenantId: cleanString(raw.tenantId || raw.organizationId, 'default-tenant'),
     workspaceId: cleanString(raw.workspaceId, 'default-workspace'),
-    domain: cleanString(raw.domain, surfaceGroup),
-    route: cleanString(raw.route, 'hosted-kernel.audit-recovery.failure-taxonomy'),
-    evidenceRefs: Array.isArray(raw.evidenceRefs) ? raw.evidenceRefs.filter(Boolean) : []
+    domain: cleanString(raw.domain, campaignId || audienceId ? 'mailchimp' : surfaceGroup),
+    route: cleanString(raw.route, campaignId || audienceId
+      ? 'hosted-kernel.audit-recovery.failure-taxonomy.mailchimp'
+      : 'hosted-kernel.audit-recovery.failure-taxonomy'),
+    evidenceRefs: [
+      ...(Array.isArray(raw.evidenceRefs) ? raw.evidenceRefs.filter(Boolean) : []),
+      ...mailchimpEvidenceRefs
+    ],
+    productContext: {
+      type: campaignId || audienceId ? 'MailchimpCampaignAuditIncident.v1' : null,
+      campaignId,
+      audienceId,
+      templateId,
+      sendWindowStart: cleanString(mailchimp.sendWindowStart || campaign.sendWindowStart, null),
+      sendWindowEnd: cleanString(mailchimp.sendWindowEnd || campaign.sendWindowEnd, null)
+    }
   };
 }
 
-function indexEvidenceReferences(evidence = []) {
-  return new Set(evidence.flatMap((entry, index) => {
-    if (typeof entry === 'string' && entry.trim()) {
-      return [entry.trim()];
-    }
-    if (!entry || typeof entry !== 'object') {
-      return [];
-    }
+function collectEvidenceReferenceTokens(entry, index) {
+  if (typeof entry === 'string' && entry.trim()) {
+    return [entry.trim()];
+  }
+  if (!entry || typeof entry !== 'object') {
+    return [];
+  }
 
-    return [
-      entry.evidenceId,
-      entry.ref,
-      entry.uri,
-      entry.url,
-      entry.auditTrailId,
-      entry.incidentId ? `incident:${entry.incidentId}` : null,
-      `evidence:${index + 1}`
-    ].filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
-  }));
+  return [
+    entry.evidenceId,
+    entry.ref,
+    entry.uri,
+    entry.url,
+    entry.auditTrailId,
+    entry.incidentId ? `incident:${entry.incidentId}` : null,
+    ...(Array.isArray(entry.refs) ? entry.refs : []),
+    ...(Array.isArray(entry.evidenceRefs) ? entry.evidenceRefs : []),
+    `evidence:${index + 1}`
+  ].filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
+}
+
+function normalizeEvidenceRecords(evidence = [], tenantScope) {
+  return evidence
+    .map((entry, index) => {
+      const tokens = collectEvidenceReferenceTokens(entry, index);
+      if (!tokens.length) {
+        return null;
+      }
+      const objectEntry = entry && typeof entry === 'object' ? entry : {};
+      const tenantId = cleanString(objectEntry.tenantId || objectEntry.organizationId, tenantScope.tenantId);
+      const workspaceId = cleanString(objectEntry.workspaceId, tenantScope.activeWorkspaceId);
+      const incidentId = cleanString(objectEntry.incidentId, null);
+      const tenantScoped = tenantId === tenantScope.tenantId;
+      const workspaceScoped = tenantScope.allowedWorkspaceIds.includes(workspaceId);
+      const activeWorkspaceScoped = workspaceId === tenantScope.activeWorkspaceId;
+      const scopeStatus = !tenantScoped
+        ? 'tenant_mismatch'
+        : !workspaceScoped
+          ? 'workspace_not_allowed'
+          : !activeWorkspaceScoped
+            ? 'workspace_not_active'
+            : 'in_scope';
+
+      return {
+        evidenceType: 'hosted-kernel.failure-taxonomy.scoped-evidence-record.v1',
+        evidenceId: cleanString(objectEntry.evidenceId || objectEntry.id, `evidence-${index + 1}`),
+        refs: [...new Set(tokens)],
+        tenantId,
+        workspaceId,
+        incidentId,
+        scopeStatus,
+        usableForProof: scopeStatus === 'in_scope',
+        source: typeof entry === 'string' ? 'inline_ref' : cleanString(objectEntry.source, 'audit_evidence')
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildEvidenceReferenceIndex(evidenceRecords = []) {
+  const byRef = new Map();
+  for (const record of evidenceRecords) {
+    for (const ref of record.refs) {
+      const existing = byRef.get(ref) || [];
+      existing.push(record);
+      byRef.set(ref, existing);
+    }
+  }
+
+  return {
+    records: evidenceRecords,
+    byRef,
+    inScopeCount: evidenceRecords.filter((record) => record.usableForProof).length,
+    outOfScopeCount: evidenceRecords.filter((record) => !record.usableForProof).length
+  };
 }
 
 function resolveRegisteredFailureClass(incident) {
@@ -690,8 +802,34 @@ function resolveRegisteredFailureClass(incident) {
     || null;
 }
 
-function buildProofFieldCoverage(incident, failureClass, evidenceRefs, providerServiceContract) {
+function resolveScopedEvidenceMatches(incident, evidenceIndex) {
+  const candidateRefs = incident.evidenceRefs.map((ref) => String(ref));
+  const matchedRecords = candidateRefs.flatMap((ref) =>
+    (evidenceIndex.byRef.get(ref) || []).map((record) => ({ ref, record }))
+  );
+  const acceptedMatches = matchedRecords.filter(({ record }) =>
+    record.usableForProof && (!record.incidentId || record.incidentId === incident.incidentId)
+  );
+  const rejectedMatches = matchedRecords.filter(({ record }) =>
+    !record.usableForProof || record.incidentId && record.incidentId !== incident.incidentId
+  );
+
+  return {
+    matchedRefs: [...new Set(acceptedMatches.map((match) => match.ref))],
+    rejectedRefs: [...new Set(rejectedMatches.map((match) => match.ref))],
+    rejectedReasons: [...new Set(rejectedMatches.map(({ record }) =>
+      record.incidentId && record.incidentId !== incident.incidentId
+        ? 'incident_mismatch'
+        : record.scopeStatus
+    ))],
+    acceptedEvidenceIds: [...new Set(acceptedMatches.map(({ record }) => record.evidenceId))],
+    evidenceMatched: acceptedMatches.length > 0
+  };
+}
+
+function buildProofFieldCoverage(incident, failureClass, evidenceIndex, providerServiceContract) {
   const requiredFields = failureClass?.proofRequired || ['incidentId', 'failureCode', 'evidenceRefs'];
+  const scopedEvidence = resolveScopedEvidenceMatches(incident, evidenceIndex);
   const fieldValues = {
     auditTrailId: incident.evidenceRefs.find((ref) => String(ref).includes('audit')) || null,
     capabilitySet: providerServiceContract.capabilityContracts
@@ -701,16 +839,18 @@ function buildProofFieldCoverage(incident, failureClass, evidenceRefs, providerS
     failureCode: incident.failureCode,
     handoffId: `${providerServiceContract.providerId}:${incident.incidentId}`,
     incidentId: incident.incidentId,
+    campaignId: incident.productContext?.campaignId || null,
+    audienceId: incident.productContext?.audienceId || null,
+    templateId: incident.productContext?.templateId || null,
     lastSyncedAt: providerServiceContract.syncMetadata.lastNegotiatedAt,
     owner: 'audit-recovery-provider',
     providerId: providerServiceContract.providerId,
     status: providerServiceContract.externalHandoff.enabled ? 'pending_ack' : providerServiceContract.externalHandoff.accepted ? 'blocked_lifecycle' : 'blocked_contract',
     watermark: providerServiceContract.syncMetadata.watermarkKind
   };
-  const evidenceMatched = incident.evidenceRefs.some((ref) => evidenceRefs.has(String(ref)));
   const missingFields = requiredFields.filter((field) => {
     if (field === 'evidenceRefs') {
-      return incident.evidenceRefs.length === 0 || !evidenceMatched;
+      return incident.evidenceRefs.length === 0 || !scopedEvidence.evidenceMatched;
     }
     const value = fieldValues[field];
     return Array.isArray(value) ? value.length === 0 : !value;
@@ -721,17 +861,26 @@ function buildProofFieldCoverage(incident, failureClass, evidenceRefs, providerS
     requiredFields,
     presentFields: requiredFields.filter((field) => !missingFields.includes(field)),
     missingFields,
-    evidenceMatched,
-    evidenceRefs: incident.evidenceRefs
+    evidenceMatched: scopedEvidence.evidenceMatched,
+    evidenceRefs: incident.evidenceRefs,
+    scopedEvidenceRefs: scopedEvidence.matchedRefs,
+    rejectedEvidenceRefs: scopedEvidence.rejectedRefs,
+    rejectedEvidenceReasons: scopedEvidence.rejectedReasons,
+    acceptedEvidenceIds: scopedEvidence.acceptedEvidenceIds,
+    evidenceScope: {
+      required: true,
+      accepted: scopedEvidence.evidenceMatched,
+      inScopeEvidenceCount: evidenceIndex.inScopeCount,
+      outOfScopeEvidenceCount: evidenceIndex.outOfScopeCount
+    }
   };
 }
 
-function buildTaxonomyDecisions(incidents, evidence, providerServiceContract, lifecycleSettings) {
-  const evidenceRefs = indexEvidenceReferences(evidence);
+function buildTaxonomyDecisions(incidents, evidenceIndex, providerServiceContract, lifecycleSettings) {
 
   return incidents.map((incident) => {
     const failureClass = resolveRegisteredFailureClass(incident);
-    const proofCoverage = buildProofFieldCoverage(incident, failureClass, evidenceRefs, providerServiceContract);
+    const proofCoverage = buildProofFieldCoverage(incident, failureClass, evidenceIndex, providerServiceContract);
     const registered = Boolean(failureClass);
     const providerBlocked = providerServiceContract.status === 'blocked';
     const proofBlocked = lifecycleSettings.controls.requireProofBeforePublish && proofCoverage.missingFields.length > 0;
@@ -757,6 +906,19 @@ function buildTaxonomyDecisions(incidents, evidence, providerServiceContract, li
       severity: failureClass?.severity || incident.severity,
       recoveryMode,
       retryable: typeof failureClass?.retryable === 'boolean' ? failureClass.retryable : incident.retryable,
+      productContext: incident.productContext,
+      productHandoff: incident.productContext?.type ? {
+        contract: 'hosted-kernel.failure-taxonomy.mailchimp-handoff.v1',
+        campaignId: incident.productContext.campaignId,
+        audienceId: incident.productContext.audienceId,
+        route: `${providerServiceContract.baseRoute}/mailchimp/campaigns/${encodeURIComponent(incident.productContext.campaignId || 'unbound')}/handoff`,
+        requiredEvidenceRefs: proofCoverage.requiredFields
+          .filter((field) => ['campaignId', 'audienceId', 'auditTrailId'].includes(field)),
+        scheduleWindow: {
+          start: incident.productContext.sendWindowStart,
+          end: incident.productContext.sendWindowEnd
+        }
+      } : null,
       proofCoverage,
       providerContractStatus: providerServiceContract.status,
       publishable: registered && !providerBlocked && !proofBlocked,
@@ -1482,6 +1644,154 @@ function buildPersistenceWriteIntent(previousState, currentStatus, statusChanged
   };
 }
 
+function buildCommandReplayClaims(commandResults, previousState, restartConsistency, requestContext, syncState, tenantScope, lifecycleSettings, recoveryPaths, now) {
+  const availableRecoveryPath = recoveryPaths.find((path) => path.available) || null;
+  const claims = commandResults.map((result) => {
+    const duplicate = result.status === 'duplicate_noop';
+    const applied = result.status === 'applied';
+    const blocked = result.status === 'blocked';
+    const boundaryBlocked = blocked && [
+      'cross_tenant_boundary_blocked',
+      'requested_tenant_mismatch',
+      'requested_workspace_not_allowed',
+      'target_outside_tenant_workspace_scope',
+      'tenant_permission_missing',
+      'workspace_activation_required'
+    ].includes(result.reason);
+    const lifecycleBlocked = blocked && [
+      'taxonomy_disabled',
+      'maintenance_mode_blocks_retry',
+      'sync_schedule_paused',
+      'retry_sync_disabled_by_settings',
+      'external_handoff_disabled_by_settings',
+      'publish_disabled_by_settings',
+      'audit_proof_required_before_publish'
+    ].includes(result.reason);
+    const targetReadyBlocked = blocked && !boundaryBlocked && !lifecycleBlocked;
+    const staleRestart = previousState.restored && !restartConsistency.consistent;
+    const replayable = duplicate || applied;
+    const retryable = blocked
+      && !boundaryBlocked
+      && lifecycleSettings.mode !== 'disabled'
+      && restartConsistency.consistent
+      && result.type !== 'publish_preview';
+    const blockers = [
+      boundaryBlocked
+        ? {
+          code: result.reason,
+          owner: 'tenant-admin',
+          retryable: result.reason === 'workspace_activation_required',
+          route: result.tenantBoundary?.targetWorkspaceId
+            ? `audit-recovery/failure-taxonomy/${tenantScope.tenantId}/${result.tenantBoundary.targetWorkspaceId}/activate`
+            : requestContext.route
+        }
+        : null,
+      lifecycleBlocked
+        ? {
+          code: result.reason,
+          owner: 'settings',
+          retryable: lifecycleSettings.mode !== 'disabled',
+          route: `${requestContext.route}/settings/lifecycle`
+        }
+        : null,
+      targetReadyBlocked
+        ? {
+          code: result.reason || 'command_target_not_ready',
+          owner: 'operator',
+          retryable,
+          route: `${requestContext.route}/commands`
+        }
+        : null,
+      staleRestart
+        ? {
+          code: 'restart_snapshot_requires_reconcile',
+          owner: 'hosted-kernel',
+          retryable: Boolean(availableRecoveryPath),
+          route: availableRecoveryPath?.command.route || `${requestContext.route}/state/reconcile`
+        }
+        : null
+    ].filter(Boolean);
+    const state = duplicate
+      ? 'duplicate-return'
+      : applied
+        ? 'applied'
+        : retryable && blockers.every((blocker) => blocker.retryable !== false)
+          ? 'retryable-blocked'
+          : blocked
+            ? 'blocked'
+            : 'observed';
+    const nextCommand = state === 'retryable-blocked' && availableRecoveryPath
+      ? {
+        type: availableRecoveryPath.command.type,
+        route: availableRecoveryPath.command.route,
+        idempotencyKey: `${availableRecoveryPath.command.idempotencyKey}:${result.commandId}`,
+        target: availableRecoveryPath.target
+      }
+      : state === 'duplicate-return'
+        ? {
+          type: result.type,
+          route: `${requestContext.route}/commands/${encodeURIComponent(result.commandId)}`,
+          idempotencyKey: result.idempotencyKey,
+          target: result.target
+        }
+        : null;
+
+    return {
+      claimType: 'hosted-kernel.failure-taxonomy.command-replay-claim.v1',
+      commandId: result.commandId,
+      type: result.type,
+      target: result.target,
+      idempotencyKey: result.idempotencyKey,
+      generatedAt: now,
+      state,
+      replayable,
+      retryable,
+      duplicate,
+      restartSafe: result.restartSafe && restartConsistency.consistent,
+      status: result.status,
+      reason: result.reason,
+      requiredPermission: result.requiredPermission,
+      tenantBoundary: result.tenantBoundary,
+      syncCursor: syncState.cursor,
+      blockers,
+      blockerCodes: blockers.map((blocker) => blocker.code),
+      nextCommand,
+      audit: {
+        proofType: 'hosted-kernel.failure-taxonomy.command-replay-claim-proof.v1',
+        requestId: requestContext.requestId,
+        previousGeneration: previousState.generation,
+        commandKeyPreviouslyApplied: previousState.commandLedger.appliedKeys.includes(result.idempotencyKey),
+        restartConsistent: restartConsistency.consistent,
+        failedRestartChecks: restartConsistency.failedChecks,
+        recoveryPathMode: availableRecoveryPath?.mode || null
+      }
+    };
+  });
+  const replayableClaims = claims.filter((claim) => claim.replayable);
+  const blockedClaims = claims.filter((claim) => claim.state === 'blocked' || claim.state === 'retryable-blocked');
+
+  return {
+    claimSetType: 'hosted-kernel.failure-taxonomy.command-replay-claim-set.v1',
+    generatedAt: now,
+    requestId: requestContext.requestId,
+    tenantId: tenantScope.tenantId,
+    workspaceId: tenantScope.activeWorkspaceId,
+    cursor: syncState.cursor,
+    commandCount: claims.length,
+    replayableCount: replayableClaims.length,
+    blockedCount: blockedClaims.length,
+    duplicateCount: claims.filter((claim) => claim.duplicate).length,
+    retryableBlockedCount: claims.filter((claim) => claim.state === 'retryable-blocked').length,
+    claims,
+    claimSummary: {
+      replaySafe: blockedClaims.every((claim) => claim.retryable || claim.blockers.every((blocker) => blocker.retryable !== false)),
+      requiresOperatorReview: blockedClaims.some((claim) => claim.blockers.some((blocker) => blocker.retryable === false)),
+      nextRecoveryMode: availableRecoveryPath?.mode || 'none',
+      nextRecoveryRoute: availableRecoveryPath?.command.route || null
+    }
+  };
+}
+
 function buildPersistedRecoveryState(input, now, requestContext, provider, incidents, syncState, handoff, tenantScope, tenantBoundary, lifecycleSettings, lifecycleControls) {
   const previousState = normalizePersistedFailureTaxonomyState(input);
   const restartConsistency = buildRestartConsistency(previousState, requestContext, provider, incidents, syncState, handoff, tenantScope);
@@ -1630,6 +1940,17 @@ function buildPersistedRecoveryState(input, now, requestContext, provider, incid
     recoveryPaths,
     now
   );
+  const commandReplay = buildCommandReplayClaims(
+    commandResults,
+    previousState,
+    restartConsistency,
+    requestContext,
+    syncState,
+    tenantScope,
+    lifecycleSettings,
+    recoveryPaths,
+    now
+  );
 
   return {
     stateType: 'hosted-kernel.failure-taxonomy.persisted-state.v1',
@@ -1648,8 +1969,10 @@ function buildPersistedRecoveryState(input, now, requestContext, provider, incid
       lastCommandStatus: commandResults[commandResults.length - 1]?.status || 'none',
       restoredResultCount: previousState.commandLedger.restoredResultCount,
       results: commandResults,
+      replayClaims: commandReplay.claims,
       restoredResults: previousState.commandLedger.restoredResults
     },
+    commandReplay,
     primaryRecoveryPath,
     recoveryPaths,
     restartConsistency,
@@ -1726,6 +2049,12 @@ function buildHandoffState(incidents, provider, providerServiceContract) {
 
 function buildAuditProof(now, provider, providerServiceContract, incidents, syncState, evidence, requestContext, persistedRecovery, tenantScope, tenantBoundary, lifecycleSettings, lifecycleTransitionPlan, taxonomyDecisions) {
   const blockingDecisions = taxonomyDecisions.filter((decision) => decision.acceptanceImpact === 'blocking');
+  const evidenceScopeCounts = countBy(evidence, (record) => record.scopeStatus, [
+    'in_scope',
+    'workspace_not_active',
+    'workspace_not_allowed',
+    'tenant_mismatch'
+  ]);
 
   return {
     proofType: 'failure-taxonomy-provider-contract',
@@ -1768,6 +2097,16 @@ function buildAuditProof(now, provider, providerServiceContract, incidents, sync
     lifecycleTransitionProof: lifecycleTransitionPlan.proof,
     providerIntegrationProof: providerServiceContract.integrationManifest.negotiationProof,
     evidenceCount: evidence.length,
+    evidenceScope: {
+      proofType: 'hosted-kernel.failure-taxonomy.evidence-scope-proof.v1',
+      totalEvidenceRecords: evidence.length,
+      inScopeEvidenceCount: evidence.filter((record) => record.usableForProof).length,
+      outOfScopeEvidenceCount: evidence.filter((record) => !record.usableForProof).length,
+      scopeCounts: evidenceScopeCounts,
+      rejectedEvidenceRefs: taxonomyDecisions.flatMap((decision) =>
+        decision.proofCoverage.rejectedEvidenceRefs.map((ref) => `${decision.incidentId}:${ref}`)
+      )
+    },
     taxonomyDecisionCount: taxonomyDecisions.length,
     taxonomyDecisionDigest: taxonomyDecisions.map((decision) => ({
       incidentId: decision.incidentId,
@@ -1915,6 +2254,28 @@ function buildAuditProof(now, provider, providerServiceContract, incidents, sync
         failedRestartChecks: persistedRecovery.restartConsistency.failedChecks
       },
       {
+        name: 'command_replay_claims_bound_to_ledger',
+        ok: persistedRecovery.commandReplay.commandCount === persistedRecovery.commandLedger.results.length
+          && persistedRecovery.commandReplay.claims.every((claim) =>
+            persistedRecovery.commandLedger.results.some((result) =>
+              result.commandId === claim.commandId
+              && result.idempotencyKey === claim.idempotencyKey
+              && result.status === claim.status
+            )
+          )
+          && persistedRecovery.commandReplay.claims.every((claim) =>
+            claim.replayable
+            || claim.blockerCodes.length > 0
+            || claim.state === 'observed'
+          ),
+        commandCount: persistedRecovery.commandReplay.commandCount,
+        replayableCount: persistedRecovery.commandReplay.replayableCount,
+        blockedCount: persistedRecovery.commandReplay.blockedCount,
+        duplicateCount: persistedRecovery.commandReplay.duplicateCount,
+        retryableBlockedCount: persistedRecovery.commandReplay.retryableBlockedCount,
+        nextRecoveryMode: persistedRecovery.commandReplay.claimSummary.nextRecoveryMode
+      },
+      {
         name: 'lifecycle_settings_validated',
         ok: lifecycleSettings.validation.valid
           && LIFECYCLE_MODES.has(lifecycleSettings.mode)
@@ -1940,6 +2301,15 @@ function buildAuditProof(now, provider, providerServiceContract, incidents, sync
         reviewIncidentIds: taxonomyDecisions
           .filter((decision) => decision.acceptanceImpact === 'review_required')
           .map((decision) => decision.incidentId)
+      },
+      {
+        name: 'evidence_refs_scoped_to_active_workspace',
+        ok: taxonomyDecisions.every((decision) => decision.proofCoverage.rejectedEvidenceRefs.length === 0),
+        inScopeEvidenceCount: evidence.filter((record) => record.usableForProof).length,
+        outOfScopeEvidenceCount: evidence.filter((record) => !record.usableForProof).length,
+        rejectedEvidenceRefs: taxonomyDecisions.flatMap((decision) =>
+          decision.proofCoverage.rejectedEvidenceRefs.map((ref) => `${decision.incidentId}:${ref}`)
+        )
       }
     ]
   };
@@ -1952,6 +2322,9 @@ function summarizeValidation(provider, providerServiceContract, incidents, syncS
   const blockedCapabilities = provider.negotiation.rejected;
   const unregisteredDecisions = taxonomyDecisions.filter((decision) => !decision.registered);
   const proofBlockedDecisions = taxonomyDecisions.filter((decision) => decision.acceptanceImpact === 'blocking');
+  const evidenceScopeMismatches = taxonomyDecisions.filter((decision) =>
+    decision.proofCoverage.rejectedEvidenceRefs.length > 0
+  );
 
   if (!lifecycleSettings.validation.valid) {
     issues.push({
@@ -2060,6 +2433,17 @@ function summarizeValidation(provider, providerServiceContract, incidents, syncS
       severity: 'critical',
       message: 'One or more taxonomy decisions are missing required proof fields before preview publication.',
       refs: proofBlockedDecisions.map((decision) => `${decision.incidentId}:${decision.proofCoverage.missingFields.join(',')}`)
+    });
+  }
+
+  if (evidenceScopeMismatches.length) {
+    issues.push({
+      code: 'evidence_scope_mismatch',
+      severity: 'critical',
+      message: 'One or more incident evidence references resolve outside the active tenant workspace proof scope.',
+      refs: evidenceScopeMismatches.flatMap((decision) =>
+        decision.proofCoverage.rejectedEvidenceRefs.map((ref) => `${decision.incidentId}:${ref}`)
+      )
     });
   }
 
@@ -2805,6 +3189,104 @@ function buildAnalyticsExports(input, now, requestContext, providerServiceContra
       exportReady,
       blockedExportGates: exportReadinessGates.filter((gate) => !gate.ready).map((gate) => gate.gate),
       driftDirection: drift.direction
+    }
+  };
+}
+
+function buildExportHandoffPacket(requestContext, analyticsExports, readiness, acceptance, validation, nextSteps, lifecycleControls, persistedRecovery, handoff, tenantBoundary) {
+  const handoffQueue = Array.isArray(handoff.queue) ? handoff.queue : [];
+  const blockedGates = [
+    ...analyticsExports.exportReadiness.blockedGates,
+    ...readiness.blockedGates,
+    ...acceptance.blockerCodes
+  ];
+  const publishStep = nextSteps.find((step) => step.action === 'publish_taxonomy_preview') || null;
+  const handoffStep = nextSteps.find((step) => step.action === 'acknowledge_external_handoff') || null;
+  const primaryStep = publishStep || handoffStep || nextSteps[0] || null;
+  const canPublish = acceptance.accepted
+    && readiness.state === 'ready'
+    && lifecycleControls.commands.publish_preview.enabled
+    && analyticsExports.exportReadiness.ready;
+  const handoffRequired = Boolean(handoff.required || handoffQueue.length > 0 || tenantBoundary.boundaryProof.handoffRequired);
+  const packetState = canPublish
+    ? 'publish-ready'
+    : blockedGates.length > 0
+      ? 'blocked'
+      : handoffRequired
+        ? 'handoff-ready'
+        : 'review-ready';
+
+  return {
+    packetType: 'hosted-kernel.failure-taxonomy.export-handoff-packet.v1',
+    generatedAt: analyticsExports.generatedAt,
+    requestId: requestContext.requestId,
+    state: packetState,
+    exportId: analyticsExports.exportId,
+    exportRoute: analyticsExports.exportRoute,
+    reportRoute: analyticsExports.reportRoute,
+    historyRoute: analyticsExports.historyRoute,
+    resumeToken: persistedRecovery.resumeToken,
+    canPublish,
+    handoffRequired,
+    blockedGateCount: blockedGates.length,
+    blockedGates: [...new Set(blockedGates)].slice(0, 12),
+    validation: {
+      status: validation.status,
+      issueCount: validation.issueCount,
+      criticalIssueCount: validation.issues.filter((issue) => issue.severity === 'critical').length,
+      topIssueCodes: validation.issues.slice(0, 6).map((issue) => issue.code)
+    },
+    readiness: {
+      state: readiness.state,
+      readyGateCount: readiness.readyGateCount,
+      totalGateCount: readiness.totalGateCount,
+      blockedGates: readiness.blockedGates
+    },
+    analytics: {
+      ready: analyticsExports.exportReadiness.ready,
+      state: analyticsExports.state,
+      counterType: analyticsExports.counterSet.counterType,
+      retainedSnapshotCount: analyticsExports.history.retainedSnapshotCount,
+      reportRowCount: analyticsExports.report.rowCount,
+      driftDirection: analyticsExports.history.drift.direction
+    },
+    handoff: {
+      state: handoff.state,
+      queueCount: handoffQueue.length,
+      queue: handoffQueue.map((item) => ({
+        handoffId: item.handoffId,
+        incidentId: item.incidentId,
+        status: item.status,
+        providerRoute: item.providerRoute || item.command?.route || item.preflight?.route || null
+      })),
+      tenantBoundaryHandoffRequired: tenantBoundary.boundaryProof.handoffRequired,
+      activationRequiredCount: tenantBoundary.boundaryHandoff.activationRequiredCount
+    },
+    primaryAction: primaryStep ? {
+      action: primaryStep.action,
+      label: primaryStep.label,
+      reason: primaryStep.reason,
+      target: primaryStep.target,
+      route: primaryStep.nextRoute || (
+        primaryStep.action === 'publish_taxonomy_preview'
+          ? `${requestContext.route}/preview/acceptance`
+          : primaryStep.action === 'acknowledge_external_handoff'
+            ? `${requestContext.route}/handoff/ack`
+            : `${requestContext.route}/next-steps`
+      )
+    } : {
+      action: canPublish ? 'publish_taxonomy_preview' : 'review_export_handoff_packet',
+      label: canPublish ? 'Publish taxonomy preview' : 'Review export handoff packet',
+      reason: canPublish ? 'all_export_and_readiness_gates_passed' : packetState,
+      target: surfaceId,
+      route: canPublish ? `${requestContext.route}/preview/acceptance` : `${requestContext.route}/next-steps`
+    },
+    routeContract: {
+      route: canPublish ? `${requestContext.route}/preview/acceptance` : `${requestContext.route}/export-handoff`,
+      method: canPublish ? 'POST' : 'GET',
+      requestSchema: 'hosted-kernel.failure-taxonomy.export-handoff-request.v1',
+      responseSchema: 'hosted-kernel.failure-taxonomy.export-handoff-packet.v1',
+      idempotencyKey: `failure-taxonomy-export-handoff:${persistedRecovery.resumeToken}:${analyticsExports.exportId}`
     }
   };
 }
@@ -3609,6 +4091,18 @@ function buildRouteDataContracts(requestContext, preview, readiness, acceptance,
     taxonomyDecisions,
     operationalHealth
   );
+  const exportHandoffPacket = buildExportHandoffPacket(
+    requestContext,
+    analyticsExports,
+    readiness,
+    acceptance,
+    validation,
+    nextSteps,
+    lifecycleControls,
+    persistedRecovery,
+    workflowHandoff,
+    tenantBoundary
+  );
   const issueGroups = validation.issues.reduce((groups, issue) => {
     const existing = groups[issue.severity] || {
       severity: issue.severity,
@@ -3676,6 +4170,7 @@ function buildRouteDataContracts(requestContext, preview, readiness, acceptance,
       operationalHealth: `${requestContext.route}/health`,
       analyticsExport: analyticsExports.exportRoute,
       analyticsHistory: analyticsExports.historyRoute,
+      exportHandoff: exportHandoffPacket.routeContract.route,
       lifecycleSettings: lifecycleTransitionPlan.route,
       auditProof: `${requestContext.route}/proofs/${encodeURIComponent(auditProof.requestId)}`
     },
@@ -3696,6 +4191,7 @@ function buildRouteDataContracts(requestContext, preview, readiness, acceptance,
       refreshRoute: `${requestContext.route}/preview?requestId=${encodeURIComponent(requestContext.requestId)}`
     },
     previewAcceptancePacket,
+    exportHandoffPacket,
     acceptanceForm: {
       payloadType: 'hosted-kernel.failure-taxonomy.acceptance-form.v1',
       decision: acceptance.decision,
@@ -3819,6 +4315,34 @@ function buildRouteDataContracts(requestContext, preview, readiness, acceptance,
         proofRefs: transition.proofRefs
       }))
     },
+    commandReplayPanel: {
+      payloadType: 'hosted-kernel.failure-taxonomy.command-replay-panel.v1',
+      state: persistedRecovery.commandReplay.blockedCount > 0
+        ? persistedRecovery.commandReplay.retryableBlockedCount === persistedRecovery.commandReplay.blockedCount
+          ? 'retryable-blocked'
+          : 'blocked'
+        : persistedRecovery.commandReplay.replayableCount > 0
+          ? 'replayable'
+          : 'idle',
+      commandCount: persistedRecovery.commandReplay.commandCount,
+      replayableCount: persistedRecovery.commandReplay.replayableCount,
+      blockedCount: persistedRecovery.commandReplay.blockedCount,
+      duplicateCount: persistedRecovery.commandReplay.duplicateCount,
+      retryableBlockedCount: persistedRecovery.commandReplay.retryableBlockedCount,
+      summary: persistedRecovery.commandReplay.claimSummary,
+      claims: persistedRecovery.commandReplay.claims.map((claim) => ({
+        commandId: claim.commandId,
+        type: claim.type,
+        target: claim.target,
+        state: claim.state,
+        replayable: claim.replayable,
+        retryable: claim.retryable,
+        duplicate: claim.duplicate,
+        restartSafe: claim.restartSafe,
+        blockerCodes: claim.blockerCodes,
+        nextCommand: claim.nextCommand
+      }))
+    },
     workflowHandoffPanel: {
       payloadType: 'hosted-kernel.failure-taxonomy.workflow-handoff-panel.v1',
       state: workflowHandoff.state,
@@ -3926,16 +4450,31 @@ function buildRouteDataContracts(requestContext, preview, readiness, acceptance,
       summary: analyticsExports.exportSummary,
       proof: analyticsExports.proof
     },
+    exportHandoffPanel: {
+      payloadType: exportHandoffPacket.packetType,
+      state: exportHandoffPacket.state,
+      canPublish: exportHandoffPacket.canPublish,
+      exportRoute: exportHandoffPacket.exportRoute,
+      reportRoute: exportHandoffPacket.reportRoute,
+      routeContract: exportHandoffPacket.routeContract,
+      blockedGateCount: exportHandoffPacket.blockedGateCount,
+      blockedGates: exportHandoffPacket.blockedGates,
+      primaryAction: exportHandoffPacket.primaryAction,
+      analytics: exportHandoffPacket.analytics,
+      handoff: exportHandoffPacket.handoff
+    },
     nextStepCommands
   };
 }
 
 export function describeFailureTaxonomySurface(input = {}) {
   const now = input.now || new Date().toISOString();
-  const evidence = Array.isArray(input.evidence) ? input.evidence : [];
+  const rawEvidence = Array.isArray(input.evidence) ? input.evidence : [];
   const provider = normalizeProvider(input);
   const requestContext = normalizeRequestContext(input, now);
   const tenantScope = normalizeTenantScope(input);
+  const evidence = normalizeEvidenceRecords(rawEvidence, tenantScope);
+  const evidenceIndex = buildEvidenceReferenceIndex(evidence);
   const lifecycleSettings = normalizeLifecycleSettings(input, now);
   const providerServiceContract = buildProviderServiceContract(provider, requestContext, lifecycleSettings, now);
   const commands = normalizeCommandList(input);
@@ -3946,7 +4485,7 @@ export function describeFailureTaxonomySurface(input = {}) {
   const scopedIncidents = tenantBoundary.readable ? tenantBoundary.visibleIncidents : [];
   const selection = chooseVisibleIncidents(requestContext, scopedIncidents);
   const syncState = buildSyncState(input, now, lifecycleSettings, providerServiceContract);
-  const taxonomyDecisions = buildTaxonomyDecisions(scopedIncidents, evidence, providerServiceContract, lifecycleSettings);
+  const taxonomyDecisions = buildTaxonomyDecisions(scopedIncidents, evidenceIndex, providerServiceContract, lifecycleSettings);
   const handoff = buildHandoffState(scopedIncidents, provider, providerServiceContract);
   const initialLifecycleControls = buildLifecycleControls(lifecycleSettings, syncState, handoff);
   const persistedRecovery = buildPersistedRecoveryState(input, now, requestContext, provider, scopedIncidents, syncState, handoff, tenantScope, tenantBoundary, lifecycleSettings, initialLifecycleControls);

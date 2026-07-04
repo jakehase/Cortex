@@ -98,6 +98,7 @@ const MUTATING_COMMANDS = new Set([
 ]);
 const TERMINAL_RECOVERY_STATUSES = new Set(['completed']);
 const COMMAND_RESTART_STALE_MS = 15 * 60 * 1000;
+const DEFAULT_HANDOFF_CONTINUATION_TTL_MS = 10 * 60 * 1000;
 const RESTART_COMMAND_STATUSES = new Set(['completed', 'inflight', 'failed', 'abandoned', 'replay-pending']);
 const RECOVERY_ROUTE_ACTIONS_BY_STATUS = Object.freeze({
   pending: 'route.auditRecovery.auditEvent.createCursor',
@@ -115,6 +116,26 @@ const RECOVERY_COMMANDS_BY_STATUS = Object.freeze({
   completed: 'resume-recovery',
   blocked: 'resume-recovery'
 });
+const MAILCHIMP_EVENT_KINDS = new Set([
+  'mailchimp.campaign.created',
+  'mailchimp.campaign.updated',
+  'mailchimp.campaign.scheduled',
+  'mailchimp.campaign.sent',
+  'mailchimp.campaign.paused',
+  'mailchimp.campaign.cancelled',
+  'mailchimp.template.updated',
+  'mailchimp.audience.segmented'
+]);
+const MAILCHIMP_PROVIDER_METHODS = Object.freeze([
+  'readCampaign',
+  'readAudience',
+  'commitCampaignAuditProof'
+]);
+const MAILCHIMP_PROVIDER_CAPABILITIES = Object.freeze([
+  'mailchimp.campaign-audit.v1',
+  'mailchimp.audience-binding.v1',
+  'mailchimp.template-proof.v1'
+]);
 
 function asRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -238,6 +259,53 @@ function shapeRestartCommandRecord(record, completedIds, inflightIds, requestCon
   };
 }
 
+function buildIdempotencyConflictDetails(records) {
+  const byKey = new Map();
+
+  for (const record of records) {
+    const existing = byKey.get(record.idempotencyKey) || {
+      idempotencyKey: record.idempotencyKey,
+      commandIds: new Set(),
+      names: new Set(),
+      statuses: new Set(),
+      firstSeenAt: record.firstSeenAt,
+      updatedAt: record.updatedAt,
+      conflict: false
+    };
+    const previousNameCount = existing.names.size;
+    const previousCommandCount = existing.commandIds.size;
+
+    existing.commandIds.add(record.commandId);
+    if (record.name) existing.names.add(record.name);
+    existing.statuses.add(record.status);
+    existing.firstSeenAt = existing.firstSeenAt && existing.firstSeenAt < record.firstSeenAt
+      ? existing.firstSeenAt
+      : record.firstSeenAt;
+    existing.updatedAt = existing.updatedAt && existing.updatedAt > record.updatedAt
+      ? existing.updatedAt
+      : record.updatedAt;
+    existing.conflict = existing.conflict
+      || existing.names.size > 1
+      || (previousNameCount === 0 && existing.names.size === 0 && previousCommandCount > 0);
+    byKey.set(record.idempotencyKey, existing);
+  }
+
+  return [...byKey.values()]
+    .filter((entry) => entry.conflict)
+    .map((entry) => ({
+      idempotencyKey: entry.idempotencyKey,
+      commandIds: [...entry.commandIds].sort(),
+      names: [...entry.names].sort(),
+      statuses: [...entry.statuses].sort(),
+      firstSeenAt: entry.firstSeenAt,
+      updatedAt: entry.updatedAt,
+      reason: entry.names.size > 1
+        ? 'idempotency-key-reused-across-command-names'
+        : 'idempotency-key-reused-without-command-name'
+    }))
+    .sort((left, right) => left.idempotencyKey.localeCompare(right.idempotencyKey));
+}
+
 function buildRestartCommandJournal(ledgerRecords, completedIds, inflightIds, event, requestContext, now) {
   const shapedRecords = ledgerRecords.map((record) => shapeRestartCommandRecord(
     record,
@@ -265,6 +333,7 @@ function buildRestartCommandJournal(ledgerRecords, completedIds, inflightIds, ev
   const replayableFailed = failed.filter((record) => record.replayable);
   const unsafe = records.filter((record) => !record.restartSafe && record.status !== 'completed');
   const nextReplay = replayPending[0] || replayableFailed[0] || null;
+  const idempotencyConflicts = buildIdempotencyConflictDetails(shapedRecords);
 
   return {
     schemaVersion: 'audit-event.command-journal.v2',
@@ -280,7 +349,10 @@ function buildRestartCommandJournal(ledgerRecords, completedIds, inflightIds, ev
     completedIds: [...new Set([...completedIds, ...completed.map((record) => record.idempotencyKey)])].sort(),
     inflightIds: [...new Set(inflight.flatMap((record) => [record.commandId, record.idempotencyKey]))].sort(),
     duplicateIdempotencyKeys: [...new Set(duplicateKeys)].sort(),
-    restartStatus: unsafe.length
+    idempotencyConflicts,
+    restartStatus: idempotencyConflicts.length
+      ? 'operator-repair-required'
+      : unsafe.length
       ? 'operator-repair-required'
       : replayPending.length || replayableFailed.length
         ? 'replay-required'
@@ -294,6 +366,7 @@ function buildRestartCommandJournal(ledgerRecords, completedIds, inflightIds, ev
       replayPending: replayPending.length,
       failed: failed.length,
       duplicate: new Set(duplicateKeys).size,
+      idempotencyConflict: idempotencyConflicts.length,
       unsafe: unsafe.length
     },
     replayPlan: {
@@ -308,7 +381,12 @@ function buildRestartCommandJournal(ledgerRecords, completedIds, inflightIds, ev
           : 'failed-replayable-command'
         : 'none'
     },
-    validation: unsafe.map((record) => `command ${record.commandId} is not restart-safe`)
+    validation: [
+      ...idempotencyConflicts.map((conflict) => (
+        `idempotency key ${conflict.idempotencyKey} is reused across incompatible command records`
+      )),
+      ...unsafe.map((record) => `command ${record.commandId} is not restart-safe`)
+    ]
   };
 }
 
@@ -460,6 +538,425 @@ function normalizeAuditEvent(event = {}, now) {
     occurredAt,
     payloadHash: normalizeString(record.payloadHash) || null,
     validation
+  };
+}
+
+function normalizeMailchimpEventContract(input, event, requestContext) {
+  const product = asRecord(input.product);
+  const mailchimp = asRecord(input.mailchimp || product.mailchimp || asRecord(input.request).mailchimp);
+  const campaign = asRecord(mailchimp.campaign);
+  const audience = asRecord(mailchimp.audience);
+  const template = asRecord(mailchimp.template);
+  const provider = asRecord(input.provider);
+  const serviceContract = asRecord(provider.serviceContract || provider.contract);
+  const requestedKind = normalizeString(mailchimp.eventKind) || event.kind;
+  const campaignId = normalizeString(campaign.campaignId)
+    || normalizeString(campaign.id)
+    || normalizeString(mailchimp.campaignId)
+    || normalizeString(event.subject.type === 'mailchimp-campaign' ? event.subject.id : '');
+  const audienceId = normalizeString(audience.audienceId)
+    || normalizeString(audience.listId)
+    || normalizeString(audience.id)
+    || normalizeString(mailchimp.audienceId)
+    || normalizeString(mailchimp.listId);
+  const templateId = normalizeString(template.templateId)
+    || normalizeString(template.id)
+    || normalizeString(mailchimp.templateId);
+  const sendWindowStart = normalizeIsoTimestamp(mailchimp.sendWindowStart || campaign.sendWindowStart, null);
+  const sendWindowEnd = normalizeIsoTimestamp(mailchimp.sendWindowEnd || campaign.sendWindowEnd, null);
+  const providerMethods = normalizeStringList(provider.methods || serviceContract.methods);
+  const providerCapabilities = normalizeCapabilityList(
+    serviceContract.capabilities || provider.capabilities || provider.supportedCapabilities || []
+  );
+  const present = Boolean(
+    mailchimp.enabled === true
+    || campaignId
+    || audienceId
+    || templateId
+    || MAILCHIMP_EVENT_KINDS.has(requestedKind)
+  );
+  const missingProviderMethods = present
+    ? MAILCHIMP_PROVIDER_METHODS.filter((method) => !providerMethods.includes(method))
+    : [];
+  const missingProviderCapabilities = present
+    ? MAILCHIMP_PROVIDER_CAPABILITIES.filter((capability) => !providerCapabilities.includes(capability))
+    : [];
+  const validation = [];
+
+  if (present && !MAILCHIMP_EVENT_KINDS.has(requestedKind)) validation.push(`unsupported Mailchimp audit event kind: ${requestedKind}`);
+  if (present && !campaignId) validation.push('Mailchimp campaignId is required for campaign audit events');
+  if (present && !audienceId) validation.push('Mailchimp audienceId/listId is required for campaign audit events');
+  if (sendWindowStart && sendWindowEnd && Date.parse(sendWindowEnd) < Date.parse(sendWindowStart)) {
+    validation.push('Mailchimp sendWindowEnd must be after sendWindowStart');
+  }
+
+  return {
+    schemaVersion: 'audit-event.mailchimp-campaign-contract.v1',
+    present,
+    eventKind: requestedKind,
+    campaignId: campaignId || null,
+    audienceId: audienceId || null,
+    templateId: templateId || null,
+    sendWindow: {
+      start: sendWindowStart,
+      end: sendWindowEnd,
+      timezone: normalizeString(mailchimp.timezone || campaign.timezone) || 'UTC'
+    },
+    providerRequirements: {
+      methods: MAILCHIMP_PROVIDER_METHODS,
+      capabilities: MAILCHIMP_PROVIDER_CAPABILITIES,
+      missingMethods: missingProviderMethods,
+      missingCapabilities: missingProviderCapabilities,
+      satisfied: missingProviderMethods.length === 0 && missingProviderCapabilities.length === 0
+    },
+    auditBinding: {
+      tenantId: requestContext.tenantId,
+      workspaceId: requestContext.workspaceId,
+      proofKey: present && campaignId && audienceId
+        ? `${requestContext.tenantId || 'tenant'}:${requestContext.workspaceId || 'workspace'}:mailchimp:${audienceId}:${campaignId}`
+        : null,
+      externalObjectRefs: [
+        campaignId ? `mailchimp:campaign:${campaignId}` : null,
+        audienceId ? `mailchimp:audience:${audienceId}` : null,
+        templateId ? `mailchimp:template:${templateId}` : null
+      ].filter(Boolean)
+    },
+    validation
+  };
+}
+
+function buildMailchimpCampaignPreviewContract({
+  event,
+  externalHandoff,
+  mailchimpEventContract,
+  providerServiceBinding,
+  proof,
+  requestContext,
+  tenantBoundary,
+  workflowHandoff
+}) {
+  if (!mailchimpEventContract.present) {
+    return {
+      schemaVersion: 'audit-event.mailchimp-campaign-preview.v1',
+      present: false,
+      ready: true,
+      status: 'not-applicable',
+      blockers: [],
+      nextStep: null
+    };
+  }
+
+  const requirementBlockers = [
+    ...mailchimpEventContract.validation.map((reason) => ({ source: 'mailchimp-campaign', reason })),
+    ...mailchimpEventContract.providerRequirements.missingMethods.map((method) => ({
+      source: 'mailchimp-provider',
+      reason: `missing ${method}`
+    })),
+    ...mailchimpEventContract.providerRequirements.missingCapabilities.map((capability) => ({
+      source: 'mailchimp-provider',
+      reason: `missing ${capability}`
+    })),
+    providerServiceBinding.validation.length
+      ? { source: 'provider-service-binding', reason: providerServiceBinding.validation[0] }
+      : null,
+    proof.status !== 'ready' ? { source: 'proof', reason: `proof ${proof.status}` } : null,
+    workflowHandoff.validation.length
+      ? { source: 'workflow-handoff', reason: workflowHandoff.validation[0] }
+      : null
+  ].filter(Boolean);
+  const ready = requirementBlockers.length === 0;
+  const campaignLabel = mailchimpEventContract.campaignId || event.subject.id;
+  const audienceLabel = mailchimpEventContract.audienceId || 'unbound-audience';
+  const nextStep = ready
+    ? {
+        id: 'accept-mailchimp-campaign-audit',
+        label: 'Accept Mailchimp campaign audit',
+        routeAction: 'client.auditEvent.acceptPreview',
+        reason: 'Mailchimp campaign audit proof is ready for operator acceptance.'
+      }
+    : {
+        id: 'repair-mailchimp-campaign-audit',
+        label: 'Repair Mailchimp campaign audit',
+        routeAction: requirementBlockers[0]?.source === 'mailchimp-provider'
+          ? 'route.auditRecovery.provider.configureServiceBinding'
+          : 'route.auditRecovery.auditEvent.openPreview',
+        reason: requirementBlockers[0]?.reason || 'Mailchimp campaign audit is blocked.'
+      };
+
+  return {
+    schemaVersion: 'audit-event.mailchimp-campaign-preview.v1',
+    present: true,
+    ready,
+    status: ready ? 'ready' : 'blocked',
+    title: `Mailchimp campaign ${campaignLabel}`,
+    subtitle: `Audience ${audienceLabel}`,
+    campaignId: mailchimpEventContract.campaignId,
+    audienceId: mailchimpEventContract.audienceId,
+    templateId: mailchimpEventContract.templateId,
+    eventKind: mailchimpEventContract.eventKind,
+    sendWindow: mailchimpEventContract.sendWindow,
+    providerRequirements: mailchimpEventContract.providerRequirements,
+    auditBinding: mailchimpEventContract.auditBinding,
+    blockers: requirementBlockers,
+    handoffState: {
+      handoffId: externalHandoff.handoffId,
+      state: externalHandoff.state,
+      mode: externalHandoff.mode,
+      target: externalHandoff.target,
+      nextUserAction: externalHandoff.nextUserAction,
+      routeAction: workflowHandoff.routeAction,
+      continuationToken: workflowHandoff.continuation.token
+    },
+    proofManifest: {
+      proofKey: proof.proofKey,
+      proofStatus: proof.status,
+      tenantId: tenantBoundary.tenantId,
+      workspaceId: tenantBoundary.workspaceId,
+      eventId: event.eventId,
+      requestId: requestContext.requestId,
+      externalObjectRefs: mailchimpEventContract.auditBinding.externalObjectRefs
+    },
+    nextStep,
+    routeContract: {
+      routeAction: nextStep.routeAction,
+      method: ready ? 'POST' : 'PATCH',
+      enabled: ready,
+      disabledReasons: requirementBlockers.map((blocker) => blocker.reason),
+      bodySchema: {
+        eventId: 'string',
+        requestId: 'string',
+        campaignId: 'string',
+        audienceId: 'string',
+        proofKey: 'string|null',
+        idempotencyKey: 'string'
+      },
+      body: {
+        eventId: event.eventId,
+        requestId: requestContext.requestId,
+        campaignId: mailchimpEventContract.campaignId,
+        audienceId: mailchimpEventContract.audienceId,
+        proofKey: ready ? proof.proofKey : null,
+        idempotencyKey: `${requestContext.requestId}:${event.eventId}:mailchimp-campaign-audit`
+      }
+    }
+  };
+}
+
+function buildMailchimpCampaignAcceptanceRuntimeHandoff({
+  acceptanceState,
+  event,
+  mailchimpCampaignPreview,
+  mailchimpEventContract,
+  proof,
+  requestContext,
+  tenantBoundary,
+  validationSummary,
+  workflowHandoff
+}) {
+  if (!mailchimpCampaignPreview?.present) {
+    return {
+      schemaVersion: 'audit-event.mailchimp-campaign-acceptance-handoff.v1',
+      present: false,
+      ready: true,
+      status: 'not-applicable',
+      routeContract: null,
+      nextStep: null,
+      validationSummary: {
+        state: 'not-applicable',
+        blockerCount: 0,
+        warningCount: 0,
+        blockerSources: []
+      }
+    };
+  }
+
+  const mailchimpBlockers = validationSummary.blockers
+    .filter((blocker) => blocker.source === 'mailchimp-campaign' || blocker.source === 'mailchimp-provider');
+  const providerBlockers = validationSummary.blockers
+    .filter((blocker) => blocker.source === 'provider-service-binding' || blocker.source === 'provider-service');
+  const workflowBlockers = validationSummary.blockers
+    .filter((blocker) => blocker.source === 'workflow-handoff' || blocker.source === 'client-runtime');
+  const proofManifest = asRecord(mailchimpCampaignPreview.proofManifest);
+  const handoffState = asRecord(mailchimpCampaignPreview.handoffState);
+  const externalObjectRefs = normalizeStringList(proofManifest.externalObjectRefs);
+  const expectedCampaignRef = mailchimpEventContract.campaignId
+    ? `mailchimp:campaign:${mailchimpEventContract.campaignId}`
+    : null;
+  const expectedAudienceRef = mailchimpEventContract.audienceId
+    ? `mailchimp:audience:${mailchimpEventContract.audienceId}`
+    : null;
+  const scopeBlockers = [
+    proofManifest.tenantId && tenantBoundary.tenantId && proofManifest.tenantId !== tenantBoundary.tenantId
+      ? 'mailchimp_proof_tenant_scope_mismatch'
+      : null,
+    proofManifest.workspaceId && tenantBoundary.workspaceId && proofManifest.workspaceId !== tenantBoundary.workspaceId
+      ? 'mailchimp_proof_workspace_scope_mismatch'
+      : null,
+    proofManifest.eventId && proofManifest.eventId !== event.eventId
+      ? 'mailchimp_proof_event_scope_mismatch'
+      : null,
+    expectedCampaignRef && !externalObjectRefs.includes(expectedCampaignRef)
+      ? 'mailchimp_proof_campaign_ref_missing'
+      : null,
+    expectedAudienceRef && !externalObjectRefs.includes(expectedAudienceRef)
+      ? 'mailchimp_proof_audience_ref_missing'
+      : null,
+    handoffState.continuationToken ? null : 'mailchimp_handoff_continuation_missing'
+  ].filter(Boolean);
+  const blockingReasons = [...new Set([
+    ...mailchimpCampaignPreview.blockers.map((blocker) => blocker.reason),
+    ...mailchimpBlockers.map((blocker) => blocker.reason),
+    ...providerBlockers.map((blocker) => blocker.reason),
+    ...workflowBlockers.map((blocker) => blocker.reason),
+    ...scopeBlockers
+  ])];
+  const accepted = acceptanceState === 'accepted';
+  const ready = mailchimpCampaignPreview.ready
+    && validationSummary.valid
+    && scopeBlockers.length === 0
+    && proof.status === 'ready'
+    && workflowHandoff.userActionContract.enabled;
+  const status = accepted
+    ? 'accepted'
+    : ready
+      ? 'ready-for-acceptance'
+      : 'blocked';
+  const nextStep = ready
+    ? {
+        id: accepted ? 'open-mailchimp-campaign-proof' : 'accept-mailchimp-campaign-audit',
+        label: accepted ? 'Open Mailchimp campaign proof' : 'Accept Mailchimp campaign audit',
+        routeAction: accepted
+          ? 'route.auditRecovery.auditEvent.openMailchimpCampaignProof'
+          : 'client.auditEvent.acceptMailchimpCampaignPreview',
+        reason: accepted
+          ? 'Mailchimp campaign audit has an accepted proof manifest.'
+          : 'Mailchimp campaign audit is ready for operator acceptance.'
+      }
+      : {
+        id: 'repair-mailchimp-campaign-audit',
+        label: 'Repair Mailchimp campaign audit',
+        routeAction: providerBlockers.length
+          ? 'route.auditRecovery.provider.configureServiceBinding'
+          : 'route.auditRecovery.auditEvent.openPreview',
+        reason: blockingReasons[0] || 'Mailchimp campaign audit is blocked before acceptance.'
+      };
+  const idempotencyKey = `${requestContext.requestId}:${event.eventId}:mailchimp-campaign-acceptance`;
+  const persistedHandoffState = {
+    schemaVersion: 'audit-event.mailchimp-campaign-persisted-handoff-state.v1',
+    stateId: `${requestContext.requestId}:${event.eventId}:mailchimp-handoff`,
+    durableKey: [
+      tenantBoundary.tenantId || 'unbound-tenant',
+      tenantBoundary.workspaceId || 'unbound-workspace',
+      event.eventId,
+      'mailchimp-campaign-acceptance'
+    ].join(':'),
+    idempotencyKey,
+    restartSafeStatus: accepted
+      ? 'accepted-proof-readable'
+      : ready
+        ? 'acceptance-resumable'
+        : 'repair-required',
+    replayPolicy: accepted
+      ? 'return-accepted-proof'
+      : ready
+        ? 'retry-same-idempotency-key'
+        : 'block-until-proof-scope-and-handoff-repair',
+    nextAction: accepted
+      ? 'open-proof'
+      : ready
+        ? 'accept-campaign-audit'
+        : 'repair-campaign-audit',
+    proofKey: proof.proofKey || null,
+    proofStatus: proof.status,
+    handoffId: handoffState.handoffId || null,
+    continuationToken: handoffState.continuationToken || null,
+    campaignId: mailchimpEventContract.campaignId,
+    audienceId: mailchimpEventContract.audienceId,
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    blockingReasons,
+    scopeIntegrity: {
+      valid: scopeBlockers.length === 0,
+      blockers: scopeBlockers,
+      externalObjectRefs,
+      expectedObjectRefs: [expectedCampaignRef, expectedAudienceRef].filter(Boolean)
+    }
+  };
+  const routeBody = {
+    eventId: event.eventId,
+    requestId: requestContext.requestId,
+    tenantId: tenantBoundary.tenantId,
+    workspaceId: tenantBoundary.workspaceId,
+    campaignId: mailchimpEventContract.campaignId,
+    audienceId: mailchimpEventContract.audienceId,
+    templateId: mailchimpEventContract.templateId,
+    proofKey: ready ? proof.proofKey : null,
+    proofStatus: proof.status,
+    handoffId: handoffState.handoffId,
+    continuationToken: handoffState.continuationToken,
+    idempotencyKey,
+    persistedHandoffState
+  };
+
+  return {
+    schemaVersion: 'audit-event.mailchimp-campaign-acceptance-handoff.v1',
+    present: true,
+    ready,
+    status,
+    accepted,
+    product: 'mailchimp',
+    generatedForRoute: requestContext.route,
+    campaign: {
+      campaignId: mailchimpEventContract.campaignId,
+      audienceId: mailchimpEventContract.audienceId,
+      templateId: mailchimpEventContract.templateId,
+      eventKind: mailchimpEventContract.eventKind,
+      sendWindow: mailchimpEventContract.sendWindow
+    },
+    validationSummary: {
+      state: validationSummary.state,
+      valid: validationSummary.valid,
+      blockerCount: blockingReasons.length,
+      warningCount: validationSummary.warningCount,
+      blockerSources: [...new Set([
+        ...mailchimpBlockers,
+        ...providerBlockers,
+        ...workflowBlockers
+      ].map((blocker) => blocker.source))],
+      blockingReasons,
+      firstBlockingReason: blockingReasons[0] || null
+    },
+    readiness: {
+      proofReady: proof.status === 'ready',
+      providerReady: mailchimpEventContract.providerRequirements.satisfied,
+      workflowReady: workflowHandoff.userActionContract.enabled,
+      previewReady: mailchimpCampaignPreview.ready,
+      scopeIntegrityReady: scopeBlockers.length === 0,
+      restartSafeStatus: persistedHandoffState.restartSafeStatus
+    },
+    persistedHandoffState,
+    proofManifest,
+    handoffState,
+    nextStep,
+    routeContract: {
+      routeAction: nextStep.routeAction,
+      method: accepted ? 'GET' : ready ? 'POST' : 'PATCH',
+      enabled: ready || accepted,
+      disabledReasons: ready || accepted ? [] : blockingReasons,
+      bodySchema: {
+        eventId: 'string',
+        requestId: 'string',
+        tenantId: 'string|null',
+        workspaceId: 'string|null',
+        campaignId: 'string',
+        audienceId: 'string',
+        proofKey: 'string|null',
+        handoffId: 'string',
+        continuationToken: 'string|null',
+        idempotencyKey: 'string'
+      },
+      body: routeBody
+    }
   };
 }
 
@@ -1164,6 +1661,18 @@ function normalizeClientRuntime(input, requestContext, sync, event, persistedSta
   const tenantId = normalizeString(client.tenantId) || normalizeString(state.tenantId) || requestContext.tenantId;
   const workspaceId = normalizeString(client.workspaceId) || normalizeString(state.workspaceId) || requestContext.workspaceId;
   const handoffChannelInput = normalizeString(handoff.channel) || normalizeString(client.handoffChannel);
+  const continuationToken = normalizeString(handoff.continuationToken)
+    || normalizeString(handoff.token)
+    || normalizeString(client.continuationToken)
+    || null;
+  const continuationFingerprint = normalizeString(handoff.fingerprint)
+    || normalizeString(handoff.continuationFingerprint)
+    || normalizeString(client.continuationFingerprint)
+    || null;
+  const continuationExpiresAt = normalizeIsoTimestamp(
+    handoff.expiresAt || handoff.continuationExpiresAt || client.continuationExpiresAt,
+    null
+  );
   const handoffChannel = ALLOWED_CLIENT_HANDOFF_CHANNELS.has(handoffChannelInput)
     ? handoffChannelInput
     : clientMode === 'headless'
@@ -1215,7 +1724,10 @@ function normalizeClientRuntime(input, requestContext, sync, event, persistedSta
       channel: handoffChannel,
       visible: clientMode !== 'headless' && handoffChannel !== 'background',
       preferredAction: normalizeString(handoff.preferredAction) || 'review-audit-event',
-      leaseAckRequired: handoff.leaseAckRequired === false ? false : true
+      leaseAckRequired: handoff.leaseAckRequired === false ? false : true,
+      continuationToken,
+      continuationFingerprint,
+      continuationExpiresAt
     },
     adoption: {
       requestBound: Boolean(requestContext.requestId),
@@ -1230,6 +1742,92 @@ function normalizeClientRuntime(input, requestContext, sync, event, persistedSta
       adopted: requestSessionMatches && tenantMatches && workspaceMatches && routeBound && cursorMatchesSync
     },
     validation
+  };
+}
+
+function buildHandoffContinuationContract({
+  event,
+  requestContext,
+  clientRuntime,
+  externalHandoff,
+  sync,
+  step,
+  recoveryCursor,
+  workflowState,
+  now
+}) {
+  const nowMs = Date.parse(now);
+  const leaseMs = normalizePositiveInteger(
+    externalHandoff.stateLeaseMs,
+    DEFAULT_HANDOFF_CONTINUATION_TTL_MS
+  );
+  const boundedLeaseMs = Math.min(Math.max(leaseMs, 1000), DEFAULT_HANDOFF_CONTINUATION_TTL_MS);
+  const expiresAt = Number.isFinite(nowMs)
+    ? new Date(nowMs + boundedLeaseMs).toISOString()
+    : null;
+  const fingerprint = [
+    surfaceId,
+    event.eventId,
+    event.sequence ?? 'pending-sequence',
+    requestContext.requestId,
+    requestContext.route,
+    clientRuntime.clientId,
+    externalHandoff.handoffId,
+    externalHandoff.state,
+    step,
+    recoveryCursor || 'no-cursor',
+    sync.cursor || 'no-sync-cursor',
+    workflowState
+  ].join('|');
+  const expiredClientContinuation = Boolean(
+    clientRuntime.handoffUi.continuationExpiresAt
+      && Number.isFinite(Date.parse(clientRuntime.handoffUi.continuationExpiresAt))
+      && Number.isFinite(nowMs)
+      && Date.parse(clientRuntime.handoffUi.continuationExpiresAt) <= nowMs
+  );
+  const staleClientFingerprint = Boolean(
+    clientRuntime.handoffUi.continuationFingerprint
+      && clientRuntime.handoffUi.continuationFingerprint !== fingerprint
+  );
+
+  return {
+    schemaVersion: 'audit-event.handoff-continuation.v1',
+    token: clientRuntime.handoffUi.continuationToken
+      || `${requestContext.requestId}:${event.eventId}:${externalHandoff.handoffId}`,
+    fingerprint,
+    issuedAt: now,
+    expiresAt,
+    ttlMs: boundedLeaseMs,
+    expectedState: {
+      eventId: event.eventId,
+      sequence: event.sequence,
+      requestId: requestContext.requestId,
+      route: requestContext.route,
+      clientId: clientRuntime.clientId,
+      handoffId: externalHandoff.handoffId,
+      handoffState: externalHandoff.state,
+      step,
+      recoveryCursor,
+      syncCursor: sync.cursor || null,
+      workflowState
+    },
+    submittedState: {
+      token: clientRuntime.handoffUi.continuationToken,
+      fingerprint: clientRuntime.handoffUi.continuationFingerprint,
+      expiresAt: clientRuntime.handoffUi.continuationExpiresAt
+    },
+    clientState: staleClientFingerprint
+      ? 'stale'
+      : expiredClientContinuation
+        ? 'expired'
+        : clientRuntime.handoffUi.continuationToken
+          ? 'resumable'
+          : 'new',
+    validForSubmit: !staleClientFingerprint && !expiredClientContinuation,
+    invalidReasons: [
+      staleClientFingerprint ? 'stale-handoff-continuation-fingerprint' : null,
+      expiredClientContinuation ? 'expired-handoff-continuation-token' : null
+    ].filter(Boolean)
   };
 }
 
@@ -1419,7 +2017,18 @@ function buildWorkflowHandoff(event, requestContext, clientRuntime, sync, extern
       ? 'repair-required'
       : step === 'poll-handoff-status'
         ? 'background-poll'
-        : 'handoff-ready';
+      : 'handoff-ready';
+  const continuation = buildHandoffContinuationContract({
+    event,
+    requestContext,
+    clientRuntime,
+    externalHandoff,
+    sync,
+    step,
+    recoveryCursor,
+    workflowState,
+    now: requestContext.requestedAt
+  });
   const pendingActions = step === 'review-audit-event'
     ? [...new Set([...clientRuntime.state.pendingActions, 'acknowledge-audit-event'])]
     : step === 'poll-handoff-status'
@@ -1448,6 +2057,9 @@ function buildWorkflowHandoff(event, requestContext, clientRuntime, sync, extern
   if (hydrationRequired && clientRuntime.mode === 'headless' && externalHandoff.displayMode === 'visible') {
     validation.push('headless clients cannot hydrate a visible workflow handoff');
   }
+  for (const reason of continuation.invalidReasons) {
+    validation.push(reason);
+  }
 
   return {
     schemaVersion: 'audit-event.workflow-handoff.v2',
@@ -1461,6 +2073,7 @@ function buildWorkflowHandoff(event, requestContext, clientRuntime, sync, extern
     handoffState: externalHandoff.state,
     displayMode: externalHandoff.displayMode,
     clientId: clientRuntime.clientId,
+    continuation,
     blockers,
     hydration: {
       required: hydrationRequired,
@@ -1485,6 +2098,7 @@ function buildWorkflowHandoff(event, requestContext, clientRuntime, sync, extern
         requestId: 'string',
         handoffId: 'string',
         clientId: 'string',
+        continuation: 'audit-event.handoff-continuation.v1',
         clientStatePatch: 'audit-event.client-state-patch.v1'
       },
       body: {
@@ -1492,6 +2106,7 @@ function buildWorkflowHandoff(event, requestContext, clientRuntime, sync, extern
         requestId: requestContext.requestId,
         handoffId: externalHandoff.handoffId,
         clientId: clientRuntime.clientId,
+        continuation,
         clientStatePatch
       }
     },
@@ -1548,18 +2163,69 @@ function normalizeRecoveryCommand(input, event, requestContext, tenantBoundary, 
   };
 }
 
+function buildCommandIdempotencyClaim(command, persistedState) {
+  const matchingRecords = persistedState.commands.ledger.filter((record) => (
+    record.idempotencyKey === command.idempotencyKey || record.commandId === command.commandId
+  ));
+  const sameKeyRecords = persistedState.commands.ledger.filter((record) => (
+    record.idempotencyKey === command.idempotencyKey
+  ));
+  const conflictingRecords = matchingRecords.filter((record) => (
+    record.name && record.name !== command.name
+  ));
+  const unnamedMatches = matchingRecords.filter((record) => !record.name);
+  const journalConflict = persistedState.commands.journal.idempotencyConflicts.find((conflict) => (
+    conflict.idempotencyKey === command.idempotencyKey
+  )) || null;
+  const conflict = conflictingRecords[0] || null;
+  const ambiguous = !conflict && (Boolean(journalConflict) || unnamedMatches.length > 0);
+  const status = conflict
+    ? 'conflict'
+    : ambiguous
+      ? 'ambiguous'
+      : matchingRecords.length
+        ? 'claimed'
+        : 'new';
+  const reason = conflict
+    ? `idempotency key ${command.idempotencyKey} was previously used by ${conflict.name}`
+    : ambiguous
+      ? `idempotency key ${command.idempotencyKey} cannot be matched to a single command name`
+      : matchingRecords.length
+        ? 'persisted command claim matches the requested command'
+        : 'command has no persisted idempotency claim';
+
+  return {
+    schemaVersion: 'audit-event.command-idempotency-claim.v1',
+    idempotencyKey: command.idempotencyKey,
+    commandId: command.commandId,
+    commandName: command.name,
+    status,
+    safeToReplay: status === 'new' || status === 'claimed',
+    reason,
+    matchingRecordCount: matchingRecords.length,
+    matchingCommandIds: [...new Set(matchingRecords.map((record) => record.commandId))].sort(),
+    matchingNames: [...new Set(matchingRecords.map((record) => record.name).filter(Boolean))].sort(),
+    conflictingCommandIds: [...new Set(conflictingRecords.map((record) => record.commandId))].sort(),
+    journalConflict
+  };
+}
+
 function buildCommandOutcome(command, persistedState, proof, externalHandoff, lifecycleSettings, healthDirective) {
+  const idempotencyClaim = buildCommandIdempotencyClaim(command, persistedState);
   const completedLedgerRecord = persistedState.commands.ledger.find((record) => (
     record.status === 'completed'
+    && (!record.name || record.name === command.name)
     && (record.idempotencyKey === command.idempotencyKey || record.commandId === command.commandId)
   ));
   const inflightLedgerRecord = persistedState.commands.ledger.find((record) => (
     (record.status === 'inflight' || record.status === 'replay-pending')
+    && (!record.name || record.name === command.name)
     && (record.idempotencyKey === command.idempotencyKey || record.commandId === command.commandId)
   ));
   const failedReplayableRecord = persistedState.commands.ledger.find((record) => (
     record.status === 'failed'
     && record.replayable
+    && (!record.name || record.name === command.name)
     && (record.idempotencyKey === command.idempotencyKey || record.commandId === command.commandId)
   ));
   const alreadyCompleted = persistedState.commands.completedIds.includes(command.idempotencyKey)
@@ -1571,6 +2237,8 @@ function buildCommandOutcome(command, persistedState, proof, externalHandoff, li
   const replayingPersistedFailure = Boolean(failedReplayableRecord && command.replaySafe);
   const blockedReasons = [];
 
+  if (idempotencyClaim.status === 'conflict') blockedReasons.push(idempotencyClaim.reason);
+  if (idempotencyClaim.status === 'ambiguous') blockedReasons.push(idempotencyClaim.reason);
   if (command.validation.length) blockedReasons.push('command-contract');
   for (const reason of persistedState.validation) blockedReasons.push(reason);
   if (proof.status !== 'ready' && command.name !== 'resume-recovery' && !LIFECYCLE_SAFE_COMMANDS.has(command.name)) {
@@ -1640,6 +2308,7 @@ function buildCommandOutcome(command, persistedState, proof, externalHandoff, li
     duplicate: alreadyCompleted || alreadyInflight,
     restartSafe: command.replaySafe || Boolean(persistedState.recoveryCursor),
     status: alreadyCompleted ? 'already-applied' : alreadyInflight ? 'already-inflight' : queuedForRetry ? 'retry-scheduled' : accepted ? 'accepted' : 'blocked',
+    idempotencyClaim,
     healthDirective,
     restartSemantics: {
       schemaVersion: 'audit-event.command-restart-semantics.v1',
@@ -1648,8 +2317,11 @@ function buildCommandOutcome(command, persistedState, proof, externalHandoff, li
       idempotentReplay: alreadyCompleted,
       inflightReplay: alreadyInflight,
       failedReplay: replayingPersistedFailure,
+      idempotencyClaimStatus: idempotencyClaim.status,
+      idempotencyClaimReason: idempotencyClaim.reason,
       replayPlan: persistedState.commands.journal.replayPlan,
       duplicateIdempotencyKeys: persistedState.commands.journal.duplicateIdempotencyKeys,
+      idempotencyConflicts: persistedState.commands.journal.idempotencyConflicts,
       routeAction: alreadyCompleted
         ? 'route.auditRecovery.auditEvent.readCommandResult'
         : alreadyInflight
@@ -2019,7 +2691,8 @@ function buildValidationSummary(
   kernelOperation,
   operationalHealth,
   providerServiceBinding,
-  workflowHandoff
+  workflowHandoff,
+  mailchimpEventContract = null
 ) {
   const blockers = [];
   const warnings = [];
@@ -2035,6 +2708,15 @@ function buildValidationSummary(
   for (const reason of operationalHealth.validation) blockers.push({ source: 'operational-health', reason });
   for (const reason of providerServiceBinding.validation) blockers.push({ source: 'provider-service-binding', reason });
   for (const reason of workflowHandoff.validation) blockers.push({ source: 'workflow-handoff', reason });
+  if (mailchimpEventContract?.present) {
+    for (const reason of mailchimpEventContract.validation) blockers.push({ source: 'mailchimp-campaign', reason });
+    for (const method of mailchimpEventContract.providerRequirements.missingMethods) {
+      blockers.push({ source: 'mailchimp-provider', reason: `missing ${method}` });
+    }
+    for (const capability of mailchimpEventContract.providerRequirements.missingCapabilities) {
+      blockers.push({ source: 'mailchimp-provider', reason: `missing ${capability}` });
+    }
+  }
   for (const capability of capabilities.unsupported) warnings.push({ source: 'capability', reason: `unsupported ${capability}` });
   for (const capability of capabilities.accepted) {
     if (!contract.supportedCapabilities.includes(capability)) {
@@ -2100,7 +2782,9 @@ function buildValidationSummary(
       operationalHealthRetryable: operationalHealth.retryPolicy.retryable,
       workflowHandoffReady: workflowHandoff.validation.length === 0 && workflowHandoff.state !== 'repair-required',
       workflowHydrationRequired: workflowHandoff.hydration.required,
-      workflowUserActionEnabled: workflowHandoff.userActionContract.enabled
+      workflowUserActionEnabled: workflowHandoff.userActionContract.enabled,
+      mailchimpCampaignAuditReady: !mailchimpEventContract?.present
+        || (mailchimpEventContract.validation.length === 0 && mailchimpEventContract.providerRequirements.satisfied)
     }
   };
 }
@@ -2115,7 +2799,8 @@ function buildUserPreview(
   validationSummary,
   tenantBoundary,
   lifecycleSettings,
-  operationalHealth
+  operationalHealth,
+  mailchimpCampaignPreview = null
 ) {
   const sequenceLabel = event.sequence === null ? 'pending sequence' : `sequence ${event.sequence}`;
   const subjectLabel = `${event.subject.type}:${event.subject.id}`;
@@ -2148,12 +2833,31 @@ function buildUserPreview(
       operationalHealth.degraded ? `health-${operationalHealth.state}` : 'health-healthy',
       tenantBoundary.workspaceId ? 'workspace-scoped' : 'workspace-unbound',
       handoff.terminal ? `handoff-${handoff.state}` : 'handoff-open'
-    ]
+    ],
+    productPreview: mailchimpCampaignPreview?.present
+      ? {
+          schemaVersion: mailchimpCampaignPreview.schemaVersion,
+          product: 'mailchimp',
+          status: mailchimpCampaignPreview.status,
+          ready: mailchimpCampaignPreview.ready,
+          title: mailchimpCampaignPreview.title,
+          subtitle: mailchimpCampaignPreview.subtitle,
+          campaignId: mailchimpCampaignPreview.campaignId,
+          audienceId: mailchimpCampaignPreview.audienceId,
+          templateId: mailchimpCampaignPreview.templateId,
+          eventKind: mailchimpCampaignPreview.eventKind,
+          sendWindow: mailchimpCampaignPreview.sendWindow,
+          blockerCount: mailchimpCampaignPreview.blockers.length,
+          nextStep: mailchimpCampaignPreview.nextStep,
+          routeContract: mailchimpCampaignPreview.routeContract
+        }
+      : null
   };
 }
 
-function buildReadiness(proof, validationSummary, commandOutcome, acceptanceState) {
-  const canAccept = proof.status === 'ready' && validationSummary.valid && commandOutcome.accepted;
+function buildReadiness(proof, validationSummary, commandOutcome, acceptanceState, mailchimpCampaignPreview = null) {
+  const mailchimpReady = !mailchimpCampaignPreview?.present || mailchimpCampaignPreview.ready;
+  const canAccept = proof.status === 'ready' && validationSummary.valid && commandOutcome.accepted && mailchimpReady;
   const canCommit = acceptanceState === 'accepted' && canAccept;
 
   return {
@@ -2161,6 +2865,7 @@ function buildReadiness(proof, validationSummary, commandOutcome, acceptanceStat
     canPreview: true,
     canAccept,
     canCommit,
+    productReady: mailchimpReady,
     retryScheduled: commandOutcome.queuedForRetry,
     requiresUserAcceptance: canAccept,
     acceptanceState
@@ -2181,7 +2886,8 @@ function buildReadinessChecklist(
   lifecycleSettings,
   operationalHealth,
   providerServiceBinding,
-  kernelOperation
+  kernelOperation,
+  mailchimpCampaignPreview = null
 ) {
   const checklistItems = [
     {
@@ -2293,7 +2999,16 @@ function buildReadinessChecklist(
       reason: handoff.blockedReason || (handoff.terminal ? `handoff ${handoff.state}` : 'handoff is open for review'),
       routeAction: 'route.auditRecovery.auditEvent.acknowledgeHandoff',
       payload: { handoffId: handoff.handoffId, state: handoff.state }
-    }
+    },
+    ...(mailchimpCampaignPreview?.present ? [{
+      id: 'mailchimp-campaign-audit',
+      label: 'Mailchimp campaign audit',
+      ready: mailchimpCampaignPreview.ready,
+      state: mailchimpCampaignPreview.status,
+      reason: mailchimpCampaignPreview.blockers[0]?.reason || 'Mailchimp campaign audit is ready',
+      routeAction: mailchimpCampaignPreview.routeContract.routeAction,
+      payload: mailchimpCampaignPreview.routeContract.body
+    }] : [])
   ];
   const blockedItems = checklistItems.filter((item) => !item.ready);
   const firstRepair = blockedItems[0] || null;
@@ -2832,6 +3547,8 @@ function buildClientRouteContracts(
   lifecycleControlAudit,
   providerServiceBinding,
   readinessChecklist,
+  mailchimpCampaignPreview,
+  mailchimpAcceptanceHandoff,
   now
 ) {
   const primaryBlocker = validationSummary.blockers[0]?.reason || null;
@@ -3021,6 +3738,7 @@ function buildClientRouteContracts(
         counts: persistedState.commands.journal.counts,
         replayPlan: persistedState.commands.journal.replayPlan,
         duplicateIdempotencyKeys: persistedState.commands.journal.duplicateIdempotencyKeys,
+        idempotencyConflicts: persistedState.commands.journal.idempotencyConflicts,
         records: persistedState.commands.journal.records.map((record) => ({
           commandId: record.commandId,
           idempotencyKey: record.idempotencyKey,
@@ -3183,6 +3901,26 @@ function buildClientRouteContracts(
         }
       }
     },
+    mailchimpCampaignContract: mailchimpCampaignPreview?.present
+      ? {
+          schemaVersion: mailchimpCampaignPreview.schemaVersion,
+          routeAction: mailchimpCampaignPreview.routeContract.routeAction,
+          method: mailchimpCampaignPreview.routeContract.method,
+          enabled: mailchimpCampaignPreview.routeContract.enabled,
+          disabledReasons: mailchimpCampaignPreview.routeContract.disabledReasons,
+          status: mailchimpCampaignPreview.status,
+          ready: mailchimpCampaignPreview.ready,
+          campaignId: mailchimpCampaignPreview.campaignId,
+          audienceId: mailchimpCampaignPreview.audienceId,
+          templateId: mailchimpCampaignPreview.templateId,
+          eventKind: mailchimpCampaignPreview.eventKind,
+          handoffState: mailchimpCampaignPreview.handoffState,
+          proofManifest: mailchimpCampaignPreview.proofManifest,
+          acceptanceHandoff: mailchimpAcceptanceHandoff,
+          bodySchema: mailchimpCampaignPreview.routeContract.bodySchema,
+          body: mailchimpCampaignPreview.routeContract.body
+        }
+      : null,
     nextStepContracts: nextStepActions
   };
 }
@@ -3390,6 +4128,8 @@ function buildAnalyticsCounters(historySnapshots, validationSummary, commandOutc
     persistedCommandReplayPendingCount: persistedState.commands.journal.counts.replayPending,
     persistedCommandUnsafeCount: persistedState.commands.journal.counts.unsafe,
     persistedCommandDuplicateCount: persistedState.commands.journal.counts.duplicate,
+    persistedCommandIdempotencyConflictCount: persistedState.commands.journal.counts.idempotencyConflict,
+    currentCommandIdempotencyClaimStatus: commandOutcome.idempotencyClaim.status,
     replayGapCount: persistedState.replay.required ? 1 : 0,
     handoffOpenCount: handoff.terminal ? 0 : 1,
     firstSequence: sequences.length ? Math.min(...sequences) : null,
@@ -3523,6 +4263,7 @@ export function describeAuditEventSurface(input = {}) {
   const capabilities = negotiateCapabilities(input.capabilities, providerContract.supportedCapabilities);
   const syncMetadata = buildSyncMetadata(input, event, now);
   const requestContext = normalizeRequestContext(input, now);
+  const mailchimpEventContract = normalizeMailchimpEventContract(input, event, requestContext);
   const tenantBoundary = normalizeTenantBoundary(input, requestContext, event);
   const persistedState = normalizePersistedState(input, event, requestContext, syncMetadata, now);
   const lifecycleSettings = normalizeLifecycleSettings(input, requestContext, persistedState, now);
@@ -3590,6 +4331,16 @@ export function describeAuditEventSurface(input = {}) {
     externalHandoff,
     proof.status === 'ready'
   );
+  const mailchimpCampaignPreview = buildMailchimpCampaignPreviewContract({
+    event,
+    externalHandoff,
+    mailchimpEventContract,
+    providerServiceBinding,
+    proof,
+    requestContext,
+    tenantBoundary,
+    workflowHandoff
+  });
   const acceptanceState = normalizeAcceptanceIntent(input);
   const validationSummary = buildValidationSummary(
     event,
@@ -3605,8 +4356,20 @@ export function describeAuditEventSurface(input = {}) {
     kernelOperation,
     operationalHealth,
     providerServiceBinding,
-    workflowHandoff
+    workflowHandoff,
+    mailchimpEventContract
   );
+  const mailchimpAcceptanceHandoff = buildMailchimpCampaignAcceptanceRuntimeHandoff({
+    acceptanceState,
+    event,
+    mailchimpCampaignPreview,
+    mailchimpEventContract,
+    proof,
+    requestContext,
+    tenantBoundary,
+    validationSummary,
+    workflowHandoff
+  });
   const preview = buildUserPreview(
     event,
     requestContext,
@@ -3617,9 +4380,10 @@ export function describeAuditEventSurface(input = {}) {
     validationSummary,
     tenantBoundary,
     lifecycleSettings,
-    operationalHealth
+    operationalHealth,
+    mailchimpCampaignPreview
   );
-  const readiness = buildReadiness(proof, validationSummary, commandOutcome, acceptanceState);
+  const readiness = buildReadiness(proof, validationSummary, commandOutcome, acceptanceState, mailchimpCampaignPreview);
   const acceptanceDecision = buildAcceptanceDecision(
     acceptanceState,
     event,
@@ -3655,7 +4419,8 @@ export function describeAuditEventSurface(input = {}) {
     lifecycleSettings,
     operationalHealth,
     providerServiceBinding,
-    kernelOperation
+    kernelOperation,
+    mailchimpCampaignPreview
   );
   const nextSteps = buildNextSteps(
     readiness,
@@ -3730,6 +4495,8 @@ export function describeAuditEventSurface(input = {}) {
     lifecycleControlAudit,
     providerServiceBinding,
     readinessChecklist,
+    mailchimpCampaignPreview,
+    mailchimpAcceptanceHandoff,
     now
   );
 
@@ -3750,14 +4517,20 @@ export function describeAuditEventSurface(input = {}) {
       clientRuntime,
       persistedState,
       lifecycleSettings,
+      mailchimpEventContract,
+      mailchimpCampaignPreview,
+      mailchimpAcceptanceHandoff,
       lifecycleControlAudit,
       recoveryCommand,
       operationalHealth,
       healthDirective,
       providerServiceBinding,
+      mailchimpEventContract,
       kernelOperation
     },
     preview,
+    mailchimpCampaignPreview,
+    mailchimpAcceptanceHandoff,
     acceptance: {
       state: acceptanceState,
       accepted: readiness.canCommit,
@@ -3772,6 +4545,8 @@ export function describeAuditEventSurface(input = {}) {
     nextSteps,
     clientContracts,
     syncMetadata,
+    mailchimpEventContract,
+    mailchimpCampaignPreview,
     recovery: {
       status: commandOutcome.nextPersistedState.status,
       restartSafe: persistedState.restartSafe && commandOutcome.restartSafe,
@@ -3797,6 +4572,7 @@ export function describeAuditEventSurface(input = {}) {
       command: commandOutcome,
       operationalHealth,
       providerServiceBinding,
+      mailchimpEventContract,
       kernelOperation
     },
     analytics: {
@@ -3813,15 +4589,19 @@ export function describeAuditEventSurface(input = {}) {
         ...proof.checks,
         persistedStateRestartSafe: persistedState.restartSafe,
         persistedCommandJournalRestartSafe: persistedState.commands.journal.restartStatus === 'restart-safe',
-        persistedCommandReplayRequired: persistedState.commands.journal.replayPlan.required,
-        persistedCommandRepairRequired: persistedState.commands.journal.restartStatus === 'operator-repair-required',
-        commandIdempotent: commandOutcome.duplicate || commandOutcome.accepted,
+      persistedCommandReplayRequired: persistedState.commands.journal.replayPlan.required,
+      persistedCommandRepairRequired: persistedState.commands.journal.restartStatus === 'operator-repair-required',
+      persistedCommandIdempotencyConflictFree: persistedState.commands.journal.idempotencyConflicts.length === 0,
+      commandIdempotencyClaimSafe: commandOutcome.idempotencyClaim.safeToReplay,
+      commandIdempotent: commandOutcome.duplicate || commandOutcome.accepted,
         commandAccepted: commandOutcome.accepted,
         commandQueuedForRetry: commandOutcome.queuedForRetry,
         kernelOperationDispatchable: kernelOperation.dispatchable,
         kernelOperationRetryScheduled: kernelOperation.retry.scheduled,
         kernelOperationAtomic: kernelOperation.writeSet.atomic,
         providerServiceBindingReady: providerServiceBinding.validation.length === 0,
+        mailchimpCampaignAuditReady: !mailchimpEventContract.present
+          || (mailchimpEventContract.validation.length === 0 && mailchimpEventContract.providerRequirements.satisfied),
         lifecycleControlAllowed: lifecycleControlAudit.command.allowed,
         lifecycleControlBlocked: lifecycleControlAudit.blockedReasons.length > 0,
         workflowHandoffReady: workflowHandoff.validation.length === 0 && workflowHandoff.state !== 'repair-required',

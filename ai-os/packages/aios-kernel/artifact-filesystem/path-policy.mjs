@@ -75,7 +75,24 @@ const SERVICE_OPERATION_CONTRACTS = {
 const SERVICE_ENDPOINT_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const SERVICE_ACK_MODES = new Set(["kernel-ack", "provider-ack", "fire-and-forget"]);
 const SERVICE_HANDOFF_DELIVERY_MODES = new Set(["inline-token", "signed-url", "provider-ticket"]);
+const SERVICE_ROUTE_TOKEN_PATTERN = /^[a-z][a-z0-9]*(?:[-.][a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:[-.][a-z0-9]+)*)*$/i;
 const DEFAULT_PROVIDER_ACCEPTED_MEDIA_TYPES = ["application/octet-stream", "text/plain", "application/json"];
+const MAILCHIMP_PROVIDER_ALIASES = new Set(["mailchimp", "mailchimp-marketing", "mailchimp-transactional"]);
+const MAILCHIMP_REQUIRED_CAPABILITIES = [
+  "artifact.read",
+  "artifact.syncMetadata",
+  "artifact.externalHandoff",
+  "mailchimp.campaign.asset.export",
+  "mailchimp.audience.metadata.sync"
+];
+const MAILCHIMP_ALLOWED_MEDIA_TYPES = [
+  "application/json",
+  "text/plain",
+  "text/html",
+  "text/csv",
+  "application/vnd.mailchimp.campaign+json"
+];
+const MAILCHIMP_RESTRICTED_MERGE_FIELDS = new Set(["email", "email_address", "phone", "address", "birthday"]);
 const LIFECYCLE_COMMANDS = new Set([
   "evaluate-policy",
   "enable",
@@ -858,16 +875,22 @@ function normalizeProvider(provider = {}) {
     ? provider.id.trim()
     : "hosted-kernel-artifact-provider";
   const advertisedCapabilities = uniqueStrings(provider.capabilities);
+  const providerKind = normalizeProviderKind(provider, id, advertisedCapabilities);
+  const requiredCapabilities = providerKind === "mailchimp"
+    ? uniqueStrings([...KERNEL_REQUIRED_CAPABILITIES, ...MAILCHIMP_REQUIRED_CAPABILITIES])
+    : KERNEL_REQUIRED_CAPABILITIES;
   const capabilities = advertisedCapabilities.length
     ? advertisedCapabilities
-    : KERNEL_REQUIRED_CAPABILITIES;
-  const missingCapabilities = KERNEL_REQUIRED_CAPABILITIES.filter((capability) => !capabilities.includes(capability));
+    : requiredCapabilities;
+  const missingCapabilities = requiredCapabilities.filter((capability) => !capabilities.includes(capability));
 
   return {
     id,
+    providerKind,
     mode: provider.mode === "external" ? "external" : "hosted-kernel",
     capabilities,
     missingCapabilities,
+    requiredCapabilities,
     acceptedMediaTypes: uniqueStrings(provider.acceptedMediaTypes),
     maxPayloadBytes: Number.isInteger(provider.maxPayloadBytes) && provider.maxPayloadBytes > 0
       ? provider.maxPayloadBytes
@@ -875,6 +898,32 @@ function normalizeProvider(provider = {}) {
     contractVersion: typeof provider.contractVersion === "string" ? provider.contractVersion : "2026-07-01",
     syncClock: provider.syncClock === "provider" ? "provider" : "kernel"
   };
+}
+
+function normalizeProviderKind(provider = {}, providerId, capabilities = []) {
+  const explicit = typeof provider.kind === "string" && provider.kind.trim()
+    ? provider.kind.trim().toLowerCase()
+    : typeof provider.providerKind === "string" && provider.providerKind.trim()
+      ? provider.providerKind.trim().toLowerCase()
+      : typeof provider.service === "string" && provider.service.trim()
+        ? provider.service.trim().toLowerCase()
+        : "";
+  const serviceName = typeof provider.name === "string" && provider.name.trim()
+    ? provider.name.trim().toLowerCase()
+    : "";
+  const id = typeof providerId === "string" ? providerId.toLowerCase() : "";
+  const capabilityHints = capabilities.map((capability) => capability.toLowerCase());
+
+  if (
+    MAILCHIMP_PROVIDER_ALIASES.has(explicit)
+    || MAILCHIMP_PROVIDER_ALIASES.has(serviceName)
+    || MAILCHIMP_PROVIDER_ALIASES.has(id)
+    || capabilityHints.some((capability) => capability.startsWith("mailchimp."))
+  ) {
+    return "mailchimp";
+  }
+
+  return "generic";
 }
 
 function normalizeScopeToken(value, fallback) {
@@ -1939,6 +1988,66 @@ function normalizeLeaseMinutes(value) {
   return Number.isInteger(value) && value > 0 ? Math.min(value, 1440) : 15;
 }
 
+function normalizeServiceEndpointRoute(value, fallbackRoute) {
+  const supplied = typeof value === "string" && value.trim();
+  const requested = supplied ? value.trim() : fallbackRoute;
+  const controlCharacter = /[\u0000-\u001f\u007f]/u.test(requested);
+  const whitespace = /\s/u.test(requested);
+  const parsedUrl = (() => {
+    try {
+      return /^[a-z][a-z0-9+.-]*:\/\//i.test(requested) ? new URL(requested) : null;
+    } catch {
+      return "invalid-url";
+    }
+  })();
+  const urlBinding = parsedUrl && parsedUrl !== "invalid-url";
+  const routeTokenBinding = !urlBinding && SERVICE_ROUTE_TOKEN_PATTERN.test(requested);
+  const relativePathBinding = !urlBinding && requested.startsWith("/") && !requested.startsWith("//");
+  const unsupportedScheme = urlBinding && !["https:", "http:"].includes(parsedUrl.protocol);
+  const insecureUrl = urlBinding && parsedUrl.protocol !== "https:";
+  const invalidUrl = parsedUrl === "invalid-url";
+  const missingHost = urlBinding && !parsedUrl.hostname;
+  const unsafeCredentials = urlBinding && (parsedUrl.username || parsedUrl.password);
+  const pathTraversal = relativePathBinding && requested.split("/").some((segment) => segment === "." || segment === "..");
+  const safe = !controlCharacter
+    && !whitespace
+    && !invalidUrl
+    && !unsupportedScheme
+    && !insecureUrl
+    && !missingHost
+    && !unsafeCredentials
+    && !pathTraversal
+    && (routeTokenBinding || relativePathBinding || urlBinding);
+  const bindingType = urlBinding
+    ? "https-url"
+    : relativePathBinding
+      ? "relative-path"
+      : routeTokenBinding
+        ? "kernel-route"
+        : "unrecognized";
+
+  return {
+    requested,
+    route: safe ? requested : fallbackRoute,
+    bindingType,
+    supplied: Boolean(supplied),
+    fallbackRoute,
+    safe,
+    host: urlBinding ? parsedUrl.hostname : null,
+    violations: [
+      ...(controlCharacter ? ["endpoint_route_control_character"] : []),
+      ...(whitespace ? ["endpoint_route_whitespace"] : []),
+      ...(invalidUrl ? ["endpoint_route_invalid_url"] : []),
+      ...(unsupportedScheme ? [`endpoint_route_unsupported_scheme:${parsedUrl.protocol.replace(/:$/, "")}`] : []),
+      ...(insecureUrl ? ["endpoint_route_requires_https"] : []),
+      ...(missingHost ? ["endpoint_route_missing_host"] : []),
+      ...(unsafeCredentials ? ["endpoint_route_embeds_credentials"] : []),
+      ...(pathTraversal ? ["endpoint_route_relative_traversal"] : []),
+      ...(!routeTokenBinding && !relativePathBinding && !urlBinding && !invalidUrl ? ["endpoint_route_unrecognized"] : [])
+    ]
+  };
+}
+
 function normalizeProviderServiceEndpoint({ operation, serviceEndpoints, provider }) {
   const base = SERVICE_OPERATION_CONTRACTS[operation];
   const raw = serviceEndpoints[operation];
@@ -1952,6 +2061,7 @@ function normalizeProviderServiceEndpoint({ operation, serviceEndpoints, provide
       : typeof endpointInput.url === "string" && endpointInput.url.trim()
         ? endpointInput.url.trim()
         : null;
+  const routeBinding = normalizeServiceEndpointRoute(explicitRoute, base.route);
   const method = typeof endpointInput.method === "string" && SERVICE_ENDPOINT_METHODS.has(endpointInput.method.toUpperCase())
     ? endpointInput.method.toUpperCase()
     : operation === "read"
@@ -1968,11 +2078,12 @@ function normalizeProviderServiceEndpoint({ operation, serviceEndpoints, provide
       ? "provider-ack"
       : "kernel-ack";
   const explicitlyBound = explicitRoute !== null;
-  const route = explicitRoute || base.route;
+  const route = routeBinding.route;
   const requiresExplicitBinding = provider.mode === "external";
   const supportsReplay = endpointInput.supportsReplay !== false;
   const violations = [
     ...(requiresExplicitBinding && !explicitlyBound ? [`missing_endpoint:${operation}`] : []),
+    ...routeBinding.violations.map((violation) => `${violation}:${operation}`),
     ...((operation === "write" || operation === "sync" || operation === "externalHandoff") && !supportsReplay
       ? [`non_replayable_endpoint:${operation}`]
       : []),
@@ -1987,6 +2098,7 @@ function normalizeProviderServiceEndpoint({ operation, serviceEndpoints, provide
     timeoutMs,
     ackMode,
     explicitlyBound,
+    routeBinding,
     supportsReplay,
     requiresExplicitBinding,
     state: violations.length ? "invalid" : "bound",
@@ -2130,6 +2242,369 @@ function normalizeProviderPayloadLimits({ input, provider }) {
   };
 }
 
+function normalizeMailchimpMergeFields(value) {
+  const fields = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.keys(value)
+      : [];
+
+  return uniqueStrings(fields)
+    .map((field) => field.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_"))
+    .filter(Boolean)
+    .slice(0, 50);
+}
+
+function normalizeMailchimpCampaignContract({ input, provider, payloadLimits }) {
+  if (provider.providerKind !== "mailchimp") {
+    return {
+      schema: "hosted-kernel-artifact-path-policy.mailchimp-contract.v1",
+      applicable: false,
+      state: "not-applicable",
+      violations: [],
+      warnings: []
+    };
+  }
+
+  const contractInput = providerContractInput(input);
+  const mailchimpInput = contractInput.mailchimp && typeof contractInput.mailchimp === "object"
+    ? contractInput.mailchimp
+    : input.provider && input.provider.mailchimp && typeof input.provider.mailchimp === "object"
+      ? input.provider.mailchimp
+    : input.mailchimp && typeof input.mailchimp === "object"
+      ? input.mailchimp
+      : {};
+  const audienceId = typeof mailchimpInput.audienceId === "string" && mailchimpInput.audienceId.trim()
+    ? mailchimpInput.audienceId.trim()
+    : typeof mailchimpInput.listId === "string" && mailchimpInput.listId.trim()
+      ? mailchimpInput.listId.trim()
+      : null;
+  const campaignId = typeof mailchimpInput.campaignId === "string" && mailchimpInput.campaignId.trim()
+    ? mailchimpInput.campaignId.trim()
+    : null;
+  const storeId = typeof mailchimpInput.storeId === "string" && mailchimpInput.storeId.trim()
+    ? mailchimpInput.storeId.trim()
+    : null;
+  const mergeFields = normalizeMailchimpMergeFields(
+    mailchimpInput.mergeFields
+      || mailchimpInput.audienceMergeFields
+      || contractInput.mergeFields
+      || input.mergeFields
+  );
+  const restrictedMergeFields = mergeFields.filter((field) => MAILCHIMP_RESTRICTED_MERGE_FIELDS.has(field));
+  const requestedMediaType = payloadLimits.requestedMediaType;
+  const mediaTypeAllowed = !requestedMediaType || MAILCHIMP_ALLOWED_MEDIA_TYPES.includes(requestedMediaType);
+  const audienceRequired = input.externalHandoff === true || provider.mode === "external" || contractInput.operation === "externalHandoff";
+  const violations = [
+    ...(audienceRequired && !audienceId ? ["mailchimp_audience_id_required"] : []),
+    ...(!mediaTypeAllowed ? [`mailchimp_media_type_rejected:${requestedMediaType}`] : []),
+    ...(restrictedMergeFields.length ? ["mailchimp_restricted_merge_fields"] : [])
+  ];
+  const warnings = [
+    ...(!campaignId ? ["mailchimp_campaign_id_not_declared"] : []),
+    ...(!storeId ? ["mailchimp_store_id_not_declared"] : []),
+    ...(mergeFields.length === 0 ? ["mailchimp_merge_fields_not_declared"] : [])
+  ];
+
+  return {
+    schema: "hosted-kernel-artifact-path-policy.mailchimp-contract.v1",
+    applicable: true,
+    state: violations.length ? "blocked" : warnings.length ? "ready-with-warnings" : "ready",
+    audienceId,
+    campaignId,
+    storeId,
+    mergeFields,
+    restrictedMergeFields,
+    allowedMediaTypes: MAILCHIMP_ALLOWED_MEDIA_TYPES,
+    requestedMediaType,
+    audienceRequired,
+    syncMetadataRequired: true,
+    handoffSubjectType: "mailchimp-campaign-artifact",
+    violations,
+    warnings,
+    proof: {
+      mailchimpContractKey: `${surfaceId}:mailchimp:${lightweightHash({
+        providerId: provider.id,
+        audienceId,
+        campaignId,
+        storeId,
+        mergeFields,
+        requestedMediaType
+      })}`,
+      generatedBy: surfaceId
+    }
+  };
+}
+
+function buildMailchimpQuarantineAdoptionContext({
+  decision,
+  provider,
+  mailchimpContract,
+  providerHandoffRequirements,
+  acceptanceToken
+}) {
+  if (!mailchimpContract.applicable) {
+    return {
+      schema: "hosted-kernel-artifact-path-policy.mailchimp-quarantine-adoption.v1",
+      applicable: false,
+      state: "not-applicable",
+      requiredForQuarantine: false,
+      replaySafe: true,
+      violations: [],
+      warnings: []
+    };
+  }
+
+  const tenantId = decision.workspace.tenantId;
+  const workspaceId = decision.workspace.workspaceId;
+  const artifactId = decision.pathEvidence.proofReferences.requested;
+  const partitionKey = `${tenantId || "missing-tenant"}/${workspaceId || "missing-workspace"}`;
+  const scopedKey = `${tenantId || "missing-tenant"}:${workspaceId || "missing-workspace"}:${artifactId || "missing-artifact"}`;
+  const proofReference = providerHandoffRequirements.proofReference;
+  const handoffRequired = provider.mode === "external" || providerHandoffRequirements.requested;
+  const handoffTicketRequired = handoffRequired && providerHandoffRequirements.deliveryMode === "provider-ticket";
+  const auditHandoffRoute = "artifact-filesystem/quarantine-record/mailchimp-acceptance";
+  const acknowledgementCodes = [
+    "external-provider-handoff",
+    "mailchimp-audience-handoff",
+    "mailchimp-quarantine-adoption",
+    "mailchimp-quarantine-custody",
+    ...(mailchimpContract.mergeFields.length ? ["mailchimp-merge-field-scope"] : []),
+    ...(mailchimpContract.requestedMediaType ? ["mailchimp-payload-media-type"] : [])
+  ];
+  const violations = [
+    ...(!tenantId ? ["mailchimp_quarantine_tenant_missing"] : []),
+    ...(!workspaceId ? ["mailchimp_quarantine_workspace_missing"] : []),
+    ...(!proofReference ? ["mailchimp_quarantine_proof_reference_missing"] : []),
+    ...(mailchimpContract.violations || []),
+    ...(providerHandoffRequirements.state === "blocked" ? providerHandoffRequirements.violations : [])
+  ];
+  const warnings = [
+    ...mailchimpContract.warnings,
+    ...(handoffTicketRequired && !providerHandoffRequirements.proofReference
+      ? ["mailchimp_quarantine_provider_ticket_unbound"]
+      : []),
+    ...(handoffRequired && providerHandoffRequirements.deliveryMode !== "provider-ticket"
+      ? ["mailchimp_quarantine_provider_ticket_not_declared"]
+      : []),
+    ...(providerHandoffRequirements.proofScope === "external-redacted"
+      ? ["mailchimp_quarantine_uses_redacted_external_path"]
+      : [])
+  ];
+  const state = violations.length ? "blocked" : warnings.length ? "ready-with-warnings" : "ready";
+  const replayKey = `${surfaceId}:mailchimp-quarantine:${lightweightHash({
+    providerId: provider.id,
+    scopedKey,
+    acceptanceToken,
+    proofReference,
+    audienceId: mailchimpContract.audienceId,
+    campaignId: mailchimpContract.campaignId,
+    mergeFields: mailchimpContract.mergeFields
+  })}`;
+
+  return {
+    schema: "hosted-kernel-artifact-path-policy.mailchimp-quarantine-adoption.v1",
+    applicable: true,
+    state,
+    requiredForQuarantine: true,
+    replaySafe: violations.length === 0,
+    providerId: provider.id,
+    providerKind: "mailchimp",
+    tenantId,
+    workspaceId,
+    artifactId,
+    partitionKey,
+    scopedKey,
+    audienceId: mailchimpContract.audienceId,
+    campaignId: mailchimpContract.campaignId,
+    storeId: mailchimpContract.storeId,
+    mergeFields: mailchimpContract.mergeFields,
+    restrictedMergeFields: mailchimpContract.restrictedMergeFields,
+    proofReference,
+    pathProofReference: decision.pathEvidence.proofReferences.requested,
+    proofScope: providerHandoffRequirements.proofScope,
+    deliveryMode: providerHandoffRequirements.deliveryMode,
+    acknowledgementCodes,
+    adoptionStateContract: {
+      schema: "hosted-kernel-artifact-path-policy.mailchimp-adoption-state-contract.v1",
+      commandState: state === "blocked" ? "blocked" : "intent-ready",
+      persistBeforeProviderHandoff: state !== "blocked",
+      restartSafe: violations.length === 0,
+      replayKey,
+      idempotencyKey: replayKey,
+      expectedState: state === "blocked" ? "blocked" : "adopted",
+      requiredAcknowledgementCodes: acknowledgementCodes,
+      requiredCustody: {
+        partitionKey,
+        scopedKey,
+        route: auditHandoffRoute,
+        command: "quarantine.mailchimp.acceptance.attach",
+        absolutePathExposed: false
+      },
+      providerTicketRequired: handoffTicketRequired,
+      providerReceiptRequired: handoffRequired,
+      providerReceiptState: handoffRequired
+        ? providerHandoffRequirements.state === "ready"
+          ? "receipt-required"
+          : "handoff-contract-blocked"
+        : "not-required",
+      nextAction: state === "blocked"
+        ? "repair-mailchimp-adoption-contract"
+        : handoffTicketRequired
+          ? "persist-intent-then-await-provider-ticket"
+          : "persist-intent"
+    },
+    violations,
+    warnings,
+    custody: {
+      schema: "hosted-kernel-artifact-path-policy.mailchimp-quarantine-custody.v1",
+      partitionKey,
+      scopedKey,
+      auditStream: "artifact-filesystem.quarantine-record",
+      route: auditHandoffRoute,
+      requiredAcknowledgementCodes: acknowledgementCodes,
+      expectedProviderId: provider.id,
+      expectedProviderKind: "mailchimp",
+      expectedDeliveryMode: providerHandoffRequirements.deliveryMode,
+      pathProofReference: decision.pathEvidence.proofReferences.requested,
+      externalProofReference: proofReference,
+      absolutePathExposed: false,
+      boundaryState: violations.length ? "blocked" : "tenant-workspace-bound",
+      adoptionWriteMode: state === "blocked" ? "deny" : "persist-intent-before-provider-handoff"
+    },
+    auditHandoff: {
+      route: auditHandoffRoute,
+      command: "quarantine.mailchimp.acceptance.attach",
+      partitionKey,
+      scopedKey,
+      replayKey,
+      requiresProviderReceipt: handoffRequired,
+      requiresCustodyMatch: true
+    },
+    replay: {
+      key: replayKey,
+      idempotencyKey: replayKey,
+      command: "quarantine.mailchimp.acceptance.attach",
+      route: auditHandoffRoute,
+      expectedState: state === "blocked" ? "blocked" : "adopted",
+      restartSafe: violations.length === 0
+    },
+    proof: {
+      adoptionKey: replayKey,
+      acceptanceToken,
+      contractKey: mailchimpContract.proof.mailchimpContractKey,
+      handoffContractKey: providerHandoffRequirements.proof.handoffContractKey,
+      generatedBy: surfaceId
+    }
+  };
+}
+
+function buildMailchimpAcceptanceHandoff({ decision, externalHandoff, provider, mailchimpContract, providerHandoffRequirements }) {
+  if (!mailchimpContract.applicable) {
+    return {
+      schema: "hosted-kernel-artifact-path-policy.mailchimp-acceptance-handoff.v1",
+      applicable: false,
+      state: "not-applicable",
+      blockers: [],
+      warnings: [],
+      routePayload: null
+    };
+  }
+
+  const blockers = [
+    ...mailchimpContract.violations,
+    ...(providerHandoffRequirements.state === "blocked" ? providerHandoffRequirements.violations : []),
+    ...(externalHandoff.requested && externalHandoff.state !== "ready" ? [`external_handoff_${externalHandoff.state}`] : [])
+  ];
+  const acknowledgementCodes = [
+    "external-provider-handoff",
+    "mailchimp-audience-handoff",
+    ...(mailchimpContract.mergeFields.length ? ["mailchimp-merge-field-scope"] : []),
+    ...(mailchimpContract.requestedMediaType ? ["mailchimp-payload-media-type"] : [])
+  ];
+  const acceptanceToken = `${surfaceId}:mailchimp-acceptance:${lightweightHash({
+    providerId: provider.id,
+    path: decision.path,
+    audienceId: mailchimpContract.audienceId,
+    campaignId: mailchimpContract.campaignId,
+    storeId: mailchimpContract.storeId,
+    mergeFields: mailchimpContract.mergeFields,
+    requestedMediaType: mailchimpContract.requestedMediaType,
+    proofReference: providerHandoffRequirements.proofReference
+  })}`;
+  const quarantineAdoption = buildMailchimpQuarantineAdoptionContext({
+    decision,
+    provider,
+    mailchimpContract,
+    providerHandoffRequirements,
+    acceptanceToken
+  });
+  const routePayload = {
+    schema: "hosted-kernel-artifact-path-policy.mailchimp-acceptance-route-payload.v1",
+    providerKind: "mailchimp",
+    providerId: provider.id,
+    tenantId: decision.workspace.tenantId,
+    workspaceId: decision.workspace.workspaceId,
+    pathProofReference: decision.pathEvidence.proofReferences.requested,
+    proofReference: providerHandoffRequirements.proofReference,
+    deliveryMode: providerHandoffRequirements.deliveryMode,
+    audienceId: mailchimpContract.audienceId,
+    campaignId: mailchimpContract.campaignId,
+    storeId: mailchimpContract.storeId,
+    mergeFields: mailchimpContract.mergeFields,
+    requestedMediaType: mailchimpContract.requestedMediaType,
+    handoffSubjectType: mailchimpContract.handoffSubjectType,
+    acceptanceToken,
+    acknowledgementCodes,
+    adoptionStateContract: quarantineAdoption.adoptionStateContract,
+    handoffEnvelope: {
+      schema: "hosted-kernel-artifact-path-policy.mailchimp-acceptance-envelope.v1",
+      contentType: "application/vnd.aios.path-policy.mailchimp-acceptance+json",
+      deliveryMode: providerHandoffRequirements.deliveryMode,
+      providerTicketRequired: quarantineAdoption.adoptionStateContract.providerTicketRequired,
+      providerReceiptRequired: quarantineAdoption.adoptionStateContract.providerReceiptRequired,
+      route: "artifact-filesystem/quarantine-record/mailchimp-acceptance",
+      command: "quarantine.mailchimp.acceptance.attach",
+      replayKey: quarantineAdoption.replay.key,
+      partitionKey: quarantineAdoption.partitionKey,
+      scopedKey: quarantineAdoption.scopedKey,
+      proofReference: quarantineAdoption.proofReference,
+      pathProofReference: quarantineAdoption.pathProofReference,
+      expectedProviderId: provider.id,
+      expectedProviderKind: "mailchimp",
+      absolutePathExposed: false
+    },
+    quarantineAdoption
+  };
+
+  return {
+    schema: "hosted-kernel-artifact-path-policy.mailchimp-acceptance-handoff.v1",
+    applicable: true,
+    state: blockers.length
+      ? "blocked"
+      : mailchimpContract.warnings.length
+        ? "ready-with-warnings"
+        : "ready",
+    audienceBound: Boolean(mailchimpContract.audienceId),
+    campaignBound: Boolean(mailchimpContract.campaignId),
+    mergeFieldCount: mailchimpContract.mergeFields.length,
+    restrictedMergeFields: mailchimpContract.restrictedMergeFields,
+    blockers,
+    warnings: mailchimpContract.warnings,
+    acknowledgementCodes,
+    quarantineAdoption,
+    route: "artifact-filesystem/quarantine-record/mailchimp-acceptance",
+    command: "quarantine.mailchimp.acceptance.attach",
+    routePayload,
+    proof: {
+      acceptanceToken,
+      generatedBy: surfaceId,
+      proofReference: providerHandoffRequirements.proofReference,
+      contractKey: mailchimpContract.proof.mailchimpContractKey
+    }
+  };
+}
+
 function normalizeProviderHandoffRequirements({ input, decision, provider, externalHandoff, requestedProofReference }) {
   const contractInput = providerContractInput(input);
   const handoffInput = contractInput.externalHandoff && typeof contractInput.externalHandoff === "object"
@@ -2200,12 +2675,20 @@ function buildProviderServiceContract({ input, generatedAt, decision, provider, 
   const providerSyncState = normalizeProviderSyncState({ input, generatedAt, provider, syncMetadata });
   const requestedProofReference = repoRelativeProofReferenceDetails(decision.path, normalizePath(input.artifactRoot));
   const providerPayloadLimits = normalizeProviderPayloadLimits({ input, provider });
+  const mailchimpContract = normalizeMailchimpCampaignContract({ input, provider, payloadLimits: providerPayloadLimits });
   const providerHandoffRequirements = normalizeProviderHandoffRequirements({
     input,
     decision,
     provider,
     externalHandoff,
     requestedProofReference
+  });
+  const mailchimpAcceptanceHandoff = buildMailchimpAcceptanceHandoff({
+    decision,
+    externalHandoff,
+    provider,
+    mailchimpContract,
+    providerHandoffRequirements
   });
   const operations = Object.fromEntries(
     Object.entries(SERVICE_OPERATION_CONTRACTS).map(([operation, contract]) => {
@@ -2218,7 +2701,9 @@ function buildProviderServiceContract({ input, generatedAt, decision, provider, 
           : decision.access === operation && decision.allow;
       const syncReady = operation !== "sync" || providerSyncState.state === "fresh";
       const payloadReady = operation !== "write" || providerPayloadLimits.state === "satisfied";
-      const handoffReady = operation !== "externalHandoff" || providerHandoffRequirements.state !== "blocked";
+      const mailchimpReady = !mailchimpContract.applicable || mailchimpContract.state !== "blocked";
+      const mailchimpAcceptanceReady = !mailchimpAcceptanceHandoff.applicable || mailchimpAcceptanceHandoff.state !== "blocked";
+      const handoffReady = operation !== "externalHandoff" || (providerHandoffRequirements.state !== "blocked" && mailchimpReady);
       const endpointValid = endpoint.state === "bound";
 
       return [operation, {
@@ -2235,6 +2720,8 @@ function buildProviderServiceContract({ input, generatedAt, decision, provider, 
         policyAllowed,
         syncReady,
         payloadReady,
+        mailchimpReady,
+        mailchimpAcceptanceReady,
         handoffReady,
         endpointValid
       }];
@@ -2247,7 +2734,9 @@ function buildProviderServiceContract({ input, generatedAt, decision, provider, 
     ...requested.endpoint.violations,
     ...(requestedOperation === "sync" && providerSyncState.requiresRefresh ? ["sync_state_stale"] : []),
     ...(requestedOperation === "write" ? providerPayloadLimits.violations : []),
-    ...(requestedOperation === "externalHandoff" ? providerHandoffRequirements.violations : [])
+    ...(requestedOperation === "externalHandoff" ? providerHandoffRequirements.violations : []),
+    ...(mailchimpContract.applicable ? mailchimpContract.violations : []),
+    ...(mailchimpAcceptanceHandoff.applicable ? mailchimpAcceptanceHandoff.blockers : [])
   ];
   const syncCommit = {
     enabled: syncMetadata.enabled,
@@ -2281,6 +2770,8 @@ function buildProviderServiceContract({ input, generatedAt, decision, provider, 
     providerSyncState,
     providerPayloadLimits,
     providerHandoffRequirements,
+    mailchimpContract,
+    mailchimpAcceptanceHandoff,
     invocation: {
       command: requested.command,
       route: requested.route,
@@ -2307,12 +2798,33 @@ function buildProviderServiceContract({ input, generatedAt, decision, provider, 
       deliveryMode: providerHandoffRequirements.deliveryMode,
       proofReference: providerHandoffRequirements.proofReference,
       proofReferenceReady: providerHandoffRequirements.proofReferenceReady,
+      mailchimpAcceptance: mailchimpAcceptanceHandoff.applicable
+        ? {
+            state: mailchimpAcceptanceHandoff.state,
+            route: mailchimpAcceptanceHandoff.route,
+            command: mailchimpAcceptanceHandoff.command,
+            acceptanceToken: mailchimpAcceptanceHandoff.proof.acceptanceToken,
+            acknowledgementCodes: mailchimpAcceptanceHandoff.acknowledgementCodes,
+            quarantineAdoption: mailchimpAcceptanceHandoff.quarantineAdoption,
+            payload: mailchimpAcceptanceHandoff.routePayload
+          }
+        : null,
       subject: externalHandoff.state === "ready"
         ? {
             path: decision.path,
             tenantId: decision.workspace.tenantId,
             workspaceId: decision.workspace.workspaceId,
-            actorId: decision.permission.actorId
+            actorId: decision.permission.actorId,
+            providerKind: provider.providerKind,
+            mailchimp: mailchimpContract.applicable
+              ? {
+                  audienceId: mailchimpContract.audienceId,
+                  campaignId: mailchimpContract.campaignId,
+                  storeId: mailchimpContract.storeId,
+                  mergeFields: mailchimpContract.mergeFields,
+                  handoffSubjectType: mailchimpContract.handoffSubjectType
+                }
+              : null
           }
         : null
     }
@@ -2328,7 +2840,8 @@ function buildReadiness({ decision, provider, syncMetadata, externalHandoff, acc
     && mutationPreconditions.violations.length === 0
     && artifactWritePolicy.validation.violations.length === 0
     && dependencyHealth.blocking.length === 0
-    && serviceContract.invocation.state === "ready";
+    && serviceContract.invocation.state === "ready"
+    && (!serviceContract.mailchimpAcceptanceHandoff.applicable || serviceContract.mailchimpAcceptanceHandoff.state !== "blocked");
 
   return {
     state: ready
@@ -2352,7 +2865,9 @@ function buildReadiness({ decision, provider, syncMetadata, externalHandoff, acc
       mutationPreconditions: mutationPreconditions.violations.length === 0,
       artifactWritePolicy: artifactWritePolicy.validation.violations.length === 0,
       dependencyHealth: dependencyHealth.blocking.length === 0,
-      providerServiceContract: serviceContract.invocation.state === "ready"
+      providerServiceContract: serviceContract.invocation.state === "ready",
+      mailchimpAcceptanceHandoff: !serviceContract.mailchimpAcceptanceHandoff.applicable
+        || serviceContract.mailchimpAcceptanceHandoff.state !== "blocked"
     }
   };
 }
@@ -2996,6 +3511,9 @@ function buildNextSteps({ decision, provider, validationSummary, acceptance, rea
       .filter((reason) => reason.startsWith("unsupported_handoff_delivery:")
         || reason === "handoff_proof_reference_not_bound"
         || reason === "handoff_missing_tenant_workspace");
+    const mailchimpAcceptanceReasons = serviceContract.mailchimpAcceptanceHandoff.applicable
+      ? serviceContract.mailchimpAcceptanceHandoff.blockers
+      : [];
 
     if (endpointReasons.length) {
       steps.push({
@@ -3030,6 +3548,17 @@ function buildNextSteps({ decision, provider, validationSummary, acceptance, rea
         label: "Configure provider handoff",
         reason: handoffContractReasons.join(", "),
         command: "provider.handoff.configure"
+      });
+    }
+
+    if (mailchimpAcceptanceReasons.length) {
+      steps.push({
+        id: "prepare-mailchimp-acceptance-handoff",
+        label: "Prepare Mailchimp handoff acceptance",
+        reason: mailchimpAcceptanceReasons.join(", "),
+        command: "quarantine.mailchimp.acceptance.attach",
+        route: serviceContract.mailchimpAcceptanceHandoff.route,
+        payload: serviceContract.mailchimpAcceptanceHandoff.routePayload
       });
     }
   }
@@ -4581,6 +5110,164 @@ function buildAnalyticsExports({
   };
 }
 
+function buildClientExportHandoffContract({
+  input,
+  generatedAt,
+  decision,
+  provider,
+  externalHandoff,
+  acceptance,
+  readiness,
+  validationSummary,
+  serviceContract,
+  artifactWritePolicy,
+  analytics,
+  clientWorkflowHandoff
+}) {
+  const exportInput = input.exportHandoff && typeof input.exportHandoff === "object"
+    ? input.exportHandoff
+    : input.analyticsHandoff && typeof input.analyticsHandoff === "object"
+      ? input.analyticsHandoff
+      : {};
+  const requested = input.exportHandoff === true
+    || exportInput.requested === true
+    || exportInput.enabled === true
+    || (analytics.exports.manifest.state === "ready" && provider.providerKind === "mailchimp");
+  const includeRows = normalizeLifecycleBoolean(exportInput.includeRows, false);
+  const includeMailchimpAdoption = normalizeLifecycleBoolean(
+    exportInput.includeMailchimpAdoption,
+    provider.providerKind === "mailchimp"
+  );
+  const destination = typeof exportInput.destination === "string" && exportInput.destination.trim()
+    ? exportInput.destination.trim()
+    : serviceContract.externalHandoffEnvelope.mailchimpAcceptance?.route
+      || analytics.exports.manifest.route;
+  const route = typeof exportInput.route === "string" && exportInput.route.startsWith("/")
+    ? exportInput.route
+    : "/kernel/artifact-filesystem/path-policy/analytics/handoff";
+  const manifest = analytics.exports.manifest;
+  const mailchimpAcceptance = serviceContract.externalHandoffEnvelope.mailchimpAcceptance;
+  const routePayload = {
+    schema: "hosted-kernel-artifact-path-policy.client-export-handoff-payload.v1",
+    generatedAt,
+    route,
+    command: "artifact.path-policy.analytics.handoff",
+    tenantId: decision.workspace.tenantId,
+    workspaceId: decision.workspace.workspaceId,
+    providerId: provider.id,
+    providerKind: provider.providerKind,
+    pathProofReference: decision.pathEvidence.proofReferences.requested,
+    activeProofReference: artifactWritePolicy.proofReferences.active,
+    analyticsManifest: {
+      route: manifest.route,
+      state: manifest.state,
+      format: manifest.format,
+      rowCount: manifest.rowCount,
+      cursor: manifest.cursor,
+      exportKey: manifest.proof?.exportKey || null
+    },
+    readiness: {
+      state: readiness.state,
+      ready: readiness.ready,
+      validationStatus: validationSummary.status,
+      clientWorkflowState: clientWorkflowHandoff.state
+    },
+    externalHandoff: {
+      requested: externalHandoff.requested,
+      state: externalHandoff.state,
+      deliveryMode: serviceContract.externalHandoffEnvelope.deliveryMode,
+      proofReference: serviceContract.externalHandoffEnvelope.proofReference,
+      tokenIssued: Boolean(externalHandoff.token)
+    },
+    mailchimpAcceptance: includeMailchimpAdoption && mailchimpAcceptance
+      ? {
+          state: mailchimpAcceptance.state,
+          route: mailchimpAcceptance.route,
+          command: mailchimpAcceptance.command,
+          acceptanceToken: mailchimpAcceptance.acceptanceToken,
+          acknowledgementCodes: mailchimpAcceptance.acknowledgementCodes,
+          quarantineAdoptionState: mailchimpAcceptance.quarantineAdoption?.state || null
+        }
+      : null,
+    rows: includeRows ? analytics.exports.rows : []
+  };
+  const blockers = uniqueStrings([
+    requested ? null : "export_handoff_not_requested",
+    analytics.exports.manifest.state === "ready" ? null : "analytics_export_manifest_not_ready",
+    readiness.ready ? null : `path_policy_${readiness.state}`,
+    validationSummary.failureCount === 0 ? null : "validation_failures_present",
+    acceptance.required && !acceptance.accepted ? "acceptance_required_before_export_handoff" : null,
+    externalHandoff.requested && externalHandoff.state !== "ready" ? "external_handoff_not_ready" : null,
+    includeMailchimpAdoption && mailchimpAcceptance && mailchimpAcceptance.state === "blocked"
+      ? "mailchimp_acceptance_handoff_blocked"
+      : null,
+    clientWorkflowHandoff.state === "blocked" ? "client_workflow_handoff_blocked" : null
+  ]);
+  const warnings = uniqueStrings([
+    analytics.exports.rows.length === 0 ? "analytics_export_has_no_rows" : null,
+    includeRows ? "analytics_rows_embedded_in_handoff_payload" : null,
+    includeMailchimpAdoption && !mailchimpAcceptance ? "mailchimp_acceptance_handoff_not_applicable" : null,
+    manifest.proof ? null : "analytics_export_proof_omitted"
+  ]);
+  const state = blockers.length
+    ? requested ? "blocked" : "idle"
+    : warnings.length
+      ? "ready-with-warnings"
+      : "ready";
+  const idempotencyKey = `${surfaceId}:client-export-handoff:${lightweightHash({
+    providerId: provider.id,
+    tenantId: decision.workspace.tenantId,
+    workspaceId: decision.workspace.workspaceId,
+    pathProofReference: routePayload.pathProofReference,
+    exportKey: manifest.proof?.exportKey,
+    mailchimpAcceptanceToken: routePayload.mailchimpAcceptance?.acceptanceToken || null,
+    destination
+  })}`;
+
+  return {
+    schema: "hosted-kernel-artifact-path-policy.client-export-handoff.v1",
+    generatedAt,
+    requested,
+    state,
+    ready: state === "ready" || state === "ready-with-warnings",
+    destination,
+    route,
+    command: "artifact.path-policy.analytics.handoff",
+    idempotencyKey,
+    blockers,
+    warnings,
+    handoff: {
+      manifestId: manifest.proof?.exportKey || manifest.cursor,
+      cursor: manifest.cursor,
+      rowCount: manifest.rowCount,
+      redactionMode: analytics.exportSettings.redactionMode,
+      includeRows,
+      includeMailchimpAdoption,
+      proofReference: routePayload.activeProofReference,
+      providerTicketRequired: serviceContract.externalHandoffEnvelope.deliveryMode === "provider-ticket"
+    },
+    routePayload: state === "idle" ? null : {
+      ...routePayload,
+      idempotencyKey,
+      destination,
+      blockedReasons: blockers,
+      warnings
+    },
+    auditEvent: requested ? {
+      eventName: "artifact.path-policy.analytics-handoff.evaluated",
+      generatedAt,
+      state,
+      providerId: provider.id,
+      providerKind: provider.providerKind,
+      tenantId: decision.workspace.tenantId,
+      workspaceId: decision.workspace.workspaceId,
+      manifestState: manifest.state,
+      rowCount: manifest.rowCount,
+      idempotencyKey
+    } : null
+  };
+}
+
 export function describePathPolicySurface(input = {}) {
   const generatedAt = toIsoTimestamp(input.now);
   const artifactRoot = normalizePath(input.artifactRoot);
@@ -4758,6 +5445,20 @@ export function describePathPolicySurface(input = {}) {
     dependencyHealth,
     persistence
   });
+  const clientExportHandoff = buildClientExportHandoffContract({
+    input,
+    generatedAt,
+    decision,
+    provider,
+    externalHandoff,
+    acceptance,
+    readiness,
+    validationSummary,
+    serviceContract,
+    artifactWritePolicy,
+    analytics,
+    clientWorkflowHandoff
+  });
 
   return {
     ok: readiness.ready,
@@ -4793,6 +5494,7 @@ export function describePathPolicySurface(input = {}) {
     nextSteps,
     stepResolution,
     clientWorkflowHandoff,
+    clientExportHandoff,
     clientReview,
     audit: {
       acceptedEvidence: Array.isArray(input.evidence) ? input.evidence.length : 0,
@@ -4890,7 +5592,10 @@ export function describePathPolicySurface(input = {}) {
         "route-bound-next-actions",
         "step-resolution-route-index",
         "step-resolution-payload-contract",
-        "step-resolution-audit-proof"
+        "step-resolution-audit-proof",
+        "client-export-handoff-contract",
+        "analytics-manifest-route-payload",
+        "mailchimp-export-adoption-handoff"
       ],
       evidence: Array.isArray(input.evidence) ? input.evidence : []
     }
