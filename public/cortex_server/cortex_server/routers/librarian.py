@@ -28,7 +28,20 @@ router = APIRouter()
 # Initialize ChromaDB client with persistent storage
 # Use host-mounted /app path for durability across container rebuilds.
 LEGACY_CHROMA_DIR = "/root/cortex_server/chroma_db"
-CHROMA_DIR = os.getenv("CORTEX_CHROMA_DIR", "/app/cortex_server/chroma_db")
+def _default_chroma_dir() -> str:
+    configured = os.getenv("CORTEX_CHROMA_DIR")
+    if configured:
+        return configured
+    preferred = Path("/app/cortex_server/chroma_db")
+    try:
+        preferred.parent.mkdir(parents=True, exist_ok=True)
+        if os.access(str(preferred.parent), os.W_OK):
+            return str(preferred)
+    except Exception:
+        pass
+    return str(Path.home() / ".cache" / "cortex_server" / "chroma_db")
+
+CHROMA_DIR = _default_chroma_dir()
 if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
     try:
         shutil.copytree(LEGACY_CHROMA_DIR, CHROMA_DIR)
@@ -50,6 +63,23 @@ collection = client.get_or_create_collection(
 )
 
 _FALLBACK_LOG_PATH = Path(os.getenv("LIBRARIAN_FALLBACK_LOG_PATH", f"{CHROMA_DIR}/librarian_fallback.jsonl"))
+_LOCAL_FILE_MEMORY_ROOTS_ENV = "LIBRARIAN_LOCAL_FILE_MEMORY_ROOTS"
+_DEFAULT_LOCAL_FILE_MEMORY_ROOTS = (
+    "/root/clawd/memory",
+    "/root/clawd/clients",
+)
+_LOCAL_FILE_MEMORY_EXTENSIONS = {".md", ".txt"}
+_LOCAL_FILE_MEMORY_MAX_FILES = int(os.getenv("LIBRARIAN_LOCAL_FILE_MAX_FILES", "900"))
+_LOCAL_FILE_MEMORY_MAX_BYTES = int(os.getenv("LIBRARIAN_LOCAL_FILE_MAX_BYTES", str(768 * 1024)))
+_LOCAL_FILE_MEMORY_MIN_SCORE = float(os.getenv("LIBRARIAN_LOCAL_FILE_MIN_SCORE", "0.18"))
+_LOW_SIGNAL_LOCAL_MEMORY_QUERY_TOKENS = {
+    "what", "when", "where", "which", "who", "why", "how",
+    "should", "could", "would", "about", "with", "from", "into", "under", "over",
+    "for", "and", "the", "but", "not", "are", "was", "has", "had", "have",
+    "this", "that", "there", "their", "they", "them", "were", "been", "being",
+    "please", "tell", "find", "search", "look", "check", "need", "want",
+    "jake", "cortex", "assistant",
+}
 _EMBEDDING_HEALTH_LOCK = threading.Lock()
 _EMBEDDING_HEALTH: Dict[str, Any] = {
     "status": "ok",
@@ -226,6 +256,182 @@ def _read_fallback_rows(limit: int = 200) -> List[Dict[str, Any]]:
     if len(rows) > limit:
         rows = rows[-limit:]
     return rows
+
+
+def _configured_local_file_memory_roots() -> List[Path]:
+    """Return durable local memory roots for lexical recall fallback.
+
+    Chroma is the primary recall path, but operational hard memory in this
+    workspace also lives as markdown ledgers under /root/clawd/memory and
+    /root/clawd/clients.  Keep this fallback narrow: do not include MEMORY.md
+    by default because it is main-session personal context and can be more
+    sensitive than project/client ledgers.
+    """
+    raw = os.getenv(_LOCAL_FILE_MEMORY_ROOTS_ENV, "")
+    values = [part.strip() for part in raw.split(os.pathsep) if part.strip()] if raw else list(_DEFAULT_LOCAL_FILE_MEMORY_ROOTS)
+    roots: List[Path] = []
+    for value in values:
+        try:
+            path = Path(value).expanduser().resolve()
+        except Exception:
+            continue
+        if path.exists() and path not in roots:
+            roots.append(path)
+    return roots
+
+
+def _iter_local_file_memory_paths(scan_limit: int = _LOCAL_FILE_MEMORY_MAX_FILES) -> List[Path]:
+    files: List[Path] = []
+    for root in _configured_local_file_memory_roots():
+        try:
+            if root.is_file():
+                candidates = [root]
+            else:
+                candidates = [p for p in root.rglob("*") if p.is_file()]
+        except Exception:
+            continue
+        for candidate in candidates:
+            if candidate.name.startswith("."):
+                continue
+            if candidate.suffix.lower() not in _LOCAL_FILE_MEMORY_EXTENSIONS:
+                continue
+            if any(part in {".git", "node_modules", "__pycache__"} for part in candidate.parts):
+                continue
+            try:
+                if candidate.stat().st_size > _LOCAL_FILE_MEMORY_MAX_BYTES:
+                    continue
+            except Exception:
+                continue
+            files.append(candidate)
+    try:
+        files = sorted(set(files), key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        files = sorted(set(files), key=lambda p: str(p))
+    return files[: max(1, int(scan_limit))]
+
+
+def _display_local_file_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path("/root/clawd")))
+    except Exception:
+        return str(path)
+
+
+def _has_specific_local_file_query_overlap(query: str, text: str) -> bool:
+    query_tokens = {token for token in _tokenize(query) if token not in _LOW_SIGNAL_LOCAL_MEMORY_QUERY_TOKENS}
+    if not query_tokens:
+        return False
+    text_tokens = set(_tokenize(text))
+    return bool(query_tokens & text_tokens)
+
+
+def _is_markdown_heading(line: str) -> bool:
+    return bool(re.match(r"^\s{0,3}#{1,6}\s+", line or ""))
+
+
+def _local_file_memory_chunk(lines: List[str], index: int, window: int = 2) -> str:
+    """Return a compact chunk without crossing markdown section boundaries.
+
+    The previous line-window fallback could blend an old negative section with a
+    following correction heading (or vice versa), which made stale notes look
+    fresh.  Prefer the nearest heading plus nearby lines from the same section.
+    """
+    if index < 0 or index >= len(lines):
+        return ""
+
+    start = index
+    if _is_markdown_heading(lines[index]):
+        start = index
+    else:
+        cursor = index - 1
+        remaining = int(window)
+        while cursor >= 0 and remaining > 0:
+            start = cursor
+            if _is_markdown_heading(lines[cursor]):
+                break
+            cursor -= 1
+            remaining -= 1
+
+    end = index + 1
+    cursor = index + 1
+    remaining = int(window)
+    while cursor < len(lines) and remaining > 0:
+        if _is_markdown_heading(lines[cursor]):
+            break
+        end = cursor + 1
+        cursor += 1
+        remaining -= 1
+
+    return "\n".join(l.strip() for l in lines[start:end] if l.strip()).strip()
+
+
+def _best_local_file_memory_chunks(query: str, path: Path, max_chunks: int = 2) -> List[Dict[str, Any]]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+    if not text.strip():
+        return []
+
+    lines = text.splitlines()
+    scored: List[Dict[str, Any]] = []
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        chunk = _local_file_memory_chunk(lines, index)
+        if not chunk:
+            continue
+        score = _lexical_score(query, chunk)
+        if score < _LOCAL_FILE_MEMORY_MIN_SCORE:
+            continue
+        if not _has_specific_local_file_query_overlap(query, chunk):
+            continue
+        scored.append({"line": index + 1, "text": chunk[:1200], "score": score})
+
+    dedup: Dict[str, Dict[str, Any]] = {}
+    for item in scored:
+        fp = _fingerprint(item["text"])
+        prev = dedup.get(fp)
+        if prev is None or float(item["score"]) > float(prev["score"]):
+            dedup[fp] = item
+
+    return sorted(dedup.values(), key=lambda item: float(item["score"]), reverse=True)[: max(1, int(max_chunks))]
+
+
+def _local_file_memory_search_rows(query: str, n_results: int = 5, scan_limit: int = _LOCAL_FILE_MEMORY_MAX_FILES) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for path in _iter_local_file_memory_paths(scan_limit=scan_limit):
+        for chunk in _best_local_file_memory_chunks(query, path, max_chunks=2):
+            score = float(chunk["score"])
+            rel_path = _display_local_file_path(path)
+            rows.append(
+                {
+                    "id": f"local-file-{_fingerprint(str(path))}-{chunk['line']}",
+                    "text": chunk["text"],
+                    "distance": round(max(0.0, 1.0 - score), 4),
+                    "metadata": {
+                        "source": "local_file_memory",
+                        "quality": "curated" if ("/memory/projects/" in str(path) or "/clients/" in str(path)) else "file_memory",
+                        "recall_mode": "local_file_lexical_fallback",
+                        "path": str(path),
+                        "relPath": rel_path,
+                        "line": int(chunk["line"]),
+                        "lexical_score": round(score, 4),
+                        "tags": ["local_file_memory", "durable_memory"],
+                    },
+                    "_score": score,
+                }
+            )
+
+    dedup: Dict[str, Dict[str, Any]] = {}
+    for item in rows:
+        key = f"{(item.get('metadata') or {}).get('relPath')}:{(item.get('metadata') or {}).get('line')}:{_fingerprint(str(item.get('text') or ''))}"
+        prev = dedup.get(key)
+        if prev is None or float(item.get("_score", 0.0)) > float(prev.get("_score", 0.0)):
+            dedup[key] = item
+
+    ordered = sorted(dedup.values(), key=lambda x: float(x.get("_score", 0.0)), reverse=True)
+    return ordered[: max(1, int(n_results))]
 
 
 def _safe_recent_docs(limit: int = 25) -> List[Dict[str, Any]]:
@@ -428,6 +634,19 @@ def _lexical_score(query: str, text: str) -> float:
     return round(_clamp01(raw), 4)
 
 
+def _document_contains_exact_query(query: str, text: str) -> bool:
+    """Return true only when a Chroma exact-contains row really contains query.
+
+    Some tests and degraded collection implementations may ignore the
+    where_document filter and return broad rows from collection.get(). The exact
+    recall fast path must not treat those as exact hits, or it bypasses the
+    semantic/lexical fallback logic and hides low-signal recall warnings.
+    """
+    q = " ".join(str(query or "").strip().casefold().split())
+    t = " ".join(str(text or "").strip().casefold().split())
+    return bool(q and q in t)
+
+
 def _metadata_tags(metadata: Optional[Dict[str, Any]]) -> List[str]:
     if not isinstance(metadata, dict):
         return []
@@ -500,6 +719,144 @@ def _query_wants_codec_state(query: str) -> bool:
     ])
 
 
+def _query_wants_memory_system(query: str) -> bool:
+    normalized = str(query or "").lower()
+    return any(token in normalized for token in [
+        "memory system",
+        "memory search",
+        "memory_search",
+        "recall",
+        "librarian",
+        "cortex memory",
+        "knowledge/search",
+        "reranker",
+        "ranking",
+        "semantic search",
+    ])
+
+
+def _is_memory_system_meta_row(text: str, metadata: Optional[Dict[str, Any]]) -> bool:
+    meta = metadata or {}
+    tags = _metadata_tags(meta)
+    source = str(meta.get("source") or "").lower()
+    hay = f"{text}\n{source}\n{' '.join(tags)}".lower()
+    return any(marker in hay for marker in [
+        "memory_search(",
+        "memory search",
+        "local file-memory lexical fallback",
+        "local file memory lexical fallback",
+        "recall regression",
+        "recall route",
+        "librarian.py",
+        "test_librarian_recall_fallback",
+        "stale-negative",
+        "correction/conclusion rows",
+        "reranker",
+        "cortex memory bridge",
+        "cortex-memory-bridge",
+        "knowledge/search",
+    ])
+
+
+_QUERY_WANTS_NEGATIVE_EVIDENCE_PATTERNS = [
+    r"\bnot\s+found\b",
+    r"\bno\s+(?:found|evidence|record|records|memory|correspondence|source|sources)\b",
+    r"\babsence\b",
+    r"\bmissing\b",
+    r"\bremaining\b",
+    r"\bopen\s+(?:gap|gaps|work|items|todos?)\b",
+    r"\bgap\s+(?:inventory|list|queue|report)\b",
+    r"\bblockers?\b",
+    r"\bwhat\s+(?:is|was|were)?\s*(?:still\s+)?(?:missing|left|remaining)\b",
+]
+
+_FRESH_FACT_PATTERNS = [
+    r"\bcorrection\s*:",
+    r"\bcorrected\b",
+    r"\btruth\s+corrected\b",
+    r"\boperational\s+conclusion\b",
+    r"\bdirectly\s+supports\b",
+    r"\bsource\s+of\s+truth\b",
+    r"\bcurrent\s+(?:canonical\s+)?(?:status|state|context|truth|fact|setup)\b",
+    r"\blatest\s+(?:canonical\s+)?(?:status|state|context|truth|fact|setup)\b",
+    r"\bfinal\s+(?:answer|decision|state|status|setup)\b",
+    r"\bimplemented\b",
+    r"\bimplemented\s+and\s+synced\b",
+    r"\bfixed\b",
+    r"\brepaired\b",
+    r"\bverified\b",
+    r"\blive\s+verification\b",
+    r"\btests?\s+passed\b",
+    r"\bnew\s+controller\s*:",
+]
+
+_STALE_NEGATIVE_PATTERNS = [
+    r"\bno\s+found\b",
+    r"\bno\s+(?:explicit\s+)?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b",
+    r"\bfound\s+no\s+(?:explicit\s+)?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b",
+    r"\bcould\s+not\s+(?:find|locate|confirm|verify|surface|recover)\b",
+    r"\b(?:cannot|can't|unable\s+to)\s+(?:find|locate|confirm|verify|surface|recover)\b",
+    r"\bnot\s+(?:found|located|confirmed|verified|available|present|implemented|synced|documented)\b",
+    r"\bnot\s+in\s+(?:memory|hard\s+memory|durable\s+memory|local\s+files|the\s+ledger|the\s+repo)\b",
+    r"\bmissing\s+(?:from|in)\s+(?:memory|hard\s+memory|durable\s+memory|local\s+files|the\s+ledger|the\s+repo)\b",
+]
+
+_STALE_OPEN_WORK_PATTERNS = [
+    r"\bneed(?:s|ed)?\s+to\s+(?:implement|build|add|fix|repair|wire|create)\b",
+    r"\bshould\s+(?:implement|build|add|fix|repair|wire|create)\b",
+    r"\bnext\s+action\s*:\s*(?:implement|build|add|fix|repair|wire|create)\b",
+    r"\bremaining\s+(?:work|task|todo|gap|surface)s?\s*:\s*(?:implement|build|add|fix|repair|wire|create)\b",
+    r"\bnot\s+(?:yet\s+)?implemented\b",
+    r"\bunimplemented\b",
+]
+
+
+def _matches_any(patterns: List[str], text: str) -> bool:
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _query_wants_negative_evidence(query: str) -> bool:
+    return _matches_any(_QUERY_WANTS_NEGATIVE_EVIDENCE_PATTERNS, str(query or ""))
+
+
+def _is_fresh_fact_memory(text: str, metadata: Optional[Dict[str, Any]]) -> bool:
+    meta = metadata or {}
+    if bool(meta.get("correction_memory")):
+        return True
+    tags = _metadata_tags(meta)
+    if "correction" in tags or "current_fact" in tags or "source_of_truth" in tags:
+        return True
+    explicit_fresh = _matches_any(
+        [
+            r"\bcorrection\s*:",
+            r"\bcorrected\b",
+            r"\btruth\s+corrected\b",
+            r"\boperational\s+conclusion\b",
+            r"\bdirectly\s+supports\b",
+            r"\bsource\s+of\s+truth\b",
+            r"\bcurrent\s+(?:canonical\s+)?(?:status|state|context|truth|fact|setup)\b",
+            r"\blatest\s+(?:canonical\s+)?(?:status|state|context|truth|fact|setup)\b",
+            r"\bfinal\s+(?:answer|decision|state|status|setup)\b",
+            r"\bnew\s+controller\s*:",
+        ],
+        text,
+    )
+    if explicit_fresh:
+        return True
+    if _matches_any(_STALE_NEGATIVE_PATTERNS, text) or _matches_any(_STALE_OPEN_WORK_PATTERNS, text):
+        return False
+    return _matches_any(_FRESH_FACT_PATTERNS, text)
+
+
+def _is_stale_negative_memory(query: str, text: str, metadata: Optional[Dict[str, Any]], *, fresh_fact: bool) -> bool:
+    if fresh_fact or _query_wants_negative_evidence(query):
+        return False
+    meta = metadata or {}
+    if bool(meta.get("stale_negative_memory")):
+        return True
+    return _matches_any(_STALE_NEGATIVE_PATTERNS, text) or _matches_any(_STALE_OPEN_WORK_PATTERNS, text)
+
+
 def _codec_state_display_text(text: str) -> Optional[str]:
     normalized = str(text or "").strip()
     if not normalized.startswith("{"):
@@ -561,6 +918,9 @@ def _rank_memory_row(query: str, row: Dict[str, Any]) -> Dict[str, Any]:
     curated = _is_curated_memory(metadata)
     awareness_noise = _is_awareness_noise_row(rank_text, metadata)
     codec_state_noise = codec_state_row and not _query_wants_codec_state(query)
+    memory_system_meta_noise = _is_memory_system_meta_row(rank_text, metadata) and not _query_wants_memory_system(query)
+    correction_memory = _is_fresh_fact_memory(rank_text, metadata)
+    stale_negative_memory = _is_stale_negative_memory(query, rank_text, metadata, fresh_fact=correction_memory)
 
     score = (0.55 * lexical) + (0.35 * relevance)
     if curated:
@@ -569,6 +929,12 @@ def _rank_memory_row(query: str, row: Dict[str, Any]) -> Dict[str, Any]:
         score -= 0.55
     if codec_state_noise:
         score -= 0.42
+    if memory_system_meta_noise:
+        score -= 0.36
+    if stale_negative_memory:
+        score -= 0.38
+    if correction_memory:
+        score += 0.12
     if lexical >= 0.75:
         score += 0.18
     elif lexical >= 0.45:
@@ -581,11 +947,16 @@ def _rank_memory_row(query: str, row: Dict[str, Any]) -> Dict[str, Any]:
         "hybrid_score": round(_clamp01(score), 4),
         "awareness_noise": awareness_noise,
         "codec_state_noise": codec_state_noise,
+        "memory_system_meta_noise": memory_system_meta_noise,
+        "stale_negative_memory": stale_negative_memory,
+        "correction_memory": correction_memory,
     }
+    row["score"] = round(_clamp01(score), 4)
     row["_hybrid_score"] = round(_clamp01(score), 4)
     row["_lexical_score"] = round(lexical, 4)
     row["_awareness_noise"] = awareness_noise
     row["_codec_state_noise"] = codec_state_noise
+    row["_memory_system_meta_noise"] = memory_system_meta_noise
     return row
 
 
@@ -615,10 +986,14 @@ def _merge_ranked_rows(
 
     strong_non_noise = [
         row for row in ordered
-        if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise")) and float(row.get("_hybrid_score", 0.0)) >= 0.22
+        if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise")) and not bool(row.get("_memory_system_meta_noise")) and float(row.get("_hybrid_score", 0.0)) >= 0.22
     ]
     if strong_non_noise:
-        ordered = [row for row in ordered if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise"))]
+        ordered = [row for row in ordered if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise")) and not bool(row.get("_memory_system_meta_noise"))]
+
+    has_correction_memory = any(bool((row.get("metadata") or {}).get("correction_memory")) for row in ordered)
+    if has_correction_memory and not _query_wants_negative_evidence(query):
+        ordered = [row for row in ordered if not bool((row.get("metadata") or {}).get("stale_negative_memory"))]
 
     cleaned: List[Dict[str, Any]] = []
     for row in ordered[: max(1, int(n_results))]:
@@ -626,6 +1001,7 @@ def _merge_ranked_rows(
         row.pop("_lexical_score", None)
         row.pop("_awareness_noise", None)
         row.pop("_codec_state_noise", None)
+        row.pop("_memory_system_meta_noise", None)
         cleaned.append(row)
     return cleaned
 
@@ -645,6 +1021,44 @@ def _semantic_rows_need_help(query: str, rows: List[Dict[str, Any]]) -> bool:
 
 def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+
+    # Exact Chroma contains search first. Chroma's semantic query can miss
+    # freshly-written unique identifiers, and bounded collection.get() scans can
+    # be crowded out by older rows. Exact lexical recall must win for durable
+    # memory proof markers, IDs, and quoted facts.
+    try:
+        exact_query = str(query or "").strip()
+        if exact_query:
+            exact_data = collection.get(
+                where_document={"$contains": exact_query},
+                limit=max(1, min(max(int(n_results) * 3, 12), 80)),
+                include=["documents", "metadatas"],
+            )
+            exact_ids = exact_data.get("ids") or []
+            exact_docs = exact_data.get("documents") or []
+            exact_metas = exact_data.get("metadatas") or []
+            for i, row_id in enumerate(exact_ids):
+                text = exact_docs[i] if i < len(exact_docs) else ""
+                if not _document_contains_exact_query(exact_query, text):
+                    continue
+                metadata = exact_metas[i] if i < len(exact_metas) else {}
+                score = max(0.99, _lexical_score(query, text))
+                rows.append(
+                    {
+                        "id": row_id,
+                        "text": text,
+                        "distance": 0.0,
+                        "metadata": {
+                            **(metadata or {}),
+                            "recall_mode": "exact_chroma_contains",
+                            "lexical_score": round(score, 4),
+                            "source": (metadata or {}).get("source", "chroma_docs"),
+                        },
+                        "_score": score,
+                    }
+                )
+    except Exception:
+        pass
 
     # Chroma documents (works even when embedding provider is currently down).
     try:
@@ -697,6 +1111,18 @@ def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) 
             }
         )
 
+    # Durable workspace hard-memory files (project memories and client ledgers).
+    # This catches facts that are intentionally written to local markdown memory
+    # but have not yet been embedded into Chroma, or have been crowded out of a
+    # bounded Chroma lexical scan.
+    rows.extend(
+        _local_file_memory_search_rows(
+            query,
+            n_results=max(int(n_results) * 4, 12),
+            scan_limit=max(scan_limit, _LOCAL_FILE_MEMORY_MAX_FILES),
+        )
+    )
+
     dedup: Dict[str, Dict[str, Any]] = {}
     for item in rows:
         key = str(item.get("id") or "") or _fingerprint(str(item.get("text") or ""))
@@ -711,6 +1137,64 @@ def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) 
 def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -> Dict[str, Any]:
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    # Exact lexical contains must run before semantic search. Embedding ranking can
+    # return plausible but wrong neighbors for unique markers/IDs and otherwise
+    # prevent fallback from executing. Durable-memory recall needs exact facts to
+    # win when the query literally appears in stored text.
+    try:
+        exact_query = str(query or "").strip()
+        exact_data = collection.get(
+            where_document={"$contains": exact_query},
+            limit=max(1, min(max(int(n_results) * 3, 12), 80)),
+            include=["documents", "metadatas"],
+        )
+        exact_rows: List[Dict[str, Any]] = []
+        exact_ids = exact_data.get("ids") or []
+        exact_docs = exact_data.get("documents") or []
+        exact_metas = exact_data.get("metadatas") or []
+        for i, row_id in enumerate(exact_ids):
+            text = exact_docs[i] if i < len(exact_docs) else ""
+            if not _document_contains_exact_query(exact_query, text):
+                continue
+            metadata = exact_metas[i] if i < len(exact_metas) else {}
+            exact_rows.append(
+                {
+                    "id": row_id,
+                    "text": text,
+                    "distance": 0.0,
+                    "metadata": {
+                        **(metadata or {}),
+                        "recall_mode": "exact_chroma_contains",
+                        "lexical_score": max(0.99, _lexical_score(query, text)),
+                        "source": (metadata or {}).get("source", "chroma_docs"),
+                    },
+                    "_score": 1.0,
+                }
+            )
+        if exact_rows:
+            ranked_exact_rows = _merge_ranked_rows(query, [], exact_rows, n_results=max(len(exact_rows), max(1, int(n_results))))
+            real_exact_rows = [
+                row for row in ranked_exact_rows
+                if not bool((row.get("metadata") or {}).get("codec_state_noise"))
+                and float(row.get("score") or 0.0) >= 0.22
+            ]
+            exact_results = (real_exact_rows or ranked_exact_rows)[: max(1, int(n_results))]
+            for row in exact_results:
+                metadata = dict(row.get("metadata") or {})
+                if metadata.get("recall_mode") == "exact_chroma_contains" and not bool(metadata.get("codec_state_noise")):
+                    metadata["memory_system_meta_noise"] = False
+                    metadata["exact_recall_override"] = True
+                    row["metadata"] = metadata
+            return {
+                "query": query,
+                "results": exact_results,
+                "search_mode": "exact_lexical",
+                "degraded": False,
+                "warning": None,
+            }
+    except Exception:
+        pass
 
     semantic_warning: Optional[str] = None
     semantic_rows: List[Dict[str, Any]] = []
@@ -735,6 +1219,20 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
 
         semantic_rows = out_rows
         if out_rows and not _semantic_rows_need_help(query, out_rows):
+            local_rows = _local_file_memory_search_rows(
+                query,
+                n_results=max(int(n_results) * 3, 8),
+                scan_limit=max(int(n_results) * 40, 240),
+            )
+            strong_local_rows = [row for row in local_rows if float(row.get("_score", 0.0)) >= max(_LOCAL_FILE_MEMORY_MIN_SCORE, 0.34)]
+            if strong_local_rows:
+                return {
+                    "query": query,
+                    "results": _merge_ranked_rows(query, out_rows, strong_local_rows, n_results=max(1, int(n_results))),
+                    "search_mode": "semantic_hybrid",
+                    "degraded": False,
+                    "warning": None,
+                }
             return {
                 "query": query,
                 "results": _merge_ranked_rows(query, out_rows, [], n_results=max(1, int(n_results))),

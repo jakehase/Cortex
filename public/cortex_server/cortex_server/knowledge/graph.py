@@ -3,6 +3,7 @@ Knowledge Graph Core - Storage and query engine for The Cortex.
 """
 
 import json
+import os
 import sqlite3
 from enum import Enum
 from typing import Dict, List, Optional, Any, Iterator
@@ -17,6 +18,7 @@ class NodeType(str, Enum):
     FUNCTION = "Function"
     CLASS = "Class"
     MODULE = "Module"
+    ROUTE = "Route"
     DOCUMENT = "Document"
     SECTION = "Section"
     ENTITY = "Entity"
@@ -33,6 +35,7 @@ class EdgeType(str, Enum):
     REFERENCES = "REFERENCES"
     DEPENDS_ON = "DEPENDS_ON"
     EXPORTS = "EXPORTS"
+    HANDLES = "HANDLES"
 
 
 class Node(BaseModel):
@@ -70,8 +73,9 @@ class SQLiteStorage:
     ]
 
     def __init__(self, db_path: Optional[str] = None):
-        if db_path:
-            self.db_path = db_path
+        configured_db_path = db_path or os.getenv("CORTEX_DB_PATH")
+        if configured_db_path:
+            self.db_path = configured_db_path
         else:
             chosen = None
             for c in self.DEFAULT_DB_CANDIDATES:
@@ -90,6 +94,7 @@ class SQLiteStorage:
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._local.conn.row_factory = sqlite3.Row
+            self._local.conn.execute("PRAGMA busy_timeout = 10000")
         return self._local.conn
     
     def _init_db(self):
@@ -164,6 +169,45 @@ class SQLiteStorage:
             edge.weight, edge.context, json.dumps(edge.metadata)
         ))
         conn.commit()
+
+    def insert_nodes(self, nodes: List[Node]) -> None:
+        """Insert or update multiple nodes in one transaction."""
+        if not nodes:
+            return
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.executemany("""
+            INSERT OR REPLACE INTO nodes
+            (id, type, name, uri, language, created_at, updated_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            (
+                node.id, node.type.value, node.name, node.uri, node.language,
+                node.created_at.isoformat(), node.updated_at.isoformat(),
+                json.dumps(node.metadata),
+            )
+            for node in nodes
+        ])
+        conn.commit()
+
+    def insert_edges(self, edges: List[Edge]) -> None:
+        """Insert or update multiple edges in one transaction."""
+        if not edges:
+            return
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.executemany("""
+            INSERT OR REPLACE INTO edges
+            (id, type, source_id, target_id, weight, context, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [
+            (
+                edge.id, edge.type.value, edge.source_id, edge.target_id,
+                edge.weight, edge.context, json.dumps(edge.metadata),
+            )
+            for edge in edges
+        ])
+        conn.commit()
     
     def get_node(self, node_id: str) -> Optional[Node]:
         """Get a node by ID."""
@@ -206,6 +250,7 @@ class SQLiteStorage:
             query += " AND name LIKE ?"
             params.append(f"%{name_pattern}%")
         
+        limit = max(1, min(1000, int(limit or 100)))
         query += f" LIMIT {limit}"
         
         cursor.execute(query, params)
@@ -222,31 +267,59 @@ class SQLiteStorage:
         cursor = conn.cursor()
         results = []
         
+        # Avoid SELECT e.*, n.* because both tables share column names like id/type.
+        # Read the edge first, then fetch the neighbor node explicitly.
         if direction in ("out", "both"):
-            query = "SELECT e.*, n.* FROM edges e JOIN nodes n ON e.target_id = n.id WHERE e.source_id = ?"
+            query = "SELECT * FROM edges WHERE source_id = ?"
             params = [node_id]
             if edge_type:
-                query += " AND e.type = ?"
+                query += " AND type = ?"
                 params.append(edge_type.value)
             cursor.execute(query, params)
             for row in cursor.fetchall():
                 edge = self._row_to_edge(row)
-                node = self._row_to_node(row)
+                node = self.get_node(edge.target_id)
                 results.append({"edge": edge, "node": node, "direction": "out"})
-        
+
         if direction in ("in", "both"):
-            query = "SELECT e.*, n.* FROM edges e JOIN nodes n ON e.source_id = n.id WHERE e.target_id = ?"
+            query = "SELECT * FROM edges WHERE target_id = ?"
             params = [node_id]
             if edge_type:
-                query += " AND e.type = ?"
+                query += " AND type = ?"
                 params.append(edge_type.value)
             cursor.execute(query, params)
             for row in cursor.fetchall():
                 edge = self._row_to_edge(row)
-                node = self._row_to_node(row)
+                node = self.get_node(edge.source_id)
                 results.append({"edge": edge, "node": node, "direction": "in"})
         
         return results
+
+    def stats(self) -> Dict[str, Any]:
+        """Return lightweight graph cardinality and type breakdowns."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        node_count = cursor.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+        edge_count = cursor.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+        node_types = {
+            row[0]: row[1]
+            for row in cursor.execute(
+                "SELECT type, COUNT(*) FROM nodes GROUP BY type ORDER BY COUNT(*) DESC"
+            ).fetchall()
+        }
+        edge_types = {
+            row[0]: row[1]
+            for row in cursor.execute(
+                "SELECT type, COUNT(*) FROM edges GROUP BY type ORDER BY COUNT(*) DESC"
+            ).fetchall()
+        }
+        return {
+            "dbPath": str(self.db_path),
+            "nodeCount": node_count,
+            "edgeCount": edge_count,
+            "nodeTypes": node_types,
+            "edgeTypes": edge_types,
+        }
     
     def query_edges(
         self,
@@ -339,6 +412,14 @@ class Graph:
     def add_edge(self, edge: Edge) -> None:
         """Add an edge to the graph."""
         self.storage.insert_edge(edge)
+
+    def add_nodes(self, nodes: List[Node]) -> None:
+        """Add multiple nodes efficiently."""
+        self.storage.insert_nodes(nodes)
+
+    def add_edges(self, edges: List[Edge]) -> None:
+        """Add multiple edges efficiently."""
+        self.storage.insert_edges(edges)
     
     def get_node(self, node_id: str) -> Optional[Node]:
         """Get a node by ID."""
@@ -379,6 +460,10 @@ class Graph:
     ) -> List[Edge]:
         """Find edges by relationship type."""
         return self.storage.query_edges(edge_type, source_id, target_id, limit)
+
+    def stats(self) -> Dict[str, Any]:
+        """Return graph cardinality and type breakdowns."""
+        return self.storage.stats()
     
     def delete_node(self, node_id: str) -> bool:
         """Delete a node."""

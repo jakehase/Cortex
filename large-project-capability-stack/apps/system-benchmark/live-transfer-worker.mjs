@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { planCreativeBundleRuntime } from '../../packages/continuous-workload-controller/index.mjs';
 import { readCreativeWorkerMeteringPlanFromEnv } from '../../packages/llm-metering-adapter/index.mjs';
+import { buildCortexCodexBoundary } from './cortex-codex-boundary.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -1061,8 +1062,25 @@ function parseBool(value, fallback = false) {
 function safeRelativeSourcePath(value = '') {
   const rel = String(value || '').trim().replace(/^\.\//, '');
   if (!rel || path.isAbsolute(rel) || rel.includes('..')) return null;
-  if (!/\.(?:mjs|js|jsx|ts|tsx|css|json)$/i.test(rel)) return null;
+  const jsProductLike = /\.(?:mjs|js|jsx|ts|tsx|css|json)$/i.test(rel);
+  const godotProductLike = /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(rel);
+  if (!jsProductLike && !godotProductLike) return null;
   return rel;
+}
+
+function isCreativeProductTarget(rel = '') {
+  const value = String(rel || '').replace(/^\.\//, '');
+  if (!value || path.isAbsolute(value) || value.includes('..')) return false;
+  const appPackageProduct = /^(apps|packages)\//.test(value)
+    && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(value)
+    && !/(^|\/)tests?\//i.test(value);
+  const godotProduct = (
+    value === 'project.godot'
+    || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(value)
+  )
+    && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(value)
+    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
+  return appPackageProduct || godotProduct;
 }
 
 function creativeAllowedSourceFiles(assignment) {
@@ -1094,6 +1112,31 @@ function changedCreativeFiles(workspaceRoot, before) {
     if (afterContent !== beforeContent) changed.push({ rel, beforeContent, afterContent });
   }
   return changed;
+}
+
+function creativeEvidenceChangedFiles(evidence, allowedFiles = []) {
+  const allowed = new Set(allowedFiles);
+  const iterationChanged = Array.isArray(evidence?.iterations)
+    ? evidence.iterations.flatMap((entry) => entry?.changedAllowedFilesAfterIteration || [])
+    : [];
+  return stableList([
+    ...(Array.isArray(evidence?.filesChanged) ? evidence.filesChanged : []),
+    ...(Array.isArray(evidence?.modifiedFiles) ? evidence.modifiedFiles : []),
+    ...(Array.isArray(evidence?.productFilesChanged) ? evidence.productFilesChanged : []),
+    ...(Array.isArray(evidence?.productModifiedFiles) ? evidence.productModifiedFiles : []),
+    ...iterationChanged
+  ]).filter((rel) => allowed.has(rel));
+}
+
+function mergeCreativeChangedFilesFromEvidence(workspaceRoot, before, changed = [], evidenceRelFiles = []) {
+  const byRel = new Map(changed.map((entry) => [entry.rel, entry]));
+  for (const rel of evidenceRelFiles) {
+    if (byRel.has(rel) || !before.has(rel)) continue;
+    const beforeContent = before.get(rel);
+    const afterContent = readWorkspaceFile(workspaceRoot, rel);
+    if (afterContent !== beforeContent) byRel.set(rel, { rel, beforeContent, afterContent });
+  }
+  return [...byRel.values()];
 }
 
 function lineListForCreativeDiff(value = '') {
@@ -1140,10 +1183,20 @@ function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFil
     enabled: true,
     bundleMode: assignment.shard?.metadata?.continuousControllerBundleMode || 'coherent_product_slice',
     sourceSurfaceIds: stableList(assignment.shard?.metadata?.bundledSurfaceIds || []),
-    bundledProductFiles: stableList(assignment.shard?.metadata?.bundledProductFiles || allowedFiles.filter((rel) => /^(apps|packages)\//.test(rel))),
+    bundledProductFiles: stableList(assignment.shard?.metadata?.bundledProductFiles || allowedFiles.filter(isCreativeProductTarget)),
     minProductTargetsToModify: Math.max(1, Number(assignment.shard?.metadata?.minProductTargetsToModify || 1)),
     sourceSurfaces: Array.isArray(assignment.shard?.sourceSurfaces) ? assignment.shard.sourceSurfaces : []
   } : { enabled: false };
+  const creativePolicy = assignment.contextPack?.inputs?.creativeProductWork || assignment.shard?.metadata?.creativeProductWork || {};
+  const cognitionBoundary = buildCortexCodexBoundary({
+    env: process.env,
+    task: { contextPack: assignment.contextPack || null, promptMode, budgetLedgerPath },
+    workerCommand: process.env.CREATIVE_WORKER_COMMAND || creativePolicy.workerCommand || null,
+    cortexPacketPath: cortexContextPacketPath,
+    budgetLedgerPath,
+    promptMode,
+    meteringPlan
+  });
   const payload = {
     schemaVersion: 'claw.creative_product_work_task.v1',
     generatedAt: new Date().toISOString(),
@@ -1164,6 +1217,7 @@ function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFil
     compactBriefMaxChars: process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS || null,
     bundle: bundleMetadata,
     meteringPlan,
+    cognitionBoundary,
     cortexContextPacketPath,
     budgetLedgerPath,
     requiredEvidencePath: evidencePath,
@@ -1203,6 +1257,16 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
   const workspaceRoot = path.resolve(assignment.workspacePath);
   const acceptanceChecks = stableList(assignment.contextPack?.acceptanceChecks || []);
   const verifierCatalog = assignment.contextPack?.inputs?.verifierCatalog || assignment.shard?.metadata?.verifierCatalog || {};
+  const creativePolicy = assignment.contextPack?.inputs?.creativeProductWork || assignment.shard?.metadata?.creativeProductWork || {};
+  const cognitionBoundary = buildCortexCodexBoundary({
+    env: process.env,
+    task: { contextPack: assignment.contextPack || null, promptMode, budgetLedgerPath },
+    workerCommand: process.env.CREATIVE_WORKER_COMMAND || creativePolicy.workerCommand || null,
+    cortexPacketPath,
+    budgetLedgerPath,
+    promptMode,
+    meteringPlan
+  });
   const packet = {
     schemaVersion: 'claw.cortex_creative_context_packet.v1',
     generatedAt: new Date().toISOString(),
@@ -1214,7 +1278,7 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
       goal: assignment.shard?.goal || assignment.shard?.title || null,
       bundle: bundleMetadata
     },
-    intent: 'Make one scoped Mailchimp product-surface improvement with bounded context, targeted verification, and auditable evidence.',
+    intent: 'Make one scoped product-surface improvement with bounded context, targeted verification, and auditable evidence.',
     instructions: [
       'Use this packet as the planning/context authority before invoking broad repository search.',
       'Modify assigned product runtime files only; docs/tests-only changes do not count.',
@@ -1229,6 +1293,7 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
     modelTierPlan: assignment.contextPack?.modelTierPlan || null,
     retrievalManifest: assignment.contextPack?.retrievalManifest || null,
     contextFootprint: assignment.contextPack?.contextFootprint || null,
+    cognitionBoundary,
     files: allowedFiles.map((rel) => ({
       path: rel,
       role: productTargets.includes(rel) ? 'product_target' : 'support_or_verifier',
@@ -1259,7 +1324,7 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
       failClosed: parseBool(process.env.CREATIVE_WORKER_CORTEX_REQUIRED, false)
     },
     negativeSpace: {
-      fullMailchimpParityClaimed: false,
+      fullProductParityClaimed: false,
       benchmarkSliceOnly: true,
       completionRequiresThresholdPass: true
     }
@@ -1299,8 +1364,12 @@ function applyCreativeProductWork(assignment) {
   const maxCodexIterations = Math.max(1, Number(process.env.CODEX_CREATIVE_MAX_ITERATIONS || minIterations || 1));
   const promptMode = String(process.env.CREATIVE_WORKER_PROMPT_MODE || creativePolicy.promptMode || process.env.CODEX_CREATIVE_PROMPT_MODE || 'full_context').trim() || 'full_context';
   const budgetReservationTimeoutMs = parsePositiveNumber(process.env.CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS, 0) ?? 0;
+  const externalVerificationEnabled = parseBool(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION, promptMode === 'compact');
+  const externalVerificationTimeoutMs = externalVerificationEnabled
+    ? (parsePositiveNumber(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION_TIMEOUT_MS, 90_000) ?? 90_000)
+    : 0;
   const allowedFiles = creativeAllowedSourceFiles(assignment);
-  const productTargets = allowedFiles.filter((rel) => /^(apps|packages)\//.test(rel) && !/(^|\/)tests?\//i.test(rel));
+  const productTargets = allowedFiles.filter(isCreativeProductTarget);
   const bundleRuntimePlan = planCreativeBundleRuntime({
     bundle: {
       enabled: bundledMode,
@@ -1316,7 +1385,7 @@ function applyCreativeProductWork(assignment) {
   });
   const codexIterationTimeoutMs = bundleRuntimePlan.iterationTimeoutMs;
   const commandTimeoutMs = parsePositiveNumber(process.env.CREATIVE_WORKER_COMMAND_TIMEOUT_MS, null)
-    ?? Math.max(60_000, minRuntimeMs + 120_000, (codexIterationTimeoutMs * maxCodexIterations) + budgetReservationTimeoutMs + 60_000);
+    ?? Math.max(60_000, minRuntimeMs + 120_000, (codexIterationTimeoutMs * maxCodexIterations) + budgetReservationTimeoutMs + externalVerificationTimeoutMs + 120_000);
   if (!command) {
     return {
       ok: false,
@@ -1356,8 +1425,18 @@ function applyCreativeProductWork(assignment) {
   const cortexPacketDir = String(process.env.CREATIVE_WORKER_CORTEX_PACKET_DIR || creativePolicy.cortexContextPacketDir || resultDir).trim();
   const cortexContextPacketPath = path.join(cortexPacketDir, `${assignment.shard.id}__cortex-context-${attempt}.json`);
   const budgetLedgerPath = String(process.env.CREATIVE_WORKER_BUDGET_LEDGER_PATH || creativePolicy.budgetLedgerPath || path.join(resultDir, 'creative-worker-budget-ledger.json')).trim();
-  writeCreativeCortexPacket({ assignment, cortexPacketPath: cortexContextPacketPath, allowedFiles, productTargets, minIterations, minRuntimeMs, budgetLedgerPath, promptMode });
+  const cortexPacket = writeCreativeCortexPacket({ assignment, cortexPacketPath: cortexContextPacketPath, allowedFiles, productTargets, minIterations, minRuntimeMs, budgetLedgerPath, promptMode });
   writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFiles, minIterations, minRuntimeMs, cortexContextPacketPath, budgetLedgerPath, promptMode });
+  const cognitionBoundary = buildCortexCodexBoundary({
+    env: process.env,
+    task: { contextPack: assignment.contextPack || null, promptMode, budgetLedgerPath },
+    cortexPacket,
+    workerCommand: command,
+    cortexPacketPath: cortexContextPacketPath,
+    budgetLedgerPath,
+    promptMode,
+    meteringPlan: readCreativeWorkerMeteringPlanFromEnv(process.env)
+  });
   const before = snapshotCreativeFiles(workspaceRoot, allowedFiles);
   const startedAt = Date.now();
   const childEnv = {
@@ -1388,26 +1467,38 @@ function applyCreativeProductWork(assignment) {
     env: childEnv
   });
   const finishedAt = Date.now();
-  const creativeWorkerRuntimeMs = finishedAt - startedAt;
-  const changed = changedCreativeFiles(workspaceRoot, before);
-  const modifiedFiles = changed.map((entry) => entry.rel);
-  const productModifiedFiles = modifiedFiles.filter((rel) => productTargets.includes(rel));
   const evidenceRead = parseCreativeEvidence(evidencePath);
   const evidence = evidenceRead.evidence || null;
   const iterations = Array.isArray(evidence?.iterations) ? evidence.iterations : [];
+  const creativeWorkerRuntimeMs = finishedAt - startedAt;
+  const evidenceRelFiles = creativeEvidenceChangedFiles(evidence, allowedFiles);
+  const changed = mergeCreativeChangedFilesFromEvidence(workspaceRoot, before, changedCreativeFiles(workspaceRoot, before), evidenceRelFiles);
+  const modifiedFiles = stableList([...changed.map((entry) => entry.rel), ...evidenceRelFiles]);
+  const productModifiedFiles = modifiedFiles.filter((rel) => productTargets.includes(rel));
   const diff = buildCreativeDiff(changed);
   const addedLines = changed.flatMap((entry) => addedLinesBetweenCreative(entry.beforeContent || '', entry.afterContent || ''));
   const uniqueNormalizedAddedLines = new Set(addedLines.map((line) => line.trim().replace(/\s+/g, ' ')).filter(Boolean));
   const commandFailed = spawned.status !== 0 || spawned.error;
+  const commandTimedOut = spawned.error?.code === 'ETIMEDOUT';
   const runtimeTooShort = minRuntimeMs > 0 && creativeWorkerRuntimeMs < minRuntimeMs;
   const evidenceFailed = !evidenceRead.ok;
   const tooFewIterations = iterations.length < minIterations;
   const noProductDelta = productModifiedFiles.length === 0;
   const tooFewProductTargetsModified = productModifiedFiles.length < minProductTargetsToModify;
   const genericShimPattern = /semanticProductArchitecture(?:Runtime|FixtureState|FixtureRouter|ExistingProductArgs|IntegratedCall|NormalFlow)_|__semanticProductArchitectureNormalFlowProofs|in_memory_semantic_benchmark/.test(diff);
-  const ok = !commandFailed && !runtimeTooShort && !evidenceFailed && !tooFewIterations && !noProductDelta && !tooFewProductTargetsModified && !genericShimPattern;
+  const externalVerificationFailureCount = Number(evidence?.externalVerification?.failureCount || 0);
+  const timedOutAfterDurableProductCheckpoint = commandTimedOut
+    && evidenceRead.ok
+    && productModifiedFiles.length > 0
+    && iterations.length >= minIterations
+    && !tooFewProductTargetsModified
+    && !genericShimPattern
+    && externalVerificationFailureCount === 0
+    && (evidence?.checkpoint?.productDeltaDurable === true || evidence?.partial === true || evidence?.stage === 'after_codex_iteration');
+  const commandFailureBlocks = commandFailed && !timedOutAfterDurableProductCheckpoint;
+  const ok = !commandFailureBlocks && !runtimeTooShort && !evidenceFailed && !tooFewIterations && !noProductDelta && !tooFewProductTargetsModified && !genericShimPattern;
   const failureReasons = [
-    commandFailed ? 'creative_worker_command_failed' : null,
+    commandFailureBlocks ? 'creative_worker_command_failed' : null,
     runtimeTooShort ? 'creative_worker_runtime_too_short' : null,
     evidenceFailed ? evidenceRead.reason : null,
     tooFewIterations ? 'creative_worker_iterations_below_minimum' : null,
@@ -1417,6 +1508,9 @@ function applyCreativeProductWork(assignment) {
   ].filter(Boolean);
   return {
     ok,
+    command,
+    durationMs: creativeWorkerRuntimeMs,
+    firstMeaningfulProgressMs: Math.max(1, Math.min(creativeWorkerRuntimeMs, Number(evidence?.firstMeaningfulProgressMs || creativeWorkerRuntimeMs || 1))),
     modifiedFiles,
     diff,
     diffSummary: ok
@@ -1436,6 +1530,7 @@ function applyCreativeProductWork(assignment) {
       evidencePath,
       cortexContextPacketPath,
       budgetLedgerPath,
+      cognitionBoundary,
       creativeWorkerEvidence: {
         ok,
         surfaceId,
@@ -1446,7 +1541,9 @@ function applyCreativeProductWork(assignment) {
         commandConfigured: Boolean(command),
         commandExitCode: spawned.status ?? null,
         commandSignal: spawned.signal ?? null,
-        commandTimedOut: spawned.error?.code === 'ETIMEDOUT',
+        commandTimedOut,
+        timedOutAfterDurableProductCheckpoint,
+        recoveredFromCommandTimeout: timedOutAfterDurableProductCheckpoint,
         baseCodexIterationTimeoutMs,
         codexIterationTimeoutMs,
         commandTimeoutMs,
@@ -1465,6 +1562,9 @@ function applyCreativeProductWork(assignment) {
         uniqueNormalizedAddedLineCount: uniqueNormalizedAddedLines.size,
         genericShimPattern,
         failureReasons,
+        recoveryEvents: [
+          timedOutAfterDurableProductCheckpoint ? 'creative_worker_timeout_recovered_from_product_checkpoint' : null
+        ].filter(Boolean),
         cortexContext: evidence?.cortex || null,
         budget: evidence?.budget || null,
         prompt: evidence?.prompt || { mode: promptMode },
@@ -1543,8 +1643,13 @@ function applyDeterministicProductDiff(assignment) {
     };
   }
 
-  const target = resolveProductDiffTarget(assignment);
   const surfaceId = assignment.shard?.metadata?.surfaceId || assignment.shard?.id || 'surface';
+  const mode = assignment.contextPack?.inputs?.productDiffMode || assignment.shard?.metadata?.productDiffMode || 'deterministic_metadata_patch';
+  if (mode === 'creative_product_work' || creativeProductWorkRequired(assignment)) {
+    return applyCreativeProductWork(assignment);
+  }
+
+  const target = resolveProductDiffTarget(assignment);
   if (!target) {
     return {
       ok: false,
@@ -1559,10 +1664,6 @@ function applyDeterministicProductDiff(assignment) {
     };
   }
 
-  const mode = assignment.contextPack?.inputs?.productDiffMode || assignment.shard?.metadata?.productDiffMode || 'deterministic_metadata_patch';
-  if (mode === 'creative_product_work' || creativeProductWorkRequired(assignment)) {
-    return applyCreativeProductWork(assignment);
-  }
   if (mode === 'semantic_product_architecture') {
     if (rejectGenericSemanticShimRequired(assignment)) {
       return applyStrictProductSurfaceRuntimeDiff(assignment, target);
@@ -1666,6 +1767,147 @@ function runVerifier(assignmentPath, assignment, verifierId) {
   }
 }
 
+function sanitizeJsonControlCharsInStrings(value = '') {
+  const text = String(value || '');
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const char of text) {
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+    if (inString && char === '\\') {
+      out += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      out += char;
+      continue;
+    }
+    if (inString && char === '\n') {
+      out += '\\n';
+      continue;
+    }
+    if (inString && char === '\r') {
+      out += '\\r';
+      continue;
+    }
+    if (inString && char === '\t') {
+      out += '\\t';
+      continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
+function parseJsonFromText(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {}
+  try {
+    return JSON.parse(sanitizeJsonControlCharsInStrings(raw));
+  } catch {
+    return {};
+  }
+}
+
+function normalizeVerifierCommand(value = '') {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function verifierCatalogForAssignment(assignment) {
+  return {
+    ...(assignment.contextPack?.inputs?.verifierCatalog || {}),
+    ...(assignment.shard?.inputs?.verifierCatalog || {})
+  };
+}
+
+function resultFromCreativeExternalVerification({ verifierId, expectedCommand, externalResult }) {
+  const parsed = parseJsonFromText(externalResult?.stdout || '');
+  const startedAt = parsed.startedAt || externalResult?.startedAt || null;
+  const finishedAt = parsed.finishedAt || externalResult?.finishedAt || null;
+  const durationMs = parsed.durationMs ?? externalResult?.durationMs ?? null;
+  const parsedFirstMeaningfulProgressMs = nonNegativeNumberOrNull(parsed.firstMeaningfulProgressMs ?? externalResult?.firstMeaningfulProgressMs);
+  const firstMeaningfulProgressMs = parsedFirstMeaningfulProgressMs ?? (Number.isFinite(durationMs) ? durationMs : null);
+  const firstMeaningfulProgressAt = parsed.firstMeaningfulProgressAt
+    || externalResult?.firstMeaningfulProgressAt
+    || (startedAt && firstMeaningfulProgressMs != null ? new Date(new Date(startedAt).getTime() + firstMeaningfulProgressMs).toISOString() : null);
+  return {
+    ok: externalResult?.ok !== false && parsed.ok !== false,
+    verifier: verifierId,
+    command: externalResult?.command || expectedCommand || null,
+    startedAt,
+    finishedAt,
+    durationMs,
+    firstMeaningfulProgressMs,
+    firstMeaningfulProgressAt,
+    stdout: externalResult?.stdout || '',
+    stderr: externalResult?.stderr || externalResult?.error || '',
+    metadata: {
+      ...parsed,
+      reusedFromCreativeWorkerExternalVerification: true,
+      verifierId,
+      iteration: externalResult?.iteration ?? null,
+      originalExitCode: externalResult?.exitCode ?? null,
+      originalSignal: externalResult?.signal ?? null,
+      originalError: externalResult?.error ?? null
+    }
+  };
+}
+
+function creativeExternalVerifierResultPassed(externalResult) {
+  const parsed = parseJsonFromText(externalResult?.stdout || '');
+  return externalResult?.ok === true
+    && (externalResult?.exitCode == null || externalResult.exitCode === 0)
+    && !externalResult?.signal
+    && !externalResult?.error
+    && parsed.ok !== false;
+}
+
+function creativeExternalVerifierResultsById(implementation, assignment) {
+  const evidence = implementation?.metadata?.creativeWorkerEvidence || null;
+  const external = evidence?.externalVerification || null;
+  const runs = Array.isArray(external?.runs) ? external.runs : [];
+  const rawResults = runs.flatMap((run) => Array.isArray(run?.results)
+    ? run.results.map((entry) => ({ ...entry, iteration: run.iteration ?? entry?.iteration ?? null }))
+    : []);
+  if (!rawResults.length) return new Map();
+
+  const requiredVerifiers = assignment.shard?.requiredVerifiers || [];
+  const catalog = verifierCatalogForAssignment(assignment);
+  const used = new Set();
+  const byId = new Map();
+
+  for (const verifierId of requiredVerifiers) {
+    const expectedCommand = catalog[verifierId]?.command || '';
+    const expectedNormalized = normalizeVerifierCommand(expectedCommand);
+    let resultIndex = rawResults.findLastIndex((entry, index) => !used.has(index)
+      && creativeExternalVerifierResultPassed(entry)
+      && expectedNormalized
+      && normalizeVerifierCommand(entry?.command || '') === expectedNormalized);
+    if (resultIndex < 0 && rawResults.length === requiredVerifiers.length) {
+      resultIndex = rawResults.findLastIndex((entry, index) => !used.has(index)
+        && creativeExternalVerifierResultPassed(entry));
+    }
+    if (resultIndex < 0) continue;
+    used.add(resultIndex);
+    byId.set(verifierId, resultFromCreativeExternalVerification({
+      verifierId,
+      expectedCommand,
+      externalResult: rawResults[resultIndex]
+    }));
+  }
+
+  return byId;
+}
+
 const args = parseArgs(process.argv.slice(2));
 if (!args.assignment) {
   console.error('missing --assignment');
@@ -1689,10 +1931,12 @@ if (failureInjection?.mode === 'stall') {
 const appliedProductDiff = applyDeterministicProductDiff(assignment);
 const implementation = {
   ok: appliedProductDiff.ok !== false,
-  command: null,
-  durationMs: 0,
-  firstMeaningfulProgressMs: appliedProductDiff.ok !== false ? 0 : null,
-  firstMeaningfulProgressAt: appliedProductDiff.ok !== false ? new Date(startedAt).toISOString() : null,
+  command: appliedProductDiff.command || null,
+  durationMs: Number(appliedProductDiff.durationMs || 0),
+  firstMeaningfulProgressMs: appliedProductDiff.firstMeaningfulProgressMs ?? (appliedProductDiff.ok !== false ? 0 : null),
+  firstMeaningfulProgressAt: appliedProductDiff.ok !== false
+    ? new Date(startedAt + Number(appliedProductDiff.firstMeaningfulProgressMs || 0)).toISOString()
+    : null,
   modifiedFiles: appliedProductDiff.modifiedFiles || [],
   diff: appliedProductDiff.diff || '',
   diffSummary: appliedProductDiff.diffSummary || 'verification-only transfer shard',
@@ -1723,8 +1967,9 @@ if (implementation.ok === false) {
 }
 
 const verifierResults = [];
+const reusedCreativeVerifierResults = creativeExternalVerifierResultsById(implementation, assignment);
 for (const verifierId of assignment.shard.requiredVerifiers || []) {
-  const result = runVerifier(args.assignment, assignment, verifierId);
+  const result = reusedCreativeVerifierResults.get(verifierId) || runVerifier(args.assignment, assignment, verifierId);
   verifierResults.push(result);
   fs.appendFileSync(assignment.logPath, `${JSON.stringify(result)}\n`);
   if (result.ok === false) {

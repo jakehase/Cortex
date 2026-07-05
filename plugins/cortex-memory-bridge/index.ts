@@ -190,6 +190,25 @@ function toTimestamp(value: unknown): number | null {
 function extractTimestamp(metadata: Record<string, unknown>): number | null {
   return toTimestamp(metadata.timestamp) ?? toTimestamp(metadata.createdAt) ?? toTimestamp(metadata.updatedAt) ?? toTimestamp(metadata.occurredAt) ?? null;
 }
+function clamp01(value: number): number { return Math.max(0, Math.min(1, value)); }
+function finiteNumber(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : (typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN);
+  return Number.isFinite(n) ? n : null;
+}
+function candidateRawScore(item: any, metadata: Record<string, unknown>): number {
+  // Cortex/Librarian may already reconcile semantic distance, lexical overlap,
+  // freshness, and stale-negative penalties into an explicit score. Prefer that
+  // over raw vector distance so the OpenClaw-facing bridge does not undo Cortex's
+  // broader recall-integrity judgment.
+  const direct = finiteNumber(item?.score);
+  if (direct !== null) return clamp01(direct);
+  const hybrid = finiteNumber(metadata?.hybrid_score);
+  if (hybrid !== null) return clamp01(hybrid);
+  const relevance = finiteNumber(metadata?.relevance_score);
+  if (relevance !== null) return clamp01(relevance);
+  const distance = finiteNumber(item?.distance);
+  return distance !== null ? 1 / (1 + Math.max(0, distance)) : 0.5;
+}
 function textMatchesNoise(text: string): boolean {
   const t = text.trim();
   return [
@@ -216,6 +235,31 @@ function explicitnessScore(text: string): number {
   if (/\b(i prefer|prefer|remember this|please remember|call me|my timezone|we decided|the plan is|always use|default to|never use|use this|current|latest|final)\b/i.test(text)) score += 0.55;
   if (/\b(maybe|probably|might|i think|seems|guess|not sure)\b/i.test(text)) score -= 0.18;
   return Math.max(0, Math.min(1, score));
+}
+function queryWantsNegativeEvidence(query: string): boolean {
+  return /\b(not found|no evidence|no record|absence|missing|remaining|open gap|open gaps|gap inventory|gap list|blocker|what(?:'s| is| was)? still missing|what(?:'s| is| was)? left|what remains)\b/i.test(normalizeQuery(query));
+}
+function queryWantsMemorySystem(query: string): boolean {
+  return /\bmemory system|memory search|memory_search|recall|librarian|cortex memory|knowledge\/search|reranker|ranking|semantic search\b/i.test(normalizeQuery(query));
+}
+function isMemorySystemMetaRow(text: string, metadata: Record<string, unknown>): boolean {
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.join(' ') : '';
+  const hay = `${text} ${String(metadata?.source ?? '')} ${tags}`.toLowerCase();
+  return /memory_search\(|memory search|local file-?memory lexical fallback|recall regression|recall route|librarian\.py|test_librarian_recall_fallback|stale-negative|correction\/conclusion rows|reranker|cortex memory bridge|cortex-memory-bridge|knowledge\/search/.test(hay);
+}
+function isFreshOrCorrectiveFact(text: string, metadata: Record<string, unknown>): boolean {
+  const t = String(text || '');
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x) => String(x).toLowerCase()) : [];
+  if (metadata?.correction_memory === true || tags.includes('correction') || tags.includes('current_fact') || tags.includes('source_of_truth')) return true;
+  if (/\bcorrection\s*:|\bcorrected\b|\btruth corrected\b|\boperational conclusion\b|\bdirectly supports\b|\bsource of truth\b|\bcurrent (?:canonical )?(?:status|state|context|truth|fact|setup)\b|\blatest (?:canonical )?(?:status|state|context|truth|fact|setup)\b|\bfinal (?:answer|decision|state|status|setup)\b|\bnew controller\s*:/i.test(t)) return true;
+  if (/\bno found\b|\bno (?:explicit )?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b|\bfound no (?:explicit )?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b|\bcould not (?:find|locate|confirm|verify|surface|recover)\b|\b(?:cannot|can't|unable to) (?:find|locate|confirm|verify|surface|recover)\b|\bnot (?:found|located|confirmed|verified|available|present|implemented|synced|documented)\b|\bneed(?:s|ed)? to (?:implement|build|add|fix|repair|wire|create)\b|\bshould (?:implement|build|add|fix|repair|wire|create)\b|\bnext action\s*:\s*(?:implement|build|add|fix|repair|wire|create)\b|\bnot (?:yet )?implemented\b|\bunimplemented\b/i.test(t)) return false;
+  return /\bimplemented\b|\bfixed\b|\brepaired\b|\bverified\b|\blive verification\b|\btests? passed\b/i.test(t);
+}
+function isStaleNegativeOrOpenWork(query: string, text: string, metadata: Record<string, unknown>): boolean {
+  if (queryWantsNegativeEvidence(query) || isFreshOrCorrectiveFact(text, metadata)) return false;
+  if (metadata?.stale_negative_memory === true) return true;
+  const t = String(text || '');
+  return /\bno found\b|\bno (?:explicit )?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b|\bfound no (?:explicit )?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b|\bcould not (?:find|locate|confirm|verify|surface|recover)\b|\b(?:cannot|can't|unable to) (?:find|locate|confirm|verify|surface|recover)\b|\bnot (?:found|located|confirmed|verified|available|present|implemented|synced|documented)\b|\bnot in (?:memory|hard memory|durable memory|local files|the ledger|the repo)\b|\bmissing (?:from|in) (?:memory|hard memory|durable memory|local files|the ledger|the repo)\b|\bneed(?:s|ed)? to (?:implement|build|add|fix|repair|wire|create)\b|\bshould (?:implement|build|add|fix|repair|wire|create)\b|\bnext action\s*:\s*(?:implement|build|add|fix|repair|wire|create)\b|\bnot (?:yet )?implemented\b|\bunimplemented\b/i.test(t);
 }
 function sourceQualityScore(metadata: Record<string, unknown>): number {
   if (isCurated(metadata)) return 1;
@@ -288,7 +332,7 @@ function classifyQuery(query: string): { mode: QueryMode; tags: string[] } {
 function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveConfig>, corroborationCount: number): MemoryCandidate {
   const metadata = (item?.metadata ?? {}) as Record<string, unknown>;
   const text = String(item?.text ?? '');
-  const rawScore = typeof item?.distance === 'number' ? 1 / (1 + item.distance) : (typeof item?.score === 'number' ? item.score : 0.5);
+  const rawScore = candidateRawScore(item, metadata);
   const timestampMs = extractTimestamp(metadata);
   const signals: CandidateSignals = {
     rawScore,
@@ -315,6 +359,13 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (queryLooksLikePreference(query) && signals.attribute === 'preference') { score += 0.22; signals.reasons.push('preference_match_boost'); }
   if (queryLooksLikePreference(query) && looksLikeExplicitPreferenceFact(text)) { score += 0.34; signals.reasons.push('explicit_preference_phrase_boost'); }
   if (queryLooksLikePreference(query) && looksLikePreferenceQuestionEcho(text)) { score -= 0.42; signals.reasons.push('preference_question_echo_penalty'); }
+  if (isMemorySystemMetaRow(text, metadata) && !queryWantsMemorySystem(query)) { score -= 0.5; signals.reasons.push('memory_system_meta_penalty'); }
+  if (isFreshOrCorrectiveFact(text, metadata) && !historical) { score += 0.18; signals.reasons.push('fresh_or_corrective_fact_boost'); }
+  if (isStaleNegativeOrOpenWork(query, text, metadata) && !historical) {
+    score -= 0.44;
+    signals.supersededPenalty += 0.22;
+    signals.reasons.push('stale_negative_or_open_work_penalty');
+  }
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
@@ -363,6 +414,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     if (isLeakyInternalTrace(item.snippet) && !queryIsAboutInternalTrace(query)) return false;
     if (isExecutionTraceNoise(item.snippet) && !queryIsAboutExecutionTrace(query)) return false;
     if (isOracleBoilerplate(item.snippet, item.metadata) && !queryWantsOracleBoilerplate(query)) return false;
+    if (isMemorySystemMetaRow(item.snippet, item.metadata) && !queryWantsMemorySystem(query)) return false;
     if (isRecentSummaryQuery(query) && !isRecentSummaryMemory(item.metadata, item.snippet) && (signals.recencyScore < 0.85 || /connection detail|ip address|ssh|token stored|authentication:/i.test(item.snippet))) return false;
     return true;
   });
@@ -376,6 +428,20 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
   if (isRecentSummaryQuery(query)) {
     const summaryOnly = visible.filter((item) => isRecentSummaryMemory(item.metadata, item.snippet));
     if (summaryOnly.length > 0) visible = summaryOnly;
+  }
+  const hasFreshFact = visible.some((item) => {
+    const signals = item.metadata.candidateSignals as CandidateSignals;
+    return isFreshOrCorrectiveFact(item.snippet, item.metadata) && signals.lexicalOverlapScore >= 0.25;
+  });
+  if (hasFreshFact && !queryWantsNegativeEvidence(query)) {
+    visible = visible.filter((item) => {
+      if (!isStaleNegativeOrOpenWork(query, item.snippet, item.metadata)) return true;
+      const signals = item.metadata.candidateSignals as CandidateSignals;
+      signals.supersededPenalty += cfg.conflictPenalty;
+      signals.reasons.push('suppressed_by_fresh_fact');
+      item.score = Math.max(0, item.score - cfg.conflictPenalty * 2);
+      return classification.mode === 'investigate';
+    });
   }
   const conflicts: ReconcileResult['conflicts'] = [];
   for (let i = 0; i < visible.length; i += 1) {

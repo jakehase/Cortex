@@ -15,8 +15,8 @@ from cortex_server.modules.reasoning_failures import normalize_failure_code
 from cortex_server.modules.reasoning_store import list_docs, list_events, replace_namespace_docs, replace_namespace_events
 
 
-DEFAULT_STATE_PATH = Path("/opt/clawdbot/state/reasoning_scheduler.json")
-DEFAULT_DB_PATH = Path("/opt/clawdbot/state/reasoning_runtime.db")
+DEFAULT_STATE_PATH = Path(os.getenv("REASONING_SCHEDULER_STATE_PATH", "/opt/clawdbot/state/reasoning_scheduler.json"))
+DEFAULT_DB_PATH = Path(os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db"))
 ENABLE_LEGACY_JSON_FALLBACK = str(os.getenv("REASONING_SCHEDULER_ENABLE_LEGACY_JSON_FALLBACK", "0")).strip().lower() in {"1", "true", "yes", "on"}
 _PROCESSES_NAMESPACE = "reasoning_processes"
 _EVENTS_NAMESPACE = "reasoning_process_events"

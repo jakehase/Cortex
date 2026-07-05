@@ -374,6 +374,42 @@ The scoreboard is the compact cross-run truth table.
 
 ## Evaluation policy
 
+### Standard threshold policy for real-worker product runs
+As of 2026-07-02, real Codex/model-worker product orchestration uses the explicit
+`real_worker_product_standard` threshold policy unless a stricter benchmark tier is
+declared for a deterministic smoke/canary.
+
+This keeps objective truth strict while allowing small real-worker transfer noise:
+
+- supervisor/objective truth must be green; no remaining required executable surfaces
+- truth integrity contradictions must be `0`
+- fake-green incidents must be `0`
+- verification integrity must be `1`
+- creative worker / iteration / product-delta evidence must remain intact
+- template fallback rate must be `0`
+- `productiveIterationRate >= 0.90`
+- `noOpRate <= 0.10`
+- `repeatBlockerRate <= 0.10`
+- `handoffEfficiency >= 0.90`
+- `transferScore >= 0.90`
+
+Do not retroactively describe an older strict-threshold run as passed without
+recording the threshold-policy version used for rescoring or continuation.
+
+### Continuous scale proof reporting
+
+Continuous controller reports must separate two scale claims:
+
+- `aggregateScaleProofReady`: the requested aggregate worker count was satisfied
+  by accepted/merged work units across an explicitly bounded wave schedule.
+- `uniqueWorkerScaleProofReady`: unique worker/lane IDs reached the requested
+  agent count in the run evidence.
+
+For standard heavy runs that intentionally schedule 100-agent aggregate work as
+45-worker physical waves, `scaleProofReady` means aggregate waved execution is
+ready, while `uniqueWorkerScaleProofReady=false` must remain visible. Do not call
+that a simultaneous/unique-100-worker proof.
+
 ### When the orchestration system may be called proven
 Only if all of the following are true:
 - B1 Mailchimp passes Tier 2 at least once and Tier 3 at least once

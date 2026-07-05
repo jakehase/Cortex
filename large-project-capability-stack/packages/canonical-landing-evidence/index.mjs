@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 const DEFAULT_PRODUCT_EXTENSIONS = /\.(?:mjs|js|jsx|ts|tsx|html|css|json|vue|svelte)$/i;
+const DEFAULT_GODOT_PRODUCT_EXTENSIONS = /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i;
+const DEFAULT_GODOT_PRODUCT_PATH_RE = /^(?:project\.godot$|(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\/)/i;
 const DEFAULT_EXCLUDED_PATH_RE = /(^|\/)(?:\.git|node_modules|docs?|tests?|__tests__|test|spec|scripts?|artifacts?|benchmarks?|fixtures?|mocks?|coverage|dist|build)\//i;
 const DEFAULT_EXCLUDED_FILE_RE = /(?:^|\/)[^/]+\.(?:test|spec|fixture|mock)\.(?:mjs|js|jsx|ts|tsx)$/i;
 
@@ -114,6 +116,14 @@ function gitFact(repoPath, args, fallback = null) {
 export function isProductRuntimeFile(relativePath = '', policy = {}) {
   const rel = normalizeRelativePath(relativePath);
   if (!rel) return false;
+  const godotExtensionRe = policy.godotProductExtensionPattern || DEFAULT_GODOT_PRODUCT_EXTENSIONS;
+  const godotProductPathRe = policy.godotProductPathPattern || DEFAULT_GODOT_PRODUCT_PATH_RE;
+  const godotExcludedPathRe = policy.godotExcludedPathPattern || /(^|\/)(?:\.git|node_modules|docs?|tests?|__tests__|test|spec|artifacts?|benchmarks?|fixtures?|mocks?|coverage|dist|build)\//i;
+  if (godotProductPathRe.test(rel) && godotExtensionRe.test(rel)) {
+    if (godotExcludedPathRe.test(`${rel}/`)) return false;
+    if ((policy.godotExcludedFilePattern || DEFAULT_EXCLUDED_FILE_RE).test(rel)) return false;
+    return true;
+  }
   const extensionRe = policy.productExtensionPattern || DEFAULT_PRODUCT_EXTENSIONS;
   if (!extensionRe.test(rel)) return false;
   if ((policy.excludedPathPattern || DEFAULT_EXCLUDED_PATH_RE).test(`${rel}/`)) return false;

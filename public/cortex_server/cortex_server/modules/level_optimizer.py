@@ -14,11 +14,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import json
+import os
 import random
 import re
 
 
-DEFAULT_STATE_DIR = Path("/opt/clawdbot/state")
+DEFAULT_STATE_DIR = Path(os.getenv("NEXUS_LEVEL_OPTIMIZER_STATE_DIR", "/opt/clawdbot/state"))
 
 
 ARM_LIBRARY: Dict[str, Dict[str, Any]] = {

@@ -13,6 +13,7 @@ import {
   upsertBenchmarkScoreboardRow,
   bootstrapTransferBenchmark,
   evaluateBenchmarkThresholds,
+  REAL_WORKER_PRODUCT_STANDARD_POLICY,
   buildBenchmarkGroundTruth,
   deriveBenchmarkAutonomyMetrics,
   resolveBenchmarkLeaseTtlMs,
@@ -79,6 +80,175 @@ test('live transfer verifier resolves verifier catalog from shard inputs', () =>
   assert.equal(payload.ok, true);
   assert.equal(payload.surfaceId, 'shard_input_surface');
   assert.equal(payload.parsedOutputSummary.checkKinds.includes('shard-input-catalog'), true);
+});
+
+test('live transfer worker reuses creative-worker external verification evidence', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'live-transfer-worker-reuse-external-verifier-'));
+  const repo = path.join(root, 'repo');
+  const target = 'packages/app/creative-surface.mjs';
+  write(path.join(repo, target), 'export function existingCreativeSurface() { return { ok: true }; }\n');
+  const verifierCommand = `${process.execPath} -e "process.exit(9)"`;
+  const mockWorker = path.join(root, 'mock-creative-worker.mjs');
+  write(mockWorker, `import fs from 'node:fs';\nimport path from 'node:path';\nconst workspace = process.env.CREATIVE_WORKER_WORKSPACE;\nconst target = process.env.CREATIVE_WORKER_ALLOWED_FILES.split(',')[0];\nfs.appendFileSync(path.join(workspace, target), '\\nexport function reusedExternalVerificationDelta() { return { ok: true, reused: true }; }\\n');\nconst verifierStdout = JSON.stringify({ ok: true, surfaceId: process.env.CREATIVE_WORKER_SURFACE_ID, durationMs: 1, firstMeaningfulProgressMs: 0, checkKinds: ['mock-reused-external-verifier'] });\nfs.writeFileSync(process.env.CREATIVE_WORKER_EVIDENCE_PATH, JSON.stringify({\n  ok: true,\n  surfaceId: process.env.CREATIVE_WORKER_SURFACE_ID,\n  startedAt: new Date().toISOString(),\n  finishedAt: new Date().toISOString(),\n  creativeRuntimeMs: 1,\n  minRuntimeMs: 0,\n  minIterations: 1,\n  iterationCount: 1,\n  iterations: [{ step: 'mock_iteration_1', changedAllowedFilesAfterIteration: [target] }],\n  filesChanged: [target],\n  productFilesChanged: [target],\n  externalVerification: {\n    enabled: true,\n    failureCount: 0,\n    runs: [\n      { iteration: 1, results: [{ command: ${JSON.stringify(verifierCommand)}, ok: false, exitCode: 9, durationMs: 1, stdout: JSON.stringify({ ok: false, checkKinds: ['stale-failed-verifier'] }), stderr: 'stale failure' }] },\n      { iteration: 2, results: [{ command: ${JSON.stringify(verifierCommand)}, ok: true, exitCode: 0, durationMs: 1, stdout: verifierStdout, stderr: '' }] }\n    ]\n  },\n  risks: [],\n  retryable: true\n}, null, 2));\n`);
+  const assignmentPath = path.join(root, 'assignment.json');
+  const resultPath = path.join(root, 'result.json');
+  const logPath = path.join(root, 'worker.log');
+  const verifierCatalog = {
+    creative_surface_command_1: {
+      id: 'creative_surface_command_1',
+      command: verifierCommand,
+      surfaceId: 'creative_surface'
+    }
+  };
+  write(assignmentPath, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    workspacePath: repo,
+    resultPath,
+    logPath,
+    verifierScriptPath: path.join(process.cwd(), 'apps/system-benchmark/live-transfer-verifier.mjs'),
+    executionMode: 'test_live_worker',
+    agentId: 'agent-1',
+    lease: { leaseId: 'lease-1', attempt: 1 },
+    contextPack: {
+      inputs: {
+        productDiffMode: 'creative_product_work',
+        creativeProductWork: { required: true, minIterations: 1, workerCommand: `${process.execPath} ${mockWorker}` },
+        verifierCatalog
+      },
+      guardrails: { allowedFiles: [target], fileAreas: [target] },
+      acceptanceChecks: []
+    },
+    shard: {
+      id: 'creative_surface',
+      allowedFiles: [target],
+      fileAreas: [target],
+      requiredVerifiers: ['creative_surface_command_1'],
+      inputs: { verifierCatalog },
+      metadata: { surfaceId: 'creative_surface', productDiffMode: 'creative_product_work' }
+    }
+  }, null, 2));
+
+  const result = spawnSync(process.execPath, [
+    path.join(process.cwd(), 'apps/system-benchmark/live-transfer-worker.mjs'),
+    '--assignment', assignmentPath
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_COMMAND: `${process.execPath} ${mockWorker}`,
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0'
+    }
+  });
+
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  const payload = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  assert.equal(payload.ok, true);
+  assert.equal(payload.implementation.metadata.creativeWorkerEvidence.productModifiedFiles.includes(target), true);
+  assert.equal(payload.verifierResults.length, 1);
+  assert.equal(payload.verifierResults[0].metadata.reusedFromCreativeWorkerExternalVerification, true);
+  assert.equal(payload.verifierResults[0].metadata.iteration, 2);
+  assert.equal(payload.verifierResults[0].metadata.checkKinds.includes('mock-reused-external-verifier'), true);
+});
+
+test('live transfer worker recovers durable creative product checkpoint after wrapper timeout', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'live-transfer-worker-timeout-checkpoint-'));
+  const repo = path.join(root, 'repo');
+  const target = 'packages/app/timeout-recovered-surface.mjs';
+  write(path.join(repo, target), 'export function timeoutRecoveredSurface() { return { before: true }; }\n');
+  const verifierCommand = `${process.execPath} -e "console.log(JSON.stringify({ ok: true, durationMs: 1, firstMeaningfulProgressMs: 0, checkKinds: ['timeout-recovery-verifier'] }))"`;
+  const mockWorker = path.join(root, 'mock-timeout-creative-worker.mjs');
+  write(mockWorker, `import fs from 'node:fs';
+import path from 'node:path';
+const workspace = process.env.CREATIVE_WORKER_WORKSPACE;
+const target = process.env.CREATIVE_WORKER_ALLOWED_FILES.split(',')[0];
+fs.appendFileSync(path.join(workspace, target), '\\nexport function recoveredAfterTimeoutCheckpoint() { return { ok: true, recovered: true }; }\\n');
+fs.writeFileSync(process.env.CREATIVE_WORKER_EVIDENCE_PATH, JSON.stringify({
+  ok: false,
+  partial: true,
+  stage: 'after_codex_iteration',
+  checkpoint: { stage: 'after_codex_iteration', complete: false, productDeltaDurable: true, externalVerificationComplete: false },
+  surfaceId: process.env.CREATIVE_WORKER_SURFACE_ID,
+  startedAt: new Date().toISOString(),
+  checkpointedAt: new Date().toISOString(),
+  creativeRuntimeMs: 1,
+  minRuntimeMs: 0,
+  minIterations: 1,
+  iterationCount: 1,
+  iterations: [{ step: 'mock_iteration_1', changedAllowedFilesAfterIteration: [target] }],
+  filesChanged: [target],
+  productFilesChanged: [target],
+  modifiedFiles: [target],
+  productModifiedFiles: [target],
+  externalVerification: { enabled: true, failureCount: 0, runs: [] },
+  risks: ['simulated_external_verification_still_running'],
+  retryable: true
+}, null, 2));
+setTimeout(() => {}, 5000);
+`);
+  const assignmentPath = path.join(root, 'assignment.json');
+  const resultPath = path.join(root, 'result.json');
+  const logPath = path.join(root, 'worker.log');
+  const verifierCatalog = {
+    timeout_recovered_surface_command_1: {
+      id: 'timeout_recovered_surface_command_1',
+      command: verifierCommand,
+      surfaceId: 'timeout_recovered_surface'
+    }
+  };
+  write(assignmentPath, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    workspacePath: repo,
+    resultPath,
+    logPath,
+    verifierScriptPath: path.join(process.cwd(), 'apps/system-benchmark/live-transfer-verifier.mjs'),
+    executionMode: 'test_live_worker',
+    agentId: 'agent-timeout',
+    lease: { leaseId: 'lease-timeout', attempt: 1 },
+    contextPack: {
+      inputs: {
+        productDiffMode: 'creative_product_work',
+        creativeProductWork: { required: true, minIterations: 1, workerCommand: `${process.execPath} ${mockWorker}` },
+        verifierCatalog
+      },
+      guardrails: { allowedFiles: [target], fileAreas: [target] },
+      acceptanceChecks: []
+    },
+    shard: {
+      id: 'timeout_recovered_surface',
+      allowedFiles: [target],
+      fileAreas: [target],
+      requiredVerifiers: ['timeout_recovered_surface_command_1'],
+      inputs: { verifierCatalog },
+      metadata: { surfaceId: 'timeout_recovered_surface', productDiffMode: 'creative_product_work' }
+    }
+  }, null, 2));
+
+  const result = spawnSync(process.execPath, [
+    path.join(process.cwd(), 'apps/system-benchmark/live-transfer-worker.mjs'),
+    '--assignment', assignmentPath
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_COMMAND: `${process.execPath} ${mockWorker}`,
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0',
+      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '250'
+    }
+  });
+
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  const payload = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  assert.equal(payload.ok, true);
+  assert.equal(payload.implementation.metadata.creativeWorkerEvidence.commandTimedOut, true);
+  assert.equal(payload.implementation.metadata.creativeWorkerEvidence.recoveredFromCommandTimeout, true);
+  assert.equal(payload.implementation.metadata.creativeWorkerEvidence.productModifiedFiles.includes(target), true);
+  assert.equal(payload.verifierResults[0].ok, true);
+  assert.equal(payload.verifierResults[0].metadata.reusedFromCreativeWorkerExternalVerification, undefined);
+  assert.equal(payload.verifierResults[0].metadata.parsedOutputSummary.checkKinds.includes('timeout-recovery-verifier'), true);
 });
 
 test('system benchmark comparison distinguishes autonomy-leaning clawhip from truth-gated Cortex', () => {
@@ -161,6 +331,99 @@ test('system benchmark threshold evaluation enforces tier requirements honestly'
   });
   assert.equal(executionSmokePass.ok, true);
 
+  const realWorkerProductStandardPass = evaluateBenchmarkThresholds({
+    benchmarkTier: 'real_worker_product_standard',
+    metrics: {
+      productiveIterationRate: 0.9144,
+      noOpRate: 0.0856,
+      repeatBlockerRate: 0.05,
+      medianMinutesToMeaningfulProgress: 7,
+      verificationIntegrity: 1,
+      handoffEfficiency: 0.9144,
+      autonomyWindowMinutes: 0,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      transferScore: 0.9144,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 1,
+      creativeProductDeltaIntegrity: 1,
+      templateFallbackRate: 0
+    }
+  });
+  assert.equal(realWorkerProductStandardPass.ok, true);
+  assert.equal(realWorkerProductStandardPass.thresholdPolicy.policyId, REAL_WORKER_PRODUCT_STANDARD_POLICY.policyId);
+
+  const realWorkerProductStandardFail = evaluateBenchmarkThresholds({
+    benchmarkTier: 'real_worker_product_standard',
+    metrics: {
+      productiveIterationRate: 0.89,
+      noOpRate: 0.11,
+      repeatBlockerRate: 0.11,
+      medianMinutesToMeaningfulProgress: 7,
+      verificationIntegrity: 1,
+      handoffEfficiency: 0.89,
+      autonomyWindowMinutes: 0,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      transferScore: 0.89,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 1,
+      creativeProductDeltaIntegrity: 1,
+      templateFallbackRate: 0
+    }
+  });
+  assert.equal(realWorkerProductStandardFail.ok, false);
+  assert.deepEqual(realWorkerProductStandardFail.failures.map((entry) => entry.metric), [
+    'productiveIterationRate',
+    'noOpRate',
+    'repeatBlockerRate',
+    'handoffEfficiency',
+    'transferScore'
+  ]);
+
+  const productionQualityRepairSmokePass = evaluateBenchmarkThresholds({
+    benchmarkTier: 'production_quality_repair_smoke',
+    metrics: {
+      productiveIterationRate: 1,
+      noOpRate: 0,
+      repeatBlockerRate: 0,
+      medianMinutesToMeaningfulProgress: 1.42,
+      verificationIntegrity: 1,
+      handoffEfficiency: 1,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      transferScore: 1,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 1,
+      creativeProductDeltaIntegrity: 1,
+      templateFallbackRate: 0
+    }
+  });
+  assert.equal(productionQualityRepairSmokePass.ok, true);
+
+  const productionQualityRepairSmokeFail = evaluateBenchmarkThresholds({
+    benchmarkTier: 'production_quality_repair_smoke',
+    metrics: {
+      productiveIterationRate: 1,
+      noOpRate: 0,
+      repeatBlockerRate: 0,
+      verificationIntegrity: 1,
+      handoffEfficiency: 1,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      transferScore: 1,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 0,
+      creativeProductDeltaIntegrity: 0,
+      templateFallbackRate: 0
+    }
+  });
+  assert.equal(productionQualityRepairSmokeFail.ok, false);
+  assert.deepEqual(productionQualityRepairSmokeFail.failures.map((entry) => entry.metric), [
+    'creativeIterationIntegrity',
+    'creativeProductDeltaIntegrity'
+  ]);
+
   const tier1Pass = evaluateBenchmarkThresholds({
     benchmarkTier: 'tier1_smoke',
     metrics: {
@@ -176,6 +439,113 @@ test('system benchmark threshold evaluation enforces tier requirements honestly'
     }
   });
   assert.equal(tier1Pass.ok, true);
+
+  const tier1CreativeProduct240mPass = evaluateBenchmarkThresholds({
+    benchmarkTier: 'tier1_creative_product_240m',
+    metrics: {
+      productiveIterationRate: 0.7,
+      noOpRate: 0.1,
+      repeatBlockerRate: 0.05,
+      medianMinutesToMeaningfulProgress: 8,
+      verificationIntegrity: 1,
+      handoffEfficiency: 0.8,
+      autonomyWindowMinutes: 240,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 1,
+      creativeProductDeltaIntegrity: 1,
+      templateFallbackRate: 0
+    }
+  });
+  assert.equal(tier1CreativeProduct240mPass.ok, true);
+
+  const tier1CreativeProduct240mProductionArchitecturePass = evaluateBenchmarkThresholds({
+    benchmarkTier: 'tier1_creative_product_240m_production_architecture',
+    metrics: {
+      productiveIterationRate: 0.7,
+      noOpRate: 0.1,
+      repeatBlockerRate: 0.05,
+      medianMinutesToMeaningfulProgress: 8,
+      verificationIntegrity: 1,
+      handoffEfficiency: 0.8,
+      autonomyWindowMinutes: 240,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 1,
+      creativeProductDeltaIntegrity: 1,
+      templateFallbackRate: 0,
+      testFailureRegressionCount: 0,
+      routeCollisionCount: 0,
+      duplicateNormalizedLineRatio: 0.18,
+      architectureFitnessScore: 0.95,
+      architectureViolationCount: 0,
+      architectureGatePass: 1,
+      integrationHardeningPass: 1,
+      productionQualityGatePass: 1
+    }
+  });
+  assert.equal(tier1CreativeProduct240mProductionArchitecturePass.ok, true);
+
+  const tier1CreativeProduct240mProductionArchitectureFail = evaluateBenchmarkThresholds({
+    benchmarkTier: 'tier1_creative_product_240m_production_architecture',
+    metrics: {
+      productiveIterationRate: 0.7,
+      noOpRate: 0.1,
+      repeatBlockerRate: 0.05,
+      medianMinutesToMeaningfulProgress: 8,
+      verificationIntegrity: 1,
+      handoffEfficiency: 0.8,
+      autonomyWindowMinutes: 240,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 1,
+      creativeProductDeltaIntegrity: 1,
+      templateFallbackRate: 0,
+      testFailureRegressionCount: 2,
+      routeCollisionCount: 1,
+      duplicateNormalizedLineRatio: 0.4,
+      architectureFitnessScore: 0.5,
+      architectureViolationCount: 3,
+      architectureGatePass: 0,
+      integrationHardeningPass: 0,
+      productionQualityGatePass: 0
+    }
+  });
+  assert.equal(tier1CreativeProduct240mProductionArchitectureFail.ok, false);
+  assert.deepEqual(tier1CreativeProduct240mProductionArchitectureFail.failures.map((entry) => entry.metric), [
+    'testFailureRegressionCount',
+    'routeCollisionCount',
+    'duplicateNormalizedLineRatio',
+    'architectureFitnessScore',
+    'architectureViolationCount',
+    'architectureGatePass',
+    'integrationHardeningPass',
+    'productionQualityGatePass'
+  ]);
+
+  const tier1CreativeProduct240mShortFail = evaluateBenchmarkThresholds({
+    benchmarkTier: 'tier1_creative_product_240m',
+    metrics: {
+      productiveIterationRate: 1,
+      noOpRate: 0,
+      repeatBlockerRate: 0,
+      medianMinutesToMeaningfulProgress: 1,
+      verificationIntegrity: 1,
+      handoffEfficiency: 1,
+      autonomyWindowMinutes: 120,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      creativeWorkerEvidenceIntegrity: 1,
+      creativeIterationIntegrity: 1,
+      creativeProductDeltaIntegrity: 1,
+      templateFallbackRate: 0
+    }
+  });
+  assert.equal(tier1CreativeProduct240mShortFail.ok, false);
+  assert.deepEqual(tier1CreativeProduct240mShortFail.failures.map((entry) => entry.metric), ['autonomyWindowMinutes']);
 
   const tier1ShortCanaryFail = evaluateBenchmarkThresholds({
     benchmarkTier: 'tier1_smoke',
@@ -211,6 +581,68 @@ test('system benchmark threshold evaluation enforces tier requirements honestly'
   });
   assert.equal(tier2Fail.ok, false);
   assert.deepEqual(tier2Fail.failures.map((entry) => entry.metric), ['autonomyWindowMinutes', 'transferScore']);
+
+  const tier3GameTolerantGreen = evaluateBenchmarkThresholds({
+    benchmarkTier: 'tier3_game_vertical_slice_100agent',
+    metrics: {
+      productiveIterationRate: 0.98,
+      noOpRate: 0.02,
+      repeatBlockerRate: 0.02,
+      medianMinutesToMeaningfulProgress: 12,
+      verificationIntegrity: 1,
+      handoffEfficiency: 0.98,
+      autonomyWindowMinutes: 240,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      surfaceReliabilityScore: 0.98,
+      classifiedFailureIntegrity: 1,
+      creativeWorkerEvidenceIntegrity: 0.98,
+      creativeIterationIntegrity: 0.98,
+      creativeProductDeltaIntegrity: 0.98,
+      templateFallbackRate: 0,
+      activeAgentScaleProof: 100,
+      admissionGateIntegrity: 0.98,
+      schedulerRecoveryIntegrity: 1,
+      gameBuildGatePass: 1,
+      gameSceneLoadGatePass: 1,
+      gameInputCombatHarnessPass: 1,
+      assetManifestGatePass: 1,
+      repairLaneConverged: 1
+    }
+  });
+  assert.equal(tier3GameTolerantGreen.ok, true);
+
+  const tier3GameBelowReliabilityFloor = evaluateBenchmarkThresholds({
+    benchmarkTier: 'tier3_game_vertical_slice_100agent',
+    metrics: {
+      productiveIterationRate: 0.89,
+      noOpRate: 0.05,
+      repeatBlockerRate: 0.05,
+      medianMinutesToMeaningfulProgress: 12,
+      verificationIntegrity: 1,
+      handoffEfficiency: 0.89,
+      autonomyWindowMinutes: 240,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      surfaceReliabilityScore: 0.89,
+      classifiedFailureIntegrity: 1,
+      creativeWorkerEvidenceIntegrity: 0.89,
+      creativeIterationIntegrity: 0.89,
+      creativeProductDeltaIntegrity: 0.89,
+      templateFallbackRate: 0,
+      activeAgentScaleProof: 100,
+      admissionGateIntegrity: 0.89,
+      schedulerRecoveryIntegrity: 1,
+      gameBuildGatePass: 1,
+      gameSceneLoadGatePass: 1,
+      gameInputCombatHarnessPass: 1,
+      assetManifestGatePass: 1,
+      repairLaneConverged: 1
+    }
+  });
+  assert.equal(tier3GameBelowReliabilityFloor.ok, false);
+  assert.equal(tier3GameBelowReliabilityFloor.failures.some((entry) => entry.metric === 'surfaceReliabilityScore'), true);
+  assert.equal(tier3GameBelowReliabilityFloor.failures.some((entry) => entry.metric === 'admissionGateIntegrity'), true);
 });
 
 test('system benchmark derives autonomy and runtime targets from benchmark scope', () => {
@@ -437,6 +869,152 @@ test('system benchmark transfer orchestrator runner executes live worker farm ho
   assert.equal(scoreboard.rows[0].blockerFamily, 'unproductive_scale_credit');
 });
 
+test('creative transfer orchestrator defaults to isolated worker workspaces and promotes only accepted deltas', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-orchestrator-creative-isolation-default-'));
+  const repo = path.join(root, 'repo');
+  const fakeWorker = path.join(root, 'fake-creative-worker.mjs');
+  write(path.join(repo, 'packages', 'app', 'creative-default.mjs'), 'export const creativeDefaultBaseline = true;\n');
+  write(fakeWorker, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const workspace = process.env.CREATIVE_WORKER_WORKSPACE;
+const target = (process.env.CREATIVE_WORKER_ALLOWED_FILES || '').split(',').filter(Boolean).find((entry) => entry.endsWith('.mjs'));
+if (!workspace || !target) process.exit(2);
+fs.appendFileSync(path.join(workspace, target), '\\nexport function isolatedWorkerDefaultBehavior(input = {}) {\\n  const enabled = input.enabled !== false;\\n  return { kind: "isolated_worker_default", enabled, status: enabled ? "ready" : "disabled" };\\n}\\n');
+fs.writeFileSync(process.env.CREATIVE_WORKER_EVIDENCE_PATH, JSON.stringify({
+  ok: true,
+  summary: 'fake creative worker updated the assigned product module',
+  iterations: [{ kind: 'edit', changedAllowedFilesAfterIteration: [target] }],
+  filesChanged: [target],
+  productFilesChanged: [target],
+  testsRun: [{ command: 'node --check ' + target, ok: true }]
+}, null, 2));
+`);
+  fs.chmodSync(fakeWorker, 0o755);
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'transfer_orchestrator_creative_isolation_default',
+    benchmarkTier: 'tier1_smoke',
+    repoPath: repo,
+    scope: {
+      durationTargetMinutes: 15,
+      productDiffMode: 'creative_product_work',
+      creativeProductWork: { required: true, minIterations: 1, minWorkerRuntimeMs: 0 },
+      surfaces: [
+        {
+          id: 'creative_default_surface',
+          label: 'Creative default surface',
+          productFiles: ['packages/app/creative-default.mjs'],
+          allowedFiles: ['packages/app/creative-default.mjs'],
+          verification: ['node --check packages/app/creative-default.mjs']
+        }
+      ]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node --check packages/app/creative-default.mjs' }],
+    requestedAgentCount: 1,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'transfer_orchestrator_creative_isolation_default', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+  const env = {
+    ...process.env,
+    CREATIVE_WORKER_COMMAND: `${process.execPath} ${fakeWorker}`,
+    CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+    CODEX_CREATIVE_MAX_ITERATIONS: '1',
+    CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '60000',
+    ORCHESTRATOR_MAX_SPAWNS_PER_TICK: '1'
+  };
+  delete env.ORCHESTRATOR_WORKER_WORKSPACE_MODE;
+  delete env.ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS;
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'), path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env
+  });
+  assert.equal(runner.status, 0, runner.stdout || runner.stderr);
+  const summary = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'orchestrator_run', 'summary.json'), 'utf8'));
+  const patchQueue = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'orchestrator_run', 'patch_queue.json'), 'utf8'));
+  assert.equal(summary.metrics.workerWorkspaceMode, 'isolated_product_copy');
+  assert.equal(summary.metrics.isolatedWorkerWorkspaces, true);
+  assert.equal(summary.metrics.workerWorkspacePromotionEnabled, true);
+  assert.equal(patchQueue.merged.length, 1);
+  assert.equal(patchQueue.rejected.length, 0);
+  assert.match(fs.readFileSync(path.join(repo, 'packages', 'app', 'creative-default.mjs'), 'utf8'), /isolatedWorkerDefaultBehavior/);
+});
+
+test('game100 aggregation credits malformed-but-recoverable Godot verifier stdout', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'game100-verifier-aggregation-'));
+  const repo = path.join(root, 'repo');
+  write(path.join(repo, 'project.godot'), '[application]\nconfig/name="Game Aggregation Fixture"\n');
+  write(path.join(repo, 'scripts', 'game_surface.gd'), 'extends Node\nfunc existing_game_surface() -> bool:\n\treturn true\n');
+  write(path.join(repo, 'invalid-game-verifier.mjs'), `const rawNewline = String.fromCharCode(10);
+const output = [
+  '{',
+  '  "schemaVersion": "clawd.godot_game_surface_verifier.v1",',
+  '  "ok": true,',
+  '  "surfaceId": "game_surface",',
+  '  "file": "scripts/game_surface.gd",',
+  '  "kind": "asset_pipeline",',
+  '  "lane": "assets_vfx_audio",',
+  '  "durationMs": 1,',
+  '  "firstMeaningfulProgressMs": 0,',
+  '  "cyclesCompleted": 1,',
+  '  "checkKinds": ["repo_exists", "godot_project_file_present", "assigned_file_is_godot_product_path", "assigned_product_file_present", "assigned_product_file_nontrivial", "godot_cli_available_when_required", "godot_headless_scene_load_harness", "godot_movement_combat_harness", "asset_manifest_present"],',
+  '  "blockingFailureCount": 0,',
+  '  "cycles": [{ "checks": [{ "id": "repo_exists", "ok": true, "stdout": "line one' + rawNewline + 'line two" }] }]',
+  '}'
+].join('\\n');
+process.stdout.write(output);
+`);
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'game100_verifier_aggregation_demo',
+    benchmarkTier: 'tier3_game_vertical_slice_100agent',
+    benchmarkClass: 'greenfield_game_vertical_slice',
+    repoPath: repo,
+    scope: {
+      durationTargetMinutes: 0,
+      productDiffMode: 'deterministic_metadata_patch',
+      requireRealProductDiffs: true,
+      gameVerification: { required: true },
+      surfaceReliability: {
+        enabled: true,
+        greenMinVerifiedProductiveRatio: 1,
+        yellowMinVerifiedProductiveRatio: 1,
+        perfectVerifiedProductiveSurfaces: 1,
+        maxToleratedFailedSurfaces: 0,
+        requireClassifiedFailures: true
+      },
+      surfaces: [{
+        id: 'game_surface',
+        label: 'Game Surface',
+        allowedFiles: ['scripts/game_surface.gd'],
+        productFiles: ['scripts/game_surface.gd'],
+        targetFiles: ['scripts/game_surface.gd'],
+        fileAreas: ['scripts/game_surface.gd'],
+        verification: ['node invalid-game-verifier.mjs'],
+        metadata: { game100AgentReadiness: true, primaryProductFile: 'scripts/game_surface.gd' }
+      }]
+    },
+    verifierSet: [{ kind: 'godot_game_surface', command: 'node invalid-game-verifier.mjs' }],
+    requestedAgentCount: 1,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'game100_verifier_aggregation_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'), path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+  assert.equal(runner.status, 0, runner.stdout || runner.stderr);
+  const gameEvidence = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'game_verification_evidence.json'), 'utf8'));
+  const transferEvidence = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'transfer_evidence.json'), 'utf8'));
+  assert.equal(transferEvidence.verifiedSurfaceCount, 1);
+  assert.equal(gameEvidence.verifierOutputCount, 1);
+  assert.equal(gameEvidence.greenVerifierOutputCount, 1);
+  assert.equal(gameEvidence.gameBuildGatePass, 1);
+  assert.equal(gameEvidence.gameSceneLoadGatePass, 1);
+  assert.equal(gameEvidence.gameInputCombatHarnessPass, 1);
+  assert.equal(gameEvidence.assetManifestGatePass, 1);
+  assert.equal(gameEvidence.observedChecks.includes('godot_headless_scene_load_harness'), true);
+});
+
 test('transfer orchestrator rejects unsupported Agent Work v0.1 policies before worker launch', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-agent-work-policy-unsupported-'));
   const repo = path.join(root, 'repo');
@@ -469,6 +1047,52 @@ test('transfer orchestrator rejects unsupported Agent Work v0.1 policies before 
   assert.equal(policy.unsupportedPolicies[0].key, 'mystery_units');
   assert.equal(blocker.blockerFamily, 'agent_work_unsupported_policy');
   assert.equal(blocker.unsupportedPolicy, true);
+});
+
+test('transfer orchestrator blocks real Codex product claim before deterministic worker launch', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-claim-integrity-preflight-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(path.join(repo, 'packages/app'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'packages/app/surface-a.mjs'), "export const surfaceA = 1;\n");
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'claim_integrity_preflight_demo',
+    benchmarkTier: 'tier1_smoke',
+    repoPath: repo,
+    scope: {
+      productDiffMode: 'semantic_product_architecture',
+      semanticProductAdmission: { required: true, requireRuntimeExecution: true },
+      surfaces: [{
+        id: 'surface_a',
+        label: 'Surface A',
+        allowedFiles: ['packages/app/surface-a.mjs'],
+        verification: ['node -e "console.log(JSON.stringify({ok:true,firstMeaningfulProgressMs:0}))"']
+      }]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node -e "console.log(JSON.stringify({ok:true}))"' }],
+    requestedAgentCount: 1,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'claim_integrity_preflight_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+  const contractPath = path.join(bootstrap.root, 'run_contract.json');
+  const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
+  contract.metadata = { requestedClaim: 'real_codex_product_work' };
+  fs.writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'), contractPath], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+
+  assert.equal(runner.status, 2, runner.stdout || runner.stderr);
+  assert.equal(fs.existsSync(path.join(bootstrap.root, 'orchestrator_run', 'worker_events.json')), false);
+  const preflight = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'claim_integrity_preflight.json'), 'utf8'));
+  const completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'completion_summary.json'), 'utf8'));
+  const blocker = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'blocker_report.json'), 'utf8'));
+  assert.equal(preflight.ok, false);
+  assert.equal(preflight.requestedClaim, 'real_codex_product_work');
+  assert.equal(preflight.blockingFailures.some((check) => check.id === 'real_codex_claim_uses_model_worker_mode'), true);
+  assert.equal(completion.executionMode, 'claim_integrity_preflight_blocked');
+  assert.equal(blocker.blockerFamily, 'claim_integrity_preflight_blocked');
 });
 
 test('transfer orchestrator enforces Agent Work worker prompt token budget as hard pre-spawn gate', () => {
@@ -628,6 +1252,66 @@ test('Agent Work objective controller does not expand unsupported policy blocker
   assert.equal(blocker.blockerFamily, 'objective_red_not_expandable');
   assert.equal(wave1Blocker.blockerFamily, 'agent_work_unsupported_policy');
   assert.equal(fs.existsSync(path.join(bootstrap.root, 'waves', 'wave-002')), false);
+});
+
+test('Agent Work objective controller can launch a bounded failed-surface repair wave', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-agent-work-objective-controller-repair-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(path.join(repo, 'packages/app'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'packages/app/good-surface.mjs'), 'export const goodSurface = 1;\n');
+  fs.writeFileSync(path.join(repo, 'packages/app/bad-surface.mjs'), 'export const badSurface = ;\n');
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'agent_work_objective_controller_failed_surface_repair_demo',
+    benchmarkTier: 'execution_smoke',
+    repoPath: repo,
+    scope: {
+      productDiffMode: 'deterministic_metadata_patch',
+      requireRealProductDiffs: true,
+      wavePolicy: { max_waves: 2, bundle_size: 1, full_context_waves: 0, handoff: 'wave_factpack' },
+      expansionPolicy: { triggers: ['failed_surfaces'], max_cycles: 1, max_surfaces: 2, strategy: 'repair_failed_surfaces' },
+      surfaces: [
+        {
+          id: 'good_surface',
+          label: 'Good Surface',
+          allowedFiles: ['packages/app/good-surface.mjs'],
+          verification: ['node --check packages/app/good-surface.mjs']
+        },
+        {
+          id: 'bad_surface',
+          label: 'Bad Surface',
+          allowedFiles: ['packages/app/bad-surface.mjs'],
+          verification: ['node --check packages/app/bad-surface.mjs']
+        }
+      ]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node --check packages/app/good-surface.mjs' }],
+    requestedAgentCount: 2,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'agent_work_objective_controller_failed_surface_repair_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-agent-work-objective-controller.mjs'), path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+
+  assert.equal(runner.status, 1, runner.stdout || runner.stderr);
+  const summary = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'objective_controller_summary.json'), 'utf8'));
+  const wave1Completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-001', 'completion_summary.json'), 'utf8'));
+  const wave2Contract = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-002', 'run_contract.json'), 'utf8'));
+  const repairPlan = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'expansions', 'expansion-001', 'failed_surface_repair_plan.json'), 'utf8'));
+  assert.equal(wave1Completion.thresholdPass, false);
+  assert.equal(wave1Completion.blocker.blockerFamily, 'orchestrator_failure');
+  assert.equal(summary.waveCount, 2);
+  assert.equal(summary.expansionCount, 1);
+  assert.equal(summary.expansions[0].reason, 'repair_failed_surfaces');
+  assert.deepEqual(repairPlan.surfaces.map((surface) => surface.id), ['bad_surface']);
+  assert.deepEqual(wave2Contract.scope.surfaces.map((surface) => surface.id), ['bad_surface']);
+  assert.equal(wave2Contract.requestedAgentCount, 1);
+  assert.equal(wave2Contract.metadata.agentWorkObjectiveController.originalRequestedAgentCount, 2);
+  assert.equal(wave2Contract.metadata.agentWorkObjectiveController.effectiveRequestedAgentCount, 1);
+  assert.equal(wave2Contract.metadata.agentWorkObjectiveController.requestedAgentCountAdjustedForRepairWave, true);
+  assert.equal(wave2Contract.scope.surfaces[0].metadata.repairFailedSurface, true);
 });
 
 test('system benchmark transfer orchestrator can require deterministic product diffs', () => {
@@ -3274,6 +3958,327 @@ test('codex creative worker compact mode uses bounded brief and external verific
   assert.doesNotMatch(prompt, /Bounded assigned-file context/);
 });
 
+test('codex creative worker rewrites stack-local external verifier scripts for isolated workspaces', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-stack-verifier-'));
+  const workspace = path.join(root, 'repo');
+  write(path.join(workspace, 'packages', 'app', 'route-surface.mjs'), 'export function routeSurfaceRuntime() { return { kind: "initial" }; }\n');
+  write(path.join(workspace, 'tests', 'pq-summary.mjs'), `import assert from 'node:assert/strict';\nimport { routeSurfaceRuntime } from '../packages/app/route-surface.mjs';\nassert.equal(routeSurfaceRuntime().kind, 'rewritten_route');\nconsole.log('# tests 1');\nconsole.log('# pass 1');\nconsole.log('# fail 0');\n`);
+  write(path.join(workspace, 'artifacts', 'controller-state.json'), JSON.stringify({
+    waveSummaries: [{
+      waveNumber: 1,
+      shardCount: 1,
+      mergedShardCount: 1,
+      rejectedPatchCount: 0,
+      durationMinutes: 1,
+      activeWorkerMinutes: 1,
+      uniqueAgentIds: ['agent-stack-verifier'],
+      mergedProductFiles: ['packages/app/route-surface.mjs'],
+      addedLineCount: 2,
+      uniqueNormalizedAddedLineCount: 2,
+      architectureEvidenceSummary: {
+        evaluatedMergedPatchCount: 1,
+        architectureEvidenceOkCount: 1,
+        architectureLayeredDesignOkCount: 1,
+        architectureRuntimeIntegrationOkCount: 1,
+        architectureProductDeltaOkCount: 1,
+        architectureBoilerplateViolationCount: 0
+      }
+    }]
+  }, null, 2));
+  const verifierCommand = 'node apps/system-benchmark/evaluate-production-quality-gate.mjs --repo-path . --artifact-root artifacts/production-quality-route-check --state-path artifacts/controller-state.json --test-command "node tests/pq-summary.mjs"';
+  const taskPath = path.join(root, 'task.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  const packetPath = path.join(root, 'cortex-packet.json');
+  const ledgerPath = path.join(root, 'ledger.json');
+  const mockCodex = path.join(root, 'mock-codex.mjs');
+  write(taskPath, JSON.stringify({
+    goal: 'Repair stack-local production quality verifier invocation from isolated worker workspace',
+    acceptanceChecks: [`Verifier passes: ${verifierCommand}`]
+  }, null, 2));
+  write(packetPath, JSON.stringify({
+    schemaVersion: 'claw.cortex_creative_context_packet.v1',
+    cortexRoute: 'test_stack_verifier_route',
+    surface: { id: 'route_surface', goal: 'Repair route surface production quality' },
+    files: [{ path: 'packages/app/route-surface.mjs', role: 'product_target', exists: true }],
+    budgetPolicy: { promptMode: 'compact' }
+  }, null, 2));
+  write(mockCodex, `#!/usr/bin/env node\nimport fs from 'node:fs';\nimport path from 'node:path';\nfs.writeFileSync(path.join(process.cwd(), 'packages/app/route-surface.mjs'), [\n  "const routeSurfaceKind = 'rewritten_route';",\n  "export function routeSurfaceRuntime() {",\n  "  return { kind: routeSurfaceKind, source: 'codex_worker' };",\n  "}",\n  ""\n].join('\\n'));\nconsole.log('tokens used');\nconsole.log('1,234');\n`);
+  fs.chmodSync(mockCodex, 0o755);
+  const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
+  const spawned = spawnSync(process.execPath, [worker], {
+    cwd: workspace,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_TASK_PATH: taskPath,
+      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+      CREATIVE_WORKER_WORKSPACE: workspace,
+      CREATIVE_WORKER_ALLOWED_FILES: 'packages/app/route-surface.mjs,tests/pq-summary.mjs',
+      CREATIVE_WORKER_SURFACE_ID: 'route_surface',
+      CREATIVE_WORKER_AGENT_ID: 'agent-stack-verifier',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_CORTEX_PACKET_PATH: packetPath,
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_LEDGER_PATH: ledgerPath,
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: '8000',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '1000',
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_MODEL: 'mock-model',
+      CODEX_CREATIVE_SANDBOX: 'danger-full-access'
+    }
+  });
+  assert.equal(spawned.status, 0, spawned.stderr || spawned.stdout);
+  assert.doesNotMatch(`${spawned.stdout}\n${spawned.stderr}`, /Cannot find module/);
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  assert.equal(evidence.ok, true);
+  assert.equal(evidence.externalVerification.failureCount, 0);
+  assert.equal(evidence.externalVerification.runs[0].results[0].ok, true);
+  assert.match(evidence.externalVerification.effectiveCommands[0], /apps\/system-benchmark\/evaluate-production-quality-gate\.mjs/);
+  assert.doesNotMatch(evidence.externalVerification.effectiveCommands[0], /^node apps\/system-benchmark\//);
+  const gate = JSON.parse(fs.readFileSync(path.join(workspace, 'artifacts', 'production-quality-route-check', 'production_quality_gate.json'), 'utf8'));
+  assert.equal(gate.ok, true);
+});
+
+test('production quality gate derives diff metrics from a benchmark repo when controller aggregates are absent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'production-quality-diff-derived-'));
+  const repo = path.join(root, 'repo');
+  const baseline = path.join(root, 'baseline');
+  const artifactRoot = path.join(root, 'quality');
+  write(path.join(repo, 'packages', 'app', 'routes', 'alpha.mjs'), `export function registerAlpha(router) {\n  router.register('GET', '/api/alpha', async () => {});\n}\n`);
+  write(path.join(repo, 'tests', 'summary.mjs'), `console.log('# tests 1');\nconsole.log('# pass 0');\nconsole.log('# fail 1');\n`);
+  for (const args of [
+    ['init'],
+    ['config', 'user.email', 'quality-gate-test@openclaw.local'],
+    ['config', 'user.name', 'Quality Gate Test'],
+    ['add', '-A'],
+    ['commit', '--allow-empty', '--no-gpg-sign', '-m', 'baseline']
+  ]) {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  }
+  fs.cpSync(repo, baseline, { recursive: true });
+  fs.appendFileSync(path.join(repo, 'packages', 'app', 'routes', 'alpha.mjs'), `\nexport function alphaReleasePayload() {\n  return {\n    ok: true,\n    route: '/api/alpha'\n  };\n}\n\nexport function alphaReleasePreviewPayload() {\n  return {\n    ok: true,\n    route: '/api/alpha'\n  };\n}\n`);
+
+  const gate = spawnSync(process.execPath, [
+    'apps/system-benchmark/evaluate-production-quality-gate.mjs',
+    '--repo-path', repo,
+    '--baseline-repo-path', baseline,
+    '--artifact-root', artifactRoot,
+    '--test-command', 'node tests/summary.mjs',
+    '--max-route-collisions', '0',
+    '--max-duplicate-normalized-line-ratio', '0.5',
+    '--min-architecture-fitness-score', '0',
+    '--max-architecture-violations', '999'
+  ], { cwd: process.cwd(), encoding: 'utf8' });
+
+  assert.equal(gate.status, 0, gate.stderr || gate.stdout);
+  const report = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'production_quality_gate.json'), 'utf8'));
+  assert.equal(report.ok, true);
+  assert.equal(report.metrics.routeCollisionCount, 0);
+  assert.equal(report.metrics.testFailureRegressionCount, 0);
+  assert.equal(report.metrics.changedProductFileCount, 1);
+  assert.deepEqual(report.metrics.changedProductFiles, ['packages/app/routes/alpha.mjs']);
+  assert.equal(report.metrics.architectureGatePass, 1);
+  assert.equal(report.metrics.productionQualityGatePass, 1);
+  assert.equal(typeof report.metrics.duplicateNormalizedLineRatio, 'number');
+  assert.equal(report.metrics.addedLineCount, 6);
+  assert.equal(report.metrics.uniqueNormalizedAddedLineCount, 4);
+  assert.equal(report.duplicateLineAudit.ignoredStructuralLineCount >= 6, true);
+  assert.deepEqual(report.duplicateLineAudit.topDuplicateNormalizedLines.slice(0, 2), [
+    { line: "ok: true,", count: 2 },
+    { line: "route: '/api/alpha'", count: 2 }
+  ]);
+});
+
+test('production quality gate materializes baseline ref when baseline repo path is absent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'production-quality-baseline-ref-'));
+  const repo = path.join(root, 'repo');
+  const artifactRoot = path.join(root, 'quality');
+  write(path.join(repo, 'packages', 'app', 'routes', 'alpha.mjs'), `export function registerAlpha(router) {\n  router.register('GET', '/api/alpha', async () => {});\n}\n`);
+  write(path.join(repo, 'tests', 'summary.mjs'), `console.log('# tests 2');\nconsole.log('# pass 1');\nconsole.log('# fail 1');\n`);
+  for (const args of [
+    ['init'],
+    ['config', 'user.email', 'quality-gate-test@openclaw.local'],
+    ['config', 'user.name', 'Quality Gate Test'],
+    ['add', '-A'],
+    ['commit', '--allow-empty', '--no-gpg-sign', '-m', 'baseline']
+  ]) {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  }
+  const baselineHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+  write(path.join(artifactRoot, 'baseline_head.txt'), `${baselineHead}\n`);
+  fs.writeFileSync(path.join(repo, 'tests', 'summary.mjs'), `console.log('# tests 2');\nconsole.log('# pass 0');\nconsole.log('# fail 2');\n`);
+
+  const gate = spawnSync(process.execPath, [
+    'apps/system-benchmark/evaluate-production-quality-gate.mjs',
+    '--repo-path', repo,
+    '--artifact-root', artifactRoot,
+    '--test-command', 'node tests/summary.mjs',
+    '--max-test-failure-regression', '1',
+    '--max-route-collisions', '0',
+    '--max-duplicate-normalized-line-ratio', '0.5',
+    '--min-architecture-fitness-score', '0',
+    '--max-architecture-violations', '999'
+  ], { cwd: process.cwd(), encoding: 'utf8' });
+
+  assert.equal(gate.status, 1, gate.stderr || gate.stdout);
+  const report = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'production_quality_gate.json'), 'utf8'));
+  assert.equal(report.ok, false);
+  assert.equal(report.baselineRef, baselineHead);
+  assert.equal(report.baselineMaterialization.materialized, true);
+  assert.equal(report.baselineTestSummary.fail, 1);
+  assert.equal(report.finalTestSummary.fail, 2);
+  assert.equal(report.metrics.testFailureRegressionCount, 1);
+});
+
+test('route collision checker is a narrow verifier independent of full production quality evidence', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-collision-checker-'));
+  write(path.join(root, 'packages', 'app', 'routes', 'alpha.mjs'), `export function registerAlpha(router) {\n  router.register('GET', '/api/alpha', async () => {});\n}\n`);
+  write(path.join(root, 'packages', 'app', 'routes', 'beta.mjs'), `export function registerBeta(router) {\n  router.register('GET', '/api/beta', async () => {});\n}\n`);
+  const pass = spawnSync(process.execPath, ['apps/system-benchmark/check-route-collisions.mjs', '--repo-path', root, '--max-route-collisions', '0'], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.equal(pass.status, 0, pass.stderr || pass.stdout);
+  const passReport = JSON.parse(pass.stdout);
+  assert.equal(passReport.metrics.routeCollisionCount, 0);
+
+  fs.appendFileSync(path.join(root, 'packages', 'app', 'routes', 'beta.mjs'), `\nrouter.register('GET', '/api/alpha', async () => {});\n`);
+  const fail = spawnSync(process.execPath, ['apps/system-benchmark/check-route-collisions.mjs', '--repo-path', root, '--max-route-collisions', '0'], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.notEqual(fail.status, 0);
+  const failReport = JSON.parse(fail.stdout);
+  assert.equal(failReport.metrics.routeCollisionCount, 1);
+
+  const scopedPass = spawnSync(process.execPath, ['apps/system-benchmark/check-route-collisions.mjs', '--repo-path', root, '--route', 'GET /api/beta', '--require-routes-present', '--max-route-collisions', '0'], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.equal(scopedPass.status, 0, scopedPass.stderr || scopedPass.stdout);
+  const scopedPassReport = JSON.parse(scopedPass.stdout);
+  assert.equal(scopedPassReport.metrics.routeCollisionCount, 0);
+  assert.equal(scopedPassReport.metrics.globalRouteCollisionCount, 1);
+  assert.deepEqual(scopedPassReport.policy.routes, ['GET /api/beta']);
+
+  const scopedFail = spawnSync(process.execPath, ['apps/system-benchmark/check-route-collisions.mjs', '--repo-path', root, '--route', 'GET /api/alpha', '--require-routes-present', '--max-route-collisions', '0'], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.notEqual(scopedFail.status, 0);
+  const scopedFailReport = JSON.parse(scopedFail.stdout);
+  assert.equal(scopedFailReport.metrics.routeCollisionCount, 1);
+
+  const missingRoute = spawnSync(process.execPath, ['apps/system-benchmark/check-route-collisions.mjs', '--repo-path', root, '--route', 'GET /api/missing', '--require-routes-present', '--max-route-collisions', '0'], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.notEqual(missingRoute.status, 0);
+  const missingRouteReport = JSON.parse(missingRoute.stdout);
+  assert.equal(missingRouteReport.metrics.missingRouteCount, 1);
+});
+
+test('codex creative worker runs game external verification against isolated workspace repo', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-game-workspace-verifier-'));
+  const workspace = path.join(root, 'worker-repo');
+  const canonicalRepo = path.join(root, 'canonical-repo');
+  const target = 'scripts/player/game_surface.gd';
+  write(path.join(workspace, 'project.godot'), '; worker fixture\n');
+  write(path.join(canonicalRepo, 'project.godot'), '; canonical fixture with no target file\n');
+  const taskPath = path.join(root, 'task.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  const packetPath = path.join(root, 'cortex-packet.json');
+  const ledgerPath = path.join(root, 'ledger.json');
+  const recordPath = path.join(root, 'verifier-record.json');
+  const mockVerifier = path.join(root, 'mock-game-verifier.mjs');
+  const mockCodex = path.join(root, 'mock-codex.mjs');
+  write(mockVerifier, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+function arg(name) { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; }
+const repoPath = path.resolve(arg('--repo-path') || '.');
+const file = arg('--file') || 'scripts/player/game_surface.gd';
+const targetPath = path.join(repoPath, file);
+const ok = fs.existsSync(targetPath) && fs.readFileSync(targetPath, 'utf8').includes('workspaceVerifiedGameSurface');
+fs.writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({ repoPath, targetPath, ok }, null, 2));
+console.log(JSON.stringify({ ok, repoPath, file, checkKinds: ['mock-game-workspace-verifier'] }));
+process.exit(ok ? 0 : 1);
+`);
+  fs.chmodSync(mockVerifier, 0o755);
+  write(mockCodex, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const target = path.join(process.cwd(), ${JSON.stringify(target)});
+fs.mkdirSync(path.dirname(target), { recursive: true });
+fs.writeFileSync(target, [
+  'extends Node',
+  '',
+  'func workspaceVerifiedGameSurface() -> bool:',
+  '\treturn true',
+  ''
+].join('\\n'));
+console.log('tokens used');
+console.log('1,234');
+`);
+  fs.chmodSync(mockCodex, 0o755);
+  const verifierCommand = `node ${mockVerifier} --repo-path "\${GAME_100_AGENT_REPO_PATH:-.}" --surface 'player_game_surface' --file '${target}' --kind 'runtime_gameplay' --lane 'player_controller'`;
+  write(taskPath, JSON.stringify({
+    goal: 'Create a Godot game surface and verify it in the isolated worker repo',
+    acceptanceChecks: [`Verifier passes: ${verifierCommand}`]
+  }, null, 2));
+  write(packetPath, JSON.stringify({
+    schemaVersion: 'claw.cortex_creative_context_packet.v1',
+    cortexRoute: 'test_game_workspace_verifier_route',
+    surface: { id: 'player_game_surface', goal: 'Create a worker-local game surface' },
+    files: [{ path: target, role: 'product_target', exists: false }],
+    budgetPolicy: { promptMode: 'compact' }
+  }, null, 2));
+  const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
+  const spawned = spawnSync(process.execPath, [worker], {
+    cwd: workspace,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GAME_100_AGENT_REPO_PATH: canonicalRepo,
+      CREATIVE_WORKER_TASK_PATH: taskPath,
+      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+      CREATIVE_WORKER_WORKSPACE: workspace,
+      CREATIVE_WORKER_ALLOWED_FILES: target,
+      CREATIVE_WORKER_SURFACE_ID: 'player_game_surface',
+      CREATIVE_WORKER_AGENT_ID: 'agent-game-workspace-verifier',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_CORTEX_PACKET_PATH: packetPath,
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_LEDGER_PATH: ledgerPath,
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: '8000',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '1000',
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_MODEL: 'mock-model',
+      CODEX_CREATIVE_SANDBOX: 'danger-full-access'
+    }
+  });
+  assert.equal(spawned.status, 0, spawned.stderr || spawned.stdout);
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+  assert.equal(evidence.ok, true);
+  assert.equal(evidence.externalVerification.failureCount, 0);
+  assert.equal(record.repoPath, workspace);
+  assert.notEqual(record.repoPath, canonicalRepo);
+  assert.equal(record.ok, true);
+});
+
 test('codex creative worker usage-limit detector ignores product retry copy on successful Codex calls', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-usage-detector-'));
   const workspace = path.join(root, 'repo');
@@ -3756,6 +4761,176 @@ test('codex creative worker targeted verification does not overmatch generic cam
   assert.equal(evidence.externalVerification.runs[0].results[0].command, 'node --test tests/campaign-ops.test.mjs');
 });
 
+test('creative readiness rejects shared workspaces for creative product-work launches', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'creative-readiness-shared-workspace-reject-'));
+  const contractPath = path.join(root, 'run_contract.json');
+  const mockCodex = path.join(root, 'codex');
+  write(mockCodex, '#!/usr/bin/env bash\necho mock codex\n');
+  fs.chmodSync(mockCodex, 0o755);
+  write(contractPath, JSON.stringify({
+    benchmarkId: 'creative_shared_workspace_reject_probe',
+    runId: 'creative-shared-workspace-reject-test',
+    benchmarkTier: 'tier2_functional',
+    benchmarkClass: 'real_worker_product_standard',
+    fidelity: 'production_slice',
+    executionBoundary: 'remote_execution_required',
+    requestedAgentCount: 1,
+    scope: {
+      durationTargetMinutes: 10,
+      productDiffMode: 'creative_product_work',
+      creativeProductWork: {
+        required: true,
+        minIterations: 1,
+        minWorkerRuntimeMs: 0,
+        workerCommand: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`
+      },
+      surfaces: [
+        {
+          id: 'shared_workspace_probe',
+          lane: 'campaigns',
+          goal: 'Probe workspace isolation readiness',
+          productFiles: ['packages/app/domain-campaigns.mjs'],
+          targetFiles: ['packages/app/domain-campaigns.mjs'],
+          verification: ['node -e "console.log(JSON.stringify({ ok: true }))"']
+        }
+      ]
+    }
+  }, null, 2));
+
+  const verifier = path.resolve('apps/system-benchmark/verify-creative-relaunch-readiness.mjs');
+  const spawned = spawnSync(process.execPath, [verifier, contractPath], {
+    cwd: path.resolve('.'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BENCHMARK_HOST_ROLE: 'execution_plane',
+      LLM_METERING_MODE: 'api_token_metered',
+      CREATIVE_WORKER_COMMAND: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_SANDBOX: 'workspace-write',
+      ORCHESTRATOR_WORKER_WORKSPACE_MODE: 'shared',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '40000',
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      ORCHESTRATOR_CONTEXT_GOVERNOR: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS: '4000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET: '4000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE: 'hard',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '1',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE: '1',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      TRANSFER_BENCHMARK_MAX_RUNTIME_MS: '1800000',
+      CODEX_CREATIVE_ITERATION_TIMEOUT_MS: '300000',
+      CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS: '600000',
+      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '1110000',
+      ORCHESTRATOR_WORKER_TIMEOUT_MS: '1200000',
+      MAILCHIMP_BENCHMARK_SURFACE_MIN_DURATION_MS_OVERRIDE: '0'
+    }
+  });
+  assert.equal(spawned.status, 1, spawned.stderr || spawned.stdout);
+  const result = JSON.parse(spawned.stdout);
+  assert.equal(result.checks.find((entry) => entry.id === 'creative_product_work_uses_isolated_worker_workspaces')?.ok, false);
+});
+
+test('creative readiness rejects game100 launches without retry and external-verifier timeout budget', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'creative-readiness-game100-timeout-budget-'));
+  const contractPath = path.join(root, 'run_contract.json');
+  const mockCodex = path.join(root, 'codex');
+  write(mockCodex, '#!/usr/bin/env bash\necho mock codex\n');
+  fs.chmodSync(mockCodex, 0o755);
+  const surfaces = Array.from({ length: 100 }, (_, index) => ({
+    id: `game_surface_${index + 1}`,
+    lane: 'gameplay',
+    goal: `Game surface ${index + 1}`,
+    productFiles: [`scripts/generated/game_surface_${index + 1}.gd`],
+    targetFiles: [`scripts/generated/game_surface_${index + 1}.gd`],
+    verification: ['node -e "console.log(JSON.stringify({ ok: true }))"']
+  }));
+  write(contractPath, JSON.stringify({
+    benchmarkId: 'maplestory3d_100agent_readiness',
+    runId: 'game100-timeout-budget-test',
+    benchmarkTier: 'tier3_game_vertical_slice_100agent',
+    benchmarkClass: 'greenfield_game_vertical_slice',
+    fidelity: 'production_slice',
+    executionBoundary: 'remote_execution_required',
+    requestedAgentCount: 100,
+    scope: {
+      durationTargetMinutes: 240,
+      productDiffMode: 'creative_product_work',
+      creativeProductWork: {
+        required: true,
+        minIterations: 1,
+        minWorkerRuntimeMs: 0,
+        workerCommand: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+        repairExternalVerificationFailures: true
+      },
+      surfaces
+    }
+  }, null, 2));
+
+  const verifier = path.resolve('apps/system-benchmark/verify-creative-relaunch-readiness.mjs');
+  const spawned = spawnSync(process.execPath, [verifier, contractPath], {
+    cwd: path.resolve('.'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BENCHMARK_HOST_ROLE: 'execution_plane',
+      LLM_METERING_MODE: 'api_token_metered',
+      CREATIVE_WORKER_COMMAND: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_SANDBOX: 'workspace-write',
+      ORCHESTRATOR_WORKER_WORKSPACE_MODE: 'isolated_product_copy',
+      ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS: 'tests',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '2',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '2',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '10',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '100',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '12000000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '40000',
+      CREATIVE_WORKER_TOKEN_BUDGET_MODE: 'safety',
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: '16000',
+      ORCHESTRATOR_CONTEXT_GOVERNOR: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS: '5000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET: '5000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE: 'hard',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '1',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION_TIMEOUT_MS: '14700000',
+      CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE: '0',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      TRANSFER_BENCHMARK_MAX_RUNTIME_MS: '20400000',
+      CODEX_CREATIVE_ITERATION_TIMEOUT_MS: '300000',
+      CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS: '14400000',
+      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '15600000',
+      ORCHESTRATOR_WORKER_TIMEOUT_MS: '18900000',
+      CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0',
+      GAME_BENCHMARK_SURFACE_MIN_DURATION_MS_OVERRIDE: '14400000'
+    }
+  });
+  assert.equal(spawned.status, 1, spawned.stderr || spawned.stdout);
+  const result = JSON.parse(spawned.stdout);
+  assert.equal(result.checks.find((entry) => entry.id === 'game100_retry_budget_global_calls')?.ok, false);
+  assert.equal(result.checks.find((entry) => entry.id === 'creative_worker_command_timeout_tolerates_external_verification')?.ok, false);
+});
+
 test('creative readiness allows OAuth message-metered compact single-pass bundles with strict external verification', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'creative-readiness-oauth-single-pass-'));
   const contractPath = path.join(root, 'run_contract.json');
@@ -3830,7 +5005,7 @@ test('creative readiness allows OAuth message-metered compact single-pass bundle
       TRANSFER_BENCHMARK_MAX_RUNTIME_MS: '1800000',
       CODEX_CREATIVE_ITERATION_TIMEOUT_MS: '300000',
       CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS: '600000',
-      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '960000',
+      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '1110000',
       ORCHESTRATOR_WORKER_TIMEOUT_MS: '1200000',
       CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0',
       MAILCHIMP_BENCHMARK_SURFACE_MIN_DURATION_MS_OVERRIDE: '0'
@@ -3842,4 +5017,189 @@ test('creative readiness allows OAuth message-metered compact single-pass bundle
   assert.equal(result.checks.find((entry) => entry.id === 'compact_fallback_or_message_metered_single_pass')?.ok, true);
   assert.equal(result.checks.find((entry) => entry.id === 'oauth_single_pass_call_limit_bounded')?.ok, true);
   assert.equal(result.checks.find((entry) => entry.id === 'oauth_single_pass_global_calls_bounded')?.ok, true);
+});
+
+test('creative readiness allows bounded external-verification repair loop when explicitly configured', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'creative-readiness-bounded-repair-loop-'));
+  const contractPath = path.join(root, 'run_contract.json');
+  const mockCodex = path.join(root, 'codex');
+  write(mockCodex, '#!/usr/bin/env bash\necho mock codex\n');
+  fs.chmodSync(mockCodex, 0o755);
+  write(contractPath, JSON.stringify({
+    benchmarkId: 'mailchimp_real_claim_repair_loop_probe',
+    runId: 'mailchimp-real-claim-repair-loop-test',
+    benchmarkTier: 'tier2_functional',
+    benchmarkClass: 'real_repo_mailchimp_creative_product_work_repair_loop_probe',
+    fidelity: 'production_slice',
+    executionBoundary: 'remote_execution_required',
+    requestedAgentCount: 1,
+    scope: {
+      durationTargetMinutes: 10,
+      productDiffMode: 'creative_product_work',
+      creativeProductWork: {
+        required: true,
+        minIterations: 1,
+        minWorkerRuntimeMs: 0,
+        workerCommand: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+        repairExternalVerificationFailures: true
+      },
+      surfaces: [
+        {
+          id: 'campaign_index__repair_loop_probe',
+          lane: 'campaigns',
+          goal: 'Probe bounded verifier repair readiness',
+          productFiles: ['packages/app/domain-campaigns.mjs'],
+          targetFiles: ['packages/app/domain-campaigns.mjs']
+        }
+      ]
+    }
+  }, null, 2));
+
+  const verifier = path.resolve('apps/system-benchmark/verify-creative-relaunch-readiness.mjs');
+  const spawned = spawnSync(process.execPath, [verifier, contractPath], {
+    cwd: path.resolve('.'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BENCHMARK_HOST_ROLE: 'execution_plane',
+      LLM_METERING_MODE: 'oauth_message_metered',
+      CREATIVE_WORKER_COMMAND: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_SANDBOX: 'workspace-write',
+      ORCHESTRATOR_WORKER_WORKSPACE_MODE: 'isolated_product_copy',
+      ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS: 'tests',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '2',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '2',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '2',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '2',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '500000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '120000',
+      CREATIVE_WORKER_TOKEN_BUDGET_MODE: 'safety',
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: '4000',
+      ORCHESTRATOR_CONTEXT_GOVERNOR: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS: '4000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET: '4000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE: 'hard',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '1',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE: '0',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      TRANSFER_BENCHMARK_MAX_RUNTIME_MS: '1800000',
+      CODEX_CREATIVE_ITERATION_TIMEOUT_MS: '300000',
+      CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS: '600000',
+      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '1110000',
+      ORCHESTRATOR_WORKER_TIMEOUT_MS: '1200000',
+      CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0',
+      MAILCHIMP_BENCHMARK_SURFACE_MIN_DURATION_MS_OVERRIDE: '0'
+    }
+  });
+  assert.equal(spawned.status, 0, spawned.stderr || spawned.stdout);
+  const result = JSON.parse(spawned.stdout);
+  assert.equal(result.ok, true);
+  const repairCheck = result.checks.find((entry) => entry.id === 'compact_external_verification_fail_closed');
+  assert.equal(repairCheck?.ok, true);
+  assert.equal(repairCheck?.boundedExternalVerificationRepairLoop, true);
+});
+
+test('creative readiness rejects compact verifier repair loops that hide late surface verifiers', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'creative-readiness-verifier-cap-'));
+  const contractPath = path.join(root, 'run_contract.json');
+  const mockCodex = path.join(root, 'codex');
+  write(mockCodex, '#!/usr/bin/env bash\necho mock codex\n');
+  fs.chmodSync(mockCodex, 0o755);
+  write(contractPath, JSON.stringify({
+    benchmarkId: 'mailchimp_real_claim_verifier_cap_probe',
+    runId: 'mailchimp-real-claim-verifier-cap-test',
+    benchmarkTier: 'tier2_functional',
+    benchmarkClass: 'real_repo_mailchimp_creative_product_work_repair_loop_probe',
+    fidelity: 'production_slice',
+    executionBoundary: 'remote_execution_required',
+    requestedAgentCount: 1,
+    scope: {
+      durationTargetMinutes: 10,
+      productDiffMode: 'creative_product_work',
+      creativeProductWork: {
+        required: true,
+        minIterations: 1,
+        minWorkerRuntimeMs: 0,
+        workerCommand: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+        repairExternalVerificationFailures: true
+      },
+      surfaces: [
+        {
+          id: 'audience',
+          lane: 'audience',
+          goal: 'Probe full targeted verifier visibility',
+          productFiles: ['packages/app/domain-audience.mjs'],
+          targetFiles: ['packages/app/domain-audience.mjs'],
+          verification: [
+            'node --test tests/audience-core.test.mjs',
+            'node --test tests/audience-funnels.test.mjs',
+            'node --test tests/audience-intelligence.test.mjs',
+            'node --test tests/audience-warehouse-lifecycle.test.mjs'
+          ]
+        }
+      ]
+    }
+  }, null, 2));
+
+  const verifier = path.resolve('apps/system-benchmark/verify-creative-relaunch-readiness.mjs');
+  const spawned = spawnSync(process.execPath, [verifier, contractPath], {
+    cwd: path.resolve('.'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BENCHMARK_HOST_ROLE: 'execution_plane',
+      LLM_METERING_MODE: 'oauth_message_metered',
+      CREATIVE_WORKER_COMMAND: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_SANDBOX: 'workspace-write',
+      ORCHESTRATOR_WORKER_WORKSPACE_MODE: 'isolated_product_copy',
+      ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS: 'tests',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '2',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '2',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '2',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '2',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '500000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '120000',
+      CREATIVE_WORKER_TOKEN_BUDGET_MODE: 'safety',
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: '4000',
+      ORCHESTRATOR_CONTEXT_GOVERNOR: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS: '4000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET: '4000',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE: 'hard',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '1',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE: '0',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION_MAX_COMMANDS: '3',
+      TRANSFER_BENCHMARK_MAX_RUNTIME_MS: '1800000',
+      CODEX_CREATIVE_ITERATION_TIMEOUT_MS: '300000',
+      CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS: '600000',
+      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '1110000',
+      ORCHESTRATOR_WORKER_TIMEOUT_MS: '1200000',
+      CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0',
+      MAILCHIMP_BENCHMARK_SURFACE_MIN_DURATION_MS_OVERRIDE: '0'
+    }
+  });
+  assert.equal(spawned.status, 1, spawned.stderr || spawned.stdout);
+  const result = JSON.parse(spawned.stdout);
+  const coverageCheck = result.checks.find((entry) => entry.id === 'compact_external_verification_covers_surface_verifiers');
+  assert.equal(coverageCheck?.ok, false);
+  assert.equal(coverageCheck?.externalVerificationMaxCommands, 3);
+  assert.equal(coverageCheck?.maxSurfaceVerifierCommandCount, 4);
 });

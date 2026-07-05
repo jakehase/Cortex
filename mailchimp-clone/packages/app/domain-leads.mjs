@@ -287,12 +287,36 @@ export function normalizeLeadCaptureConfig(body = {}, workspace = {}) {
 
 export function applyLeadCaptureConfig(state, actor, form, body = {}) {
   const config = normalizeLeadCaptureConfig(body, actor.workspace);
+  const existingLeadCapture = form.leadCapture || {};
+  const existingCompliance = existingLeadCapture.compliance || {};
   form.popupMode = config.channels.includes('popup') ? 'popup' : config.channels.includes('modal') ? 'modal' : (form.popupMode || 'inline');
   form.geotarget = config.targeting.geotarget;
   form.triggerRule = config.targeting.triggerRule;
   form.leadCapture = {
-    ...(form.leadCapture || {}),
+    ...existingLeadCapture,
     ...config,
+    targeting: {
+      ...(existingLeadCapture.targeting || {}),
+      ...config.targeting
+    },
+    schedule: {
+      ...(existingLeadCapture.schedule || {}),
+      ...config.schedule
+    },
+    branding: {
+      ...(existingLeadCapture.branding || {}),
+      ...config.branding
+    },
+    compliance: {
+      ...existingCompliance,
+      ...config.compliance,
+      privacyNoticeUrl: config.compliance.privacyNoticeUrl || existingCompliance.privacyNoticeUrl || '',
+      smsDisclosure: config.compliance.smsDisclosure || existingCompliance.smsDisclosure || ''
+    },
+    integrationHandoff: {
+      ...(existingLeadCapture.integrationHandoff || {}),
+      ...config.integrationHandoff
+    },
     updatedBy: actor.user.id,
     updatedAt: nowIso()
   };

@@ -1,9 +1,11 @@
 from cortex_server.benchmarks.kernel_v2_benchmark import run_suite
+from pathlib import Path
 
 
 def test_kernel_v2_benchmark_runner_smoke(tmp_path):
+    corpus_path = Path(__file__).resolve().parents[1] / "benchmarks" / "cortex_kernel_v2_corpus_2026-04-01.json"
     results = run_suite(
-        "/root/clawd/public/cortex_server/benchmarks/cortex_kernel_v2_corpus_2026-04-01.json",
+        str(corpus_path),
         iterations=1,
         case_ids=[
             "oracle_micro_fact_fast",

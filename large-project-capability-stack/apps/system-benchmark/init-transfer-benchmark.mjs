@@ -4,6 +4,14 @@ import path from 'node:path';
 import { benchmarkRunContractTemplate, bootstrapTransferBenchmark, upsertBenchmarkScoreboardRow } from '../../packages/system-benchmark/index.mjs';
 import { PMHNP_TIER2_SCENARIOS } from './pmhnp-tier2-scenarios.mjs';
 import { PMHNP_SITE_TIER2_SURFACES } from './pmhnp-site-tier2-surfaces.mjs';
+import {
+  buildGame100AgentReadinessSurfaces,
+  GAME_100_AGENT_ADMISSION_GATES,
+  GAME_100_AGENT_READINESS_LADDER,
+  GAME_100_AGENT_REPAIR_LANE,
+  GAME_100_AGENT_SCHEDULER_POLICY,
+  GAME_100_AGENT_VERIFICATION_POLICY
+} from './game-100-agent-surfaces.mjs';
 
 const SEMANTIC_ARCHITECTURE_SURFACES = Object.freeze([
   {
@@ -737,12 +745,104 @@ function buildPreset(name, stackRoot, options = {}) {
   const tier2CatalogScriptPath = path.join(stackRoot, 'apps/system-benchmark/verify-pmhnp-functional-catalog.mjs');
   const pmhnpSiteSurfaceScriptPath = path.join(stackRoot, 'apps/system-benchmark/verify-pmhnp-site-surface.mjs');
   const semanticArchitectureVerifierScriptPath = path.join(stackRoot, 'apps/system-benchmark/verify-semantic-architecture-surface.mjs');
+  const gameSurfaceVerifierScriptPath = path.join(stackRoot, 'apps/system-benchmark/verify-godot-game-surface.mjs');
+  const gameReadinessVerifierScriptPath = path.join(stackRoot, 'apps/system-benchmark/verify-game-100agent-readiness.mjs');
+  const gameRepoPath = path.resolve(process.env.GAME_100_AGENT_REPO_PATH || options.gameRepoPath || '/root/clawd/maplestory-3d');
   const semanticRepoPath = path.join(options.artifactRoot || path.join(stackRoot, 'artifacts/benchmarks/semantic_product_architecture_smoke/manual'), 'repo');
   const semanticSurfaceDurationMs = Math.max(1, Number(process.env.SEMANTIC_ARCHITECTURE_PRESET_SURFACE_DURATION_MS || 1));
   const semanticSurfaceMinCycles = Math.max(1, Number(process.env.SEMANTIC_ARCHITECTURE_PRESET_MIN_CYCLES || 1));
   const semanticDurationTargetMinutes = Math.max(1, Number(process.env.SEMANTIC_ARCHITECTURE_PRESET_DURATION_TARGET_MINUTES || (semanticSurfaceDurationMs >= 30 * 60 * 1000 ? Math.ceil(semanticSurfaceDurationMs / 60000) : 15)));
   const tier1RequestedAgentCount = 10;
   const presets = {
+    maplestory3d_100agent_readiness: {
+      benchmarkId: 'maplestory3d_100agent_readiness',
+      benchmarkTier: 'tier3_game_vertical_slice_100agent',
+      benchmarkClass: 'greenfield_game_vertical_slice',
+      fidelity: 'production_slice',
+      repoPath: gameRepoPath,
+      executionBoundary: 'remote_execution_required',
+      requestedAgentCount: 100,
+      notes: '100-agent game-readiness scaffold for a MapleStory-like 3D side-scrolling Godot vertical slice. This is a launch contract and gate set, not a claim that 100-agent quality convergence is already proven. Launch must happen on the remote execution plane with a real Godot repo, isolated worker workspaces, active Codex throttling, admission gates, game verifiers, and repair lane enabled.',
+      replyAnchor: 'Jake replied to the 100-agent readiness ladder and said: “Implement all of this.”',
+      scope: {
+        durationTargetMinutes: 240,
+        stopCondition: 'supervisor_green_or_blocker_report',
+        surfaceReliability: {
+          enabled: true,
+          mode: 'tolerant_surface_reliability',
+          greenMinVerifiedProductiveRatio: 0.95,
+          yellowMinVerifiedProductiveRatio: 0.90,
+          perfectVerifiedProductiveSurfaces: 100,
+          maxToleratedFailedSurfaces: 5,
+          requireClassifiedFailures: true,
+          systemicFailureFails: true,
+          note: '100/100 is a perfect-run badge; >=95/100 verified productive surfaces can be threshold-green when residual failures are classified and non-systemic.'
+        },
+        productDiffMode: 'creative_product_work',
+        requireRealProductDiffs: true,
+        requestedProduct: {
+          type: 'maplestory_like_3d_side_scroller_vertical_slice',
+          engine: 'godot',
+          networkingScope: 'deferred_until_vertical_slice_is_green',
+          mmoScope: 'explicitly_out_of_scope_for_first_100_agent_readiness_run'
+        },
+        creativeProductWork: {
+          required: true,
+          minIterations: 1,
+          workerCommand: `node ${path.join(stackRoot, 'apps/system-benchmark/codex-creative-worker.mjs')}`,
+          budgetRequired: true,
+          requireBudgetLedger: true,
+          repairExternalVerificationFailures: true,
+          promptMode: 'compact'
+        },
+        realModelWork: { required: true, providerObservedUsageRequired: true },
+        contextGovernor: {
+          enabled: true,
+          hardGate: true,
+          maxWorkerTokens: 3200,
+          workerPromptMode: 'compact',
+          retrievalMode: 'on_demand_assigned_files_only',
+          maxAllowedFiles: 4,
+          maxFileAreas: 4,
+          targetSavingsMin: 5
+        },
+        workerWorkspace: {
+          mode: 'isolated_product_copy',
+          copyPaths: ['project.godot', 'scripts', 'scenes', 'ui', 'assets', 'autoload', 'addons', 'tools', 'tests/headless'],
+          promotion: 'admission_gated_promote_to_canonical_workspace'
+        },
+        schedulerPolicy: GAME_100_AGENT_SCHEDULER_POLICY,
+        admissionGates: GAME_100_AGENT_ADMISSION_GATES,
+        gameVerification: GAME_100_AGENT_VERIFICATION_POLICY,
+        repairLane: GAME_100_AGENT_REPAIR_LANE,
+        proofLadder: GAME_100_AGENT_READINESS_LADDER,
+        canonicalLandingEvidence: {
+          enabled: true,
+          mode: 'block_on_failed_landing',
+          minAddedLineCount: 8,
+          minUniqueNormalizedAddedLineCount: 6,
+          duplicateLineRatioMax: 0.35,
+          duplicateLineCheckMinAddedLines: 12
+        },
+        proofCarryingClaims: {
+          enabled: true,
+          mode: 'require_adversarial_survival'
+        },
+        surfaces: buildGame100AgentReadinessSurfaces({ verifierScriptPath: gameSurfaceVerifierScriptPath })
+      },
+      verifierSet: [
+        {
+          kind: 'game_100agent_readiness_preflight',
+          command: `node ${gameReadinessVerifierScriptPath} ${path.join(options.artifactRoot || '.', 'run_contract.json')} --launch`,
+          purpose: 'Fail-closed preflight for remote execution boundary, 100-surface matrix, scheduler policy, admission gates, Godot verifier hooks, repair lane, and proof ladder.'
+        },
+        {
+          kind: 'godot_game_surface',
+          command: `node ${gameSurfaceVerifierScriptPath} --repo-path . --surface <surface-id> --file <assigned-product-file>`,
+          purpose: 'Per-surface Godot/static verifier used by each game product shard.'
+        }
+      ]
+    },
     semantic_product_architecture_smoke: {
       benchmarkId: 'semantic_product_architecture_smoke',
       benchmarkTier: 'tier1_smoke',
@@ -891,13 +991,13 @@ function buildPreset(name, stackRoot, options = {}) {
 }
 
 const presetName = process.argv[2] || 'pmhnp_denial_copilot_transfer';
-const stackRoot = path.resolve(process.argv[3] || '/root/clawd/large-project-capability-stack');
+const stackRoot = path.resolve(process.argv[3] || process.env.CLAWD_STACK_ROOT || process.cwd());
 const artifactStamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
 const provisionalArtifactRoot = path.join(stackRoot, 'artifacts/benchmarks', presetName, `bootstrap-${artifactStamp}`);
 const preset = buildPreset(presetName, stackRoot, { artifactRoot: provisionalArtifactRoot });
 if (!preset) {
   console.error(`Unknown preset: ${presetName}`);
-  console.error('Available presets: semantic_product_architecture_smoke, pmhnp_denial_copilot_transfer, pmhnp_denial_copilot_transfer_tier2, pmhnp_billing_site_tier2_25agent_120m');
+  console.error('Available presets: maplestory3d_100agent_readiness, semantic_product_architecture_smoke, pmhnp_denial_copilot_transfer, pmhnp_denial_copilot_transfer_tier2, pmhnp_billing_site_tier2_25agent_120m');
   process.exit(1);
 }
 const scoreboardPath = path.join(stackRoot, 'artifacts/benchmarks/scoreboard.json');

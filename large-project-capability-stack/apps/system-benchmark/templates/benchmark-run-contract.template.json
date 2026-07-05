@@ -30,6 +30,15 @@
   ],
   "requestedAgentCount": 10,
   "executionBoundary": "remote_execution_required",
+  "cognitionBoundary": {
+    "schemaVersion": "claw.cortex_codex_boundary.v1",
+    "behaviorChanging": false,
+    "boundaryStatement": "Cortex is the control-plane/context/routing/truth layer; Codex is the execution-plane CLI/model worker for bounded product edits. Do not call Codex worker output Cortex-agent work unless a Cortex packet/context governor is actually supplied to the worker.",
+    "cortexRole": "control_plane_context_routing_memory_truth_supervision",
+    "codexRole": "execution_plane_cli_model_worker",
+    "requiredForCreativeWorkers": true,
+    "budgetGovernorsMustRemainEnabled": true
+  },
   "stopCondition": "supervisor_green_or_blocker_report",
   "scoreboardPath": "artifacts/benchmarks/scoreboard.json",
   "runId": "replace-me-run-id",

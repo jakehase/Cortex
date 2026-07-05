@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "openclaw.aios.adapter.default.v1",
+  "enabled": true,
+  "mode": "always_on_internal_status_recovery_handoff",
+  "promotedAt": "2026-07-03T15:02:18.129Z",
+  "adapter": "openclaw-aios-adapter.v0.3-default-on",
+  "defaultArtifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/default-on-integration-20260703150217",
+  "rootPointerFile": "/root/clawd/artifacts/ai-os/dogfood/latest-adapter-root.json",
+  "lastRootFile": "/root/clawd/.last_aios_adapter_root",
+  "status": "green",
+  "promotionReportPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/default-on-integration-20260703150217/reports/recovery-report.json",
+  "policy": {
+    "defaultUses": [
+      "status",
+      "recover",
+      "local_handoff",
+      "bounded_internal_jobs"
+    ],
+    "externalWritesExposed": false,
+    "replacesCortexOpenClawRouting": false,
+    "replacesChatControlPlane": false,
+    "requiresExplicitApprovalFor": [
+      "external_write",
+      "provider_handoff",
+      "default_runtime_replacement"
+    ]
+  },
+  "truthBoundary": "AI OS adapter is default-on as an internal substrate for status/recovery/handoff. It does not replace Cortex/OpenClaw routing, does not expose external writes, and does not promote failed benchmark output."
+}

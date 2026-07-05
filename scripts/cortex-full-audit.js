@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-const base = process.env.CORTEX_BASE_URL || 'http://127.0.0.1:18888';
-const levels = [
+const base = process.env.CORTEX_BASE_URL || 'http://127.0.0.1:8000';
+const fallbackLevels = [
   [1,'Kernel','/kernel/status'],[2,'Ghost (Browser)','/browser/status'],[3,'Parser','/parsers/status'],[4,'Lab','/lab/status'],
   [5,'Oracle','/oracle/status'],[6,'Bard','/bard/status'],[7,'Librarian','/librarian/status'],[8,'Cron','/cron/status'],
   [9,'Architect','/meta_conductor/status'],[10,'Listener','/listener/status'],[11,'Catalyst','/catalyst/status'],[12,'Hive/Darwin','/hive/status'],
@@ -18,6 +18,19 @@ function summarize(body) {
 }
 
 (async () => {
+  let levels = fallbackLevels;
+  let registrySource = 'fallback_static_matrix';
+  try {
+    const res = await fetch(base + '/kernel/levels');
+    if (res.ok) {
+      const body = await res.json();
+      if (Array.isArray(body?.levels) && body.levels.length) {
+        levels = body.levels.map((item) => [item.level, item.name, item.canonical_status]);
+        registrySource = '/kernel/levels';
+      }
+    }
+  } catch {}
+
   const results = [];
   for (const [level, name, path] of levels) {
     try {
@@ -48,6 +61,7 @@ function summarize(body) {
   const report = {
     generatedAt: new Date().toISOString(),
     base,
+    registrySource,
     pass,
     total: levels.length,
     allPass: pass === levels.length,

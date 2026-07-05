@@ -12,8 +12,8 @@ from cortex_server.modules.reasoning_store import list_docs, replace_namespace_d
 
 
 _LOCK = threading.RLock()
-DEFAULT_STATE_PATH = Path("/opt/clawdbot/state/reasoning_beliefs.json")
-DEFAULT_DB_PATH = Path("/opt/clawdbot/state/reasoning_runtime.db")
+DEFAULT_STATE_PATH = Path(os.getenv("REASONING_BELIEFS_STATE_PATH", "/opt/clawdbot/state/reasoning_beliefs.json"))
+DEFAULT_DB_PATH = Path(os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db"))
 ENABLE_LEGACY_JSON_FALLBACK = str(os.getenv("REASONING_BELIEFS_ENABLE_LEGACY_JSON_FALLBACK", "0")).strip().lower() in {"1", "true", "yes", "on"}
 _NAMESPACE = "beliefs"
 

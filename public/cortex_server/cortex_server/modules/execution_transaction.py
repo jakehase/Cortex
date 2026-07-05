@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 
-DEFAULT_TRANSACTION_DIR = Path("/opt/clawdbot/state/transactions")
+DEFAULT_TRANSACTION_DIR = Path(os.getenv("EXECUTION_TRANSACTION_DIR", "/opt/clawdbot/state/transactions"))
 
 
 class TransactionError(RuntimeError):

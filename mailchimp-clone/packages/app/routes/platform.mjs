@@ -1,6 +1,6 @@
 import { saveDb, PLAN_CATALOG } from '../storage.mjs';
 import { dashboardBody, page, requireActor, requireAdmin, signupOnboardingCard, signupOnboardingRecoveryPanel, workspaceSwitcher } from '../view.mjs';
-import { addDomain, applyBillingPlan, buildBillingEntitlementsRuntimeSnapshot, buildDashboardHomeRuntimeSnapshot, buildTeamGovernanceRuntimeSnapshot, createWorkspaceForUser, enqueueJob, getCurrentActor, hasFeature, persistBillingEntitlementsRuntimeSnapshot, persistDashboardHomeRuntimeSnapshot, persistTeamGovernanceRuntimeSnapshot, reconcileBillingEntitlements, recordAudit, recordBillingUsageMeterEvent, recordDashboardDrillthroughEvent, recordDashboardInsightAction, recordDashboardSavedView, recordDashboardWidgetPreference, recordTeamAccessReview, recordTeamDelegatedAdminGrant, recordTeamPermissionPolicy, recordTeamRegionGovernanceEvent, recordTeamScimProvisioningEvent, runBillingInvoiceCollection, startBillingTrial, storeAsset, updateSettings } from '../domain-core.mjs';
+import { addDomain, applyBillingPlan, buildBillingEntitlementsRuntimeSnapshot, buildDashboardHomeRuntimeSnapshot, buildPlatformOnboardingWorkspaceRuntimeSnapshot, buildTeamGovernanceRuntimeSnapshot, createWorkspaceForUser, enqueueJob, getCurrentActor, hasFeature, persistBillingEntitlementsRuntimeSnapshot, persistDashboardHomeRuntimeSnapshot, persistPlatformOnboardingWorkspaceRuntimeSnapshot, persistTeamGovernanceRuntimeSnapshot, reconcileBillingEntitlements, recordAudit, recordBillingUsageMeterEvent, recordDashboardDrillthroughEvent, recordDashboardInsightAction, recordDashboardSavedView, recordDashboardWidgetPreference, recordFirstCampaignHandoff, recordOnboardingProfileRuntimeEvent, recordOnboardingRecoveryRuntimeEvent, recordTeamAccessReview, recordTeamDelegatedAdminGrant, recordTeamPermissionPolicy, recordTeamRegionGovernanceEvent, recordTeamScimProvisioningEvent, recordWorkspaceSetupCommand, runBillingInvoiceCollection, startBillingTrial, storeAsset, updateSettings } from '../domain-core.mjs';
 import { teamPermissionNotes } from '../domain-notes.mjs';
 import { escapeHtml, json, nowIso, readBody, redirect, text } from '../utils.mjs';
 import { buildAuthSecurityRuntimeSnapshot, createInvitationExpiry, createMfaChallengeForActor, enrollMfaFactor, issueCsrfToken, rotateWorkspaceApiKey, revokeSessionById, startSsoSessionForActor, validateCsrfToken, verifyMfaChallenge } from '../security.mjs';
@@ -21,6 +21,15 @@ function securityCenterBody(snapshot, issuedToken = null, operationResult = null
   return `<div class="grid"><div class="card"><h3>Security runtime contract</h3><p>${escapeHtml(snapshot.label)}</p><ul>${snapshot.controls.map((control) => `<li>${escapeHtml(control)}</li>`).join('')}</ul><p>Risk now: ${escapeHtml(snapshot.risk.level)} · score ${snapshot.risk.score}</p><p>Evidence: ${snapshot.evidenceContract.map((entry) => escapeHtml(entry)).join(' · ')}</p></div><div class="card"><h3>CSRF controls</h3>${issuedTokenPanel}${resultPanel}<form method="post" action="/security/csrf/issue"><input name="action" value="security_center"><button>Issue CSRF token</button></form><form method="post" action="/security/csrf/validate"><input name="token" placeholder="csrf token"><input name="action" value="security_center"><button>Validate token</button></form><table><tr><th>Token</th><th>Action</th><th>Status</th><th>Expires</th></tr>${csrfRows}</table></div><div class="card"><h3>MFA controls</h3><form method="post" action="/security/mfa/enroll"><select name="method"><option value="totp">TOTP</option><option value="webauthn">WebAuthn</option></select><input name="label" value="Primary authenticator"><button>Enroll factor</button></form><form method="post" action="/security/mfa/challenge"><button>Create challenge</button></form><table><tr><th>Method</th><th>Label</th><th>Status</th><th>Assurance</th></tr>${factorRows}</table><table><tr><th>Challenge</th><th>Method</th><th>Status</th><th>Verify</th></tr>${challengeRows}</table></div></div><div class="grid" style="margin-top:16px"><div class="card"><h3>Session inventory</h3><p>${snapshot.sessions.activeCount} active · ${snapshot.sessions.revokedCount} revoked</p><table><tr><th>Session</th><th>Assurance</th><th>Risk</th><th>IP</th><th>Action</th></tr>${sessionRows}</table></div><div class="card"><h3>SSO ledger</h3><form method="post" action="/security/sso/start"><select name="provider"><option value="saml">SAML</option><option value="oidc">OIDC</option></select><input name="identityProvider" value="Okta workforce identity"><button>Start SSO session</button></form><table><tr><th>Provider</th><th>Identity provider</th><th>Status</th><th>Audience</th></tr>${ssoRows}</table></div><div class="card"><h3>API key rotation</h3><form method="post" action="/security/api-keys/rotate"><input name="label" value="Rotated from security center"><button>Rotate workspace API key</button></form><table><tr><th>Label</th><th>Preview</th><th>Status</th><th>Created</th></tr>${keyRows}</table></div></div><div class="card" style="margin-top:16px"><h3>Security event timeline</h3><table><tr><th>Event</th><th>Control</th><th>Severity</th><th>Detail</th><th>Created</th></tr>${eventRows}</table></div>`;
 }
 
+function platformOnboardingWorkspaceRuntimeBody(snapshot) {
+  const stepRows = snapshot.checklist.steps.map((step) => `<tr><td>${escapeHtml(step.label)}</td><td>${step.done ? '<span class="ok">ready</span>' : '<span class="warn">needs work</span>'}</td><td><a href="${escapeHtml(step.href)}">${escapeHtml(step.href)}</a></td><td><form method="post" action="/onboarding/workspace-command"><input type="hidden" name="command" value="${escapeHtml(step.command || 'dashboard_review')}"><input name="note" value="Continue ${escapeHtml(step.label)}"><button>Queue command</button></form></td></tr>`).join('');
+  const commandRows = snapshot.workspaceSetup.recentCommands.map((entry) => `<tr><td>${escapeHtml(entry.label)}</td><td>${escapeHtml(entry.surfaceId)}</td><td>${escapeHtml(entry.status)}</td><td>${escapeHtml(entry.createdAt)}</td></tr>`).join('') || '<tr><td colspan="4">No workspace setup commands yet.</td></tr>';
+  const recoveryRows = snapshot.onboarding.recentRecoveryEvents.map((entry) => `<tr><td>${escapeHtml(entry.skippedStep)}</td><td>${escapeHtml(entry.status)}</td><td>${escapeHtml(entry.retryTarget)}</td><td>${escapeHtml(entry.createdAt)}</td></tr>`).join('') || '<tr><td colspan="4">No recovery events yet.</td></tr>';
+  const handoffRows = snapshot.firstCampaignHandoff.recent.map((entry) => `<tr><td>${escapeHtml(entry.campaignId)}</td><td>${escapeHtml(entry.status)}</td><td>${entry.readinessPercent}%</td><td>${escapeHtml(entry.createdAt)}</td></tr>`).join('') || '<tr><td colspan="4">No campaign handoff yet.</td></tr>';
+  const commandOptions = snapshot.workspaceSetup.availableCommands.map((command) => `<option value="${escapeHtml(command.id)}">${escapeHtml(command.label)}</option>`).join('');
+  return `<div class="grid"><div class="card"><h3>Operational readiness state machine</h3><p>${snapshot.checklist.completed}/${snapshot.checklist.total} ready · ${snapshot.checklist.percent}%</p><p>Next step: <a href="${escapeHtml(snapshot.checklist.nextStep.href)}">${escapeHtml(snapshot.checklist.nextStep.label)}</a></p><p>Evidence: ${snapshot.evidenceContract.map((entry) => `<code>${escapeHtml(entry)}</code>`).join(' ')}</p><p><a href="/api/onboarding/runtime">Runtime API JSON</a> · <a href="/onboarding/runtime/snapshot">Persist runtime snapshot</a></p></div><div class="card"><h3>Workspace setup command center</h3><form method="post" action="/onboarding/workspace-command"><select name="command">${commandOptions}</select><input name="note" value="Owner reviewed setup command"><button>Queue workspace command</button></form></div><div class="card"><h3>First campaign handoff</h3><form method="post" action="/onboarding/first-campaign-handoff"><input name="name" value="${escapeHtml(snapshot.role)} launch campaign"><input name="subject" value="A note from our team"><button>Create handoff draft</button></form></div></div><div class="card" style="margin-top:16px"><h3>Setup checklist</h3><table><tr><th>Step</th><th>Status</th><th>Route</th><th>Command</th></tr>${stepRows}</table></div><div class="grid" style="margin-top:16px"><div class="card"><h3>Queued workspace commands</h3><table><tr><th>Command</th><th>Surface</th><th>Status</th><th>Created</th></tr>${commandRows}</table></div><div class="card"><h3>Recovery events</h3><table><tr><th>Skipped step</th><th>Status</th><th>Retry target</th><th>Created</th></tr>${recoveryRows}</table></div></div><div class="card" style="margin-top:16px"><h3>Campaign handoff events</h3><table><tr><th>Campaign</th><th>Status</th><th>Readiness</th><th>Created</th></tr>${handoffRows}</table></div>`;
+}
+
 export function registerPlatformRoutes(router, deps) {
   const { requireAuth } = deps;
 
@@ -34,7 +43,8 @@ export function registerPlatformRoutes(router, deps) {
     const actor = requireAuth(state, req, res);
     if (!actor) return;
     const runtime = buildDashboardHomeRuntimeSnapshot(state, actor);
-    text(res, 200, page('Dashboard', actor, `${dashboardBody(state, actor)}<div class="grid" style="margin-top:16px">${workspaceSwitcher(actor)}<div class="card"><h3>Dashboard home runtime</h3><p>${escapeHtml(runtime.label)}</p><p>Widgets: ${runtime.widgets.preferenceEventCount} · insights: ${runtime.insightQueue.insightCount} · drillthroughs: ${runtime.drillthrough.count}</p><p><a href="/dashboard/runtime">Open dashboard runtime controls</a> · <a href="/api/dashboard/runtime">Runtime API JSON</a></p></div></div>`));
+    const platformRuntime = buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor);
+    text(res, 200, page('Dashboard', actor, `${dashboardBody(state, actor)}<div class="grid" style="margin-top:16px">${workspaceSwitcher(actor)}<div class="card"><h3>Dashboard home runtime</h3><p>${escapeHtml(runtime.label)}</p><p>Widgets: ${runtime.widgets.preferenceEventCount} · insights: ${runtime.insightQueue.insightCount} · drillthroughs: ${runtime.drillthrough.count}</p><p><a href="/dashboard/runtime">Open dashboard runtime controls</a> · <a href="/api/dashboard/runtime">Runtime API JSON</a></p></div><div class="card"><h3>Onboarding-to-dashboard command runtime</h3><p>${escapeHtml(platformRuntime.label)}</p><p>Readiness: ${platformRuntime.checklist.completed}/${platformRuntime.checklist.total} · commands: ${platformRuntime.workspaceSetup.commandEventCount} · handoffs: ${platformRuntime.firstCampaignHandoff.count}</p><p><a href="/onboarding/operational-readiness">Open operational readiness</a> · <a href="/api/onboarding/runtime">Runtime API JSON</a></p></div></div>`));
   });
 
   router.register('GET', '/dashboard/runtime', async ({ state, req, res }) => {
@@ -181,19 +191,21 @@ export function registerPlatformRoutes(router, deps) {
   router.register('GET', '/onboarding/operational-readiness', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res);
     if (!actor) return;
-    text(res, 200, page('Onboarding operational readiness', actor, '<div class="card"><h3>Operational readiness</h3><p>Track sender identity, domain authentication, workspace defaults, and first-campaign handoff readiness before launch.</p><p><a href="/onboarding/recovery-handoff">Review recovery handoff</a> · <a href="/campaigns/new">Start first campaign</a></p></div>'));
+    text(res, 200, page('Onboarding operational readiness', actor, platformOnboardingWorkspaceRuntimeBody(buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor))));
   });
 
   router.register('GET', '/onboarding/recovery-handoff', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res);
     if (!actor) return;
-    text(res, 200, page('Onboarding recovery handoff', actor, '<div class="card"><h3>Recovery handoff</h3><p>Review preserved workspace, sender, domain, team, and first-campaign context before moving from setup recovery into launch execution.</p><p><a href="/onboarding/recovery">Open recovery checklist</a> · <a href="/campaigns/new">Start first campaign</a></p></div>'));
+    const snapshot = buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor);
+    text(res, 200, page('Onboarding recovery handoff', actor, `${signupOnboardingRecoveryPanel(actor, { source: 'handoff' })}<div class="card"><h3>Recovery handoff</h3><p>Review preserved workspace, sender, domain, team, and first-campaign context before moving from setup recovery into launch execution.</p><p>Next runtime step: <a href="${escapeHtml(snapshot.checklist.nextStep.href)}">${escapeHtml(snapshot.checklist.nextStep.label)}</a></p><p><a href="/onboarding/recovery">Open recovery checklist</a> · <a href="/onboarding/operational-readiness">Operational readiness</a></p></div>${platformOnboardingWorkspaceRuntimeBody(snapshot)}`));
   });
 
   router.register('GET', '/onboarding/recovery', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res);
     if (!actor) return;
-    text(res, 200, page('Onboarding recovery', actor, `${signupOnboardingRecoveryPanel(actor, { source: 'recovery' })}<div class="grid" style="margin-top:16px"><div class="card"><h3>Recovery actions</h3><p><a href="/settings">Sender/domain setup</a> · <a href="/team">Invite teammates</a> · <a href="/contacts/import">Import contacts</a> · <a href="/campaigns/new">Create first campaign</a></p></div>${workspaceSwitcher(actor)}</div>`));
+    const snapshot = buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor);
+    text(res, 200, page('Onboarding recovery', actor, `${signupOnboardingRecoveryPanel(actor, { source: 'recovery' })}<div class="grid" style="margin-top:16px"><div class="card"><h3>Recovery actions</h3><p><a href="/settings">Sender/domain setup</a> · <a href="/team">Invite teammates</a> · <a href="/contacts/import">Import contacts</a> · <a href="/onboarding/operational-readiness">Create first campaign handoff</a></p><form method="post" action="/onboarding/recover"><input name="step" value="${escapeHtml(snapshot.checklist.nextStep.id || 'contact_import')}"><input name="retryTarget" value="${escapeHtml(snapshot.checklist.nextStep.href || '/onboarding')}"><button>Queue recovery reminder</button></form></div>${workspaceSwitcher(actor)}</div>`));
   });
 
   router.register('GET', '/onboarding', async ({ state, req, res }) => {
@@ -201,7 +213,9 @@ export function registerPlatformRoutes(router, deps) {
     if (!actor) return;
     const onboarding = actor.workspace.settings.onboarding || {};
     const audiences = state.db.audiences.filter((entry) => entry.workspaceId === actor.workspace.id);
-    text(res, 200, page('Onboarding workspace assistant', actor, `<div class="grid"><div class="card"><h3>Business profile</h3><form method="post" action="/onboarding/profile"><label>Industry<input name="industry" value="${onboarding.industry || ''}" placeholder="Retail, SaaS, nonprofit"></label><label>Primary use case<select name="useCase"><option value="newsletter" ${onboarding.useCase === 'newsletter' ? 'selected' : ''}>Newsletter growth</option><option value="commerce" ${onboarding.useCase === 'commerce' ? 'selected' : ''}>Commerce recovery</option><option value="lifecycle" ${onboarding.useCase === 'lifecycle' ? 'selected' : ''}>Lifecycle nurture</option><option value="events" ${onboarding.useCase === 'events' ? 'selected' : ''}>Events and webinars</option></select></label><label>Suggested sender default<input name="senderDefault" value="${onboarding.senderDefault || actor.workspace.settings.senderEmail || ''}" placeholder="marketing@example.com"></label><label>Import prompt<input name="importPlan" value="${onboarding.importPlan || ''}" placeholder="CSV import, Shopify sync, manual contacts"></label><button>Save onboarding profile</button></form></div><div class="card"><h3>Guided checklist</h3><ol><li>Configure sender identity and authenticated domain.</li><li>Import or create audience contacts.</li><li>Create lead capture or a first campaign.</li><li>Invite teammates and assign roles.</li><li>Review compliance and dashboard recommendations.</li></ol><p>Audiences ready: ${audiences.length}</p><p>Skipped-step recovery keeps incomplete setup visible on the dashboard.</p></div><div class="card"><h3>Recovery and education</h3><form method="post" action="/onboarding/recover"><input name="step" value="${onboarding.lastSkippedStep || 'contact_import'}"><button>Queue recovery reminder</button></form><p>Contextual education: ${onboarding.useCase ? `Recommended path for ${onboarding.useCase}` : 'Choose a use case to receive suggested defaults.'}</p></div></div>`));
+    const snapshot = buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor);
+    const stepBadges = snapshot.checklist.steps.map((step) => `<span class="step ${step.done ? 'active' : ''}">${escapeHtml(step.label)}</span>`).join('');
+    text(res, 200, page('Onboarding workspace assistant', actor, `<div class="grid"><div class="card"><h3>Business profile</h3><form method="post" action="/onboarding/profile"><label>Industry<input name="industry" value="${escapeHtml(onboarding.industry || '')}" placeholder="Retail, SaaS, nonprofit"></label><label>Primary use case<select name="useCase"><option value="newsletter" ${onboarding.useCase === 'newsletter' ? 'selected' : ''}>Newsletter growth</option><option value="commerce" ${onboarding.useCase === 'commerce' ? 'selected' : ''}>Commerce recovery</option><option value="lifecycle" ${onboarding.useCase === 'lifecycle' ? 'selected' : ''}>Lifecycle nurture</option><option value="events" ${onboarding.useCase === 'events' ? 'selected' : ''}>Events and webinars</option></select></label><label>Suggested sender default<input name="senderDefault" value="${escapeHtml(onboarding.senderDefault || actor.workspace.settings.senderEmail || '')}" placeholder="marketing@example.com"></label><label>Import prompt<input name="importPlan" value="${escapeHtml(onboarding.importPlan || '')}" placeholder="CSV import, Shopify sync, manual contacts"></label><button>Save onboarding profile</button></form></div><div class="card"><h3>Guided checklist</h3><p>${snapshot.checklist.completed}/${snapshot.checklist.total} steps ready · ${snapshot.checklist.percent}%</p><div class="steps">${stepBadges}</div><p>Audiences ready: ${audiences.length}</p><p>Next runtime step: <a href="${escapeHtml(snapshot.checklist.nextStep.href)}">${escapeHtml(snapshot.checklist.nextStep.label)}</a></p></div><div class="card"><h3>Recovery and education</h3><form method="post" action="/onboarding/recover"><input name="step" value="${escapeHtml(onboarding.lastSkippedStep || snapshot.checklist.nextStep.id || 'contact_import')}"><input name="retryTarget" value="${escapeHtml(snapshot.checklist.nextStep.href || '/onboarding')}"><button>Queue recovery reminder</button></form><p>Contextual education: ${onboarding.useCase ? `Recommended path for ${escapeHtml(onboarding.useCase)}` : 'Choose a use case to receive suggested defaults.'}</p></div><div class="card"><h3>Operational readiness runtime</h3><p>${escapeHtml(snapshot.label)}</p><p>Commands queued: ${snapshot.workspaceSetup.commandEventCount} · Recovery events: ${snapshot.onboarding.recoveryEventCount} · Handoffs: ${snapshot.firstCampaignHandoff.count}</p><p><a href="/onboarding/operational-readiness">Open operational readiness</a> · <a href="/api/onboarding/runtime">Runtime API JSON</a></p></div><div class="card"><h3>Workspace setup command</h3><form method="post" action="/onboarding/workspace-command"><select name="command">${snapshot.workspaceSetup.availableCommands.map((command) => `<option value="${escapeHtml(command.id)}">${escapeHtml(command.label)}</option>`).join('')}</select><input name="note" value="Continue onboarding setup"><button>Queue command</button></form></div><div class="card"><h3>First campaign handoff</h3><form method="post" action="/onboarding/first-campaign-handoff"><input name="name" value="${escapeHtml(actor.workspace.name)} launch campaign"><input name="subject" value="A note from ${escapeHtml(actor.workspace.name)}"><button>Create handoff draft</button></form></div></div>`));
   });
 
   router.register('POST', '/onboarding/profile', async ({ state, req, res }) => {
@@ -217,6 +231,7 @@ export function registerPlatformRoutes(router, deps) {
       completedSteps: [...new Set([...(actor.workspace.settings.onboarding?.completedSteps || []), 'business_profile'])],
       updatedAt: nowIso()
     };
+    recordOnboardingProfileRuntimeEvent(state, actor, body);
     saveDb(state.db);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'onboarding-profile-update', detail: `Saved onboarding profile ${body.useCase || 'newsletter'}` });
     redirect(res, '/onboarding');
@@ -226,13 +241,38 @@ export function registerPlatformRoutes(router, deps) {
     const actor = requireAuth(state, req, res);
     if (!actor) return;
     const body = await readBody(req);
-    actor.workspace.settings.onboarding ||= {};
-    actor.workspace.settings.onboarding.lastSkippedStep = body.step || 'contact_import';
-    actor.workspace.settings.onboarding.recoveryQueuedAt = nowIso();
-    enqueueJob(state, { type: 'onboarding_recovery', workspaceId: actor.workspace.id, userId: actor.user.id, payload: { step: actor.workspace.settings.onboarding.lastSkippedStep } });
+    recordOnboardingRecoveryRuntimeEvent(state, actor, body);
     saveDb(state.db);
-    recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'onboarding-recovery-queued', detail: `Queued recovery for ${actor.workspace.settings.onboarding.lastSkippedStep}` });
     redirect(res, '/onboarding');
+  });
+
+  router.register('POST', '/onboarding/workspace-command', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    recordWorkspaceSetupCommand(state, actor, await readBody(req));
+    saveDb(state.db);
+    redirect(res, '/onboarding/operational-readiness');
+  });
+
+  router.register('POST', '/onboarding/first-campaign-handoff', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    const { campaign } = recordFirstCampaignHandoff(state, actor, await readBody(req));
+    saveDb(state.db);
+    redirect(res, `/campaigns/${campaign.id}/editor`);
+  });
+
+  router.register('GET', '/api/onboarding/runtime', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    json(res, 200, { ok: true, onboarding: buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor) });
+  });
+
+  router.register('GET', '/onboarding/runtime/snapshot', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    const snapshot = persistPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor, 'onboarding_operational_readiness_page');
+    text(res, 200, page('Onboarding runtime snapshot', actor, `<div class="card"><h3>Platform onboarding runtime snapshot</h3><pre>${escapeHtml(JSON.stringify(snapshot, null, 2))}</pre></div>`));
   });
 
   router.register('GET', '/workspaces', async ({ state, req, res }) => {

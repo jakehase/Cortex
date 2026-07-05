@@ -7,6 +7,8 @@ import json
 import subprocess
 import tempfile
 import os
+import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -74,6 +76,7 @@ class JSParser:
         self._parser = None
         self._js_language = None
         self._ts_language = None
+        self._node_parser_available: Optional[bool] = None
         
         if self.config.use_tree_sitter:
             try:
@@ -116,6 +119,8 @@ class JSParser:
         
         if self._tree_sitter_available and self.config.use_tree_sitter:
             return self._parse_with_tree_sitter(source, filepath, is_typescript)
+        elif self._node_parser_available is False:
+            return self._parse_lightweight(source, filepath, is_typescript, fallback_reason="Node/Babel parser unavailable")
         else:
             return self._parse_with_node(source, filepath, is_typescript)
     
@@ -408,8 +413,11 @@ try {
             if proc.returncode == 0:
                 data = json.loads(proc.stdout)
                 if data.get("error"):
-                    result.errors.append(JSParseError(filepath, data["error"]))
+                    if "Cannot find module '@babel/parser'" in data["error"]:
+                        self._node_parser_available = False
+                    return self._parse_lightweight(source, filepath, is_typescript, fallback_reason=data["error"])
                 else:
+                    self._node_parser_available = True
                     module_id = f"module:{filepath}"
                     result.nodes.append({
                         "id": module_id,
@@ -429,13 +437,227 @@ try {
                         edge["target_id"] = edge.get("source", "unknown")
                         result.edges.append(edge)
             else:
-                result.errors.append(JSParseError(filepath, f"Node.js error: {proc.stderr}"))
+                if "Cannot find module '@babel/parser'" in proc.stderr:
+                    self._node_parser_available = False
+                return self._parse_lightweight(source, filepath, is_typescript, fallback_reason=f"Node.js error: {proc.stderr}")
                 
         except FileNotFoundError:
-            result.errors.append(JSParseError(filepath, "Node.js not available for JS parsing"))
+            self._node_parser_available = False
+            return self._parse_lightweight(source, filepath, is_typescript, fallback_reason="Node.js not available for JS parsing")
         except Exception as e:
-            result.errors.append(JSParseError(filepath, f"Parse error: {e}"))
+            return self._parse_lightweight(source, filepath, is_typescript, fallback_reason=f"Parse error: {e}")
         finally:
             os.unlink(temp_path)
         
+        return result
+
+    def _parse_lightweight(
+        self,
+        source: str,
+        filepath: str,
+        is_typescript: bool,
+        fallback_reason: Optional[str] = None,
+    ) -> JSParseResult:
+        """Parse JS/TS with a dependency-free structural extractor.
+
+        This is intentionally conservative: it is not a replacement for
+        tree-sitter, but it keeps Cortex structural code memory useful on
+        systems where tree-sitter/Babel are not installed. It extracts the
+        graph primitives we need most for agent context planning: modules,
+        imports, functions, classes, HTTP routes, exports, and rough call edges.
+        """
+        result = JSParseResult()
+        language = "typescript" if is_typescript else "javascript"
+        lines = source.splitlines()
+        module_id = f"module:{filepath}"
+        node_ids = set()
+        edge_ids = set()
+
+        def stable_id(*parts: object) -> str:
+            raw = ":".join(str(p) for p in parts)
+            if len(raw) > 220:
+                digest = hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()[:12]
+                raw = raw[:200] + ":" + digest
+            return raw
+
+        def line_for_offset(offset: int) -> int:
+            return source.count("\n", 0, max(0, offset)) + 1
+
+        def add_node(node: Dict[str, Any]) -> str:
+            node_id = node["id"]
+            if node_id not in node_ids:
+                result.nodes.append(node)
+                node_ids.add(node_id)
+            return node_id
+
+        def add_edge(edge_type: str, source_id: str, target_id: str, **metadata: Any) -> None:
+            edge_id = stable_id(edge_type.lower(), source_id, target_id, metadata.get("line", ""), metadata.get("source", ""))
+            if edge_id in edge_ids:
+                return
+            result.edges.append({
+                "id": edge_id,
+                "type": edge_type,
+                "source_id": source_id,
+                "target_id": target_id,
+                "metadata": {k: v for k, v in metadata.items() if v is not None},
+            })
+            edge_ids.add(edge_id)
+
+        def import_node_id(source_name: str) -> str:
+            node_id = stable_id("module", "import", source_name)
+            add_node({
+                "id": node_id,
+                "type": "Module",
+                "name": source_name,
+                "uri": source_name,
+                "language": "external",
+                "metadata": {"external": True},
+            })
+            return node_id
+
+        def entity_node_id(name: str) -> str:
+            node_id = stable_id("entity", name)
+            add_node({
+                "id": node_id,
+                "type": "Entity",
+                "name": name,
+                "uri": name,
+                "language": language,
+                "metadata": {"inferred": True},
+            })
+            return node_id
+
+        add_node({
+            "id": module_id,
+            "type": "Module",
+            "name": Path(filepath).stem,
+            "uri": filepath,
+            "language": language,
+            "metadata": {
+                "file_path": filepath,
+                "lines": len(lines),
+                "parser": "lightweight-js",
+                "fallback_reason": fallback_reason,
+            },
+        })
+
+        import_patterns = [
+            re.compile(r"\bimport\s+(?:[^'\";\n]+?\s+from\s+)?['\"]([^'\"]+)['\"]"),
+            re.compile(r"\bexport\s+[^'\";\n]+?\s+from\s+['\"]([^'\"]+)['\"]"),
+            re.compile(r"\brequire\s*\(\s*['\"]([^'\"]+)['\"]\s*\)"),
+            re.compile(r"\bimport\s*\(\s*['\"]([^'\"]+)['\"]\s*\)"),
+        ]
+        for pattern in import_patterns:
+            for match in pattern.finditer(source):
+                source_name = match.group(1)
+                target = import_node_id(source_name)
+                add_edge("IMPORTS", module_id, target, line=line_for_offset(match.start()), source=source_name)
+
+        function_matches: List[Dict[str, Any]] = []
+        function_patterns = [
+            re.compile(r"(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(", re.MULTILINE),
+            re.compile(r"(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)", re.MULTILINE),
+        ]
+        for pattern in function_patterns:
+            for match in pattern.finditer(source):
+                name = match.group(1)
+                start_line = line_for_offset(match.start())
+                node_id = stable_id("function", filepath, name, start_line)
+                function_matches.append({"id": node_id, "name": name, "start": match.start(), "line": start_line})
+                add_node({
+                    "id": node_id,
+                    "type": "Function",
+                    "name": name,
+                    "uri": f"{filepath}#{name}:{start_line}",
+                    "language": language,
+                    "metadata": {
+                        "qualified_name": name,
+                        "start_line": start_line,
+                        "is_async": "async" in match.group(0),
+                        "parser": "lightweight-js",
+                    },
+                })
+                add_edge("CONTAINS", module_id, node_id, line=start_line)
+
+        for match in re.finditer(r"(?:export\s+default\s+|export\s+)?class\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+([^\{\n]+))?", source):
+            name = match.group(1)
+            superclass = (match.group(2) or "").strip() or None
+            start_line = line_for_offset(match.start())
+            node_id = stable_id("class", filepath, name, start_line)
+            add_node({
+                "id": node_id,
+                "type": "Class",
+                "name": name,
+                "uri": f"{filepath}#{name}:{start_line}",
+                "language": language,
+                "metadata": {
+                    "superclass": superclass,
+                    "start_line": start_line,
+                    "parser": "lightweight-js",
+                },
+            })
+            add_edge("CONTAINS", module_id, node_id, line=start_line)
+            if superclass:
+                add_edge("DEPENDS_ON", node_id, entity_node_id(superclass), line=start_line, source=superclass)
+
+        route_patterns = [
+            re.compile(
+                r"\b(?:app|router|server|api|routes?)\s*\.\s*(get|post|put|patch|delete|del|all|use)\s*\(\s*['\"]([^'\"]+)['\"]",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"\b(?:app|router|server|api|routes?)\s*\.\s*register\s*\(\s*['\"](GET|POST|PUT|PATCH|DELETE|ALL|USE)['\"]\s*,\s*['\"]([^'\"]+)['\"]",
+                re.IGNORECASE,
+            ),
+        ]
+        for route_pattern in route_patterns:
+            for match in route_pattern.finditer(source):
+                method = match.group(1).upper().replace("DEL", "DELETE")
+                route_path = match.group(2)
+                start_line = line_for_offset(match.start())
+                route_id = stable_id("route", filepath, method, route_path, start_line)
+                add_node({
+                    "id": route_id,
+                    "type": "Route",
+                    "name": f"{method} {route_path}",
+                    "uri": f"{filepath}#{method}:{route_path}:{start_line}",
+                    "language": language,
+                    "metadata": {
+                        "method": method,
+                        "path": route_path,
+                        "start_line": start_line,
+                        "parser": "lightweight-js",
+                    },
+                })
+                add_edge("CONTAINS", module_id, route_id, line=start_line)
+
+        export_patterns = [
+            re.compile(r"\bexport\s+default\s+([A-Za-z_$][\w$]*)"),
+            re.compile(r"\bexport\s*\{([^}]+)\}"),
+        ]
+        for match in export_patterns[0].finditer(source):
+            name = match.group(1)
+            add_edge("EXPORTS", module_id, entity_node_id(name), line=line_for_offset(match.start()), source=name)
+        for match in export_patterns[1].finditer(source):
+            for raw_name in match.group(1).split(","):
+                name = raw_name.strip().split(" as ")[0].strip()
+                if re.match(r"^[A-Za-z_$][\w$]*$", name):
+                    add_edge("EXPORTS", module_id, entity_node_id(name), line=line_for_offset(match.start()), source=name)
+
+        call_pattern = re.compile(r"\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(")
+        call_exclude = {
+            "if", "for", "while", "switch", "catch", "function", "return",
+            "typeof", "import", "require", "describe", "it", "test",
+        }
+        for entry in function_matches[:300]:
+            # Bound the body by the next discovered function/class start. This is
+            # approximate, but good enough for impact hints and keeps extraction fast.
+            next_start = min((other["start"] for other in function_matches if other["start"] > entry["start"]), default=len(source))
+            body = source[entry["start"]:next_start]
+            for call in call_pattern.finditer(body):
+                callee = call.group(1)
+                if callee.split(".")[0] in call_exclude or callee == entry["name"]:
+                    continue
+                add_edge("CALLS", entry["id"], entity_node_id(callee), line=line_for_offset(entry["start"] + call.start()), source=callee)
+
         return result

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-DEFAULT_DB_PATH = Path("/opt/clawdbot/state/reasoning_runtime.db")
+DEFAULT_DB_PATH = Path(os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db"))
 SQLITE_TIMEOUT_SECONDS = float(os.getenv("REASONING_STORE_SQLITE_TIMEOUT_SECONDS", "2.5"))
 SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("REASONING_STORE_SQLITE_BUSY_TIMEOUT_MS", "2500"))
 AUTO_BACKUP_ENABLED = str(os.getenv("REASONING_STORE_AUTO_BACKUP_ENABLED", "1")).strip().lower() not in {"0", "false", "no", "off"}

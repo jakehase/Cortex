@@ -11,8 +11,8 @@ from uuid import uuid4
 from cortex_server.modules.reasoning_store import list_docs, replace_namespace_docs
 
 
-DEFAULT_STATE_PATH = Path("/opt/clawdbot/state/reasoning_approvals.json")
-DEFAULT_DB_PATH = Path("/opt/clawdbot/state/reasoning_runtime.db")
+DEFAULT_STATE_PATH = Path(os.getenv("REASONING_APPROVALS_STATE_PATH", "/opt/clawdbot/state/reasoning_approvals.json"))
+DEFAULT_DB_PATH = Path(os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db"))
 ENABLE_LEGACY_JSON_FALLBACK = str(os.getenv("REASONING_APPROVALS_ENABLE_LEGACY_JSON_FALLBACK", "0")).strip().lower() in {"1", "true", "yes", "on"}
 _NAMESPACE = "approval_grants"
 _LOCK = threading.RLock()

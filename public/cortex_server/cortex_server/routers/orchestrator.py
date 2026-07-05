@@ -103,7 +103,7 @@ from cortex_server.runtime import (
 router = APIRouter()
 
 # ── In-memory state ────────────────────────────────────────────────────────
-DEFAULT_DB_PATH = Path("/opt/clawdbot/state/reasoning_runtime.db")
+DEFAULT_DB_PATH = Path(os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db"))
 RUNTIME_DELIVERY_ROOT = Path(os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "/opt/clawdbot/state/runtime_delivery"))
 workflows: Dict[str, Dict[str, Any]] = {}
 _stats = {

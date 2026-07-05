@@ -511,9 +511,15 @@ def test_orchestrator_workflow_deadline_cancels_remaining_steps(tmp_path, monkey
     db_path = tmp_path / "reasoning_runtime.db"
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     orchestrator.workflows.clear()
+    deadline_state = {"first_complete": False}
+
+    def fake_deadline_exceeded(deadline_at):
+        return bool(deadline_state["first_complete"])
 
     async def fake_execute_single_step(client, step, *, step_index, results_by_node, workflow_metadata=None):
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0)
+        if step.get("node_id") == "first":
+            deadline_state["first_complete"] = True
         return {
             "step": step_index,
             "node_id": step.get("node_id"),
@@ -528,10 +534,11 @@ def test_orchestrator_workflow_deadline_cancels_remaining_steps(tmp_path, monkey
         }
 
     monkeypatch.setattr(orchestrator, "_execute_single_step", fake_execute_single_step)
+    monkeypatch.setattr(orchestrator.runtime_execution, "deadline_exceeded", fake_deadline_exceeded)
 
     graph = ReasoningPlanGraph(
         name="deadline_execute_plan",
-        metadata={"owner": "cortex", "session_key": "session:deadline-exec", "archetype": "coding", "workflow_deadline_seconds": 0.03},
+        metadata={"owner": "cortex", "session_key": "session:deadline-exec", "archetype": "coding", "workflow_deadline_seconds": 60.0},
         nodes=[
             {"node_id": "first", "title": "First", "endpoint": "/oracle/chat", "method": "POST", "payload": {"prompt": "1"}},
             {"node_id": "second", "title": "Second", "endpoint": "/oracle/chat", "method": "POST", "depends_on": ["first"], "payload": {"prompt": "2"}},

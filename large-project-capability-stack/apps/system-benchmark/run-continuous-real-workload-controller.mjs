@@ -10,22 +10,34 @@ import {
   resolveLlmMeteringAdapter
 } from '../../packages/llm-metering-adapter/index.mjs';
 import {
+  createLearningLedger,
+  promoteLearningFromRun,
+  readLearningLedger,
+  writeLearningLedger
+} from '../../packages/orchestration-learning-ledger/index.mjs';
+import {
   aggregateContinuousMetrics,
   aggregateContinuousThresholdMetrics,
+  avoidSameWaveBundleFileCollisions,
+  buildCollisionAwareRepairSelection,
   bundleSelectedSurfaces,
-  buildContinuousSurfaceInventory,
   createBudgetLimitBackoffPause,
+  createObjectiveTruthRepairSurfaces,
+  createProductionQualityRepairSurfaces,
   createUsageLimitBackoffPause,
   createWaveRunContract,
+  deriveContinuousScaleProof,
+  deriveObjectiveTruth,
   evaluateContinuousStop,
+  evaluateProductionQualityGate,
   evaluateTokenEfficiency,
   evaluateTokenEfficiencyDebtRecovery,
   isBudgetBackoffReason,
   isUsageLimitReason,
+  planObjectiveExpansionSurfaceSelection,
   planAdaptiveWaveBudget,
   promptModeForContinuousWave,
   readJson,
-  selectNextWaveSurfaces,
   stableList,
   summarizeWaveBudgetLedger,
   summarizeWaveArtifacts,
@@ -36,6 +48,8 @@ import {
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STACK_ROOT = path.resolve(path.join(SCRIPT_DIR, '../..'));
 const FINITE_RUNNER = path.join(SCRIPT_DIR, 'run-transfer-orchestrator-benchmark.mjs');
+const QUALITY_GATE_SCRIPT = path.join(SCRIPT_DIR, 'evaluate-production-quality-gate.mjs');
+const STANDARD_HEAVY_WAVE_AGENT_COUNT = 45;
 
 function parseArgs(argv) {
   const args = {
@@ -45,6 +59,7 @@ function parseArgs(argv) {
     dryRun: false,
     maxWaves: Number(process.env.CONTINUOUS_CONTROLLER_MAX_WAVES || 100),
     requestedAgentCount: null,
+    waveAgentCount: Number(process.env.CONTINUOUS_CONTROLLER_WAVE_AGENT_COUNT || 0),
     waveDurationTargetMinutes: Number(process.env.CONTINUOUS_CONTROLLER_WAVE_DURATION_MINUTES || 10),
     waveMaxAttemptsPerTask: Number(process.env.CONTINUOUS_CONTROLLER_WAVE_MAX_ATTEMPTS_PER_TASK || 2),
     maxAttemptsPerSurface: Number(process.env.CONTINUOUS_CONTROLLER_MAX_ATTEMPTS_PER_SURFACE || 3),
@@ -75,6 +90,27 @@ function parseArgs(argv) {
     maxTokensPerAddedLine: Number(process.env.CONTINUOUS_CONTROLLER_MAX_TOKENS_PER_ADDED_LINE || 900),
     maxTokensPerUniqueNormalizedAddedLine: Number(process.env.CONTINUOUS_CONTROLLER_MAX_TOKENS_PER_UNIQUE_LINE || 1100),
     minUniqueNormalizedAddedLinesPerCall: Number(process.env.CONTINUOUS_CONTROLLER_MIN_UNIQUE_LINES_PER_CALL || 40),
+    checkpointTopLevelArtifacts: String(process.env.CONTINUOUS_CONTROLLER_CHECKPOINT_TOP_LEVEL_ARTIFACTS || '1') !== '0',
+    productionQualityGateEnabled: String(process.env.CONTINUOUS_CONTROLLER_PRODUCTION_QUALITY_GATE || 'auto'),
+    productionQualityRepairEnabled: String(process.env.CONTINUOUS_CONTROLLER_PRODUCTION_QUALITY_REPAIR || '1') !== '0',
+    productionQualityRepairMaxSurfaces: Number(process.env.CONTINUOUS_CONTROLLER_PRODUCTION_QUALITY_REPAIR_MAX_SURFACES || 100),
+    objectiveTruthGateEnabled: String(process.env.CONTINUOUS_CONTROLLER_OBJECTIVE_TRUTH_GATE || 'auto'),
+    objectiveTruthSurfaceMatrixPath: process.env.CONTINUOUS_CONTROLLER_OBJECTIVE_SURFACE_MATRIX || null,
+    objectiveTruthNegativeSpacePath: process.env.CONTINUOUS_CONTROLLER_OBJECTIVE_NEGATIVE_SPACE_QUEUE || null,
+    objectiveTruthProductionQualityGatePath: process.env.CONTINUOUS_CONTROLLER_OBJECTIVE_PRODUCTION_QUALITY_GATE || null,
+    objectiveTruthRepairEnabled: String(process.env.CONTINUOUS_CONTROLLER_OBJECTIVE_TRUTH_REPAIR || '1') !== '0',
+    objectiveTruthRepairMaxSurfaces: Number(process.env.CONTINUOUS_CONTROLLER_OBJECTIVE_TRUTH_REPAIR_MAX_SURFACES || process.env.CONTINUOUS_CONTROLLER_PRODUCTION_QUALITY_REPAIR_MAX_SURFACES || 100),
+    maxTestFailureRegressionCount: Number(process.env.CONTINUOUS_CONTROLLER_MAX_TEST_FAILURE_REGRESSION || 0),
+    maxRouteCollisionCount: Number(process.env.CONTINUOUS_CONTROLLER_MAX_ROUTE_COLLISIONS || 0),
+    maxDuplicateNormalizedLineRatio: Number(process.env.CONTINUOUS_CONTROLLER_MAX_DUPLICATE_NORMALIZED_LINE_RATIO || 0.25),
+    minArchitectureFitnessScore: Number(process.env.CONTINUOUS_CONTROLLER_MIN_ARCHITECTURE_FITNESS_SCORE || 0.9),
+    maxArchitectureViolationCount: Number(process.env.CONTINUOUS_CONTROLLER_MAX_ARCHITECTURE_VIOLATIONS || 0),
+    orchestrationLearningMode: process.env.CONTINUOUS_CONTROLLER_ORCHESTRATION_LEARNING || process.env.ORCHESTRATION_LEARNING_ENABLED || 'auto',
+    orchestrationLearningLedgerPath: process.env.CONTINUOUS_CONTROLLER_ORCHESTRATION_LEARNING_LEDGER_PATH || process.env.ORCHESTRATION_LEARNING_LEDGER_PATH || null,
+    orchestrationLearningLimit: Number(process.env.CONTINUOUS_CONTROLLER_ORCHESTRATION_LEARNING_LIMIT || process.env.ORCHESTRATION_LEARNING_RETRIEVAL_LIMIT || 3),
+    orchestrationLearningIncludeCandidates: (process.env.CONTINUOUS_CONTROLLER_ORCHESTRATION_LEARNING_INCLUDE_CANDIDATES || process.env.ORCHESTRATION_LEARNING_INCLUDE_CANDIDATES) === undefined
+      ? undefined
+      : String(process.env.CONTINUOUS_CONTROLLER_ORCHESTRATION_LEARNING_INCLUDE_CANDIDATES || process.env.ORCHESTRATION_LEARNING_INCLUDE_CANDIDATES) !== '0',
     resumeStatePath: null,
     durationTargetMinutes: null,
     meteringMode: process.env.CONTINUOUS_CONTROLLER_METERING_MODE || process.env.LLM_METERING_MODE || process.env.CODEX_METERING_MODE || 'auto'
@@ -87,6 +123,7 @@ function parseArgs(argv) {
     if (token === '--repo-path') { args.repoPath = path.resolve(next); index += 1; continue; }
     if (token === '--max-waves') { args.maxWaves = Number(next); index += 1; continue; }
     if (token === '--requested-agent-count') { args.requestedAgentCount = Number(next); index += 1; continue; }
+    if (token === '--wave-agent-count') { args.waveAgentCount = Number(next); index += 1; continue; }
     if (token === '--wave-duration-minutes') { args.waveDurationTargetMinutes = Number(next); index += 1; continue; }
     if (token === '--wave-max-attempts') { args.waveMaxAttemptsPerTask = Number(next); index += 1; continue; }
     if (token === '--max-attempts-per-surface') { args.maxAttemptsPerSurface = Number(next); index += 1; continue; }
@@ -114,6 +151,30 @@ function parseArgs(argv) {
     if (token === '--token-efficiency-min-observed-tokens') { args.tokenEfficiencyMinObservedTokens = Number(next); index += 1; continue; }
     if (token === '--token-efficiency-min-added-lines') { args.tokenEfficiencyMinAddedLines = Number(next); index += 1; continue; }
     if (token === '--no-token-efficiency-gate') { args.tokenEfficiencyGateEnabled = false; continue; }
+    if (token === '--top-level-checkpoint') { args.checkpointTopLevelArtifacts = true; continue; }
+    if (token === '--no-top-level-checkpoint') { args.checkpointTopLevelArtifacts = false; continue; }
+    if (token === '--production-quality-gate') { args.productionQualityGateEnabled = '1'; continue; }
+    if (token === '--no-production-quality-gate') { args.productionQualityGateEnabled = '0'; continue; }
+    if (token === '--production-quality-repair') { args.productionQualityRepairEnabled = true; continue; }
+    if (token === '--no-production-quality-repair') { args.productionQualityRepairEnabled = false; continue; }
+    if (token === '--production-quality-repair-max-surfaces') { args.productionQualityRepairMaxSurfaces = Number(next); index += 1; continue; }
+    if (token === '--objective-truth-gate') { args.objectiveTruthGateEnabled = '1'; continue; }
+    if (token === '--no-objective-truth-gate') { args.objectiveTruthGateEnabled = '0'; continue; }
+    if (token === '--objective-surface-matrix') { args.objectiveTruthSurfaceMatrixPath = path.resolve(next); index += 1; continue; }
+    if (token === '--objective-negative-space-queue') { args.objectiveTruthNegativeSpacePath = path.resolve(next); index += 1; continue; }
+    if (token === '--objective-production-quality-gate') { args.objectiveTruthProductionQualityGatePath = path.resolve(next); index += 1; continue; }
+    if (token === '--objective-truth-repair') { args.objectiveTruthRepairEnabled = true; continue; }
+    if (token === '--no-objective-truth-repair') { args.objectiveTruthRepairEnabled = false; continue; }
+    if (token === '--objective-truth-repair-max-surfaces') { args.objectiveTruthRepairMaxSurfaces = Number(next); index += 1; continue; }
+    if (token === '--max-test-failure-regression') { args.maxTestFailureRegressionCount = Number(next); index += 1; continue; }
+    if (token === '--max-route-collisions') { args.maxRouteCollisionCount = Number(next); index += 1; continue; }
+    if (token === '--max-duplicate-normalized-line-ratio') { args.maxDuplicateNormalizedLineRatio = Number(next); index += 1; continue; }
+    if (token === '--min-architecture-fitness-score') { args.minArchitectureFitnessScore = Number(next); index += 1; continue; }
+    if (token === '--max-architecture-violations') { args.maxArchitectureViolationCount = Number(next); index += 1; continue; }
+    if (token === '--orchestration-learning-ledger') { args.orchestrationLearningLedgerPath = path.resolve(next); args.orchestrationLearningMode = '1'; index += 1; continue; }
+    if (token === '--orchestration-learning-limit') { args.orchestrationLearningLimit = Number(next); index += 1; continue; }
+    if (token === '--no-orchestration-learning') { args.orchestrationLearningMode = '0'; continue; }
+    if (token === '--trusted-learning-only') { args.orchestrationLearningIncludeCandidates = false; continue; }
     if (token === '--no-adaptive-token-budget') { args.adaptiveTokenBudget = false; continue; }
     if (token === '--no-pause-on-usage-limit') { args.pauseOnUsageLimit = false; continue; }
     if (token === '--ignore-backoff') { args.ignoreBackoff = true; continue; }
@@ -127,6 +188,16 @@ function parseArgs(argv) {
     process.exit(2);
   }
   return args;
+}
+
+function csvWithRequiredEntry(value = '', requiredEntry = '') {
+  const required = String(requiredEntry || '').trim();
+  const entries = stableList(String(value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean));
+  if (required && !entries.includes(required)) entries.push(required);
+  return entries.join(',');
 }
 
 function hostRole() {
@@ -212,6 +283,10 @@ function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', con
   const attempts = Math.max(1, Number(args.waveMaxAttemptsPerTask || 2));
   const globalCalls = Math.max(selectedCount * attempts, selectedCount);
   const waveRuntimeMs = Math.max(60_000, Number(args.waveDurationTargetMinutes || 10) * 60_000 + 15 * 60_000);
+  const waveTransferMaxRuntimeMs = Math.max(
+    waveRuntimeMs,
+    Number(process.env.CONTINUOUS_CONTROLLER_WAVE_TRANSFER_MAX_RUNTIME_MS || 0) || 0
+  );
   const compact = promptMode === 'compact';
   const controllerLimit = Math.max(0, Number(args.controllerGlobalTokenLimit || 0));
   const tokensObserved = Number(controllerBudget.tokensObserved || 0);
@@ -224,8 +299,12 @@ function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', con
   const effectiveTokenReservationEstimate = Math.max(1, Number(meteringPlan?.tokenReservationEstimate || budgetPlan?.tokenReservationEstimate || process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE || 0));
   const meteringEnv = meteringPlan ? envFromLlmMeteringPlan(meteringPlan, { physicalWorkerCount: selectedCount }) : {};
   const contextMaxWorkerTokens = Math.max(1, Number(args.contextGovernorMaxWorkerTokens || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS || 3200));
+  const workerWorkspaceMode = String(process.env.ORCHESTRATOR_WORKER_WORKSPACE_MODE || '').trim() || 'isolated_product_copy';
+  const workerWorkspaceCopyPaths = csvWithRequiredEntry(process.env.ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS || '', 'tests');
   return {
     ...process.env,
+    ORCHESTRATOR_WORKER_WORKSPACE_MODE: workerWorkspaceMode,
+    ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS: workerWorkspaceCopyPaths,
     CREATIVE_WORKER_PROMPT_MODE: promptMode,
     CODEX_CREATIVE_PROMPT_MODE: promptMode,
     CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: compact ? String(Math.max(4000, Number(args.compactBriefMaxChars || 9000))) : process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS,
@@ -251,7 +330,7 @@ function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', con
     CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: String(attempts),
     CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: String(globalCalls),
     CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: String(Math.max(1, Math.min(Number(process.env.CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS || 8), selectedCount || 1))),
-    TRANSFER_BENCHMARK_MAX_RUNTIME_MS: String(process.env.TRANSFER_BENCHMARK_MAX_RUNTIME_MS || waveRuntimeMs),
+    TRANSFER_BENCHMARK_MAX_RUNTIME_MS: String(waveTransferMaxRuntimeMs),
     ...meteringEnv
   };
 }
@@ -282,6 +361,7 @@ function readWaveSummary(waveRoot, waveNumber) {
 }
 
 function writePausedBackoffArtifacts({ controllerRoot, baseContract, state, finalDecision, metrics, timing = null }) {
+  const scaleProof = continuousScaleProofForArtifacts({ metrics, requestedAgentCount: state.requestedAgentCount, state });
   state.status = 'paused_budget_backoff';
   state.paused = true;
   state.budgetBackoff = {
@@ -294,6 +374,7 @@ function writePausedBackoffArtifacts({ controllerRoot, baseContract, state, fina
   };
   state.updatedAt = new Date().toISOString();
   state.metrics = metrics;
+  state.scaleProof = scaleProof;
   state.lastDecision = finalDecision;
   if (timing) state.attemptTiming = timing;
   writeJson(path.join(controllerRoot, 'continuous_controller_state.json'), state);
@@ -320,7 +401,7 @@ function writePausedBackoffArtifacts({ controllerRoot, baseContract, state, fina
     paused: true,
     thresholdPass: false,
     mechanicalGreen: false,
-    scaleProofReady: metrics.uniqueAgentCount >= state.requestedAgentCount && metrics.mergedShardCount >= state.requestedAgentCount,
+    ...scaleProofArtifactFields(scaleProof),
     durationMinutes: metrics.autonomyWindowMinutes,
     resumedAggregateDurationMinutes: metrics.autonomyWindowMinutes,
     currentAttemptRuntimeMinutes: timing?.currentAttemptRuntimeMinutes ?? null,
@@ -335,9 +416,20 @@ function writePausedBackoffArtifacts({ controllerRoot, baseContract, state, fina
 
 function normalizeResumedWaveSummaries(waveSummaries = [], resumeRoot = null) {
   return (Array.isArray(waveSummaries) ? waveSummaries : []).map((wave) => {
-    const next = JSON.parse(JSON.stringify(wave || {}));
+    let next = JSON.parse(JSON.stringify(wave || {}));
     const waveNumber = Number(next.waveNumber || 0);
     const waveId = waveNumber > 0 ? `wave-${String(waveNumber).padStart(3, '0')}` : null;
+    if (resumeRoot && waveId) {
+      const waveRoot = path.join(resumeRoot, 'waves', waveId);
+      const completion = readJson(path.join(waveRoot, 'completion_summary.json'), null);
+      const patchQueue = readJson(path.join(waveRoot, 'orchestrator_run', 'patch_queue.json'), null);
+      if (completion || patchQueue) {
+        next = {
+          ...next,
+          ...summarizeWaveArtifacts({ completionSummary: completion || {}, patchQueue: patchQueue || {}, waveNumber })
+        };
+      }
+    }
     const truthConflicts = resumeRoot && waveId
       ? readJson(path.join(resumeRoot, 'waves', waveId, 'truth_conflicts.json'), readJson(path.join(resumeRoot, 'waves', waveId, 'orchestrator_run', 'truth_conflicts.json'), null))
       : null;
@@ -386,6 +478,281 @@ function attemptTimingSummary({ state = {}, initialWaveSummaryCount = 0, started
   };
 }
 
+function continuousScaleProofForArtifacts({ metrics = {}, requestedAgentCount = 0, state = {} } = {}) {
+  return deriveContinuousScaleProof({
+    metrics,
+    requestedAgentCount,
+    waveAgentCount: state.waveAgentCount,
+    waveSchedulingPolicy: state.waveSchedulingPolicy || {}
+  });
+}
+
+function scaleProofArtifactFields(scaleProof = {}) {
+  return {
+    scaleProofReady: scaleProof.scaleProofReady === true,
+    aggregateScaleProofReady: scaleProof.aggregateScaleProofReady === true,
+    uniqueWorkerScaleProofReady: scaleProof.uniqueWorkerScaleProofReady === true,
+    legacyUniqueWorkerScaleProofReady: scaleProof.legacyUniqueWorkerScaleProofReady === true,
+    scaleProof
+  };
+}
+
+function writeRunningTopLevelCheckpointArtifacts({
+  controllerRoot,
+  baseContract,
+  state = {},
+  requestedAgentCount = 1,
+  metrics = {},
+  thresholdMetrics = {},
+  thresholdEvaluation = {},
+  productionQualityPolicy = {},
+  productionQualityEvaluation = {},
+  orchestrationLearningPolicy = {},
+  tokenEfficiencyPolicy = {},
+  tokenEfficiencyEvaluation = {},
+  tokenEfficiencyDebtRecovery = {},
+  controllerDecision = {},
+  timing = {}
+} = {}) {
+  const generatedAt = new Date().toISOString();
+  const lastWave = Array.isArray(state.waveSummaries) && state.waveSummaries.length
+    ? state.waveSummaries.at(-1)
+    : null;
+  const scaleProof = continuousScaleProofForArtifacts({ metrics, requestedAgentCount, state });
+  const checkpoint = {
+    generatedAt,
+    benchmarkId: baseContract.benchmarkId || null,
+    runId: baseContract.runId || null,
+    executionMode: 'continuous_real_workload_controller',
+    status: 'running_checkpoint',
+    checkpoint: true,
+    checkpointKind: 'top_level_after_wave',
+    lastCompletedWaveNumber: lastWave?.waveNumber || null,
+    paused: false,
+    resumeAfter: null,
+    thresholdPass: false,
+    mechanicalGreen: false,
+    ...scaleProofArtifactFields(scaleProof),
+    requestedAgentCount,
+    waveAgentCount: state.waveAgentCount || null,
+    durationMinutes: metrics.autonomyWindowMinutes,
+    resumedAggregateDurationMinutes: metrics.autonomyWindowMinutes,
+    currentAttemptRuntimeMinutes: timing.currentAttemptRuntimeMinutes,
+    currentAttemptWaveDurationMinutes: timing.currentAttemptWaveDurationMinutes,
+    resumedPriorDurationMinutes: timing.resumedPriorDurationMinutes,
+    timing,
+    waveCount: metrics.waveCount,
+    mergedShardCount: metrics.mergedShardCount,
+    totalShards: metrics.totalShards,
+    changedProductFileCount: metrics.changedProductFileCount,
+    addedLineCount: metrics.addedLineCount,
+    uniqueNormalizedAddedLineCount: metrics.uniqueNormalizedAddedLineCount,
+    metrics,
+    thresholdMetrics,
+    rawAggregateMetrics: metrics,
+    thresholdScoringPolicy: continuousScoringPolicy(),
+    productionQualityPolicy,
+    productionQualityEvaluation,
+    productionQualityGate: state.productionQualityGate || null,
+    productionQualityGateRun: state.productionQualityGateRun || null,
+    orchestrationLearningPolicy,
+    orchestrationLearning: state.orchestrationLearning || null,
+    tokenEfficiencyPolicy,
+    tokenEfficiencyEvaluation,
+    tokenEfficiencyDebtRecovery,
+    controllerDecision,
+    thresholdFailures: thresholdEvaluation.failures || [],
+    blocker: null,
+    note: 'Running checkpoint written after a completed wave; final pass/blocker truth is written again when the controller exits.'
+  };
+  writeJson(path.join(controllerRoot, 'completion_summary.json'), checkpoint);
+  writeJson(path.join(controllerRoot, 'threshold_evaluation.json'), {
+    generatedAt,
+    benchmarkId: baseContract.benchmarkId || null,
+    runId: baseContract.runId || null,
+    benchmarkTier: baseContract.benchmarkTier || 'tier2_functional',
+    status: 'running_checkpoint',
+    checkpoint: true,
+    checkpointKind: 'top_level_after_wave',
+    lastCompletedWaveNumber: lastWave?.waveNumber || null,
+    thresholdPass: false,
+    paused: false,
+    resumeAfter: null,
+    currentAttemptRuntimeMinutes: timing.currentAttemptRuntimeMinutes,
+    currentAttemptWaveDurationMinutes: timing.currentAttemptWaveDurationMinutes,
+    resumedPriorDurationMinutes: timing.resumedPriorDurationMinutes,
+    resumedAggregateDurationMinutes: timing.resumedAggregateDurationMinutes,
+    timing,
+    controllerDecision,
+    metrics: thresholdMetrics,
+    thresholdMetrics,
+    rawAggregateMetrics: metrics,
+    ...scaleProofArtifactFields(scaleProof),
+    thresholdScoringPolicy: continuousScoringPolicy(),
+    productionQualityPolicy,
+    productionQualityEvaluation,
+    productionQualityGate: state.productionQualityGate || null,
+    productionQualityGateRun: state.productionQualityGateRun || null,
+    orchestrationLearningPolicy,
+    orchestrationLearning: state.orchestrationLearning || null,
+    tokenEfficiencyPolicy,
+    tokenEfficiencyEvaluation,
+    tokenEfficiencyDebtRecovery,
+    thresholdEvaluation
+  });
+  writeJson(path.join(controllerRoot, 'blocker_report.json'), {
+    generatedAt,
+    benchmarkId: baseContract.benchmarkId || null,
+    runId: baseContract.runId || null,
+    phase: 'continuous_real_workload_controller',
+    status: 'running_checkpoint',
+    checkpoint: true,
+    lastCompletedWaveNumber: lastWave?.waveNumber || null,
+    blocker: null,
+    blockerKind: null,
+    nextAction: 'Controller is still running; read completion_summary.json or continuous_controller_state.json for the latest checkpoint, and wait for final threshold/blocker artifacts on exit.',
+    supersedesPreviousBlocker: true
+  });
+}
+
+
+function runFinalProductionQualityGate({ controllerRoot, repoPath, statePath, policy = {}, args = {} } = {}) {
+  if (policy?.enabled !== true) return null;
+  const outputDir = path.join(controllerRoot, 'production_quality_gate_run');
+  fs.mkdirSync(outputDir, { recursive: true });
+  const testCommand = process.env.PRODUCTION_QUALITY_TEST_COMMAND || 'npm test';
+  const gateArgs = [
+    QUALITY_GATE_SCRIPT,
+    '--repo-path', repoPath,
+    '--artifact-root', controllerRoot,
+    '--state-path', statePath,
+    '--test-command', testCommand,
+    '--max-test-failure-regression', String(policy.maxTestFailureRegressionCount ?? 0),
+    '--max-route-collisions', String(policy.maxRouteCollisionCount ?? 0),
+    '--max-duplicate-normalized-line-ratio', String(policy.maxDuplicateNormalizedLineRatio ?? 0.25),
+    '--min-architecture-fitness-score', String(policy.minArchitectureFitnessScore ?? 0.9),
+    '--max-architecture-violations', String(policy.maxArchitectureViolationCount ?? 0)
+  ];
+  if (process.env.PRODUCTION_QUALITY_BASELINE_REPO) {
+    gateArgs.push('--baseline-repo-path', process.env.PRODUCTION_QUALITY_BASELINE_REPO);
+  } else {
+    const baselineRef = process.env.PRODUCTION_QUALITY_BASELINE_REF || (fs.existsSync(path.join(controllerRoot, 'baseline_head.txt'))
+      ? fs.readFileSync(path.join(controllerRoot, 'baseline_head.txt'), 'utf8').trim()
+      : '');
+    if (baselineRef) gateArgs.push('--baseline-ref', baselineRef);
+  }
+  const startedAt = new Date().toISOString();
+  const result = spawnSync(process.execPath, gateArgs, {
+    cwd: STACK_ROOT,
+    encoding: 'utf8',
+    timeout: Number(process.env.PRODUCTION_QUALITY_GATE_TIMEOUT_MS || 45 * 60 * 1000),
+    maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env }
+  });
+  const finishedAt = new Date().toISOString();
+  const runReport = {
+    generatedAt: finishedAt,
+    startedAt,
+    finishedAt,
+    command: [process.execPath, ...gateArgs].join(' '),
+    repoPath,
+    statePath,
+    testCommand,
+    exitCode: result.status,
+    signal: result.signal || null,
+    error: result.error ? result.error.message : null,
+    stdoutPath: path.join(outputDir, 'stdout.log'),
+    stderrPath: path.join(outputDir, 'stderr.log')
+  };
+  fs.writeFileSync(runReport.stdoutPath, result.stdout || '');
+  fs.writeFileSync(runReport.stderrPath, result.stderr || '');
+  writeJson(path.join(outputDir, 'run_report.json'), runReport);
+  const gatePath = path.join(controllerRoot, 'production_quality_gate.json');
+  if (!fs.existsSync(gatePath)) {
+    writeJson(gatePath, {
+      generatedAt: finishedAt,
+      ok: false,
+      repoPath,
+      statePath,
+      metrics: {
+        productionQualityGatePass: 0,
+        testFailureRegressionCount: null,
+        routeCollisionCount: null,
+        integrationHardeningPass: 0,
+        architectureGatePass: null
+      },
+      failures: [{ metric: 'productionQualityGate', actual: null, requirement: 'quality gate report written', reason: 'production_quality_gate_report_missing' }],
+      runReport
+    });
+  }
+  return runReport;
+}
+
+function realRunCoreReadyForProductionQuality({ metrics = {}, target = {} } = {}) {
+  const durationTargetMinutes = Number(target.durationTargetMinutes || 120);
+  const minProductiveIterationRate = Number(target.productiveIterationRateMin ?? 0.65);
+  const maxNoOpRate = Number(target.noOpRateMax ?? 0.15);
+  const maxRepeatBlockerRate = Number(target.repeatBlockerRateMax ?? 0.10);
+  const minHandoffEfficiency = Number(target.handoffEfficiencyMin ?? 0.70);
+  const minTransferScore = Number(target.transferScoreMin ?? 0.70);
+  const minChangedProductFiles = Number(target.minChangedProductFiles ?? 8);
+  const minUniqueAgents = Number(target.minUniqueAgents ?? 4);
+  return Number(metrics.autonomyWindowMinutes || 0) >= durationTargetMinutes
+    && Number(metrics.productiveIterationRate || 0) >= minProductiveIterationRate
+    && Number(metrics.noOpRate ?? 1) <= maxNoOpRate
+    && Number(metrics.repeatBlockerRate ?? 0) <= maxRepeatBlockerRate
+    && Number(metrics.handoffEfficiency || 0) >= minHandoffEfficiency
+    && Number(metrics.transferScore || 0) >= minTransferScore
+    && Number(metrics.truthIntegrityContradictions || 0) === 0
+    && Number(metrics.fakeGreenIncidents || 0) === 0
+    && Number(metrics.changedProductFileCount || 0) >= minChangedProductFiles
+    && Number(metrics.uniqueAgentCount || 0) >= minUniqueAgents;
+}
+
+function refreshProductionQualityGateForRepair({ controllerRoot, repoPath, state, productionQualityPolicy, args, target, initialWaveSummaryCount, startedAtMs } = {}) {
+  if (productionQualityPolicy?.enabled !== true || args.productionQualityRepairEnabled === false) return null;
+  const thresholdMetricsBeforeGate = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
+  if (!realRunCoreReadyForProductionQuality({ metrics: thresholdMetricsBeforeGate, target })) return null;
+
+  const statePath = path.join(controllerRoot, 'continuous_controller_state.json');
+  state.productionQualityRepair ||= { enabled: true, attempts: [] };
+  state.productionQualityRepair.enabled = true;
+  state.productionQualityRepair.lastCoreReadyAt = new Date().toISOString();
+  state.updatedAt = new Date().toISOString();
+  writeJson(statePath, state);
+
+  const gateRun = runFinalProductionQualityGate({ controllerRoot, repoPath, statePath, policy: productionQualityPolicy, args });
+  if (gateRun) state.productionQualityGateRun = gateRun;
+  const gateReport = readJson(path.join(controllerRoot, 'production_quality_gate.json'), null);
+  if (gateReport && typeof gateReport === 'object') state.productionQualityGate = gateReport.metrics || gateReport;
+  const thresholdMetricsAfterGate = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
+  const evaluation = evaluateProductionQualityGate({ metrics: thresholdMetricsAfterGate, policy: productionQualityPolicy });
+  state.productionQualityEvaluation = evaluation;
+
+  const repairSurfaces = evaluation.ok === true ? [] : createProductionQualityRepairSurfaces({
+    qualityGate: gateReport || {},
+    state: { ...state, thresholdMetrics: thresholdMetricsAfterGate, metrics: aggregateContinuousMetrics(state) },
+    waveNumber: Number(state.waveSummaries?.length || 0) + 1,
+    maxSurfaces: Math.max(1, Number(args.productionQualityRepairMaxSurfaces || 100))
+  });
+  const attempt = {
+    generatedAt: new Date().toISOString(),
+    coreReady: true,
+    gateRun,
+    evaluation,
+    repairSurfaceCount: repairSurfaces.length,
+    repairSurfaceIds: repairSurfaces.map((surface) => surface.id).slice(0, 200)
+  };
+  state.productionQualityRepair.attempts = [...(state.productionQualityRepair.attempts || []), attempt].slice(-50);
+  state.productionQualityRepair.lastAttempt = attempt;
+  state.metrics = aggregateContinuousMetrics(state);
+  state.thresholdMetrics = thresholdMetricsAfterGate;
+  state.updatedAt = new Date().toISOString();
+  state.attemptTiming = attemptTimingSummary({ state, initialWaveSummaryCount, startedAtMs, finishedAtMs: Date.now() });
+  writeJson(statePath, state);
+  return { gateReport, gateRun, evaluation, repairSurfaces, thresholdMetrics: thresholdMetricsAfterGate };
+}
+
 function thresholdMetricSubset(metrics = {}) {
   return {
     productiveIterationRate: metrics.productiveIterationRate,
@@ -397,15 +764,27 @@ function thresholdMetricSubset(metrics = {}) {
     autonomyWindowMinutes: metrics.autonomyWindowMinutes,
     truthIntegrityContradictions: metrics.truthIntegrityContradictions,
     fakeGreenIncidents: metrics.fakeGreenIncidents,
-    transferScore: metrics.transferScore
+    transferScore: metrics.transferScore,
+    creativeWorkerEvidenceIntegrity: metrics.creativeWorkerEvidenceIntegrity,
+    creativeIterationIntegrity: metrics.creativeIterationIntegrity,
+    creativeProductDeltaIntegrity: metrics.creativeProductDeltaIntegrity,
+    templateFallbackRate: metrics.templateFallbackRate,
+    testFailureRegressionCount: metrics.testFailureRegressionCount,
+    routeCollisionCount: metrics.routeCollisionCount,
+    duplicateNormalizedLineRatio: metrics.duplicateNormalizedLineRatio,
+    architectureFitnessScore: metrics.architectureFitnessScore,
+    architectureViolationCount: metrics.architectureViolationCount,
+    architectureGatePass: metrics.architectureGatePass,
+    integrationHardeningPass: metrics.integrationHardeningPass,
+    productionQualityGatePass: metrics.productionQualityGatePass
   };
 }
 
 function continuousScoringPolicy() {
   return {
-    version: 'continuous_controller_threshold_scoring.v3',
+    version: 'continuous_controller_threshold_scoring.v5',
     rawAggregatePreserved: true,
-    thresholdMetrics: 'budget_backoff_rejections_excluded_and_repaired_attempt_rejection_windowed_with_blocker_signatures',
+    thresholdMetrics: 'budget_backoff_rejections_excluded_and_repaired_attempt_rejection_windowed_with_blocker_signatures_and_creative_evidence_from_admitted_patches_plus_optional_production_architecture_gate',
     excludesFromNoOpAndRepeatBlocker: [
       'codex_usage_limit_observed',
       'creative_global_reserved_token_limit_reached',
@@ -415,7 +794,9 @@ function continuousScoringPolicy() {
     ],
     rejectionReasonWindow: 'When resuming a repaired red run, repeat-blocker scoring starts at the current attempt while raw aggregate rejected-reason counts remain recorded for audit.',
     repeatBlockerIdentity: 'Repeat-blocker scoring uses artifact-level blocker signatures: rejection reason plus rejected product-file cluster when available.',
-    rationale: 'Controller/runner budget or external usage-limit pauses are availability/backoff events, not product no-op attempts. Pre-repair repeated rejection causes should not permanently poison the scored repaired attempt, but raw aggregate metrics are still recorded for audit. Unrelated verifier failures on different product slices should not be collapsed into one repeated blocker merely because they share a broad rejection reason.'
+    creativeProductWorkEvidence: 'Creative integrity metrics are scored from admitted patch metadata at patch_queue.merged[].metadata.implementation.metadata.creativeWorkerEvidence, requiring a Codex/creative-worker command, positive worker runtime, at least one iteration, product modified files, and no template fallback.',
+    productionArchitectureGate: 'Production-architecture tiers additionally require non-regressing tests, zero route collisions, bounded duplicate normalized LOC, architecture evidence integrity, integration hardening proof, and explicit production quality pass evidence.',
+    rationale: 'Controller/runner budget or external usage-limit pauses are availability/backoff events, not product no-op attempts. Pre-repair repeated rejection causes should not permanently poison the scored repaired attempt, but raw aggregate metrics are still recorded for audit. Unrelated verifier failures on different product slices should not be collapsed into one repeated blocker merely because they share a broad rejection reason. Creative product-work tiers must carry their per-wave admitted creative evidence into the root canonical threshold metrics rather than dropping those fields during continuous aggregation. Higher production-architecture claims cannot be earned by raw LOC or syntax-only gates; they require integration and architecture fitness evidence.'
   };
 }
 
@@ -430,10 +811,209 @@ function tokenEfficiencyPolicyFromArgs(args = {}) {
   };
 }
 
+function productionQualityPolicyFromArgs(args = {}, contract = {}) {
+  const autoEnabled = /production|architecture/i.test(String(contract.benchmarkTier || ''))
+    || contract.scope?.productionQualityRequired === true
+    || contract.scope?.architectureQualityRequired === true;
+  const requested = String(args.productionQualityGateEnabled ?? 'auto').toLowerCase();
+  const enabled = requested === 'auto' ? autoEnabled : !['0', 'false', 'off', 'no'].includes(requested);
+  return {
+    enabled,
+    maxTestFailureRegressionCount: Math.max(0, Number(args.maxTestFailureRegressionCount || 0)),
+    maxRouteCollisionCount: Math.max(0, Number(args.maxRouteCollisionCount || 0)),
+    maxDuplicateNormalizedLineRatio: Math.max(0, Number(args.maxDuplicateNormalizedLineRatio || 0.25)),
+    minArchitectureFitnessScore: Math.max(0, Number(args.minArchitectureFitnessScore || 0.9)),
+    maxArchitectureViolationCount: Math.max(0, Number(args.maxArchitectureViolationCount || 0)),
+    requireIntegrationHardeningPass: contract.scope?.requireIntegrationHardeningPass !== false,
+    requireArchitectureGatePass: contract.scope?.requireArchitectureGatePass !== false,
+    requireProductionQualityGatePass: contract.scope?.requireProductionQualityGatePass !== false
+  };
+}
+
+function productionQualityTargetFromPolicy(target = {}, policy = {}) {
+  return {
+    ...target,
+    productionQualityRequired: policy.enabled === true,
+    architectureQualityRequired: policy.enabled === true,
+    maxTestFailureRegressionCount: policy.maxTestFailureRegressionCount,
+    maxRouteCollisionCount: policy.maxRouteCollisionCount,
+    maxDuplicateNormalizedLineRatio: policy.maxDuplicateNormalizedLineRatio,
+    minArchitectureFitnessScore: policy.minArchitectureFitnessScore,
+    maxArchitectureViolationCount: policy.maxArchitectureViolationCount,
+    requireIntegrationHardeningPass: policy.requireIntegrationHardeningPass,
+    requireArchitectureGatePass: policy.requireArchitectureGatePass,
+    requireProductionQualityGatePass: policy.requireProductionQualityGatePass
+  };
+}
+
+function resolveOptionalPath(value, baseDir = process.cwd()) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  return path.isAbsolute(text) ? text : path.resolve(baseDir, text);
+}
+
+function objectiveTruthPolicyFromArgs({ args = {}, contract = {}, controllerRoot, productionQualityPolicy = {} } = {}) {
+  const configured = contract.scope?.objectiveTruth || contract.scope?.supervisorTruth || contract.metadata?.objectiveTruth || contract.metadata?.supervisorTruth || {};
+  const requested = String(args.objectiveTruthGateEnabled ?? configured.enabled ?? 'auto').trim().toLowerCase();
+  const baseDir = path.dirname(args.contractPath || controllerRoot || process.cwd());
+  const surfaceMatrixPath = resolveOptionalPath(args.objectiveTruthSurfaceMatrixPath || configured.surfaceMatrixPath || configured.surfaceMatrix || configured.matrixPath, baseDir);
+  const negativeSpacePath = resolveOptionalPath(args.objectiveTruthNegativeSpacePath || configured.negativeSpacePath || configured.negativeSpaceQueuePath || configured.nextWorkQueuePath, baseDir);
+  const productionQualityGatePath = resolveOptionalPath(args.objectiveTruthProductionQualityGatePath || configured.productionQualityGatePath || configured.qualityGatePath || null, baseDir);
+  const autoEnabled = Boolean(
+    configured.enabled === true
+    || configured.required === true
+    || configured.surfaceMatrixRequired === true
+    || configured.negativeSpaceRequired === true
+    || configured.productionQualityRequired === true
+    || surfaceMatrixPath
+    || negativeSpacePath
+    || productionQualityGatePath
+  );
+  const enabled = requested === 'auto' ? autoEnabled : parseLearningBool(requested, autoEnabled);
+  return {
+    enabled,
+    required: enabled && configured.required !== false,
+    surfaceMatrixRequired: enabled && configured.surfaceMatrixRequired !== false && Boolean(surfaceMatrixPath || configured.surfaceMatrixRequired === true),
+    negativeSpaceRequired: enabled && configured.negativeSpaceRequired !== false && Boolean(negativeSpacePath || configured.negativeSpaceRequired === true),
+    productionQualityRequired: enabled && (configured.productionQualityRequired === true || Boolean(productionQualityGatePath)),
+    surfaceMatrixPath,
+    negativeSpacePath,
+    productionQualityGatePath,
+    repairEnabled: enabled && args.objectiveTruthRepairEnabled !== false && configured.repairEnabled !== false,
+    repairMaxSurfaces: Math.max(1, Number(args.objectiveTruthRepairMaxSurfaces || configured.repairMaxSurfaces || args.productionQualityRepairMaxSurfaces || 100)),
+    source: 'generic_objective_truth_policy'
+  };
+}
+
+function objectiveTruthTargetFromPolicy(target = {}, policy = {}) {
+  if (!policy.enabled) return target;
+  return {
+    ...target,
+    objectiveTruthRequired: policy.required === true,
+    objectiveTruth: {
+      enabled: true,
+      required: policy.required === true,
+      surfaceMatrixRequired: policy.surfaceMatrixRequired === true,
+      negativeSpaceRequired: policy.negativeSpaceRequired === true,
+      productionQualityRequired: policy.productionQualityRequired === true
+    },
+    supervisorTruthRequired: policy.required === true
+  };
+}
+
+function readObjectiveTruthInputs({ policy = {}, state = {}, metrics = {}, target = {} } = {}) {
+  if (!policy.enabled) return null;
+  const surfaceMatrix = policy.surfaceMatrixPath ? readJson(policy.surfaceMatrixPath, null) : null;
+  const negativeSpace = policy.negativeSpacePath ? readJson(policy.negativeSpacePath, null) : null;
+  const productionQualityGate = policy.productionQualityGatePath ? readJson(policy.productionQualityGatePath, null) : null;
+  const objectiveTruth = deriveObjectiveTruth({
+    surfaceMatrix,
+    negativeSpace,
+    productionQualityGate,
+    completedSurfaceIds: state.completedSurfaceIds || [],
+    metrics,
+    target,
+    requireSurfaceMatrix: policy.surfaceMatrixRequired === true,
+    requireNegativeSpace: policy.negativeSpaceRequired === true,
+    requireProductionQuality: policy.productionQualityRequired === true
+  });
+  objectiveTruth.policy = policy;
+  objectiveTruth.sourcePaths = {
+    surfaceMatrixPath: policy.surfaceMatrixPath || null,
+    negativeSpacePath: policy.negativeSpacePath || null,
+    productionQualityGatePath: policy.productionQualityGatePath || null
+  };
+  state.objectiveTruth = objectiveTruth;
+  state.objectiveTruthPolicy = policy;
+  return { surfaceMatrix, negativeSpace, productionQualityGate, objectiveTruth };
+}
+
+function parseLearningBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const text = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off'].includes(text)) return false;
+  return fallback;
+}
+
+function orchestrationLearningPolicyFromArgs({ args = {}, contract = {}, controllerRoot, productionQualityPolicy = {} } = {}) {
+  const configured = contract.scope?.orchestrationLearning || contract.metadata?.orchestrationLearning || contract.metadata?.orchestration_learning || {};
+  const requested = String(args.orchestrationLearningMode ?? configured.enabled ?? 'auto').trim().toLowerCase();
+  const autoEnabled = Boolean(
+    configured.enabled === true
+    || configured.ledgerPath
+    || configured.path
+    || args.orchestrationLearningLedgerPath
+    || process.env.ORCHESTRATION_LEARNING_LEDGER_PATH
+    || productionQualityPolicy.enabled === true
+  );
+  const enabled = requested === 'auto' ? autoEnabled : parseLearningBool(requested, autoEnabled);
+  if (!enabled) return { enabled: false, reason: 'disabled' };
+  const ledgerPath = path.resolve(args.orchestrationLearningLedgerPath || configured.ledgerPath || configured.path || path.join(controllerRoot, 'orchestration_learning_ledger.json'));
+  return {
+    enabled: true,
+    ledgerPath,
+    limit: Math.max(0, Number(args.orchestrationLearningLimit || configured.limit || configured.retrievalLimit || 3)),
+    includeCandidates: parseLearningBool(args.orchestrationLearningIncludeCandidates, configured.includeCandidates !== false),
+    languageVersion: configured.languageVersion || 'agent_work_v0.1_fragment',
+    promotionPolicy: {
+      architecturePatternsRequireProductionQualityGate: true,
+      antiPatternsRecordedFromRejectedPatches: true,
+      source: 'continuous_real_workload_controller'
+    }
+  };
+}
+
+function ensureOrchestrationLearningLedger(policy = {}, contract = {}) {
+  if (!policy.enabled || !policy.ledgerPath) return null;
+  const existing = fs.existsSync(policy.ledgerPath)
+    ? readLearningLedger(policy.ledgerPath)
+    : createLearningLedger({ project: contract.benchmarkId || contract.runId || 'orchestration' });
+  writeLearningLedger(policy.ledgerPath, existing);
+  return existing;
+}
+
+function promoteWaveLearning({ policy = {}, waveRoot, baseContract, waveNumber } = {}) {
+  if (!policy.enabled || !policy.ledgerPath || !waveRoot) return null;
+  const patchQueue = readJson(path.join(waveRoot, 'orchestrator_run', 'patch_queue.json'), {});
+  const productionQualityGate = readJson(path.join(waveRoot, 'production_quality_gate.json'), {});
+  const ledger = readLearningLedger(policy.ledgerPath, createLearningLedger({ project: baseContract.benchmarkId || baseContract.runId || 'orchestration' }));
+  const { ledger: nextLedger, artifacts } = promoteLearningFromRun({
+    ledger,
+    patchQueue,
+    productionQualityGate,
+    runRoot: waveRoot,
+    benchmarkId: baseContract.benchmarkId || '',
+    runId: `${baseContract.runId || 'continuous'}-wave-${String(waveNumber || 0).padStart(3, '0')}`,
+    project: baseContract.benchmarkId || baseContract.runId || ledger.project || 'orchestration'
+  });
+  writeLearningLedger(policy.ledgerPath, nextLedger);
+  return {
+    ledgerPath: policy.ledgerPath,
+    learnedArtifactCount: artifacts.length,
+    trustedArchitecturePatternCount: artifacts.filter((artifact) => artifact.kind === 'architecture_pattern' && artifact.trust === 'trusted').length,
+    candidateArchitecturePatternCount: artifacts.filter((artifact) => artifact.kind === 'architecture_pattern' && artifact.trust !== 'trusted').length,
+    antiPatternCount: artifacts.filter((artifact) => artifact.kind === 'anti_pattern').length,
+    artifactIds: artifacts.map((artifact) => artifact.id)
+  };
+}
+
 function evaluateScoredContinuousStop({ state, target, remainingExecutableSurfaceCount = 1, nowMs = Date.now(), deadlineMs = null, maxWavesReached = false } = {}) {
   const rawMetrics = aggregateContinuousMetrics(state);
   const thresholdMetrics = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
-  const decision = evaluateContinuousStop({ metrics: thresholdMetrics, target, remainingExecutableSurfaceCount, nowMs, deadlineMs, maxWavesReached });
+  const objectiveTruthInputs = readObjectiveTruthInputs({ policy: state.objectiveTruthPolicy || {}, state, metrics: thresholdMetrics, target });
+  const objectiveRemaining = Number(objectiveTruthInputs?.objectiveTruth?.remainingExecutableSurfaceCount || 0);
+  const decision = evaluateContinuousStop({
+    metrics: thresholdMetrics,
+    target,
+    remainingExecutableSurfaceCount: Math.max(Number(remainingExecutableSurfaceCount || 0), objectiveRemaining),
+    nowMs,
+    deadlineMs,
+    maxWavesReached,
+    objectiveTruth: objectiveTruthInputs?.objectiveTruth || null
+  });
   if (decision.thresholdPass === true) {
     decision.scoringPolicy = continuousScoringPolicy();
     decision.rawNoOpRate = rawMetrics.noOpRate;
@@ -481,7 +1061,13 @@ if (remoteRequired && hostRole() !== 'execution_plane' && !args.dryRun) {
 
 const allSurfaces = Array.isArray(baseContract.scope?.surfaces) ? baseContract.scope.surfaces : [];
 const requestedAgentCount = Math.max(1, Number(args.requestedAgentCount || baseContract.requestedAgentCount || 1));
-const target = controllerTargetFromContract(baseContract, args);
+const explicitWaveAgentCount = Number(args.waveAgentCount || 0);
+const waveAgentCount = Math.max(1, Number(explicitWaveAgentCount || Math.min(STANDARD_HEAVY_WAVE_AGENT_COUNT, requestedAgentCount)));
+const productionQualityPolicy = productionQualityPolicyFromArgs(args, baseContract);
+const objectiveTruthPolicy = objectiveTruthPolicyFromArgs({ args, contract: baseContract, controllerRoot, productionQualityPolicy });
+const target = objectiveTruthTargetFromPolicy(productionQualityTargetFromPolicy(controllerTargetFromContract(baseContract, args), productionQualityPolicy), objectiveTruthPolicy);
+const orchestrationLearningPolicy = orchestrationLearningPolicyFromArgs({ args, contract: baseContract, controllerRoot, productionQualityPolicy });
+const initialOrchestrationLearningLedger = ensureOrchestrationLearningLedger(orchestrationLearningPolicy, baseContract);
 const startedAtMs = Date.now();
 const deadlineMs = startedAtMs + Math.max(1, Number(target.durationTargetMinutes || 120)) * 60_000;
 const resumeState = args.resumeStatePath ? readJson(args.resumeStatePath, null) : null;
@@ -505,7 +1091,28 @@ let state = {
   baseContractPath: args.contractPath,
   repoPath,
   requestedAgentCount,
+  waveAgentCount,
+  waveSchedulingPolicy: {
+    requestedAgentCount,
+    waveAgentCount,
+    standardHeavyWaveAgentCount: STANDARD_HEAVY_WAVE_AGENT_COUNT,
+    preservesAggregateScaleClaim: waveAgentCount < requestedAgentCount,
+    reason: waveAgentCount < requestedAgentCount
+      ? 'physical_wave_width_limited_to_standard_45_worker_codex_throughput_while_preserving_aggregate_scale_proof'
+      : 'wave_width_matches_requested_agent_count'
+  },
   target,
+  productionQualityPolicy,
+  objectiveTruthPolicy,
+  orchestrationLearningPolicy,
+  orchestrationLearning: orchestrationLearningPolicy.enabled ? {
+    enabled: true,
+    ledgerPath: orchestrationLearningPolicy.ledgerPath,
+    initialArchitecturePatternCount: initialOrchestrationLearningLedger?.architecturePatterns?.length || 0,
+    initialAntiPatternCount: initialOrchestrationLearningLedger?.antiPatterns?.length || 0,
+    initialRepairStrategyCount: initialOrchestrationLearningLedger?.repairStrategies?.length || 0,
+    promotions: []
+  } : { enabled: false },
   completedSurfaceIds: [],
   completedProductFiles: [],
   surfaceAttempts: {},
@@ -540,6 +1147,17 @@ if (resumeState) {
     surfaceLastWave: resumeState.surfaceLastWave && typeof resumeState.surfaceLastWave === 'object' ? { ...resumeState.surfaceLastWave } : {},
     rejectedReasonCounts: resumeState.rejectedReasonCounts && typeof resumeState.rejectedReasonCounts === 'object' ? { ...resumeState.rejectedReasonCounts } : {},
     controllerBudget: resumeState.controllerBudget && typeof resumeState.controllerBudget === 'object' ? { ...resumeState.controllerBudget } : { callsStarted: 0, callsCompleted: 0, tokensObserved: 0, usageLimitObserved: false, usageLimitWaveNumbers: [] },
+    waveAgentCount,
+    waveSchedulingPolicy: {
+      ...(resumeState.waveSchedulingPolicy || {}),
+      requestedAgentCount,
+      waveAgentCount,
+      standardHeavyWaveAgentCount: STANDARD_HEAVY_WAVE_AGENT_COUNT,
+      preservesAggregateScaleClaim: waveAgentCount < requestedAgentCount,
+      reason: waveAgentCount < requestedAgentCount
+        ? 'physical_wave_width_limited_to_standard_45_worker_codex_throughput_while_preserving_aggregate_scale_proof'
+        : 'wave_width_matches_requested_agent_count'
+    },
     promptPolicy: {
       ...(resumeState.promptPolicy || {}),
       fullContextWaveCount: Math.max(0, Number(args.fullContextWaveCount || resumeState.promptPolicy?.fullContextWaveCount || 0)),
@@ -554,6 +1172,15 @@ if (resumeState) {
         targetSavingsMin: Math.max(1, Number(args.contextGovernorTargetSavingsMin || resumeState.promptPolicy?.contextGovernor?.targetSavingsMin || 5)),
         targetSavingsMax: Math.max(1, Number(args.contextGovernorTargetSavingsMax || resumeState.promptPolicy?.contextGovernor?.targetSavingsMax || 10))
       }
+    },
+    productionQualityPolicy,
+    objectiveTruthPolicy,
+    orchestrationLearningPolicy,
+    orchestrationLearning: {
+      ...(resumeState.orchestrationLearning || (orchestrationLearningPolicy.enabled ? { enabled: true, ledgerPath: orchestrationLearningPolicy.ledgerPath, promotions: [] } : { enabled: false })),
+      enabled: orchestrationLearningPolicy.enabled === true,
+      ledgerPath: orchestrationLearningPolicy.ledgerPath || resumeState.orchestrationLearning?.ledgerPath || null,
+      promotions: Array.isArray(resumeState.orchestrationLearning?.promotions) ? [...resumeState.orchestrationLearning.promotions] : []
     },
     lastRejectedProductFiles: stableList(resumeState.lastRejectedProductFiles || []),
     waveSummaries: normalizeResumedWaveSummaries(resumeState.waveSummaries, resumeState.controllerArtifactRoot || path.dirname(args.resumeStatePath)),
@@ -616,6 +1243,7 @@ writeJson(path.join(controllerRoot, 'run_contract.json'), {
   controller: {
     mode: 'continuous_real_workload_controller',
     requestedAgentCount,
+    waveAgentCount,
     target,
     resumeStatePath: args.resumeStatePath || null,
     maxExpansionCycles: args.maxExpansionCycles,
@@ -631,10 +1259,40 @@ writeJson(path.join(controllerRoot, 'run_contract.json'), {
     minBudgetedWaveAgents: args.minBudgetedWaveAgents,
     bundleSize: args.bundleSize,
     bundleMode: args.bundleMode,
-    tokenEfficiencyPolicy: tokenEfficiencyPolicyFromArgs(args)
+    tokenEfficiencyPolicy: tokenEfficiencyPolicyFromArgs(args),
+    objectiveTruthPolicy,
+    orchestrationLearningPolicy
   }
 });
 writeJson(path.join(controllerRoot, 'continuous_controller_state.json'), state);
+if (args.checkpointTopLevelArtifacts && !args.dryRun) {
+  const initialMetrics = aggregateContinuousMetrics(state);
+  const initialThresholdMetrics = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
+  const initialThresholdEvaluation = evaluateBenchmarkThresholds({
+    benchmarkTier: baseContract.benchmarkTier || 'tier2_functional',
+    metrics: thresholdMetricSubset(initialThresholdMetrics)
+  });
+  const initialTokenEfficiencyPolicy = tokenEfficiencyPolicyFromArgs(args);
+  const initialTokenEfficiencyEvaluation = evaluateTokenEfficiency({ metrics: initialMetrics.tokenEfficiency || {}, policy: initialTokenEfficiencyPolicy });
+  const initialCheckpointTiming = attemptTimingSummary({ state, initialWaveSummaryCount, startedAtMs, finishedAtMs: Date.now() });
+  writeRunningTopLevelCheckpointArtifacts({
+    controllerRoot,
+    baseContract,
+    state,
+    requestedAgentCount,
+    metrics: initialMetrics,
+    thresholdMetrics: initialThresholdMetrics,
+    thresholdEvaluation: initialThresholdEvaluation,
+    productionQualityPolicy,
+    productionQualityEvaluation: evaluateProductionQualityGate({ metrics: initialThresholdMetrics, policy: productionQualityPolicy }),
+    orchestrationLearningPolicy,
+    tokenEfficiencyPolicy: initialTokenEfficiencyPolicy,
+    tokenEfficiencyEvaluation: initialTokenEfficiencyEvaluation,
+    tokenEfficiencyDebtRecovery: { sampleReady: false, ok: null, allowContinue: true, reason: 'launch_checkpoint_before_next_wave' },
+    controllerDecision: { action: 'continue', thresholdPass: false, reason: 'controller_started_or_resumed', nextAction: 'Controller is running and will refresh top-level artifacts after each completed wave.' },
+    timing: initialCheckpointTiming
+  });
+}
 
 let finalDecision = null;
 let noProgressWaveStreak = 0;
@@ -657,7 +1315,7 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
   let meteringPlan = resolveLlmMeteringAdapter({
     env: controllerMeteringEnv(args),
     requestedAgentCount,
-    selectedLogicalSurfaceCount: requestedAgentCount,
+    selectedLogicalSurfaceCount: waveAgentCount,
     requestedBundleSize: Math.max(1, Number(args.bundleSize || 1)),
     waveMaxAttemptsPerTask: Math.max(1, Number(args.waveMaxAttemptsPerTask || 2)),
     promptMode,
@@ -683,37 +1341,130 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     break;
   }
 
-  let inventory = buildContinuousSurfaceInventory({
-    surfaces: allSurfaces,
-    maxExpansionCycles: activeMaxExpansionCycles,
-    includeObjectiveExpansion: true
-  });
+  let forcedObjectiveTruthSurfaces = null;
+  if (preStop.decision.reason === 'objective_truth_pending' && objectiveTruthPolicy.enabled === true && objectiveTruthPolicy.repairEnabled === true) {
+    const qualityGate = objectiveTruthPolicy.productionQualityGatePath ? readJson(objectiveTruthPolicy.productionQualityGatePath, null) : null;
+    forcedObjectiveTruthSurfaces = createObjectiveTruthRepairSurfaces({
+      objectiveTruth: preStop.decision.objectiveTruth,
+      qualityGate,
+      state: { ...state, thresholdMetrics: preStop.thresholdMetrics, metrics: preStop.rawMetrics },
+      waveNumber,
+      maxSurfaces: Math.max(1, Number(objectiveTruthPolicy.repairMaxSurfaces || args.objectiveTruthRepairMaxSurfaces || 100))
+    });
+    state.objectiveTruthRepair ||= { enabled: true, attempts: [] };
+    state.objectiveTruthRepair.lastPlannedAt = new Date().toISOString();
+    state.objectiveTruthRepair.nextRepairSurfaceCount = forcedObjectiveTruthSurfaces.length;
+    state.objectiveTruthRepair.nextRepairSurfaceIds = forcedObjectiveTruthSurfaces.map((surface) => surface.id).slice(0, 200);
+    if (!forcedObjectiveTruthSurfaces.length) {
+      finalDecision = {
+        action: 'stop_blocked',
+        thresholdPass: false,
+        reason: preStop.decision.objectiveTruth?.blocker?.blockerKind || 'objective_truth_repair_targets_missing',
+        objectiveTruth: preStop.decision.objectiveTruth,
+        nextAction: 'Objective truth is red, but no executable generic repair surfaces could be derived. Add product target files to the surface matrix/negative-space queue or write a precise blocker.'
+      };
+      state.metrics = preStop.rawMetrics;
+      state.thresholdMetrics = preStop.thresholdMetrics;
+      state.lastDecision = finalDecision;
+      break;
+    }
+  }
+
+  let forcedQualityRepairSurfaces = null;
+  if (!forcedObjectiveTruthSurfaces && preStop.decision.reason === 'production_architecture_quality_gate_pending' && productionQualityPolicy.enabled === true && args.productionQualityRepairEnabled !== false) {
+    const repairRefresh = refreshProductionQualityGateForRepair({
+      controllerRoot,
+      repoPath,
+      state,
+      productionQualityPolicy,
+      args,
+      target,
+      initialWaveSummaryCount,
+      startedAtMs
+    });
+    if (repairRefresh?.evaluation?.ok === true) {
+      const postGateStop = evaluateScoredContinuousStop({
+        state,
+        target,
+        remainingExecutableSurfaceCount: 1,
+        nowMs: Date.now(),
+        deadlineMs,
+        maxWavesReached: false
+      });
+      finalDecision = postGateStop.decision;
+      state.metrics = postGateStop.rawMetrics;
+      state.thresholdMetrics = postGateStop.thresholdMetrics;
+      state.lastDecision = finalDecision;
+      break;
+    }
+    if (repairRefresh && repairRefresh.repairSurfaces.length > 0) {
+      forcedQualityRepairSurfaces = repairRefresh.repairSurfaces;
+      state.productionQualityRepair ||= { enabled: true, attempts: [] };
+      state.productionQualityRepair.mode = 'repair_wave_next';
+      state.productionQualityRepair.nextRepairSurfaceCount = forcedQualityRepairSurfaces.length;
+      state.productionQualityRepair.nextRepairSurfaceIds = forcedQualityRepairSurfaces.map((surface) => surface.id).slice(0, 200);
+    } else if (repairRefresh && repairRefresh.evaluation?.ok !== true) {
+      const metrics = aggregateContinuousMetrics(state);
+      finalDecision = {
+        action: 'stop_blocked',
+        thresholdPass: false,
+        reason: 'production_quality_repair_targets_missing',
+        productionQualityEvaluation: repairRefresh.evaluation,
+        nextAction: 'Quality gate is red after the real-run core objective, but the controller could not derive product repair surfaces from the gate artifact. Improve production-quality diagnostics before relaunching.'
+      };
+      state.metrics = metrics;
+      state.thresholdMetrics = repairRefresh.thresholdMetrics || aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
+      state.lastDecision = finalDecision;
+      break;
+    }
+  }
+
+  const forcedControllerRepairSurfaces = forcedObjectiveTruthSurfaces || forcedQualityRepairSurfaces;
+  const forcedControllerRepairKind = forcedObjectiveTruthSurfaces ? 'objective_truth_repair' : (forcedQualityRepairSurfaces ? 'production_quality_repair' : null);
   const requestedSurfaceCount = Math.max(
     1,
     meteringPlan.mode === 'oauth_message_metered'
-      ? requestedAgentCount
-      : requestedAgentCount * Math.max(1, Number(args.bundleSize || 1))
+      ? waveAgentCount
+      : waveAgentCount * Math.max(1, Number(args.bundleSize || 1))
   );
-  let selection = selectNextWaveSurfaces({
-    surfaces: inventory.surfaces,
+  let expansionSelectionPlan = planObjectiveExpansionSurfaceSelection({
+    surfaces: allSurfaces,
     state,
     requestedAgentCount: requestedSurfaceCount,
-    maxAttemptsPerSurface: Math.max(1, Number(args.maxAttemptsPerSurface || 3))
+    maxAttemptsPerSurface: Math.max(1, Number(args.maxAttemptsPerSurface || 3)),
+    activeMaxExpansionCycles,
+    hardMaxExpansionCycles,
+    expansionBatchCycles,
+    includeObjectiveExpansion: true
   });
+  activeMaxExpansionCycles = expansionSelectionPlan.activeMaxExpansionCycles;
+  let baseInventory = expansionSelectionPlan.inventory;
+  let inventory = baseInventory;
+  let selection = expansionSelectionPlan.selection;
 
-  while (!selection.selected.length && activeMaxExpansionCycles < hardMaxExpansionCycles) {
-    activeMaxExpansionCycles = Math.min(hardMaxExpansionCycles, activeMaxExpansionCycles + expansionBatchCycles);
-    inventory = buildContinuousSurfaceInventory({
-      surfaces: allSurfaces,
-      maxExpansionCycles: activeMaxExpansionCycles,
-      includeObjectiveExpansion: true
-    });
-    selection = selectNextWaveSurfaces({
-      surfaces: inventory.surfaces,
-      state,
-      requestedAgentCount: requestedSurfaceCount,
-      maxAttemptsPerSurface: Math.max(1, Number(args.maxAttemptsPerSurface || 3))
-    });
+  if (forcedControllerRepairSurfaces) {
+    inventory = {
+      surfaces: forcedControllerRepairSurfaces,
+      baseSurfaceCount: forcedControllerRepairSurfaces.length,
+      expansionSurfaceCount: baseInventory.expansionSurfaceCount,
+      totalSurfaceCount: forcedControllerRepairSurfaces.length + baseInventory.totalSurfaceCount,
+      backfillBaseSurfaceCount: baseInventory.baseSurfaceCount,
+      backfillExpansionSurfaceCount: baseInventory.expansionSurfaceCount,
+      backfillTotalSurfaceCount: baseInventory.totalSurfaceCount,
+      productionQualityRepair: forcedControllerRepairKind === 'production_quality_repair',
+      objectiveTruthRepair: forcedControllerRepairKind === 'objective_truth_repair'
+    };
+    selection = {
+      ...buildCollisionAwareRepairSelection({
+        repairSurfaces: forcedControllerRepairSurfaces,
+        backfillSurfaces: baseInventory.surfaces,
+        state,
+        requestedSurfaceCount,
+        maxAttemptsPerSurface: Math.max(1, Number(args.maxAttemptsPerSurface || 3))
+      }),
+      productionQualityRepair: forcedControllerRepairKind === 'production_quality_repair',
+      objectiveTruthRepair: forcedControllerRepairKind === 'objective_truth_repair'
+    };
   }
 
   state.objectiveExpansion = {
@@ -727,7 +1478,14 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     hardMaxExpansionCycles,
     expansionBatchCycles,
     lastSelectionCatalogSurfaceCount: selection.catalogSurfaceCount,
-    lastRemainingExecutableSurfaceCount: selection.remainingExecutableSurfaceCount
+    lastRemainingExecutableSurfaceCount: selection.remainingExecutableSurfaceCount,
+    uniquePrimaryProductFileCount: expansionSelectionPlan.uniquePrimaryProductFileCount,
+    desiredSelectionCount: expansionSelectionPlan.desiredSelectionCount,
+    selectionShortfall: forcedControllerRepairSurfaces ? 0 : expansionSelectionPlan.selectionShortfall,
+    expandedForUnderfilledWave: forcedControllerRepairSurfaces ? false : expansionSelectionPlan.expandedForUnderfilledWave,
+    repairBackfill: selection.repairBackfill || { enabled: false },
+    productionQualityRepairActive: forcedControllerRepairKind === 'production_quality_repair',
+    objectiveTruthRepairActive: forcedControllerRepairKind === 'objective_truth_repair'
   };
 
   if (!selection.selected.length) {
@@ -765,6 +1523,22 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     waveNumber,
     bundleMode: args.bundleMode || 'coherent_product_slice'
   });
+  if (forcedControllerRepairKind === 'objective_truth_repair') {
+    const preCollisionSourceSurfaceCount = bundlePlan.sourceSurfaceIds.length;
+    const collisionSafeBundlePlan = avoidSameWaveBundleFileCollisions(bundlePlan, { enabled: true });
+    if (collisionSafeBundlePlan.sameWaveFileCollisionAvoidance?.droppedBundleCount > 0) {
+      bundlePlan = collisionSafeBundlePlan;
+      selection = {
+        ...selection,
+        selected: selection.selected.filter((surface) => bundlePlan.sourceSurfaceIds.includes(surface.id || surface.surfaceId || surface.label)),
+        selectedSurfaceIds: bundlePlan.sourceSurfaceIds,
+        selectedProductFiles: bundlePlan.selectedProductFiles,
+        remainingExecutableSurfaceCount: selection.remainingExecutableSurfaceCount + Math.max(0, preCollisionSourceSurfaceCount - bundlePlan.sourceSurfaceIds.length)
+      };
+    } else {
+      bundlePlan = collisionSafeBundlePlan;
+    }
+  }
   let selectedSurfacesForWave = bundlePlan.surfaces;
   let attemptedSurfaceIdsForWave = stableList([
     ...bundlePlan.sourceSurfaceIds,
@@ -782,6 +1556,24 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
   });
   adaptiveBudgetPlan.meteringAdapter = meteringPlan;
   state.lastAdaptiveBudgetPlan = adaptiveBudgetPlan;
+  if (adaptiveBudgetPlan.insufficientSchedulableAgents) {
+    const metrics = aggregateContinuousMetrics(state);
+    finalDecision = {
+      action: 'stop_blocked',
+      thresholdPass: false,
+      reason: 'insufficient_schedulable_shards_for_min_wave_agents',
+      adaptiveBudgetPlan,
+      requestedAgentCount,
+      waveAgentCount,
+      selectedLogicalSurfaceCount: selectedSurfacesForWave.length,
+      minWaveAgentCount: adaptiveBudgetPlan.minWaveAgentCount,
+      repairBackfill: selection.repairBackfill || null,
+      nextAction: 'Repair scheduling/admission so the requested scale has enough collision-safe runnable shards before launching another spending wave.'
+    };
+    state.metrics = metrics;
+    state.lastDecision = finalDecision;
+    break;
+  }
   const adaptiveTokenBudgetEnabled = args.adaptiveTokenBudget && meteringPlan.adaptiveTokenBudgetEnabled !== false;
   if (adaptiveTokenBudgetEnabled && adaptiveBudgetPlan.insufficientForMinimumWave) {
     const metrics = aggregateContinuousMetrics(state);
@@ -861,12 +1653,23 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
   waveContract.scope.creativeProductWork ||= {};
   waveContract.scope.creativeProductWork.promptMode = promptMode;
   waveContract.scope.creativeProductWork.compactBriefMaxChars = promptMode === 'compact' ? Math.max(4000, Number(args.compactBriefMaxChars || 9000)) : null;
+  waveContract.scope.orchestrationLearning = orchestrationLearningPolicy.enabled ? {
+    ...(baseContract.scope?.orchestrationLearning || {}),
+    enabled: true,
+    ledgerPath: orchestrationLearningPolicy.ledgerPath,
+    limit: orchestrationLearningPolicy.limit,
+    includeCandidates: orchestrationLearningPolicy.includeCandidates,
+    languageVersion: orchestrationLearningPolicy.languageVersion,
+    promotionPolicy: orchestrationLearningPolicy.promotionPolicy
+  } : { enabled: false };
   waveContract.scope.continuousPromptPolicy = {
     promptMode,
     fullContextWaveCount: Math.max(0, Number(args.fullContextWaveCount || 0)),
     modeAfterFullContext: args.modeAfterFullContext || 'compact',
     compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || 9000)),
     contextGovernor: waveContract.scope.contextGovernor,
+    orchestrationLearning: waveContract.scope.orchestrationLearning,
+    waveSchedulingPolicy: state.waveSchedulingPolicy,
     meteringAdapter: meteringPlan,
     adaptiveBudgetPlan,
     bundlePlan: {
@@ -875,8 +1678,19 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
       bundleSize: bundlePlan.bundleSize,
       bundleCount: selectedSurfacesForWave.length,
       sourceSurfaceCount: bundlePlan.sourceSurfaceIds.length,
-      bundleMap: bundlePlan.bundleMap
-    }
+      bundleMap: bundlePlan.bundleMap,
+      sameWaveFileCollisionAvoidance: bundlePlan.sameWaveFileCollisionAvoidance || { enabled: false }
+    },
+    productionQualityRepair: forcedControllerRepairKind === 'production_quality_repair' ? {
+      active: true,
+      repairSurfaceCount: forcedControllerRepairSurfaces.length,
+      source: 'production_quality_gate'
+    } : { active: false },
+    objectiveTruthRepair: forcedControllerRepairKind === 'objective_truth_repair' ? {
+      active: true,
+      repairSurfaceCount: forcedControllerRepairSurfaces.length,
+      source: 'objective_truth'
+    } : { active: false }
   };
   const waveRoot = waveContract.artifactRoot;
   writeJson(path.join(waveRoot, 'run_contract.json'), waveContract);
@@ -886,7 +1700,9 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     promptMode,
     adaptiveBudgetPlan,
     meteringAdapter: meteringPlan,
+    waveSchedulingPolicy: state.waveSchedulingPolicy,
     contextGovernor: waveContract.scope.contextGovernor,
+    orchestrationLearning: waveContract.scope.orchestrationLearning,
     selectedSurfaceIds: bundlePlan.sourceSurfaceIds,
     attemptedSurfaceIds: attemptedSurfaceIdsForWave,
     selectedProductFiles: bundlePlan.selectedProductFiles,
@@ -896,8 +1712,23 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
       bundleSize: bundlePlan.bundleSize,
       bundleCount: selectedSurfacesForWave.length,
       sourceSurfaceCount: bundlePlan.sourceSurfaceIds.length,
-      bundleMap: bundlePlan.bundleMap
+      bundleMap: bundlePlan.bundleMap,
+      sameWaveFileCollisionAvoidance: bundlePlan.sameWaveFileCollisionAvoidance || { enabled: false }
     },
+    productionQualityRepair: forcedControllerRepairKind === 'production_quality_repair' ? {
+      active: true,
+      repairSurfaceCount: forcedControllerRepairSurfaces.length,
+      selectedRepairSurfaceCount: selectedSurfacesForWave.length,
+      repairBackfill: selection.repairBackfill || null,
+      source: 'production_quality_gate'
+    } : { active: false },
+    objectiveTruthRepair: forcedControllerRepairKind === 'objective_truth_repair' ? {
+      active: true,
+      repairSurfaceCount: forcedControllerRepairSurfaces.length,
+      selectedRepairSurfaceCount: selectedSurfacesForWave.length,
+      repairBackfill: selection.repairBackfill || null,
+      source: 'objective_truth'
+    } : { active: false },
     remainingExecutableSurfaceCount: selection.remainingExecutableSurfaceCount,
     objectiveExpansion: state.objectiveExpansion
   });
@@ -911,7 +1742,9 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
       promptMode,
       adaptiveBudgetPlan,
       meteringAdapter: meteringPlan,
+      waveSchedulingPolicy: state.waveSchedulingPolicy,
       contextGovernor: waveContract.scope.contextGovernor,
+      orchestrationLearning: waveContract.scope.orchestrationLearning,
       selectedSurfaceIds: bundlePlan.sourceSurfaceIds,
       attemptedSurfaceIds: attemptedSurfaceIdsForWave,
       selectedProductFiles: bundlePlan.selectedProductFiles,
@@ -921,7 +1754,8 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
         bundleSize: bundlePlan.bundleSize,
         bundleCount: selectedSurfacesForWave.length,
         sourceSurfaceCount: bundlePlan.sourceSurfaceIds.length,
-        bundleMap: bundlePlan.bundleMap
+        bundleMap: bundlePlan.bundleMap,
+        sameWaveFileCollisionAvoidance: bundlePlan.sameWaveFileCollisionAvoidance || { enabled: false }
       },
       objectiveExpansion: state.objectiveExpansion
     };
@@ -969,12 +1803,22 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     bundleSize: bundlePlan.bundleSize,
     bundleCount: selectedSurfacesForWave.length,
     sourceSurfaceCount: bundlePlan.sourceSurfaceIds.length,
-    bundleMap: bundlePlan.bundleMap
+    bundleMap: bundlePlan.bundleMap,
+    sameWaveFileCollisionAvoidance: bundlePlan.sameWaveFileCollisionAvoidance || { enabled: false }
   };
   waveSummary.meteringAdapter = meteringPlan;
   waveSummary.promptMode = promptMode;
   waveSummary.runnerExitCode = run.status;
   waveSummary.runnerSignal = run.signal || null;
+  const learningPromotion = promoteWaveLearning({ policy: orchestrationLearningPolicy, waveRoot, baseContract, waveNumber });
+  if (learningPromotion) {
+    waveSummary.orchestrationLearningPromotion = learningPromotion;
+    state.orchestrationLearning ||= { enabled: true, ledgerPath: orchestrationLearningPolicy.ledgerPath, promotions: [] };
+    state.orchestrationLearning.enabled = true;
+    state.orchestrationLearning.ledgerPath = orchestrationLearningPolicy.ledgerPath;
+    state.orchestrationLearning.lastPromotion = learningPromotion;
+    state.orchestrationLearning.promotions = [...(state.orchestrationLearning.promotions || []), { waveNumber, ...learningPromotion }].slice(-50);
+  }
   state = updateContinuousStateFromWave({ state, waveSummary, selectedSurfaceIds: attemptedSurfaceIdsForWave, waveNumber });
   if (waveSummary.waveFactpackPath) state.lastWaveFactpackPath = waveSummary.waveFactpackPath;
   state.updatedAt = new Date().toISOString();
@@ -1053,16 +1897,93 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
   state.thresholdMetrics = thresholdMetrics;
   state.lastDecision = finalDecision;
   writeJson(path.join(controllerRoot, 'continuous_controller_state.json'), state);
+  if (args.checkpointTopLevelArtifacts && finalDecision.action === 'continue') {
+    const checkpointTiming = attemptTimingSummary({ state, initialWaveSummaryCount, startedAtMs, finishedAtMs: Date.now() });
+    const checkpointThresholdEvaluation = evaluateBenchmarkThresholds({
+      benchmarkTier: baseContract.benchmarkTier || 'tier2_functional',
+      metrics: thresholdMetricSubset(thresholdMetrics)
+    });
+    const checkpointProductionQualityEvaluation = evaluateProductionQualityGate({ metrics: thresholdMetrics, policy: productionQualityPolicy });
+    writeRunningTopLevelCheckpointArtifacts({
+      controllerRoot,
+      baseContract,
+      state,
+      requestedAgentCount,
+      metrics,
+      thresholdMetrics,
+      thresholdEvaluation: checkpointThresholdEvaluation,
+      productionQualityPolicy,
+      productionQualityEvaluation: checkpointProductionQualityEvaluation,
+      orchestrationLearningPolicy,
+      tokenEfficiencyPolicy,
+      tokenEfficiencyEvaluation: tokenEfficiency,
+      tokenEfficiencyDebtRecovery,
+      controllerDecision: finalDecision,
+      timing: checkpointTiming
+    });
+  }
   if (finalDecision.action !== 'continue') break;
 }
 
+const finalStatePath = path.join(controllerRoot, 'continuous_controller_state.json');
+const productionQualityGateRun = runFinalProductionQualityGate({
+  controllerRoot,
+  repoPath,
+  statePath: finalStatePath,
+  policy: productionQualityPolicy,
+  args
+});
+if (productionQualityGateRun) state.productionQualityGateRun = productionQualityGateRun;
+const recordedProductionQualityGate = readJson(path.join(controllerRoot, 'production_quality_gate.json'), null);
+if (recordedProductionQualityGate && typeof recordedProductionQualityGate === 'object') {
+  state.productionQualityGate = recordedProductionQualityGate.metrics || recordedProductionQualityGate;
+}
 const metrics = aggregateContinuousMetrics(state);
 const thresholdMetrics = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
+const finalScaleProof = continuousScaleProofForArtifacts({ metrics, requestedAgentCount, state });
 const finalTiming = attemptTimingSummary({ state, initialWaveSummaryCount, startedAtMs, finishedAtMs: Date.now() });
 const thresholdEvaluation = evaluateBenchmarkThresholds({
   benchmarkTier: baseContract.benchmarkTier || 'tier2_functional',
   metrics: thresholdMetricSubset(thresholdMetrics)
 });
+const finalProductionQualityEvaluation = evaluateProductionQualityGate({ metrics: thresholdMetrics, policy: productionQualityPolicy });
+const finalObjectiveTruthInputs = readObjectiveTruthInputs({
+  policy: state.objectiveTruthPolicy || objectiveTruthPolicy || {},
+  state,
+  metrics: thresholdMetrics,
+  target
+});
+const finalUnmetGates = {
+  scale: {
+    requestedAgentCount,
+    aggregateScaleProofReady: finalScaleProof.aggregateScaleProofReady === true,
+    uniqueWorkerScaleProofReady: finalScaleProof.uniqueWorkerScaleProofReady === true,
+    scaleClaimKind: finalScaleProof.claimKind,
+    minUniqueAgents: Number(target.minUniqueAgents || 0),
+    uniqueAgentCount: Number(thresholdMetrics.uniqueAgentCount || 0),
+    ok: Number(thresholdMetrics.uniqueAgentCount || 0) >= Number(target.minUniqueAgents || 0)
+  },
+  productBreadth: {
+    minChangedProductFiles: Number(target.minChangedProductFiles || 0),
+    changedProductFileCount: Number(thresholdMetrics.changedProductFileCount || 0),
+    ok: Number(thresholdMetrics.changedProductFileCount || 0) >= Number(target.minChangedProductFiles || 0)
+  },
+  objectiveTruth: finalObjectiveTruthInputs?.objectiveTruth ? {
+    required: true,
+    supervisorStatus: finalObjectiveTruthInputs.objectiveTruth.supervisorStatus || null,
+    remainingExecutableSurfaceCount: Number(finalObjectiveTruthInputs.objectiveTruth.remainingExecutableSurfaceCount || 0),
+    negativeSpaceOpenCount: Number(finalObjectiveTruthInputs.objectiveTruth.negativeSpace?.openCount || 0),
+    productionQualityOk: finalObjectiveTruthInputs.objectiveTruth.productionQuality?.ok ?? null,
+    ok: finalObjectiveTruthInputs.objectiveTruth.supervisorStatus === 'green'
+  } : { required: false, ok: true },
+  productionQuality: {
+    required: productionQualityPolicy.enabled === true,
+    ok: finalProductionQualityEvaluation.ok === true,
+    failures: finalProductionQualityEvaluation.failures || []
+  },
+  thresholdFailures: thresholdEvaluation.failures || [],
+  terminalReason: finalDecision?.reason || null
+};
 if (finalDecision?.thresholdPass === true && thresholdEvaluation.ok !== true) {
   finalDecision = {
     action: 'stop_blocked',
@@ -1071,6 +1992,16 @@ if (finalDecision?.thresholdPass === true && thresholdEvaluation.ok !== true) {
     priorControllerDecision: finalDecision,
     thresholdFailures: thresholdEvaluation.failures || [],
     nextAction: 'Repair controller stop criteria so it cannot declare green unless the canonical benchmark threshold evaluator is also green.'
+  };
+}
+if (finalDecision?.thresholdPass === true && finalProductionQualityEvaluation.ok !== true) {
+  finalDecision = {
+    action: 'stop_blocked',
+    thresholdPass: false,
+    reason: 'production_architecture_quality_gate_failed',
+    priorControllerDecision: finalDecision,
+    productionQualityFailures: finalProductionQualityEvaluation.failures || [],
+    nextAction: 'Run the integration hardening phase: fix test regressions, route collisions, duplicate LOC, and architecture violations before claiming production-quality output.'
   };
 }
 const finalTokenEfficiencyPolicy = tokenEfficiencyPolicyFromArgs(args);
@@ -1082,7 +2013,7 @@ const finalTokenEfficiencyDebtRecovery = evaluateTokenEfficiencyDebtRecovery({
   initialWaveSummaryCount,
   target
 });
-const thresholdPass = finalDecision?.thresholdPass === true && thresholdEvaluation.ok === true;
+const thresholdPass = finalDecision?.thresholdPass === true && thresholdEvaluation.ok === true && finalProductionQualityEvaluation.ok === true;
 const pausedBudgetBackoff = finalDecision?.action === 'pause_backoff';
 const blocker = thresholdPass ? null : {
   blocker: pausedBudgetBackoff
@@ -1091,12 +2022,18 @@ const blocker = thresholdPass ? null : {
   blockerKind: finalDecision?.reason || 'continuous_threshold_not_met',
   nextAction: pausedBudgetBackoff
     ? (finalDecision.nextAction || 'Resume after the recorded backoff window.')
+    : finalDecision?.reason === 'production_architecture_quality_gate_failed'
+    ? 'Run the integration hardening phase: fix test regressions, route collisions, duplicate LOC, and architecture violations before claiming production-quality output.'
+    : finalDecision?.reason === 'insufficient_schedulable_shards_for_min_wave_agents'
+    ? 'Repair scheduling/admission so the requested scale has enough collision-safe runnable shards before launching another spending wave.'
     : finalDecision?.reason === 'objective_expansion_missing_executable_work'
     ? 'Add objective-expansion work generation or expand the surface inventory, then resume the controller.'
-    : 'Inspect wave summaries, repair scheduling/budget/merge issues, then resume or rerun the controller.',
+    : 'Inspect unmetGates in this blocker, repair scheduling/quality/objective-truth gaps, then resume or rerun the controller.',
   resumeAfter: pausedBudgetBackoff ? finalDecision.resumeAfter || null : null,
   pauseKind: pausedBudgetBackoff ? finalDecision.pauseKind || 'budget_backoff' : null,
-  thresholdFailures: thresholdEvaluation.failures || []
+  unmetGates: { ...finalUnmetGates, terminalReason: finalDecision?.reason || null },
+  thresholdFailures: thresholdEvaluation.failures || [],
+  productionQualityFailures: finalProductionQualityEvaluation.failures || []
 };
 state.status = thresholdPass ? 'threshold_pass' : pausedBudgetBackoff ? 'paused_budget_backoff' : 'blocked';
 state.paused = pausedBudgetBackoff;
@@ -1115,7 +2052,11 @@ if (pausedBudgetBackoff) {
 state.updatedAt = new Date().toISOString();
 state.metrics = metrics;
 state.thresholdMetrics = thresholdMetrics;
+state.scaleProof = finalScaleProof;
 state.thresholdScoringPolicy = continuousScoringPolicy();
+state.productionQualityPolicy = productionQualityPolicy;
+state.productionQualityEvaluation = finalProductionQualityEvaluation;
+state.orchestrationLearningPolicy = orchestrationLearningPolicy;
 state.tokenEfficiencyPolicy = finalTokenEfficiencyPolicy;
 state.tokenEfficiencyEvaluation = finalTokenEfficiencyEvaluation;
 state.tokenEfficiencyDebtRecovery = finalTokenEfficiencyDebtRecovery;
@@ -1139,7 +2080,14 @@ writeJson(path.join(controllerRoot, 'threshold_evaluation.json'), {
   metrics: thresholdMetrics,
   thresholdMetrics,
   rawAggregateMetrics: metrics,
+  ...scaleProofArtifactFields(finalScaleProof),
   thresholdScoringPolicy: continuousScoringPolicy(),
+  productionQualityPolicy,
+  productionQualityEvaluation: finalProductionQualityEvaluation,
+  productionQualityGate: state.productionQualityGate || null,
+  productionQualityGateRun: state.productionQualityGateRun || null,
+  orchestrationLearningPolicy,
+  orchestrationLearning: state.orchestrationLearning || null,
   tokenEfficiencyPolicy: finalTokenEfficiencyPolicy,
   tokenEfficiencyEvaluation: finalTokenEfficiencyEvaluation,
   tokenEfficiencyDebtRecovery: finalTokenEfficiencyDebtRecovery,
@@ -1155,7 +2103,7 @@ writeJson(path.join(controllerRoot, 'completion_summary.json'), {
   resumeAfter: pausedBudgetBackoff ? finalDecision.resumeAfter || null : null,
   thresholdPass,
   mechanicalGreen: thresholdPass,
-  scaleProofReady: metrics.uniqueAgentCount >= requestedAgentCount && metrics.mergedShardCount >= requestedAgentCount,
+  ...scaleProofArtifactFields(finalScaleProof),
   requestedAgentCount,
   durationMinutes: metrics.autonomyWindowMinutes,
   resumedAggregateDurationMinutes: metrics.autonomyWindowMinutes,
@@ -1173,6 +2121,12 @@ writeJson(path.join(controllerRoot, 'completion_summary.json'), {
   thresholdMetrics,
   rawAggregateMetrics: metrics,
   thresholdScoringPolicy: continuousScoringPolicy(),
+  productionQualityPolicy,
+  productionQualityEvaluation: finalProductionQualityEvaluation,
+  productionQualityGate: state.productionQualityGate || null,
+  productionQualityGateRun: state.productionQualityGateRun || null,
+  orchestrationLearningPolicy,
+  orchestrationLearning: state.orchestrationLearning || null,
   tokenEfficiencyPolicy: finalTokenEfficiencyPolicy,
   tokenEfficiencyEvaluation: finalTokenEfficiencyEvaluation,
   tokenEfficiencyDebtRecovery: finalTokenEfficiencyDebtRecovery,

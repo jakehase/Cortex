@@ -120,3 +120,152 @@ test('preference recall demotes question-echo codec summaries below explicit fac
   assert.equal(results.results[0].citation, 'cortex:pref-1');
   assert.ok(results.results[0].score > results.results[1].score);
 });
+
+test('reconciliation broadly ranks fresh corrected facts above stale negative rows', () => {
+  const cfg = {
+    curatedBoost: 0.24,
+    projectFactBoost: 0.12,
+    durableCandidatePenalty: 0.14,
+    noisyWhatsappPenalty: 0.26,
+    noisyPatternPenalty: 0.2,
+    conflictPenalty: 0.18,
+    recencyBoost: 0.12,
+    explicitBoost: 0.14,
+    corroborationBoost: 0.08,
+    hardQueryCandidateCount: 12,
+  };
+  const results = reconcileResults(
+    'Nexus webhook bridge implemented verified',
+    [
+      {
+        id: 'old-negative',
+        text: 'Could not find any evidence that the Nexus webhook bridge was implemented or verified.',
+        distance: 0.01,
+        score: 0.84,
+        metadata: { source: 'local_file_memory', quality: 'curated', stale_negative_memory: true },
+      },
+      {
+        id: 'fresh-current',
+        text: 'Current canonical status: Nexus webhook bridge implemented, synced, and live verification tests passed.',
+        distance: 0.9,
+        score: 1,
+        metadata: { source: 'local_file_memory', quality: 'curated', correction_memory: true },
+      },
+    ],
+    cfg,
+  );
+
+  assert.equal(results.results[0].citation, 'cortex:fresh-current');
+  assert.ok(!results.results.some((row) => row.citation === 'cortex:old-negative'));
+});
+
+test('negative-evidence queries preserve missing/not-found rows', () => {
+  const cfg = {
+    curatedBoost: 0.24,
+    projectFactBoost: 0.12,
+    durableCandidatePenalty: 0.14,
+    noisyWhatsappPenalty: 0.26,
+    noisyPatternPenalty: 0.2,
+    conflictPenalty: 0.18,
+    recencyBoost: 0.12,
+    explicitBoost: 0.14,
+    corroborationBoost: 0.08,
+    hardQueryCandidateCount: 12,
+  };
+  const results = reconcileResults(
+    'what was missing for Nexus webhook bridge',
+    [
+      {
+        id: 'old-negative',
+        text: 'Could not find any evidence that the Nexus webhook bridge was implemented or verified.',
+        distance: 0.01,
+        score: 0.84,
+        metadata: { source: 'local_file_memory', quality: 'curated', stale_negative_memory: true },
+      },
+      {
+        id: 'fresh-current',
+        text: 'Current canonical status: Nexus webhook bridge implemented, synced, and live verification tests passed.',
+        distance: 0.9,
+        score: 1,
+        metadata: { source: 'local_file_memory', quality: 'curated', correction_memory: true },
+      },
+    ],
+    cfg,
+  );
+
+  assert.ok(results.results.some((row) => row.citation === 'cortex:old-negative'));
+});
+
+test('implemented orchestration facts beat older implement-next-action rows', () => {
+  const cfg = {
+    curatedBoost: 0.24,
+    projectFactBoost: 0.12,
+    durableCandidatePenalty: 0.14,
+    noisyWhatsappPenalty: 0.26,
+    noisyPatternPenalty: 0.2,
+    conflictPenalty: 0.18,
+    recencyBoost: 0.12,
+    explicitBoost: 0.14,
+    corroborationBoost: 0.08,
+    hardQueryCandidateCount: 12,
+  };
+  const results = reconcileResults(
+    'agent orchestration objective expansion generic repair loop',
+    [
+      {
+        id: 'older-plan',
+        text: 'Next action: implement the generic objective expansion repair loop in agent orchestration.',
+        distance: 0.02,
+        score: 0.92,
+        metadata: { source: 'local_file_memory', quality: 'curated' },
+      },
+      {
+        id: 'implemented-fact',
+        text: 'Generic objective-truth repair loop implemented and synced to Hetzner in the shared agent-orchestration layer.',
+        distance: 0.8,
+        score: 1,
+        metadata: { source: 'local_file_memory', quality: 'curated', correction_memory: true },
+      },
+    ],
+    cfg,
+  );
+
+  assert.equal(results.results[0].citation, 'cortex:implemented-fact');
+  assert.ok(!results.results.some((row) => row.citation === 'cortex:older-plan'));
+});
+
+test('memory-system repair notes do not outrank domain facts for domain queries', () => {
+  const cfg = {
+    curatedBoost: 0.24,
+    projectFactBoost: 0.12,
+    durableCandidatePenalty: 0.14,
+    noisyWhatsappPenalty: 0.26,
+    noisyPatternPenalty: 0.2,
+    conflictPenalty: 0.18,
+    recencyBoost: 0.12,
+    explicitBoost: 0.14,
+    corroborationBoost: 0.08,
+    hardQueryCandidateCount: 12,
+  };
+  const results = reconcileResults(
+    'Morgan correspondence SimplePractice NPI billing provider',
+    [
+      {
+        id: 'meta-fix',
+        text: 'Live verification: memory_search("Morgan correspondence SimplePractice NPI billing provider") now returns pmhnp-billing correction rows first. Regression coverage added in test_librarian_recall_fallback.py.',
+        score: 1,
+        metadata: { source: 'local_file_memory' },
+      },
+      {
+        id: 'domain-fact',
+        text: 'BCBS SimplePractice enrollment/NPI truth corrected: use Harbor Behavioral Health PLLC organization NPI 2 and PLLC EIN as billing provider, with Morgan individual NPI 1 as rendering provider.',
+        score: 0.95,
+        metadata: { source: 'local_file_memory', quality: 'curated', correction_memory: true },
+      },
+    ],
+    cfg,
+  );
+
+  assert.equal(results.results[0].citation, 'cortex:domain-fact');
+  assert.ok(!results.results.some((row) => row.citation === 'cortex:meta-fix'));
+});

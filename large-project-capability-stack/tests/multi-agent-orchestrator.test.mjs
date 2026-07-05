@@ -31,6 +31,7 @@ import {
   qualifyLiveScaleTiers
 } from '../packages/multi-agent-orchestrator/index.mjs';
 import { compileTaskContract } from '../packages/task-contract/index.mjs';
+import { createLearningLedger, upsertLearningArtifact } from '../packages/orchestration-learning-ledger/index.mjs';
 import {
   FIXTURE_ROOT,
   VERIFIER_SCRIPT,
@@ -40,6 +41,11 @@ import {
   buildDeterministicFailurePlan
 } from '../apps/orchestrator-qualification/plan.mjs';
 import { prepareLiveFixtureWorkspace } from '../apps/orchestrator-qualification/fixture-workspace.mjs';
+
+function write(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+}
 
 function sampleGraph() {
   return {
@@ -380,6 +386,54 @@ test('context governor compacts worker packs and emits retrieval/model metadata'
   assert.match(pack.contextCache.retrievalDigest, /^[a-f0-9]{64}$/);
   assert.ok(pack.contextFootprint.postGovernorApproxTokens <= 2200);
   assert.ok(pack.contextFootprint.projectedSavingsRatio > 1);
+});
+
+test('context pack retrieves learned Agent Work language fragments for assigned product files', () => {
+  const { workGraph, surfaceMatrix } = sampleGraph();
+  const plan = buildShardPlan({ workGraph, surfaceMatrix, options: { maxFileAreasPerShard: 4, maxFilesPerShard: 4 } });
+  const contract = compileTaskContract({ anchor: 'learning language architecture', targetPath: '/tmp/project', requestedScope: ['A1'], evidenceRequirements: ['tests'] });
+  let ledger = createLearningLedger({ project: 'alpha-learning' });
+  ledger = upsertLearningArtifact(ledger, {
+    kind: 'architecture_pattern',
+    title: 'Alpha layered route/domain pattern',
+    trust: 'trusted',
+    files: ['src/alpha/index.mjs', 'src/alpha/sidebar.mjs'],
+    verifiers: ['tests'],
+    layers: ['route', 'domain'],
+    summary: 'Route delegates to domain contract and verifies assigned alpha behavior.',
+    agentWork: `template alpha_layered_runtime
+  files: src/alpha/index.mjs, src/alpha/sidebar.mjs
+  verify: tests
+  lane: frontend
+evidence alpha_quality
+  require: architectureFitnessScore >= 0.90`
+  });
+  ledger = upsertLearningArtifact(ledger, {
+    kind: 'anti_pattern',
+    title: 'Avoid marker-only alpha edits',
+    trust: 'trusted',
+    files: ['src/alpha/index.mjs'],
+    summary: 'Rejected marker-only alpha edits do not count as product behavior.'
+  });
+  const alphaFirst = plan.shards.find((shard) => shard.id === 'alpha#1');
+  const pack = compileContextPack({
+    contract: { ...contract, orchestrationLearning: { enabled: true, ledger, limit: 3 } },
+    shard: alphaFirst,
+    shardPlan: plan,
+    surfaceMatrix,
+    artifactBus: createArtifactBus(),
+    contextGovernorOptions: { enabled: true, hardGate: true, maxWorkerTokens: 5000 }
+  });
+
+  assert.equal(pack.learningContext.schemaVersion, 'clawd.orchestration_learning_context.v1');
+  assert.equal(pack.learningContext.architecturePatterns[0].title, 'Alpha layered route/domain pattern');
+  assert.equal(pack.learningContext.agentWorkLanguageFragments[0].format, 'agent_work_v0.1_fragment');
+  assert.equal(pack.learningContext.agentWorkLanguageFragments[0].parseOk, true);
+  assert.match(pack.learningContext.agentWorkLanguageFragments[0].sourcePreview, /template alpha_layered_runtime/);
+  assert.equal(pack.learningContext.omittedFields.includes('agentWorkLanguage.source_full'), true);
+  assert.equal(pack.retrievalManifest.learningPatternHandles.some((entry) => entry.kind === 'architecture_pattern'), true);
+  assert.equal(pack.retrievalManifest.instructions.some((line) => /learned Agent Work pattern fragments/.test(line)), true);
+  assert.match(pack.contextCache.retrievalDigest, /^[a-f0-9]{64}$/);
 });
 
 test('context governor hard gate blocks live workers before token burn', async () => {
@@ -1899,6 +1953,82 @@ console.log(JSON.stringify({ ok: true, modifiedFiles: ['src/shared.mjs'], diffSu
   assert.equal(result.landingEvidence?.summary?.status, 'green');
   const finalText = fs.readFileSync(path.join(workspaceRoot, 'src', 'shared.mjs'), 'utf8');
   for (const unit of workUnits) assert.match(finalText, new RegExp(unit.id.replace(/-/g, '_')));
+});
+
+test('isolated product-copy worker workspaces include tests and a committed git baseline for verifiers', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-stack-isolated-product-copy-baseline-'));
+  const workspaceRoot = path.join(tempRoot, 'workspace');
+  const runRoot = path.join(tempRoot, 'runs');
+  write(path.join(workspaceRoot, 'packages', 'app', 'route.mjs'), 'export const routeStatus = "baseline";\n');
+  write(path.join(workspaceRoot, 'tests', 'route.test.mjs'), 'export const fixturePresent = true;\n');
+
+  const verifierScript = path.join(tempRoot, 'verifier.mjs');
+  fs.writeFileSync(verifierScript, `console.log(JSON.stringify({ ok: true }));\n`);
+  const implementationScript = path.join(tempRoot, 'implement-product-copy-baseline.mjs');
+  fs.writeFileSync(implementationScript, `
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+const index = process.argv.indexOf('--assignment');
+const assignment = JSON.parse(fs.readFileSync(process.argv[index + 1], 'utf8'));
+const hasCopiedTest = fs.existsSync(path.join(assignment.workspacePath, 'tests/route.test.mjs'));
+const hasHead = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], { cwd: assignment.workspacePath, encoding: 'utf8' }).status === 0;
+const target = path.join(assignment.workspacePath, 'packages/app/route.mjs');
+fs.appendFileSync(target, 'export const routeVerifierReady = true;\\n');
+const diffCheckOk = spawnSync('git', ['diff', '--check'], { cwd: assignment.workspacePath, encoding: 'utf8' }).status === 0;
+if (!hasCopiedTest || !hasHead || !diffCheckOk) {
+  console.log(JSON.stringify({ ok: false, hasCopiedTest, hasHead, diffCheckOk, modifiedFiles: ['packages/app/route.mjs'] }));
+  process.exit(1);
+}
+console.log(JSON.stringify({ ok: true, modifiedFiles: ['packages/app/route.mjs'], diffSummary: 'product-copy worker has tests and git baseline' }));
+`);
+
+  const workUnits = [{
+    id: 'route-product-copy-baseline',
+    title: 'Route product copy baseline',
+    goal: 'prove isolated_product_copy includes tests and supports git-diff verifiers',
+    lane: 'workspace_integrity',
+    domain: 'orchestrator',
+    fileAreas: ['packages/app/route.mjs'],
+    allowedFiles: ['packages/app/route.mjs', 'tests/route.test.mjs'],
+    acceptanceChecks: ['worker can see tests and run git diff --check'],
+    requiredVerifiers: ['tests'],
+    metadata: {
+      assignmentContract: {
+        artifactKind: 'product_diff',
+        targetFiles: ['packages/app/route.mjs'],
+        targetModules: ['packages/app'],
+        verifierRequirements: ['tests'],
+        successPredicate: ['worker can see tests and run git diff --check']
+      }
+    }
+  }];
+
+  const result = await runLiveWorkerFarm({
+    workGraph: { targetPath: workspaceRoot, workUnits },
+    surfaceMatrix: { surfaces: [{ id: 'WORKSPACE_INTEGRITY', label: 'Workspace integrity', issueIds: workUnits.map((unit) => unit.id), requiredArtifacts: [] }] },
+    agentCount: 1,
+    workerScriptPath: WORKER_SCRIPT,
+    verifierScriptPath: verifierScript,
+    implementationScriptPath: implementationScript,
+    workspacePath: workspaceRoot,
+    runRoot,
+    leaseTtlMs: 1000,
+    maxRuntimeMs: 30000,
+    pollMs: 20,
+    workerWorkspaceMode: 'isolated_product_copy',
+    promoteMergedWorkerWorkspaceChanges: true,
+    canonicalLandingEvidence: true,
+    landingEvidencePolicy: { mode: 'block_on_failed_landing', productPaths: ['packages/app/route.mjs'] },
+    plannerOptions: { maxFileAreasPerShard: 2, maxFilesPerShard: 2, maxAcceptanceChecksPerShard: 1 }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.patchQueue.merged.length, 1);
+  const workerWorkspace = result.patchQueue.merged[0].metadata.implementation.metadata.workerWorkspace;
+  assert.equal(workerWorkspace.gitBaseline?.ok, true);
+  assert.equal(workerWorkspace.gitBaseline?.mode, 'git_commit_baseline');
+  assert.match(fs.readFileSync(path.join(workspaceRoot, 'packages/app/route.mjs'), 'utf8'), /routeVerifierReady/);
 });
 
 test('isolated worker promotion appends whole suffix blocks instead of dropping duplicate syntax lines', async () => {

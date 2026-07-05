@@ -1,0 +1,3296 @@
+{
+  "generatedAt": "2026-06-16T01:55:36.813Z",
+  "mode": "public_read_non_trading_pilot",
+  "inputCounts": {
+    "polymarket": 1000,
+    "kalshi": 600
+  },
+  "fetchErrors": [],
+  "candidates": [
+    {
+      "platform": "polymarket",
+      "id": "568116",
+      "ticker": "will-trump-be-impeached-by-december-31-2026",
+      "title": "Will Trump be impeached by end of 2026?",
+      "description": "This market will resolve to “Yes“ if the US House of Representatives by simple majority vote to approve or pass one or more articles of impeachment of President Donald Trump, between July 24, 2025, and December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nNeither trial nor conviction by the US Senate, nor removal from office, is necessary to resolve this market to “Yes“.\n\nThe primary resolution source for this market will be information from the federal government of the United States, however a consensus of credible reporting will be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-trump-be-impeached-by-december-31-2026",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 104572.5078,
+      "volumeUsd": 874310.9001330046,
+      "yesPrice": 0.07,
+      "rawCategory": null,
+      "score": 76,
+      "nichePriority": 2,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "trial",
+        "impeached",
+        "senate",
+        "house"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "trial",
+            "impeached"
+          ]
+        },
+        {
+          "id": "legislation",
+          "label": "Legislation / committees",
+          "hits": [
+            "senate",
+            "house"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence.",
+        "Congress.gov bill status/actions; committee calendars; official chamber roll-call/vote pages."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "665363",
+      "ticker": "lee-jae-myung-arrested-before-2027",
+      "title": "Lee Jae-myung arrested before 2027?",
+      "description": "This market will resolve to \"Yes\" if the Leader of the Democratic Party of Korea Lee Jae-myung is arrested or detained by law enforcement by December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nA qualifying arrest/detention includes:\n* Being taken into physical custody by law enforcement authorities (including federal, state, local, military, or international law enforcement)\n* Voluntarily surrendering to law enforcement authorities in response to an arrest warrant\n* Being formally booked or processed following detention\n* Being handcuffed by a state authority and taken to a police station\n* Surrendering at a police station or courthouse with their attorney\n* Being placed under house arrest or electronic monitoring\n\nThe following scenarios will NOT qualify as an arrest/detention\n* An arrest warrant being issued but not executed\n* Being questioned or interviewed without arrest\n* Being named in an indictment without arrest\n\nThe primary resolution source for this market will be official information from the arresting government and law enforcement, however a consensus of credible reporting may also be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/lee-jae-myung-arrested-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 69501.19406,
+      "volumeUsd": 441608.68689499964,
+      "yesPrice": 0.1075,
+      "rawCategory": null,
+      "score": 76,
+      "nichePriority": 2,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "indictment",
+        "arrested",
+        "custody",
+        "house"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "indictment",
+            "arrested",
+            "custody"
+          ]
+        },
+        {
+          "id": "legislation",
+          "label": "Legislation / committees",
+          "hits": [
+            "house"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence.",
+        "Congress.gov bill status/actions; committee calendars; official chamber roll-call/vote pages."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "665209",
+      "ticker": "will-trump-be-impeached-by-june-30",
+      "title": "Will Trump be impeached by June 30?",
+      "description": "This market will resolve to “Yes“ if the US House of Representatives by simple majority vote to approve or pass one or more articles of impeachment of President Donald Trump, by June 30, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nNeither trial nor conviction by the US Senate, nor removal from office, is necessary to resolve this market to “Yes“.\n\nThe primary resolution source for this market will be information from the federal government of the United States, however a consensus of credible reporting will be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-trump-be-impeached-by-june-30",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 85888.12812,
+      "volumeUsd": 406975.5543780018,
+      "yesPrice": 0.0035,
+      "rawCategory": null,
+      "score": 76,
+      "nichePriority": 2,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "trial",
+        "impeached",
+        "senate",
+        "house"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "trial",
+            "impeached"
+          ]
+        },
+        {
+          "id": "legislation",
+          "label": "Legislation / committees",
+          "hits": [
+            "senate",
+            "house"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence.",
+        "Congress.gov bill status/actions; committee calendars; official chamber roll-call/vote pages."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "665246",
+      "ticker": "yoon-out-of-custody-before-2027",
+      "title": "Yoon out of custody before 2027?",
+      "description": "This market will resolve to \"Yes\" if President of South Korea Yoon Suk Yeol is released from custody by December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nIf Yoon is released but remains under house arrest, the market will still resolve to \"Yes\".\n\nIf Yoon is released on parole, bond, or any other condition that results in them leaving state custody, the market will resolve to \"Yes\".\n\nTransporting Yoon to another location of custody (e.g., a different prison, court, or hospital within the correctional system) will not suffice to resolve this market to \"Yes\".\n\nThe primary resolution source for this market will be official information from government authorities or corrections departments; however, a consensus of credible reporting may also be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/yoon-out-of-custody-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 24316.43989,
+      "volumeUsd": 58280.775179,
+      "yesPrice": 0.1115,
+      "rawCategory": null,
+      "score": 76,
+      "nichePriority": 2,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "court",
+        "custody",
+        "house"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "court",
+            "custody"
+          ]
+        },
+        {
+          "id": "legislation",
+          "label": "Legislation / committees",
+          "hits": [
+            "house"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence.",
+        "Congress.gov bill status/actions; committee calendars; official chamber roll-call/vote pages."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "665465",
+      "ticker": "obama-arrested-before-2027",
+      "title": "Obama arrested before 2027?",
+      "description": "This market will resolve to \"Yes\" if Barack Obama is arrested by December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nA qualifying arrest/detention includes:\n* Being taken into physical custody by law enforcement authorities (including federal, state, local, military, or international law enforcement)\n* Voluntarily surrendering to law enforcement authorities in response to an arrest warrant\n* Being formally booked or processed following detention\n* Being handcuffed by a state authority and taken to a police station\n* Surrendering at a police station or courthouse with their attorney\n* Being placed under house arrest or electronic monitoring\n\nThe following scenarios will NOT qualify as an arrest/detention\n* An arrest warrant being issued but not executed\n* Being briefly detained but not arrested (e.g. such as in the South Korean judicial system when an individual is awaiting a judge’s decision on whether to grant a detention warrant)\n* Being questioned or interviewed without arrest\n* Being named in an indictment without arrest\n\nThe primary resolution source for this market will be official information from the arresting government and law enforcement, however a consensus of credible reporting may also be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/obama-arrested-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 18901.3196,
+      "volumeUsd": 10770.662305000002,
+      "yesPrice": 0.068,
+      "rawCategory": null,
+      "score": 76,
+      "nichePriority": 2,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "judge",
+        "indictment",
+        "arrested",
+        "custody",
+        "house"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "judge",
+            "indictment",
+            "arrested",
+            "custody"
+          ]
+        },
+        {
+          "id": "legislation",
+          "label": "Legislation / committees",
+          "hits": [
+            "house"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence.",
+        "Congress.gov bill status/actions; committee calendars; official chamber roll-call/vote pages."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "563650",
+      "ticker": "scotus-accepts-sports-event-contract-case-by-july-31-2026",
+      "title": "SCOTUS accepts sports event contract case by July 31, 2026?     ",
+      "description": "This market will resolve to \"Yes\" if the Supreme Court of the United States grants certiorari in a case explicitly concerning the legality, regulation, or jurisdictional authority over sports event contracts by July 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No.\"\n\nA case qualifies if it addresses at least one of the following: (1) whether contracts based on sporting event outcomes constitute regulated derivatives under the Commodity Exchange Act; (2) whether federal regulation via the Commodity Futures Trading Commission preempts state-level gambling laws as applied to such contracts; or (3) whether sports event contracts offered by federally licensed markets may legally be offered, restricted, or prohibited by federal or state authorities.\n\nThe certiorari grant must be publicly confirmed via the official SCOTUS docket or orders list, and verifiable through credible legal reporting or the Supreme Court’s official website. The case does not need to be heard, scheduled, or decided to qualify. \n\nThe resolution source will be a consensus census of credible reporting. ",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/scotus-accepts-sports-event-contract-case-by-july-31-2026",
+      "closeTime": "2026-07-31T00:00:00.000Z",
+      "liquidityUsd": 14075.7346,
+      "volumeUsd": 942290.4341899994,
+      "yesPrice": 0.045,
+      "rawCategory": "July 31",
+      "score": 64,
+      "nichePriority": 2,
+      "daysLeft": 44.9,
+      "matchedTerms": [
+        "court",
+        "supreme court",
+        "scotus"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "court",
+            "supreme court",
+            "scotus"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "665506",
+      "ticker": "lee-jae-myung-impeached-before-2027",
+      "title": "Lee Jae-myung impeached before 2027?",
+      "description": "This market will resolve to \"Yes\" if the President of South Korea, Lee Jae-myung, is formally impeached by the South Korean National Assembly by December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No.\"\n\nFor this market to resolve to \"Yes\" it is only necessary that the National Assembly propose and approve a motion of impeachment against Lee Jae-myung, regardless of whether the Constitutional Court later upholds the impeachment.\n\nThe primary resolution source for this market is official information from the South Korean government, however a consensus of credible reporting may be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/lee-jae-myung-impeached-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 50865.55448,
+      "volumeUsd": 13595.245267000002,
+      "yesPrice": 0.1045,
+      "rawCategory": null,
+      "score": 64,
+      "nichePriority": 2,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "court",
+        "impeached"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "court",
+            "impeached"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "665453",
+      "ticker": "obama-federally-charged-before-2027",
+      "title": "Obama federally charged before 2027?",
+      "description": "This market will resolve to \"Yes\" if the United States federal government formally charges or announces a criminal indictment of Barack Obama by December 31, 2026 11:59pm ET. Otherwise, this market will resolve to \"No\".\n\nFor the purposes of this market the District of Columbia and any county, municipality, or other subdivision of a State shall be included within the definition of a State.\n\nThe primary resolution source for this market will be official information from US governmental sources, however a wide consensus of credible reporting will also be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/obama-federally-charged-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 4621.55409,
+      "volumeUsd": 8644.848055000002,
+      "yesPrice": 0.055,
+      "rawCategory": null,
+      "score": 64,
+      "nichePriority": 2,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "charges",
+        "indictment",
+        "federally charged"
+      ],
+      "matchedGroups": [
+        {
+          "id": "courts_legal",
+          "label": "Courts / lawsuits",
+          "hits": [
+            "charges",
+            "indictment",
+            "federally charged"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "CourtListener/RECAP docket search; court opinions/orders pages; party press releases only as secondary evidence."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608366",
+      "ticker": "will-openais-market-cap-be-between-1pt25t-and-1pt5t-at-market-close-on-ipo-day",
+      "title": "Will OpenAI’s market cap be between $1.25T and $1.5T at market close on IPO day?",
+      "description": "This market will resolve based on OpenAI's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, the market will resolve to \"No IPO by December 31, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on OpenAI’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openais-market-cap-be-between-1pt25t-and-1pt5t-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 7991.01344,
+      "volumeUsd": 514798.4520749995,
+      "yesPrice": 0.198,
+      "rawCategory": "1.25T–1.5T",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608410",
+      "ticker": "will-anthropic-not-ipo-by-june-30-2026",
+      "title": "Will Anthropic not IPO by June 30, 2026?",
+      "description": "This market will resolve based on Anthropic's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Anthropic’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-anthropic-not-ipo-by-june-30-2026",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 42752.83139,
+      "volumeUsd": 340983.82804000174,
+      "yesPrice": 0.995,
+      "rawCategory": "No IPO by June 30, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608368",
+      "ticker": "will-openai-not-ipo-by-december-31-2026",
+      "title": "Will OpenAI not IPO by December 31, 2026?",
+      "description": "This market will resolve based on OpenAI's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, the market will resolve to \"No IPO by December 31, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on OpenAI’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openai-not-ipo-by-december-31-2026",
+      "closeTime": "2027-01-01T01:00:00.000Z",
+      "liquidityUsd": 18261.0853,
+      "volumeUsd": 365141.5157979999,
+      "yesPrice": 0.445,
+      "rawCategory": "No IPO by December 31, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 199,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676785",
+      "ticker": "openai-ipo-before-2027",
+      "title": "OpenAI IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/openai-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 9744.4644,
+      "volumeUsd": 351729.46225200035,
+      "yesPrice": 0.57,
+      "rawCategory": "OpenAI",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608409",
+      "ticker": "will-anthropics-market-cap-be-greater-than-600b-at-market-close-on-ipo-day",
+      "title": "Will Anthropic’s market cap be $600B or greater at market close on IPO day?",
+      "description": "This market will resolve based on Anthropic's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Anthropic’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-anthropics-market-cap-be-greater-than-600b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 36013.15226,
+      "volumeUsd": 324704.0026389997,
+      "yesPrice": 0.003,
+      "rawCategory": "600B+",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676784",
+      "ticker": "anduril-ipo-before-2027",
+      "title": "Anduril IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/anduril-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 4156.2727,
+      "volumeUsd": 353100.05635899917,
+      "yesPrice": 0.135,
+      "rawCategory": "Anduril",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676792",
+      "ticker": "anthropic-ipo-before-2027",
+      "title": "Anthropic IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/anthropic-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 15086.8773,
+      "volumeUsd": 325647.20519299933,
+      "yesPrice": 0.8,
+      "rawCategory": "Anthropic",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608404",
+      "ticker": "will-anthropics-market-cap-be-less-than-100b-at-market-close-on-ipo-day",
+      "title": "Will Anthropic’s market cap be less than $100B at market close on IPO day?",
+      "description": "This market will resolve based on Anthropic's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Anthropic’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-anthropics-market-cap-be-less-than-100b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 24274.82414,
+      "volumeUsd": 310445.4224540006,
+      "yesPrice": 0.0005,
+      "rawCategory": "<100B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608398",
+      "ticker": "will-discords-market-cap-be-less-than-15b-at-market-close-on-ipo-day",
+      "title": "Will Discord’s market cap be less than $15B at market close on IPO day?",
+      "description": "This market will resolve based on Discord's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Discord’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-discords-market-cap-be-less-than-15b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 7573.03869,
+      "volumeUsd": 307833.35337500036,
+      "yesPrice": 0.0035,
+      "rawCategory": "<15B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608362",
+      "ticker": "will-openais-market-cap-be-less-than-500b-at-market-close-on-ipo-day",
+      "title": "Will OpenAI’s market cap be less than $500B at market close on IPO day?",
+      "description": "This market will resolve based on OpenAI's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, the market will resolve to \"No IPO by December 31, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on OpenAI’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openais-market-cap-be-less-than-500b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8400.62896,
+      "volumeUsd": 288945.1401520007,
+      "yesPrice": 0.015,
+      "rawCategory": "<500B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "656313",
+      "ticker": "openai-1t-ipo-before-2027",
+      "title": "OpenAI $1t+ IPO before 2027?",
+      "description": "This market will resolve to “Yes” if OpenAI completes an initial public offering (IPO) valued at $1 trillion USD or higher at the time of the IPO by December 31, 2026, 11:59 PM ET. Otherwise, it will resolve to “No.”\n\nAn “initial public offering (IPO)” refers to the first sale of OpenAI’s equity securities to the public through a regulated stock exchange.\n\nOpenAI will be considered to have achieved a $1 trillion valuation if the market capitalization implied by the IPO offering price multiplied by the total number of outstanding shares equals or exceeds $1 trillion USD.\n\nAnnouncements, filings, or planned IPOs that do not result in public trading by that time will not qualify. Private funding rounds, secondary share sales, or employee-share transactions will not be considered. A direct listing or merger via SPAC will qualify only if it results in OpenAI’s common shares becoming publicly traded for the first time on a major exchange.\n\nIf OpenAI’s IPO is priced before the resolution deadline but public trading has not yet commenced, the market may remain open for up to 30 calendar days to determine whether the IPO is completed.\n\nIf OpenAI is acquired, dissolved, or merged into another entity before an IPO occurs, this market will resolve to “No.” In the event of a restructuring, the market will resolve based on the entity legally recognized as OpenAI’s successor will \n\nThe resolution source will be a consensus for credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/openai-1t-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 4448.7598,
+      "volumeUsd": 281126.0263999993,
+      "yesPrice": 0.42,
+      "rawCategory": null,
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo",
+        "merger"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo",
+            "merger"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608408",
+      "ticker": "will-anthropics-market-cap-be-between-400b-and-600b-at-market-close-on-ipo-day",
+      "title": "Will Anthropic’s market cap be between $400B and $600B at market close on IPO day?",
+      "description": "This market will resolve based on Anthropic's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Anthropic’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-anthropics-market-cap-be-between-400b-and-600b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 39274.93347,
+      "volumeUsd": 225604.3683399998,
+      "yesPrice": 0.0015,
+      "rawCategory": "400–600B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676778",
+      "ticker": "stripe-ipo-before-2027",
+      "title": "Stripe IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/stripe-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 7413.8689,
+      "volumeUsd": 253046.83726099966,
+      "yesPrice": 0.1,
+      "rawCategory": "Stripe",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676786",
+      "ticker": "brex-ipo-before-2027",
+      "title": "Brex IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/brex-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 5812.44382,
+      "volumeUsd": 219965.24040899993,
+      "yesPrice": 0.0255,
+      "rawCategory": "Brex",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608403",
+      "ticker": "will-discord-not-ipo-by-june-30-2026",
+      "title": "Will Discord not IPO by June 30, 2026?",
+      "description": "This market will resolve based on Discord's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Discord’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-discord-not-ipo-by-june-30-2026",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8459.14137,
+      "volumeUsd": 211421.73693599997,
+      "yesPrice": 0.988,
+      "rawCategory": "No IPO by June 30, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608365",
+      "ticker": "will-openais-market-cap-be-between-1t-and-1pt25t-at-market-close-on-ipo-day",
+      "title": "Will OpenAI’s market cap be between $1T and $1.25T at market close on IPO day?",
+      "description": "This market will resolve based on OpenAI's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, the market will resolve to \"No IPO by December 31, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on OpenAI’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openais-market-cap-be-between-1t-and-1pt25t-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 9610.31086,
+      "volumeUsd": 204886.14672500038,
+      "yesPrice": 0.145,
+      "rawCategory": "1T–1.25T",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608406",
+      "ticker": "will-anthropics-market-cap-be-between-200b-and-300b-at-market-close-on-ipo-day",
+      "title": "Will Anthropic’s market cap be between $200B and $300B at market close on IPO day?",
+      "description": "This market will resolve based on Anthropic's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Anthropic’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-anthropics-market-cap-be-between-200b-and-300b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 33009.2105,
+      "volumeUsd": 180958.77631800048,
+      "yesPrice": 0.0005,
+      "rawCategory": "200–300B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676830",
+      "ticker": "will-microstrategy-announce-bankruptcy-before-2027",
+      "title": "Will MicroStrategy announce bankruptcy before 2027?",
+      "description": "This market will resolve to \"Yes\" if MicroStrategy announces that it will file for bankruptcy or has filed for bankruptcy of any variety by December 31, 2026, 11:59 PM ET.\n\nAn announcement will suffice for a \"Yes\" resolution, regardless of if or when the actual filing occurs.\n\nThe announcement must be made through any of their official or verified channels, as a recorded or written statement by their CEO, legal representation, or other individual or team which officially represents MicroStrategy.\n\nA definitive consensus of credible reporting may also be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-microstrategy-announce-bankruptcy-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 17483.7096,
+      "volumeUsd": 171572.49521700013,
+      "yesPrice": 0.065,
+      "rawCategory": null,
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "bankruptcy",
+        "filing"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "bankruptcy",
+            "filing"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608405",
+      "ticker": "will-anthropics-market-cap-be-between-100b-and-200b-at-market-close-on-ipo-day",
+      "title": "Will Anthropic’s market cap be between $100B and $200B at market close on IPO day?",
+      "description": "This market will resolve based on Anthropic's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Anthropic’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-anthropics-market-cap-be-between-100b-and-200b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 35765.76558,
+      "volumeUsd": 153159.29527599984,
+      "yesPrice": 0.0005,
+      "rawCategory": "100–200B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608364",
+      "ticker": "will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day",
+      "title": "Will OpenAI’s market cap be between $750B and $1T at market close on IPO day?",
+      "description": "This market will resolve based on OpenAI's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, the market will resolve to \"No IPO by December 31, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on OpenAI’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8647.45786,
+      "volumeUsd": 164266.49767600026,
+      "yesPrice": 0.0715,
+      "rawCategory": "750B–1T",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608363",
+      "ticker": "will-openais-market-cap-be-between-500b-and-750b-at-market-close-on-ipo-day",
+      "title": "Will OpenAI’s market cap be between $500B and $750B at market close on IPO day?",
+      "description": "This market will resolve based on OpenAI's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, the market will resolve to \"No IPO by December 31, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on OpenAI’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openais-market-cap-be-between-500b-and-750b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 10738.0811,
+      "volumeUsd": 159808.1644210004,
+      "yesPrice": 0.0305,
+      "rawCategory": "500–750B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608390",
+      "ticker": "will-databricks-market-cap-be-greater-than-250b-at-market-close-on-ipo-day",
+      "title": "Will Databricks’ market cap be $250B or greater at market close on IPO day?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-market-cap-be-greater-than-250b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 15092.31792,
+      "volumeUsd": 145623.3282559999,
+      "yesPrice": 0.0015,
+      "rawCategory": "250B+",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608407",
+      "ticker": "will-anthropics-market-cap-be-between-300b-and-400b-at-market-close-on-ipo-day",
+      "title": "Will Anthropic’s market cap be between $300B and $400B at market close on IPO day?",
+      "description": "This market will resolve based on Anthropic's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Anthropic’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-anthropics-market-cap-be-between-300b-and-400b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 25339.82094,
+      "volumeUsd": 134107.4671049996,
+      "yesPrice": 0.0005,
+      "rawCategory": "300–400B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676790",
+      "ticker": "mistral-ai-ipo-before-2027",
+      "title": "Mistral AI IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/mistral-ai-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 3375.6799,
+      "volumeUsd": 152106.83765700017,
+      "yesPrice": 0.2,
+      "rawCategory": "Mistral AI",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "599832",
+      "ticker": "will-microsoft-acquire-tiktok-637-223-119",
+      "title": "Will Microsoft acquire TikTok?",
+      "description": "This market will resolve to \"Yes\" if it is officially announced that TikTok will be, has been, or is being acquired by or merged with the listed entity, by June 30, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nAn announcement by TikTok will qualify for a \"Yes\" resolution, regardless of whether the announced acquisition/merger actually occurs.\n\nIf TikTok is part of an acquisition or merger involving the specified entity, this market will resolve to \"Yes,\" regardless of whether it is the sole buyer or partner.\n\nThe primary resolution source for this market will be official information from TikTok or the listed entity, however a consensus of credible reporting may also be use\n",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-microsoft-acquire-tiktok-637-223-119",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 8908.98003,
+      "volumeUsd": 141728.63413600004,
+      "yesPrice": 0.0095,
+      "rawCategory": "Microsoft",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "merger",
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "merger",
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676779",
+      "ticker": "ripple-labs-ipo-before-2027",
+      "title": "Ripple Labs IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/ripple-labs-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 3709.217,
+      "volumeUsd": 146558.08359200007,
+      "yesPrice": 0.13,
+      "rawCategory": "Ripple Labs",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "599834",
+      "ticker": "will-meta-acquire-tiktok-745-612-641",
+      "title": "Will Meta acquire TikTok?",
+      "description": "This market will resolve to \"Yes\" if it is officially announced that TikTok will be, has been, or is being acquired by or merged with the listed entity, by June 30, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nAn announcement by TikTok will qualify for a \"Yes\" resolution, regardless of whether the announced acquisition/merger actually occurs.\n\nIf TikTok is part of an acquisition or merger involving the specified entity, this market will resolve to \"Yes,\" regardless of whether it is the sole buyer or partner.\n\nThe primary resolution source for this market will be official information from TikTok or the listed entity, however a consensus of credible reporting may also be use\n",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-meta-acquire-tiktok-745-612-641",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 10485.4098,
+      "volumeUsd": 136959.0843469999,
+      "yesPrice": 0.009,
+      "rawCategory": "Meta",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "merger",
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "merger",
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608367",
+      "ticker": "will-openais-market-cap-be-greater-than-1pt5t-at-market-close-on-ipo-day",
+      "title": "Will OpenAI’s market cap be $1.5T or greater at market close on IPO day?",
+      "description": "This market will resolve based on OpenAI's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, the market will resolve to \"No IPO by December 31, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on OpenAI’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openais-market-cap-be-greater-than-1pt5t-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8239.48632,
+      "volumeUsd": 136974.9059170004,
+      "yesPrice": 0.16,
+      "rawCategory": "1.5T+",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676791",
+      "ticker": "deel-ipo-before-2027",
+      "title": "Deel IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/deel-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 7128.8064,
+      "volumeUsd": 128708.90956099995,
+      "yesPrice": 0.045,
+      "rawCategory": "Deel",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676783",
+      "ticker": "vanta-ipo-before-2027",
+      "title": "Vanta IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/vanta-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 3796.4982,
+      "volumeUsd": 131821.46185300016,
+      "yesPrice": 0.135,
+      "rawCategory": "Vanta",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608401",
+      "ticker": "will-discords-market-cap-be-between-25b-and-30b-at-market-close-on-ipo-day",
+      "title": "Will Discord’s market cap be between $25B and $30B at market close on IPO day?",
+      "description": "This market will resolve based on Discord's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Discord’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-discords-market-cap-be-between-25b-and-30b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 10361.06082,
+      "volumeUsd": 118506.0247679999,
+      "yesPrice": 0.003,
+      "rawCategory": "25–30B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608399",
+      "ticker": "will-discords-market-cap-be-between-15b-and-20b-at-market-close-on-ipo-day",
+      "title": "Will Discord’s market cap be between $15B and $20B at market close on IPO day?",
+      "description": "This market will resolve based on Discord's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Discord’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-discords-market-cap-be-between-15b-and-20b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 7273.98089,
+      "volumeUsd": 114830.1656589999,
+      "yesPrice": 0.0035,
+      "rawCategory": "15–20B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608402",
+      "ticker": "will-discords-market-cap-be-greater-than-30b-at-market-close-on-ipo-day",
+      "title": "Will Discord’s market cap be $30B or greater at market close on IPO day?",
+      "description": "This market will resolve based on Discord's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Discord’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-discords-market-cap-be-greater-than-30b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8053.13213,
+      "volumeUsd": 110495.0341239998,
+      "yesPrice": 0.0015,
+      "rawCategory": "30B+",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608374",
+      "ticker": "will-fannie-maes-market-cap-be-between-300b-and-350b-at-market-close-on-ipo-day",
+      "title": "Will Fannie Mae’s market cap be between $300B and $350B at market close on IPO day?",
+      "description": "This market will resolve based on Fannie Mae's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Fannie Mae’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-fannie-maes-market-cap-be-between-300b-and-350b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 6764.148,
+      "volumeUsd": 111261.8001179999,
+      "yesPrice": 0.002,
+      "rawCategory": "300–350B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676788",
+      "ticker": "anysphere-cursor-ipo-before-2027",
+      "title": "Anysphere (Cursor) IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/anysphere-cursor-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 3518.078,
+      "volumeUsd": 98095.73069500011,
+      "yesPrice": 0.04,
+      "rawCategory": "Anysphere (Cursor)",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "599836",
+      "ticker": "will-elon-musk-x-twitter-acquire-tiktok-257-246-564",
+      "title": "Will Elon Musk / X (Twitter) acquire TikTok?",
+      "description": "This market will resolve to \"Yes\"  if it is officially announced that the listed individual, either personally or through an entity, enters into an agreement with TikTok to acquire its US operations by June 30, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nAn official announcement will qualify for a \"Yes\" resolution, regardless of whether the acquisition is ultimately completed.\n\nThe entity entering into the agreement does not need to be controlled by the listed individual; their involvement as a partial owner, investor, or similar role will qualify for a \"Yes\" resolution.\n\nThe primary resolution source for this market is official information from the listed individual and/or TikTok, however a consensus of credible reporting will also be used.\n",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-elon-musk-x-twitter-acquire-tiktok-257-246-564",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 7161.69152,
+      "volumeUsd": 92996.51067299997,
+      "yesPrice": 0.0125,
+      "rawCategory": "Elon Musk / X (Twitter)",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608387",
+      "ticker": "will-databricks-market-cap-be-between-150b-and-175b-at-market-close-on-ipo-day",
+      "title": "Will Databricks’ market cap be between $150B and $175B at market close on IPO day?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-market-cap-be-between-150b-and-175b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 12077.5252,
+      "volumeUsd": 83894.04048999998,
+      "yesPrice": 0.0015,
+      "rawCategory": "150–175B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608392",
+      "ticker": "will-stripes-market-cap-be-less-than-80b-at-market-close-on-ipo-day",
+      "title": "Will Stripe’s market cap be less than $80B at market close on IPO day?",
+      "description": "This market will resolve based on Stripe's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Stripe’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-stripes-market-cap-be-less-than-80b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 6971.53754,
+      "volumeUsd": 87427.10641799984,
+      "yesPrice": 0.0005,
+      "rawCategory": "<80B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608385",
+      "ticker": "will-databricks-market-cap-be-between-100b-and-125b-at-market-close-on-ipo-day",
+      "title": "Will Databricks’ market cap be between $100B and $125B at market close on IPO day?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-market-cap-be-between-100b-and-125b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 10817.8795,
+      "volumeUsd": 83082.21993799997,
+      "yesPrice": 0.0015,
+      "rawCategory": "100–125B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608378",
+      "ticker": "will-freddie-macs-market-cap-be-less-than-150b-at-market-close-on-ipo-day",
+      "title": "Will Freddie Mac’s market cap be less than $150B at market close on IPO day?",
+      "description": "This market will resolve based on Freddie Mac's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Freddie Mac’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-freddie-macs-market-cap-be-less-than-150b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 9436.29837,
+      "volumeUsd": 84146.73846900003,
+      "yesPrice": 0.002,
+      "rawCategory": "<150B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608400",
+      "ticker": "will-discords-market-cap-be-between-20b-and-25b-at-market-close-on-ipo-day",
+      "title": "Will Discord’s market cap be between $20B and $25B at market close on IPO day?",
+      "description": "This market will resolve based on Discord's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Discord’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-discords-market-cap-be-between-20b-and-25b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 10101.28285,
+      "volumeUsd": 81459.30092199998,
+      "yesPrice": 0.0025,
+      "rawCategory": "20–25B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "599835",
+      "ticker": "will-walmart-acquire-tiktok-688-757-314",
+      "title": "Will Walmart acquire TikTok?",
+      "description": "This market will resolve to \"Yes\" if it is officially announced that TikTok will be, has been, or is being acquired by or merged with the listed entity, byJune 30, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nAn announcement by TikTok will qualify for a \"Yes\" resolution, regardless of whether the announced acquisition/merger actually occurs.\n\nIf TikTok is part of an acquisition or merger involving the specified entity, this market will resolve to \"Yes,\" regardless of whether it is the sole buyer or partner.\n\nThe primary resolution source for this market will be official information from TikTok or the listed entity, however a consensus of credible reporting may also be use\n",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-walmart-acquire-tiktok-688-757-314",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 5432.67305,
+      "volumeUsd": 85250.63290700006,
+      "yesPrice": 0.0095,
+      "rawCategory": "Walmart",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "merger",
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "merger",
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608388",
+      "ticker": "will-databricks-market-cap-be-between-175b-and-200b-at-market-close-on-ipo-day",
+      "title": "Will Databricks’ market cap be between $175B and $200B at market close on IPO day?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-market-cap-be-between-175b-and-200b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 12148.31131,
+      "volumeUsd": 73086.32808100012,
+      "yesPrice": 0.0015,
+      "rawCategory": "175–200B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "599833",
+      "ticker": "will-amazon-acquire-tiktok-277-366-936",
+      "title": "Will Amazon acquire TikTok?",
+      "description": "This market will resolve to \"Yes\" if it is officially announced that TikTok will be, has been, or is being acquired by or merged with the listed entity, by June 30, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nAn announcement by TikTok will qualify for a \"Yes\" resolution, regardless of whether the announced acquisition/merger actually occurs.\n\nIf TikTok is part of an acquisition or merger involving the specified entity, this market will resolve to \"Yes,\" regardless of whether it is the sole buyer or partner.\n\nThe primary resolution source for this market will be official information from TikTok or the listed entity, however a consensus of credible reporting may also be use\n",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-amazon-acquire-tiktok-277-366-936",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 3578.14199,
+      "volumeUsd": 72531.75943100001,
+      "yesPrice": 0.009,
+      "rawCategory": "Amazon",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "merger",
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "merger",
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608397",
+      "ticker": "will-stripe-not-ipo-by-june-30-2026",
+      "title": "Will Stripe not IPO by June 30, 2026?",
+      "description": "This market will resolve based on Stripe's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Stripe’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-stripe-not-ipo-by-june-30-2026",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 12695.96332,
+      "volumeUsd": 60043.49427700031,
+      "yesPrice": 0.9975,
+      "rawCategory": "No IPO by June 30, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608376",
+      "ticker": "will-fannie-maes-market-cap-be-greater-than-400b-at-market-close-on-ipo-day",
+      "title": "Will Fannie Mae’s market cap be $400B or greater at market close on IPO day?",
+      "description": "This market will resolve based on Fannie Mae's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Fannie Mae’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-fannie-maes-market-cap-be-greater-than-400b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8480.29625,
+      "volumeUsd": 62672.35347499995,
+      "yesPrice": 0.0015,
+      "rawCategory": "400B+",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608383",
+      "ticker": "will-freddie-mac-not-ipo-by-june-30-2026",
+      "title": "Will Freddie Mac not IPO by June 30, 2026?",
+      "description": "This market will resolve based on Freddie Mac's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Freddie Mac’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-freddie-mac-not-ipo-by-june-30-2026",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 9107.14298,
+      "volumeUsd": 57281.35646799997,
+      "yesPrice": 0.994,
+      "rawCategory": "No IPO by June 30, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608372",
+      "ticker": "will-fannie-maes-market-cap-be-between-200b-and-250b-at-market-close-on-ipo-day",
+      "title": "Will Fannie Mae’s market cap be between $200B and $250B at market close on IPO day?",
+      "description": "This market will resolve based on Fannie Mae's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Fannie Mae’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-fannie-maes-market-cap-be-between-200b-and-250b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 9394.70668,
+      "volumeUsd": 53715.618920000015,
+      "yesPrice": 0.0015,
+      "rawCategory": "200–250B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608371",
+      "ticker": "will-fannie-maes-market-cap-be-less-than-200b-at-market-close-on-ipo-day",
+      "title": "Will Fannie Mae’s market cap be less than $200B at market close on IPO day?",
+      "description": "This market will resolve based on Fannie Mae's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Fannie Mae’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-fannie-maes-market-cap-be-less-than-200b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8700.70129,
+      "volumeUsd": 52465.33331899998,
+      "yesPrice": 0.0015,
+      "rawCategory": "<200B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608384",
+      "ticker": "will-databricks-market-cap-be-less-than-100b-at-market-close-on-ipo-day",
+      "title": "Will Databricks’ market cap be less than $100B at market close on IPO day?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-market-cap-be-less-than-100b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 7420.29729,
+      "volumeUsd": 47562.60198399996,
+      "yesPrice": 0.0005,
+      "rawCategory": "<100B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608391",
+      "ticker": "will-databricks-not-ipo-by-june-30-2026",
+      "title": "Will Databricks not IPO by June 30, 2026?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-not-ipo-by-june-30-2026",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 11073.46516,
+      "volumeUsd": 42848.27622899998,
+      "yesPrice": 0.996,
+      "rawCategory": "No IPO by June 30, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608386",
+      "ticker": "will-databricks-market-cap-be-between-125b-and-150b-at-market-close-on-ipo-day",
+      "title": "Will Databricks’ market cap be between $125B and $150B at market close on IPO day?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-market-cap-be-between-125b-and-150b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 10242.43941,
+      "volumeUsd": 38320.38762099996,
+      "yesPrice": 0.0005,
+      "rawCategory": "125–150B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608395",
+      "ticker": "will-stripes-market-cap-be-between-120b-and-140b-at-market-close-on-ipo-day",
+      "title": "Will Stripe’s market cap be between $120B and $140B at market close on IPO day?",
+      "description": "This market will resolve based on Stripe's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Stripe’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-stripes-market-cap-be-between-120b-and-140b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8200.91425,
+      "volumeUsd": 40360.941308,
+      "yesPrice": 0.0005,
+      "rawCategory": "120–140B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608377",
+      "ticker": "will-fannie-mae-not-ipo-by-june-30-2026",
+      "title": "Will Fannie Mae not IPO by June 30, 2026?",
+      "description": "This market will resolve based on Fannie Mae's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Fannie Mae’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-fannie-mae-not-ipo-by-june-30-2026",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 16155.5947,
+      "volumeUsd": 28474.628086000004,
+      "yesPrice": 0.9955,
+      "rawCategory": "No IPO by June 30, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "599831",
+      "ticker": "will-applovin-acquire-tiktok-682-567",
+      "title": "Will AppLovin acquire TikTok?",
+      "description": "This market will resolve to \"Yes\" if it is officially announced that TikTok will be, has been, or is being acquired by or merged with the listed entity, by June 30, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nAn announcement by TikTok will qualify for a \"Yes\" resolution, regardless of whether the announced acquisition/merger actually occurs.\n\nIf TikTok is part of an acquisition or merger involving the specified entity, this market will resolve to \"Yes,\" regardless of whether it is the sole buyer or partner.\n\nThe primary resolution source for this market will be official information from TikTok or the listed entity, however a consensus of credible reporting may also be use\n",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-applovin-acquire-tiktok-682-567",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 5419.42748,
+      "volumeUsd": 38281.335101000026,
+      "yesPrice": 0.0085,
+      "rawCategory": "AppLovin",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "merger",
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "merger",
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608389",
+      "ticker": "will-databricks-market-cap-be-between-200b-and-250b-at-market-close-on-ipo-day",
+      "title": "Will Databricks’ market cap be between $200B and $250B at market close on IPO day?",
+      "description": "This market will resolve based on Databricks' market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Databricks’ first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-databricks-market-cap-be-between-200b-and-250b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 7578.40033,
+      "volumeUsd": 34033.684047999996,
+      "yesPrice": 0.0005,
+      "rawCategory": "200–250B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608379",
+      "ticker": "will-freddie-macs-market-cap-be-between-150b-and-200b-at-market-close-on-ipo-day",
+      "title": "Will Freddie Mac’s market cap be between $150B and $200B at market close on IPO day?",
+      "description": "This market will resolve based on Freddie Mac's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Freddie Mac’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-freddie-macs-market-cap-be-between-150b-and-200b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 5696.52442,
+      "volumeUsd": 34261.41840100003,
+      "yesPrice": 0.0025,
+      "rawCategory": "150–200B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "658198",
+      "ticker": "will-consensys-ipo-by-june-30-2026-144",
+      "title": "Will Consensys IPO by June 30 2026?",
+      "description": "This market will resolve to \"Yes\" if ConsenSys (the parent company of MetaMask) completes an Initial Public Offering (IPO) by the listed date ET, as confirmed by official company announcements and credible news sources. Otherwise, this market will resolve to \"No.\"\n\nThe IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf ConsenSys is acquired by another company that is already public, this market will immediately resolve to \"No.\"\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-consensys-ipo-by-june-30-2026-144",
+      "closeTime": "2026-07-01T04:00:00.000Z",
+      "liquidityUsd": 5235.08282,
+      "volumeUsd": 28932.364959999995,
+      "yesPrice": 0.008,
+      "rawCategory": "June 30, 2026",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 15.1,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608396",
+      "ticker": "will-stripes-market-cap-be-greater-than-140b-at-market-close-on-ipo-day",
+      "title": "Will Stripe’s market cap be $140B or greater at market close on IPO day?",
+      "description": "This market will resolve based on Stripe's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Stripe’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-stripes-market-cap-be-greater-than-140b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 9471.10078,
+      "volumeUsd": 24339.977639000022,
+      "yesPrice": 0.002,
+      "rawCategory": "140B+",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608394",
+      "ticker": "will-stripes-market-cap-be-between-100b-and-120b-at-market-close-on-ipo-day",
+      "title": "Will Stripe’s market cap be between $100B and $120B at market close on IPO day?",
+      "description": "This market will resolve based on Stripe's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Stripe’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-stripes-market-cap-be-between-100b-and-120b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 7139.2343,
+      "volumeUsd": 24941.745597999998,
+      "yesPrice": 0.0005,
+      "rawCategory": "100–120B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608393",
+      "ticker": "will-stripes-market-cap-be-between-80b-and-100b-at-market-close-on-ipo-day",
+      "title": "Will Stripe’s market cap be between $80B and $100B at market close on IPO day?",
+      "description": "This market will resolve based on Stripe's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Stripe’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-stripes-market-cap-be-between-80b-and-100b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 6852.01951,
+      "volumeUsd": 23548.656031999988,
+      "yesPrice": 0.0005,
+      "rawCategory": "80–100B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608380",
+      "ticker": "will-freddie-macs-market-cap-be-between-200b-and-250b-at-market-close-on-ipo-day",
+      "title": "Will Freddie Mac’s market cap be between $200B and $250B at market close on IPO day?",
+      "description": "This market will resolve based on Freddie Mac's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Freddie Mac’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-freddie-macs-market-cap-be-between-200b-and-250b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 4775.51731,
+      "volumeUsd": 22065.920442000013,
+      "yesPrice": 0.0015,
+      "rawCategory": "200–250B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676846",
+      "ticker": "anthropic-acquired-before-2027",
+      "title": "Anthropic acquired before 2027?",
+      "description": "This market will resolve to “Yes” if credible reporting confirms that any entity enters into an agreement to acquire Anthropic by December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to “No”.\n\nMergers where Anthropic is subsumed by another entity will count toward a \"Yes\" resolution.\n\nAn announced agreement between Anthropic and an acquiring entity will qualify for a “Yes” resolution, regardless of whether the acquisition is ultimately completed.\n\nThe primary resolution source for this market is official information from Anthropic and/or its leadership, however a consensus of credible reporting will also be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/anthropic-acquired-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 4878.84564,
+      "volumeUsd": 21420.825647999995,
+      "yesPrice": 0.052,
+      "rawCategory": null,
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608373",
+      "ticker": "will-fannie-maes-market-cap-be-between-250b-and-300b-at-market-close-on-ipo-day",
+      "title": "Will Fannie Mae’s market cap be between $250B and $300B at market close on IPO day?",
+      "description": "This market will resolve based on Fannie Mae's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Fannie Mae’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-fannie-maes-market-cap-be-between-250b-and-300b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 7619.05019,
+      "volumeUsd": 16995.819010000003,
+      "yesPrice": 0.0015,
+      "rawCategory": "250–300B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608375",
+      "ticker": "will-fannie-maes-market-cap-be-between-350b-and-400b-at-market-close-on-ipo-day",
+      "title": "Will Fannie Mae’s market cap be between $350B and $400B at market close on IPO day?",
+      "description": "This market will resolve based on Fannie Mae's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Fannie Mae’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-fannie-maes-market-cap-be-between-350b-and-400b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 8018.64043,
+      "volumeUsd": 16233.160485999997,
+      "yesPrice": 0.0015,
+      "rawCategory": "350–400B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608382",
+      "ticker": "will-freddie-macs-market-cap-be-greater-than-300b-at-market-close-on-ipo-day",
+      "title": "Will Freddie Mac’s market cap be $300B or greater at market close on IPO day?",
+      "description": "This market will resolve based on Freddie Mac's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Freddie Mac’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-freddie-macs-market-cap-be-greater-than-300b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 6699.50123,
+      "volumeUsd": 15430.62259,
+      "yesPrice": 0.004,
+      "rawCategory": "300B+",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "608381",
+      "ticker": "will-freddie-macs-market-cap-be-between-250b-and-300b-at-market-close-on-ipo-day",
+      "title": "Will Freddie Mac’s market cap be between $250B and $300B at market close on IPO day?",
+      "description": "This market will resolve based on Freddie Mac's market capitalization at the closing price on its first day of trading.\n\nIf no IPO occurs by June 30, 2026, 11:59 PM ET, the market will resolve to \"No IPO by June 30, 2026\".\n\nMarket capitalization expresses the monetary value of a company’s outstanding shares, stated in its pricing currency. It is calculated as the number of shares outstanding multiplied by the closing share price on the first trading day.\n\nIf the relevant value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Freddie Mac’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading for purposes of this market.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-freddie-macs-market-cap-be-between-250b-and-300b-at-market-close-on-ipo-day",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 5238.46661,
+      "volumeUsd": 8032.488021,
+      "yesPrice": 0.0015,
+      "rawCategory": "250–300B",
+      "score": 61,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676796",
+      "ticker": "databricks-ipo-before-2027",
+      "title": "Databricks IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/databricks-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 2243.8582,
+      "volumeUsd": 475949.1591689999,
+      "yesPrice": 0.255,
+      "rawCategory": "Databricks",
+      "score": 60,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676782",
+      "ticker": "celonis-ipo-before-2027",
+      "title": "Celonis IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/celonis-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 2728.4878,
+      "volumeUsd": 209799.51356,
+      "yesPrice": 0.13,
+      "rawCategory": "Celonis",
+      "score": 60,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676781",
+      "ticker": "ramp-ipo-before-2027",
+      "title": "Ramp IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/ramp-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 2539.8675,
+      "volumeUsd": 144293.74600499956,
+      "yesPrice": 0.105,
+      "rawCategory": "Ramp",
+      "score": 60,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676793",
+      "ticker": "glean-ipo-before-2027",
+      "title": "Glean IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/glean-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 2225.8296,
+      "volumeUsd": 47042.13659599999,
+      "yesPrice": 0.165,
+      "rawCategory": "Glean",
+      "score": 60,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676827",
+      "ticker": "openai-acquired-before-2027",
+      "title": "OpenAI acquired before 2027?",
+      "description": "This market will resolve to “Yes” if credible reporting confirms that any entity enters into an agreement to acquire OpenAI (or the nonprofit that controls OpenAI) by December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to “No”.\n\nMergers where OpenAI is subsumed by another entity will count toward a \"Yes\" resolution.\n\nAn announced agreement between OpenAI and an acquiring entity will qualify for a “Yes” resolution, regardless of whether the acquisition is ultimately completed.\n\nThe primary resolution source for this market is official information from Sam Altman and/or OpenAI however a consensus of credible reporting will also be used.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/openai-acquired-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 2798.01937,
+      "volumeUsd": 3251.79646,
+      "yesPrice": 0.055,
+      "rawCategory": null,
+      "score": 60,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "acquisition"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "acquisition"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "675662",
+      "ticker": "washington-commanders-agree-to-name-stadium-after-trump",
+      "title": "Washington Commanders agree to name stadium after Trump?",
+      "description": "This market will resolve to “Yes” if the Washington Commanders, or the ownership/development entity responsible for the team’s planned new stadium in Washington, D.C., officially announce and agree that the stadium will be named after Donald Trump, by June 30, 2026, 11:59 PM ET.\n\nA qualifying announcement must:\n- Be made publicly and on the record by the Commanders organization or by the entity that owns or controls the new stadium (e.g., via press release, official statement, or filing).\n- Clearly state that the new stadium will bear Trump’s name (for example, “Trump Stadium” or “Donald J. Trump Field”).\n- Reflect a finalized agreement or naming-rights deal, not a proposal, negotiation, or expression of intent.\n\nIf any other official naming-rights deal is announced for the new stadium prior to June 30, 2026 — including a corporate sponsorship or another individual’s name — this market will resolve to “No.”\n\nThe resolution sources will be a consensus of credible reporting. ",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/washington-commanders-agree-to-name-stadium-after-trump",
+      "closeTime": "2026-06-30T00:00:00.000Z",
+      "liquidityUsd": 2339.02593,
+      "volumeUsd": 3180.5593070000004,
+      "yesPrice": 0.022,
+      "rawCategory": null,
+      "score": 60,
+      "nichePriority": 1,
+      "daysLeft": 13.9,
+      "matchedTerms": [
+        "filing"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "filing"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676777",
+      "ticker": "discord-ipo-before-2027",
+      "title": "Discord IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/discord-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 1363.75796,
+      "volumeUsd": 456352.2136109995,
+      "yesPrice": 0.6035,
+      "rawCategory": "Discord",
+      "score": 59,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "667073",
+      "ticker": "consensys-ipo-closing-market-cap-above-1b",
+      "title": "Consensys IPO closing market cap above $1B?",
+      "description": "This market will resolve to “Yes” if the official closing price for Consensys’ market capitalization on its first trading day is above the value specified in the title. Otherwise, it will resolve to “No”.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, this market will resolve to “No”.\n\nMarket capitalization is defined as the total number of outstanding shares multiplied by the closing share price on the first trading day.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Consensys’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/consensys-ipo-closing-market-cap-above-1b",
+      "closeTime": "2027-01-01T05:00:00.000Z",
+      "liquidityUsd": 1741.8002,
+      "volumeUsd": 255241.12551199994,
+      "yesPrice": 0.27,
+      "rawCategory": "$1B",
+      "score": 59,
+      "nichePriority": 1,
+      "daysLeft": 199.1,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676797",
+      "ticker": "applied-intuition-ipo-before-2027",
+      "title": "Applied Intuition IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/applied-intuition-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 1771.0032,
+      "volumeUsd": 198564.7980039999,
+      "yesPrice": 0.195,
+      "rawCategory": "Applied Intuition",
+      "score": 59,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "664885",
+      "ticker": "will-consensys-ipo-by-december-31-2026",
+      "title": "Will Consensys IPO by December 31 2026?",
+      "description": "This market will resolve to \"Yes\" if ConsenSys (the parent company of MetaMask) completes an Initial Public Offering (IPO) by the listed date ET, as confirmed by official company announcements and credible news sources. Otherwise, this market will resolve to \"No.\"\n\nThe IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf ConsenSys is acquired by another company that is already public, this market will immediately resolve to \"No.\"\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-consensys-ipo-by-december-31-2026",
+      "closeTime": "2027-01-01T05:00:00.000Z",
+      "liquidityUsd": 1396.0785,
+      "volumeUsd": 168168.5352369999,
+      "yesPrice": 0.21,
+      "rawCategory": "December 31, 2026",
+      "score": 59,
+      "nichePriority": 1,
+      "daysLeft": 199.1,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676798",
+      "ticker": "fannie-mae-ipo-before-2027",
+      "title": "Fannie Mae IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/fannie-mae-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 1755.4749,
+      "volumeUsd": 162233.99549200045,
+      "yesPrice": 0.125,
+      "rawCategory": "Fannie Mae",
+      "score": 59,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676787",
+      "ticker": "rippling-ipo-before-2027",
+      "title": "Rippling IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/rippling-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 1477.2399,
+      "volumeUsd": 118652.9273649999,
+      "yesPrice": 0.17,
+      "rawCategory": "Rippling",
+      "score": 59,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "667074",
+      "ticker": "consensys-ipo-closing-market-cap-above-2b",
+      "title": "Consensys IPO closing market cap above $2B?",
+      "description": "This market will resolve to “Yes” if the official closing price for Consensys’ market capitalization on its first trading day is above the value specified in the title. Otherwise, it will resolve to “No”.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, this market will resolve to “No”.\n\nMarket capitalization is defined as the total number of outstanding shares multiplied by the closing share price on the first trading day.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Consensys’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/consensys-ipo-closing-market-cap-above-2b",
+      "closeTime": "2027-01-01T05:00:00.000Z",
+      "liquidityUsd": 1206.8241,
+      "volumeUsd": 40619.068510000005,
+      "yesPrice": 0.17,
+      "rawCategory": "$2B",
+      "score": 58,
+      "nichePriority": 1,
+      "daysLeft": 199.1,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676799",
+      "ticker": "freddie-mac-ipo-before-2027",
+      "title": "Freddie Mac IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/freddie-mac-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 626.9385,
+      "volumeUsd": 245341.944635,
+      "yesPrice": 0.11,
+      "rawCategory": "Freddie Mac",
+      "score": 57,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "676789",
+      "ticker": "remote-ipo-before-2027",
+      "title": "Remote IPO before 2027?",
+      "description": "This market will resolve to \"Yes\" if the listed company completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET, as confirmed by official company announcements or credible news sources. The IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf the listed company merges with another entity, is acquired, or ceases to exist before the market resolves, the market will also resolve to \"No\".\n\nThis market will resolve early if the listed company completes an IPO by December 31, 2026, 11:59 PM ET.\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/remote-ipo-before-2027",
+      "closeTime": "2026-12-31T00:00:00.000Z",
+      "liquidityUsd": 706.8392,
+      "volumeUsd": 54643.26805799998,
+      "yesPrice": 0.215,
+      "rawCategory": "Remote",
+      "score": 57,
+      "nichePriority": 1,
+      "daysLeft": 197.9,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "664884",
+      "ticker": "will-consensys-ipo-by-september-30-2026",
+      "title": "Will Consensys IPO by September 30 2026?",
+      "description": "This market will resolve to \"Yes\" if ConsenSys (the parent company of MetaMask) completes an Initial Public Offering (IPO) by the listed date ET, as confirmed by official company announcements and credible news sources. Otherwise, this market will resolve to \"No.\"\n\nThe IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf ConsenSys is acquired by another company that is already public, this market will immediately resolve to \"No.\"\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-consensys-ipo-by-september-30-2026",
+      "closeTime": "2026-10-01T04:00:00.000Z",
+      "liquidityUsd": 494.0615,
+      "volumeUsd": 169003.06683999984,
+      "yesPrice": 0.075,
+      "rawCategory": "September 30, 2026",
+      "score": 56,
+      "nichePriority": 1,
+      "daysLeft": 107.1,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "656311",
+      "ticker": "will-openai-ipo-by-june-30-2026",
+      "title": "Will OpenAI IPO by June 30 2026?",
+      "description": "This market will resolve to \"Yes\" if OpenAI completes an Initial Public Offering (IPO) by the listed date ET, as confirmed by official company announcements and credible news sources. Otherwise, this market will resolve to \"No\".\n\nThe IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf OpenAI is acquired by another company that is already public, this market will immediately resolve to \"No.\"\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openai-ipo-by-june-30-2026",
+      "closeTime": null,
+      "liquidityUsd": 75324.28131,
+      "volumeUsd": 895799.460183001,
+      "yesPrice": 0.005,
+      "rawCategory": "June 30, 2026",
+      "score": 54,
+      "nichePriority": 1,
+      "daysLeft": null,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "656312",
+      "ticker": "will-openai-ipo-by-december-31-2026",
+      "title": "Will OpenAI IPO by December 31 2026?",
+      "description": "This market will resolve to \"Yes\" if OpenAI completes an Initial Public Offering (IPO) by the listed date ET, as confirmed by official company announcements and credible news sources. Otherwise, this market will resolve to \"No\".\n\nThe IPO refers to the first sale of stock by the listed company to the public on any recognized stock exchange.\n\nIf OpenAI is acquired by another company that is already public, this market will immediately resolve to \"No.\"\n\nThe resolution source for this market is a consensus of credible reporting.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/will-openai-ipo-by-december-31-2026",
+      "closeTime": null,
+      "liquidityUsd": 3710.9719,
+      "volumeUsd": 732402.0533729953,
+      "yesPrice": 0.565,
+      "rawCategory": "December 31, 2026",
+      "score": 54,
+      "nichePriority": 1,
+      "daysLeft": null,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    },
+    {
+      "platform": "polymarket",
+      "id": "667075",
+      "ticker": "consensys-ipo-closing-market-cap-above-3b",
+      "title": "Consensys IPO closing market cap above $3B?",
+      "description": "This market will resolve to “Yes” if the official closing price for Consensys’ market capitalization on its first trading day is above the value specified in the title. Otherwise, it will resolve to “No”.\n\nIf no IPO occurs by December 31, 2026, 11:59 PM ET, this market will resolve to “No”.\n\nMarket capitalization is defined as the total number of outstanding shares multiplied by the closing share price on the first trading day.\n\nResolution will be based on the primary exchange’s official listing page. In the event that the relevant figure is not displayed, another reliable source will be used.\n\nIn the event of an interruption in the course of the normal trading session on Consensys’s first day of trading (e.g., a circuit breaker or half-day), the market will resolve according to the official closing price of the abbreviated session. If no such official closing price is published, the market will resolve according to the next trading day on which an official closing price is published, treating that as the first day of trading.",
+      "resolutionSource": "",
+      "url": "https://polymarket.com/event/consensys-ipo-closing-market-cap-above-3b",
+      "closeTime": null,
+      "liquidityUsd": 1293.3564,
+      "volumeUsd": 27569.393526999986,
+      "yesPrice": 0.12,
+      "rawCategory": "$3B",
+      "score": 52,
+      "nichePriority": 1,
+      "daysLeft": null,
+      "matchedTerms": [
+        "ipo"
+      ],
+      "matchedGroups": [
+        {
+          "id": "company_filings",
+          "label": "Company filings / corporate actions",
+          "hits": [
+            "ipo"
+          ]
+        }
+      ],
+      "sourcePlan": [
+        "SEC EDGAR company filings; SEC releases/litigation/admin proceedings; exchange listing notices if relevant."
+      ],
+      "evidenceStatus": "source_plan_only",
+      "tradingAction": "none"
+    }
+  ]
+}

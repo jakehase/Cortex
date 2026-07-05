@@ -806,6 +806,251 @@ function dashboardReadinessFor(actor) {
   return { completed: steps.length - missing.length, total: steps.length, ready: missing.length === 0, missing };
 }
 
+export const PLATFORM_ONBOARDING_WORKSPACE_RUNTIME_CONTRACT = Object.freeze({
+  surfaceId: 'platform_onboarding_workspace_runtime',
+  label: 'Platform onboarding, account workspace setup, and dashboard handoff runtime contract',
+  surfaces: ['signup_onboarding', 'account_workspace_setup', 'dashboard_home'],
+  controls: [
+    'wizard_step_state_machine',
+    'abandoned_step_recovery_queue',
+    'workspace_setup_command_ledger',
+    'first_campaign_handoff_path',
+    'role_aware_dashboard_continuity',
+    'runtime_snapshot_api'
+  ],
+  evidenceContract: [
+    'onboarding_profile_records_industry_use_case_import_prompt_and_suggested_defaults',
+    'recovery_actions_persist_skipped_step_retry_target_and_job_event',
+    'workspace_setup_commands_record_sender_domain_brand_import_team_and_migration_actions',
+    'first_campaign_handoff_creates_draft_campaign_and_auditable_handoff_event',
+    'dashboard_snapshot_links_widget_tasks_saved_views_freshness_and_onboarding_blockers'
+  ]
+});
+
+const ONBOARDING_WORKSPACE_COMMANDS = {
+  sender_identity: { label: 'Sender identity', href: '/settings', jobType: 'workspace_setup_sender_identity', surfaceId: 'account_workspace_setup' },
+  domain_authentication: { label: 'Domain authentication', href: '/settings', jobType: 'workspace_setup_domain_authentication', surfaceId: 'account_workspace_setup' },
+  brand_assets: { label: 'Brand assets', href: '/assets', jobType: 'workspace_setup_brand_assets', surfaceId: 'account_workspace_setup' },
+  audience_import: { label: 'Audience import', href: '/contacts/import', jobType: 'workspace_setup_audience_import', surfaceId: 'signup_onboarding' },
+  team_invites: { label: 'Team invitations', href: '/team', jobType: 'workspace_setup_team_invites', surfaceId: 'account_workspace_setup' },
+  migration_handoff: { label: 'Migration handoff', href: '/workspaces', jobType: 'workspace_setup_migration_handoff', surfaceId: 'account_workspace_setup' },
+  dashboard_review: { label: 'Dashboard review', href: '/app', jobType: 'workspace_setup_dashboard_review', surfaceId: 'dashboard_home' }
+};
+
+function ensurePlatformOnboardingWorkspaceRuntimeCollections(state) {
+  state.db.onboardingRuntimeSnapshots ||= [];
+  state.db.onboardingStepEvents ||= [];
+  state.db.onboardingRecoveryEvents ||= [];
+  state.db.workspaceSetupCommandEvents ||= [];
+  state.db.firstCampaignHandoffEvents ||= [];
+}
+
+function onboardingWorkspaceChecklist(state, actor) {
+  const workspace = actor?.workspace || { id: null, settings: {}, featureFlags: {}, planId: 'starter' };
+  const domains = workspace.settings?.domains || [];
+  const audiences = state.db.audiences?.filter((entry) => entry.workspaceId === workspace.id) || [];
+  const activeMembers = state.db.memberships?.filter((entry) => entry.workspaceId === workspace.id && entry.status === 'active') || [];
+  const campaigns = state.db.campaigns?.filter((entry) => entry.workspaceId === workspace.id) || [];
+  const onboarding = workspace.settings?.onboarding || {};
+  const steps = [
+    { id: 'workspace_bootstrap', label: 'Workspace shell and default audience', done: Boolean(workspace.id && audiences.length), href: '/workspaces', command: 'migration_handoff' },
+    { id: 'business_profile', label: 'Industry/use-case profile', done: Boolean(onboarding.useCase || onboarding.industry), href: '/onboarding', command: 'audience_import' },
+    { id: 'sender_identity', label: 'Sender identity', done: Boolean(workspace.settings?.senderName && workspace.settings?.senderEmail), href: '/settings', command: 'sender_identity' },
+    { id: 'domain_authentication', label: 'Authenticated domain', done: domains.some((entry) => entry.authenticationStatus === 'authenticated'), href: '/settings', command: 'domain_authentication' },
+    { id: 'brand_import_defaults', label: 'Brand/import defaults', done: Boolean(onboarding.importPlan || (state.db.assets || []).some((entry) => entry.workspaceId === workspace.id)), href: '/assets', command: 'brand_assets' },
+    { id: 'team_or_plan', label: 'Team/plan launch access', done: Boolean(workspace.featureFlags?.multiUser || activeMembers.length > 1 || (workspace.planId && workspace.planId !== 'starter')), href: '/team', command: 'team_invites' },
+    { id: 'first_campaign_handoff', label: 'First campaign handoff', done: campaigns.some((entry) => entry.onboardingHandoff?.source === 'platform_onboarding_workspace_runtime'), href: '/campaigns/new', command: 'dashboard_review' }
+  ];
+  const blockers = steps.filter((step) => !step.done);
+  const completed = steps.length - blockers.length;
+  const percent = Math.round((completed / steps.length) * 100);
+  return {
+    steps,
+    blockers,
+    completed,
+    total: steps.length,
+    percent,
+    ready: blockers.length === 0,
+    nextStep: blockers[0] || { id: 'launch_review', label: 'Review launch dashboard', href: '/app', command: 'dashboard_review' }
+  };
+}
+
+export function recordOnboardingProfileRuntimeEvent(state, actor, body = {}) {
+  ensurePlatformOnboardingWorkspaceRuntimeCollections(state);
+  const event = {
+    id: createId('onbstep'),
+    workspaceId: actor.workspace.id,
+    userId: actor.user.id,
+    stepId: 'business_profile',
+    action: 'profile_saved',
+    industry: body.industry || actor.workspace.settings?.onboarding?.industry || '',
+    useCase: body.useCase || actor.workspace.settings?.onboarding?.useCase || 'newsletter',
+    senderDefault: body.senderDefault || actor.workspace.settings?.onboarding?.senderDefault || '',
+    importPlan: body.importPlan || actor.workspace.settings?.onboarding?.importPlan || '',
+    suggestedDefaults: {
+      audienceName: body.useCase === 'commerce' ? 'Commerce customers' : body.useCase === 'events' ? 'Event registrants' : 'Main audience',
+      campaignStarter: body.useCase === 'commerce' ? 'abandoned_cart_recovery' : body.useCase === 'lifecycle' ? 'welcome_nurture' : 'newsletter_launch'
+    },
+    runtimeContract: PLATFORM_ONBOARDING_WORKSPACE_RUNTIME_CONTRACT.surfaceId,
+    createdAt: nowIso()
+  };
+  state.db.onboardingStepEvents.unshift(event);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'onboarding-runtime-profile-saved', detail: `Saved onboarding runtime profile for ${event.useCase}` });
+  return event;
+}
+
+export function recordOnboardingRecoveryRuntimeEvent(state, actor, body = {}) {
+  ensurePlatformOnboardingWorkspaceRuntimeCollections(state);
+  actor.workspace.settings.onboarding ||= {};
+  const skippedStep = body.step || actor.workspace.settings.onboarding.lastSkippedStep || 'contact_import';
+  actor.workspace.settings.onboarding.lastSkippedStep = skippedStep;
+  actor.workspace.settings.onboarding.recoveryQueuedAt = nowIso();
+  actor.workspace.settings.onboarding.recoveryStatus = 'queued';
+  const event = {
+    id: createId('onbrec'),
+    workspaceId: actor.workspace.id,
+    userId: actor.user.id,
+    skippedStep,
+    retryTarget: body.retryTarget || ONBOARDING_WORKSPACE_COMMANDS.audience_import.href,
+    stateBeforeRecovery: onboardingWorkspaceChecklist(state, actor),
+    status: 'queued',
+    runtimeContract: PLATFORM_ONBOARDING_WORKSPACE_RUNTIME_CONTRACT.surfaceId,
+    createdAt: nowIso()
+  };
+  state.db.onboardingRecoveryEvents.unshift(event);
+  enqueueJob(state, { type: 'onboarding_recovery', workspaceId: actor.workspace.id, userId: actor.user.id, payload: { step: skippedStep, recoveryEventId: event.id, retryTarget: event.retryTarget } });
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'onboarding-runtime-recovery-queued', detail: `Queued recovery for ${skippedStep}` });
+  return event;
+}
+
+export function recordWorkspaceSetupCommand(state, actor, body = {}) {
+  ensurePlatformOnboardingWorkspaceRuntimeCollections(state);
+  const commandId = ONBOARDING_WORKSPACE_COMMANDS[body.command] ? body.command : 'dashboard_review';
+  const command = ONBOARDING_WORKSPACE_COMMANDS[commandId];
+  actor.workspace.settings.onboarding ||= {};
+  actor.workspace.settings.onboarding.lastWorkspaceSetupCommand = commandId;
+  actor.workspace.settings.onboarding.workspaceSetupUpdatedAt = nowIso();
+  const event = {
+    id: createId('wsetup'),
+    workspaceId: actor.workspace.id,
+    userId: actor.user.id,
+    commandId,
+    label: command.label,
+    surfaceId: command.surfaceId,
+    status: body.status || 'queued',
+    href: command.href,
+    note: body.note || '',
+    runtimeContract: PLATFORM_ONBOARDING_WORKSPACE_RUNTIME_CONTRACT.surfaceId,
+    createdAt: nowIso()
+  };
+  state.db.workspaceSetupCommandEvents.unshift(event);
+  enqueueJob(state, { type: command.jobType, workspaceId: actor.workspace.id, userId: actor.user.id, payload: { commandId, setupCommandEventId: event.id, href: command.href } });
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'workspace-setup-command', detail: `Queued ${command.label}` });
+  return event;
+}
+
+export function recordFirstCampaignHandoff(state, actor, body = {}) {
+  ensurePlatformOnboardingWorkspaceRuntimeCollections(state);
+  const checklist = onboardingWorkspaceChecklist(state, actor);
+  const campaign = {
+    id: createId('camp'),
+    workspaceId: actor.workspace.id,
+    name: body.name || `${actor.workspace.name} launch campaign`,
+    subject: body.subject || `A note from ${actor.workspace.name}`,
+    preheader: body.preheader || 'Your first campaign draft was created from onboarding readiness.',
+    fromName: actor.workspace.settings.senderName || actor.user.name,
+    replyTo: actor.workspace.settings.replyTo || actor.workspace.settings.senderEmail || '',
+    audienceId: state.db.audiences?.find((entry) => entry.workspaceId === actor.workspace.id)?.id || '',
+    segmentId: '',
+    templateId: body.templateId || '',
+    blocks: [
+      { type: 'hero', title: body.heroTitle || 'Welcome to our launch', body: body.heroBody || 'This campaign was handed off from the onboarding dashboard.' },
+      { type: 'button', title: 'Next step', buttonLabel: body.buttonLabel || 'Explore', buttonUrl: body.buttonUrl || 'https://example.test/launch' }
+    ],
+    status: 'draft',
+    setupComplete: checklist.ready,
+    recipientsComplete: Boolean(state.db.audiences?.some((entry) => entry.workspaceId === actor.workspace.id)),
+    report: { opens: 0, clicks: 0, bounces: 0, unsubscribes: 0, history: [], funnel: { landingPages: 0, landingViews: 0, landingSubmissions: 0, linkedForms: 0, formSubmissions: 0, attributedAutomationRuns: 0, attributedAutomationGoals: 0 } },
+    onboardingHandoff: { source: PLATFORM_ONBOARDING_WORKSPACE_RUNTIME_CONTRACT.surfaceId, readinessPercent: checklist.percent, blockers: checklist.blockers.map((step) => step.id), createdBy: actor.user.id },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+  state.db.campaigns.unshift(campaign);
+  const event = {
+    id: createId('handoff'),
+    workspaceId: actor.workspace.id,
+    userId: actor.user.id,
+    campaignId: campaign.id,
+    readinessPercent: checklist.percent,
+    unresolvedStepIds: checklist.blockers.map((step) => step.id),
+    status: checklist.ready ? 'launch_ready' : 'draft_with_recovery_needed',
+    runtimeContract: PLATFORM_ONBOARDING_WORKSPACE_RUNTIME_CONTRACT.surfaceId,
+    createdAt: campaign.createdAt
+  };
+  state.db.firstCampaignHandoffEvents.unshift(event);
+  enqueueJob(state, { type: 'first_campaign_handoff', workspaceId: actor.workspace.id, userId: actor.user.id, payload: { campaignId: campaign.id, handoffEventId: event.id, readinessPercent: checklist.percent } });
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'first-campaign-handoff', detail: `Created onboarding campaign handoff ${campaign.name}` });
+  return { campaign, event };
+}
+
+export function buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor) {
+  ensurePlatformOnboardingWorkspaceRuntimeCollections(state);
+  const workspaceId = actor.workspace.id;
+  const checklist = onboardingWorkspaceChecklist(state, actor);
+  const stepEvents = state.db.onboardingStepEvents.filter((entry) => entry.workspaceId === workspaceId);
+  const recoveryEvents = state.db.onboardingRecoveryEvents.filter((entry) => entry.workspaceId === workspaceId);
+  const setupCommands = state.db.workspaceSetupCommandEvents.filter((entry) => entry.workspaceId === workspaceId);
+  const handoffs = state.db.firstCampaignHandoffEvents.filter((entry) => entry.workspaceId === workspaceId);
+  const dashboard = buildDashboardHomeRuntimeSnapshot(state, actor);
+  return {
+    ...PLATFORM_ONBOARDING_WORKSPACE_RUNTIME_CONTRACT,
+    generatedAt: nowIso(),
+    workspaceId,
+    role: actor.membership.role,
+    checklist,
+    onboarding: {
+      profileEventCount: stepEvents.length,
+      recentProfileEvents: stepEvents.slice(0, 5),
+      recoveryEventCount: recoveryEvents.length,
+      recentRecoveryEvents: recoveryEvents.slice(0, 5)
+    },
+    workspaceSetup: {
+      commandEventCount: setupCommands.length,
+      recentCommands: setupCommands.slice(0, 8),
+      availableCommands: Object.entries(ONBOARDING_WORKSPACE_COMMANDS).map(([id, command]) => ({ id, ...command }))
+    },
+    firstCampaignHandoff: {
+      count: handoffs.length,
+      recent: handoffs.slice(0, 5)
+    },
+    dashboardContinuity: {
+      widgetsReady: dashboard.runtimeHealth.widgetPreferencesReady,
+      insightsReady: dashboard.runtimeHealth.insightsReady,
+      drillthroughReady: dashboard.runtimeHealth.drillthroughReady,
+      savedViewsReady: dashboard.runtimeHealth.savedViewsReady,
+      nextDashboardRoute: checklist.nextStep.href
+    },
+    runtimeHealth: {
+      profileReady: stepEvents.length > 0 || Boolean(actor.workspace.settings?.onboarding?.useCase),
+      recoveryReady: recoveryEvents.length > 0 || Boolean(actor.workspace.settings?.onboarding?.recoveryQueuedAt),
+      workspaceCommandsReady: setupCommands.length > 0,
+      campaignHandoffReady: handoffs.length > 0,
+      dashboardContinuityReady: dashboard.runtimeHealth.widgetPreferencesReady || dashboard.runtimeHealth.insightsReady || dashboard.runtimeHealth.drillthroughReady,
+      allChecklistStepsReady: checklist.ready
+    }
+  };
+}
+
+export function persistPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor, reason = 'manual_platform_onboarding_workspace_snapshot') {
+  ensurePlatformOnboardingWorkspaceRuntimeCollections(state);
+  const snapshot = buildPlatformOnboardingWorkspaceRuntimeSnapshot(state, actor);
+  state.db.onboardingRuntimeSnapshots.unshift({ id: createId('onbsnap'), workspaceId: actor.workspace.id, userId: actor.user.id, reason, createdAt: snapshot.generatedAt, snapshot });
+  state.db.onboardingRuntimeSnapshots = state.db.onboardingRuntimeSnapshots.slice(0, 100);
+  persistState(state);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'platform-onboarding-runtime-snapshot', detail: `Captured platform onboarding runtime snapshot (${reason})` });
+  return snapshot;
+}
+
 export function recordDashboardWidgetPreference(state, actor, body = {}) {
   ensureDashboardRuntimeCollections(state);
   actor.workspace.settings.dashboardWidgetPreferences ||= {};

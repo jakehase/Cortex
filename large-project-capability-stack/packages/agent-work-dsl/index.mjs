@@ -5,6 +5,7 @@ export const AGENT_WORK_SPEC_SCHEMA = 'claw.agent_work_spec.v0';
 export const AGENT_WORK_COMPILATION_SCHEMA = 'claw.agent_work_compilation.v0';
 export const AGENT_WORK_RUN_CONTRACT_SCHEMA = 'claw.agent_benchmark_run_contract.v1';
 export const AGENT_WORK_LANGUAGE_VERSION = 'v0.1';
+export const AI_OS_LANGUAGE_PROFILE_SCHEMA = 'aios.agent_work_language_profile.v0.1';
 export const AGENT_WORK_DEFAULT_RUNTIME = Object.freeze({
   defaultRunner: 'objective_controller',
   defaultRunnerScript: 'apps/system-benchmark/run-agent-work-objective-controller.mjs',
@@ -19,6 +20,44 @@ export const FIDELITY_LATTICE = Object.freeze(['prototype', 'production_slice', 
 const DEFAULT_STOP_CONDITION = 'supervisor_green_or_blocker_report';
 const DEFAULT_BENCHMARK_TIER = 'execution_smoke';
 const DEFAULT_SCOREBOARD_PATH = 'artifacts/benchmarks/scoreboard.json';
+const BOUNDED_SMOKE_TIERS_WITHOUT_DURATION_TARGET = Object.freeze(new Set([
+  'execution_smoke',
+  'real_worker_product_standard',
+  'production_quality_repair_smoke',
+  'game_product_sprint_smoke'
+]));
+const DEFAULT_AI_OS_BOOT_ARTIFACTS = Object.freeze([
+  'boot_proof.json',
+  'process_lifecycle.json',
+  'capability_audit.json',
+  'syscall_audit.json',
+  'claim_gate.json',
+  'artifact_bundle_manifest.json'
+]);
+const DEFAULT_AI_OS_SYSCALLS = Object.freeze([
+  'fs.read',
+  'fs.write',
+  'shell.exec',
+  'git.diff',
+  'memory.search',
+  'memory.write',
+  'verifier.run',
+  'claim.submit',
+  'audit.write'
+]);
+const DEFAULT_AI_OS_MEMORY_MOUNTS = Object.freeze([
+  'project_memory',
+  'structural_memory',
+  'episodic_log',
+  'artifact_store'
+]);
+const DEFAULT_AI_OS_PROCESS_MODEL = Object.freeze([
+  'job',
+  'process',
+  'thread',
+  'owner',
+  'exit_contract'
+]);
 const KNOWN_FORBIDDEN_COMMAND_CAPABILITIES = Object.freeze({
   external_send: [/\bsend(email|grid|mail)\b/i, /\bpost\s+to\s+(slack|discord|twitter|x\.com)\b/i],
   touch_prod: [/\bprod(uction)?[_ -]?(db|database)\b/i, /\bdeploy\s+prod/i],
@@ -257,6 +296,32 @@ function assignEvidenceDirective(schema, key, value) {
   else schema.metadata[normalized] = policyScalar(value);
 }
 
+function assignAiOsDirective(profile, key, value) {
+  const normalized = normalizePolicyKey(key);
+  profile.enabled = true;
+  if (['plan', 'plan_path', 'source_plan', 'source_plan_path'].includes(normalized)) profile.sourcePlanPath = value;
+  else if (['milestone', 'target_milestone'].includes(normalized)) profile.milestone = value;
+  else if (['kernel', 'kernel_mode', 'hosted_kernel'].includes(normalized)) profile.kernelMode = value;
+  else if (['owner', 'operator'].includes(normalized)) profile.owner = value;
+  else if (['process', 'processes', 'process_model'].includes(normalized)) profile.processModel = stableList(value);
+  else if (['syscall', 'syscalls'].includes(normalized)) profile.syscalls = stableList(value);
+  else if (['memory', 'memory_mount', 'memory_mounts'].includes(normalized)) profile.memoryMounts = stableList(value);
+  else if (['evidence', 'evidence_artifact', 'evidence_artifacts', 'boot_artifacts', 'artifacts'].includes(normalized)) profile.evidenceArtifacts = stableList(value);
+  else if (['evidence_mode', 'evidence_enforcement', 'boot_evidence_enforcement', 'claim_evidence_enforcement'].includes(normalized)) profile.evidenceEnforcement = value;
+  else if (['boot', 'boot_command', 'boot_commands', 'command', 'commands'].includes(normalized)) profile.bootCommands = stableList(value);
+  else if (['claim', 'claim_gate', 'claim_policy'].includes(normalized)) profile.claimGate = value;
+  else if (['truth', 'truth_boundary', 'boundary'].includes(normalized)) profile.truthBoundary = value;
+  else if (['approval', 'approvals', 'approval_required_for'].includes(normalized)) profile.approvalRequiredFor = stableList(value);
+  else if (['capability', 'capabilities', 'capability_policy', 'permission_model'].includes(normalized)) profile.capabilities = stableList(value);
+  else if (['reuse', 'reuse_primitives', 'prior_art'].includes(normalized)) profile.reusePrimitives = stableList(value);
+  else if (['package', 'package_model', 'packages'].includes(normalized)) profile.packageModel = stableList(value);
+  else if (['filesystem', 'filesystem_layout', 'artifact_layout'].includes(normalized)) profile.filesystemLayout = stableList(value);
+  else {
+    profile.metadata ||= {};
+    profile.metadata[normalized] = policyScalar(value);
+  }
+}
+
 export function parseAgentWorkSpec(text) {
   const source = String(text || '').trim();
   if (!source) return {};
@@ -269,6 +334,7 @@ export function parseAgentWorkSpec(text) {
     wavePolicy: {},
     expansionPolicy: {},
     evidenceSchemas: [],
+    aiOs: {},
     doneWhen: [],
     requestedActions: [],
     metadata: {}
@@ -312,11 +378,22 @@ export function parseAgentWorkSpec(text) {
       currentBlock = { kind: 'policy', target };
       continue;
     }
+    const aiOsMatch = line.match(/^(?:ai_os|aios)(?:\s+(.+))?$/i);
+    if (aiOsMatch && indent === 0) {
+      spec.aiOs ||= {};
+      spec.aiOs.enabled = true;
+      const inline = parseInlinePolicy(aiOsMatch[1]);
+      if (nonEmptyObject(inline)) Object.assign(spec.aiOs, inline);
+      else if (clean(aiOsMatch[1])) spec.aiOs.milestone = clean(aiOsMatch[1]);
+      currentBlock = { kind: 'ai_os', target: spec.aiOs };
+      continue;
+    }
     const directive = parseKeyValue(line);
     if (!directive) continue;
     if (currentBlock && indent > 0) {
       if (currentBlock.kind === 'surface' || currentBlock.kind === 'template') assignSurfaceDirective(currentBlock.target, directive.key, directive.value);
       else if (currentBlock.kind === 'evidence') assignEvidenceDirective(currentBlock.target, directive.key, directive.value);
+      else if (currentBlock.kind === 'ai_os') assignAiOsDirective(currentBlock.target, directive.key, directive.value);
       else assignPolicyDirective(currentBlock.target, directive.key, directive.value);
     }
     else {
@@ -362,6 +439,69 @@ function normalizeEvidenceSchemas(value = []) {
       metadata: schema.metadata || {}
     };
   });
+}
+
+function normalizeAiOsProfile(value = {}, { repoPath = '' } = {}) {
+  const raw = value === true ? { enabled: true } : objectOr(value, {});
+  const enabled = booleanOr(raw.enabled, nonEmptyObject(raw));
+  if (!enabled) return { enabled: false };
+  const sourcePlanPath = clean(raw.sourcePlanPath || raw.source_plan_path || raw.plan || raw.planPath)
+    || (repoPath ? path.join(repoPath, 'plan.md') : 'plan.md');
+  const evidenceArtifacts = stableList(raw.evidenceArtifacts || raw.evidence_artifacts || raw.bootArtifacts || raw.artifacts || raw.evidence);
+  const syscalls = stableList(raw.syscalls || raw.syscall);
+  const memoryMounts = stableList(raw.memoryMounts || raw.memory_mounts || raw.memory);
+  const processModel = stableList(raw.processModel || raw.process_model || raw.processes || raw.process);
+  const approvalRequiredFor = stableList(raw.approvalRequiredFor || raw.approval_required_for || raw.approvals || raw.approval);
+  return {
+    schemaVersion: AI_OS_LANGUAGE_PROFILE_SCHEMA,
+    enabled: true,
+    sourcePlanPath,
+    milestone: clean(raw.milestone || raw.targetMilestone || raw.target_milestone || 'hosted_kernel_boot_proof'),
+    kernelMode: clean(raw.kernelMode || raw.kernel_mode || raw.kernel || 'hosted_linux'),
+    owner: clean(raw.owner || raw.operator || ''),
+    processModel: processModel.length ? processModel : [...DEFAULT_AI_OS_PROCESS_MODEL],
+    syscalls: syscalls.length ? syscalls : [...DEFAULT_AI_OS_SYSCALLS],
+    memoryMounts: memoryMounts.length ? memoryMounts : [...DEFAULT_AI_OS_MEMORY_MOUNTS],
+    capabilityPolicy: {
+      defaultDenyExternalWrites: booleanOr(raw.defaultDenyExternalWrites ?? raw.default_deny_external_writes, true),
+      requireApprovalFor: approvalRequiredFor.length
+        ? approvalRequiredFor
+        : ['external.write', 'deploy', 'destructive.action', 'privileged.kernel.change']
+    },
+    evidenceArtifacts: evidenceArtifacts.length ? evidenceArtifacts : [...DEFAULT_AI_OS_BOOT_ARTIFACTS],
+    evidenceEnforcement: clean(raw.evidenceEnforcement || raw.evidence_enforcement || raw.evidenceMode || raw.evidence_mode || 'deferred_boot_claim'),
+    bootCommands: stableList(raw.bootCommands || raw.boot_commands || raw.commands || raw.command || raw.boot),
+    claimGate: clean(raw.claimGate || raw.claim_gate || raw.claim || 'verifier_green_required'),
+    truthBoundary: clean(raw.truthBoundary || raw.truth_boundary || raw.boundary || 'Hosted AI OS v0.1 proof only; do not claim native OS, production readiness, or general autonomous completion.'),
+    reusePrimitives: stableList(raw.reusePrimitives || raw.reuse_primitives || raw.reuse || raw.prior_art),
+    packageModel: stableList(raw.packageModel || raw.package_model || raw.packages || raw.package),
+    filesystemLayout: stableList(raw.filesystemLayout || raw.filesystem_layout || raw.filesystem || raw.artifact_layout),
+    metadata: raw.metadata || {}
+  };
+}
+
+function effectiveEvidenceSchemas(spec = {}) {
+  const schemas = [...(spec.evidenceSchemas || [])];
+  const aiOs = spec.aiOs?.enabled ? spec.aiOs : null;
+  const enforceAiOsAsBenchmarkEvidence = ['benchmark_policy', 'immediate', 'single_wave_policy']
+    .includes(normalizePolicyKey(aiOs?.evidenceEnforcement || ''));
+  if (aiOs && enforceAiOsAsBenchmarkEvidence && !schemas.some((schema) => schema.id === 'aios_boot_proof')) {
+    schemas.push({
+      id: 'aios_boot_proof',
+      label: 'AI OS hosted kernel boot proof',
+      gates: [parseEvidenceGate('boot_proof_green >= 1'), parseEvidenceGate('claim_gate_green >= 1')],
+      artifacts: aiOs.evidenceArtifacts || [...DEFAULT_AI_OS_BOOT_ARTIFACTS],
+      metrics: ['boot_proof_green', 'claim_gate_green'],
+      metadata: {
+        aiOsLanguageProfile: true,
+        sourcePlanPath: aiOs.sourcePlanPath,
+        milestone: aiOs.milestone,
+        claimGate: aiOs.claimGate,
+        truthBoundary: aiOs.truthBoundary
+      }
+    });
+  }
+  return schemas;
 }
 
 function normalizeTemplate(template = {}, index = 0) {
@@ -437,6 +577,8 @@ export function normalizeAgentWorkSpec(input = {}, options = {}) {
   const templates = normalizeTemplates(parsed.templates || parsed.template);
   const templateLookup = new Map(templates.map((template) => [template.id, template]));
   const templateErrors = [];
+  const resolvedRepoPath = repoPath ? path.resolve(repoPath) : '';
+  const aiOsProfile = normalizeAiOsProfile(parsed.aiOs || parsed.ai_os || parsed.aios || parsed.metadata?.aiOs || parsed.metadata?.ai_os, { repoPath: resolvedRepoPath });
   const spec = {
     schemaVersion: AGENT_WORK_SPEC_SCHEMA,
     languageVersion: clean(parsed.languageVersion || parsed.language_version || AGENT_WORK_LANGUAGE_VERSION),
@@ -446,7 +588,7 @@ export function normalizeAgentWorkSpec(input = {}, options = {}) {
     benchmarkId,
     benchmarkTier: clean(parsed.benchmarkTier || parsed.benchmark_tier || parsed.tier || DEFAULT_BENCHMARK_TIER),
     runId,
-    repoPath: repoPath ? path.resolve(repoPath) : '',
+    repoPath: resolvedRepoPath,
     artifactRoot,
     scoreboardPath: clean(parsed.scoreboardPath || parsed.scoreboard_path || DEFAULT_SCOREBOARD_PATH),
     fidelity: clean(parsed.fidelity || parsed.requestedFidelity || parsed.requested_fidelity || 'production_slice'),
@@ -462,6 +604,7 @@ export function normalizeAgentWorkSpec(input = {}, options = {}) {
     budgets: normalizePolicyObject(parsed.budgets || parsed.budget || parsed.resourceBudgets || parsed.resource_budgets),
     wavePolicy: normalizePolicyObject(parsed.wavePolicy || parsed.wave_policy || parsed.wave),
     expansionPolicy: normalizePolicyObject(parsed.expansionPolicy || parsed.expansion_policy || parsed.expansion),
+    aiOs: aiOsProfile,
     evidenceSchemas: normalizeEvidenceSchemas(parsed.evidenceSchemas || parsed.evidence_schemas || parsed.evidence || []),
     templates,
     templateErrors,
@@ -519,6 +662,11 @@ export function validateAgentWorkSpec(spec = {}) {
     if (!clean(schema.id)) errors.push('evidence schema id is required');
     if ((!schema.gates || schema.gates.length === 0) && (!schema.artifacts || schema.artifacts.length === 0)) errors.push(`evidence schema ${schema.id || '<unknown>'} needs at least one gate or artifact`);
   }
+  if (spec.aiOs?.enabled) {
+    if (!clean(spec.aiOs.sourcePlanPath)) errors.push('ai_os profile requires sourcePlanPath/plan');
+    if (!Array.isArray(spec.aiOs.syscalls) || spec.aiOs.syscalls.length === 0) errors.push('ai_os profile requires at least one syscall');
+    if (!Array.isArray(spec.aiOs.evidenceArtifacts) || spec.aiOs.evidenceArtifacts.length === 0) errors.push('ai_os profile requires boot/evidence artifacts');
+  }
 
   const forbidden = new Set(spec.permissions?.forbid || []);
   const requested = new Set(spec.requestedActions || []);
@@ -551,10 +699,12 @@ function uniqueVerifierSet(surfaces) {
 }
 
 function buildRunContract(spec) {
+  const evidenceSchemas = effectiveEvidenceSchemas(spec);
+  const aiOsProfile = spec.aiOs?.enabled ? spec.aiOs : null;
   const explicitDurationTargetMinutes = nullableNonNegativeNumber(spec.metadata.durationTargetMinutes ?? spec.metadata.duration_target_minutes, null);
   const durationTargetMinutes = explicitDurationTargetMinutes != null
     ? explicitDurationTargetMinutes
-    : spec.benchmarkTier === 'execution_smoke'
+    : BOUNDED_SMOKE_TIERS_WITHOUT_DURATION_TARGET.has(spec.benchmarkTier)
       ? null
       : 60;
   const productDiffMode = clean(spec.metadata.productDiffMode ?? spec.metadata.product_diff_mode);
@@ -568,6 +718,7 @@ function buildRunContract(spec) {
   const requireRealProductDiffs = booleanOr(spec.metadata.requireRealProductDiffs ?? spec.metadata.require_real_product_diffs, defaultRequireRealProductDiffs);
   const canonicalLandingEvidence = objectOr(spec.metadata.canonicalLandingEvidence ?? spec.metadata.canonical_landing_evidence, {});
   const semanticProductAdmission = objectOr(spec.metadata.semanticProductAdmission ?? spec.metadata.semantic_product_admission, {});
+  const orchestrationLearning = objectOr(spec.metadata.orchestrationLearning ?? spec.metadata.orchestration_learning, {});
   return {
     schemaVersion: AGENT_WORK_RUN_CONTRACT_SCHEMA,
     generatedAt: spec.generatedAt,
@@ -587,6 +738,7 @@ function buildRunContract(spec) {
       } : {}),
       ...(Object.keys(canonicalLandingEvidence).length ? { canonicalLandingEvidence } : {}),
       ...(Object.keys(semanticProductAdmission).length ? { semanticProductAdmission } : {}),
+      ...(Object.keys(orchestrationLearning).length ? { orchestrationLearning } : {}),
       surfaces: spec.surfaces.map((surface) => ({
         id: surface.id,
         label: surface.label,
@@ -607,11 +759,13 @@ function buildRunContract(spec) {
       budgets: spec.budgets,
       wavePolicy: spec.wavePolicy,
       expansionPolicy: spec.expansionPolicy,
-      evidenceSchemas: spec.evidenceSchemas,
+      evidenceSchemas,
+      ...(aiOsProfile ? { aiOsLanguage: aiOsProfile } : {}),
       truthGates: {
         noTruthLayerOverclaim: spec.doneWhen.includes('no_truth_layer_overclaim'),
         fullCloneParityRequired: spec.fidelity === 'full_clone',
-        fullCloneParityEvidenceRequired: spec.fidelity === 'full_clone'
+        fullCloneParityEvidenceRequired: spec.fidelity === 'full_clone',
+        aiOsBootProofRequired: Boolean(aiOsProfile)
       },
       agentWorkLanguage: {
         schemaVersion: AGENT_WORK_SPEC_SCHEMA,
@@ -623,8 +777,10 @@ function buildRunContract(spec) {
           budgets: nonEmptyObject(spec.budgets),
           wavePolicy: nonEmptyObject(spec.wavePolicy),
           expansionPolicy: nonEmptyObject(spec.expansionPolicy),
-          evidenceSchemas: (spec.evidenceSchemas || []).length > 0,
-          templates: (spec.templates || []).length > 0
+          evidenceSchemas: evidenceSchemas.length > 0,
+          templates: (spec.templates || []).length > 0,
+          orchestrationLearning: nonEmptyObject(orchestrationLearning),
+          aiOsProfile: Boolean(aiOsProfile)
         }
       }
     },
@@ -650,7 +806,9 @@ function buildRunContract(spec) {
           budgets: spec.budgets,
           wavePolicy: spec.wavePolicy,
           expansionPolicy: spec.expansionPolicy,
-          evidenceSchemas: spec.evidenceSchemas.map((schema) => schema.id),
+          orchestrationLearning,
+          aiOs: aiOsProfile || { enabled: false },
+          evidenceSchemas: evidenceSchemas.map((schema) => schema.id),
           templates: spec.templates.map((template) => template.id)
         }
       }
@@ -659,13 +817,15 @@ function buildRunContract(spec) {
 }
 
 function buildSurfaceMatrix(spec) {
+  const evidenceSchemas = effectiveEvidenceSchemas(spec);
   return {
     schemaVersion: 'claw.transfer_surface_matrix.v1',
     generatedAt: spec.generatedAt,
     benchmarkId: spec.benchmarkId,
     runId: spec.runId,
     status: 'pending',
-    evidenceSchemas: spec.evidenceSchemas,
+    evidenceSchemas,
+    aiOsLanguage: spec.aiOs?.enabled ? spec.aiOs : { enabled: false },
     surfaces: spec.surfaces.map((surface) => ({
       id: surface.id,
       label: surface.label,
@@ -679,6 +839,7 @@ function buildSurfaceMatrix(spec) {
 }
 
 function buildWorkGraph(spec) {
+  const evidenceSchemas = effectiveEvidenceSchemas(spec);
   return {
     schemaVersion: 'claw.agent_work_graph.v0',
     generatedAt: spec.generatedAt,
@@ -687,7 +848,8 @@ function buildWorkGraph(spec) {
       budgets: spec.budgets,
       wavePolicy: spec.wavePolicy,
       expansionPolicy: spec.expansionPolicy,
-      evidenceSchemas: spec.evidenceSchemas
+      evidenceSchemas,
+      aiOs: spec.aiOs?.enabled ? spec.aiOs : { enabled: false }
     },
     templates: spec.templates,
     workUnits: spec.surfaces.map((surface) => ({
@@ -727,7 +889,8 @@ export function compileAgentWorkSpec(input = {}, options = {}) {
       truthLayerOverclaimBlocked: spec.doneWhen.includes('no_truth_layer_overclaim') || spec.fidelity === 'full_clone',
       dynamicExpansionDeclared: nonEmptyObject(spec.expansionPolicy),
       wavePolicyDeclared: nonEmptyObject(spec.wavePolicy),
-      evidenceSchemasDeclared: (spec.evidenceSchemas || []).length > 0
+      evidenceSchemasDeclared: effectiveEvidenceSchemas(spec).length > 0,
+      aiOsProfileDeclared: spec.aiOs?.enabled === true
     },
     runtime: defaultRuntimeDescriptor(),
     runContract,

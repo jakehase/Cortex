@@ -2,11 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { planCreativeBundleRuntime } from '../../packages/continuous-workload-controller/index.mjs';
 import {
   normalizeTokenBudgetMode,
   readCreativeWorkerMeteringPlanFromEnv
 } from '../../packages/llm-metering-adapter/index.mjs';
+import { buildCortexCodexBoundary } from './cortex-codex-boundary.mjs';
 
 function readJson(filePath, fallback = null) {
   try {
@@ -16,9 +18,17 @@ function readJson(filePath, fallback = null) {
   }
 }
 
+const CREATIVE_WORKER_SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const STACK_ROOT = path.resolve(CREATIVE_WORKER_SCRIPT_DIR, '../..');
+
 function writeJson(filePath, payload) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function shellQuote(value) {
+  const text = String(value ?? '');
+  return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
 function parseList(value) {
@@ -87,6 +97,21 @@ function parseJsonEnv(value, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+function isCreativeProductFile(rel = '') {
+  const value = String(rel || '').replace(/^\.\//, '');
+  if (!value || path.isAbsolute(value) || value.includes('..')) return false;
+  const appPackageProduct = /^(apps|packages)\//.test(value)
+    && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(value)
+    && !/(^|\/)tests?\//i.test(value);
+  const godotProduct = (
+    value === 'project.godot'
+    || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(value)
+  )
+    && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(value)
+    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
+  return appPackageProduct || godotProduct;
 }
 
 function positiveInt(value, fallback = 0) {
@@ -302,9 +327,24 @@ function commandMatchesAssignedTarget(command, aliases = targetAliasesForSurface
   return aliases.some((alias) => text.includes(alias));
 }
 
+function rewriteSystemBenchmarkScriptPaths(command) {
+  return String(command || '').replace(
+    /(^|[\s;&|()])((?:\.\/)?apps\/system-benchmark\/[A-Za-z0-9_./-]+\.mjs)(?=$|[\s;&|)])/g,
+    (_match, prefix, scriptRel) => {
+      const normalizedRel = String(scriptRel).replace(/^\.\//, '');
+      const absoluteScript = path.join(STACK_ROOT, normalizedRel);
+      return `${prefix}${shellQuote(absoluteScript)}`;
+    }
+  );
+}
+
+function normalizeExternalVerificationCommands(commands = []) {
+  return stableOrdered(commands.map((command) => rewriteSystemBenchmarkScriptPaths(command)));
+}
+
 function externalVerificationCommands() {
   const commands = commandListFromTaskAndPacket(task, cortexPacket);
-  if (!targetedExternalVerificationOnly) return commands;
+  if (!targetedExternalVerificationOnly) return normalizeExternalVerificationCommands(commands);
   const aliases = targetAliasesForSurface();
   const synthesizedTargetTests = allowedFiles
     .filter((rel) => /^tests\/.*\.test\.mjs$/i.test(String(rel || '')))
@@ -314,7 +354,7 @@ function externalVerificationCommands() {
     ...synthesizedTargetTests,
     ...commands.filter((command) => commandMatchesAssignedTarget(command, aliases))
   ]);
-  return filtered.length ? filtered : commands;
+  return normalizeExternalVerificationCommands(filtered.length ? filtered : commands);
 }
 
 function effectiveExternalVerificationFailures(verifications = []) {
@@ -424,6 +464,7 @@ function summarizeContextGovernor() {
     effectiveContextGovernor ? `- mode=${effectiveContextGovernor.mode || 'unknown'} target=${effectiveContextGovernor.targetSavingsRange || 'n/a'} maxWorkerTokens=${effectiveContextGovernor.launchGate?.maxWorkerTokens || 'n/a'} hardGate=${Boolean(effectiveContextGovernor.launchGate?.hardGate)}` : '',
     effectiveModelTierPlan?.worker ? `- workerRole=${effectiveModelTierPlan.worker.role || 'narrow_worker'} workerTier=${effectiveModelTierPlan.worker.tier || 'default'} promptMode=${effectiveModelTierPlan.worker.promptMode || 'compact'}` : '',
     effectiveRetrievalManifest ? `- retrieval=${effectiveRetrievalManifest.mode || 'on_demand'} fileHandles=${Array.isArray(effectiveRetrievalManifest.fileHandles) ? effectiveRetrievalManifest.fileHandles.length : 0} inputHandles=${Array.isArray(effectiveRetrievalManifest.inputHandles) ? effectiveRetrievalManifest.inputHandles.length : 0}` : '',
+    effectiveLearningContext ? `- orchestrationLearning architecturePatterns=${(effectiveLearningContext.architecturePatterns || []).length} antiPatterns=${(effectiveLearningContext.antiPatterns || []).length} repairStrategies=${(effectiveLearningContext.repairStrategies || []).length}` : '',
     '- Use retrieval handles instead of broad repo search or transcript replay.'
   ];
   return lines.filter(Boolean).join('\n');
@@ -476,6 +517,35 @@ function compactJson(value, maxChars = 1800) {
   return trimMiddle(JSON.stringify(value, null, 2), maxChars);
 }
 
+function summarizeLearningArtifactsForPrompt(title, artifacts = [], maxArtifacts = 3) {
+  const selected = Array.isArray(artifacts) ? artifacts.slice(0, maxArtifacts) : [];
+  if (!selected.length) return '';
+  return [
+    `${title}:`,
+    ...selected.map((artifact) => [
+      `- ${artifact.id || artifact.title || 'learned_artifact'} (${artifact.kind || 'pattern'}, trust=${artifact.trust || 'unknown'}, score=${artifact.matchScore ?? 'n/a'})`,
+      artifact.summary ? `  summary: ${trimMiddle(artifact.summary, 420)}` : '',
+      Array.isArray(artifact.files) && artifact.files.length ? `  files: ${artifact.files.slice(0, 8).join(', ')}` : '',
+      artifact.agentWorkLanguage?.source ? `  Agent Work fragment:\n${trimMiddle(artifact.agentWorkLanguage.source, 1200).split('\n').map((line) => `    ${line}`).join('\n')}` : ''
+    ].filter(Boolean).join('\n'))
+  ].filter(Boolean).join('\n');
+}
+
+function summarizeLearningContextForPrompt(context) {
+  if (!context || typeof context !== 'object') return '';
+  const sections = [
+    summarizeLearningArtifactsForPrompt('Learned architecture patterns to consider', context.architecturePatterns, 3),
+    summarizeLearningArtifactsForPrompt('Anti-patterns to avoid first', context.antiPatterns, 3),
+    summarizeLearningArtifactsForPrompt('Repair strategies if verifier/architecture gates fail', context.repairStrategies, 2)
+  ].filter(Boolean);
+  if (!sections.length) return '';
+  return trimMiddle([
+    'Orchestration learning context (Agent Work language):',
+    'Use these as bounded patterns, not as permission to broaden scope. Anti-pattern warnings override architecture-pattern reuse.',
+    ...sections
+  ].join('\n\n'), 4800);
+}
+
 function buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar = [], repairSummary = '', externalVerifications = [] } = {}) {
   const commands = externalVerificationCommands();
   const bundle = task.bundle || cortexPacket?.surface?.bundle || null;
@@ -487,6 +557,7 @@ function buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar = [], rep
   ]).slice(0, 8);
   const fileSignals = packetFiles.map((rel) => extractFileSignals(workspace, rel));
   const failedExternal = effectiveExternalVerificationFailures(externalVerifications);
+  const learningContextBrief = summarizeLearningContextForPrompt(effectiveLearningContext);
   const brief = [
     `Surface: ${surfaceId}`,
     `Goal: ${task.goal || task.title || cortexPacket?.surface?.goal || cortexPacket?.intent || 'Improve assigned product surface.'}`,
@@ -515,10 +586,18 @@ function buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar = [], rep
         mode: effectiveRetrievalManifest.mode || null,
         fileHandleCount: Array.isArray(effectiveRetrievalManifest.fileHandles) ? effectiveRetrievalManifest.fileHandles.length : 0,
         inputHandleCount: Array.isArray(effectiveRetrievalManifest.inputHandles) ? effectiveRetrievalManifest.inputHandles.length : 0
+      } : null,
+      orchestrationLearning: effectiveLearningContext ? {
+        ledgerProject: effectiveLearningContext.ledgerProject || null,
+        architecturePatternCount: (effectiveLearningContext.architecturePatterns || []).length,
+        antiPatternCount: (effectiveLearningContext.antiPatterns || []).length,
+        repairStrategyCount: (effectiveLearningContext.repairStrategies || []).length,
+        retrievalDigest: effectiveLearningContext.retrievalDigest || null
       } : null
     }, 1200),
     'File signals (imports/exports/routes/functions only; inspect assigned files directly if needed):',
     fileSignals.map((entry) => `### ${entry.path}${entry.exists ? '' : ' (missing)'}\n${entry.signals.length ? entry.signals.map((line) => `- ${line}`).join('\n') : '- no compact signals extracted'}`).join('\n\n'),
+    learningContextBrief,
     changedSoFar.length ? `Changed allowed files so far:\n${changedSoFar.map((rel) => `- ${rel}`).join('\n')}` : 'Changed allowed files so far: none.',
     'Required product delta:',
     bundleEnabled
@@ -581,10 +660,20 @@ function runExternalVerification(iteration) {
   const commands = externalVerificationCommands().slice(0, externalVerificationMaxCommands);
   if (!externalVerificationEnabled || !commands.length) return { iteration, enabled: externalVerificationEnabled, results: [] };
   const results = [];
+  const verificationEnv = {
+    ...process.env,
+    CREATIVE_WORKER_WORKSPACE: workspace,
+    CREATIVE_WORKER_EXTERNAL_VERIFICATION_WORKSPACE: workspace
+  };
+  if (parseBool(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION_USE_WORKSPACE_REPO, true)) {
+    verificationEnv.CREATIVE_WORKER_CANONICAL_GAME_REPO_PATH = process.env.GAME_100_AGENT_REPO_PATH || '';
+    verificationEnv.GAME_100_AGENT_REPO_PATH = workspace;
+  }
   for (const command of commands) {
     const startedAtMs = Date.now();
     const spawned = spawnSync('/bin/bash', ['-c', command], {
       cwd: workspace,
+      env: verificationEnv,
       encoding: 'utf8',
       timeout: externalVerificationTimeoutMs,
       stdio: 'pipe'
@@ -624,7 +713,7 @@ if (!taskPath || !evidencePath) {
 }
 
 const task = readJson(taskPath, {});
-const productFiles = allowedFiles.filter((rel) => /^(apps|packages)\//.test(rel) && !/(^|\/)tests?\//i.test(rel));
+const productFiles = allowedFiles.filter(isCreativeProductFile);
 const startedAt = Date.now();
 const startedIso = new Date(startedAt).toISOString();
 const runDir = path.dirname(evidencePath);
@@ -635,6 +724,7 @@ const effectiveContextPack = task.contextPack || task.assignment?.contextPack ||
 const effectiveContextGovernor = effectiveContextPack?.contextGovernor || cortexPacket?.contextGovernor || null;
 const effectiveModelTierPlan = effectiveContextPack?.modelTierPlan || cortexPacket?.modelTierPlan || null;
 const effectiveRetrievalManifest = effectiveContextPack?.retrievalManifest || cortexPacket?.retrievalManifest || null;
+const effectiveLearningContext = effectiveContextPack?.learningContext || cortexPacket?.learningContext || null;
 const budgetLedgerPath = process.env.CREATIVE_WORKER_BUDGET_LEDGER_PATH || task.budgetLedgerPath || '';
 const budgetRequired = parseBool(process.env.CREATIVE_WORKER_BUDGET_REQUIRED, false);
 const globalCallLimit = positiveInt(process.env.CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT, 0);
@@ -655,7 +745,7 @@ const promptMode = normalizePromptMode(process.env.CREATIVE_WORKER_PROMPT_MODE |
 const compactBriefMaxChars = positiveInt(process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS || task.compactBriefMaxChars, 12000);
 const externalVerificationEnabled = parseBool(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION, promptMode === 'compact');
 const externalVerificationTimeoutMs = positiveInt(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION_TIMEOUT_MS, 90_000);
-const externalVerificationMaxCommands = positiveInt(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION_MAX_COMMANDS, 3);
+const externalVerificationMaxCommands = positiveInt(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION_MAX_COMMANDS, 20);
 const targetedExternalVerificationOnly = parseBool(process.env.CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY, false);
 const codexShouldRunTests = parseBool(process.env.CREATIVE_WORKER_CODEX_RUN_TESTS, promptMode !== 'compact');
 const requireRepairSignalForRetry = parseBool(process.env.CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY, promptMode === 'compact');
@@ -685,6 +775,19 @@ const bundleRuntimePlan = inheritedBundleRuntimePlan?.enabled === true
   : computedBundleRuntimePlan;
 const iterationTimeoutMs = Math.max(30_000, Number(bundleRuntimePlan.iterationTimeoutMs || computedBundleRuntimePlan.iterationTimeoutMs || baseIterationTimeoutMs));
 const tokenReservationEstimate = Math.max(0, Number(bundleRuntimePlan.tokenReservationEstimate || computedBundleRuntimePlan.tokenReservationEstimate || baseTokenReservationEstimate));
+const cognitionBoundary = buildCortexCodexBoundary({
+  env: process.env,
+  task,
+  cortexPacket,
+  workerCommand: process.env.CREATIVE_WORKER_COMMAND || 'codex-creative-worker.mjs',
+  cortexPacketPath,
+  budgetLedgerPath,
+  codexBin,
+  codexModel,
+  codexSandbox,
+  promptMode,
+  meteringPlan
+});
 
 if (cortexRequired && !cortexPacket) {
   writeJson(evidencePath, {
@@ -698,6 +801,7 @@ if (cortexRequired && !cortexPacket) {
     testsRun: [],
     risks: ['cortex_context_required_missing'],
     failureReason: 'cortex_context_required_missing',
+    cognitionBoundary,
     cortex: { required: true, packetPath: cortexPacketPath || null, packetPresent: false }
   });
   process.exit(2);
@@ -715,6 +819,7 @@ if (budgetRequired && !budgetLedgerPath) {
     testsRun: [],
     risks: ['creative_budget_ledger_required_missing'],
     failureReason: 'creative_budget_ledger_required_missing',
+    cognitionBoundary,
     cortex: { required: cortexRequired, packetPath: cortexPacketPath || null, packetPresent: Boolean(cortexPacket) }
   });
   process.exit(2);
@@ -732,6 +837,7 @@ if (budgetRequired && activeCodexCallSchedule.raw && !activeCodexCallSchedule.va
     risks: ['creative_active_codex_call_schedule_invalid'],
     failureReason: 'creative_active_codex_call_schedule_invalid',
     budget: { activeCodexCallSchedule: activeCodexCallSchedule.raw },
+    cognitionBoundary,
     cortex: { required: cortexRequired, packetPath: cortexPacketPath || null, packetPresent: Boolean(cortexPacket) }
   });
   process.exit(2);
@@ -745,6 +851,7 @@ if (!allowedFiles.length || !productFiles.length) {
     filesChanged: [],
     testsRun: [],
     risks: ['missing allowed product files'],
+    cognitionBoundary,
     failureReason: 'missing_allowed_product_files'
   });
   process.exit(2);
@@ -783,9 +890,13 @@ function stableOrdered(list) {
   return out;
 }
 
+function creativeBudgetWorkerKey() {
+  return `${agentId || 'unknown-agent'}:${surfaceId || 'unknown-surface'}`;
+}
+
 function reserveBudget(iteration) {
   if (!budgetLedgerPath) return { ok: true, active: false, reservationId: null };
-  const workerKey = agentId || surfaceId || 'unknown-worker';
+  const workerKey = creativeBudgetWorkerKey();
   const deadline = Date.now() + budgetReservationTimeoutMs;
   while (true) {
     const outcome = mutateBudgetLedger(budgetLedgerPath, (ledger) => {
@@ -866,7 +977,7 @@ function reserveBudget(iteration) {
 function completeBudget(reservation, iteration, logPath, exitCode) {
   if (!budgetLedgerPath || !reservation?.active) return null;
   const usage = parseCodexTokenUsage(logPath, { exitCode });
-  const workerKey = agentId || surfaceId || 'unknown-worker';
+  const workerKey = creativeBudgetWorkerKey();
   const result = mutateBudgetLedger(budgetLedgerPath, (ledger) => {
     let ownGlobalStop = null;
     ledger.metering = { mode: meteringPlan.mode || null, budgetAxis: meteringPlan.budgetAxis || null, tokenBudgetMode, hardTokenBudget };
@@ -918,8 +1029,9 @@ function buildPrompt({ iteration, elapsedMs, changedSoFar, mode = promptMode, re
       Array.isArray(bundle?.sourceSurfaces) ? bundle.sourceSurfaces.length : 0,
       productFiles.length
     );
-    const compactDensityTarget = bundleEnabled ? Math.min(180, Math.max(90, bundleSurfaceCount * 40)) : 40;
-    return `You are a Codex CLI implementation worker in a 100-agent Mailchimp product benchmark.
+    const compactDensityTargetOverride = positiveInt(process.env.CREATIVE_WORKER_COMPACT_DENSITY_TARGET_OVERRIDE || task.compactDensityTarget || task.compactDensityTargetOverride, 0);
+    const compactDensityTarget = compactDensityTargetOverride || (bundleEnabled ? Math.min(180, Math.max(90, bundleSurfaceCount * 40)) : 40);
+    return `You are a Codex CLI implementation worker in a multi-agent product implementation sprint.
 
 Use the compact surface brief below. Make one concrete, surface-specific product-code improvement. Token discipline matters: inspect only the assigned product target first, avoid repo-wide search, do not run tests, and do not browse broadly unless the brief is clearly stale.
 
@@ -927,18 +1039,21 @@ ${compactBrief}
 
 Rules:
 - ${phase}.
-- Modify at least one assigned product source file under apps/ or packages/.
+- Modify at least one assigned product target file from the Product targets/Allowed files list.
 - Do not add benchmark-only generic semanticProductArchitecture shims.
 - Do not make docs-only, tests-only, marker-only, or comment-only changes.
 - Keep changes small enough to survive targeted external verification.
+- Keep the edit focused enough to finish and exit cleanly inside the iteration timeout; avoid broad rewrites, generated bulk, or speculative cleanup.
 - Output-density target: aim for at least ${compactDensityTarget} substantive unique added product-code lines across the assigned product files, especially for bundled compact work. Do not pad with comments, duplicate boilerplate, marker constants, or near-identical branches; use the lines for real runtime behavior, state contracts, validation, route/domain helpers, analytics/export handling, or error paths tied to the surface brief.
 - ${verifierInstruction}
+- Do not print full diffs, patches, or whole file bodies in your final response; the harness captures git diff separately.
 - At the end, summarize product behavior changed, design decision, files changed, and remaining risks in a few bullets only.
 - The wrapper writes final evidence; do not waste time creating artifact spam.`;
   }
   const cortexSection = summarizeCortexPacket(cortexPacket);
+  const learningSection = summarizeLearningContextForPrompt(effectiveLearningContext);
   const fileContext = buildAssignedFileContext();
-  return `You are one worker in a 100-agent Mailchimp product benchmark.
+  return `You are one implementation worker in a multi-agent product sprint.
 
 Task JSON path: ${taskPath}
 Evidence JSON path you may update: ${evidencePath}
@@ -951,7 +1066,7 @@ Minimum iterations required: ${minIterations}
 Minimum creative runtime ms required: ${minRuntimeMs}
 
 Goal/title:
-${task.goal || task.title || 'Improve the assigned Mailchimp product surface.'}
+${task.goal || task.title || 'Improve the assigned product surface.'}
 
 Allowed files only:
 ${allowedFiles.map((rel) => `- ${rel}`).join('\n')}
@@ -971,6 +1086,8 @@ ${(task.acceptanceChecks || []).map((entry) => `- ${normalizeCommandEntry(entry)
 Cortex context packet / route:
 ${cortexSection}
 
+${learningSection ? `Learned Agent Work patterns / anti-patterns:\n${learningSection}\n` : ''}
+
 Bounded assigned-file context, prepacked by the Cortex governor:
 ${fileContext || '[No file context available; rely only on assigned files and targeted commands.]'}
 
@@ -981,14 +1098,16 @@ ${repairSummary ? `Repair signal from previous external verification/quality gat
 
 Rules:
 - ${phase}.
-- ${bundleEnabled ? `Modify at least ${Math.max(1, Number(bundle.minProductTargetsToModify || 1))} assigned product source file(s) under apps/ or packages/.` : 'Modify at least one assigned product source file under apps/ or packages/.'}
+- ${bundleEnabled ? `Modify at least ${Math.max(1, Number(bundle.minProductTargetsToModify || 1))} assigned product target file(s) from the allowed file list.` : 'Modify at least one assigned product target file from the allowed file list.'}
 - Do not add benchmark-only generic semanticProductArchitecture shims.
 - Do not make docs-only, tests-only, marker-only, or comment-only changes.
 - Keep changes small enough to survive the targeted tests.
+- Keep the edit focused enough to finish and exit cleanly inside the iteration timeout; avoid broad rewrites, generated bulk, or speculative cleanup.
 - Prefer real product behavior, validation, state shaping, route/domain logic, or user-visible data contracts for this specific surface.
 - Treat the Cortex context packet as the planning/context authority; do not perform broad repo exploration unless a targeted check proves the packet is stale.
 - Use the bounded file context above first; if more context is needed, inspect only assigned or directly imported files.
 - ${verifierInstruction}
+- Do not print full diffs, patches, or whole file bodies in your final response; the harness captures git diff separately.
 - Update ${evidencePath} as JSON if useful, but the wrapper will also write final evidence.
 
 At the end of this iteration, summarize: product behavior changed, design decision, files changed, commands/tests run, and remaining risks.`;
@@ -999,6 +1118,137 @@ const promptAudit = [];
 let activePromptMode = promptMode;
 let compactFallbackUsed = false;
 let repairSummary = initialRepairSummary;
+
+function evidenceTestsRunSnapshot() {
+  return iterations
+    .flatMap((entry) => {
+      const text = entry.logPath ? readFilePrefix(entry.logPath) : '';
+      const testCommandPattern = new RegExp('(?:npm test|node --test|node\\s+apps/[^\\n\\r]+|node\\s+tests/[^\\n\\r]+)', 'g');
+      return Array.from(text.matchAll(testCommandPattern)).map((match) => match[0]);
+    })
+    .concat(externalVerifications.flatMap((entry) => (entry.results || []).map((result) => result.command)))
+    .slice(0, 20);
+}
+
+function buildEvidencePayload({ ok = false, stage = 'checkpoint', complete = false, summary = null, risks = [], failureReason = null } = {}) {
+  const now = Date.now();
+  const currentChanged = changedFiles(workspace, before, allowedFiles);
+  const currentProductChanged = currentChanged.filter((rel) => productFiles.includes(rel));
+  const currentDelta = analyzeCreativeDelta(currentChanged);
+  const externalVerificationFailures = effectiveExternalVerificationFailures(externalVerifications);
+  const rawExternalVerificationFailureCount = externalVerifications.flatMap((entry) => (entry.results || []).filter((result) => result.ok === false)).length;
+  return {
+    ok,
+    partial: !complete,
+    stage,
+    checkpoint: {
+      stage,
+      complete,
+      productDeltaDurable: currentProductChanged.length > 0,
+      externalVerificationComplete: complete || (externalVerificationEnabled && externalVerifications.length > 0 && externalVerificationFailures.length === 0),
+      checkpointedAt: new Date(now).toISOString(),
+      reason: failureReason || null
+    },
+    summary: summary || (ok
+      ? `Codex creative worker completed ${iterations.length} iteration(s) for ${surfaceId} and changed ${currentProductChanged.join(', ')}.`
+      : `Codex creative worker checkpointed ${iterations.length} iteration(s) for ${surfaceId}.`),
+    surfaceId,
+    agentId,
+    startedAt: startedIso,
+    checkpointedAt: new Date(now).toISOString(),
+    finishedAt: complete ? new Date(now).toISOString() : null,
+    creativeRuntimeMs: now - startedAt,
+    minRuntimeMs,
+    minIterations,
+    iterationCount: iterations.length,
+    iterations,
+    productDecisions: iterations.map((entry, index) => `Iteration ${index + 1} delegated to Codex CLI for scoped product-work planning/editing/testing.`),
+    filesChanged: currentChanged,
+    productFilesChanged: currentProductChanged,
+    modifiedFiles: currentChanged,
+    productModifiedFiles: currentProductChanged,
+    testsRun: evidenceTestsRunSnapshot(),
+    risks,
+    failureReason,
+    retryable: true,
+    prompt: {
+      mode: promptMode,
+      finalMode: activePromptMode,
+      compactBriefMaxChars,
+      compactFailClosedFallback,
+      compactFallbackUsed,
+      codexShouldRunTests,
+      requireRepairSignalForRetry,
+      stopOnExternalVerificationFailure,
+      promptTokenBudget: promptTokenBudget || null,
+      promptTokenBudgetMode,
+      audit: promptAudit
+    },
+    externalVerification: {
+      enabled: externalVerificationEnabled,
+      timeoutMs: externalVerificationTimeoutMs,
+      maxCommands: externalVerificationMaxCommands,
+      targetedOnly: targetedExternalVerificationOnly,
+      effectiveCommands: externalVerificationCommands().slice(0, externalVerificationMaxCommands),
+      runs: externalVerifications,
+      failureCount: externalVerificationFailures.length,
+      rawFailureCount: rawExternalVerificationFailureCount,
+      complete: complete || !externalVerificationEnabled || externalVerifications.length > 0
+    },
+    productDelta: currentDelta,
+    cognitionBoundary,
+    cortex: {
+      required: cortexRequired,
+      packetPath: cortexPacketPath || null,
+      packetPresent: Boolean(cortexPacket),
+      route: cortexPacket?.cortexRoute || cortexPacket?.route || null,
+      budgetPolicy: cortexPacket?.budgetPolicy || cortexPacket?.budget || null,
+      contextGovernor: effectiveContextGovernor || null,
+      modelTierPlan: effectiveModelTierPlan || null,
+      retrievalManifest: effectiveRetrievalManifest ? {
+        mode: effectiveRetrievalManifest.mode || null,
+        fileHandleCount: Array.isArray(effectiveRetrievalManifest.fileHandles) ? effectiveRetrievalManifest.fileHandles.length : 0,
+        inputHandleCount: Array.isArray(effectiveRetrievalManifest.inputHandles) ? effectiveRetrievalManifest.inputHandles.length : 0
+      } : null
+    },
+    budget: {
+      ledgerPath: budgetLedgerPath || null,
+      required: budgetRequired,
+      meteringPlan,
+      meteringMode: meteringPlan.mode || null,
+      tokenBudgetMode,
+      hardTokenBudget,
+      globalCallLimit,
+      globalTokenLimit,
+      baseTokenReservationEstimate,
+      tokenReservationEstimate,
+      bundleRuntimePlan,
+      perWorkerCallLimit,
+      maxActiveCodexCalls,
+      activeCodexCallSchedule: activeCodexCallSchedule.raw ? {
+        raw: activeCodexCallSchedule.raw,
+        entries: activeCodexCallSchedule.entries,
+        defaultLimit: activeCodexCallSchedule.defaultLimit,
+        valid: activeCodexCallSchedule.valid,
+        maxLimit: activeCodexCallSchedule.maxLimit
+      } : null,
+      maxObservedTokensPerMinute,
+      burnRateWindowMs,
+      reservationTimeoutMs: budgetReservationTimeoutMs,
+      activeReservationTtlMs,
+      stopReason: budgetStopReason,
+      events: budgetEvents
+    }
+  };
+}
+
+function writeEvidenceCheckpoint(stage, options = {}) {
+  try {
+    writeJson(evidencePath, buildEvidencePayload({ stage, ...options }));
+  } catch (error) {
+    budgetEvents.push({ type: 'creative_evidence_checkpoint_write_failed', stage, error: error?.message || String(error), at: new Date().toISOString() });
+  }
+}
 
 for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
   const elapsedMs = Date.now() - startedAt;
@@ -1089,6 +1339,16 @@ for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
     tokenUsage: budgetCompletion?.usage || null,
     budgetGlobalStop: budgetCompletion?.globalStop || null
   });
+  writeEvidenceCheckpoint('after_codex_iteration', {
+    summary: `Durable checkpoint after Codex iteration ${iteration} for ${surfaceId}; external verification may still be pending.`,
+    risks: [
+      lastExitCode !== 0 ? `codex_exit_${lastExitCode}` : null,
+      lastSignal ? `codex_signal_${lastSignal}` : null,
+      lastError || null,
+      budgetStopReason || null
+    ].filter(Boolean),
+    failureReason: lastExitCode === 0 && !lastSignal && !lastError ? null : 'codex_iteration_not_clean'
+  });
 
   if (budgetCompletion?.globalStop) {
     budgetStopReason = budgetCompletion.globalStop.reason || 'creative_budget_global_stop';
@@ -1135,13 +1395,7 @@ const changedProductFiles = changed.filter((rel) => productFiles.includes(rel));
 const finalDelta = analyzeCreativeDelta(changed);
 const externalVerificationFailures = effectiveExternalVerificationFailures(externalVerifications);
 const rawExternalVerificationFailureCount = externalVerifications.flatMap((entry) => (entry.results || []).filter((result) => result.ok === false)).length;
-const testsRun = iterations
-  .flatMap((entry) => {
-    const text = entry.logPath ? readFilePrefix(entry.logPath) : '';
-    return Array.from(text.matchAll(/(?:npm test|node --test|node\s+apps\/[^\n\r]+|node\s+tests\/[^\n\r]+)/g)).map((match) => match[0]);
-  })
-  .concat(externalVerifications.flatMap((entry) => (entry.results || []).map((result) => result.command)))
-  .slice(0, 20);
+const testsRun = evidenceTestsRunSnapshot();
 const compactQualityFailed = promptMode === 'compact' && finalDelta.weakOrGeneric;
 const ok = lastExitCode === 0 && changedProductFiles.length > 0 && iterations.length >= minIterations && (finishedAt - startedAt) >= minRuntimeMs && externalVerificationFailures.length === 0 && !finalDelta.genericShimPattern && !compactQualityFailed;
 const risks = [];
@@ -1158,6 +1412,16 @@ if (compactQualityFailed) risks.push('compact_quality_gate_failed');
 
 writeJson(evidencePath, {
   ok,
+  partial: false,
+  stage: 'final',
+  checkpoint: {
+    stage: 'final',
+    complete: true,
+    productDeltaDurable: changedProductFiles.length > 0,
+    externalVerificationComplete: !externalVerificationEnabled || externalVerifications.length > 0,
+    checkpointedAt: new Date(finishedAt).toISOString(),
+    reason: ok ? null : risks[0] || null
+  },
   summary: ok
     ? `Codex creative worker completed ${iterations.length} iteration(s) for ${surfaceId} and changed ${changedProductFiles.join(', ')}.`
     : `Codex creative worker did not satisfy benchmark requirements for ${surfaceId}.`,
@@ -1168,10 +1432,13 @@ writeJson(evidencePath, {
   creativeRuntimeMs: finishedAt - startedAt,
   minRuntimeMs,
   minIterations,
+  iterationCount: iterations.length,
   iterations,
   productDecisions: iterations.map((entry, index) => `Iteration ${index + 1} delegated to Codex CLI for scoped product-work planning/editing/testing.`),
   filesChanged: changed,
   productFilesChanged: changedProductFiles,
+  modifiedFiles: changed,
+  productModifiedFiles: changedProductFiles,
   testsRun,
   risks,
   retryable: !(budgetStopReason === 'codex_usage_limit_observed'
@@ -1205,6 +1472,7 @@ writeJson(evidencePath, {
     rawFailureCount: rawExternalVerificationFailureCount
   },
   productDelta: finalDelta,
+  cognitionBoundary,
   cortex: {
     required: cortexRequired,
     packetPath: cortexPacketPath || null,
@@ -1217,6 +1485,14 @@ writeJson(evidencePath, {
       mode: effectiveRetrievalManifest.mode || null,
       fileHandleCount: Array.isArray(effectiveRetrievalManifest.fileHandles) ? effectiveRetrievalManifest.fileHandles.length : 0,
       inputHandleCount: Array.isArray(effectiveRetrievalManifest.inputHandles) ? effectiveRetrievalManifest.inputHandles.length : 0
+    } : null,
+    learningContext: effectiveLearningContext ? {
+      ledgerProject: effectiveLearningContext.ledgerProject || null,
+      architecturePatternIds: (effectiveLearningContext.architecturePatterns || []).map((entry) => entry.id),
+      antiPatternIds: (effectiveLearningContext.antiPatterns || []).map((entry) => entry.id),
+      repairStrategyIds: (effectiveLearningContext.repairStrategies || []).map((entry) => entry.id),
+      agentWorkFragmentCount: (effectiveLearningContext.agentWorkLanguageFragments || []).length,
+      retrievalDigest: effectiveLearningContext.retrievalDigest || null
     } : null
   },
   budget: {

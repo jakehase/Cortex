@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import cortex_server.routers.nexus as nexus
+from cortex_server.routers import contract, guard
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
@@ -63,3 +64,23 @@ def test_contract_metadata_present_on_success_json_routes(monkeypatch):
         assert "contract" in body
         assert body["contract"]["activation_metadata_available"] is True
         assert body["contract"]["identity_phrase"]
+
+
+def test_contract_self_test_default_is_lightweight_and_guard_uses_it():
+    app = FastAPI()
+    app.include_router(contract.router, prefix="/contract")
+    app.include_router(guard.router, prefix="/guard")
+    client = TestClient(app)
+
+    r = client.get("/contract/self-test")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "lightweight"
+    assert body["success"] is True
+    assert body["checks"]["nexus_orchestrate_route_registered"]["pass"] is True
+
+    guard_r = client.get("/guard/status")
+    assert guard_r.status_code == 200
+    guard_body = guard_r.json()
+    assert guard_body["guard_active"] is True
+    assert guard_body["all_passed"] is True

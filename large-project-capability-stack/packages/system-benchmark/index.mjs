@@ -216,6 +216,18 @@ function stampNow() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
 }
 
+export function defaultCortexCodexCognitionBoundary() {
+  return {
+    schemaVersion: 'claw.cortex_codex_boundary.v1',
+    behaviorChanging: false,
+    boundaryStatement: 'Cortex is the control-plane/context/routing/truth layer; Codex is the execution-plane CLI/model worker for bounded product edits. Do not call Codex worker output Cortex-agent work unless a Cortex packet/context governor is actually supplied to the worker.',
+    cortexRole: 'control_plane_context_routing_memory_truth_supervision',
+    codexRole: 'execution_plane_cli_model_worker',
+    requiredForCreativeWorkers: true,
+    budgetGovernorsMustRemainEnabled: true
+  };
+}
+
 export function createBenchmarkRunContract({
   benchmarkId,
   benchmarkTier,
@@ -230,6 +242,7 @@ export function createBenchmarkRunContract({
   scoreboardPath = 'artifacts/benchmarks/scoreboard.json',
   runId,
   artifactRoot,
+  cognitionBoundary = defaultCortexCodexCognitionBoundary(),
   notes = '',
   replyAnchor = ''
 }) {
@@ -248,6 +261,7 @@ export function createBenchmarkRunContract({
     verifierSet,
     requestedAgentCount,
     executionBoundary,
+    cognitionBoundary,
     stopCondition,
     scoreboardPath,
     runId: finalRunId,
@@ -383,6 +397,37 @@ export function resolveBenchmarkLeaseTtlMs({ scope = {}, env = process.env, fall
   return Math.max(minimumMs, fallbackMs, runtimeBudgetMs);
 }
 
+export const REAL_WORKER_PRODUCT_STANDARD_POLICY = Object.freeze({
+  schemaVersion: 'claw.benchmark_threshold_policy.v1',
+  policyId: 'real_worker_product_standard_20260702',
+  label: 'Real-worker product standard with strict objective truth and near-perfect transfer tolerance',
+  rationale: 'Large real Codex/model-worker product runs should not require mathematically perfect shard transfer; objective/supervisor truth, verification integrity, fake-green prevention, and real product-work evidence remain strict.',
+  objectiveTruth: Object.freeze({ strict: true, supervisorGreenRequired: true, remainingExecutableSurfaceCountMax: 0, fakeGreenIncidentsMax: 0, truthIntegrityContradictionsMax: 0 }),
+  throughputTolerance: Object.freeze({ productiveIterationRateMin: 0.90, noOpRateMax: 0.10, repeatBlockerRateMax: 0.10, handoffEfficiencyMin: 0.90, transferScoreMin: 0.90 }),
+  evidenceIntegrity: Object.freeze({ verificationIntegrity: 1, creativeWorkerEvidenceIntegrityMin: 1, creativeIterationIntegrityMin: 1, creativeProductDeltaIntegrityMin: 1, templateFallbackRateMax: 0 })
+});
+
+export const REAL_WORKER_PRODUCT_STANDARD_THRESHOLDS = Object.freeze({
+  productiveIterationRate: Object.freeze({ min: 0.90 }),
+  noOpRate: Object.freeze({ max: 0.10 }),
+  repeatBlockerRate: Object.freeze({ max: 0.10 }),
+  medianMinutesToMeaningfulProgress: Object.freeze({ max: 12 }),
+  verificationIntegrity: Object.freeze({ eq: 1 }),
+  handoffEfficiency: Object.freeze({ min: 0.90 }),
+  autonomyWindowMinutes: Object.freeze({ min: 0 }),
+  truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+  fakeGreenIncidents: Object.freeze({ eq: 0 }),
+  transferScore: Object.freeze({ min: 0.90 }),
+  creativeWorkerEvidenceIntegrity: Object.freeze({ min: 1 }),
+  creativeIterationIntegrity: Object.freeze({ min: 1 }),
+  creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
+  templateFallbackRate: Object.freeze({ max: 0 })
+});
+
+export const BENCHMARK_TIER_THRESHOLD_POLICIES = Object.freeze({
+  real_worker_product_standard: REAL_WORKER_PRODUCT_STANDARD_POLICY
+});
+
 export const BENCHMARK_TIER_THRESHOLDS = Object.freeze({
   execution_smoke: Object.freeze({
     productiveIterationRate: Object.freeze({ min: 1 }),
@@ -395,6 +440,21 @@ export const BENCHMARK_TIER_THRESHOLDS = Object.freeze({
     truthIntegrityContradictions: Object.freeze({ eq: 0 }),
     fakeGreenIncidents: Object.freeze({ eq: 0 }),
     transferScore: Object.freeze({ min: 1 })
+  }),
+  real_worker_product_standard: REAL_WORKER_PRODUCT_STANDARD_THRESHOLDS,
+  production_quality_repair_smoke: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 1 }),
+    noOpRate: Object.freeze({ max: 0 }),
+    repeatBlockerRate: Object.freeze({ max: 0 }),
+    verificationIntegrity: Object.freeze({ eq: 1 }),
+    handoffEfficiency: Object.freeze({ eq: 1 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    transferScore: Object.freeze({ min: 1 }),
+    creativeWorkerEvidenceIntegrity: Object.freeze({ min: 1 }),
+    creativeIterationIntegrity: Object.freeze({ min: 1 }),
+    creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
+    templateFallbackRate: Object.freeze({ max: 0 })
   }),
   tier1_smoke: Object.freeze({
     productiveIterationRate: Object.freeze({ min: 0.55 }),
@@ -422,6 +482,78 @@ export const BENCHMARK_TIER_THRESHOLDS = Object.freeze({
     creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
     templateFallbackRate: Object.freeze({ max: 0 })
   }),
+  game_product_sprint_smoke: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 0.75 }),
+    noOpRate: Object.freeze({ max: 0.25 }),
+    repeatBlockerRate: Object.freeze({ max: 0.25 }),
+    verificationIntegrity: Object.freeze({ eq: 1 }),
+    handoffEfficiency: Object.freeze({ min: 0.75 }),
+    autonomyWindowMinutes: Object.freeze({ min: 0 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    transferScore: Object.freeze({ min: 0.75 }),
+    creativeWorkerEvidenceIntegrity: Object.freeze({ min: 1 }),
+    creativeIterationIntegrity: Object.freeze({ min: 1 }),
+    creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
+    templateFallbackRate: Object.freeze({ max: 0 }),
+    gameBuildGatePass: Object.freeze({ eq: 1 }),
+    gameSceneLoadGatePass: Object.freeze({ eq: 1 }),
+    gameInputCombatHarnessPass: Object.freeze({ eq: 1 }),
+    assetManifestGatePass: Object.freeze({ eq: 1 })
+  }),
+  tier1_creative_product_120m: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 0.55 }),
+    noOpRate: Object.freeze({ max: 0.20 }),
+    repeatBlockerRate: Object.freeze({ max: 0.15 }),
+    medianMinutesToMeaningfulProgress: Object.freeze({ max: 12 }),
+    verificationIntegrity: Object.freeze({ eq: 1 }),
+    handoffEfficiency: Object.freeze({ min: 0.60 }),
+    autonomyWindowMinutes: Object.freeze({ min: 120 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    creativeWorkerEvidenceIntegrity: Object.freeze({ min: 1 }),
+    creativeIterationIntegrity: Object.freeze({ min: 1 }),
+    creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
+    templateFallbackRate: Object.freeze({ max: 0 })
+  }),
+  tier1_creative_product_240m: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 0.55 }),
+    noOpRate: Object.freeze({ max: 0.20 }),
+    repeatBlockerRate: Object.freeze({ max: 0.15 }),
+    medianMinutesToMeaningfulProgress: Object.freeze({ max: 12 }),
+    verificationIntegrity: Object.freeze({ eq: 1 }),
+    handoffEfficiency: Object.freeze({ min: 0.60 }),
+    autonomyWindowMinutes: Object.freeze({ min: 240 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    creativeWorkerEvidenceIntegrity: Object.freeze({ min: 1 }),
+    creativeIterationIntegrity: Object.freeze({ min: 1 }),
+    creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
+    templateFallbackRate: Object.freeze({ max: 0 })
+  }),
+  tier1_creative_product_240m_production_architecture: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 0.55 }),
+    noOpRate: Object.freeze({ max: 0.20 }),
+    repeatBlockerRate: Object.freeze({ max: 0.15 }),
+    medianMinutesToMeaningfulProgress: Object.freeze({ max: 12 }),
+    verificationIntegrity: Object.freeze({ eq: 1 }),
+    handoffEfficiency: Object.freeze({ min: 0.60 }),
+    autonomyWindowMinutes: Object.freeze({ min: 240 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    creativeWorkerEvidenceIntegrity: Object.freeze({ min: 1 }),
+    creativeIterationIntegrity: Object.freeze({ min: 1 }),
+    creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
+    templateFallbackRate: Object.freeze({ max: 0 }),
+    testFailureRegressionCount: Object.freeze({ max: 0 }),
+    routeCollisionCount: Object.freeze({ eq: 0 }),
+    duplicateNormalizedLineRatio: Object.freeze({ max: 0.25 }),
+    architectureFitnessScore: Object.freeze({ min: 0.90 }),
+    architectureViolationCount: Object.freeze({ eq: 0 }),
+    architectureGatePass: Object.freeze({ eq: 1 }),
+    integrationHardeningPass: Object.freeze({ eq: 1 }),
+    productionQualityGatePass: Object.freeze({ eq: 1 })
+  }),
   tier2_functional: Object.freeze({
     productiveIterationRate: Object.freeze({ min: 0.65 }),
     noOpRate: Object.freeze({ max: 0.15 }),
@@ -445,6 +577,31 @@ export const BENCHMARK_TIER_THRESHOLDS = Object.freeze({
     truthIntegrityContradictions: Object.freeze({ eq: 0 }),
     fakeGreenIncidents: Object.freeze({ eq: 0 }),
     transferScore: Object.freeze({ min: 0.75 })
+  }),
+  tier3_game_vertical_slice_100agent: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 0.70 }),
+    noOpRate: Object.freeze({ max: 0.10 }),
+    repeatBlockerRate: Object.freeze({ max: 0.08 }),
+    medianMinutesToMeaningfulProgress: Object.freeze({ max: 20 }),
+    verificationIntegrity: Object.freeze({ min: 0.95 }),
+    handoffEfficiency: Object.freeze({ min: 0.75 }),
+    autonomyWindowMinutes: Object.freeze({ min: 240 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    surfaceReliabilityScore: Object.freeze({ min: 0.95 }),
+    classifiedFailureIntegrity: Object.freeze({ min: 1 }),
+    creativeWorkerEvidenceIntegrity: Object.freeze({ min: 0.85 }),
+    creativeIterationIntegrity: Object.freeze({ min: 0.90 }),
+    creativeProductDeltaIntegrity: Object.freeze({ min: 0.85 }),
+    templateFallbackRate: Object.freeze({ max: 0 }),
+    activeAgentScaleProof: Object.freeze({ min: 100 }),
+    admissionGateIntegrity: Object.freeze({ min: 0.95 }),
+    schedulerRecoveryIntegrity: Object.freeze({ min: 1 }),
+    gameBuildGatePass: Object.freeze({ eq: 1 }),
+    gameSceneLoadGatePass: Object.freeze({ eq: 1 }),
+    gameInputCombatHarnessPass: Object.freeze({ eq: 1 }),
+    assetManifestGatePass: Object.freeze({ eq: 1 }),
+    repairLaneConverged: Object.freeze({ eq: 1 })
   })
 });
 
@@ -470,7 +627,8 @@ export function evaluateBenchmarkThresholds({ benchmarkTier, metrics = {} }) {
       ok: false,
       benchmarkTier,
       failures: [{ metric: 'benchmarkTier', actual: benchmarkTier || null, requirement: 'known benchmark tier', reason: 'unknown_benchmark_tier' }],
-      thresholds: null
+      thresholds: null,
+      thresholdPolicy: null
     };
   }
 
@@ -500,7 +658,8 @@ export function evaluateBenchmarkThresholds({ benchmarkTier, metrics = {} }) {
     ok: failures.length === 0,
     benchmarkTier,
     failures,
-    thresholds
+    thresholds,
+    thresholdPolicy: BENCHMARK_TIER_THRESHOLD_POLICIES[benchmarkTier] || null
   };
 }
 
@@ -522,6 +681,18 @@ export function createScoreboardRow({ contract, metrics = {}, outcome = {}, dura
     truthIntegrityContradictions: metrics.truthIntegrityContradictions ?? 0,
     fakeGreenIncidents: metrics.fakeGreenIncidents ?? 0,
     transferScore: metrics.transferScore ?? null,
+    creativeWorkerEvidenceIntegrity: metrics.creativeWorkerEvidenceIntegrity ?? null,
+    creativeIterationIntegrity: metrics.creativeIterationIntegrity ?? null,
+    creativeProductDeltaIntegrity: metrics.creativeProductDeltaIntegrity ?? null,
+    templateFallbackRate: metrics.templateFallbackRate ?? null,
+    activeAgentScaleProof: metrics.activeAgentScaleProof ?? null,
+    admissionGateIntegrity: metrics.admissionGateIntegrity ?? null,
+    schedulerRecoveryIntegrity: metrics.schedulerRecoveryIntegrity ?? null,
+    gameBuildGatePass: metrics.gameBuildGatePass ?? null,
+    gameSceneLoadGatePass: metrics.gameSceneLoadGatePass ?? null,
+    gameInputCombatHarnessPass: metrics.gameInputCombatHarnessPass ?? null,
+    assetManifestGatePass: metrics.assetManifestGatePass ?? null,
+    repairLaneConverged: metrics.repairLaneConverged ?? null,
     pass: outcome.pass ?? false,
     mechanicalGreen: outcome.mechanicalGreen ?? null,
     scaleProofReady: outcome.scaleProofReady ?? null,

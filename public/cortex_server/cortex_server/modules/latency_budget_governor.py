@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional
 from cortex_server.modules import runtime_pressure
 
 
-DEFAULT_ARTIFACT_DIR = Path("/opt/clawdbot/artifacts/nexus_latency")
+DEFAULT_ARTIFACT_DIR = Path(os.getenv("NEXUS_LATENCY_ARTIFACT_DIR", "/opt/clawdbot/artifacts/nexus_latency"))
 
 
 def _now_iso() -> str:

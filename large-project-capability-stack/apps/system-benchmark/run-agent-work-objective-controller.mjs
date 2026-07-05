@@ -84,9 +84,75 @@ function graphExhaustedFromWave({ workerEvents = [], matrix = {}, waveBlocker = 
   return isExpandableEvidenceSchemaGap({ waveBlocker, policyReport });
 }
 
-function shouldTriggerExpansion({ triggers = [], objectiveRed, graphExhausted }) {
+function shouldTriggerExpansion({ triggers = [], objectiveRed, graphExhausted, failedSurfaceCount = 0 }) {
   const normalized = triggers.map(normalizePolicyKey);
-  return (normalized.includes('objective_red') && objectiveRed) || (normalized.includes('graph_exhausted') && graphExhausted);
+  return (normalized.includes('objective_red') && objectiveRed)
+    || (normalized.includes('graph_exhausted') && graphExhausted)
+    || (normalized.includes('failed_surfaces') && failedSurfaceCount > 0);
+}
+
+function boolish(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function repairFailedSurfacesEnabled(policy = {}) {
+  const normalizedModes = stableList([
+    policy.strategy,
+    policy.mode,
+    policy.repairMode,
+    policy.repair_mode,
+    policy.action,
+    policy.on_failure,
+    policy.onFailure,
+    ...(Array.isArray(policy.actions) ? policy.actions : [])
+  ]).map(normalizePolicyKey);
+  return boolish(policy.repairFailedSurfaces ?? policy.repair_failed_surfaces, false)
+    || normalizedModes.includes('repair_failed_surfaces')
+    || normalizedModes.includes('retry_failed_surfaces')
+    || normalizedModes.includes('failed_surface_repair');
+}
+
+function failedSurfaceIdsFromCompletion({ completion = null, matrix = null } = {}) {
+  const reliabilityFailures = completion?.surfaceReliability?.failures || completion?.threshold?.surfaceReliability?.failures || [];
+  const fromReliability = reliabilityFailures.flatMap((failure) => [
+    failure.surfaceId,
+    failure.id,
+    failure.focusId,
+    failure.architectureEpicId,
+    ...(Array.isArray(failure.issueIds) ? failure.issueIds : [])
+  ]);
+  const fromMatrix = (matrix?.surfaces || [])
+    .filter((surface) => !['verified', 'complete', 'completed', 'green'].includes(String(surface.status || '').trim()))
+    .flatMap((surface) => [surface.id, surface.focusId, surface.architectureEpicId]);
+  return stableList([...fromReliability, ...fromMatrix]);
+}
+
+function repairSurfacesFromWave({ completion = null, matrix = null, surfaces = [], waveNumber = 1 } = {}) {
+  const failedIds = new Set(failedSurfaceIdsFromCompletion({ completion, matrix }));
+  if (failedIds.size === 0) return [];
+  const byId = new Map((surfaces || []).map((surface) => [String(surface.id || surface.surfaceId || '').trim(), surface]));
+  const repairSurfaces = [];
+  for (const id of failedIds) {
+    const surface = byId.get(id);
+    if (!surface) continue;
+    repairSurfaces.push({
+      ...clone(surface),
+      metadata: {
+        ...(surface.metadata || {}),
+        repairFailedSurface: true,
+        sourceFailedWaveNumber: waveNumber,
+        repairReason: 'previous_wave_failed_surface'
+      }
+    });
+  }
+  return repairSurfaces;
 }
 
 function isExpandableEvidenceSchemaGap({ waveBlocker = null, policyReport = null } = {}) {
@@ -96,7 +162,7 @@ function isExpandableEvidenceSchemaGap({ waveBlocker = null, policyReport = null
   return violations.length > 0 && violations.every((violation) => violation.policy === 'evidenceSchemas');
 }
 
-function expansionAllowedForWave({ completion = null, waveBlocker = null, policyReport = null } = {}) {
+function expansionAllowedForWave({ completion = null, waveBlocker = null, policyReport = null, expansionPolicy = {}, failedRepairSurfaceCount = 0 } = {}) {
   if (!completion || completion.thresholdPass === true) return { ok: false, reason: 'wave_not_red' };
   if (!waveBlocker) return { ok: true, reason: 'objective_red_without_specific_blocker' };
   if (waveBlocker.unsupportedPolicy === true) return { ok: false, reason: 'unsupported_policy_blocker' };
@@ -104,7 +170,12 @@ function expansionAllowedForWave({ completion = null, waveBlocker = null, policy
   if (['insufficient_parallel_surface_inventory', 'benchmark_thresholds_unmet', 'unproductive_scale_credit'].includes(blockerFamily)) return { ok: true, reason: blockerFamily };
   if (isExpandableEvidenceSchemaGap({ waveBlocker, policyReport })) return { ok: true, reason: 'evidence_schema_objective_gap' };
   if (blockerFamily === 'agent_work_policy_violation') return { ok: false, reason: 'non_expandable_policy_violation' };
-  if (blockerFamily === 'orchestrator_failure') return { ok: false, reason: 'orchestrator_failure_not_objective_gap' };
+  if (blockerFamily === 'orchestrator_failure') {
+    if (repairFailedSurfacesEnabled(expansionPolicy) && failedRepairSurfaceCount > 0) {
+      return { ok: true, reason: 'repair_failed_surfaces', failedRepairSurfaceCount };
+    }
+    return { ok: false, reason: 'orchestrator_failure_not_objective_gap' };
+  }
   return { ok: false, reason: `non_expandable_blocker:${blockerFamily || 'unknown'}` };
 }
 
@@ -121,9 +192,17 @@ function contractObjective(contract = {}) {
 function makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, surfaces, previousWaveFactpackPath, expansionPolicy }) {
   const waveContract = clone(contract);
   const waveId = `wave-${String(waveNumber).padStart(3, '0')}`;
+  const originalRequestedAgentCount = Math.max(1, Number(contract.requestedAgentCount || surfaces.length || 1));
+  const failedSurfaceRepairWave = Array.isArray(surfaces)
+    && surfaces.length > 0
+    && surfaces.every((surface) => surface?.metadata?.repairFailedSurface === true);
+  const effectiveRequestedAgentCount = failedSurfaceRepairWave
+    ? Math.max(1, Math.min(originalRequestedAgentCount, surfaces.length))
+    : originalRequestedAgentCount;
   waveContract.runId = `${contract.runId || contract.benchmarkId || 'agent-work'}-${waveId}`;
   waveContract.artifactRoot = waveRoot;
   waveContract.scoreboardPath = path.join(path.dirname(path.dirname(waveRoot)), 'scoreboard.json');
+  waveContract.requestedAgentCount = effectiveRequestedAgentCount;
   waveContract.scope = {
     ...(waveContract.scope || {}),
     surfaces: surfaces.map((surface) => ({
@@ -152,6 +231,10 @@ function makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, sur
       controllerRunId,
       waveNumber,
       originalRunId: contract.runId || null,
+      originalRequestedAgentCount,
+      effectiveRequestedAgentCount,
+      failedSurfaceRepairWave,
+      requestedAgentCountAdjustedForRepairWave: failedSurfaceRepairWave && effectiveRequestedAgentCount !== originalRequestedAgentCount,
       expansionPolicyManagedByController: expansionPolicy || {}
     }
   };
@@ -328,8 +411,9 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
 
   const objectiveRed = completion.thresholdPass !== true;
   const graphExhausted = graphExhaustedFromWave({ workerEvents, matrix, waveBlocker, policyReport });
-  const expansionTriggered = shouldTriggerExpansion({ triggers: expansionTriggers, objectiveRed, graphExhausted });
-  const expansionAllowed = expansionAllowedForWave({ completion, waveBlocker, policyReport });
+  const failedRepairSurfaces = repairSurfacesFromWave({ completion, matrix, surfaces: selectedSurfaces, waveNumber });
+  const expansionTriggered = shouldTriggerExpansion({ triggers: expansionTriggers, objectiveRed, graphExhausted, failedSurfaceCount: failedRepairSurfaces.length });
+  const expansionAllowed = expansionAllowedForWave({ completion, waveBlocker, policyReport, expansionPolicy, failedRepairSurfaceCount: failedRepairSurfaces.length });
   if (!expansionTriggered || !expansionAllowed.ok) {
     blocker = {
       blockerFamily: expansionTriggered ? 'objective_red_not_expandable' : 'objective_red_without_expansion_trigger',
@@ -344,6 +428,7 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
       graphExhausted,
       expansionTriggers,
       expansionAllowedReason: expansionAllowed.reason,
+      failedRepairSurfaceCount: failedRepairSurfaces.length,
       waveBlockerFamily: waveBlocker?.blockerFamily || null
     };
     break;
@@ -361,6 +446,64 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
       graphExhausted
     };
     break;
+  }
+
+  if (expansionAllowed.reason === 'repair_failed_surfaces') {
+    const expansionRoot = path.join(artifactRoot, 'expansions', `expansion-${String(expansions.length + 1).padStart(3, '0')}`);
+    const repairPlan = {
+      schemaVersion: 'claw.agent_work_failed_surface_repair_plan.v0',
+      generatedAt: new Date().toISOString(),
+      expansionIndex: expansions.length + 1,
+      sourceWaveNumber: waveNumber,
+      reason: 'repair_failed_surfaces',
+      blockerFamily: waveBlocker?.blockerFamily || null,
+      failedSurfaceCount: failedRepairSurfaces.length,
+      surfaces: failedRepairSurfaces.map((surface) => ({
+        id: surface.id,
+        label: surface.label || surface.id,
+        allowedFiles: stableList(surface.allowedFiles || surface.productFiles || surface.targetFiles || surface.fileAreas),
+        verification: stableList(surface.verification || surface.verify || surface.verifiers),
+        productGoal: surface.productGoal || surface.goal || `Repair ${surface.label || surface.id}`,
+        metadata: surface.metadata || {}
+      })),
+      truthBoundary: 'This is a bounded repair wave for failed surfaces from the previous wave. It does not count as completion unless the next wave artifacts pass threshold truth.'
+    };
+    const repairMatrix = {
+      schemaVersion: 'claw.agent_work_failed_surface_repair_matrix.v0',
+      generatedAt: repairPlan.generatedAt,
+      status: 'repair_pending',
+      sourceWaveNumber: waveNumber,
+      surfaces: repairPlan.surfaces.map((surface) => ({
+        ...surface,
+        status: 'pending_repair'
+      }))
+    };
+    const repairGraph = {
+      schemaVersion: 'claw.agent_work_failed_surface_repair_graph.v0',
+      generatedAt: repairPlan.generatedAt,
+      nodes: repairPlan.surfaces.map((surface, index) => ({
+        id: surface.id,
+        index,
+        deps: [],
+        status: 'ready_for_repair'
+      })),
+      edges: []
+    };
+    writeJson(path.join(expansionRoot, 'failed_surface_repair_plan.json'), repairPlan);
+    writeJson(path.join(expansionRoot, 'surface_matrix.json'), repairMatrix);
+    writeJson(path.join(expansionRoot, 'work_graph.json'), repairGraph);
+    expansions.push({
+      expansionIndex: expansions.length + 1,
+      expansionRoot,
+      shouldExpand: true,
+      reason: 'repair_failed_surfaces',
+      sourceWaveNumber: waveNumber,
+      expansionSurfaceCount: failedRepairSurfaces.length,
+      expansionWorkUnitCount: failedRepairSurfaces.length,
+      remainingObjectiveIds: failedRepairSurfaces.map((surface) => surface.id)
+    });
+    selectedSurfaces = failedRepairSurfaces;
+    continue;
   }
 
   const expansionPlan = buildObjectiveExpansionPlan({

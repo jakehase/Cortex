@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { buildSelectedRunLandingEvidence, createCanonicalRunBaseline, evaluatePatchLandingEvidence } from '../canonical-landing-evidence/index.mjs';
 import { buildSchedulerModel, buildSchedulerTruthReport } from '../orchestrator-scheduler-truth/index.mjs';
 import { buildProofCarryingClaimLedger, evaluateProofCarryingPatchClaim } from '../proof-carrying-claim-ledger/index.mjs';
+import { buildLearningContextForShard, loadLearningConfig, readLearningLedger } from '../orchestration-learning-ledger/index.mjs';
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -190,7 +191,7 @@ function overlapsArea(left, right) {
 }
 
 const WORKER_WORKSPACE_EXCLUDED_NAMES = new Set(['.git', 'node_modules', 'artifacts', 'coverage', 'dist', 'build', '.next', '.cache']);
-const DEFAULT_ISOLATED_WORKER_COPY_PATHS = Object.freeze(['apps', 'packages', 'plugins', 'src', 'public', 'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'surface-honesty.json']);
+const DEFAULT_ISOLATED_WORKER_COPY_PATHS = Object.freeze(['apps', 'packages', 'plugins', 'src', 'public', 'tests', 'scripts', 'examples', 'docs', 'kernel/contracts', 'artifacts/aios-v0/latest', 'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'surface-honesty.json']);
 
 function normalizeRelativePath(value = '') {
   const raw = String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
@@ -239,8 +240,15 @@ function copyPathIntoWorkerWorkspace({ sourceRoot, targetRoot, relativePath }) {
   const target = safeJoin(targetRoot, rel);
   if (!source || !target || !fs.existsSync(source)) return null;
   const sourceRootResolved = path.resolve(sourceRoot || '.');
+  const explicitSourceResolved = path.resolve(source);
   const shouldCopy = (candidate) => {
-    const parts = path.relative(sourceRootResolved, candidate).split(path.sep).filter(Boolean);
+    const candidateResolved = path.resolve(candidate);
+    const explicitRelative = path.relative(explicitSourceResolved, candidateResolved);
+    if (!explicitRelative || (!explicitRelative.startsWith('..') && !path.isAbsolute(explicitRelative))) {
+      const nestedParts = explicitRelative.split(path.sep).filter(Boolean);
+      return !nestedParts.some((part) => WORKER_WORKSPACE_EXCLUDED_NAMES.has(part));
+    }
+    const parts = path.relative(sourceRootResolved, candidateResolved).split(path.sep).filter(Boolean);
     return !parts.some((part) => WORKER_WORKSPACE_EXCLUDED_NAMES.has(part));
   };
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -305,6 +313,30 @@ function ensureNodeModulesLink(sourceRoot, targetRoot) {
   }
 }
 
+function initializeWorkerWorkspaceGitBaseline(workspaceRoot) {
+  if (!workspaceRoot || !fs.existsSync(workspaceRoot) || fs.existsSync(path.join(workspaceRoot, '.git'))) return null;
+  const runGit = (args) => spawnSync('git', args, {
+    cwd: workspaceRoot,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024 * 8
+  });
+  const init = runGit(['init']);
+  if (init.status !== 0) {
+    return { ok: false, mode: 'git_index_baseline', stage: 'init', exitCode: init.status, stderr: init.stderr || '', stdout: init.stdout || '' };
+  }
+  runGit(['config', 'user.email', 'worker-workspace@openclaw.local']);
+  runGit(['config', 'user.name', 'OpenClaw Worker Workspace']);
+  const add = runGit(['add', '-A']);
+  if (add.status !== 0) {
+    return { ok: false, mode: 'git_commit_baseline', stage: 'add', exitCode: add.status, stderr: add.stderr || '', stdout: add.stdout || '' };
+  }
+  const commit = runGit(['commit', '--allow-empty', '--no-gpg-sign', '-m', 'worker workspace baseline']);
+  if (commit.status !== 0) {
+    return { ok: false, mode: 'git_commit_baseline', stage: 'commit', exitCode: commit.status, stderr: commit.stderr || '', stdout: commit.stdout || '' };
+  }
+  return { ok: true, mode: 'git_commit_baseline', stage: 'ready' };
+}
+
 function prepareWorkerWorkspace({ mode = 'shared', workspacePath, directories, shard, agentId, lease, copyPaths = [] } = {}) {
   const normalizedMode = String(mode || 'shared').trim() || 'shared';
   if (!isIsolatedWorkerWorkspaceMode(normalizedMode)) {
@@ -325,6 +357,7 @@ function prepareWorkerWorkspace({ mode = 'shared', workspacePath, directories, s
     if (copied) copiedPaths.push(copied);
   }
   const linkedNodeModules = ensureNodeModulesLink(workspacePath, workspaceRoot);
+  const gitBaseline = initializeWorkerWorkspaceGitBaseline(workspaceRoot);
   const snapshotPaths = stableList([...requestedPaths, ...shardWorkspaceRelevantPaths(shard)]);
   const baselineFiles = snapshotWorkerWorkspaceFiles(workspaceRoot, snapshotPaths);
   return {
@@ -334,6 +367,7 @@ function prepareWorkerWorkspace({ mode = 'shared', workspacePath, directories, s
     canonicalWorkspacePath: workspacePath,
     copiedPaths: stableList(copiedPaths),
     linkedNodeModules,
+    gitBaseline,
     baselineFiles,
     preparedAt: new Date().toISOString()
   };
@@ -1843,6 +1877,78 @@ export function buildModelTierPlan({ shard = {}, policy = normalizeContextGovern
   };
 }
 
+function compactVerifierCatalogForWorker(verifierCatalog = {}) {
+  if (!verifierCatalog || typeof verifierCatalog !== 'object') return verifierCatalog;
+  return Object.fromEntries(Object.entries(verifierCatalog).map(([id, entry]) => [id, {
+    id: entry?.id || id,
+    command: entry?.command || null,
+    purpose: entry?.purpose || null,
+    surfaceId: entry?.surfaceId || null,
+    allowedFiles: stableList(entry?.allowedFiles || [])
+  }]));
+}
+
+function compactAcceptanceCheckForWorker(check = '') {
+  const text = String(check || '').trim();
+  const verifierMatch = text.match(/^Verifier passes:\s*(.+)$/i);
+  if (verifierMatch) return 'Verifier passes: assigned external surface verifier';
+  return compactInlineText(text, 220);
+}
+
+function compactAssignmentContractForWorker(contract = {}) {
+  if (!contract || typeof contract !== 'object') return contract;
+  return {
+    ...contract,
+    successPredicate: stableList(contract.successPredicate || []).map(compactAcceptanceCheckForWorker),
+    verifierRequirements: stableList(contract.verifierRequirements || [])
+  };
+}
+
+function compactLearningPatternForWorker(pattern = {}) {
+  return {
+    id: pattern?.id || null,
+    kind: pattern?.kind || null,
+    title: compactInlineText(pattern?.title || '', 120),
+    summary: compactInlineText(pattern?.summary || '', 320),
+    trust: pattern?.trust || null,
+    matchScore: pattern?.matchScore ?? null,
+    files: stableList(pattern?.files || []).slice(0, 4),
+    verifiers: stableList(pattern?.verifiers || []).slice(0, 4),
+    failure: pattern?.failure ? {
+      reason: pattern.failure.reason || null,
+      category: pattern.failure.category || null
+    } : null
+  };
+}
+
+function compactLearningContextForWorker(context = {}) {
+  if (!context || typeof context !== 'object') return context;
+  const agentWorkLanguageFragments = (Array.isArray(context.agentWorkLanguageFragments) ? context.agentWorkLanguageFragments : [])
+    .slice(0, 3)
+    .map((fragment) => ({
+      format: fragment?.format || null,
+      languageVersion: fragment?.languageVersion || null,
+      parseOk: fragment?.parseOk === true,
+      parseError: fragment?.parseError || null,
+      sourcePreview: compactInlineText(fragment?.source || '', 320)
+    }));
+  return {
+    schemaVersion: context.schemaVersion || 'clawd.orchestration_learning_context.v1',
+    ledgerProject: context.ledgerProject || null,
+    query: context.query ? {
+      id: context.query.id || null,
+      lane: context.query.lane || null,
+      files: stableList(context.query.files || []).slice(0, 4)
+    } : null,
+    architecturePatterns: (Array.isArray(context.architecturePatterns) ? context.architecturePatterns : []).slice(0, 2).map(compactLearningPatternForWorker),
+    antiPatterns: (Array.isArray(context.antiPatterns) ? context.antiPatterns : []).slice(0, 3).map(compactLearningPatternForWorker),
+    repairStrategies: (Array.isArray(context.repairStrategies) ? context.repairStrategies : []).slice(0, 2).map(compactLearningPatternForWorker),
+    agentWorkLanguageFragments,
+    compactedForWorkerPrompt: true,
+    omittedFields: ['agentWorkLanguage.parsed', 'agentWorkLanguage.source_full', 'provenance', 'quality.details']
+  };
+}
+
 export function compactContextPack(pack, options = {}) {
   const policy = normalizeContextGovernorOptions(options, options);
   if (!policy.enabled) return pack;
@@ -1851,6 +1957,16 @@ export function compactContextPack(pack, options = {}) {
   const omissions = [];
   const inputHandles = [];
   const inputState = { inlineChars: 0 };
+  if (compact.inputs?.verifierCatalog) {
+    compact.inputs.verifierCatalog = compactVerifierCatalogForWorker(compact.inputs.verifierCatalog);
+    omissions.push({ type: 'verifierCatalog.command', reason: 'external_verifier_commands_available_by_id_after_worker_patch', retrieval: 'verifier_catalog_by_shard' });
+  }
+  compact.acceptanceChecks = stableList(compact.acceptanceChecks || []).map(compactAcceptanceCheckForWorker);
+  compact.assignmentContract = compactAssignmentContractForWorker(compact.assignmentContract || {});
+  if (compact.learningContext) {
+    compact.learningContext = compactLearningContextForWorker(compact.learningContext);
+    omissions.push({ type: 'learningContext.verbose_fields', reason: 'learning patterns compacted to ids/summaries/handles for worker budget', retrieval: 'orchestration_learning_ledger_by_pattern_id' });
+  }
   const nextInputs = {};
   for (const [key, value] of Object.entries(compact.inputs || {})) {
     const result = compactInputValue(key, value, policy, inputState);
@@ -1896,12 +2012,19 @@ export function compactContextPack(pack, options = {}) {
     instructions: [
       'Start with assigned product files only.',
       'Request or inspect direct imports only when the compact pack is stale or insufficient.',
-      'Do not paste whole repo summaries or prior transcripts into worker prompts.'
+      'Do not paste whole repo summaries or prior transcripts into worker prompts.',
+      compact.learningContext ? 'Apply matching learned Agent Work pattern fragments when they fit the assigned surface; obey anti-pattern warnings first.' : null
     ],
     fileHandles: retrievalFiles.map((rel) => ({ rel, allowed: fullAllowedFiles.includes(rel) || fullFileAreas.some((area) => overlapsArea(rel, area)) })),
     inputHandles,
-    dependencyLookup: stableList(compact.dependencies?.shardIds || []).map((shardId) => ({ shardId, lookup: 'artifact_bus_by_shard' }))
+    dependencyLookup: stableList(compact.dependencies?.shardIds || []).map((shardId) => ({ shardId, lookup: 'artifact_bus_by_shard' })),
+    learningPatternHandles: compact.learningContext ? [
+      ...(compact.learningContext.architecturePatterns || []).map((pattern) => ({ kind: 'architecture_pattern', id: pattern.id, trust: pattern.trust, matchScore: pattern.matchScore })),
+      ...(compact.learningContext.antiPatterns || []).map((pattern) => ({ kind: 'anti_pattern', id: pattern.id, trust: pattern.trust, matchScore: pattern.matchScore })),
+      ...(compact.learningContext.repairStrategies || []).map((pattern) => ({ kind: 'repair_strategy', id: pattern.id, trust: pattern.trust, matchScore: pattern.matchScore }))
+    ] : []
   };
+  compact.retrievalManifest.instructions = compact.retrievalManifest.instructions.filter(Boolean);
   compact.modelTierPlan = buildModelTierPlan({ shard: compact.shard || {}, policy });
   compact.contextGovernor = {
     schemaVersion: 'clawd.context_governor.v1',
@@ -1928,6 +2051,7 @@ export function compactContextPack(pack, options = {}) {
       acceptanceChecks: compact.acceptanceChecks,
       verifiers: compact.verifiers,
       relatedSurfaces: compact.relatedSurfaces,
+      learningContext: compact.learningContext,
       inputs: compact.inputs,
       retrievalManifest: compact.retrievalManifest,
       modelTierPlan: compact.modelTierPlan
@@ -2076,7 +2200,7 @@ export function buildWaveFactPack({ waveNumber = 1, runSummary = {}, patchQueue 
   };
 }
 
-export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix = { surfaces: [] }, artifactBus = createArtifactBus(), globalInputs = {}, contextGovernorOptions = {}, previousWaveFactpack = null }) {
+export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix = { surfaces: [] }, artifactBus = createArtifactBus(), globalInputs = {}, contextGovernorOptions = {}, previousWaveFactpack = null, orchestrationLearning = null }) {
   const dependencyArtifacts = (shard.dependencyShardIds || []).flatMap((dependencyShardId) => findArtifacts(artifactBus, { shardId: dependencyShardId })).map((artifact) => ({
     artifactId: artifact.artifactId,
     type: artifact.type,
@@ -2088,6 +2212,20 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
     if (Object.prototype.hasOwnProperty.call(globalInputs, ref)) inputs[ref] = globalInputs[ref];
   }
   const relatedSurfaces = (surfaceMatrix.surfaces || []).filter((surface) => (shard.surfaceIds || []).includes(surface.id)).map((surface) => ({ id: surface.id, label: surface.label }));
+  const fullRelatedSurfaces = (surfaceMatrix.surfaces || []).filter((surface) => (shard.surfaceIds || []).includes(surface.id));
+  const learningConfig = loadLearningConfig(orchestrationLearning || contract?.orchestrationLearning || globalInputs?.orchestrationLearning || {});
+  const learningLedger = learningConfig.enabled
+    ? learningConfig.ledger || (learningConfig.ledgerPath ? readLearningLedger(learningConfig.ledgerPath, null) : null)
+    : null;
+  const learningContext = learningLedger
+    ? buildLearningContextForShard({
+      ledger: learningLedger,
+      shard,
+      surface: fullRelatedSurfaces[0] || {},
+      limit: learningConfig.limit,
+      includeCandidates: learningConfig.includeCandidates
+    })
+    : null;
   const assignmentContract = normalizeAssignmentContract(shard.metadata?.assignmentContract || {}, {
     artifactKind: 'verification_evidence',
     targetFiles: shard.allowedFiles || [],
@@ -2130,6 +2268,7 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
       previousWaveFactpack: previousWaveSummary
     },
     inputs,
+    learningContext,
     assignmentContract,
     acceptanceChecks: shard.acceptanceChecks || [],
     verifiers: shard.requiredVerifiers || [],
@@ -2144,7 +2283,14 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
 }
 
 export function compileContextPacks({ contract, shardPlan, surfaceMatrix, artifactBus, globalInputs = {}, contextGovernorOptions = {}, previousWaveFactpack = null }) {
-  return shardPlan.shards.map((shard) => compileContextPack({ contract, shard, shardPlan, surfaceMatrix, artifactBus, globalInputs, contextGovernorOptions, previousWaveFactpack }));
+  const learningConfig = loadLearningConfig(contract?.orchestrationLearning || globalInputs?.orchestrationLearning || {});
+  const orchestrationLearning = learningConfig.enabled
+    ? {
+      ...learningConfig,
+      ledger: learningConfig.ledger || (learningConfig.ledgerPath ? readLearningLedger(learningConfig.ledgerPath, null) : null)
+    }
+    : learningConfig;
+  return shardPlan.shards.map((shard) => compileContextPack({ contract, shard, shardPlan, surfaceMatrix, artifactBus, globalInputs, contextGovernorOptions, previousWaveFactpack, orchestrationLearning }));
 }
 
 export function createPatchArtifact(input = {}) {
@@ -2765,6 +2911,13 @@ function implementationDiffText(patch = {}) {
 
 function isProductRuntimePath(filePath = '') {
   const rel = String(filePath || '').replace(/^\.\//, '');
+  const godotProduct = (
+    rel === 'project.godot'
+    || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(rel)
+  )
+    && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(rel)
+    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(rel);
+  if (godotProduct) return true;
   if (!/\.(?:mjs|js|jsx|ts|tsx|css|json|vue|svelte)$/i.test(rel)) return false;
   if (/(^|\/)(?:docs?|tests?|__tests__|test|spec|scripts?|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(rel)) return false;
   if (/(?:^|\/)[^/]+\.(?:test|spec|fixture|mock)\.(?:mjs|js|jsx|ts|tsx)$/i.test(rel)) return false;
@@ -3520,10 +3673,23 @@ export async function runLiveWorkerFarm({
     requestedScope: campaignContract?.requestedScope
       || (Array.isArray(campaignContract?.scope?.surfaces) ? campaignContract.scope.surfaces.map((surface) => surface.id).filter(Boolean) : null)
       || ['live-worker-qualification'],
-    targetPath: campaignContract?.targetPath || campaignContract?.repoPath || workGraph.targetPath || workspacePath
+    targetPath: campaignContract?.targetPath || campaignContract?.repoPath || workGraph.targetPath || workspacePath,
+    orchestrationLearning: campaignContract?.orchestrationLearning || campaignContract?.scope?.orchestrationLearning || globalInputs?.orchestrationLearning || null
   };
   const contextGovernorPolicy = normalizeContextGovernorOptions(contextGovernorOptions, { agentCount, shardCount: shardPlan.shards.length });
   const contextPacks = compileContextPacks({ contract: effectiveCampaignContract, shardPlan, surfaceMatrix, artifactBus, globalInputs, contextGovernorOptions: contextGovernorPolicy, previousWaveFactpack });
+  if (process.env.ORCHESTRATOR_SAVE_CONTEXT_PACK_DIAGNOSTICS !== '0') {
+    saveJson(path.join(runRoot, 'context_pack_diagnostics.json'), {
+      generatedAt: new Date().toISOString(),
+      sampleCount: Math.min(3, contextPacks.length),
+      samples: contextPacks.slice(0, 3).map((pack) => ({
+        shardId: pack?.shard?.id || null,
+        approxTokens: estimateContextTokens(pack),
+        components: Object.fromEntries(Object.entries(pack || {}).map(([key, value]) => [key, estimateContextTokens(value)]))
+      }))
+    });
+    if (contextPacks[0]) saveJson(path.join(runRoot, 'context_pack_sample.json'), contextPacks[0]);
+  }
   const contextGovernorReport = buildContextGovernorReport({ contextPacks, options: contextGovernorPolicy, agentCount, shardCount: shardPlan.shards.length });
   const packByShardId = new Map(contextPacks.map((pack) => [pack.shard.id, pack]));
   const shardById = new Map(shardPlan.shards.map((shard) => [shard.id, shard]));
@@ -3783,7 +3949,8 @@ export async function runLiveWorkerFarm({
       mode: info.workerWorkspace.mode,
       path: info.workerWorkspace.workspacePath,
       copiedPathCount: info.workerWorkspace.copiedPaths?.length || 0,
-      linkedNodeModules: info.workerWorkspace.linkedNodeModules || null
+      linkedNodeModules: info.workerWorkspace.linkedNodeModules || null,
+      gitBaseline: info.workerWorkspace.gitBaseline || null
     } : null;
     const promotionPatchId = `patch-${info.shardId}`;
     if (result?.implementation && info.workerWorkspace?.isolated) {

@@ -1,0 +1,240 @@
+{
+  "schemaVersion": "clawd.project_plan_template_tournament.v1",
+  "generatedAt": "2026-06-30T21:22:53Z",
+  "artifactRoot": "/root/clawd/docs/project-plan-template-tournament/20260630T212253Z",
+  "rubric": {
+    "universality": 20,
+    "scope_truth_discipline": 15,
+    "agent_execution_readiness": 15,
+    "verifier_evidence_strength": 15,
+    "architecture_clarity": 10,
+    "risk_safety_coverage": 10,
+    "copyability": 10,
+    "artifact_replay_contract": 5
+  },
+  "candidateCount": 20,
+  "winner": "20-universal-synthesis",
+  "scores": {
+    "01-contract-first": {
+      "universality": 18,
+      "scope_truth_discipline": 15,
+      "agent_execution_readiness": 12,
+      "verifier_evidence_strength": 14,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 8,
+      "copyability": 9,
+      "artifact_replay_contract": 4,
+      "total": 88
+    },
+    "02-agent-orchestration": {
+      "universality": 16,
+      "scope_truth_discipline": 13,
+      "agent_execution_readiness": 15,
+      "verifier_evidence_strength": 14,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 8,
+      "copyability": 8,
+      "artifact_replay_contract": 5,
+      "total": 87
+    },
+    "03-product-strategy": {
+      "universality": 18,
+      "scope_truth_discipline": 11,
+      "agent_execution_readiness": 8,
+      "verifier_evidence_strength": 10,
+      "architecture_clarity": 7,
+      "risk_safety_coverage": 6,
+      "copyability": 9,
+      "artifact_replay_contract": 3,
+      "total": 72
+    },
+    "04-systems-architecture": {
+      "universality": 17,
+      "scope_truth_discipline": 12,
+      "agent_execution_readiness": 10,
+      "verifier_evidence_strength": 11,
+      "architecture_clarity": 10,
+      "risk_safety_coverage": 7,
+      "copyability": 8,
+      "artifact_replay_contract": 3,
+      "total": 78
+    },
+    "05-verifier-led": {
+      "universality": 17,
+      "scope_truth_discipline": 15,
+      "agent_execution_readiness": 12,
+      "verifier_evidence_strength": 15,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 8,
+      "copyability": 8,
+      "artifact_replay_contract": 5,
+      "total": 88
+    },
+    "06-safety-permissions": {
+      "universality": 15,
+      "scope_truth_discipline": 14,
+      "agent_execution_readiness": 9,
+      "verifier_evidence_strength": 11,
+      "architecture_clarity": 7,
+      "risk_safety_coverage": 10,
+      "copyability": 8,
+      "artifact_replay_contract": 4,
+      "total": 78
+    },
+    "07-clone-parity": {
+      "universality": 13,
+      "scope_truth_discipline": 15,
+      "agent_execution_readiness": 10,
+      "verifier_evidence_strength": 14,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 7,
+      "copyability": 7,
+      "artifact_replay_contract": 5,
+      "total": 79
+    },
+    "08-research-to-build": {
+      "universality": 16,
+      "scope_truth_discipline": 12,
+      "agent_execution_readiness": 8,
+      "verifier_evidence_strength": 10,
+      "architecture_clarity": 7,
+      "risk_safety_coverage": 6,
+      "copyability": 8,
+      "artifact_replay_contract": 3,
+      "total": 70
+    },
+    "09-long-run-campaign": {
+      "universality": 15,
+      "scope_truth_discipline": 13,
+      "agent_execution_readiness": 12,
+      "verifier_evidence_strength": 12,
+      "architecture_clarity": 7,
+      "risk_safety_coverage": 7,
+      "copyability": 8,
+      "artifact_replay_contract": 4,
+      "total": 78
+    },
+    "10-release-candidate": {
+      "universality": 15,
+      "scope_truth_discipline": 14,
+      "agent_execution_readiness": 11,
+      "verifier_evidence_strength": 15,
+      "architecture_clarity": 7,
+      "risk_safety_coverage": 8,
+      "copyability": 8,
+      "artifact_replay_contract": 5,
+      "total": 83
+    },
+    "11-platform-kernel": {
+      "universality": 14,
+      "scope_truth_discipline": 13,
+      "agent_execution_readiness": 12,
+      "verifier_evidence_strength": 12,
+      "architecture_clarity": 10,
+      "risk_safety_coverage": 8,
+      "copyability": 7,
+      "artifact_replay_contract": 4,
+      "total": 80
+    },
+    "12-data-memory": {
+      "universality": 14,
+      "scope_truth_discipline": 13,
+      "agent_execution_readiness": 9,
+      "verifier_evidence_strength": 13,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 8,
+      "copyability": 7,
+      "artifact_replay_contract": 4,
+      "total": 76
+    },
+    "13-remote-execution": {
+      "universality": 14,
+      "scope_truth_discipline": 13,
+      "agent_execution_readiness": 14,
+      "verifier_evidence_strength": 14,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 8,
+      "copyability": 7,
+      "artifact_replay_contract": 5,
+      "total": 83
+    },
+    "14-ux-application": {
+      "universality": 16,
+      "scope_truth_discipline": 11,
+      "agent_execution_readiness": 7,
+      "verifier_evidence_strength": 10,
+      "architecture_clarity": 7,
+      "risk_safety_coverage": 6,
+      "copyability": 9,
+      "artifact_replay_contract": 3,
+      "total": 69
+    },
+    "15-api-integration": {
+      "universality": 16,
+      "scope_truth_discipline": 12,
+      "agent_execution_readiness": 8,
+      "verifier_evidence_strength": 12,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 8,
+      "copyability": 8,
+      "artifact_replay_contract": 4,
+      "total": 76
+    },
+    "16-ops-sre": {
+      "universality": 14,
+      "scope_truth_discipline": 13,
+      "agent_execution_readiness": 9,
+      "verifier_evidence_strength": 13,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 9,
+      "copyability": 7,
+      "artifact_replay_contract": 4,
+      "total": 77
+    },
+    "17-security": {
+      "universality": 13,
+      "scope_truth_discipline": 15,
+      "agent_execution_readiness": 9,
+      "verifier_evidence_strength": 13,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 10,
+      "copyability": 7,
+      "artifact_replay_contract": 4,
+      "total": 79
+    },
+    "18-migration-refactor": {
+      "universality": 15,
+      "scope_truth_discipline": 13,
+      "agent_execution_readiness": 8,
+      "verifier_evidence_strength": 12,
+      "architecture_clarity": 8,
+      "risk_safety_coverage": 7,
+      "copyability": 8,
+      "artifact_replay_contract": 4,
+      "total": 75
+    },
+    "19-business-lightweight": {
+      "universality": 15,
+      "scope_truth_discipline": 10,
+      "agent_execution_readiness": 5,
+      "verifier_evidence_strength": 8,
+      "architecture_clarity": 6,
+      "risk_safety_coverage": 5,
+      "copyability": 9,
+      "artifact_replay_contract": 2,
+      "total": 60
+    },
+    "20-universal-synthesis": {
+      "universality": 20,
+      "scope_truth_discipline": 15,
+      "agent_execution_readiness": 15,
+      "verifier_evidence_strength": 15,
+      "architecture_clarity": 10,
+      "risk_safety_coverage": 10,
+      "copyability": 9,
+      "artifact_replay_contract": 5,
+      "total": 99
+    }
+  },
+  "truthBoundary": "This tournament scores reusable planning templates. It does not implement any project feature."
+}

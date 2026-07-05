@@ -117,6 +117,57 @@ surface campaign_delivery uses node_test_surface
   assert.equal(compiled.safetyReport.dynamicExpansionDeclared, true);
 });
 
+test('agent work DSL v0.1 carries an AI OS language profile for hosted kernel boot work', () => {
+  const specText = `goal AIOSHostedKernelBootProof
+repo /tmp/ai-os
+fidelity production_slice
+agents 8
+stop boot_proof_green_or_blocker
+allow read_repo, write_product_code, run_tests
+forbid external_send, touch_prod
+done boot_proof_green, no_truth_layer_overclaim
+
+ai_os hosted_kernel_boot_proof
+  plan: /tmp/ai-os/plan.md
+  kernel: hosted_linux
+  owner: Jake
+  process_model: job, process, thread, owner, exit_contract
+  syscalls: fs.read, fs.write, shell.exec, git.diff, memory.search, memory.write, verifier.run, claim.submit, audit.write
+  memory_mounts: project_memory, structural_memory, episodic_log, artifact_store
+  evidence: boot_proof.json, process_lifecycle.json, capability_audit.json, syscall_audit.json, claim_gate.json, artifact_bundle_manifest.json
+  boot_commands: node apps/aios-cli.mjs boot --artifact-root artifacts/aios-v0/latest
+  claim_gate: verifier_green_required
+  truth_boundary: hosted AI OS v0.1 boot proof only
+
+surface hosted_boot
+  lane: kernel_runtime
+  files: apps/aios-cli.mjs, packages/aios-kernel/kernel-lifecycle/process-admission.mjs
+  verify: node apps/aios-cli.mjs boot --artifact-root artifacts/aios-v0/latest`;
+  const parsed = parseAgentWorkSpec(specText);
+
+  const compiled = compileAgentWorkSpec(parsed, { generatedAt: '2026-07-01T00:00:00.000Z', runId: 'aios-language-profile-test' });
+  const profile = compiled.runContract.scope.aiOsLanguage;
+  assert.equal(profile.schemaVersion, 'aios.agent_work_language_profile.v0.1');
+  assert.equal(profile.milestone, 'hosted_kernel_boot_proof');
+  assert.equal(profile.kernelMode, 'hosted_linux');
+  assert.equal(profile.sourcePlanPath, '/tmp/ai-os/plan.md');
+  assert.equal(profile.syscalls.includes('claim.submit'), true);
+  assert.equal(profile.memoryMounts.includes('structural_memory'), true);
+  assert.equal(profile.capabilityPolicy.defaultDenyExternalWrites, true);
+  assert.equal(profile.evidenceArtifacts.includes('boot_proof.json'), true);
+  assert.equal(profile.evidenceEnforcement, 'deferred_boot_claim');
+  assert.equal(compiled.runContract.scope.truthGates.aiOsBootProofRequired, true);
+  assert.equal(compiled.runContract.scope.agentWorkLanguage.features.aiOsProfile, true);
+  assert.equal(compiled.runContract.scope.evidenceSchemas.some((schema) => schema.id === 'aios_boot_proof'), false);
+  assert.equal(compiled.runContract.metadata.agentWorkDsl.policies.aiOs.claimGate, 'verifier_green_required');
+  assert.equal(compiled.surfaceMatrix.aiOsLanguage.milestone, 'hosted_kernel_boot_proof');
+  assert.equal(compiled.workGraph.policies.aiOs.evidenceArtifacts.includes('claim_gate.json'), true);
+  assert.equal(compiled.safetyReport.aiOsProfileDeclared, true);
+
+  const immediate = compileAgentWorkSpec(specText.replace('  claim_gate: verifier_green_required', '  claim_gate: verifier_green_required\n  evidence_mode: benchmark_policy'), { generatedAt: '2026-07-01T00:00:00.000Z', runId: 'aios-language-profile-immediate-test' });
+  assert.equal(immediate.runContract.scope.evidenceSchemas.some((schema) => schema.id === 'aios_boot_proof'), true);
+});
+
 test('agent work DSL v0.1 rejects unresolved template placeholders', () => {
   assert.throws(() => compileAgentWorkSpec(`goal BadTemplate
 repo /tmp/repo
@@ -127,7 +178,7 @@ surface bad_surface uses node_test_surface
 `), /unresolved template token/);
 });
 
-test('agent work DSL defaults to execution_smoke without an endurance duration target', () => {
+test('agent work DSL defaults bounded smoke tiers without an endurance duration target', () => {
   const compiled = compileAgentWorkSpec({
     goalId: 'SmokeCanary',
     repoPath: '/tmp/repo',
@@ -137,6 +188,28 @@ test('agent work DSL defaults to execution_smoke without an endurance duration t
   assert.equal(compiled.runContract.benchmarkTier, 'execution_smoke');
   assert.equal(compiled.runContract.scope.durationTargetMinutes, null);
   assert.equal(compiled.runContract.scope.requireRealProductDiffs, false);
+
+  const repair = compileAgentWorkSpec({
+    goalId: 'RepairSmokeCanary',
+    repoPath: '/tmp/repo',
+    fidelity: 'production_slice',
+    benchmarkTier: 'production_quality_repair_smoke',
+    metadata: { productDiffMode: 'creative_product_work', requireRealProductDiffs: true },
+    surfaces: [{ id: 'repair', files: ['src/repair.mjs'], verify: ['node --check src/repair.mjs'] }]
+  }, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'repair-smoke-canary' });
+  assert.equal(repair.runContract.scope.durationTargetMinutes, null);
+  assert.equal(repair.runContract.scope.requireRealProductDiffs, true);
+
+  const realWorkerStandard = compileAgentWorkSpec({
+    goalId: 'RealWorkerProductStandardCanary',
+    repoPath: '/tmp/repo',
+    fidelity: 'production_slice',
+    benchmarkTier: 'real_worker_product_standard',
+    metadata: { productDiffMode: 'creative_product_work', requireRealProductDiffs: true },
+    surfaces: [{ id: 'standard', files: ['src/standard.mjs'], verify: ['node --check src/standard.mjs'] }]
+  }, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'real-worker-standard-canary' });
+  assert.equal(realWorkerStandard.runContract.scope.durationTargetMinutes, null);
+  assert.equal(realWorkerStandard.runContract.scope.requireRealProductDiffs, true);
 });
 
 test('agent work DSL can declare creative product-diff canary scope', () => {
@@ -157,6 +230,28 @@ test('agent work DSL can declare creative product-diff canary scope', () => {
   assert.equal(compiled.runContract.scope.requireRealProductDiffs, true);
   assert.equal(compiled.runContract.scope.creativeProductWork.required, true);
   assert.equal(compiled.runContract.scope.canonicalLandingEvidence.enabled, true);
+});
+
+test('agent work DSL carries orchestration learning policy as Agent Work language metadata', () => {
+  const compiled = compileAgentWorkSpec({
+    goalId: 'LearningLanguageLoop',
+    repoPath: '/tmp/repo',
+    fidelity: 'production_slice',
+    metadata: {
+      orchestrationLearning: {
+        enabled: true,
+        ledgerPath: '/tmp/orchestration-learning-ledger.json',
+        limit: 2,
+        includeCandidates: false
+      }
+    },
+    surfaces: [{ id: 'learning_surface', files: ['packages/app/learning.mjs'], verify: ['node --test tests/learning.test.mjs'] }]
+  }, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'learning-language-loop' });
+
+  assert.equal(compiled.runContract.scope.orchestrationLearning.enabled, true);
+  assert.equal(compiled.runContract.scope.orchestrationLearning.ledgerPath, '/tmp/orchestration-learning-ledger.json');
+  assert.equal(compiled.runContract.scope.agentWorkLanguage.features.orchestrationLearning, true);
+  assert.equal(compiled.runContract.metadata.agentWorkDsl.policies.orchestrationLearning.limit, 2);
 });
 
 test('agent work DSL refuses forbidden relaunch actions and suspicious verifier commands', () => {

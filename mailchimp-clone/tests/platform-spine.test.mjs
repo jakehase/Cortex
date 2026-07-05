@@ -85,6 +85,29 @@ test('Program 1 platform spine: auth lifecycle, workspace switching, team invite
     assert.match(settingsHtml, /Authenticated default domain: example.com/);
     assert.match(settingsHtml, /authenticated/);
 
+    await postForm(baseUrl, ownerJar, '/onboarding/profile', {
+      industry: 'Retail ecommerce',
+      useCase: 'commerce',
+      senderDefault: 'sender@example.com',
+      importPlan: 'CSV import plus Shopify backfill'
+    });
+    const onboardingPage = await request(baseUrl, ownerJar, '/onboarding');
+    const onboardingHtml = await onboardingPage.text();
+    assert.match(onboardingHtml, /Operational readiness runtime/);
+    assert.match(onboardingHtml, /Workspace setup command/);
+    assert.match(onboardingHtml, /First campaign handoff/);
+    await postForm(baseUrl, ownerJar, '/onboarding/workspace-command', { command: 'brand_assets', note: 'Need launch logo and footer defaults' });
+    await postForm(baseUrl, ownerJar, '/onboarding/recover', { step: 'audience_import', retryTarget: '/contacts/import' });
+    const handoff = await postForm(baseUrl, ownerJar, '/onboarding/first-campaign-handoff', { name: 'Owner launch campaign', subject: 'A note from Owner One' });
+    assert.equal(handoff.status, 302);
+    assert.ok(server.state.db.campaigns.some((campaign) => campaign.onboardingHandoff?.source === 'platform_onboarding_workspace_runtime'));
+    const onboardingRuntimeRes = await request(baseUrl, ownerJar, '/api/onboarding/runtime');
+    const onboardingRuntime = await onboardingRuntimeRes.json();
+    assert.equal(onboardingRuntime.ok, true);
+    assert.ok(onboardingRuntime.onboarding.workspaceSetup.commandEventCount >= 1);
+    assert.ok(onboardingRuntime.onboarding.onboarding.recoveryEventCount >= 1);
+    assert.ok(onboardingRuntime.onboarding.firstCampaignHandoff.count >= 1);
+
     await postForm(baseUrl, ownerJar, '/assets', {
       name: 'hero.txt',
       folder: 'Launch',

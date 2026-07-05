@@ -49,9 +49,44 @@ export function signupOnboardingCard(actor, { compact = false } = {}) {
 }
 
 export function signupOnboardingJourneyReadiness(actor) {
-  const steps = signupOnboardingChecklistItems(actor);
-  const missing = steps.filter((step) => !step.done).map((step) => step.label);
-  return { completed: steps.length - missing.length, total: steps.length, ready: missing.length === 0, missing };
+  const workspace = actor?.workspace || { settings: {}, featureFlags: {}, billing: {} };
+  const domains = workspace.settings?.domains || [];
+  const hasSenderIdentity = Boolean(workspace.settings?.senderEmail && workspace.settings?.senderName);
+  const hasAuthenticatedDomain = domains.some((entry) => entry.authenticationStatus === 'authenticated');
+  const hasTeamAccess = Boolean(workspace.featureFlags?.multiUser);
+  const hasSendReadyPlan = Boolean(workspace.planId && workspace.planId !== 'starter');
+  const hasAudienceOrImportPlan = Boolean(workspace.settings?.onboarding?.importPlan || workspace.settings?.onboarding?.completedSteps?.includes('audience_import'));
+  const steps = [
+    { id: 'workspace', label: 'Create workspace', done: Boolean(workspace.id), href: '/workspaces', reason: 'Workspace shell exists' },
+    { id: 'business_profile', label: 'Save business profile', done: Boolean(workspace.settings?.onboarding?.useCase || workspace.settings?.onboarding?.industry), href: '/onboarding', reason: 'Industry/use-case branching and suggested defaults are recorded' },
+    { id: 'sender_profile', label: 'Set sender profile', done: hasSenderIdentity, href: '/settings', reason: 'Sender name and reply identity are available for first send' },
+    { id: 'domain_auth', label: 'Connect authenticated domain', done: hasAuthenticatedDomain, href: '/settings', reason: 'Authenticated default sending domain is present' },
+    { id: 'audience_import', label: 'Plan audience import', done: hasAudienceOrImportPlan, href: '/contacts/import', reason: 'Import prompt or audience import completion is preserved' },
+    { id: 'team', label: 'Invite teammates', done: hasTeamAccess, href: '/team', reason: 'Role-aware collaboration is enabled for the workspace' },
+    { id: 'plan', label: 'Choose a send-ready plan', done: hasSendReadyPlan, href: '/billing', reason: 'Plan entitlements support launch-readiness gates' }
+  ];
+  const missingSteps = steps.filter((step) => !step.done);
+  const missing = missingSteps.map((step) => step.label);
+  const completed = steps.length - missing.length;
+  const percent = Math.round((completed / steps.length) * 100);
+  const next = missingSteps[0] || { id: 'first_campaign', label: 'Start first campaign handoff', href: '/campaigns/new', reason: 'Workspace is ready for first campaign execution' };
+  return {
+    completed,
+    total: steps.length,
+    ready: missing.length === 0,
+    percent,
+    missing,
+    blockers: missing,
+    steps,
+    nextStep: next.label,
+    nextStepId: next.id,
+    nextStepHref: next.href,
+    hasSenderIdentity,
+    hasAuthenticatedDomain,
+    hasAudienceOrImportPlan,
+    hasTeamAccess,
+    hasSendReadyPlan
+  };
 }
 
 export function signupOnboardingRecoveryPanel(actor) {

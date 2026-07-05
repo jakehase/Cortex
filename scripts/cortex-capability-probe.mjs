@@ -4,6 +4,7 @@ import fs from 'node:fs';
 const registryPath = '/root/clawd/state/cortex-capabilities.json';
 const selfModelPath = '/root/clawd/state/cortex-self-model.json';
 const contradictionPath = '/root/clawd/state/cortex-contradictions.json';
+const cortexBaseUrl = (process.env.CORTEX_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
 
 async function checkHttp(url, opts = {}) {
   try {
@@ -41,7 +42,7 @@ selfModel.capabilities.route_governor = {
 };
 selfModel.confidence.route_governor = selfModel.capabilities.route_governor.verified ? 0.95 : 0.6;
 
-const browserStatus = await checkHttp('http://127.0.0.1:18888/browser/status');
+const browserStatus = await checkHttp(`${cortexBaseUrl}/browser/status`);
 selfModel.capabilities.l2_browser_bridge = {
   claimed: true,
   implemented: true,
@@ -57,7 +58,7 @@ if (!browserStatus.ok) {
   selfModel.recommendations.push('Do not rely on Cortex-native browsing until /browser/status succeeds; use explicit fallback language.');
 }
 
-const memoryStore = await checkHttp('http://127.0.0.1:18888/l22/store', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'memory', content: 'probe', tags: ['probe'], metadata: { source: 'self-model-probe' } }) });
+const memoryStore = await checkHttp(`${cortexBaseUrl}/l22/store`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'memory', content: 'probe', tags: ['probe'], metadata: { source: 'self-model-probe' } }) });
 selfModel.capabilities.memory_write_through = {
   claimed: true,
   implemented: true,

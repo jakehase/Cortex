@@ -27,21 +27,25 @@ function platformProofs(server, workspaceId) {
     onboarding: workspace.settings.onboarding,
     ownershipTransferredAt: workspace.settings.ownershipTransferredAt,
     domains: workspace.settings.domains,
+    onboardingStepEvents: server.state.db.onboardingStepEvents.map((event) => `${event.workspaceId}:${event.action || event.stepId}`),
+    onboardingRecoveryEvents: server.state.db.onboardingRecoveryEvents.map((event) => `${event.workspaceId}:${event.skippedStep}`),
+    workspaceSetupCommands: server.state.db.workspaceSetupCommandEvents.map((event) => `${event.workspaceId}:${event.commandId}`),
+    firstCampaignHandoffs: server.state.db.firstCampaignHandoffEvents.map((event) => `${event.workspaceId}:${event.status}`),
     activeJobs: server.state.db.jobs.filter((job) => job.workspaceId === workspaceId).map((job) => job.type),
     auditActions: server.state.db.auditEvents.filter((event) => event.workspaceId === workspaceId).map((event) => event.action)
   };
   mergePhase9Proof({
     productSlice: 'platform_onboarding_dashboard_team_settings',
     leafProofs: [
-      leafProof({ leafId: 'signup_onboarding__req_01', productFiles: signupProductFiles, targetedTests: platformAndCurrentTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['GET /signup', 'POST /signup', 'GET /onboarding', 'POST /onboarding/profile'], dbEvidence, assertions: ['multi-step onboarding assistant renders', 'industry/use-case branching persists', 'import prompt and contextual education persist'] }),
+      leafProof({ leafId: 'signup_onboarding__req_01', productFiles: signupProductFiles, targetedTests: platformAndCurrentTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['GET /signup', 'POST /signup', 'GET /onboarding', 'POST /onboarding/profile', 'GET /api/onboarding/runtime'], dbEvidence, assertions: ['multi-step onboarding assistant renders', 'industry/use-case branching persists', 'import prompt and contextual education persist', 'runtime profile event records suggested defaults'] }),
       leafProof({ leafId: 'signup_onboarding__req_02', productFiles: signupProductFiles, targetedTests: platformAndCurrentTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff'], routeEvidence: ['POST /reset', 'POST /invites/:token/accept', 'POST /workspaces/new'], dbEvidence, assertions: ['password reset token is queued out-of-band', 'invite onboarding creates active membership', 'workspace bootstrap creates audience and API key'] }),
-      leafProof({ leafId: 'signup_onboarding__req_03', productFiles: signupProductFiles, targetedTests: platformAndCurrentTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff'], routeEvidence: ['POST /onboarding/recover', 'GET /app'], dbEvidence, assertions: ['recovery job queues for skipped step', 'dashboard shows onboarding continuity', 'validation state remains visible'] }),
-      leafProof({ leafId: 'account_workspace_setup__req_01', productFiles: platformProductFiles, targetedTests: platformTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['POST /settings', 'POST /settings/domains', 'POST /assets', 'GET /onboarding'], dbEvidence, assertions: ['sender settings and compliance address persist', 'domain authentication is visible', 'brand/import setup is integrated with onboarding'] }),
+      leafProof({ leafId: 'signup_onboarding__req_03', productFiles: signupProductFiles, targetedTests: platformAndCurrentTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff'], routeEvidence: ['POST /onboarding/recover', 'GET /onboarding/operational-readiness', 'GET /app'], dbEvidence, assertions: ['recovery job queues for skipped step', 'dashboard shows onboarding continuity', 'validation state remains visible', 'operational readiness exposes retry target and state machine'] }),
+      leafProof({ leafId: 'account_workspace_setup__req_01', productFiles: platformProductFiles, targetedTests: platformTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['POST /settings', 'POST /settings/domains', 'POST /assets', 'GET /onboarding', 'POST /onboarding/workspace-command'], dbEvidence, assertions: ['sender settings and compliance address persist', 'domain authentication is visible', 'brand/import setup is integrated with onboarding', 'workspace setup command ledger queues brand/import actions'] }),
       leafProof({ leafId: 'account_workspace_setup__req_02', productFiles: platformProductFiles, targetedTests: platformTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['POST /workspaces/new', 'POST /workspaces/switch', 'POST /workspaces/ownership-transfer'], dbEvidence, assertions: ['workspace switching persists active workspace', 'ownership handoff mutates roles', 'workspace migration/account handoff path is auditable'] }),
       leafProof({ leafId: 'account_workspace_setup__req_03', productFiles: platformProductFiles, targetedTests: platformTests, proofKinds: ['browser_ui', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['GET /app', 'GET /onboarding'], dbEvidence, assertions: ['first-use dashboard exposes setup education', 'role-based recommendations render', 'empty-state guidance points to setup work'] }),
-      leafProof({ leafId: 'dashboard_home__req_01', productFiles: platformProductFiles, targetedTests: dashboardTests, proofKinds: ['analytics_telemetry', 'browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['GET /app'], dbEvidence, assertions: ['dashboard widget system renders KPIs', 'task queue and insights prioritize next setup action', 'data freshness is visible'] }),
+      leafProof({ leafId: 'dashboard_home__req_01', productFiles: platformProductFiles, targetedTests: dashboardTests, proofKinds: ['analytics_telemetry', 'browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['GET /app', 'GET /onboarding/operational-readiness', 'GET /api/onboarding/runtime'], dbEvidence, assertions: ['dashboard widget system renders KPIs', 'task queue and insights prioritize next setup action', 'data freshness is visible', 'onboarding-to-dashboard runtime card links command state into dashboard'] }),
       leafProof({ leafId: 'dashboard_home__req_02', productFiles: platformProductFiles, targetedTests: dashboardTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'product_diff', 'security_policy'], routeEvidence: ['GET /app'], dbEvidence, assertions: ['dashboard changes guidance by role', 'saved views include owner/admin/member appropriate links'] }),
-      leafProof({ leafId: 'dashboard_home__req_03', productFiles: platformProductFiles, targetedTests: dashboardTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'product_diff', 'security_policy'], routeEvidence: ['GET /app', 'GET /onboarding'], dbEvidence, assertions: ['dashboard includes data freshness', 'saved views and onboarding continuity survive mutations'] }),
+      leafProof({ leafId: 'dashboard_home__req_03', productFiles: platformProductFiles, targetedTests: dashboardTests, proofKinds: ['browser_ui', 'db_persistence', 'functional', 'product_diff', 'security_policy'], routeEvidence: ['GET /app', 'GET /onboarding', 'POST /onboarding/first-campaign-handoff'], dbEvidence, assertions: ['dashboard includes data freshness', 'saved views and onboarding continuity survive mutations', 'first campaign handoff creates a durable dashboard drill-through target'] }),
       leafProof({ leafId: 'settings_domains__req_01', productFiles: settingsProductFiles, targetedTests: securityPlatformTests, proofKinds: ['browser_ui', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['POST /settings/domains', 'POST /settings/domains/:id/verify', 'POST /settings/domains/:id/authenticate'], dbEvidence, assertions: ['domain verification and authentication states persist', 'sender reputation/compliance state is rendered'] }),
       leafProof({ leafId: 'settings_domains__req_02', productFiles: settingsProductFiles, targetedTests: securityPlatformTests, proofKinds: ['browser_ui', 'functional', 'job_event', 'product_diff', 'security_policy'], routeEvidence: ['POST /settings/domains/:id/default'], dbEvidence, assertions: ['default-domain recovery control persists', 'settings changes are audited'] }),
       leafProof({ leafId: 'team_roles_permissions__req_01', productFiles: teamProductFiles, targetedTests: platformTests, proofKinds: ['browser_ui', 'functional', 'product_diff', 'security_policy'], routeEvidence: ['POST /team/invitations', 'POST /team/members/:id/role'], dbEvidence, assertions: ['invite lifecycle and role mutation render', 'permission notes summarize role coverage'] }),
@@ -80,6 +84,8 @@ test('Phase 9 real parity platform slice: onboarding, dashboard, workspace setup
     });
     await postForm(baseUrl, ownerJar, '/onboarding/recover', { step: 'contact_import' });
     assert.ok(server.state.db.jobs.some((job) => job.type === 'onboarding_recovery'));
+    await postForm(baseUrl, ownerJar, '/onboarding/workspace-command', { command: 'audience_import', note: 'Phase9 proof queued audience import recovery command' });
+    assert.ok(server.state.db.workspaceSetupCommandEvents.some((event) => event.commandId === 'audience_import'));
 
     await postForm(baseUrl, ownerJar, '/settings', {
       senderName: 'Platform Owner',
@@ -103,6 +109,22 @@ test('Phase 9 real parity platform slice: onboarding, dashboard, workspace setup
     assert.match(dashboardHtml, /Role-aware task queue/);
     assert.match(dashboardHtml, /Saved dashboard views/);
     assert.match(dashboardHtml, /Data freshness/);
+    assert.match(dashboardHtml, /Onboarding-to-dashboard command runtime/);
+
+    const operationalReadiness = await request(baseUrl, ownerJar, '/onboarding/operational-readiness');
+    const operationalHtml = await operationalReadiness.text();
+    assert.match(operationalHtml, /Operational readiness state machine/);
+    assert.match(operationalHtml, /Workspace setup command center/);
+    const handoff = await postForm(baseUrl, ownerJar, '/onboarding/first-campaign-handoff', { name: 'Platform launch handoff', subject: 'A note from Platform Lab' });
+    assert.equal(handoff.status, 302);
+    assert.ok(server.state.db.firstCampaignHandoffEvents.some((event) => event.status === 'draft_with_recovery_needed' || event.status === 'launch_ready'));
+    const onboardingRuntime = await request(baseUrl, ownerJar, '/api/onboarding/runtime');
+    const onboardingJson = await onboardingRuntime.json();
+    assert.equal(onboardingJson.ok, true);
+    assert.ok(onboardingJson.onboarding.runtimeHealth.profileReady);
+    assert.ok(onboardingJson.onboarding.runtimeHealth.recoveryReady);
+    assert.ok(onboardingJson.onboarding.runtimeHealth.workspaceCommandsReady);
+    assert.ok(onboardingJson.onboarding.runtimeHealth.campaignHandoffReady);
 
     await postForm(baseUrl, ownerJar, '/workspaces/new', { name: 'Migration Workspace' });
     let workspaces = await request(baseUrl, ownerJar, '/workspaces');

@@ -1,0 +1,210 @@
+{
+  "generatedAt": "2026-06-16T02:09:41.250Z",
+  "mode": "read_only_source_agent_probe",
+  "market": {
+    "platform": "polymarket",
+    "ticker": "scotus-accepts-sports-event-contract-case-by-july-31-2026",
+    "title": "SCOTUS accepts sports event contract case by July 31, 2026?     ",
+    "url": "https://polymarket.com/event/scotus-accepts-sports-event-contract-case-by-july-31-2026",
+    "closeTime": "2026-07-31T00:00:00.000Z",
+    "yesPrice": 0.045,
+    "liquidityUsd": 14075.7346,
+    "volumeUsd": 942290.4341899994,
+    "description": "This market will resolve to \"Yes\" if the Supreme Court of the United States grants certiorari in a case explicitly concerning the legality, regulation, or jurisdictional authority over sports event contracts by July 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No.\"\n\nA case qualifies if it addresses at least one of the following: (1) whether contracts based on sporting event outcomes constitute regulated derivatives under the Commodity Exchange Act; (2) whether federal regulation via the Commodity Futures Trading Commission preempts state-level gambling laws as applied to such contracts; or (3) whether sports event contracts offered by federally licensed markets may legally be offered, restricted, or prohibited by federal or state authorities.\n\nThe certiorari grant must be publicly confirmed via the official SCOTUS docket or orders list, and verifiable through credible legal reporting or the Supreme Court’s official website. The case does not need to be heard, scheduled, or decided to qualify. \n\nThe resolution source will be a consensus census of credible reporting. "
+  },
+  "sourceQueries": [
+    {
+      "query": "Kalshi sports event contracts CFTC New Jersey Third Circuit",
+      "count": 1,
+      "results": [
+        {
+          "source": "courtlistener",
+          "type": null,
+          "caseName": "Kalshiex LLC v. Mary Jo Flaherty",
+          "court": "Court of Appeals for the Third Circuit",
+          "dateFiled": "2026-04-06",
+          "docketNumber": "25-1922",
+          "citation": "",
+          "url": "https://www.courtlistener.com/opinion/10838220/kalshiex-llc-v-mary-jo-flaherty/",
+          "snippet": ""
+        }
+      ]
+    },
+    {
+      "query": "KalshiEx LLC Mary Jo Flaherty sports event contracts",
+      "count": 1,
+      "results": [
+        {
+          "source": "courtlistener",
+          "type": null,
+          "caseName": "Kalshiex LLC v. Mary Jo Flaherty",
+          "court": "Court of Appeals for the Third Circuit",
+          "dateFiled": "2026-04-06",
+          "docketNumber": "25-1922",
+          "citation": "",
+          "url": "https://www.courtlistener.com/opinion/10838220/kalshiex-llc-v-mary-jo-flaherty/",
+          "snippet": ""
+        }
+      ]
+    },
+    {
+      "query": "sports event contracts Commodity Exchange Act Kalshi CFTC",
+      "count": 2,
+      "results": [
+        {
+          "source": "courtlistener",
+          "type": null,
+          "caseName": "Kalshiex LLC v. Commodity Futures Trading Commission",
+          "court": "District Court, District of Columbia",
+          "dateFiled": "2024-09-12",
+          "docketNumber": "Civil Action No. 2023-3257",
+          "citation": "",
+          "url": "https://www.courtlistener.com/opinion/10114926/kalshiex-llc-v-commodity-futures-trading-commission/",
+          "snippet": ""
+        },
+        {
+          "source": "courtlistener",
+          "type": null,
+          "caseName": "Kalshiex LLC v. Mary Jo Flaherty",
+          "court": "Court of Appeals for the Third Circuit",
+          "dateFiled": "2026-04-06",
+          "docketNumber": "25-1922",
+          "citation": "",
+          "url": "https://www.courtlistener.com/opinion/10838220/kalshiex-llc-v-mary-jo-flaherty/",
+          "snippet": ""
+        }
+      ]
+    },
+    {
+      "query": "Supreme Court Kalshi sports event contracts petition",
+      "count": 0,
+      "results": []
+    }
+  ],
+  "scotusDocketSearches": [
+    {
+      "query": "Kalshi",
+      "officialSource": "https://www.supremecourt.gov/docket/docket.aspx",
+      "sourceStatus": "cached_after_live_fetch_error",
+      "noItemsFound": true,
+      "resultLinks": [],
+      "relevantResultLinks": [],
+      "responseContainsQuery": true,
+      "cachedAt": "2026-06-16T02:05:37.034Z",
+      "liveFetchError": "403 Forbidden for https://www.supremecourt.gov/docket/docket.aspx"
+    },
+    {
+      "query": "KalshiEx",
+      "officialSource": "https://www.supremecourt.gov/docket/docket.aspx",
+      "sourceStatus": "cached_after_live_fetch_error",
+      "noItemsFound": true,
+      "resultLinks": [],
+      "relevantResultLinks": [],
+      "responseContainsQuery": true,
+      "cachedAt": "2026-06-16T02:05:37.034Z",
+      "liveFetchError": "403 Forbidden for https://www.supremecourt.gov/docket/docket.aspx"
+    },
+    {
+      "query": "sports event contracts",
+      "officialSource": "https://www.supremecourt.gov/docket/docket.aspx",
+      "sourceStatus": "cached_after_live_fetch_error",
+      "noItemsFound": true,
+      "resultLinks": [],
+      "relevantResultLinks": [],
+      "responseContainsQuery": true,
+      "cachedAt": "2026-06-16T02:05:37.034Z",
+      "liveFetchError": "403 Forbidden for https://www.supremecourt.gov/docket/docket.aspx"
+    },
+    {
+      "query": "Commodity Futures Trading Commission",
+      "officialSource": "https://www.supremecourt.gov/docket/docket.aspx",
+      "sourceStatus": "cached_after_live_fetch_error",
+      "noItemsFound": false,
+      "resultLinks": [
+        {
+          "title": "Docket for 18A703",
+          "url": "https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/18a703.html",
+          "relevanceHitTerms": [],
+          "relevantToMarket": false
+        },
+        {
+          "title": "Docket for 19A702",
+          "url": "https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/19a702.html",
+          "relevanceHitTerms": [],
+          "relevantToMarket": false
+        },
+        {
+          "title": "Docket for 19-933",
+          "url": "https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/19-933.html",
+          "relevanceHitTerms": [],
+          "relevantToMarket": false
+        },
+        {
+          "title": "Docket for 19-132",
+          "url": "https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/19-132.html",
+          "relevanceHitTerms": [],
+          "relevantToMarket": false
+        },
+        {
+          "title": "Docket for 18-1123",
+          "url": "https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/18-1123.html",
+          "relevanceHitTerms": [],
+          "relevantToMarket": false
+        }
+      ],
+      "relevantResultLinks": [],
+      "responseContainsQuery": true,
+      "cachedAt": "2026-06-16T02:05:37.034Z",
+      "liveFetchError": "403 Forbidden for https://www.supremecourt.gov/docket/docket.aspx"
+    },
+    {
+      "query": "Mary Jo Flaherty",
+      "officialSource": "https://www.supremecourt.gov/docket/docket.aspx",
+      "sourceStatus": "cached_after_live_fetch_error",
+      "noItemsFound": true,
+      "resultLinks": [],
+      "relevantResultLinks": [],
+      "responseContainsQuery": true,
+      "cachedAt": "2026-06-16T02:05:37.034Z",
+      "liveFetchError": "403 Forbidden for https://www.supremecourt.gov/docket/docket.aspx"
+    }
+  ],
+  "scotusOrderListScan": {
+    "officialSource": "https://www.supremecourt.gov/orders/ordersofthecourt/",
+    "sourceStatus": "cached_after_live_fetch_error",
+    "liveFetchError": "403 Forbidden for https://www.supremecourt.gov/orders/ordersofthecourt/",
+    "pdfCountDiscovered": 86,
+    "pdfCountScanned": 86,
+    "terms": [
+      "Kalshi",
+      "KalshiEx",
+      "sports event contracts",
+      "event contracts",
+      "Commodity Futures Trading Commission",
+      "Mary Jo Flaherty",
+      "CFTC"
+    ],
+    "matches": [],
+    "errors": []
+  },
+  "observedFacts": [
+    "Market candidate selected from latest scan with score 64.",
+    "CourtListener search found at least one Kalshi-related legal result that appears relevant to sports/event-contract litigation.",
+    "Distinct case names observed: Kalshiex LLC v. Mary Jo Flaherty; Kalshiex LLC v. Commodity Futures Trading Commission.",
+    "Official SCOTUS docket search returned 5 broad result link(s), of which 0 matched market-specific terms.",
+    "Official SCOTUS orders-list scan found no PDFs containing the candidate terms across 86 scanned order-list PDFs.",
+    "SCOTUS direct-source status: docket=cached_after_live_fetch_error; orders=cached_after_live_fetch_error.",
+    "No official-source cert-grant evidence was found in the available SCOTUS docket/order-list checks."
+  ],
+  "counterEvidence": [],
+  "ambiguities": [
+    "The market permits any qualifying SCOTUS cert grant, so a complete monitor must track multiple candidate cases/petitions rather than only Kalshi-named dockets.",
+    "Official SCOTUS search can lag or require exact party/docket strings; no-hit evidence is useful but not conclusive absence.",
+    "The best-effort PDF extractor can miss text if future SCOTUS PDFs use unsupported encodings; matches/no-matches should be paired with docket search and orders-page metadata.",
+    "Legal commentary can help identify candidate cases, but cannot be used as primary resolution evidence.",
+    "If multiple prediction-market/sports-event-contract cases exist, the source agent must disambiguate party names, docket numbers, and petition status."
+  ],
+  "sourceConfidence": 0.45,
+  "probabilityDeltaReady": false,
+  "tradingAction": "none"
+}

@@ -7,8 +7,11 @@ from bs4 import BeautifulSoup
 import asyncio
 
 from cortex_server.modules.consciousness_integration import chain_to
+from cortex_server.models.requests import ParsePythonRequest, ParsePDFRequest, ParseJavaScriptRequest, ParseDirectoryRequest
+from cortex_server.services.parser_service import ParserService
 
 router = APIRouter()
+service = ParserService()
 
 _parse_count = {"python": 0, "pdf": 0, "javascript": 0, "directory": 0, "html": 0}
 
@@ -57,21 +60,42 @@ async def extract(request: ExtractRequest):
         return {"success": False, "error": str(e)}
 
 @router.post("/python")
-async def parse_python():
+async def parse_python(request: ParsePythonRequest):
     _parse_count["python"] += 1
-    return {"success": True, "parsed": "python"}
+    result = await service.parse_python(request)
+    if "error" in result:
+        return {"success": False, "error": result["error"], "parsed": "python"}
+    return {"success": True, "parsed": "python", **result}
 
 @router.post("/pdf")
-async def parse_pdf():
+async def parse_pdf(request: ParsePDFRequest):
     _parse_count["pdf"] += 1
-    return {"success": True, "parsed": "pdf"}
+    result = await service.parse_pdf(request)
+    if "error" in result:
+        return {"success": False, "error": result["error"], "parsed": "pdf"}
+    return {"success": True, "parsed": "pdf", **result}
 
 @router.post("/javascript")
-async def parse_js():
+async def parse_js(request: ParseJavaScriptRequest):
     _parse_count["javascript"] += 1
-    return {"success": True, "parsed": "javascript"}
+    result = await service.parse_javascript(request)
+    if "error" in result:
+        return {"success": False, "error": result["error"], "parsed": "javascript"}
+    return {"success": True, "parsed": "javascript", **result}
 
 @router.post("/directory")
-async def parse_dir():
+async def parse_dir(request: ParseDirectoryRequest):
     _parse_count["directory"] += 1
-    return {"success": True, "parsed": "directory"}
+    result = await service.parse_directory(request)
+    if "error" in result:
+        return {"success": False, "error": result["error"], "parsed": "directory"}
+    return {"success": True, "parsed": "directory", **result}
+
+@router.post("/index-codebase")
+async def index_codebase(request: ParseDirectoryRequest):
+    """Alias for directory parsing with codebase-memory terminology."""
+    _parse_count["directory"] += 1
+    result = await service.parse_directory(request)
+    if "error" in result:
+        return {"success": False, "error": result["error"], "parsed": "directory", "indexed": False}
+    return {"success": True, "parsed": "directory", "indexed": True, **result}

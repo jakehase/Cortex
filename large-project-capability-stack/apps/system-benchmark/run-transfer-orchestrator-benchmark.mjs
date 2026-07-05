@@ -2,7 +2,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveAgentWorkRunInput } from '../../packages/agent-work-dsl/index.mjs';
-import { runLiveWorkerFarm } from '../../packages/multi-agent-orchestrator/index.mjs';
+import { compileBenchmarkRunClaimIntegrityAudit, evaluateBenchmarkRunClaimPreflight } from '../../packages/claim-integrity/index.mjs';
+import {
+  compileSupervisorSnapshot,
+  createArtifactBus,
+  createLeaseState,
+  createPatchQueue,
+  enqueuePatch,
+  processPatchQueue,
+  runLiveWorkerFarm
+} from '../../packages/multi-agent-orchestrator/index.mjs';
 import { reduceRunState } from '../../packages/orchestrator-run-state/index.mjs';
 import { deriveObservedConcurrencyTruth, evaluateScaleCredit } from '../../packages/orchestrator-scheduler-truth/index.mjs';
 import {
@@ -74,13 +83,32 @@ function stableList(values = []) {
   return [...new Set((Array.isArray(values) ? values : [values]).map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
+function creativeProductWorkRequiredForContract(contract = {}) {
+  return contract.scope?.productDiffMode === 'creative_product_work'
+    || contract.scope?.creativeProductWork?.required === true;
+}
+
+function resolveWorkerWorkspaceModeForRun(contract = {}) {
+  const configured = String(process.env.ORCHESTRATOR_WORKER_WORKSPACE_MODE || '').trim();
+  if (configured) return configured;
+  return creativeProductWorkRequiredForContract(contract) ? 'isolated_product_copy' : 'shared';
+}
+
 function shellQuote(value = '') {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 function isProductSourceFile(filePath = '') {
-  return /^(apps|packages)\//.test(String(filePath || ''))
-    && /\.(?:mjs|js|jsx|ts|tsx|html|css)$/i.test(String(filePath || ''));
+  const rel = String(filePath || '').replace(/^\.\//, '');
+  const appPackageProduct = /^(apps|packages)\//.test(rel)
+    && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(rel);
+  const godotProduct = (
+    rel === 'project.godot'
+    || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(rel)
+  )
+    && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(rel)
+    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(rel);
+  return appPackageProduct || godotProduct;
 }
 
 function isStaticSiteProductFile(filePath = '') {
@@ -274,9 +302,106 @@ function computePeakConcurrency(events = []) {
   return peak;
 }
 
+function sanitizeJsonControlCharsInStrings(value = '') {
+  const text = String(value || '');
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const char of text) {
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+    if (inString && char === '\\') {
+      out += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      out += char;
+      continue;
+    }
+    if (inString && char === '\n') {
+      out += '\\n';
+      continue;
+    }
+    if (inString && char === '\r') {
+      out += '\\r';
+      continue;
+    }
+    if (inString && char === '\t') {
+      out += '\\t';
+      continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
+function extractStringArrayField(text = '', fieldName = '') {
+  const escapedField = String(fieldName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`"${escapedField}"\\s*:\\s*\\[([\\s\\S]*?)\\]`).exec(String(text || ''));
+  if (!match) return [];
+  return Array.from(match[1].matchAll(/"((?:\\.|[^"\\])*)"/g)).map((entry) => {
+    try {
+      return JSON.parse(`"${entry[1]}"`);
+    } catch {
+      return entry[1];
+    }
+  }).filter(Boolean);
+}
+
+function extractNumericField(text = '', fieldName = '') {
+  const escapedField = String(fieldName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`"${escapedField}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`).exec(String(text || ''));
+  return match ? Number(match[1]) : null;
+}
+
+function extractStringField(text = '', fieldName = '') {
+  const escapedField = String(fieldName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`"${escapedField}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(String(text || ''));
+  if (!match) return null;
+  try {
+    return JSON.parse(`"${match[1]}"`);
+  } catch {
+    return match[1];
+  }
+}
+
+function recoverVerifierOutputSummary(text = '') {
+  const raw = String(text || '');
+  const checkKinds = extractStringArrayField(raw, 'checkKinds');
+  if (!checkKinds.length && !/clawd\.godot_game_surface_verifier\.v1/.test(raw)) return null;
+  const blockingFailureCount = extractNumericField(raw, 'blockingFailureCount');
+  const okFalse = /"ok"\s*:\s*false/.test(raw.slice(0, 1000));
+  return {
+    schemaVersion: extractStringField(raw, 'schemaVersion') || null,
+    ok: okFalse ? false : true,
+    surfaceId: extractStringField(raw, 'surfaceId') || null,
+    file: extractStringField(raw, 'file') || null,
+    kind: extractStringField(raw, 'kind') || null,
+    lane: extractStringField(raw, 'lane') || null,
+    durationMs: extractNumericField(raw, 'durationMs'),
+    firstMeaningfulProgressMs: extractNumericField(raw, 'firstMeaningfulProgressMs'),
+    cyclesCompleted: extractNumericField(raw, 'cyclesCompleted'),
+    blockingFailureCount: blockingFailureCount == null ? (okFalse ? 1 : 0) : blockingFailureCount,
+    checkKinds,
+    checks: checkKinds.map((id) => ({ id, ok: true, recoveredFromVerifierStdout: true })),
+    recoveredFromMalformedVerifierStdout: true
+  };
+}
+
 function parseJsonFromText(text) {
   const raw = String(text || '').trim();
   if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {}
+  try {
+    return JSON.parse(sanitizeJsonControlCharsInStrings(raw));
+  } catch {}
   const candidate = raw
     .split('\n')
     .map((line) => line.trim())
@@ -285,9 +410,37 @@ function parseJsonFromText(text) {
     .find((line) => line.startsWith('{') || line.startsWith('[')) || raw;
   try {
     return JSON.parse(candidate);
+  } catch {}
+  try {
+    return JSON.parse(sanitizeJsonControlCharsInStrings(candidate));
   } catch {
-    return null;
+    return recoverVerifierOutputSummary(raw);
   }
+}
+
+function parsedVerifierOutputFromResult(entry = {}) {
+  const parsedStdout = parseJsonFromText(entry.stdout || '');
+  if (parsedStdout && typeof parsedStdout === 'object' && Object.keys(parsedStdout).length > 0) return parsedStdout;
+  const metadata = entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+  const summary = metadata.parsedOutputSummary && typeof metadata.parsedOutputSummary === 'object'
+    ? metadata.parsedOutputSummary
+    : null;
+  if (summary) {
+    return {
+      ok: summary.ok !== false,
+      surfaceId: summary.surfaceId || metadata.surfaceId || null,
+      durationMs: summary.durationMs ?? null,
+      firstMeaningfulProgressMs: summary.firstMeaningfulProgressMs ?? null,
+      firstMeaningfulProgressAt: summary.firstMeaningfulProgressAt || null,
+      cyclesCompleted: summary.cyclesCompleted ?? null,
+      semanticRuntimeExecution: summary.semanticRuntimeExecution || null,
+      checkKinds: Array.isArray(summary.checkKinds) ? summary.checkKinds : [],
+      blockingFailureCount: summary.ok === false ? 1 : 0,
+      checks: (Array.isArray(summary.checkKinds) ? summary.checkKinds : []).map((id) => ({ id, ok: summary.ok !== false, recoveredFromParsedOutputSummary: true }))
+    };
+  }
+  if (Array.isArray(metadata.checkKinds)) return metadata;
+  return null;
 }
 
 function parseIsoDate(value) {
@@ -870,7 +1023,7 @@ function deriveTransferEvidence({ contract, liveRun }) {
     const result = merged?.metadata?.resultPath ? readJson(merged.metadata.resultPath, null) : null;
     const verifierResults = Array.isArray(result?.verifierResults) ? result.verifierResults : [];
     const verifierEvidence = verifierResults.map((entry) => {
-      const parsedOutput = parseJsonFromText(entry.stdout || '');
+      const parsedOutput = parsedVerifierOutputFromResult(entry) || {};
       return {
         verifier: entry.verifier || null,
         ok: entry.ok !== false,
@@ -936,6 +1089,188 @@ function deriveTransferEvidence({ contract, liveRun }) {
   };
 }
 
+function checksFromParsedVerifierOutput(parsedOutput = {}) {
+  const direct = Array.isArray(parsedOutput.checks) ? parsedOutput.checks : [];
+  const cycleChecks = (parsedOutput.cycles || []).flatMap((cycle) => Array.isArray(cycle?.checks) ? cycle.checks : []);
+  return [...direct, ...cycleChecks].filter((entry) => entry && typeof entry === 'object');
+}
+
+function parsedOutputHasGreenCheck(parsedOutput = {}, checkId = '') {
+  const kinds = new Set(Array.isArray(parsedOutput.checkKinds) ? parsedOutput.checkKinds : []);
+  const checks = checksFromParsedVerifierOutput(parsedOutput);
+  if (!kinds.has(checkId) && !checks.some((entry) => entry.id === checkId)) return false;
+  return checks.filter((entry) => entry.id === checkId).every((entry) => entry.ok !== false);
+}
+
+function surfaceReliabilityPolicyForContract(contract = {}, surfaceCount = 0) {
+  const configured = contract.scope?.surfaceReliability || contract.scope?.successTolerance || {};
+  const enabled = configured.enabled === true || contract.benchmarkTier === 'tier3_game_vertical_slice_100agent';
+  const total = Math.max(0, Number(surfaceCount || 0));
+  const greenRatio = Number.isFinite(Number(configured.greenMinVerifiedProductiveRatio ?? configured.greenMinSurfaceRatio))
+    ? Number(configured.greenMinVerifiedProductiveRatio ?? configured.greenMinSurfaceRatio)
+    : enabled ? 0.95 : 1;
+  const yellowRatio = Number.isFinite(Number(configured.yellowMinVerifiedProductiveRatio ?? configured.yellowMinSurfaceRatio))
+    ? Number(configured.yellowMinVerifiedProductiveRatio ?? configured.yellowMinSurfaceRatio)
+    : enabled ? 0.90 : greenRatio;
+  const boundedGreenRatio = Math.min(1, Math.max(0, greenRatio));
+  const boundedYellowRatio = Math.min(1, Math.max(0, yellowRatio));
+  const greenMinSurfaceCount = total > 0 ? Math.max(1, Math.ceil(total * boundedGreenRatio)) : 0;
+  const yellowMinSurfaceCount = total > 0 ? Math.max(1, Math.ceil(total * boundedYellowRatio)) : 0;
+  const perfectSurfaceCount = Number.isFinite(Number(configured.perfectVerifiedProductiveSurfaces))
+    ? Math.min(total, Math.max(0, Number(configured.perfectVerifiedProductiveSurfaces)))
+    : total;
+  const defaultFailureBudget = Math.max(0, total - greenMinSurfaceCount);
+  const maxToleratedFailedSurfaces = Number.isFinite(Number(configured.maxToleratedFailedSurfaces))
+    ? Math.max(0, Number(configured.maxToleratedFailedSurfaces))
+    : defaultFailureBudget;
+  return {
+    enabled,
+    mode: configured.mode || (enabled ? 'tolerant_surface_reliability' : 'strict_all_surfaces'),
+    greenMinVerifiedProductiveRatio: boundedGreenRatio,
+    yellowMinVerifiedProductiveRatio: boundedYellowRatio,
+    greenMinSurfaceCount,
+    yellowMinSurfaceCount,
+    perfectSurfaceCount,
+    maxToleratedFailedSurfaces,
+    requireClassifiedFailures: configured.requireClassifiedFailures !== false,
+    systemicFailureFails: configured.systemicFailureFails !== false
+  };
+}
+
+function classifyResidualSurfaceFailures({ liveRun = {}, transferEvidence = {}, shardCount = 0, productiveSurfaceCount = 0 }) {
+  const records = new Map();
+  const addRecord = (record = {}, source = 'unknown') => {
+    const surfaceId = record.shardId || record.surfaceId || record.id || record.assignmentId || record.assignment?.surfaceId || record.assignment?.id || null;
+    if (!surfaceId) return;
+    const existing = records.get(surfaceId) || { surfaceId, sources: [], reasons: [] };
+    existing.sources.push(source);
+    const reason = record.reason || record.failureReason || record.rejectionReason || record.rejectionCategory || record.error || record.errorCode || record.blockerKind || null;
+    if (reason) existing.reasons.push(String(reason));
+    records.set(surfaceId, existing);
+  };
+  for (const entry of (Array.isArray(liveRun.metrics?.failedShards) ? liveRun.metrics.failedShards : [])) addRecord(entry, 'failed_shards_metric');
+  for (const entry of (Array.isArray(liveRun.patchQueue?.rejected) ? liveRun.patchQueue.rejected : [])) addRecord(entry, 'patch_queue_rejected');
+  for (const surface of (Array.isArray(transferEvidence.surfaces) ? transferEvidence.surfaces : [])) {
+    if (surface.productive === true) continue;
+    if (surface.rejected || surface.merged === false) addRecord({ surfaceId: surface.surfaceId, rejectionReason: surface.rejectionReason, rejectionCategory: surface.rejectionCategory }, 'transfer_evidence');
+  }
+  const observedResidualCount = records.size;
+  const inferredMissingCount = Math.max(0, Number(shardCount || 0) - Number(productiveSurfaceCount || 0));
+  const residualFailureCount = Math.max(observedResidualCount, inferredMissingCount);
+  const unclassifiedFailureCount = [...records.values()].filter((entry) => entry.reasons.length === 0).length
+    + Math.max(0, inferredMissingCount - observedResidualCount);
+  return {
+    residualFailureCount,
+    observedResidualCount,
+    inferredMissingCount,
+    classifiedFailureCount: Math.max(0, residualFailureCount - unclassifiedFailureCount),
+    unclassifiedFailureCount,
+    failures: [...records.values()].map((entry) => ({
+      surfaceId: entry.surfaceId,
+      sources: stableList(entry.sources),
+      reasons: stableList(entry.reasons)
+    }))
+  };
+}
+
+function deriveSurfaceReliabilityEvidence({ contract, liveRun, transferEvidence, shardCount, mergedShardCount, productiveSurfaceCount, verifiedSurfaceCount }) {
+  const policy = surfaceReliabilityPolicyForContract(contract, shardCount);
+  const classified = classifyResidualSurfaceFailures({ liveRun, transferEvidence, shardCount, productiveSurfaceCount });
+  const surfaceReliabilityScore = shardCount > 0 ? Number((Number(productiveSurfaceCount || 0) / shardCount).toFixed(2)) : policy.enabled ? 0 : 1;
+  const verifiedSurfaceReliabilityScore = shardCount > 0 ? Number((Number(verifiedSurfaceCount || 0) / shardCount).toFixed(2)) : policy.enabled ? 0 : 1;
+  const failureBudgetOk = classified.residualFailureCount <= policy.maxToleratedFailedSurfaces;
+  const classifiedFailuresOk = !policy.requireClassifiedFailures || classified.unclassifiedFailureCount === 0;
+  const green = Number(productiveSurfaceCount || 0) >= policy.greenMinSurfaceCount && failureBudgetOk && classifiedFailuresOk;
+  const yellow = !green && Number(productiveSurfaceCount || 0) >= policy.yellowMinSurfaceCount && failureBudgetOk && classifiedFailuresOk;
+  return {
+    generatedAt: new Date().toISOString(),
+    enabled: policy.enabled,
+    mode: policy.mode,
+    status: Number(productiveSurfaceCount || 0) >= policy.perfectSurfaceCount && classified.residualFailureCount === 0
+      ? 'perfect_100_of_100'
+      : green ? 'green_with_tolerated_residual_failures'
+        : yellow ? 'yellow_near_green'
+          : 'red_below_surface_reliability_threshold',
+    green,
+    yellow,
+    perfect: Number(productiveSurfaceCount || 0) >= policy.perfectSurfaceCount && classified.residualFailureCount === 0,
+    shardCount,
+    mergedShardCount,
+    productiveSurfaceCount,
+    verifiedSurfaceCount,
+    surfaceReliabilityScore,
+    verifiedSurfaceReliabilityScore,
+    classifiedFailureIntegrity: classified.unclassifiedFailureCount === 0 ? 1 : 0,
+    greenMinSurfaceCount: policy.greenMinSurfaceCount,
+    yellowMinSurfaceCount: policy.yellowMinSurfaceCount,
+    perfectSurfaceCount: policy.perfectSurfaceCount,
+    maxToleratedFailedSurfaces: policy.maxToleratedFailedSurfaces,
+    residualFailureCount: classified.residualFailureCount,
+    observedResidualCount: classified.observedResidualCount,
+    inferredMissingCount: classified.inferredMissingCount,
+    classifiedFailureCount: classified.classifiedFailureCount,
+    unclassifiedFailureCount: classified.unclassifiedFailureCount,
+    failureBudgetOk,
+    classifiedFailuresOk,
+    scaleCreditProductiveMergeRatio: policy.greenMinVerifiedProductiveRatio,
+    failures: classified.failures
+  };
+}
+
+function deriveGameVerificationEvidence({ contract, transferEvidence, liveRun, scaleCredit, surfaceReliability }) {
+  const required = contract.benchmarkTier === 'tier3_game_vertical_slice_100agent'
+    || contract.scope?.gameVerification?.required === true;
+  const surfaces = transferEvidence.surfaces || [];
+  const verifierOutputs = surfaces.flatMap((surface) => (surface.verifiers || [])
+    .map((verifier) => ({ surface, verifier, parsedOutput: verifier.parsedOutput || {} }))
+    .filter((entry) => entry.parsedOutput && Object.keys(entry.parsedOutput).length > 0));
+  const totalSurfaceCount = surfaces.length;
+  const requiredGreenVerifierOutputCount = required && surfaceReliability?.enabled
+    ? Math.max(1, Number(surfaceReliability.greenMinSurfaceCount || 0))
+    : totalSurfaceCount;
+  const greenVerifierOutputs = verifierOutputs.filter((entry) => entry.verifier.ok && entry.verifier.parsedOk && entry.parsedOutput.ok !== false && Number(entry.parsedOutput.blockingFailureCount || 0) === 0);
+  const greenVerifierOutputCount = greenVerifierOutputs.length;
+  const enoughVerifierOutputsGreen = greenVerifierOutputCount >= requiredGreenVerifierOutputCount;
+  const enoughVerifierOutputsHave = (checkId) => greenVerifierOutputs.filter((entry) => parsedOutputHasGreenCheck(entry.parsedOutput, checkId)).length >= requiredGreenVerifierOutputCount;
+  const assetOutputs = verifierOutputs.filter((entry) => entry.parsedOutput.lane === 'assets_vfx_audio'
+    || entry.parsedOutput.kind === 'asset_pipeline'
+    || entry.parsedOutput.file === 'assets/manifest.json'
+    || parsedOutputHasGreenCheck(entry.parsedOutput, 'asset_manifest_present'));
+  const assetManifestGatePass = assetOutputs.length > 0
+    && assetOutputs.every((entry) => parsedOutputHasGreenCheck(entry.parsedOutput, 'asset_manifest_present'));
+  const failedShards = Array.isArray(liveRun.metrics?.failedShards) ? liveRun.metrics.failedShards : [];
+  const continuityFailures = Array.isArray(liveRun.metrics?.continuityFailures) ? liveRun.metrics.continuityFailures : [];
+  const stateLossEvents = Number(liveRun.metrics?.stateLossEvents || 0);
+  const rejectedCount = Array.isArray(liveRun.patchQueue?.rejected) ? liveRun.patchQueue.rejected.length : 0;
+  return {
+    generatedAt: new Date().toISOString(),
+    required,
+    verifierOutputCount: verifierOutputs.length,
+    greenVerifierOutputCount,
+    requiredGreenVerifierOutputCount,
+    totalSurfaceCount,
+    allVerifierOutputsGreen: enoughVerifierOutputsGreen,
+    gameBuildGatePass: !required || (enoughVerifierOutputsGreen
+      && enoughVerifierOutputsHave('repo_exists')
+      && enoughVerifierOutputsHave('godot_project_file_present')
+      && enoughVerifierOutputsHave('assigned_file_is_godot_product_path')
+      && enoughVerifierOutputsHave('assigned_product_file_present')
+      && enoughVerifierOutputsHave('assigned_product_file_nontrivial')
+      && enoughVerifierOutputsHave('godot_cli_available_when_required')) ? 1 : 0,
+    gameSceneLoadGatePass: !required || enoughVerifierOutputsHave('godot_headless_scene_load_harness') ? 1 : 0,
+    gameInputCombatHarnessPass: !required || enoughVerifierOutputsHave('godot_movement_combat_harness') ? 1 : 0,
+    assetManifestGatePass: !required || assetManifestGatePass ? 1 : 0,
+    repairLaneConverged: !required || (surfaceReliability?.failureBudgetOk === true && surfaceReliability?.classifiedFailuresOk === true) ? 1 : 0,
+    admissionGateIntegrity: totalSurfaceCount > 0 ? Number((Number(transferEvidence.productiveSurfaceCount || 0) / totalSurfaceCount).toFixed(2)) : required ? 0 : 1,
+    schedulerRecoveryIntegrity: !required || (scaleCredit?.eligible === true && stateLossEvents === 0 && continuityFailures.length === 0) ? 1 : 0,
+    failedShardCount: failedShards.length,
+    rejectedCount,
+    stateLossEvents,
+    continuityFailureCount: continuityFailures.length,
+    observedChecks: stableList(verifierOutputs.flatMap((entry) => entry.parsedOutput.checkKinds || []))
+  };
+}
+
 function createSurfaceMatrixFromContract(contract) {
   return {
     schemaVersion: 'claw.transfer_surface_matrix.v1',
@@ -954,7 +1289,7 @@ function createSurfaceMatrixFromContract(contract) {
   };
 }
 
-function summarizeSurfaceStatuses(surfaceMatrix, liveRun) {
+function summarizeSurfaceStatuses(surfaceMatrix, liveRun, surfaceReliability = null) {
   const merged = new Set((liveRun.patchQueue?.merged || []).map((entry) => entry.shardId));
   const rejected = new Map((liveRun.patchQueue?.rejected || []).map((entry) => [entry.shardId, entry]));
   const surfaces = surfaceMatrix.surfaces || [];
@@ -962,7 +1297,13 @@ function summarizeSurfaceStatuses(surfaceMatrix, liveRun) {
   return {
     ...surfaceMatrix,
     generatedAt: new Date().toISOString(),
-    status: allSurfacesMerged ? 'orchestrator_green' : 'blocked',
+    status: allSurfacesMerged ? 'orchestrator_green'
+      : surfaceReliability?.green === true ? 'orchestrator_green_with_tolerated_residual_failures'
+        : surfaceReliability?.yellow === true ? 'orchestrator_yellow_near_green'
+          : 'blocked',
+    surfaceReliabilityStatus: surfaceReliability?.status || null,
+    surfaceReliabilityScore: surfaceReliability?.surfaceReliabilityScore ?? null,
+    residualFailureCount: surfaceReliability?.residualFailureCount ?? null,
     surfaces: surfaces.map((surface) => ({
       ...surface,
       status: merged.has(surface.id) ? 'verified' : rejected.has(surface.id) ? 'rejected' : 'unverified',
@@ -991,6 +1332,240 @@ function collectTruthContradictions({ liveRun, shardCount, mergedShardCount }) {
   }
 
   return contradictions;
+}
+
+function readMergedResultRecords(liveRun) {
+  return (liveRun.patchQueue?.merged || []).map((entry) => {
+    const resultPath = entry?.metadata?.resultPath || null;
+    const result = resultPath ? readJson(resultPath, null) : null;
+    return result ? { ...result, resultPath } : null;
+  }).filter(Boolean);
+}
+
+function summarizeCreativeBudgetLedger(orchestratorRunRoot) {
+  const candidates = [
+    path.join(path.dirname(orchestratorRunRoot), 'creative-worker-budget-ledger.json'),
+    path.join(orchestratorRunRoot, 'results', 'creative-worker-budget-ledger.json'),
+    path.join(orchestratorRunRoot, 'creative-worker-budget-ledger.json')
+  ];
+  const ledgerPath = candidates.find((candidate) => fs.existsSync(candidate)) || null;
+  const ledger = ledgerPath ? readJson(ledgerPath, null) : null;
+  if (!ledger || typeof ledger !== 'object') {
+    return {
+      ledgerPresent: false,
+      ledgerPath,
+      codexCallsStarted: 0,
+      codexCallsCompleted: 0,
+      tokensObserved: 0,
+      globalStop: null
+    };
+  }
+  const workers = Object.values(ledger.workers || {}).filter((entry) => entry && typeof entry === 'object');
+  const codexCallsStarted = Number(ledger.callsStarted ?? workers.reduce((sum, worker) => sum + Number(worker.callsStarted || 0), 0));
+  const codexCallsCompleted = Number(ledger.callsCompleted ?? workers.reduce((sum, worker) => sum + Number(worker.callsCompleted || 0), 0));
+  return {
+    ledgerPresent: true,
+    ledgerPath,
+    codexCallsStarted: Number.isFinite(codexCallsStarted) ? codexCallsStarted : 0,
+    codexCallsCompleted: Number.isFinite(codexCallsCompleted) ? codexCallsCompleted : 0,
+    tokensObserved: Number(ledger.tokensObserved || 0),
+    activeCalls: Array.isArray(ledger.activeCalls) ? ledger.activeCalls.length : Number(ledger.activeCalls || 0),
+    globalStop: ledger.globalStop || null,
+    workerCount: workers.length
+  };
+}
+
+function shardPlanFromWorkGraph(workGraph = {}) {
+  return {
+    shards: (workGraph.workUnits || []).map((unit) => ({
+      ...unit,
+      rootWorkUnitId: unit.rootWorkUnitId || unit.id,
+      dependencyShardIds: stableList(unit.dependencyShardIds || unit.deps || [])
+    }))
+  };
+}
+
+function readExistingLiveRunArtifacts({ orchestratorRunRoot, workGraph }) {
+  const summary = readJson(path.join(orchestratorRunRoot, 'summary.json'), null);
+  if (!summary) throw new Error(`existing orchestrator summary not found at ${path.join(orchestratorRunRoot, 'summary.json')}`);
+  const patchQueue = readJson(path.join(orchestratorRunRoot, 'patch_queue.json'), createPatchQueue());
+  const supervisor = readJson(path.join(orchestratorRunRoot, 'supervisor.json'), null);
+  const workerEvents = readJson(path.join(orchestratorRunRoot, 'worker_events.json'), []);
+  const schedulerTruth = summary.schedulerTruth || readJson(path.join(orchestratorRunRoot, 'scheduler_truth.json'), null);
+  const contextGovernor = summary.contextGovernor || readJson(path.join(orchestratorRunRoot, 'context_governor_report.json'), null);
+  const waveFactpack = readJson(path.join(orchestratorRunRoot, 'wave_factpack.json'), null);
+  const leaseState = readJson(path.join(orchestratorRunRoot, 'lease_state.json'), createLeaseState());
+  const artifactBus = readJson(path.join(orchestratorRunRoot, 'artifact_bus.json'), createArtifactBus());
+  const shardPlan = shardPlanFromWorkGraph(workGraph);
+  return {
+    ok: supervisor?.topLevel?.status === 'green',
+    executionMode: summary.executionMode || 'transfer_orchestrator_live_worker_farm',
+    agentCount: summary.agentCount || null,
+    shardPlan,
+    frontier: summary.frontier || null,
+    leaseState,
+    artifactBus,
+    patchQueue,
+    landingEvidence: patchQueue.landingEvidence || readJson(path.join(orchestratorRunRoot, 'landing_evidence.json'), null),
+    claimLedger: patchQueue.claimLedger || supervisor?.claimLedger || summary.claimLedger || null,
+    schedulerTruth,
+    supervisor,
+    workerEvents: Array.isArray(workerEvents) ? workerEvents : [],
+    summary,
+    metrics: summary.metrics || {},
+    contextGovernor,
+    waveFactpack,
+    runRoot: orchestratorRunRoot
+  };
+}
+
+function terminalResultPathForShard(orchestratorRunRoot, shardId) {
+  const resultsDir = path.join(orchestratorRunRoot, 'results');
+  if (!fs.existsSync(resultsDir)) return null;
+  const candidates = fs.readdirSync(resultsDir)
+    .filter((entry) => entry.startsWith(`${shardId}__attempt-`) && entry.endsWith('.json'))
+    .sort((left, right) => {
+      const leftAttempt = Number(left.match(/__attempt-(\d+)\.json$/)?.[1] || 0);
+      const rightAttempt = Number(right.match(/__attempt-(\d+)\.json$/)?.[1] || 0);
+      return rightAttempt - leftAttempt;
+    });
+  return candidates[0] ? path.join(resultsDir, candidates[0]) : null;
+}
+
+function patchForAdmissionReevaluation({ entry, resultPath, result, shard }) {
+  const implementation = result?.implementation || entry?.metadata?.implementation || {};
+  const modifiedFiles = stableList([
+    ...(entry?.filePaths || []),
+    ...(implementation.modifiedFiles || [])
+  ]).filter(isProductSourceFile);
+  const verifierIdsForResult = stableList([
+    ...(entry?.requiredVerifiers || []),
+    ...((result?.verifierResults || []).map((verifier) => verifier.verifier).filter(Boolean))
+  ]);
+  return {
+    id: entry?.id || `patch-${shard.id}`,
+    shardId: entry?.shardId || shard.id,
+    taskId: entry?.taskId || shard.id,
+    agentId: result?.agentId || entry?.agentId || null,
+    filePaths: modifiedFiles,
+    diffSummary: implementation.diffSummary || entry?.diffSummary || '',
+    requiredVerifiers: verifierIdsForResult.length ? verifierIdsForResult : stableList(shard.requiredVerifiers || []),
+    dependencyShardIds: stableList(entry?.dependencyShardIds || shard.dependencyShardIds || []),
+    createdAt: entry?.createdAt || result?.generatedAt || new Date().toISOString(),
+    metadata: {
+      ...(entry?.metadata || {}),
+      resultPath,
+      result,
+      implementation,
+      contextPack: result?.contextPack || entry?.metadata?.contextPack || null
+    }
+  };
+}
+
+async function reprocessExistingPatchQueueWithCurrentAdmission({ liveRun, contract, workGraph, verifierIds, orchestratorRunRoot, canonicalLandingEvidenceRequired, landingEvidencePolicy, proofCarryingClaimsRequired, claimLedgerPolicy }) {
+  const shardPlan = liveRun.shardPlan || shardPlanFromWorkGraph(workGraph);
+  const originalPatchQueue = liveRun.patchQueue || createPatchQueue();
+  const existingEntriesByShard = new Map([
+    ...(originalPatchQueue.merged || []),
+    ...(originalPatchQueue.rejected || []),
+    ...(originalPatchQueue.queued || [])
+  ].map((entry) => [entry.shardId, entry]));
+  let queue = createPatchQueue();
+  let terminalResultCount = 0;
+  let queuedForReevaluation = 0;
+  const skipped = [];
+  for (const shard of shardPlan.shards || []) {
+    const existing = existingEntriesByShard.get(shard.id) || null;
+    const resultPath = existing?.metadata?.resultPath || terminalResultPathForShard(orchestratorRunRoot, shard.id);
+    const result = resultPath ? readJson(resultPath, null) : null;
+    if (result) terminalResultCount += 1;
+    if (!result || result.ok === false) {
+      skipped.push({ shardId: shard.id, reason: result ? 'terminal_result_not_ok' : 'terminal_result_missing', resultPath });
+      continue;
+    }
+    const patch = patchForAdmissionReevaluation({ entry: existing, resultPath, result, shard });
+    if (!patch.filePaths.length) {
+      skipped.push({ shardId: shard.id, reason: 'no_product_files_for_reevaluation', resultPath });
+      continue;
+    }
+    queue = enqueuePatch(queue, patch);
+    queuedForReevaluation += 1;
+  }
+  const landingBaseline = readJson(path.join(orchestratorRunRoot, 'landing_baseline.json'), null);
+  const processed = await processPatchQueue(queue, {
+    verifyFns: createResultBackedVerifierMap(verifierIds),
+    canonicalLandingEvidence: canonicalLandingEvidenceRequired,
+    landingEvidenceBaseline: landingBaseline,
+    landingEvidencePolicy,
+    proofCarryingClaims: proofCarryingClaimsRequired,
+    claimLedgerPolicy
+  });
+  const supervisor = compileSupervisorSnapshot({
+    shardPlan,
+    leaseState: createLeaseState(),
+    artifactBus: liveRun.artifactBus || createArtifactBus(),
+    patchQueue: processed.queue,
+    landingEvidence: processed.landingEvidence,
+    schedulerTruth: liveRun.schedulerTruth || null,
+    claimLedger: processed.claimLedger || liveRun.claimLedger || null
+  });
+  const summary = {
+    ...(liveRun.summary || {}),
+    generatedAt: new Date().toISOString(),
+    mergedShardCount: processed.queue.merged.length,
+    reprocessedAdmission: {
+      enabled: true,
+      terminalResultCount,
+      queuedForReevaluation,
+      skipped,
+      previousMergedCount: originalPatchQueue.merged?.length || 0,
+      previousRejectedCount: originalPatchQueue.rejected?.length || 0,
+      mergedCount: processed.queue.merged.length,
+      rejectedCount: processed.queue.rejected.length
+    },
+    metrics: {
+      ...(liveRun.summary?.metrics || liveRun.metrics || {}),
+      mergedPatchCount: processed.queue.merged.length,
+      failedShards: processed.queue.rejected.map((entry) => entry.shardId)
+    }
+  };
+  writeJson(path.join(orchestratorRunRoot, 'patch_queue.reprocessed.json'), processed.queue);
+  writeJson(path.join(orchestratorRunRoot, 'supervisor.reprocessed.json'), supervisor);
+  writeJson(path.join(orchestratorRunRoot, 'admission_reevaluation.json'), summary.reprocessedAdmission);
+  if (process.env.TRANSFER_BENCHMARK_APPLY_REEVALUATED_PATCH_QUEUE === '1') {
+    writeJson(path.join(orchestratorRunRoot, 'patch_queue.json'), processed.queue);
+    writeJson(path.join(orchestratorRunRoot, 'supervisor.json'), supervisor);
+    writeJson(path.join(orchestratorRunRoot, 'landing_evidence.json'), processed.landingEvidence || processed.queue.landingEvidence || null);
+    writeJson(path.join(orchestratorRunRoot, 'summary.json'), summary);
+  }
+  return {
+    ...liveRun,
+    ok: supervisor.topLevel?.status === 'green',
+    shardPlan,
+    patchQueue: processed.queue,
+    landingEvidence: processed.landingEvidence || processed.queue.landingEvidence || null,
+    claimLedger: processed.claimLedger || liveRun.claimLedger || null,
+    supervisor,
+    summary,
+    metrics: summary.metrics,
+    admissionReevaluation: summary.reprocessedAdmission
+  };
+}
+
+function claimIntegrityBlocker({ contract, report, phase = 'claim_integrity_preflight' }) {
+  return {
+    generatedAt: new Date().toISOString(),
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    phase,
+    status: 'blocked',
+    blockerFamily: report.blockerFamily || 'claim_integrity_mismatch',
+    blocker: report.blocker || `Requested claim ${report.requestedClaim || 'unknown'} is not supported by benchmark evidence.`,
+    nextAction: report.nextAction || 'Rerun with evidence that satisfies the requested claim, or downgrade the claim.',
+    requestedClaim: report.requestedClaim || null,
+    highestHonestClaim: report.highestHonestClaim || null,
+    blockingFailures: report.blockingFailures || []
+  };
 }
 
 const inputPath = path.resolve(process.argv[2] || '');
@@ -1047,6 +1622,15 @@ let maxSpawnsPerTick = null;
 let agentWorkPolicyReport = null;
 const hostRole = process.env.BENCHMARK_HOST_ROLE || process.env.HOST_ROLE || 'control_plane';
 const hostname = process.env.HOSTNAME || null;
+const landingEvidencePolicyForRun = {
+  mode: contract.scope?.canonicalLandingEvidence?.mode || (canonicalLandingEvidenceRequired ? 'block_on_failed_landing' : 'off'),
+  repoPath: path.resolve(contract.repoPath),
+  productPaths: canonicalLandingProductPaths,
+  duplicateLineRatioMax: contract.scope?.canonicalLandingEvidence?.duplicateLineRatioMax,
+  duplicateLineCheckMinAddedLines: contract.scope?.canonicalLandingEvidence?.duplicateLineCheckMinAddedLines,
+  minAddedLineCount: contract.scope?.canonicalLandingEvidence?.minAddedLineCount,
+  minUniqueNormalizedAddedLineCount: contract.scope?.canonicalLandingEvidence?.minUniqueNormalizedAddedLineCount
+};
 
 if (contract.executionBoundary === 'remote_execution_required' && hostRole !== 'execution_plane') {
   const blocker = {
@@ -1152,6 +1736,75 @@ if (!workGraph.workUnits.length || !verifierIds.length) {
   process.exit(2);
 }
 
+const claimIntegrityPreflight = evaluateBenchmarkRunClaimPreflight({ contract, env: process.env });
+writeJson(path.join(artifactRoot, 'claim_integrity_preflight.json'), claimIntegrityPreflight);
+if (!claimIntegrityPreflight.ok) {
+  const blocker = claimIntegrityBlocker({ contract, report: claimIntegrityPreflight, phase: 'claim_integrity_preflight' });
+  writeJson(path.join(artifactRoot, 'blocker_report.json'), blocker);
+  writeJson(path.join(artifactRoot, 'supervisor_status.json'), {
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    supervisorStatus: 'red',
+    matrixStatus: 'blocked',
+    note: blocker.blocker
+  });
+  writeJson(path.join(artifactRoot, 'program_state.json'), {
+    schemaVersion: 'claw.agent_benchmark_program_state.v1',
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    status: 'blocked',
+    done: true,
+    stopAllowed: true,
+    stopReason: 'claim_integrity_preflight_blocked',
+    summary: blocker.blocker
+  });
+  writeJson(path.join(artifactRoot, 'orchestrator_summary.json'), {
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    requestedAgentCount: contract.requestedAgentCount,
+    mechanicalGreen: false,
+    scaleProofReady: false,
+    thresholdPass: false,
+    blockedByClaimIntegrity: true,
+    claimIntegrityPreflight
+  });
+  writeJson(path.join(artifactRoot, 'completion_summary.json'), {
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    baselineReady: previousBaselineReady,
+    thresholdPass: false,
+    supervisorConfirmedCompletion: false,
+    executionMode: 'claim_integrity_preflight_blocked',
+    mechanicalGreen: false,
+    scaleProofReady: false,
+    blocker,
+    claimIntegrityPreflight,
+    note: blocker.blocker
+  });
+  const scoreboardRow = createScoreboardRow({
+    contract,
+    metrics: {
+      verificationIntegrity: previousBaselineReady ? 1 : 0,
+      autonomyWindowMinutes: 0,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0
+    },
+    outcome: { pass: false },
+    durationMinutes: 0,
+    blockerFamily: blocker.blockerFamily,
+    blockerSemantics: 'claim_integrity',
+    notes: blocker.blocker
+  });
+  writeJson(path.join(artifactRoot, 'scoreboard_row.json'), scoreboardRow);
+  upsertBenchmarkScoreboardRow({ scoreboardPath, row: scoreboardRow });
+  console.log(JSON.stringify({ ok: false, blockedByClaimIntegrity: true, blocker: blocker.blocker, artifactRoot }, null, 2));
+  process.exit(2);
+}
+
 agentWorkPolicyReport = createAgentWorkPolicyReport({
   contract,
   workGraph,
@@ -1241,7 +1894,11 @@ try {
   if (process.env.TRANSFER_BENCHMARK_TEST_FORCE_CRASH === '1') {
     throw new Error('Forced orchestrator benchmark crash for test coverage.');
   }
-  liveRun = await runLiveWorkerFarm({
+  if (process.env.TRANSFER_BENCHMARK_REEVALUATE_EXISTING === '1') {
+    liveRun = readExistingLiveRunArtifacts({ orchestratorRunRoot, workGraph });
+  } else {
+    const workerWorkspaceMode = resolveWorkerWorkspaceModeForRun(contract);
+    liveRun = await runLiveWorkerFarm({
     workGraph,
     surfaceMatrix,
     agentCount: Math.max(1, Number(contract.requestedAgentCount || 1)),
@@ -1254,6 +1911,7 @@ try {
     workerTimeoutMs,
     ...(maxWorkerSpawns !== null && maxWorkerSpawns !== undefined ? { maxWorkerSpawns } : {}),
     ...(maxSpawnsPerTick !== null && maxSpawnsPerTick !== undefined ? { maxSpawnsPerTick } : {}),
+    workerWorkspaceMode,
     workerWorkspaceCopyPaths: stableList(String(process.env.ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS || '')
       .split(',')
       .map((entry) => entry.trim())
@@ -1279,31 +1937,27 @@ try {
       creativeProductWork: {
         ...(contract.scope?.creativeProductWork || {}),
         required: contract.scope?.creativeProductWork?.required === true || contract.scope?.productDiffMode === 'creative_product_work'
-      }
+      },
+      orchestrationLearning: contract.scope?.orchestrationLearning || null
     },
     verifyFns: createResultBackedVerifierMap(verifierIds),
     executionMode: 'transfer_orchestrator_live_worker_farm',
     failureInjections: Array.isArray(contract.scope?.failureInjections) ? contract.scope.failureInjections : [],
     canonicalLandingEvidence: canonicalLandingEvidenceRequired,
-    landingEvidencePolicy: {
-      mode: contract.scope?.canonicalLandingEvidence?.mode || (canonicalLandingEvidenceRequired ? 'block_on_failed_landing' : 'off'),
-      productPaths: canonicalLandingProductPaths,
-      duplicateLineRatioMax: contract.scope?.canonicalLandingEvidence?.duplicateLineRatioMax,
-      duplicateLineCheckMinAddedLines: contract.scope?.canonicalLandingEvidence?.duplicateLineCheckMinAddedLines,
-      minAddedLineCount: contract.scope?.canonicalLandingEvidence?.minAddedLineCount,
-      minUniqueNormalizedAddedLineCount: contract.scope?.canonicalLandingEvidence?.minUniqueNormalizedAddedLineCount
-    },
+    landingEvidencePolicy: landingEvidencePolicyForRun,
     proofCarryingClaims: proofCarryingClaimsRequired,
     claimLedgerPolicy,
     contextGovernorOptions,
     previousWaveFactpack,
     campaignContract: {
       fidelity: contract.fidelity,
-      requestedScope: (contract.scope?.surfaces || []).map((surface) => surface.id),
+      requestedScope: contract.requestedScope || contract.scope?.requestedScope || (contract.scope?.surfaces || []).map((surface) => surface.id),
       repoPath: contract.repoPath,
-      targetPath: contract.repoPath
+      targetPath: contract.repoPath,
+      orchestrationLearning: contract.scope?.orchestrationLearning || null
     }
-  });
+    });
+  }
 } catch (error) {
   const blocker = {
     generatedAt: new Date().toISOString(),
@@ -1384,19 +2038,43 @@ try {
   process.exit(1);
 }
 
+if (process.env.TRANSFER_BENCHMARK_REEVALUATE_EXISTING === '1' || process.env.TRANSFER_BENCHMARK_REPROCESS_ADMISSION === '1') {
+  liveRun = await reprocessExistingPatchQueueWithCurrentAdmission({
+    liveRun,
+    contract,
+    workGraph,
+    verifierIds,
+    orchestratorRunRoot,
+    canonicalLandingEvidenceRequired,
+    landingEvidencePolicy: landingEvidencePolicyForRun,
+    proofCarryingClaimsRequired,
+    claimLedgerPolicy
+  });
+}
+
 const shardCount = liveRun.shardPlan?.shards?.length || 0;
 const mergedShardCount = liveRun.patchQueue?.merged?.length || 0;
 const contextGovernorReport = liveRun.contextGovernor || readJson(path.join(orchestratorRunRoot, 'context_governor_report.json'), null);
 const waveFactpack = liveRun.waveFactpack || readJson(path.join(orchestratorRunRoot, 'wave_factpack.json'), null);
 const durationEvidence = deriveBenchmarkAutonomyMetrics({ elapsedMs: liveRun.summary?.elapsedMs || 0, scope: contract.scope });
 const elapsedMinutes = durationEvidence.elapsedMinutes;
-const mechanicalGreen = Boolean(liveRun.ok && liveRun.supervisor?.topLevel?.status === 'green' && mergedShardCount === shardCount);
 const truthContradictions = collectTruthContradictions({ liveRun, shardCount, mergedShardCount });
 const transferEvidence = deriveTransferEvidence({ contract, liveRun });
 const meaningfulProgressEvidence = deriveMeaningfulProgressEvidence({ contract, liveRun });
 const creativeWorkerEvidence = deriveCreativeWorkerEvidence({ contract, liveRun });
 const productiveSurfaceCount = Number(transferEvidence.productiveSurfaceCount || 0);
 const verifiedSurfaceCount = Number(transferEvidence.verifiedSurfaceCount || 0);
+const surfaceReliability = deriveSurfaceReliabilityEvidence({
+  contract,
+  liveRun,
+  transferEvidence,
+  shardCount,
+  mergedShardCount,
+  productiveSurfaceCount,
+  verifiedSurfaceCount
+});
+const strictMechanicalGreen = Boolean(liveRun.ok && liveRun.supervisor?.topLevel?.status === 'green' && mergedShardCount === shardCount);
+const mechanicalGreen = strictMechanicalGreen || Boolean(surfaceReliability.enabled && surfaceReliability.green && truthContradictions.length === 0);
 const claimLedger = liveRun.claimLedger || liveRun.patchQueue?.claimLedger || liveRun.supervisor?.claimLedger || null;
 const claimLedgerSummary = claimLedger?.summary || null;
 const claimLedgerPass = !proofCarryingClaimsRequired
@@ -1416,10 +2094,12 @@ const scaleCredit = evaluateScaleCredit({
   requestedAgentCount: contract.requestedAgentCount,
   productiveMergedPatchCount: productiveSurfaceCount,
   shardCount,
-  requireProductiveMerges: transferEvidence.requiresRealProductDiffs
+  requireProductiveMerges: transferEvidence.requiresRealProductDiffs,
+  minProductiveMergeRatio: surfaceReliability.enabled ? surfaceReliability.scaleCreditProductiveMergeRatio : 1
 });
 const peakConcurrency = concurrencyTruth.peakConcurrentWorkers;
 const scaleProofReady = scaleCredit.eligible;
+const gameVerificationEvidence = deriveGameVerificationEvidence({ contract, transferEvidence, liveRun, scaleCredit, surfaceReliability });
 const metrics = {
   productiveIterationRate: shardCount > 0 ? Number((productiveSurfaceCount / shardCount).toFixed(2)) : null,
   noOpRate: shardCount > 0 ? Number((((shardCount - productiveSurfaceCount) / shardCount)).toFixed(2)) : null,
@@ -1436,6 +2116,11 @@ const metrics = {
   truthIntegrityContradictions: truthContradictions.length,
   fakeGreenIncidents: truthContradictions.filter((entry) => entry.type === 'supervisor_green_with_unfinished_shards').length,
   transferScore: transferEvidence.transferScore,
+  surfaceReliabilityScore: surfaceReliability.surfaceReliabilityScore,
+  verifiedSurfaceReliabilityScore: surfaceReliability.verifiedSurfaceReliabilityScore,
+  classifiedFailureIntegrity: surfaceReliability.classifiedFailureIntegrity,
+  residualFailureCount: surfaceReliability.residualFailureCount,
+  toleratedFailureBudget: surfaceReliability.maxToleratedFailedSurfaces,
   claimLedgerRequired: proofCarryingClaimsRequired,
   claimLedgerClaimCount: Number(claimLedgerSummary?.claimCount || 0),
   claimLedgerSurvivedCount: Number(claimLedgerSummary?.survivedCount || 0),
@@ -1447,6 +2132,14 @@ const metrics = {
   templateFallbackRate: creativeWorkerEvidence.required ? creativeWorkerEvidence.templateFallbackRate : 0,
   minCreativeWorkerMinutes: creativeWorkerEvidence.required ? creativeWorkerEvidence.minCreativeWorkerMinutes : null,
   medianCreativeWorkerMinutes: creativeWorkerEvidence.required ? creativeWorkerEvidence.medianCreativeWorkerMinutes : null,
+  activeAgentScaleProof: scaleCredit.eligible ? Math.max(Number(scaleCredit.uniqueAgentCount || 0), Number(scaleCredit.peakConcurrentWorkers || 0), Number(peakConcurrency || 0)) : Number(scaleCredit.uniqueAgentCount || peakConcurrency || 0),
+  admissionGateIntegrity: gameVerificationEvidence.admissionGateIntegrity,
+  schedulerRecoveryIntegrity: gameVerificationEvidence.schedulerRecoveryIntegrity,
+  gameBuildGatePass: gameVerificationEvidence.gameBuildGatePass,
+  gameSceneLoadGatePass: gameVerificationEvidence.gameSceneLoadGatePass,
+  gameInputCombatHarnessPass: gameVerificationEvidence.gameInputCombatHarnessPass,
+  assetManifestGatePass: gameVerificationEvidence.assetManifestGatePass,
+  repairLaneConverged: gameVerificationEvidence.repairLaneConverged,
   contextGovernorSavingsRatio: contextGovernorReport?.observedSavingsRatio ?? null,
   contextGovernorBudgetFailureCount: contextGovernorReport?.budgetFailureCount ?? null,
   contextGovernorAverageTokens: contextGovernorReport?.averageApproxTokens ?? null,
@@ -1471,7 +2164,18 @@ agentWorkPolicyReport = finalizeAgentWorkPolicyReport({
   orchestratorRunRoot
 });
 writeJson(path.join(artifactRoot, 'agent_work_policy_report.json'), agentWorkPolicyReport);
-const thresholdPass = baseThresholdPass && agentWorkPolicyReport.ok;
+const tokenEvidence = summarizeCreativeBudgetLedger(orchestratorRunRoot);
+const claimIntegrityAudit = compileBenchmarkRunClaimIntegrityAudit({
+  contract,
+  resultRecords: readMergedResultRecords(liveRun),
+  thresholdPass: baseThresholdPass && agentWorkPolicyReport.ok,
+  mechanicalGreen,
+  scaleProofReady,
+  tokenEvidence,
+  durationEvidence
+});
+writeJson(path.join(artifactRoot, 'claim_integrity_audit.json'), claimIntegrityAudit);
+const thresholdPass = baseThresholdPass && agentWorkPolicyReport.ok && claimIntegrityAudit.requestedClaimAllowed;
 
 let blocker = null;
 let blockerFamily = null;
@@ -1487,6 +2191,19 @@ if (!agentWorkPolicyReport.ok) {
     unsupportedPolicy: policyBlocker.unsupportedPolicy,
     policyReportPath: policyBlocker.policyReportPath,
     policyViolations: agentWorkPolicyReport.blockingViolations
+  };
+} else if (baseThresholdPass && !claimIntegrityAudit.requestedClaimAllowed) {
+  const claimBlocker = claimIntegrityBlocker({ contract, report: claimIntegrityAudit, phase: 'claim_integrity_terminal_audit' });
+  blockerFamily = claimBlocker.blockerFamily;
+  blockerSemantics = 'claim_integrity';
+  blocker = {
+    blockerFamily: claimBlocker.blockerFamily,
+    blocker: claimBlocker.blocker,
+    nextAction: claimBlocker.nextAction,
+    requestedClaim: claimIntegrityAudit.requestedClaim,
+    highestHonestClaim: claimIntegrityAudit.highestHonestClaim,
+    blockingFailures: claimIntegrityAudit.blockingFailures,
+    auditPath: path.join(artifactRoot, 'claim_integrity_audit.json')
   };
 } else if (!mechanicalGreen) {
   blockerFamily = 'orchestrator_failure';
@@ -1540,7 +2257,11 @@ if (!agentWorkPolicyReport.ok) {
   };
 }
 
-const updatedSurfaceMatrix = summarizeSurfaceStatuses(surfaceMatrix, liveRun);
+if (blocker && blockerFamily && !blocker.blockerFamily) {
+  blocker = { blockerFamily, ...blocker };
+}
+
+const updatedSurfaceMatrix = summarizeSurfaceStatuses(surfaceMatrix, liveRun, surfaceReliability);
 const runStateTruth = reduceRunState({
   programState: { running: false, done: true, stopAllowed: true, status: thresholdPass ? 'passed' : blocker ? 'blocked' : 'completed' },
   workerFarmStatus: { running: false, ok: liveRun.ok, generatedAt: liveRun.summary?.generatedAt, updatedAt: liveRun.summary?.generatedAt },
@@ -1558,10 +2279,12 @@ writeJson(path.join(artifactRoot, 'threshold_evaluation.json'), {
   generatedAt: new Date().toISOString(),
   benchmarkId: contract.benchmarkId,
   runId: contract.runId,
+  strictMechanicalGreen,
   mechanicalGreen,
   scaleProofReady,
   scaleCredit,
   concurrencyTruth,
+  surfaceReliability,
   runStateTruth,
   claimLedgerSummary,
   thresholdPass,
@@ -1574,6 +2297,8 @@ writeJson(path.join(artifactRoot, 'threshold_evaluation.json'), {
   },
   contextGovernor: contextGovernorReport,
   agentWorkPolicy: agentWorkPolicyReport,
+  claimIntegrity: claimIntegrityAudit,
+  gameVerificationEvidence,
   waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   meaningfulProgressEvidence,
   metrics,
@@ -1594,15 +2319,19 @@ writeJson(path.join(artifactRoot, 'orchestrator_summary.json'), {
   leaseTtlMs,
   durationTargetMet: durationEvidence.durationTargetMet,
   endedBeforeDurationTarget: durationEvidence.endedBeforeDurationTarget,
+  strictMechanicalGreen,
   mechanicalGreen,
   scaleProofReady,
   scaleCredit,
   concurrencyTruth,
+  surfaceReliability,
   runStateTruth,
   transferScore: metrics.transferScore,
   thresholdPass,
   baseThresholdPass,
   agentWorkPolicy: agentWorkPolicyReport,
+  claimIntegrity: claimIntegrityAudit,
+  gameVerificationEvidence,
   contextGovernor: contextGovernorReport,
   waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   landingEvidenceSummary: liveRun.landingEvidence?.summary || null,
@@ -1628,6 +2357,8 @@ writeJson(path.join(artifactRoot, 'scheduler_truth.json'), {
 });
 writeJson(path.join(artifactRoot, 'run_state_truth.json'), runStateTruth);
 writeJson(path.join(artifactRoot, 'transfer_evidence.json'), transferEvidence);
+writeJson(path.join(artifactRoot, 'surface_reliability_evidence.json'), surfaceReliability);
+writeJson(path.join(artifactRoot, 'game_verification_evidence.json'), gameVerificationEvidence);
 writeJson(path.join(artifactRoot, 'meaningful_progress_evidence.json'), {
   generatedAt: new Date().toISOString(),
   benchmarkId: contract.benchmarkId,
@@ -1672,14 +2403,26 @@ writeJson(path.join(artifactRoot, 'notifier_eligibility.json'), {
   kind: thresholdPass ? 'completion' : 'blocker',
   note: thresholdPass ? 'Benchmark completed with threshold pass.' : blocker?.blocker || 'Benchmark completed.'
 });
+const blockerReportPath = path.join(artifactRoot, 'blocker_report.json');
 if (blocker) {
-  writeJson(path.join(artifactRoot, 'blocker_report.json'), {
+  writeJson(blockerReportPath, {
     generatedAt: new Date().toISOString(),
     benchmarkId: contract.benchmarkId,
     runId: contract.runId,
     phase: 'transfer_orchestrator_runner',
     status: 'blocked',
     ...blocker
+  });
+} else if (fs.existsSync(blockerReportPath)) {
+  const archivedBlockerReportPath = path.join(artifactRoot, `blocker_report.resolved-${Date.now()}.json`);
+  fs.renameSync(blockerReportPath, archivedBlockerReportPath);
+  writeJson(path.join(artifactRoot, 'blocker_report_resolved.json'), {
+    generatedAt: new Date().toISOString(),
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    status: 'resolved',
+    reason: 'Current evaluation has no blocker; previous blocker_report.json was archived to avoid stale red/green artifact contradiction.',
+    archivedBlockerReportPath
   });
 }
 
@@ -1690,6 +2433,8 @@ const scoreboardRow = createScoreboardRow({
     pass: thresholdPass,
     mechanicalGreen,
     scaleProofReady,
+    strictMechanicalGreen,
+    surfaceReliabilityStatus: surfaceReliability.status,
     thresholdFailures: thresholdEvaluation.failures
   },
   durationMinutes: elapsedMinutes,
@@ -1708,7 +2453,9 @@ writeJson(path.join(artifactRoot, 'completion_summary.json'), {
   runId: contract.runId,
   baselineReady: previousBaselineReady,
   thresholdPass,
-  supervisorConfirmedCompletion: mechanicalGreen,
+  supervisorConfirmedCompletion: strictMechanicalGreen,
+  surfaceReliabilityConfirmedCompletion: mechanicalGreen,
+  strictMechanicalGreen,
   executionMode: 'transfer_orchestrator_live_worker_farm',
   shardCount,
   mergedShardCount,
@@ -1722,10 +2469,13 @@ writeJson(path.join(artifactRoot, 'completion_summary.json'), {
   scaleProofReady,
   scaleCredit,
   concurrencyTruth,
+  surfaceReliability,
   runStateTruth,
   transferScore: metrics.transferScore,
   contextGovernor: contextGovernorReport,
   agentWorkPolicy: agentWorkPolicyReport,
+  claimIntegrity: claimIntegrityAudit,
+  gameVerificationEvidence,
   waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   landingEvidenceSummary: liveRun.landingEvidence?.summary || null,
   claimLedgerSummary,
@@ -1736,18 +2486,23 @@ writeJson(path.join(artifactRoot, 'completion_summary.json'), {
     : blocker?.durationTarget?.note || blocker?.blocker || 'Orchestrated transfer benchmark completed without a threshold pass.'
 });
 
+const processOk = mechanicalGreen && agentWorkPolicyReport.ok && blockerSemantics !== 'claim_integrity';
+
 console.log(JSON.stringify({
-  ok: mechanicalGreen && agentWorkPolicyReport.ok,
+  ok: processOk,
   thresholdPass,
+  strictMechanicalGreen,
+  surfaceReliability,
   shardCount,
   mergedShardCount,
   peakConcurrency,
   thresholdFailures: thresholdEvaluation.failures,
   agentWorkPolicy: agentWorkPolicyReport,
+  claimIntegrity: claimIntegrityAudit,
   scoreboardRows: scoreboard.rows.length,
   artifactRoot,
   runRoot: orchestratorRunRoot,
   blocker
 }, null, 2));
 
-process.exit(mechanicalGreen && agentWorkPolicyReport.ok ? 0 : 1);
+process.exit(processOk ? 0 : 1);

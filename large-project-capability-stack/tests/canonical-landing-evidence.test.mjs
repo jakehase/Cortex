@@ -8,7 +8,8 @@ import {
   computeAddedLineStats,
   createCanonicalRunBaseline,
   deriveLandingEligibility,
-  evaluatePatchLandingEvidence
+  evaluatePatchLandingEvidence,
+  isProductRuntimeFile
 } from '../packages/canonical-landing-evidence/index.mjs';
 import {
   createPatchQueue,
@@ -153,4 +154,54 @@ test('patch queue admits product diffs when the selected-run change is present i
   assert.equal(processed.queue.merged.length, 1);
   assert.equal(processed.queue.merged[0].canonicalLandingRecord.eligible, true);
   assert.equal(processed.landingEvidence.summary.status, 'green');
+});
+
+test('canonical landing evidence treats Godot runtime files under scripts as product files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canonical-landing-godot-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(path.join(repo, 'scripts/player'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'project.godot'), '; fixture\n');
+
+  const target = 'scripts/player/movement_controller.gd';
+  assert.equal(isProductRuntimeFile(target), true);
+  assert.equal(isProductRuntimeFile('tests/headless/movement_controller.gd'), false);
+
+  const baseline = createCanonicalRunBaseline({ repoPath: repo, productPaths: [target] });
+  fs.writeFileSync(path.join(repo, target), 'extends Node\n\nfunc move_axis(axis: float) -> float:\n\treturn axis * 220.0\n');
+
+  const godotPatch = {
+    id: 'patch-godot-runtime',
+    shardId: 'player_movement_controller',
+    filePaths: [target],
+    requiredVerifiers: ['godot-static'],
+    metadata: {
+      assignmentContract: {
+        artifactKind: 'product_diff',
+        targetFiles: [target],
+        targetModules: [target],
+        verifierRequirements: ['godot-static'],
+        successPredicate: ['Godot runtime file is present and has movement behavior']
+      },
+      implementation: {
+        modifiedFiles: [target],
+        diff: [
+          `--- a/${target}`,
+          `+++ b/${target}`,
+          '@@ Godot runtime delta @@',
+          '+extends Node',
+          '+func move_axis(axis: float) -> float:',
+          '+\treturn axis * 220.0'
+        ].join('\n')
+      }
+    }
+  };
+
+  const record = evaluatePatchLandingEvidence(godotPatch, {
+    repoPath: repo,
+    baseline,
+    policy: { productPaths: [target] }
+  });
+  assert.equal(record.eligible, true);
+  assert.deepEqual(record.landedProductFiles, [target]);
+  assert.equal(record.records[0].productRuntimeFile, true);
 });

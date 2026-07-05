@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 
-DEFAULT_STATE_PATH = Path("/opt/clawdbot/state/route_health.json")
+DEFAULT_STATE_PATH = Path(os.getenv("ROUTE_HEALTH_STATE_PATH", "/opt/clawdbot/state/route_health.json"))
 DEFAULT_BREAKER_THRESHOLD = 3
 DEFAULT_BREAKER_COOLDOWN_SECONDS = 60.0
 DEFAULT_HALF_OPEN_MAX_PROBES = 1

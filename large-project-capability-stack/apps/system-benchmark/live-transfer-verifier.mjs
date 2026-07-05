@@ -30,10 +30,16 @@ function parseJsonFromMixedStdout(stdoutText = '') {
   try {
     return JSON.parse(text);
   } catch {}
+  try {
+    return JSON.parse(sanitizeJsonControlCharsInStrings(text));
+  } catch {}
   for (const line of text.split('\n').map((entry) => entry.trim()).filter(Boolean).reverse()) {
     if (!line.startsWith('{') || !line.endsWith('}')) continue;
     try {
       return JSON.parse(line);
+    } catch {}
+    try {
+      return JSON.parse(sanitizeJsonControlCharsInStrings(line));
     } catch {}
   }
   const firstObjectStart = text.indexOf('{');
@@ -42,8 +48,49 @@ function parseJsonFromMixedStdout(stdoutText = '') {
     try {
       return JSON.parse(text.slice(firstObjectStart, lastObjectEnd + 1));
     } catch {}
+    try {
+      return JSON.parse(sanitizeJsonControlCharsInStrings(text.slice(firstObjectStart, lastObjectEnd + 1)));
+    } catch {}
   }
   return null;
+}
+
+function sanitizeJsonControlCharsInStrings(value = '') {
+  const text = String(value || '');
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const char of text) {
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+    if (inString && char === '\\') {
+      out += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      out += char;
+      continue;
+    }
+    if (inString && char === '\n') {
+      out += '\\n';
+      continue;
+    }
+    if (inString && char === '\r') {
+      out += '\\r';
+      continue;
+    }
+    if (inString && char === '\t') {
+      out += '\\t';
+      continue;
+    }
+    out += char;
+  }
+  return out;
 }
 
 function nonNegativeNumberOrNull(value) {
@@ -103,6 +150,7 @@ const parsedOutputSummary = parsedOutput && typeof parsedOutput === 'object'
       checkKinds: Array.from(new Set([
         ...(Array.isArray(parsedOutput.checkKinds) ? parsedOutput.checkKinds : []),
         ...(parsedOutput.cycles || []).flatMap((cycle) => [
+          ...(cycle.checks || []).map((check) => check.id).filter(Boolean),
           ...(cycle.checks || []).map((check) => check.kind).filter(Boolean),
           ...(Array.isArray(cycle.checkKinds) ? cycle.checkKinds : [])
         ])

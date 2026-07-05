@@ -1,0 +1,614 @@
+[
+  {
+    "id": "skill_20260426_080046",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-04-26T08:00:46.358125",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260427_080015",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-04-27T08:00:15.443567",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260428_080015",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-04-28T08:00:15.371879",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260429_080045",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-04-29T08:00:45.349481",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -04-28%2015%3A12%3A53%20CDT%5D%20Exec%20failed%20(ember-gu%2C%20signal%20SIGKILL)%0ASy"
+  },
+  {
+    "id": "skill_20260430_080008",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-04-30T08:00:08.394874",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260501_080004",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-01T08:00:04.456571",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] ration%203%20active%2C%20with%20prior%20failed%20focus%20lanes%20excluded%20and%20the%\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260502_080059",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-02T08:00:59.288176",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260503_080008",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-03T08:00:08.406632",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260504_080039",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-04T08:00:39.540295",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] total%2C%20%6016%60%20ok%2C%20%604%60%20failed%2Fretrying%5Cn%5CnMissing%20final%20art\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260505_080041",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-05T08:00:41.503936",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260506_080048",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-06T08:00:48.326399",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260508_080002",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-08T08:00:02.219526",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260509_080011",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-09T08:00:11.247787",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260510_080047",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-10T08:00:47.431208",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [FAILED] that%20one%20is%20handled.%5Cn%5CnThe%20failed%20%60SCRIPT_MATCHES%60%20was%20just%20a\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -05-06%2023%3A08%3A14%20CDT%5D%20Exec%20failed%20(vivid-ro%2C%20signal%20SIGKILL)%20%3\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260511_080047",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-11T08:00:47.835774",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260512_080001",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-12T08:00:01.026101",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [FAILED] -05-10%2019%3A44%3A32%20CDT%5D%20Exec%20failed%20(warm-emb%2C%20signal%20SIGKILL)%20%3\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260513_080011",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-13T08:00:11.674216",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260515_080024",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-15T08:00:24.151283",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260516_080035",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-16T08:00:35.910321",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260517_080000",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-17T08:00:00.885224",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260518_080019",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-18T08:00:19.584845",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260519_080035",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-19T08:00:35.368744",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260520_080058",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-20T08:00:58.957117",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260521_080019",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-21T08:00:19.820632",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260522_080046",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-22T08:00:46.052688",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] 20code%200)%20%3A%3A%20%5Bopenclaw%5D%20Failed%20to%20start%20CLI%3A%20Error%3A%20The%\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260523_080022",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-23T08:00:22.758357",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260524_080044",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-24T08:00:44.565981",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260525_080052",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-25T08:00:52.267790",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -05-22%2019%3A27%3A11%20CDT%5D%20Exec%20failed%20(nova-mea%2C%20signal%20SIGKILL)%20%3\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260526_080052",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-26T08:00:52.603301",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260527_080042",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-27T08:00:42.571310",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260528_080011",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-28T08:00:11.624033",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260530_080026",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-30T08:00:26.164540",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -05-28%2008%3A33%3A40%20CDT%5D%20Exec%20failed%20(oceanic-%2C%20signal%20SIGTERM)%0ASy\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -05-28%2008%3A33%3A40%20CDT%5D%20Exec%20failed%20(oceanic-%2C%20signal%20SIGTERM)%0ASy\n\n- [FAILED] -05-28%2008%3A33%3A40%20CDT%5D%20Exec%20failed%20(oceanic-%2C%20signal%20SIGTERM)%0ASy"
+  },
+  {
+    "id": "skill_20260531_080040",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-05-31T08:00:40.787825",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -05-29%2017%3A51%3A34%20CDT%5D%20Exec%20failed%20(tide-rid%2C%20signal%20SIGKILL)%20%3\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260601_080056",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-01T08:00:56.242625",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260602_080051",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-02T08:00:51.599474",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260603_080042",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-03T08:00:42.154652",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260604_080035",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-04T08:00:35.003015",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260605_080051",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-05T08:00:51.890831",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [FAILED] -06-03%2013%3A12%3A15%20CDT%5D%20Exec%20failed%20(gentle-r%2C%20signal%20SIGTERM)%20%3\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] iliation-checklist-2026.html%22%2C%20%22failedKinds%22%3A%20%5B%20%22min_bytes%22%20%5"
+  },
+  {
+    "id": "skill_20260606_080021",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-06T08:00:21.520756",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] %22maxAttemptsPerTask%22%3A%204%2C%20%22failedShards%22%3A%20%5B%5D%2C%20%22stateLossE\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260607_080043",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-07T08:00:43.022900",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260608_080006",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-08T08:00:06.642054",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260609_080056",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-09T08:00:56.742563",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260610_080005",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-10T08:00:05.460499",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -06-08%2009%3A46%3A43%20CDT%5D%20Exec%20failed%20(glow-emb%2C%20signal%20SIGKILL)%0ASy\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] Cetime%3D%2Cargs%3D%20%5E%5E%5E%20SyntaxError%3A%20invalid%20syntax%0ASystem%20(untru\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260611_080051",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-11T08:00:51.600215",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260612_080013",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-12T08:00:13.157437",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260613_080021",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-13T08:00:21.250729",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260614_080045",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-14T08:00:45.136710",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260615_080000",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-15T08:00:00.911863",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260616_080026",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-16T08:00:26.763324",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260617_080019",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-17T08:00:19.597320",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260618_080050",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-18T08:00:50.030751",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260619_080056",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-19T08:00:56.163874",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260620_080056",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-20T08:00:56.789288",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260621_080048",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-21T08:00:48.217521",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260622_080000",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-22T08:00:00.517498",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260623_080014",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-23T08:00:14.093071",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260624_080016",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-24T08:00:16.854706",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] tify%20and%20correct%20the%20specific%20error.%0AN70006%20CLAIM%20SUBMITTED%20TO%20IN"
+  },
+  {
+    "id": "skill_20260625_080021",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-25T08:00:21.650400",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260626_080032",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-26T08:00:32.344839",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260627_080006",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-27T08:00:06.442787",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260628_080041",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-28T08:00:41.588955",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260629_080053",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-29T08:00:53.559312",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] mmy%2Fstorage%2Fmesh_storage.h%3A120)%20ERROR%3A%20Parameter%20%22m%22%20is%20null.%2\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260630_080033",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-06-30T08:00:33.357307",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] ayServer%2C%20all%20display%20drivers%20failed.%20PROBE%20args%3D--display-driver%5C%2\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260701_080030",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-07-01T08:00:30.481894",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260702_080028",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-07-02T08:00:28.263452",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260703_080025",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-07-03T08:00:25.175786",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260704_080037",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-07-04T08:00:37.993922",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  },
+  {
+    "id": "skill_20260705_080046",
+    "detected_from": "Gap analysis inconclusive. Manual review recommended.",
+    "proposed_module": "generic_handler",
+    "status": "proposed",
+    "created_at": "2026-07-05T08:00:46.951771",
+    "gaps_detected": 100,
+    "gap_summary": "Detected 100 potential skill gaps:\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [FAILED] -07-03%2008%3A21%3A05%20CDT%5D%20Exec%20failed%20(mild-fjo%2C%20signal%20SIGKILL)%20%3\n\n- [ERROR] plicit\": false, \"client\": \"127.0.0.1\", \"error\": null}\n\n- [ERROR] xplicit\": true, \"client\": \"127.0.0.1\", \"error\": null}"
+  }
+]

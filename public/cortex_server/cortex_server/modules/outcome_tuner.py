@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -9,7 +10,7 @@ from typing import Any, Dict, Optional
 from cortex_server.modules.latency_budget_governor import classify_task_archetype
 
 
-DEFAULT_ARTIFACT_DIR = Path("/opt/clawdbot/artifacts/nexus_orchestration")
+DEFAULT_ARTIFACT_DIR = Path(os.getenv("NEXUS_OUTCOME_ARTIFACT_DIR", "/opt/clawdbot/artifacts/nexus_orchestration"))
 
 BASELINE_POLICY_BY_ARCHETYPE = {
     "simple_qa": "fastlane_memory",

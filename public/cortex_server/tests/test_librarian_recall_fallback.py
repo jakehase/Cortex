@@ -1,4 +1,12 @@
 import cortex_server.routers.librarian as librarian
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_local_file_memory(monkeypatch, tmp_path):
+    empty_root = tmp_path / "empty-local-memory"
+    empty_root.mkdir()
+    monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(empty_root))
 
 
 def test_robust_search_falls_back_to_lexical(monkeypatch):
@@ -20,6 +28,32 @@ def test_robust_search_falls_back_to_lexical(monkeypatch):
     assert out["degraded"] is True
     assert len(out["results"]) >= 1
     assert any("recall_mode" in (row.get("metadata") or {}) for row in out["results"])
+
+
+def test_robust_search_exact_lexical_requires_actual_contains(monkeypatch):
+    query = "unique proof marker ABC-123"
+
+    def _raise_query(*args, **kwargs):
+        raise AssertionError("semantic query should not run when exact contains succeeds")
+
+    def _fake_get(*args, **kwargs):
+        return {
+            "ids": ["exact-1", "broad-1"],
+            "documents": [
+                "Release packet includes unique proof marker ABC-123 for recall.",
+                "Release packet mentions proof markers generally but not the exact one.",
+            ],
+            "metadatas": [{"source": "docs"}, {"source": "docs"}],
+        }
+
+    monkeypatch.setattr(librarian.collection, "query", _raise_query)
+    monkeypatch.setattr(librarian.collection, "get", _fake_get)
+
+    out = librarian.robust_search(query, n_results=2, allow_fallback=True)
+    assert out["search_mode"] == "exact_lexical"
+    assert len(out["results"]) == 1
+    assert out["results"][0]["id"] == "exact-1"
+    assert out["results"][0]["metadata"]["exact_recall_override"] is True
 
 
 def test_robust_search_recovers_when_semantic_results_are_awareness_noise(monkeypatch):
@@ -126,3 +160,133 @@ def test_robust_search_extracts_human_readable_codec_preference_when_that_is_all
     assert out["results"][0]["text"] == "Jake prefers replies to begin with [Cortex]."
     assert out["results"][0]["metadata"]["codec_state_noise"] is True
     assert out["results"][0]["metadata"]["source_document_type"] == "codec_state"
+
+
+def test_robust_search_uses_local_file_memory_when_chroma_misses_client_context(monkeypatch, tmp_path):
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    ledger = memory_root / "pmhnp-billing.md"
+    ledger.write_text(
+        "## Morgan / Harbor context-access lesson — 2026-06-20\n"
+        "- Morgan explicitly said Credentialing Solutions had not instructed her to bill under individual NPI 1.\n"
+        "- Claims should use Harbor Behavioral Health PLLC organization NPI 2 + PLLC EIN as billing provider, "
+        "with Morgan's individual NPI 1 as rendering provider.\n",
+        encoding="utf-8",
+    )
+
+    def _fake_query(*args, **kwargs):
+        return {
+            "ids": [["codec-1"]],
+            "documents": [[
+                '{"compression": {"compression_mode": "state_not_transcript"}, "identity_state": {"preferences": ["Jake prefers replies to begin with [Cortex]."]}}',
+            ]],
+            "distances": [[0.03]],
+            "metadatas": [[
+                {"type": "codec_state", "tags": ["cortex_codec", "codec_state", "durable_memory"], "source": "codec_state"},
+            ]],
+        }
+
+    monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
+    monkeypatch.setattr(librarian.collection, "query", _fake_query)
+    monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+
+    out = librarian.robust_search("Morgan SimplePractice NPI billing provider correspondence", n_results=2, allow_fallback=True)
+    assert out["results"]
+    assert "organization NPI 2" in out["results"][0]["text"]
+    assert out["results"][0]["metadata"]["source"] == "local_file_memory"
+    assert out["results"][0]["metadata"]["recall_mode"] == "local_file_lexical_fallback"
+
+
+def test_local_file_memory_ranks_later_correction_above_stale_negative(monkeypatch, tmp_path):
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    ledger = memory_root / "morgan-ledger.md"
+    ledger.write_text(
+        "## 2026-06-18 old local-search answer\n"
+        "- No found correspondence explicitly states the BCBS billing NPI, Type 1 vs Type 2 choice, or TIN/EIN details.\n"
+        "## 2026-06-18 correction\n"
+        "- Correction: Jake surfaced prior Morgan correspondence from June 1 that directly answers BCBS/SimplePractice NPI setup.\n"
+        "- Operational conclusion: This correspondence directly supports using Harbor Behavioral Health PLLC organization NPI 2 and PLLC EIN as billing provider, with Morgan individual NPI 1 as rendering provider.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
+    monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
+    monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+
+    out = librarian.robust_search("Morgan correspondence SimplePractice NPI billing provider", n_results=3, allow_fallback=True)
+    assert out["results"]
+    assert "directly supports" in out["results"][0]["text"] or "organization NPI 2" in out["results"][0]["text"]
+    assert "No found correspondence" not in out["results"][0]["text"]
+    stale_rows = [row for row in out["results"] if "No found correspondence" in row["text"]]
+    assert all((row.get("metadata") or {}).get("stale_negative_memory") is True for row in stale_rows)
+
+
+def test_local_file_memory_staleness_is_generic_not_morgan_specific(monkeypatch, tmp_path):
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    ledger = memory_root / "platform-sync.md"
+    ledger.write_text(
+        "## 2026-06-10 old answer\n"
+        "- Could not find any evidence that the Nexus webhook bridge was implemented or verified.\n"
+        "## 2026-06-11 current fact\n"
+        "- Current canonical status: Nexus webhook bridge implemented, synced, and live verification tests passed.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
+    monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
+    monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+
+    out = librarian.robust_search("Nexus webhook bridge implemented verified", n_results=3, allow_fallback=True)
+    assert out["results"]
+    assert "implemented, synced" in out["results"][0]["text"]
+    assert all("Could not find" not in row["text"] for row in out["results"])
+
+
+def test_negative_evidence_queries_can_still_return_missing_rows(monkeypatch, tmp_path):
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    ledger = memory_root / "platform-gaps.md"
+    ledger.write_text(
+        "## 2026-06-10 gap note\n"
+        "- Could not find any evidence that the Nexus webhook bridge was implemented or verified.\n"
+        "## 2026-06-11 current fact\n"
+        "- Current canonical status: Nexus webhook bridge implemented, synced, and live verification tests passed.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
+    monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
+    monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+
+    out = librarian.robust_search("what was missing for Nexus webhook bridge", n_results=3, allow_fallback=True)
+    assert out["results"]
+    assert any("Could not find" in row["text"] for row in out["results"])
+
+
+def test_memory_system_meta_notes_do_not_crowd_domain_facts(monkeypatch, tmp_path):
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    ledger = memory_root / "morgan-memory.md"
+    ledger.write_text(
+        "## Memory recall fix\n"
+        "- Live verification: `memory_search(\"Morgan correspondence SimplePractice NPI billing provider\")` now returns correction rows first. Regression coverage added in test_librarian_recall_fallback.py.\n"
+        "## Morgan domain fact\n"
+        "- BCBS SimplePractice enrollment/NPI truth corrected: use Harbor Behavioral Health PLLC organization NPI 2 and PLLC EIN as billing provider, with Morgan individual NPI 1 as rendering provider.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
+    monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
+    monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+
+    out = librarian.robust_search("Morgan correspondence SimplePractice NPI billing provider", n_results=3, allow_fallback=True)
+    assert out["results"]
+    assert "organization NPI 2" in out["results"][0]["text"]
+    assert all("memory_search" not in row["text"] for row in out["results"])
