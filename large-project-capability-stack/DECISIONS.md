@@ -194,3 +194,19 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: Local and remote focused suites `53/53`; quality preflight current `30/30`, baseline `30/30`, regressions `0`, duplicate ratio `0.1099`; resume dry-run selected wave 9 and reconstructed `16.56` active minutes; live resumed wave 9 merged `2/2` and continued with `production_quality_gate_missing` deferred. Attempt-1 audit: `/home/jake/clawd-remote/qualification/agent-work-phase8-corrected-soak-20260711T004019Z/full/attempt1-blocked-audit/`.
 - Supersedes: Treating `production_quality_gate_missing` as an immediate objective-truth blocker before the duration target and counting wall downtime between controller attempts.
 - Follow-up: Audit terminal artifacts after 360 active controller minutes; do not claim soak/release unless threshold, objective truth, quality, provider, breadth, and repetition gates are all green.
+
+## 2026-07-11 — Phase 8 corrected release-candidate qualification is green
+
+- Decision: Credit the corrected persistent Mailchimp workload and declare the Phase 8 release-candidate matrix green for its exact bounded claim.
+- Reason: Canonical artifacts show 361.06 active controller minutes, 243 waves, 357/363 merged shards, 12,141,226 provider-observed tokens, all 26 declared parity-for-scope surfaces complete, enabled+green production-quality and objective-truth gates, and independent execution-plane review. The workload observed peak physical concurrency 2; the separate cross-repo campaign proved 12 physical workers.
+- Evidence: `artifacts/agent-work-v1/phase-8-release-candidate/release-candidate/release_packet.json` (`status=green`, digest `70268d65007f418fc600e784f88c948dfd923b92c37cbef4bc50d51d98957bb3`); `artifacts/agent-work-v1/phase-9-release/remote-qualification/phase8-soak-independent-review.json`; remote canonical soak root `/home/jake/clawd-remote/qualification/agent-work-phase8-corrected-soak-20260711T004019Z/full/run`.
+- Supersedes: Phase 8 blocker state pending terminal six-hour evidence and independent review.
+- Follow-up: Phase 9 release/handoff only; do not convert aggregate 12-worker qualification into a false 12-way-soak-concurrency claim.
+
+## 2026-07-11 — Agent Work v1.0.0 Phase 9 is green for private/internal production-slice use
+
+- Decision: Complete Phase 9 and authorize the exact private/internal `production_slice` Agent Work v1.0.0 release claim. Make `apps/agent-work/cli.mjs` the supported product CLI, retain the old benchmark CLI only as a warning-emitting wrapper, and keep Synthetic Labor OS paths compatibility/evidence-only.
+- Reason: All 12 Phase 9 matrix rows are complete: Phase 8 green, canonical CLI/facade, single authority, legacy demotion, migration/rollback rehearsal, required docs, version/tag contract, clean-checkout qualification, independent review, source/remote/artifact source agreement, exact claim audit, and no external action.
+- Evidence: source commit `9b9b3bf7184d1a4778341314a656b2f823836a02`; remote clean checkout `/home/jake/qualification/agent-work-v1-phase9-20260711T145035Z`; full remote suite `424/424`; tree digest `973eb2c61c6d59df0d9bc87d6050d01d760c9bd02607ebc892cfb2054e3f9cc0`; `artifacts/agent-work-v1/phase-9-release/surface_matrix.json` (`all_complete`); `artifacts/agent-work-v1/phase-9-release/release_packet.json` (`status=green`).
+- Supersedes: Phase 9 pending and all earlier statements that Agent Work v1 was not yet released for its exact private/internal production-slice scope.
+- Follow-up: Tag the final tracking commit `agent-work-v1.0.0`; require a new scoped milestone and separate approval for public GA, deployment, external announcements/actions, universal parity, full clone, or higher physical-worker claims.

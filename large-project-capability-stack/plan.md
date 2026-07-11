@@ -6,9 +6,9 @@
 - Product name: `Agent Work`
 - Plan owner: `Jake + Cortex`
 - Created: `2026-07-10`
-- Last updated: `2026-07-10`
-- Status: `active`
-- Fidelity target: `production platform v1`
+- Last updated: `2026-07-11`
+- Status: `completed for v1.0.0 private/internal production_slice; maintenance`
+- Fidelity target: `production_slice`
 - Primary stop condition: `agent_work_v1_release_packet_green_or_blocker`
 - Status file: `/root/clawd/large-project-capability-stack/STATUS.md`
 - Decisions log: `/root/clawd/large-project-capability-stack/DECISIONS.md`
@@ -860,6 +860,16 @@ Acceptance checks:
 - migration and rollback are documented and tested;
 - source commit, remote commit, and release artifact source digest agree;
 - `agent_work_v1_release_packet_green_or_blocker` is satisfied.
+
+Completion record (`2026-07-11`):
+
+- source commit qualified: `9b9b3bf7184d1a4778341314a656b2f823836a02`;
+- clean execution-plane checkout: `424/424` full tests green;
+- Phase 8 release-candidate packet: `green`;
+- Phase 9 surface matrix: `all_complete` (`12/12`);
+- Phase 9 release packet: `green` for the exact private/internal `production_slice` claim;
+- no public announcement or deployment performed;
+- observed corrected-soak peak physical concurrency: `2`; the separate bounded cross-repo campaign proved the 12-physical-worker scale gate.
 
 ## 19. Qualification matrix
 

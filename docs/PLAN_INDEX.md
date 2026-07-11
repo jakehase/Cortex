@@ -1,6 +1,6 @@
 # Workspace Plan Index
 
-Last updated: 2026-07-04
+Last updated: 2026-07-11
 
 Purpose: make the active plans obvious and keep historical/artifact plans from becoming accidental roadmaps.
 
@@ -20,6 +20,7 @@ Purpose: make the active plans obvious and keep historical/artifact plans from b
 | AI OS | active | `/root/clawd/ai-os/plan.md` | `/root/clawd/ai-os/STATUS.md` | `/root/clawd/ai-os/DECISIONS.md` | `/root/clawd/ai-os` | commit `13aa9a3ef` source sync; commit `b815dcb0a` plan/FPE map; 6h promotion `/root/clawd/artifacts/ai-os/orchestration/latest-6h-continuation-green.json` | hosted/platform hardening after 6h continuation; next runtime claims still gated | Default-on adapter remains bounded internal substrate, not runtime replacement. |
 | Full Parity Engine | active | `/root/clawd/full-parity-engine/plan.md` | `/root/clawd/full-parity-engine/STATUS.md` | `/root/clawd/full-parity-engine/DECISIONS.md` | `/root/clawd/full-parity-engine` + shared stack adapters | commit `b815dcb0a` initial plan | FPE-0 matrix contract dry run | Cross-repo parity/clone objective engine. Planned, not implemented. |
 | Mailchimp clone | active | `/root/clawd/mailchimp-clone/plan.md` | `/root/clawd/mailchimp-clone/STATUS.md` | `/root/clawd/mailchimp-clone/DECISIONS.md` | `/root/clawd/mailchimp-clone` | latest no-holdback artifact root in `STATUS.md`; see `memory/projects/mailchimp.md` for detailed history | audit before resume / fresh FPE parity matrix | Product clone/parity proving ground. Treat older Mailchimp docs as historical unless referenced by canonical plan or project memory. |
+| Agent Work v1 orchestration | maintenance | `/root/clawd/large-project-capability-stack/plan.md` | `/root/clawd/large-project-capability-stack/STATUS.md` | `/root/clawd/large-project-capability-stack/DECISIONS.md` | `/root/clawd/large-project-capability-stack` | commit `9b9b3bf71`; Phase 9 release packet green; clean remote suite `424/424` on `2026-07-11` | v1.0.0 private/internal production-slice release green | Canonical CLI/facade are default; public GA, deployment, universal parity, and higher physical-worker claims remain out of scope. |
 
 ## Evidence-only plan-like files
 

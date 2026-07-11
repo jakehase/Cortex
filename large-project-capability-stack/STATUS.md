@@ -5,9 +5,9 @@
 - Project slug: `agent-work-orchestration-v1`
 - Canonical plan: `/root/clawd/large-project-capability-stack/plan.md`
 - Decisions log: `/root/clawd/large-project-capability-stack/DECISIONS.md`
-- Last updated: `2026-07-10`
-- Status: `active — quality-gate sequencing/resume-clock repair validated and the corrected GPT-5.6 Sol soak resumed from preserved wave 8 state; no six-hour soak credit unless terminal threshold green`
-- Current fidelity: `production_slice implementation toward production platform v1`
+- Last updated: `2026-07-11`
+- Status: `Agent Work v1.0.0 Phase 9 green for private/internal production_slice use`
+- Current fidelity: `production_slice`
 
 ## Current checkpoint
 
@@ -20,7 +20,9 @@
 - Phase 5 Codex worker adapter, isolated workspace, provider-evidence capture, patch bundle, conflict detection, merge lane, cleanup evidence, and worker execution packet are green for one tiny bounded real Codex worker proof on Hetzner.
 - Phase 6 independent verifier adapters and completion-truth packets are green as a production-slice implementation with local + remote qualification.
 - Phase 7 operations, security, and remote-deployment readiness is green as a production-slice implementation with local + Hetzner qualification.
-- Phase 8 release-candidate mechanics are implemented and started. Deterministic local/remote no-model qualification is green, the 4 physical-worker real model canary is green, the 8-worker restart/fault campaign is green, the bounded AI OS product-platform workload is green, the bounded brownfield PMHNP transfer workload is green, and the 12-worker productive cross-repo campaign is green. A GPT-5.5 audit preserved these scoped subgate claims because the contracts are Codex/provider-evidence based rather than model-minor-version based. The first six-hour soak was stopped with no credit after it accumulated 32,196 lines in only four files while production-quality and objective-truth gates were disabled. A corrected GPT-5.6 Sol canary then proved productive two-worker waves but exposed an honest scale blocker; the controller now counts fresh wave-qualified worker process invocations separately from reused local labels and uses controller wall-clock duration with active-wave runtime retained as a separate metric. A fresh persistent 360-minute run launched on Hetzner at `2026-07-10 20:12 CDT` from a 1,000-surface objective spanning 39 product files and 25 targeted tests, with both truth gates enabled. It first stopped blocked after 8 waves/16.33 minutes because the objective matrix became complete before the final production-quality artifact existed; the controller treated `production_quality_gate_missing` as terminal instead of continuing the remaining duration/workload. The controller sequencing, final-gate reevaluation, quality-artifact binding, and stopped-downtime accounting were repaired and validated; the product-regression command passes 30/30 against both current and clean baseline. The campaign resumed from preserved wave 8 state at `2026-07-10 21:40 CDT`, and wave 9 proved the missing final artifact is now deferred rather than terminal. Phase 8 release-candidate remains blocked pending terminal six-hour evidence and independent review.
+- Phase 8 release-candidate qualification is green. The corrected persistent soak ran `361.06` minutes across `243` waves, merged `357/363` shards, observed `12,141,226` provider tokens, completed all 26 declared parity-for-scope surfaces, passed production-quality/objective-truth gates, and observed peak physical concurrency `2`; the separate cross-repo campaign—not the soak—proved 12 physical workers. The four-workload matrix is all complete.
+- Phase 9 is green. The supported CLI is `apps/agent-work/cli.mjs`, legacy paths are compatibility/evidence-only, migration/rollback rehearsal passed, a clean GitHub checkout at commit `9b9b3bf7184d1a4778341314a656b2f823836a02` passed `424/424`, and the 12-row Phase 9 surface matrix is `all_complete`.
+- Release identity: version `1.0.0`, tag `agent-work-v1.0.0`. No external announcement or deployment was performed.
 
 ## Phase 6 implemented mechanics
 
@@ -308,55 +310,35 @@ Resolution:
 - Remote focused Phase 6: `6/6`.
 - Remote full suite: `398/398`.
 
+## Phase 9 release evidence
+
+- Source commit and remote checkout: `9b9b3bf7184d1a4778341314a656b2f823836a02`.
+- Local/remote tracked Agent Work tree digest: `973eb2c61c6d59df0d9bc87d6050d01d760c9bd02607ebc892cfb2054e3f9cc0`.
+- Clean-checkout qualification: `424/424` full tests; focused release/CLI/architecture suite green; execution-plane doctor green.
+- Corrected soak: `361.06` minutes, `243` waves, `357` productive merged shards, `363` unique wave-qualified worker identities, `12,141,226` observed provider tokens, peak physical concurrency `2`, 26/26 declared surfaces complete.
+- Phase 8 packet: `artifacts/agent-work-v1/phase-8-release-candidate/release-candidate/release_packet.json`, status `green`, digest `70268d65007f418fc600e784f88c948dfd923b92c37cbef4bc50d51d98957bb3`.
+- Phase 9 matrix: `artifacts/agent-work-v1/phase-9-release/surface_matrix.json`, status `all_complete`, 12/12 rows.
+- Phase 9 release packet: `artifacts/agent-work-v1/phase-9-release/release_packet.json`, status/supervisor `green`, release claim allowed.
+- Remote qualification root: `/home/jake/qualification/agent-work-v1-phase9-20260711T145035Z`.
+
 ## Active blockers
 
-Phase 8 release-candidate qualification remains blocked by missing later-gate evidence. Deterministic qualification, 4-worker real canary, 8-worker restart/fault campaign, AI OS product-platform workload, brownfield PMHNP transfer workload, and 12-worker productive cross-repo campaign are complete.
+None for the exact private/internal `production_slice` Agent Work v1.0.0 release claim.
 
-Current running condition: `production_quality_gate_missing` is now deferred while duration-pending grounded work remains; broader milestone remains `phase8_corrected_six_hour_soak_and_review_required`.
-
-The first soak attempt is preserved as blocker evidence and receives no credit. At 139.72 minutes it had 34 waves, 68 merged shards, 3,656,740 observed tokens, only four changed product files totaling 32,196 lines, and disabled production-quality/objective-truth gates. It was stopped at PID `1933954`; remote audit evidence is under `run-v2/audit-stop-20260711T0022Z`. Local model-version audit: `artifacts/agent-work-v1/phase-8-release-candidate/model-version-audit-20260710.json`.
-
-Corrected stopped run:
-
-- Benchmark/run id: `agent_work_phase8_mailchimp_grounded_soak` / `phase8-mailchimp-sol-full-soak`.
-- Remote root: `/home/jake/clawd-remote/qualification/agent-work-phase8-corrected-soak-20260711T004019Z/full`; canonical artifacts `.../full/run`.
-- Runtime: `16.33` wall minutes / `14.91` summed wave minutes; 8 waves; exit code `1`.
-- Productive work: 15/16 shards merged; 16 wave-qualified worker invocations; 501,309 observed tokens; scale proof green; 13 changed tracked product files; direct diff `+2006/-61` (net `+1945`); artifact duplicate-normalized-line ratio `0.1099`; zero route collisions.
-- Verification: external/targeted verification integrity `1`; fresh rerun of the workload’s 25 targeted files passed `30/30` subtests.
-- Final status: `thresholdPass=false`, objective truth red, production quality red, no soak credit.
-- Root cause: after the 26 objective rows were credited complete, objective truth had no repair queue and the final production-quality artifact did not yet exist. The controller stopped with `production_quality_gate_missing` instead of continuing the remaining 1,000-surface inventory to the 360-minute duration target.
-- Quality-gate nuance: broad `npm test` reported 31 failures in four orchestration/harness files whose expectations are dirty-repo/saturation-sensitive; the product-targeted suite remained green. This requires an explicit gate-command/baseline policy repair, not silent waiver.
-
-Repair/resume status:
-
-- Controller now defers a missing final quality artifact while the duration target and grounded inventory remain, binds objective truth to `run/production_quality_gate.json`, re-evaluates terminal truth after the final gate, and reconstructs the resume clock from prior active elapsed time so stopped downtime receives no soak credit.
-- Added regression tests; focused local and remote suites pass `53/53`.
-- Product-quality preflight against current repo and clean `HEAD` baseline passed `30/30` on both sides with zero regressions, duplicate ratio `0.1099`, and no route collisions.
-- Attempt-1 terminal artifacts are preserved under `.../full/attempt1-blocked-audit/` with hashes.
-- Resumed at `2026-07-10 21:40 CDT` (`2026-07-11T02:40:49Z`) from wave 8. Wave 9 completed 2/2 mechanically green, no context-budget failures, and the controller continued despite the intentionally deferred missing final quality artifact. Resume launcher PID `2055256` at verification.
-
-## Next actions
-
-1. Let the resumed persistent campaign run to the 360-minute active controller target or a new precise blocker.
-2. On terminal exit, audit final quality/baseline, objective truth, scale/provider evidence, diff breadth/repetition, and canonical threshold artifacts.
-3. Complete independent release review/final claim audit only after a real six-hour threshold-green soak. No current release, parity, or soak claim is allowed.
+The following remain intentionally outside the release claim and require separate work/approval: public GA, production deployment, external announcements/actions, universal parity, full-clone completion, 100 simultaneous physical workers, or a claim that the corrected soak observed 12-way physical concurrency.
 
 ## Current milestone
 
-`phase_8_cross_repo_qualification_release_candidate_green_or_blocker`
+`phase_9_v1_release_green_private_internal_production_slice`
 
-Phase 8 continuation should not start from chat memory. Start from:
+Phase 9 is complete. Future work should start from the release packet and operator/migration docs, not from historical benchmark controllers or Synthetic Labor OS paths.
 
-1. `/root/clawd/large-project-capability-stack/plan.md`.
-2. This `STATUS.md`.
-3. Phase 8 supervisor packet, release packet, qualification matrix, and 4-worker canary packet.
-4. Phase 7 supervisor packet and surface matrix.
-5. Phase 6 supervisor packet and surface matrix.
-6. Phase 5 real Codex proof artifacts.
+## Next actions
 
-Completed Phase 8 gates so far: deterministic no-model suite, 2-4 physical-worker real canary, 8-worker restart/fault campaign, bounded AI OS product-platform workload, bounded brownfield PMHNP transfer workload, and 12-worker productive cross-repo campaign. The Phase 8 workload matrix has the required three green workload classes.
-
-Remaining Phase 8 direction from the current plan: corrected six-hour unattended real-work soak, independent release review, and claim audit. Mailchimp clone/parity slice remains optional/additional evidence.
+1. Use `apps/agent-work/cli.mjs` / `agent-work:*` scripts as the default private/internal product surface.
+2. Keep `apps/system-benchmark/canonical-agent-work.mjs` only as a warning-emitting compatibility wrapper.
+3. Preserve heavy execution on the Hetzner execution plane and external writes denied by default.
+4. Open a new scoped milestone before any public GA, deployment, provider expansion, 25+ worker tier, or full-clone claim.
 
 ## Do not use / superseded
 
@@ -364,24 +346,19 @@ Remaining Phase 8 direction from the current plan: corrected six-hour unattended
 - `_quarantine/synthetic-labor-os-legacy-20260707/` — historical replay/audit only.
 - SLOS v19 — compatibility release-packet adapter only.
 - SLOS v20 — mechanism donor/qualification reference, not a second canonical runtime.
+- `apps/system-benchmark/run-agent-work-objective-controller.mjs` — internal mechanism behind the canonical facade, not a public Agent Work API.
 - `artifacts/**` repository snapshots — evidence only, never active source.
-- `_rerun_*` or workspace snapshot paths — historical/scratch, not implementation paths.
 
 ## Truth boundary
 
-Allowed claim:
+Allowed exact release claim:
 
-- Agent Work v1 Phase 1 contract/authority freeze is green.
-- Agent Work v1 Phase 2 stable facade/operator CLI is green as a production-slice implementation.
-- Agent Work v1 Phase 3 durable runtime/recovery is green as a production-slice implementation.
-- Agent Work v1 Phase 4 objective planning/inventory expansion is green as a production-slice implementation.
-- Agent Work v1 Phase 5 worker adapter/isolation/merge lane is green for one tiny bounded real Codex worker proof on Hetzner.
-- Agent Work v1 Phase 6 independent verifier/completion-truth mechanics are green as a production-slice implementation with local and remote qualification.
-- Agent Work v1 Phase 7 operations/security/remote-deployment readiness is green as a production-slice implementation with local and Hetzner qualification.
-- Agent Work v1 Phase 8 has started: deterministic release-candidate mechanics/local+remote no-model qualification are green, the 4-worker real model canary is green, the 8-worker restart/fault campaign is green, the bounded AI OS product-platform workload is green, the bounded brownfield PMHNP transfer workload is green, and the 12-worker productive cross-repo campaign is green.
+> Agent Work v1.0.0 is green for private/internal use at production_slice fidelity across the declared four-workload Phase 8 matrix, with the canonical Agent Work CLI and facade, evidence-backed recovery, and bounded aggregate 12-worker qualification.
 
-Not allowed yet:
+Still not allowed:
 
-- Agent Work v1 is released, production-ready, or end-to-end complete.
-- The current system has passed full Phase 8 release-candidate qualification, six-hour soak, release completion, full parity, universal autonomy, production deployment, or 100 physical workers.
-- Completed Phase 8 subgates, including 12-worker cross-repo scale, do not by themselves prove release-candidate green, release readiness, six-hour soak, full parity, AI OS runtime replacement, external-write enablement, or a production deployment.
+- Public GA or production deployment.
+- Universal parity or full-clone completion.
+- 100 simultaneous physical workers.
+- Observed 12-way physical concurrency during the corrected six-hour soak; the observed peak was `2`.
+- Any external announcement or external-write enablement from this release packet.
