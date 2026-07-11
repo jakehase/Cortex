@@ -6,7 +6,7 @@
 - Canonical plan: `/root/clawd/large-project-capability-stack/plan.md`
 - Decisions log: `/root/clawd/large-project-capability-stack/DECISIONS.md`
 - Last updated: `2026-07-11`
-- Status: `Agent Work v1.1.0 semantic-workforce release candidate locally green for private/internal production_slice use`
+- Status: `Agent Work v1.1.0 released and permanently default for private/internal production_slice use`
 - Current fidelity: `production_slice`
 
 ## Current checkpoint
@@ -22,8 +22,10 @@
 - Phase 7 operations, security, and remote-deployment readiness is green as a production-slice implementation with local + Hetzner qualification.
 - Phase 8 release-candidate qualification is green. The corrected persistent soak ran `361.06` minutes across `243` waves, merged `357/363` shards, observed `12,141,226` provider tokens, completed all 26 declared parity-for-scope surfaces, passed production-quality/objective-truth gates, and observed peak physical concurrency `2`; the separate cross-repo campaign—not the soak—proved 12 physical workers. The four-workload matrix is all complete.
 - Phase 9 is green. The supported CLI is `apps/agent-work/cli.mjs`, legacy paths are compatibility/evidence-only, migration/rollback rehearsal passed, a clean GitHub checkout at commit `9b9b3bf7184d1a4778341314a656b2f823836a02` passed `424/424`, and the 12-row Phase 9 surface matrix is `all_complete`.
-- Previous release identity: version `1.0.0`, tag `agent-work-v1.0.0`.
-- Release candidate identity: version `1.1.0`, intended tag `agent-work-v1.1.0`. The semantic-workforce amendment is implemented and locally qualified: omitted agent counts now select a bounded semantic target, explicit counts remain upper bounds, Phase 4 emits separate executable/decomposition workforce plans, and the objective controller consumes and adapts the selected target per wave. The tag remains gated on clean execution-plane qualification.
+- Current release identity: version `1.1.0`, annotated tag `agent-work-v1.1.0`, release source `06ae1881868bd8c5b23507f993ba1c2258d05d7d`.
+- Semantic workforce sizing is the canonical default: omitted agent counts select a bounded semantic target, explicit counts remain upper bounds, Phase 4 emits separate executable/decomposition workforce plans, and the objective controller consumes and adapts the selected target per wave.
+- Exact release source passed the focused suite and full suite locally and on Hetzner. Clean execution-plane qualification passed `433/433` at `/home/jake/qualification/agent-work-v1.1-full-20260711T165231Z`; source archive SHA-256 is `eb40f9944f4d123ad2ad757ca71898bdec896911529e6ab49b104cbdf850b387`.
+- GitHub `main`, GitHub `master`, and annotated tag `agent-work-v1.1.0^{}` resolve to the release source. The default execution-plane checkout `/home/jake/clawd-remote/large-project-capability-stack` is synced to that source, reports version `1.1.0` with `semantic_auto`, passes the focused default-path suite `33/33`, and has a reversible pre-sync backup under `_sync_backups/pre-agent-work-v1.1.0-20260711T165447Z`.
 
 ## v1.1 semantic workforce mechanics
 

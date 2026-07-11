@@ -32,6 +32,14 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Supersedes: The temporary state where v1.1 behavior existed only in the local canonical checkout while v1.0.0 remained the latest external release.
 - Follow-up: Tag `agent-work-v1.1.0` only after the exact release source passes local and clean Hetzner qualification. Do not turn this release into a public deployment or a new physical-concurrency claim.
 
+## 2026-07-11 — Agent Work v1.1.0 is the permanent canonical default
+
+- Decision: Publish release source `06ae1881868bd8c5b23507f993ba1c2258d05d7d` to authoritative `main` and `master`, tag it `agent-work-v1.1.0`, and synchronize the default Hetzner runtime checkout.
+- Reason: A locally integrated feature is incomplete under the standing definition of done. Canonical source, authoritative remote, release identity, and execution-plane runtime must agree.
+- Evidence: GitHub refs resolve to the release source; clean Hetzner qualification at `/home/jake/qualification/agent-work-v1.1-full-20260711T165231Z` passed `433/433`; `/home/jake/clawd-remote/large-project-capability-stack` reports `1.1.0`, `semantic_auto`, focused suite `33/33`, and matching key-file hashes.
+- Supersedes: The v1.1.0 release-candidate state and the earlier local-only semantic-workforce amendment state.
+- Follow-up: Use semantic sizing by default for new objectives. Preserve explicit counts as upper bounds and preserve separate observed physical/provider worker truth.
+
 ## 2026-07-07 — Shrink the worse-Codex layer instead of competing with Codex
 
 - Decision: Treat Cortex/OpenClaw/SLOS as the owned control plane and Codex as the execution worker; demote generic custom Codex-agent pilots/tournaments to explicit legacy replay/audit paths.
