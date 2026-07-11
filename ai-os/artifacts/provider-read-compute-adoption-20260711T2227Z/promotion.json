@@ -1,0 +1,483 @@
+{
+  "ok": true,
+  "status": "default_on",
+  "generatedAt": "2026-07-11T22:26:15.840Z",
+  "adapter": "openclaw-aios-adapter.v0.5-provider-read-compute",
+  "canonicalLanguage": "aios.language.v1",
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+  "defaultConfigFile": "/root/clawd/config/ai-os-adapter/default.json",
+  "defaultStateFile": "/root/clawd/state/ai-os-adapter/default-on-state.json",
+  "rootPointerFile": "/root/clawd/artifacts/ai-os/dogfood/latest-adapter-root.json",
+  "recoveryReportPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/reports/recovery-report.json",
+  "claimStatus": "allowed",
+  "verifierEvidenceOk": true,
+  "bootOk": true,
+  "runOk": true,
+  "defaultConfig": {
+    "schemaVersion": "openclaw.aios.adapter.default.v1",
+    "enabled": true,
+    "mode": "always_on_internal_aios_language_status_recovery_handoff_provider_read_compute",
+    "promotedAt": "2026-07-11T22:26:15.839Z",
+    "adapter": "openclaw-aios-adapter.v0.5-provider-read-compute",
+    "defaultArtifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+    "rootPointerFile": "/root/clawd/artifacts/ai-os/dogfood/latest-adapter-root.json",
+    "lastRootFile": "/root/clawd/.last_aios_adapter_root",
+    "status": "green",
+    "promotionReportPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/reports/recovery-report.json",
+    "policy": {
+      "defaultUses": [
+        "status",
+        "recover",
+        "local_handoff",
+        "bounded_internal_jobs",
+        "provider_read",
+        "provider_compute_internal_artifacts"
+      ],
+      "canonicalLanguage": "aios.language.v1",
+      "sourceCompileRequiredForDogfood": true,
+      "capabilityGatedProviderReadCompute": true,
+      "providerOutputBoundary": "internal-artifact-only",
+      "externalWritesExposed": false,
+      "replacesCortexOpenClawRouting": false,
+      "replacesChatControlPlane": false,
+      "requiresExplicitApprovalFor": [
+        "external_write",
+        "provider_handoff",
+        "default_runtime_replacement"
+      ]
+    },
+    "truthBoundary": "AI OS adapter is default-on for internal status/recovery/handoff plus capability-gated provider read/compute whose outputs remain internal artifacts. It does not replace Cortex/OpenClaw routing, expose user-visible/external writes, or promote failed benchmark output."
+  },
+  "defaultState": {
+    "schemaVersion": "openclaw.aios.adapter.default_state.v1",
+    "updatedAt": "2026-07-11T22:26:15.840Z",
+    "enabled": true,
+    "mode": "always_on_internal_aios_language_status_recovery_handoff_provider_read_compute",
+    "canonicalLanguage": "aios.language.v1",
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+    "status": "green",
+    "report": {
+      "smoke": {
+        "ok": true,
+        "generatedAt": "2026-07-11T22:26:15.837Z",
+        "adapter": "openclaw-aios-adapter.v0.5-provider-read-compute",
+        "canonicalLanguage": "aios.language.v1",
+        "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/language-compile.packet.json",
+        "sourcePath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.aios",
+        "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+        "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.compiled.job.json",
+        "defaultOn": true,
+        "safetyBoundary": "default_on_internal_status_recovery_handoff_provider_read_compute_internal_artifacts_no_external_writes_no_runtime_replacement",
+        "processId": "aiosproc_2e3f6b9b9b13bb1b",
+        "bootProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/boot-proof.packet.json",
+        "runProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/run-proof.packet.json",
+        "verifierEvidence": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/verifier-evidence.packet.json",
+        "statusSyscall": {
+          "ordinal": 2,
+          "op": "kernel.artifact.status",
+          "mediatedBy": "aios.kernel.syscall.v0",
+          "ok": true,
+          "argsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "output": {
+            "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+            "observedAt": "2026-07-11T22:26:14.934Z",
+            "bootOk": true,
+            "priorRunOk": false,
+            "verifierOk": false,
+            "claimStatus": null,
+            "processCount": 0
+          },
+          "outputHash": "70c2305262a7482c43031cc3500c6380c1f6bdddf822d03e80aff8cd6b42ce67"
+        },
+        "providerSyscalls": [
+          {
+            "ordinal": 3,
+            "op": "provider.read",
+            "mediatedBy": "aios.kernel.syscall.v0",
+            "ok": true,
+            "argsHash": "223c931b7a66676ff09c67e8713c61326a785621610f5b52ed20ca5ac58d0413",
+            "output": {
+              "provider": "cortex",
+              "operation": "read",
+              "capability": "provider.cortex.read",
+              "resultPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/003-read.json",
+              "resultHash": "40ec156c824a9c58de821e4a623b0dfbe5a57a489a8657ca29ec5f3f6ea5291c",
+              "responseStatus": 200,
+              "responseBytes": 4627,
+              "outputBoundary": "internal-artifact-only",
+              "externalWrites": false
+            },
+            "outputHash": "31d01092e1743ffd59317c2aa5ee8b7f1bde61de5efe59f56cbb91a08a8f4e18"
+          },
+          {
+            "ordinal": 4,
+            "op": "provider.compute",
+            "mediatedBy": "aios.kernel.syscall.v0",
+            "ok": true,
+            "argsHash": "b802ee083008cfbb0664bcd2d7fd03dfcdcd84e18ebb391c0f0f5c2368737412",
+            "output": {
+              "provider": "cortex",
+              "operation": "compute",
+              "capability": "provider.cortex.compute",
+              "resultPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/004-compute.json",
+              "resultHash": "f24e4a12cc57dcc920966da6c566ab8434659732fadc98075c37eae246b3616d",
+              "responseStatus": 200,
+              "responseBytes": 2664,
+              "outputBoundary": "internal-artifact-only",
+              "externalWrites": false
+            },
+            "outputHash": "7d089723212b164738f0070573b166f929c16a5d1e86b7d42dfdf77c36305511"
+          }
+        ],
+        "checks": [
+          {
+            "name": "canonical_language_compile_green",
+            "ok": true,
+            "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/language-compile.packet.json"
+          },
+          {
+            "name": "compiled_job_emitted",
+            "ok": true,
+            "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.compiled.job.json"
+          },
+          {
+            "name": "external_effects_blocked",
+            "ok": true
+          },
+          {
+            "name": "boot_proof_green",
+            "ok": true,
+            "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/boot-proof.packet.json"
+          },
+          {
+            "name": "run_proof_green",
+            "ok": true,
+            "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/run-proof.packet.json"
+          },
+          {
+            "name": "internal_status_syscall_observed",
+            "ok": true,
+            "output": {
+              "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+              "observedAt": "2026-07-11T22:26:14.934Z",
+              "bootOk": true,
+              "priorRunOk": false,
+              "verifierOk": false,
+              "claimStatus": null,
+              "processCount": 0
+            }
+          },
+          {
+            "name": "provider_read_compute_observed",
+            "ok": true,
+            "operations": [
+              "provider.read",
+              "provider.compute"
+            ]
+          },
+          {
+            "name": "provider_outputs_internal_artifacts",
+            "ok": true,
+            "resultPaths": [
+              "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/003-read.json",
+              "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/004-compute.json"
+            ]
+          },
+          {
+            "name": "process_visible",
+            "ok": true,
+            "count": 1
+          },
+          {
+            "name": "logs_visible",
+            "ok": true,
+            "count": 14
+          }
+        ],
+        "psCount": 1,
+        "logCount": 14,
+        "claimStatus": "allowed",
+        "claimPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/completion-claim.packet.json",
+        "nextAction": "Canonical AIOS provider read/compute is eligible to stay on by default with internal-artifact outputs; runtime replacement and external writes remain blocked."
+      },
+      "recovery": {
+        "ok": true,
+        "status": "green",
+        "generatedAt": "2026-07-11T22:26:15.839Z",
+        "adapter": "openclaw-aios-adapter.v0.5-provider-read-compute",
+        "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+        "safetyBoundary": "default_on_internal_status_recovery_handoff_provider_read_compute_internal_artifacts_no_external_writes_no_runtime_replacement",
+        "statusSummary": {
+          "ok": true,
+          "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+          "defaultOn": true,
+          "defaultMode": "always_on_internal_aios_language_status_recovery_handoff_provider_read_compute",
+          "canonicalLanguage": "aios.language.v1",
+          "languageSourcePresent": true,
+          "languageSources": [
+            "adapter-dogfood.aios"
+          ],
+          "languageCompileOk": true,
+          "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/language-compile.packet.json",
+          "defaultConfigFile": "/root/clawd/config/ai-os-adapter/default.json",
+          "adapterReportPresent": true,
+          "adapterReportSource": "adapter-report.json",
+          "statusReportPresent": false,
+          "rollbackPlanPresent": false,
+          "recoveryReportPresent": false,
+          "recoveryPlanPresent": false,
+          "verifierEvidenceOk": true,
+          "bootOk": true,
+          "runOk": true,
+          "claimStatus": "allowed",
+          "processCount": 1,
+          "adapterReport": {
+            "ok": true,
+            "generatedAt": "2026-07-11T22:26:15.837Z",
+            "adapter": "openclaw-aios-adapter.v0.5-provider-read-compute",
+            "canonicalLanguage": "aios.language.v1",
+            "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/language-compile.packet.json",
+            "sourcePath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.aios",
+            "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+            "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.compiled.job.json",
+            "defaultOn": true,
+            "safetyBoundary": "default_on_internal_status_recovery_handoff_provider_read_compute_internal_artifacts_no_external_writes_no_runtime_replacement",
+            "processId": "aiosproc_2e3f6b9b9b13bb1b",
+            "bootProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/boot-proof.packet.json",
+            "runProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/run-proof.packet.json",
+            "verifierEvidence": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/verifier-evidence.packet.json",
+            "statusSyscall": {
+              "ordinal": 2,
+              "op": "kernel.artifact.status",
+              "mediatedBy": "aios.kernel.syscall.v0",
+              "ok": true,
+              "argsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "output": {
+                "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+                "observedAt": "2026-07-11T22:26:14.934Z",
+                "bootOk": true,
+                "priorRunOk": false,
+                "verifierOk": false,
+                "claimStatus": null,
+                "processCount": 0
+              },
+              "outputHash": "70c2305262a7482c43031cc3500c6380c1f6bdddf822d03e80aff8cd6b42ce67"
+            },
+            "providerSyscalls": [
+              {
+                "ordinal": 3,
+                "op": "provider.read",
+                "mediatedBy": "aios.kernel.syscall.v0",
+                "ok": true,
+                "argsHash": "223c931b7a66676ff09c67e8713c61326a785621610f5b52ed20ca5ac58d0413",
+                "output": {
+                  "provider": "cortex",
+                  "operation": "read",
+                  "capability": "provider.cortex.read",
+                  "resultPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/003-read.json",
+                  "resultHash": "40ec156c824a9c58de821e4a623b0dfbe5a57a489a8657ca29ec5f3f6ea5291c",
+                  "responseStatus": 200,
+                  "responseBytes": 4627,
+                  "outputBoundary": "internal-artifact-only",
+                  "externalWrites": false
+                },
+                "outputHash": "31d01092e1743ffd59317c2aa5ee8b7f1bde61de5efe59f56cbb91a08a8f4e18"
+              },
+              {
+                "ordinal": 4,
+                "op": "provider.compute",
+                "mediatedBy": "aios.kernel.syscall.v0",
+                "ok": true,
+                "argsHash": "b802ee083008cfbb0664bcd2d7fd03dfcdcd84e18ebb391c0f0f5c2368737412",
+                "output": {
+                  "provider": "cortex",
+                  "operation": "compute",
+                  "capability": "provider.cortex.compute",
+                  "resultPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/004-compute.json",
+                  "resultHash": "f24e4a12cc57dcc920966da6c566ab8434659732fadc98075c37eae246b3616d",
+                  "responseStatus": 200,
+                  "responseBytes": 2664,
+                  "outputBoundary": "internal-artifact-only",
+                  "externalWrites": false
+                },
+                "outputHash": "7d089723212b164738f0070573b166f929c16a5d1e86b7d42dfdf77c36305511"
+              }
+            ],
+            "checks": [
+              {
+                "name": "canonical_language_compile_green",
+                "ok": true,
+                "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/language-compile.packet.json"
+              },
+              {
+                "name": "compiled_job_emitted",
+                "ok": true,
+                "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.compiled.job.json"
+              },
+              {
+                "name": "external_effects_blocked",
+                "ok": true
+              },
+              {
+                "name": "boot_proof_green",
+                "ok": true,
+                "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/boot-proof.packet.json"
+              },
+              {
+                "name": "run_proof_green",
+                "ok": true,
+                "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/run-proof.packet.json"
+              },
+              {
+                "name": "internal_status_syscall_observed",
+                "ok": true,
+                "output": {
+                  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+                  "observedAt": "2026-07-11T22:26:14.934Z",
+                  "bootOk": true,
+                  "priorRunOk": false,
+                  "verifierOk": false,
+                  "claimStatus": null,
+                  "processCount": 0
+                }
+              },
+              {
+                "name": "provider_read_compute_observed",
+                "ok": true,
+                "operations": [
+                  "provider.read",
+                  "provider.compute"
+                ]
+              },
+              {
+                "name": "provider_outputs_internal_artifacts",
+                "ok": true,
+                "resultPaths": [
+                  "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/003-read.json",
+                  "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/004-compute.json"
+                ]
+              },
+              {
+                "name": "process_visible",
+                "ok": true,
+                "count": 1
+              },
+              {
+                "name": "logs_visible",
+                "ok": true,
+                "count": 14
+              }
+            ],
+            "psCount": 1,
+            "logCount": 14,
+            "claimStatus": "allowed",
+            "claimPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/completion-claim.packet.json",
+            "nextAction": "Canonical AIOS provider read/compute is eligible to stay on by default with internal-artifact outputs; runtime replacement and external writes remain blocked."
+          }
+        },
+        "checks": [
+          {
+            "name": "artifact_root_inside_ai_os_workspace",
+            "ok": true,
+            "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614"
+          },
+          {
+            "name": "boot_proof_green",
+            "ok": true,
+            "packet": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/boot-proof.packet.json"
+          },
+          {
+            "name": "run_proof_green",
+            "ok": true,
+            "packet": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/run-proof.packet.json"
+          },
+          {
+            "name": "verifier_evidence_green",
+            "ok": true,
+            "packet": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/verifier-evidence.packet.json"
+          },
+          {
+            "name": "completion_claim_allowed",
+            "ok": true,
+            "claimStatus": "allowed"
+          },
+          {
+            "name": "process_index_present",
+            "ok": true,
+            "processIndexPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/processes/process-index.json",
+            "processCount": 1
+          },
+          {
+            "name": "status_or_adapter_report_present_or_generated",
+            "ok": true,
+            "source": "adapter-report.json",
+            "recoveryReportGeneratedByThisCommand": true
+          },
+          {
+            "name": "rollback_or_recovery_plan_present_or_generated",
+            "ok": true,
+            "rollbackPlanPresent": false,
+            "recoveryPlanPresent": false,
+            "recoveryPlanGeneratedByThisCommand": true,
+            "rollbackPlan": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/reports/rollback-plan.md",
+            "recoveryPlan": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/reports/recovery-plan.md"
+          },
+          {
+            "name": "job_descriptor_present",
+            "ok": true,
+            "jobCandidates": [
+              "adapter-dogfood.compiled.job.json"
+            ]
+          },
+          {
+            "name": "canonical_language_compile_present_when_required",
+            "ok": true,
+            "canonicalLanguage": "aios.language.v1",
+            "languageSources": [
+              "adapter-dogfood.aios"
+            ],
+            "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/language-compile.packet.json"
+          }
+        ],
+        "actions": [
+          {
+            "name": "boot",
+            "required": false,
+            "command": "node scripts/aios-adapter.mjs boot --artifact-root ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+            "rationale": "Boot proof is missing or not green."
+          },
+          {
+            "name": "run",
+            "required": false,
+            "command": "node scripts/aios-adapter.mjs run ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.compiled.job.json --artifact-root ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+            "rationale": "Run proof is missing or not green."
+          },
+          {
+            "name": "verify",
+            "required": false,
+            "command": "write verifier evidence under ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/packets/verifier-evidence.packet.json",
+            "rationale": "Verifier evidence is missing or not green, so claims should stay blocked."
+          },
+          {
+            "name": "claim",
+            "required": false,
+            "command": "node scripts/aios-adapter.mjs claim ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/adapter-dogfood.compiled.job.json --artifact-root ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+            "rationale": "Completion claim is not allowed yet."
+          },
+          {
+            "name": "rollback-plan",
+            "required": false,
+            "command": "node scripts/aios-adapter.mjs recover --artifact-root ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+            "rationale": "Recovery command writes a local recovery plan for this artifact root."
+          }
+        ],
+        "nextAction": "Adapter artifact root is recoverable; safe to use as bounded dogfood evidence.",
+        "recoveryPlanPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/reports/recovery-plan.md",
+        "recoveryReportPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/reports/recovery-report.json"
+      }
+    },
+    "defaultConfigFile": "/root/clawd/config/ai-os-adapter/default.json",
+    "safetyBoundary": "default_on_internal_status_recovery_handoff_provider_read_compute_internal_artifacts_no_external_writes_no_runtime_replacement"
+  },
+  "truthBoundary": "AI OS adapter is default-on for internal status/recovery/handoff plus capability-gated provider read/compute whose outputs remain internal artifacts. It does not replace Cortex/OpenClaw routing, expose user-visible/external writes, or promote failed benchmark output."
+}

@@ -44,6 +44,14 @@ Append-only durable decisions for AI OS. Keep current state in `STATUS.md`; keep
 - Supersedes: updating `plan.md` as a running diary.
 - Follow-up: Run `node scripts/plan-doctor.mjs` after lifecycle edits.
 
+## 2026-07-07 — Retrofit AI OS plan to detailed planning standard
+
+- Decision: Add detailed implementation sequence, time/token/compute estimates, confusion-prevention rules, and open decisions to the AI OS plan.
+- Reason: Jake set a standing rule that every serious plan should be detailed and organized enough for future sessions to execute without confusion.
+- Evidence: `/root/clawd/ai-os/plan.md` sections 21-24.
+- Supersedes: Using the existing AI OS phase plan without an explicit step-by-step next-tranche addendum.
+- Follow-up: Before the next AI OS implementation tranche, execute Stage A current-state reconciliation.
+
 ## 2026-07-11 — Canonicalize AIOS v1 and make source compilation the default internal adapter path
 
 - Decision: New AIOS integrations use `.aios` `job-block-v1` source, `compileCanonicalAiosSource`, the `aios compile` operator command, and a compiled runtime job executed through mediated kernel syscalls. The default OpenClaw adapter now auto-compiles `.aios` source; older parser/compiler exports remain compatibility-only.
@@ -52,3 +60,12 @@ Append-only durable decisions for AI OS. Keep current state in `STATUS.md`; keep
 - Boundary: Default adoption is bounded to `kernel.*` plus explicit `process.admit`/`process.transition` operations. External capabilities/handoffs fail closed. Cortex/OpenClaw remain the reasoning/control plane; runtime replacement, native OS readiness, external writes, and full parity are not promoted.
 - Supersedes: Treating package-level `compileAiosSource` variants or hand-authored `.job.json` as the preferred new-integration path.
 - Follow-up: Migrate additional low-risk internal workflows one capability family at a time, with negative tests and verifier-backed proof.
+
+## 2026-07-11 — Enable capability-gated provider read/compute with internal-only outputs
+
+- Decision: Promote `provider.read` and `provider.compute` as default canonical AIOS operations only when an exact `provider.<id>.<operation>` capability, tenant/workspace-bound compile grant, active policy digest, allowlisted provider/path/POST transport/arguments/model, and `internal-artifact-only` output boundary all agree.
+- Reason: Internal workflows benefit from retrieval and model compute, but broad provider handoff or external-write authority would blur action truth and approval boundaries.
+- Evidence: `/root/clawd/ai-os/artifacts/provider-read-compute-adoption-20260711T2227Z/validation-summary.json`; default proof `/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614`; adapter `openclaw-aios-adapter.v0.5-provider-read-compute`.
+- Boundary: Cortex/OpenClaw remain the reasoning and control plane. Provider responses are internal artifacts. Send, post, email, schedule, publish, deploy, provider-write, arbitrary URL, runtime replacement, and user-visible external action remain blocked absent separate explicit approval and proof.
+- Supersedes: The 2026-07-11 internal-only runtime boundary only for the narrow provider read/compute operations above; all other external capabilities remain fail-closed.
+- Follow-up: Add future providers or operations one capability family at a time with negative tests, deterministic fixtures, live proof, and independent execution-plane qualification.

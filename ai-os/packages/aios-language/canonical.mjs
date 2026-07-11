@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 
 import { compileLanguageSource } from "./api/compiler-api.mjs";
+import {
+  buildProviderAccessContract,
+  normalizeProviderPolicy,
+  providerOperationFromSyscall,
+} from "./runtime/provider-read-compute.mjs";
 
 export const AIOS_CANONICAL_LANGUAGE_VERSION = "aios.language.v1";
 export const AIOS_CANONICAL_GRAMMAR = "job-block-v1";
@@ -9,6 +14,7 @@ export const AIOS_CANONICAL_SOURCE_EXTENSION = ".aios";
 
 const INTERNAL_RUNTIME_PREFIXES = Object.freeze(["kernel."]);
 const INTERNAL_RUNTIME_OPERATIONS = new Set(["process.admit", "process.transition"]);
+const CAPABILITY_GATED_PROVIDER_OPERATIONS = new Set(["provider.read", "provider.compute"]);
 
 function sha256(value) {
   return createHash("sha256").update(String(value)).digest("hex");
@@ -28,7 +34,9 @@ function canonicalDiagnostic(severity, code, message, path = "$") {
 
 function runtimeOperation(adapter = "") {
   const normalized = String(adapter).trim();
-  return INTERNAL_RUNTIME_PREFIXES.some((prefix) => normalized.startsWith(prefix)) || INTERNAL_RUNTIME_OPERATIONS.has(normalized)
+  return INTERNAL_RUNTIME_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+    || INTERNAL_RUNTIME_OPERATIONS.has(normalized)
+    || CAPABILITY_GATED_PROVIDER_OPERATIONS.has(normalized)
     ? normalized
     : null;
 }
@@ -37,7 +45,7 @@ function sourceJobForContract(ast, contract) {
   return (ast?.jobs ?? []).find((job) => job.name === contract.sourceName || contract.id.endsWith(`.${job.name}`)) ?? null;
 }
 
-function emitRuntimeJob(contract, sourceJob, context) {
+function emitRuntimeJob(contract, sourceJob, context, providerAccess) {
   const adapters = contract.adapterHandoff?.adapters ?? [];
   const syscalls = adapters.map((adapter, index) => ({
     id: adapter.step || `step-${index + 1}`,
@@ -62,10 +70,12 @@ function emitRuntimeJob(contract, sourceJob, context) {
       hash: context.sourceHash,
     }),
     boundary: Object.freeze({
-      mode: "internal-only",
+      mode: providerAccess.grants.length > 0 ? "capability-gated-read-compute" : "internal-only",
       tenantId: context.tenantId,
       workspaceId: context.workspaceId,
       externalWrites: false,
+      providerAccess: providerAccess.grants.length > 0,
+      outputBoundary: "internal-artifact-only",
     }),
     capabilities: Object.freeze([...(contract.capabilities ?? [])]),
     memory: Object.freeze([...(contract.memory ?? [])]),
@@ -83,8 +93,10 @@ function emitRuntimeJob(contract, sourceJob, context) {
     handoff: Object.freeze({
       providers: Object.freeze([...(contract.adapterHandoff?.providers ?? [])]),
       external: contract.adapterHandoff?.external === true,
+      externalWrites: false,
       lifecycle: contract.lifecycle ?? null,
     }),
+    providerAccess,
   });
 }
 
@@ -94,6 +106,7 @@ export function compileCanonicalAiosSource(source = "", options = {}) {
   const sourceHash = sha256(text);
   const tenantId = String(options.tenantId ?? options.tenant ?? "openclaw-local");
   const workspaceId = String(options.workspaceId ?? options.workspace ?? "default");
+  const providerPolicy = normalizeProviderPolicy(options.providerPolicy ?? {});
   const diagnostics = [];
 
   if (!sourceName.endsWith(AIOS_CANONICAL_SOURCE_EXTENSION)) {
@@ -111,25 +124,47 @@ export function compileCanonicalAiosSource(source = "", options = {}) {
     fileName: sourceName,
     tenantId,
     workspaceId,
-    allowedProviders: options.allowedProviders ?? ["runtime", "kernel", "process", "internal"],
+    allowedProviders: options.allowedProviders ?? ["runtime", "kernel", "process", "internal", "provider"],
     deniedProviders: options.deniedProviders ?? [],
+    acceptedProviderContracts: options.acceptedProviderContracts
+      ?? (providerPolicy.enabled ? ["runtime"] : []),
+    acceptProviderContract: options.acceptProviderContract ?? providerPolicy.enabled,
   });
 
   diagnostics.push(...(compiled.diagnostics?.diagnostics ?? []));
   const contracts = compiled.kernel?.contracts ?? [];
+  const providerAccessByContract = new Map();
 
   if (contracts.length === 0) {
     diagnostics.push(canonicalDiagnostic("error", "AIOS_CANONICAL_NO_JOBS", "Source must compile to at least one kernel job.", "$.jobs"));
   }
 
   for (const contract of contracts) {
+    const providerAccess = buildProviderAccessContract({
+      policy: providerPolicy,
+      capabilities: contract.capabilities ?? [],
+      adapters: contract.adapterHandoff?.adapters ?? [],
+      tenantId,
+      workspaceId,
+    });
+    providerAccessByContract.set(contract.id, providerAccess);
     const externalCapabilities = (contract.capabilities ?? []).filter((capability) => capability.boundary === "external");
-    if (externalCapabilities.length > 0 || contract.adapterHandoff?.external === true) {
+    const grantedCapabilities = new Set(providerAccess.grants.map((grant) => grant.capability));
+    const ungrantedExternalCapabilities = externalCapabilities.filter((capability) => !grantedCapabilities.has(capability.name));
+    if (ungrantedExternalCapabilities.length > 0) {
       diagnostics.push(canonicalDiagnostic(
         "error",
         "AIOS_CANONICAL_EXTERNAL_EFFECT_BLOCKED",
-        `Job ${contract.id} requests an external capability or handoff; broad-adoption runtime is internal-only.`,
+        `Job ${contract.id} requests an external capability outside the gated provider read/compute policy.`,
         `$.jobs.${contract.id}.boundary`,
+      ));
+    }
+    for (const violation of providerAccess.violations) {
+      diagnostics.push(canonicalDiagnostic(
+        "error",
+        violation.code,
+        `Job ${contract.id} provider operation is blocked: ${violation.provider ?? "unknown-provider"}/${violation.operation ?? "unknown-operation"}.`,
+        `$.jobs.${contract.id}.providerAccess`,
       ));
     }
     if ((contract.capabilities ?? []).length === 0) {
@@ -150,6 +185,15 @@ export function compileCanonicalAiosSource(source = "", options = {}) {
           `$.jobs.${contract.id}.steps.${adapter.step ?? "unknown"}`,
         ));
       }
+      if (providerOperationFromSyscall(adapter.adapter)
+        && !providerAccess.grants.some((grant) => grant.syscall === adapter.adapter)) {
+        diagnostics.push(canonicalDiagnostic(
+          "error",
+          "AIOS_CANONICAL_PROVIDER_GRANT_REQUIRED",
+          `Adapter ${adapter.adapter} has no matching provider capability grant.`,
+          `$.jobs.${contract.id}.steps.${adapter.step ?? "unknown"}`,
+        ));
+      }
     }
   }
 
@@ -166,8 +210,15 @@ export function compileCanonicalAiosSource(source = "", options = {}) {
   const ok = blockingDiagnostics.length === 0;
   const context = { sourceName, sourceHash, tenantId, workspaceId };
   const jobs = ok
-    ? contracts.map((contract) => emitRuntimeJob(contract, sourceJobForContract(compiled.ast, contract), context))
+    ? contracts.map((contract) => emitRuntimeJob(
+      contract,
+      sourceJobForContract(compiled.ast, contract),
+      context,
+      providerAccessByContract.get(contract.id),
+    ))
     : [];
+  const providerGrantCount = [...providerAccessByContract.values()]
+    .reduce((count, access) => count + access.grants.length, 0);
 
   return Object.freeze({
     ok,
@@ -179,11 +230,13 @@ export function compileCanonicalAiosSource(source = "", options = {}) {
     }),
     source: Object.freeze({ name: sourceName, hash: sourceHash, bytes: Buffer.byteLength(text, "utf8") }),
     boundary: Object.freeze({
-      mode: "internal-only",
+      mode: providerGrantCount > 0 ? "capability-gated-read-compute" : "internal-only",
       tenantId,
       workspaceId,
       externalWrites: false,
       runtimeReplacement: false,
+      providerGrantCount,
+      outputBoundary: "internal-artifact-only",
     }),
     status: Object.freeze({
       state: ok ? "ready" : "blocked",

@@ -1,0 +1,164 @@
+
+> ai-os@0.0.1 test
+> npm run test:contracts && npm run test:language-adoption && npm run test:product-health && npm run test:operator-smoke
+
+
+> ai-os@0.0.1 test:contracts
+> node --test tests/contracts.test.mjs
+
+TAP version 13
+# Subtest: Wave 0 contract schema files parse and expose stable v0.1 identifiers
+ok 1 - Wave 0 contract schema files parse and expose stable v0.1 identifiers
+  ---
+  duration_ms: 1.152103
+  type: 'test'
+  ...
+# Subtest: kernel contract references every contract schema and defines safe lifecycle invariants
+ok 2 - kernel contract references every contract schema and defines safe lifecycle invariants
+  ---
+  duration_ms: 0.488868
+  type: 'test'
+  ...
+# Subtest: prior-art reuse map requires adapters instead of duplicate SLOS/Cortex primitives
+ok 3 - prior-art reuse map requires adapters instead of duplicate SLOS/Cortex primitives
+  ---
+  duration_ms: 0.135024
+  type: 'test'
+  ...
+# Subtest: run contract is a production-slice contract gate and does not claim runtime boot
+ok 4 - run contract is a production-slice contract gate and does not claim runtime boot
+  ---
+  duration_ms: 0.213902
+  type: 'test'
+  ...
+# Subtest: verifier catalog points to this contract test and fails closed
+ok 5 - verifier catalog points to this contract test and fails closed
+  ---
+  duration_ms: 0.114615
+  type: 'test'
+  ...
+# Subtest: token budget has bounded Wave 0 and gated Wave 1 spend
+ok 6 - token budget has bounded Wave 0 and gated Wave 1 spend
+  ---
+  duration_ms: 0.118913
+  type: 'test'
+  ...
+# Subtest: boot sequence document separates contract proof from bounded runtime proof
+ok 7 - boot sequence document separates contract proof from bounded runtime proof
+  ---
+  duration_ms: 0.194365
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 34.564134
+
+> ai-os@0.0.1 test:language-adoption
+> node --test tests/language-adoption.test.mjs
+
+TAP version 13
+# Subtest: canonical compiler emits one runtime-compatible internal job
+ok 1 - canonical compiler emits one runtime-compatible internal job
+  ---
+  duration_ms: 6.108908
+  type: 'test'
+  ...
+# Subtest: package facade exports the canonical compiler as the adoption entrypoint
+ok 2 - package facade exports the canonical compiler as the adoption entrypoint
+  ---
+  duration_ms: 0.126397
+  type: 'test'
+  ...
+# Subtest: canonical compiler fails closed for external effects
+ok 3 - canonical compiler fails closed for external effects
+  ---
+  duration_ms: 1.080358
+  type: 'test'
+  ...
+# Subtest: canonical compiler permits only policy-backed provider read and compute grants
+ok 4 - canonical compiler permits only policy-backed provider read and compute grants
+  ---
+  duration_ms: 5.234707
+  type: 'test'
+  ...
+# Subtest: provider write, missing grants, invalid boundaries, and unallowlisted providers fail closed
+ok 5 - provider write, missing grants, invalid boundaries, and unallowlisted providers fail closed
+  ---
+  duration_ms: 3.50515
+  type: 'test'
+  ...
+# Subtest: provider policy itself cannot enable external writes or non-POST transport
+ok 6 - provider policy itself cannot enable external writes or non-POST transport
+  ---
+  duration_ms: 0.285205
+  type: 'test'
+  ...
+# Subtest: deterministic provider read and compute execute through capability grants into internal artifacts only
+ok 7 - deterministic provider read and compute execute through capability grants into internal artifacts only
+  ---
+  duration_ms: 20.222573
+  type: 'test'
+  ...
+# Subtest: canonical compiler requires capability, verifier, and truth declarations
+ok 8 - canonical compiler requires capability, verifier, and truth declarations
+  ---
+  duration_ms: 0.894148
+  type: 'test'
+  ...
+# Subtest: CLI compiles canonical source and executes emitted job through the kernel
+ok 9 - CLI compiles canonical source and executes emitted job through the kernel
+  ---
+  duration_ms: 118.154122
+  type: 'test'
+  ...
+# Subtest: default OpenClaw adapter auto-compiles .aios source before execution
+ok 10 - default OpenClaw adapter auto-compiles .aios source before execution
+  ---
+  duration_ms: 130.475863
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 333.173093
+
+> ai-os@0.0.1 test:product-health
+> node scripts/check-product-health.mjs
+
+{
+  "ok": true,
+  "checkedAt": "2026-07-11T22:26:55.772Z",
+  "syntaxCheckedFileCount": 263,
+  "importCheckedFileCount": 260,
+  "syntaxFailures": [],
+  "importFailures": []
+}
+
+> ai-os@0.0.1 test:operator-smoke
+> node scripts/operator-smoke.mjs
+
+{
+  "ok": true,
+  "artifactRoot": "/tmp/aios-operator-smoke-eRYxVu",
+  "canonicalLanguage": "aios.language.v1",
+  "compileProof": "/tmp/aios-operator-smoke-eRYxVu/packets/language-compile.packet.json",
+  "jobPath": "/tmp/aios-operator-smoke-eRYxVu/internal-adapter-status.compiled.job.json",
+  "processId": "aiosproc_d3d8e52eaa2c98e0",
+  "bootProof": "/tmp/aios-operator-smoke-eRYxVu/packets/boot-proof.packet.json",
+  "runProof": "/tmp/aios-operator-smoke-eRYxVu/packets/run-proof.packet.json",
+  "psCount": 1,
+  "logCount": 10,
+  "claimStatus": "allowed",
+  "claimPath": "/tmp/aios-operator-smoke-eRYxVu/packets/completion-claim.packet.json"
+}

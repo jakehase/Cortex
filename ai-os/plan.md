@@ -9,7 +9,7 @@ This plan upgrades the original freeform AI OS concept into the workspace-wide s
 - Project slug: `ai-os`
 - Plan owner: `Jake + Cortex`
 - Created: `2026-06-30`
-- Last updated: `2026-07-04`
+- Last updated: `2026-07-07`
 - Status: `active`
 - Fidelity target: `platform`
 - Primary stop condition: `boot_proof_green_or_blocker`
@@ -1054,6 +1054,179 @@ Plan truth boundary:
 
 This `plan.md` is a planning and coordination artifact. It is not implementation proof. Completion claims require the evidence and verifiers named above.
 
+## 21. Detailed implementation sequence addendum — 2026-07-07
+
+This addendum upgrades the AI OS plan to the workspace detailed-plan standard. It does not supersede the existing architecture sections or implementation checkpoints above; it makes the next work sequence explicit so future sessions do not confuse AI OS product work, default-on adapter work, Full Parity Engine work, or benchmark artifact truth.
+
+### Stage A — Current-state reconciliation before new work
+
+Purpose:
+
+- Ensure future AI OS work starts from the real source/checkpoint state, not stale artifact plans or chat memory.
+
+Steps:
+
+1. Verify local source state in `/root/clawd/ai-os`.
+2. Verify latest relevant commit and local git status before claiming anything current.
+3. Verify the default-on adapter status from `/root/clawd/scripts/aios-adapter.mjs status` only when adapter state matters.
+4. Read `/root/clawd/ai-os/STATUS.md` and `/root/clawd/ai-os/DECISIONS.md` before implementation.
+5. If remote execution is needed, verify Hetzner `/home/jake/clawd-remote/ai-os` separately and do not infer remote state from local files.
+6. Write a short checkpoint artifact under `ai-os/artifacts/<run-id>/` if any run or validation starts.
+
+Acceptance checks:
+
+```bash
+cd /root/clawd/ai-os && npm test
+cd /root/clawd && node scripts/aios-adapter.mjs status
+```
+
+Claim allowed after this stage:
+
+- Current AI OS source/adapter state has been checked for the named checkpoint.
+
+Claim not allowed after this stage:
+
+- AI OS runtime replacement, native OS readiness, external-write approval, or full parity.
+
+### Stage B — Hosted runtime hardening tranche
+
+Purpose:
+
+- Improve the hosted Linux AI OS runtime without changing the runtime-replacement boundary.
+
+Steps:
+
+1. Select one bounded runtime subsystem: process lifecycle, scheduler, memory mounts, capability enforcement, syscall mediation, package/userland, audit/proof filesystem, or operator CLI.
+2. Bind the implementation surface to concrete files under `/root/clawd/ai-os`.
+3. Add or update tests before broad implementation.
+4. Implement the smallest product-surface slice that improves runtime behavior.
+5. Write verifier evidence under `ai-os/artifacts/<run-id>/`.
+6. Update `STATUS.md` with the exact observed validation.
+7. Append `DECISIONS.md` only if architecture, boundary, or active path changes.
+
+Acceptance checks:
+
+```bash
+cd /root/clawd/ai-os && npm test
+cd /root/clawd/ai-os && npm run product:health --if-present
+cd /root/clawd && git diff --check -- ai-os
+```
+
+Claim allowed after this stage:
+
+- The named hosted-runtime subsystem slice is implemented and verified.
+
+Claim not allowed after this stage:
+
+- The whole AI OS is complete or replaces Cortex/OpenClaw.
+
+### Stage C — Verifier and claim-gate strengthening
+
+Purpose:
+
+- Make AI OS capability claims harder to overstate.
+
+Steps:
+
+1. Review current boot/run/claim/verifier artifacts.
+2. Add missing negative tests for false boot, false run, missing capability proof, missing audit log, and unsupported external action.
+3. Ensure claim artifacts separate boot proof, run proof, verifier proof, operator proof, and product readiness.
+4. Add a release/checkpoint packet if the tranche is meant to be reported externally to future sessions.
+5. Run local tests and plan-doctor.
+
+Acceptance checks:
+
+```bash
+cd /root/clawd/ai-os && npm test
+cd /root/clawd && node scripts/plan-doctor.mjs
+```
+
+Claim allowed after this stage:
+
+- AI OS claim gates are stronger for the named proof layer.
+
+Claim not allowed after this stage:
+
+- Stronger gates prove new product capability unless product-surface tests also pass.
+
+### Stage D — Remote execution-plane validation
+
+Purpose:
+
+- Validate heavier AI OS runs on Hetzner without overloading the local control plane.
+
+Steps:
+
+1. Confirm remote boundary and sync path before launching.
+2. Write run contract with scope, duration, token budget, command, and stop condition.
+3. Launch only on Hetzner when workload is heavy.
+4. Return artifact bundle to local control plane.
+5. Verify artifact integrity and claim packet locally.
+6. Update `STATUS.md`, `DECISIONS.md`, and plan index if durable state changes.
+
+Acceptance checks:
+
+```bash
+ssh jake@37.27.129.239 'cd /home/jake/clawd-remote/ai-os && npm test'
+cd /root/clawd/ai-os && npm test
+```
+
+Claim allowed after this stage:
+
+- The named remote AI OS run passed its declared contract.
+
+Claim not allowed after this stage:
+
+- Remote green proves native/public/runtime-replacement readiness unless the contract explicitly targeted that claim and evidence exists.
+
+## 22. Time, token, compute, and execution budget estimates — 2026-07-07
+
+| Stage / tranche | Human/agent elapsed time | LLM token estimate | Local compute/test time | Remote execution needed? | Notes/assumptions |
+|---|---:|---:|---:|---|---|
+| Current-state reconciliation | 1-2 hrs | 10k-30k | 5-15 min | no | mostly inspection/status |
+| Hosted runtime hardening tranche | 8-24 hrs | 120k-450k | 15-60 min | no for small slices | depends on subsystem |
+| Verifier/claim-gate strengthening | 6-18 hrs | 80k-300k | 15-45 min | no | truth-layer heavy |
+| Remote validation tranche | 4-12 hrs control time | 60k-200k + worker tokens | 15-45 min local | yes | remote runtime varies by run contract |
+| Release/checkpoint packet | 2-6 hrs | 30k-100k | <20 min | no | artifact synthesis |
+
+Typical next tranche budget:
+
+```text
+Elapsed implementation time: 12-36 hours
+LLM token budget: ~180k-650k tokens, excluding remote worker/model usage
+Local test/runtime budget: usually under 2 hours
+Remote execution budget: only when run contract requires heavy validation
+```
+
+Per-run token budget rules:
+
+| Context pack / run type | Target | Hard cap | Rule |
+|---|---:|---:|---|
+| Small hosted-runtime patch | 8k-20k | 32k | include target subsystem, tests, status boundary |
+| Verifier/claim-gate patch | 10k-24k | 40k | include artifact schemas and negative fixtures |
+| Remote run contract | 4k-12k | 18k | include only objective, commands, stop condition, truth boundary |
+| Release/checkpoint report | 6k-16k | 24k | include artifact summaries, not raw logs |
+
+## 23. Confusion-prevention rules — 2026-07-07
+
+1. **Active product path:** `/root/clawd/ai-os` is the local AI OS product tree.
+2. **Remote execution path:** Hetzner `/home/jake/clawd-remote/ai-os` is an execution-plane copy, not the chat/control-plane brain.
+3. **Adapter boundary:** `/root/clawd/scripts/aios-adapter.mjs` is default-on internal substrate for status/recovery/handoff, not runtime replacement.
+4. **Artifact boundary:** `ai-os/artifacts/**/reports/*plan*.md` are evidence/recovery plans, not active roadmap updates.
+5. **Full parity boundary:** broad parity/negative-space work belongs to the Full Parity Engine plan unless this plan explicitly scopes an AI OS product tranche.
+6. **External-action boundary:** no external/provider/handoff write or public action without explicit approval.
+7. **Claim boundary:** separate boot proof, run proof, verifier proof, product readiness, runtime replacement, and native/public OS claims.
+8. **Heavy execution boundary:** do not launch heavy AI OS runs on the local control-plane host.
+
+## 24. Open decisions before next AI OS code tranche — 2026-07-07
+
+| Decision | Recommendation | Why | Needed before | Resolution artifact |
+|---|---|---|---|---|
+| Next product subsystem | choose one bounded hosted-runtime subsystem | prevents broad vague OS work | next implementation tranche | `STATUS.md` checkpoint / run contract |
+| Runtime replacement scope | keep blocked unless Jake explicitly approves | avoids crossing default-on adapter boundary | any runtime replacement work | `DECISIONS.md` entry + proof plan |
+| Heavy validation placement | Hetzner by default | protects local control plane | any long run | run contract + returned artifact bundle |
+| Full parity vs product hardening | route parity to FPE, product slice to AI OS plan | prevents plan collision | any broad AI OS parity request | plan/status update |
+
 ## 25. Canonical AIOS v1 broad-adoption checkpoint — 2026-07-11
 
 Status: **implemented, independently validated, and promoted for bounded internal use**.
@@ -1093,3 +1266,45 @@ Acceptance evidence:
 Truth boundary:
 
 This checkpoint proves the canonical AIOS language is wired end-to-end for bounded internal workflows and is the default adapter dogfood path. It does not prove or approve Cortex/OpenClaw replacement, external writes/provider execution, native OS readiness, full product parity, or benchmark promotion.
+
+
+## 27. Capability-gated provider read/compute adoption checkpoint (2026-07-11)
+
+Status: **green and promoted as the canonical default bounded provider path**.
+
+Implemented workflow:
+
+```text
+.aios source
+  -> exact provider.<id>.read|compute capability
+  -> normalized provider policy + tenant/workspace-bound grant + policy digest
+  -> mediated provider.read|provider.compute syscall
+  -> fixed-origin/fixed-path POST request
+  -> provider-results/<process>/<ordinal>-<operation>.json
+  -> verifier evidence
+  -> bounded completion claim
+```
+
+Implemented surfaces:
+
+- runtime policy/enforcement module `packages/aios-language/runtime/provider-read-compute.mjs`;
+- default allowlist `kernel/policy/provider-read-compute.json`;
+- canonical compiler grant emission and fail-closed diagnostics;
+- CLI compile/run policy loading, digest/scope checks, provider syscall mediation, restart-safe proof persistence, and policy help surface;
+- default adapter v0.5 provider read/compute dogfood and promotion workflow;
+- source example `examples/capability-gated-provider.aios`;
+- deterministic local HTTP read+compute tests and negative tests for writes, missing grants, invalid boundaries, unknown providers, forged grants, unallowlisted transport/arguments/models, and unsafe policy expansion.
+
+Acceptance evidence:
+
+- local and Hetzner exact-mirror `npm test` green;
+- contracts 7/7 and language adoption 10/10 on both hosts;
+- product health 263 syntax / 260 imports on both hosts;
+- live Cortex `provider.read` and `provider.compute` HTTP 200 with internal-artifact-only result receipts;
+- adapter boot/run/verifier/recovery green and completion claim allowed;
+- evidence bundle: `artifacts/provider-read-compute-adoption-20260711T2227Z/validation-summary.json`;
+- promoted default proof: `artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614`.
+
+Truth boundary:
+
+This checkpoint proves bounded provider retrieval and model compute through explicit AIOS grants. It does not authorize send/post/email/schedule/publish/deploy/provider-write operations, arbitrary URLs or models, user-visible external action, Cortex/OpenClaw replacement, runtime replacement, benchmark promotion, or full product parity.

@@ -11,25 +11,25 @@
 
 ## Current checkpoint
 
-- Current state: canonical AIOS v1 `.aios` compile→execute is implemented and promoted as the default bounded internal adapter workflow.
-- Canonical identifiers: language `aios.language.v1`; grammar `job-block-v1`; compiler `aios.language.compiler.canonical.v1`; adapter `openclaw-aios-adapter.v0.4-language-v1`.
-- Latest verified pre-adoption product/source commit: `13aa9a3ef` (`Sync AI OS 6h green continuation`); the adoption source is the commit carrying this status update.
-- Latest verified artifact: `/root/clawd/ai-os/artifacts/language-adoption-20260711T211822Z/validation-summary.json`.
-- Default-on proof: `/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346`.
-- Latest validation: local and Hetzner full `npm test` passed; contracts 7/7, language adoption 6/6, product health 262 syntax / 259 imports, source-language operator smoke green, completion claims allowed, local status/recovery green, remote source-manifest match `184a0210830aef8ce332b109454604653a8943b43fb6e62d51ae0cc1305587be`.
+- Current state: canonical AIOS v1 `.aios` compile→execute plus capability-gated provider read/compute is implemented and promoted as the default bounded adapter workflow.
+- Canonical identifiers: language `aios.language.v1`; grammar `job-block-v1`; compiler `aios.language.compiler.canonical.v1`; adapter `openclaw-aios-adapter.v0.5-provider-read-compute`; policy `aios.provider-read-compute-policy.v1`.
+- Approved provider operations: `provider.read` and `provider.compute`, currently allowlisted to Cortex `/knowledge/search` and `/oracle/chat`; outputs are retained as `aios.provider-result.v1` artifacts.
+- Latest verified artifact: `/root/clawd/ai-os/artifacts/provider-read-compute-adoption-20260711T2227Z/validation-summary.json`.
+- Default-on proof: `/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614`.
+- Latest validation: local and Hetzner full `npm test` passed on an exact source mirror; contracts 7/7, language adoption 10/10, product health 263 syntax / 260 imports, operator completion claims allowed. Live Cortex read and compute both returned HTTP 200 and produced internal-only result artifacts; default status/recovery are green.
 - Active execution plane: Hetzner `/home/jake/clawd-remote/ai-os` for heavy runs; local `/root/clawd/ai-os` is the canonical product tree.
 
 ## Active blockers
 
-- No blocker for the canonical AIOS v1 internal compile→execute path.
-- Runtime replacement, external-write enablement, and full product parity remain gated/not yet claimed.
+- No blocker for canonical internal workflows or capability-gated provider read/compute.
+- User-visible/external writes, arbitrary provider handoff, runtime replacement, and full product parity remain gated/not claimed.
 - Future heavy runs still require explicit execution-plane placement and artifact truth checks.
 
 ## Next actions
 
-1. Migrate additional low-risk internal workflows only when they fit the canonical capability/verifier/truth-boundary contract.
-2. Expand the internal syscall catalog deliberately, with negative tests and one evidence-backed workflow per capability family.
-3. Keep external writes, provider handoff, runtime replacement, and full-parity claims blocked unless separately approved and proven.
+1. Migrate additional read/compute workflows only through named provider, path, argument, model, tenant/workspace, and output-boundary grants.
+2. Add any new provider or operation one capability family at a time, with negative tests and one evidence-backed workflow.
+3. Keep send/post/email/schedule/publish/deploy/provider-write behavior blocked unless separately approved and proven.
 
 ## Do not use / superseded
 
@@ -41,10 +41,10 @@
 
 Allowed claim:
 
-- Canonical AIOS v1 is wired and default-on for bounded internal adapter compile→execute workflows, with local and independent remote proof.
+- Canonical AIOS v1 is default-on for bounded internal workflows and capability-gated provider read/compute whose outputs remain internal artifacts, with local, live-Cortex, and independent Hetzner proof.
 
-Not allowed yet:
+Not allowed:
 
-- AI OS replaces Cortex/OpenClaw runtime.
-- AI OS can perform external writes without approval.
+- AI OS replaces Cortex/OpenClaw routing or the chat/control-plane brain.
+- AI OS can perform user-visible or external writes without separate explicit approval.
 - AI OS is full product parity or a complete operating system.

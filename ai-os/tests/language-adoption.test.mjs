@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -13,6 +14,11 @@ import {
   compileCanonicalAiosSource,
 } from '../packages/aios-language/canonical.mjs';
 import * as packageFacade from '../packages/aios-language/index.mjs';
+import {
+  buildProviderAccessContract,
+  executeCapabilityGatedProviderOperation,
+  normalizeProviderPolicy,
+} from '../packages/aios-language/runtime/provider-read-compute.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const workspaceRoot = path.dirname(root);
@@ -24,6 +30,42 @@ const source = `job adapterStatus {
   truth adapterState: source="artifact-root", confidence="observed";
   rollback retain_artifacts;
 }`;
+
+const providerSource = `job providerAssist {
+  capability provider.local.read: read @external;
+  capability provider.local.compute: compute @external;
+  memory providerArtifacts: persistent;
+  step recall uses provider.read(provider: "local", query: "bounded context", n_results: 2) writes [providerArtifacts] -> recallReceipt recover halt;
+  step summarize uses provider.compute(provider: "local", prompt: "summarize", model: "test-model") writes [providerArtifacts] -> computeReceipt recover halt;
+  verify provider artifacts exist;
+  truth providerState: source="provider-result-artifacts", confidence="observed";
+  rollback retain_artifacts;
+}`;
+
+function localProviderPolicy(endpoint) {
+  return {
+    schemaVersion: 'aios.provider-read-compute-policy.v1',
+    enabled: true,
+    mode: 'capability-gated-read-compute',
+    outputBoundary: 'internal-artifact-only',
+    externalWrites: false,
+    providers: {
+      local: {
+        enabled: true,
+        transport: 'http-json',
+        baseUrl: endpoint,
+        allowLoopbackHttp: true,
+        timeoutMs: 5000,
+        maxRequestBytes: 65536,
+        maxResponseBytes: 65536,
+        operations: {
+          read: { enabled: true, path: '/read', method: 'POST', capability: 'provider.local.read' },
+          compute: { enabled: true, path: '/compute', method: 'POST', capability: 'provider.local.compute', allowedModels: ['test-model'], allowedResponseModes: ['default'] },
+        },
+      },
+    },
+  };
+}
 
 function runNode(args, { cwd = root, expect = 0 } = {}) {
   const result = spawnSync(process.execPath, args, { cwd, encoding: 'utf8' });
@@ -67,6 +109,169 @@ test('canonical compiler fails closed for external effects', () => {
   assert.equal(result.jobs.length, 0);
   assert.ok(result.diagnostics.some((entry) => entry.code === 'AIOS_CANONICAL_EXTERNAL_EFFECT_BLOCKED'));
   assert.ok(result.diagnostics.some((entry) => entry.code === 'AIOS_CANONICAL_RUNTIME_ADAPTER_BLOCKED'));
+});
+
+test('canonical compiler permits only policy-backed provider read and compute grants', () => {
+  const policy = localProviderPolicy('http://127.0.0.1:43210');
+  const result = compileCanonicalAiosSource(providerSource, {
+    sourceName: 'provider.aios',
+    providerPolicy: policy,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.boundary.externalWrites, false);
+  assert.equal(result.boundary.outputBoundary, 'internal-artifact-only');
+  assert.deepEqual(result.jobs[0].syscalls.map((entry) => entry.op), ['provider.read', 'provider.compute']);
+  assert.deepEqual(result.jobs[0].providerAccess.grants.map((entry) => entry.capability), [
+    'provider.local.read',
+    'provider.local.compute',
+  ]);
+});
+
+test('provider write, missing grants, invalid boundaries, and unallowlisted providers fail closed', () => {
+  const policy = localProviderPolicy('http://127.0.0.1:43210');
+  const writeSource = `job blockedWrite {
+    capability provider.local.write: write @external;
+    step publish uses provider.write(provider: "local", body: "no") -> receipt recover halt;
+    verify receipt exists;
+    truth writeState: source="provider", confidence="observed";
+    rollback halt;
+  }`;
+  const writeResult = compileCanonicalAiosSource(writeSource, { sourceName: 'write.aios', providerPolicy: policy });
+  assert.equal(writeResult.ok, false);
+  assert.ok(writeResult.diagnostics.some((entry) => entry.code === 'AIOS_CANONICAL_EXTERNAL_EFFECT_BLOCKED'));
+
+  const missingGrant = providerSource.replace('  capability provider.local.read: read @external;\n', '');
+  const missingResult = compileCanonicalAiosSource(missingGrant, { sourceName: 'missing.aios', providerPolicy: policy });
+  assert.equal(missingResult.ok, false);
+  assert.ok(missingResult.diagnostics.some((entry) => entry.code === 'AIOS_CANONICAL_PROVIDER_GRANT_REQUIRED'));
+
+  const invalidBoundary = providerSource.replace('provider.local.read: read @external', 'provider.local.read: read @internal');
+  const boundaryResult = compileCanonicalAiosSource(invalidBoundary, { sourceName: 'boundary.aios', providerPolicy: policy });
+  assert.equal(boundaryResult.ok, false);
+  assert.ok(boundaryResult.diagnostics.some((entry) => entry.code === 'AIOS_PROVIDER_CAPABILITY_BOUNDARY_INVALID'));
+
+  const unknownProvider = providerSource.replaceAll('provider.local.', 'provider.unknown.').replaceAll('provider: "local"', 'provider: "unknown"');
+  const unknownResult = compileCanonicalAiosSource(unknownProvider, { sourceName: 'unknown.aios', providerPolicy: policy });
+  assert.equal(unknownResult.ok, false);
+  assert.ok(unknownResult.diagnostics.some((entry) => entry.code === 'AIOS_PROVIDER_NOT_ALLOWED'));
+});
+
+test('provider policy itself cannot enable external writes or non-POST transport', () => {
+  assert.throws(
+    () => normalizeProviderPolicy({ ...localProviderPolicy('http://127.0.0.1:43210'), externalWrites: true }),
+    (error) => error.code === 'AIOS_PROVIDER_EXTERNAL_WRITES_FORBIDDEN',
+  );
+  const getPolicy = localProviderPolicy('http://127.0.0.1:43210');
+  getPolicy.providers.local.operations.read.method = 'GET';
+  assert.throws(
+    () => normalizeProviderPolicy(getPolicy),
+    (error) => error.code === 'AIOS_PROVIDER_TRANSPORT_NOT_ALLOWED',
+  );
+});
+
+test('deterministic provider read and compute execute through capability grants into internal artifacts only', async () => {
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      requests.push({ url: request.url, method: request.method, body: JSON.parse(body) });
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify(request.url === '/read'
+        ? { results: [{ text: 'grounded' }] }
+        : { answer: 'computed' }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-provider-runtime-'));
+  try {
+    const policy = normalizeProviderPolicy(localProviderPolicy(`http://127.0.0.1:${port}`));
+    const capabilities = [
+      { name: 'provider.local.read', scope: 'read', boundary: 'external' },
+      { name: 'provider.local.compute', scope: 'compute', boundary: 'external' },
+    ];
+    const access = buildProviderAccessContract({
+      policy,
+      capabilities,
+      syscalls: [{ op: 'provider.read', args: { provider: 'local' } }, { op: 'provider.compute', args: { provider: 'local' } }],
+    });
+    assert.equal(access.ok, true);
+    const read = await executeCapabilityGatedProviderOperation({
+      policy,
+      access,
+      op: 'provider.read',
+      args: { provider: 'local', query: 'bounded context', n_results: 2 },
+      artifactRoot,
+      processId: 'test-process',
+      ordinal: 1,
+    });
+    const compute = await executeCapabilityGatedProviderOperation({
+      policy,
+      access,
+      op: 'provider.compute',
+      args: { provider: 'local', prompt: 'summarize', model: 'test-model' },
+      artifactRoot,
+      processId: 'test-process',
+      ordinal: 2,
+    });
+    await assert.rejects(
+      executeCapabilityGatedProviderOperation({
+        policy,
+        access,
+        op: 'provider.compute',
+        args: { provider: 'local', prompt: 'summarize', model: 'unlisted-model' },
+        artifactRoot,
+        processId: 'test-process',
+        ordinal: 3,
+      }),
+      (error) => error.code === 'AIOS_PROVIDER_MODEL_NOT_ALLOWED',
+    );
+    await assert.rejects(
+      executeCapabilityGatedProviderOperation({
+        policy,
+        access,
+        op: 'provider.read',
+        args: { provider: 'local', query: 'bounded context', url: 'https://not-allowed.example' },
+        artifactRoot,
+        processId: 'test-process',
+        ordinal: 4,
+      }),
+      (error) => error.code === 'AIOS_PROVIDER_ARGUMENT_NOT_ALLOWED',
+    );
+    const forgedAccess = {
+      ...access,
+      grants: access.grants.map((grant) => grant.operation === 'read' ? { ...grant, path: '/other' } : grant),
+    };
+    await assert.rejects(
+      executeCapabilityGatedProviderOperation({
+        policy,
+        access: forgedAccess,
+        op: 'provider.read',
+        args: { provider: 'local', query: 'bounded context' },
+        artifactRoot,
+        processId: 'test-process',
+        ordinal: 5,
+      }),
+      (error) => error.code === 'AIOS_PROVIDER_GRANT_POLICY_MISMATCH',
+    );
+    for (const output of [read, compute]) {
+      assert.equal(output.outputBoundary, 'internal-artifact-only');
+      assert.equal(output.externalWrites, false);
+      assert.equal(fs.existsSync(output.resultPath), true);
+      const artifact = JSON.parse(fs.readFileSync(output.resultPath, 'utf8'));
+      assert.equal(artifact.boundary.output, 'internal-artifact-only');
+      assert.equal(artifact.boundary.externalWrites, false);
+      assert.equal(artifact.response.status, 200);
+    }
+    assert.deepEqual(requests.map((entry) => [entry.method, entry.url]), [['POST', '/read'], ['POST', '/compute']]);
+    assert.equal(requests[0].body.query, 'bounded context');
+    assert.equal(requests[1].body.prompt, 'summarize');
+  } finally {
+    server.close();
+    fs.rmSync(artifactRoot, { recursive: true, force: true });
+  }
 });
 
 test('canonical compiler requires capability, verifier, and truth declarations', () => {

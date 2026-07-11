@@ -6,11 +6,18 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { compileCanonicalAiosSource } from '../packages/aios-language/canonical.mjs';
+import {
+  executeCapabilityGatedProviderOperation,
+  normalizeProviderPolicy,
+  providerOperationFromSyscall,
+  providerPolicyDigest,
+} from '../packages/aios-language/runtime/provider-read-compute.mjs';
 
 const command = process.argv[2] || 'help';
 const known = ['help', 'compile', 'boot', 'run', 'claim', 'ps', 'logs', 'approve'];
 const cliDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(cliDir, '..');
+const defaultProviderPolicyPath = join(repoRoot, 'kernel', 'policy', 'provider-read-compute.json');
 
 const EXIT_CODES = Object.freeze({
   success: 0,
@@ -46,9 +53,9 @@ const fail = (code, reason, details = {}) => {
 
 const usage = {
   help: 'aios help',
-  compile: 'aios compile <source.aios> --artifact-root <path> [--workspace <id>] [--tenant <id>] [--role <role>]',
+  compile: 'aios compile <source.aios> --artifact-root <path> [--workspace <id>] [--tenant <id>] [--role <role>] [--provider-policy <path>]',
   boot: 'aios boot --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>] [--kernel-contracts <path>] [--hosted-boot-module <path>] [--lifecycle enabled|disabled] [--scheduler immediate|hold] [--approvals required|optional]',
-  run: 'aios run <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>]',
+  run: 'aios run <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>] [--provider-policy <path>]',
   claim: 'aios claim <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>]',
   ps: 'aios ps --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--state <state>] [--strict-health]',
   logs: 'aios logs --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--process <processId>]',
@@ -332,6 +339,8 @@ const allowedKernelSyscalls = new Set([
   'kernel.complete',
   'process.admit',
   'process.transition',
+  'provider.read',
+  'provider.compute',
 ]);
 const syscallAllowedByKernelPolicy = (op) => allowedKernelSyscalls.has(op) || op.startsWith('kernel.');
 
@@ -967,6 +976,9 @@ const recomputeProcessRecordHash = (record) => {
   if (Object.prototype.hasOwnProperty.call(record, 'providerContract')) {
     hashInput.providerContract = record.providerContract;
   }
+  if (Object.prototype.hasOwnProperty.call(record, 'providerPolicy')) {
+    hashInput.providerPolicy = record.providerPolicy;
+  }
   return sha256(hashInput);
 };
 
@@ -1060,6 +1072,7 @@ const buildRunProofPacket = ({
   lifecycle,
   lifecycleSettings = null,
   providerContract = null,
+  providerPolicyState = null,
   restartSafety,
 }) => {
   const processAnalytics = buildProcessAnalytics({
@@ -1096,6 +1109,7 @@ const buildRunProofPacket = ({
       syscallCount: syscallResults.length,
     },
     providerContract,
+    providerPolicy: providerPolicyState,
     restartSafety,
     analytics: processAnalytics,
     processIndex,
@@ -1111,6 +1125,7 @@ const buildRunProofPacket = ({
     job: runProof.job,
     lifecycleSettings,
     providerContract,
+    providerPolicy: providerPolicyState,
     kernelMediation: runProof.kernelMediation,
     restartSafety,
     analytics: processAnalytics,
@@ -1144,7 +1159,7 @@ const inspectArtifactStatus = async (artifactRoot) => {
   };
 };
 
-const executeKernelSyscalls = async ({ artifactRoot, processId, jobMeta, syscallRequests, lifecycle }) => {
+const executeKernelSyscalls = async ({ artifactRoot, processId, jobMeta, syscallRequests, lifecycle, providerPolicy, providerAccess }) => {
   const results = [];
   for (const request of syscallRequests) {
     if (!syscallAllowedByKernelPolicy(request.op)) {
@@ -1155,7 +1170,18 @@ const executeKernelSyscalls = async ({ artifactRoot, processId, jobMeta, syscall
       });
     }
     appendLifecycle(lifecycle, 'syscall_dispatched', { processId, syscall: request.op, ordinal: request.ordinal });
-    const output = request.op === 'kernel.echo'
+    const providerOperation = providerOperationFromSyscall(request.op);
+    const output = providerOperation
+      ? await executeCapabilityGatedProviderOperation({
+        policy: providerPolicy,
+        access: providerAccess,
+        op: request.op,
+        args: request.args,
+        artifactRoot,
+        processId,
+        ordinal: request.ordinal,
+      })
+      : request.op === 'kernel.echo'
       ? { echoed: String(request.args.message ?? request.args.text ?? '') }
       : request.op === 'kernel.record'
         ? { recorded: request.args }
@@ -1239,6 +1265,26 @@ const loadKernelContracts = async (flags) => {
   };
 };
 
+const loadProviderPolicy = async (flags) => {
+  const policyPath = flags['provider-policy']
+    ? resolveInsideWorkspace(flags['provider-policy'], '--provider-policy')
+    : defaultProviderPolicyPath;
+  if (!existsSync(policyPath)) {
+    fail(EXIT_CODES.runtimeBlocked, 'aios_cli_provider_policy_missing', { policyPath });
+  }
+  let policy;
+  try {
+    policy = normalizeProviderPolicy(await readJsonFile(policyPath));
+  } catch (error) {
+    fail(EXIT_CODES.invalidInput, 'aios_cli_provider_policy_invalid', { policyPath, message: error.message });
+  }
+  return {
+    path: policyPath,
+    policy,
+    digest: providerPolicyDigest(policy),
+  };
+};
+
 const tenantBoundaryPath = (artifactRoot) => join(artifactRoot, '.aios-tenant-boundary.json');
 const lifecycleSettingsPath = (artifactRoot) => join(artifactRoot, 'aios-lifecycle-settings.json');
 const providerContractPath = (artifactRoot) => join(artifactRoot, 'aios-provider-contract.json');
@@ -1252,6 +1298,8 @@ const providerCapabilityCatalog = Object.freeze({
   lifecycle_log_read: 'Read lifecycle events and logs analytics for operator review.',
   operator_approval_write: 'Write approval or rejection packets for claim subjects.',
   external_handoff_state: 'Expose stable state for external provider handoff orchestration.',
+  provider_read: 'Execute capability-gated provider reads and retain results as internal artifacts.',
+  provider_compute: 'Execute capability-gated provider compute and retain results as internal artifacts.',
 });
 
 const baseProviderCapabilities = Object.freeze(['artifact_root_sync', 'external_handoff_state']);
@@ -1836,6 +1884,7 @@ const run = async (operatorRequest) => {
     descriptor,
     mode: 'require',
   });
+  const providerPolicyState = await loadProviderPolicy(flags);
   const requestState = withOperatorRequestState(operatorRequest, {
     artifactRoot,
     tenantBoundary,
@@ -1851,6 +1900,12 @@ const run = async (operatorRequest) => {
         negotiatedCapabilities: providerContract.negotiatedCapabilities,
         externalHandoff: providerContract.externalHandoff.state,
       },
+      providerPolicy: {
+        path: providerPolicyState.path,
+        digest: providerPolicyState.digest,
+        mode: providerPolicyState.policy.mode,
+        outputBoundary: providerPolicyState.policy.outputBoundary,
+      },
     },
   });
   let job;
@@ -1861,6 +1916,29 @@ const run = async (operatorRequest) => {
   }
 
   const jobMeta = validateJobDocument(job, jobPath);
+  const providerAccess = job.providerAccess ?? { grants: [] };
+  if ((providerAccess.grants?.length ?? 0) > 0 && providerAccess.policyDigest !== providerPolicyState.digest) {
+    fail(EXIT_CODES.runtimeBlocked, 'aios_cli_provider_policy_digest_mismatch', {
+      jobPath,
+      compiledPolicyDigest: providerAccess.policyDigest ?? null,
+      activePolicyDigest: providerPolicyState.digest,
+      policyPath: providerPolicyState.path,
+    });
+  }
+  if ((providerAccess.grants?.length ?? 0) > 0 && (
+    providerAccess.tenantId !== tenantBoundary.tenantId
+    || providerAccess.tenantId !== job.boundary?.tenantId
+    || providerAccess.workspaceId !== job.boundary?.workspaceId
+  )) {
+    fail(EXIT_CODES.runtimeBlocked, 'aios_cli_provider_scope_mismatch', {
+      jobPath,
+      tenantBoundary: tenantBoundary.tenantId,
+      jobTenant: job.boundary?.tenantId ?? null,
+      jobWorkspace: job.boundary?.workspaceId ?? null,
+      grantTenant: providerAccess.tenantId ?? null,
+      grantWorkspace: providerAccess.workspaceId ?? null,
+    });
+  }
   const processId = `aiosproc_${sha256({ jobPath, jobHash: jobMeta.hash }).slice(0, 16)}`;
   const processRequestState = withOperatorRequestState(requestState, {
     outputs: { processId },
@@ -1875,6 +1953,14 @@ const run = async (operatorRequest) => {
   const processPath = join(processesDir, `${processId}.json`);
   const recovered = await readReusableProcessRecord({ processPath, processId, jobMeta });
   if (recovered.reusable) {
+    if ((providerAccess.grants?.length ?? 0) > 0 && recovered.record?.providerPolicy?.digest !== providerPolicyState.digest) {
+      fail(EXIT_CODES.runtimeBlocked, 'aios_cli_provider_policy_recovery_mismatch', {
+        processId,
+        processPath,
+        recordedPolicyDigest: recovered.record?.providerPolicy?.digest ?? null,
+        activePolicyDigest: providerPolicyState.digest,
+      });
+    }
     const recoveredRequestState = withOperatorRequestState(processRequestState, {
       outputs: {
         processId,
@@ -1902,6 +1988,13 @@ const run = async (operatorRequest) => {
       lifecycle,
       lifecycleSettings: processRecord.lifecycleSettings || lifecycleSettings,
       providerContract,
+      providerPolicyState: processRecord.providerPolicy || {
+        path: providerPolicyState.path,
+        digest: providerPolicyState.digest,
+        mode: providerPolicyState.policy.mode,
+        outputBoundary: providerPolicyState.policy.outputBoundary,
+        externalWrites: false,
+      },
       restartSafety: {
         idempotent: true,
         recovered: true,
@@ -1972,6 +2065,8 @@ const run = async (operatorRequest) => {
     jobMeta,
     syscallRequests,
     lifecycle,
+    providerPolicy: providerPolicyState.policy,
+    providerAccess,
   });
   appendLifecycle(lifecycle, 'completed', {
     processId,
@@ -1993,6 +2088,13 @@ const run = async (operatorRequest) => {
     syscallMediator: 'aios.kernel.syscall.v0',
     lifecycleSettings,
     providerContract,
+    providerPolicy: {
+      path: providerPolicyState.path,
+      digest: providerPolicyState.digest,
+      mode: providerPolicyState.policy.mode,
+      outputBoundary: providerPolicyState.policy.outputBoundary,
+      externalWrites: false,
+    },
     lifecycle,
     syscallResults,
   };
@@ -2012,6 +2114,7 @@ const run = async (operatorRequest) => {
     operatorRequest: processRequestState,
     lifecycleSettings,
     providerContract,
+    providerPolicy: processRecord.providerPolicy,
     lifecycle,
     syscallResults,
   });
@@ -2035,6 +2138,7 @@ const run = async (operatorRequest) => {
     lifecycle,
     lifecycleSettings,
     providerContract,
+    providerPolicyState: processRecord.providerPolicy,
     restartSafety: {
       idempotent: true,
       recovered: false,
@@ -2704,6 +2808,7 @@ const compile = async (operatorRequest) => {
   const sourcePath = resolveInsideWorkspace(sourceInput, 'source');
   const artifactRoot = resolveInsideWorkspace(flags['artifact-root'], '--artifact-root');
   const workspaceId = normalizeScopeToken(flags.workspace, 'default', 'workspace');
+  const providerPolicyState = await loadProviderPolicy(flags);
   const source = await readFile(sourcePath, 'utf8');
   await mkdir(artifactRoot, { recursive: true });
   await mkdir(join(artifactRoot, 'packets'), { recursive: true });
@@ -2714,6 +2819,7 @@ const compile = async (operatorRequest) => {
     workspaceId,
     actorId: operatorRequest.operatorScope.operator,
     role: operatorRequest.operatorScope.role,
+    providerPolicy: providerPolicyState.policy,
   });
   const safeBase = basename(sourcePath).replace(/\.aios$/i, '').replace(/[^a-zA-Z0-9_.-]/g, '-') || 'program';
   const jobPaths = [];
@@ -2727,7 +2833,12 @@ const compile = async (operatorRequest) => {
   }
   const requestState = withOperatorRequestState(operatorRequest, {
     artifactRoot,
-    inputs: { sourcePath, workspaceId, tenantId: operatorRequest.operatorScope.tenantId },
+    inputs: {
+      sourcePath,
+      workspaceId,
+      tenantId: operatorRequest.operatorScope.tenantId,
+      providerPolicy: { path: providerPolicyState.path, digest: providerPolicyState.digest },
+    },
     outputs: { jobPaths, compileState: result.status.state },
   });
   const packet = {
@@ -2746,6 +2857,13 @@ const compile = async (operatorRequest) => {
     status: result.status,
     diagnostics: result.diagnostics,
     compilerEvidence: result.compilerEvidence,
+    providerPolicy: {
+      path: providerPolicyState.path,
+      digest: providerPolicyState.digest,
+      mode: providerPolicyState.policy.mode,
+      outputBoundary: providerPolicyState.policy.outputBoundary,
+      externalWrites: false,
+    },
   };
   packet.proofHash = sha256({
     packetType: packet.packetType,
@@ -2754,6 +2872,7 @@ const compile = async (operatorRequest) => {
     boundary: result.boundary,
     status: result.status,
     diagnostics: result.diagnostics,
+    providerPolicy: packet.providerPolicy,
   });
   const proofPath = join(artifactRoot, 'packets', 'language-compile.packet.json');
   await writeFile(proofPath, `${JSON.stringify(packet, null, 2)}\n`, 'utf8');
@@ -2793,6 +2912,13 @@ const help = async (operatorRequest) => {
       establishedBy: ['boot'],
       refreshedBy: ['run', 'claim', 'ps', 'logs', 'approve'],
     },
+    providerReadComputePolicy: {
+      schemaVersion: 'aios.provider-read-compute-policy.v1',
+      defaultPath: defaultProviderPolicyPath,
+      operations: ['provider.read', 'provider.compute'],
+      outputBoundary: 'internal-artifact-only',
+      externalWrites: false,
+    },
     lifecycleSettings: {
       contract: 'aios.operator.lifecycle_settings.v0',
       path: 'aios-lifecycle-settings.json',
@@ -2801,7 +2927,7 @@ const help = async (operatorRequest) => {
       enforcedBy: ['run'],
       reportedBy: ['boot', 'ps', 'logs'],
     },
-    truthBoundary: 'AI OS CLI compiles canonical .aios source and routes boot, run, claim, ps, logs, and approve through operator-userland handlers. External effects remain blocked by the canonical compiler and provider approval gates.',
+    truthBoundary: 'AI OS CLI compiles canonical .aios source and routes boot, run, claim, ps, logs, and approve through operator-userland handlers. Capability-gated provider reads/compute may emit internal artifacts; user-visible and external writes remain blocked.',
   });
 };
 
@@ -2822,7 +2948,7 @@ const operatorUserlandModules = {
     failureExitCodes: [EXIT_CODES.invalidInput, EXIT_CODES.runtimeBlocked],
     requiredPositionals: ['source'],
     requiredFlags: ['artifact-root'],
-    optionalFlags: ['workspace'],
+    optionalFlags: ['workspace', 'provider-policy'],
     allowedRoles: ['runner', 'operator', 'admin'],
     requiredCapabilities: ['artifact_root_sync', 'language_compile'],
     capabilities: ['language_compile'],
@@ -2847,10 +2973,10 @@ const operatorUserlandModules = {
     failureExitCodes: [EXIT_CODES.invalidInput, EXIT_CODES.runtimeBlocked],
     requiredPositionals: ['job'],
     requiredFlags: ['artifact-root'],
-    optionalFlags: ['provider', 'handoff-uri'],
+    optionalFlags: ['provider', 'handoff-uri', 'provider-policy'],
     allowedRoles: ['runner', 'operator', 'admin'],
     requiredCapabilities: ['artifact_root_sync', 'process_lifecycle_write'],
-    capabilities: ['process_lifecycle_write'],
+    capabilities: ['process_lifecycle_write', 'provider_read', 'provider_compute'],
   },
   claim: {
     moduleId: 'aios.operator.userland.claim.v0',
