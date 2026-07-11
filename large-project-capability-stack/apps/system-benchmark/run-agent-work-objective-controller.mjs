@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolveAgentWorkRunInput } from '../../packages/agent-work-dsl/index.mjs';
+import { deriveSemanticWorkforcePlan } from '../../packages/agent-work-workforce/index.mjs';
 import { buildObjectiveExpansionPlan } from '../../packages/objective-surface-decomposer/index.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +15,15 @@ function readJson(targetPath, fallback = null) {
     return fs.existsSync(targetPath) ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : fallback;
   } catch {
     return fallback;
+  }
+}
+
+function readJsonLines(targetPath) {
+  try {
+    if (!fs.existsSync(targetPath)) return [];
+    return fs.readFileSync(targetPath, 'utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  } catch {
+    return [];
   }
 }
 
@@ -189,16 +199,17 @@ function contractObjective(contract = {}) {
   };
 }
 
-function makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, surfaces, previousWaveFactpackPath, expansionPolicy }) {
+function makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, surfaces, previousWaveFactpackPath, expansionPolicy, workforcePlan }) {
   const waveContract = clone(contract);
   const waveId = `wave-${String(waveNumber).padStart(3, '0')}`;
   const originalRequestedAgentCount = Math.max(1, Number(contract.requestedAgentCount || surfaces.length || 1));
   const failedSurfaceRepairWave = Array.isArray(surfaces)
     && surfaces.length > 0
     && surfaces.every((surface) => surface?.metadata?.repairFailedSurface === true);
+  const semanticTarget = Math.max(1, Number(workforcePlan?.targetAgentCount || originalRequestedAgentCount));
   const effectiveRequestedAgentCount = failedSurfaceRepairWave
-    ? Math.max(1, Math.min(originalRequestedAgentCount, surfaces.length))
-    : originalRequestedAgentCount;
+    ? Math.max(1, Math.min(semanticTarget, surfaces.length))
+    : semanticTarget;
   waveContract.runId = `${contract.runId || contract.benchmarkId || 'agent-work'}-${waveId}`;
   waveContract.artifactRoot = waveRoot;
   waveContract.scoreboardPath = path.join(path.dirname(path.dirname(waveRoot)), 'scoreboard.json');
@@ -219,6 +230,11 @@ function makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, sur
       }
     })),
     expansionPolicy: {},
+    workforcePolicy: {
+      ...(waveContract.scope?.workforcePolicy || {}),
+      activePlanDigest: workforcePlan?.digest || null,
+      activeTargetAgentCount: effectiveRequestedAgentCount
+    },
     contextGovernor: {
       ...(waveContract.scope?.contextGovernor || {}),
       ...(previousWaveFactpackPath ? { previousWaveFactpackPath } : {})
@@ -233,12 +249,43 @@ function makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, sur
       originalRunId: contract.runId || null,
       originalRequestedAgentCount,
       effectiveRequestedAgentCount,
+      semanticWorkforcePlanDigest: workforcePlan?.digest || null,
+      semanticWorkforceSelectionMode: workforcePlan?.selectionMode || null,
+      semanticWorkforceTargetAgentCount: workforcePlan?.targetAgentCount || null,
       failedSurfaceRepairWave,
       requestedAgentCountAdjustedForRepairWave: failedSurfaceRepairWave && effectiveRequestedAgentCount !== originalRequestedAgentCount,
       expansionPolicyManagedByController: expansionPolicy || {}
     }
   };
   return waveContract;
+}
+
+function workforcePolicyFromContract(contract = {}) {
+  const policy = contract.scope?.workforcePolicy || contract.workforcePolicy || contract.metadata?.semanticWorkforce || {};
+  const source = policy.requestedAgentCountSource || (policy.mode === 'semantic_auto' ? 'semantic_auto' : 'operator');
+  return {
+    mode: source === 'semantic_auto' ? 'semantic_auto' : (policy.mode || 'bounded_auto'),
+    maxAgents: Number(policy.maxAgents || policy.max_agents || contract.requestedAgentCount || 12),
+    executionCapacity: Number(policy.executionCapacity || policy.execution_capacity || process.env.AGENT_WORK_EXECUTION_CAPACITY || 0) || null,
+    providerCapacity: Number(policy.providerCapacity || policy.provider_capacity || process.env.AGENT_WORK_PROVIDER_CONCURRENCY || 0) || null,
+    ...policy,
+    requestedAgentCountSource: source
+  };
+}
+
+function workforceTelemetryFromWave({ completion = {}, workerEvents = [], workforcePlan = null, blocker = null } = {}) {
+  const target = Math.max(1, Number(workforcePlan?.targetAgentCount || completion?.requestedAgentCount || 1));
+  const productive = Number(completion?.productiveMergedPatchCount ?? completion?.metrics?.productiveMergedPatchCount ?? completion?.mergedShardCount ?? 0);
+  const providerErrors = workerEvents.filter((event) => /provider.*(?:error|failed)|(?:error|failed).*provider/i.test(String(event.type || event.event || ''))).length;
+  const providerStarts = workerEvents.filter((event) => /provider.*(?:start|call)|(?:start|call).*provider/i.test(String(event.type || event.event || ''))).length;
+  return {
+    previousTargetAgentCount: target,
+    productiveMergeRate: Math.max(0, Math.min(1, productive / target)),
+    providerErrorRate: providerStarts > 0 ? Math.max(0, Math.min(1, providerErrors / providerStarts)) : 0,
+    verifierBacklog: Number(completion?.verifierBacklog ?? completion?.metrics?.verifierBacklog ?? 0),
+    mergeBacklog: Number(completion?.mergeBacklog ?? completion?.metrics?.mergeBacklog ?? 0),
+    resourcePressure: blocker?.blockerFamily === 'execution_plane_capacity_exhausted' ? 'high' : null
+  };
 }
 
 function writeControllerBlocker({ artifactRoot, contract, blocker, waves = [], expansions = [] }) {
@@ -295,6 +342,7 @@ const maxWaves = Math.max(1, Number(args.maxWaves || policyNumber(wavePolicy, ['
 const maxCycles = Math.max(0, Number(policyNumber(expansionPolicy, ['max_cycles', 'maxCycles'], maxWaves) ?? maxWaves));
 const maxSurfaces = Math.max(1, Number(policyNumber(expansionPolicy, ['max_surfaces', 'maxSurfaces'], 200) || 200));
 const objective = contractObjective(contract);
+const workforcePolicy = workforcePolicyFromContract(contract);
 
 fs.mkdirSync(artifactRoot, { recursive: true });
 writeJson(path.join(artifactRoot, 'controller_input_resolution.json'), {
@@ -316,6 +364,7 @@ writeJson(path.join(artifactRoot, 'controller_policy.json'), {
   maxCycles,
   maxSurfaces,
   expansionTriggers,
+  workforcePolicy,
   truthBoundary: 'The controller may launch additional finite transfer-runner waves when the objective remains red and the current scoped graph is exhausted. It does not itself implement product parity; it reports final threshold truth from wave artifacts.'
 });
 
@@ -324,6 +373,9 @@ let previousWaveFactpackPath = null;
 let completedSurfaceIds = [];
 const waves = [];
 const expansions = [];
+const workforcePlans = [];
+let priorWorkforcePlan = null;
+let workforceTelemetry = {};
 let finalStatus = 'blocked';
 let finalCompletion = null;
 let blocker = null;
@@ -339,7 +391,31 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
   }
 
   const waveRoot = path.join(artifactRoot, 'waves', `wave-${String(waveNumber).padStart(3, '0')}`);
-  const waveContract = makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, surfaces: selectedSurfaces, previousWaveFactpackPath, expansionPolicy });
+  const workforcePlan = deriveSemanticWorkforcePlan({
+    workItems: selectedSurfaces,
+    requestedAgentCount: workforcePolicy.requestedAgentCountSource === 'operator' ? contract.requestedAgentCount : null,
+    workforcePolicy,
+    budgets: contract.scope?.budgets || {},
+    fidelity: contract.fidelity,
+    completedWorkItemIds: completedSurfaceIds,
+    telemetry: workforcePolicy.adaptEachWave === false || workforcePolicy.adapt_each_wave === false ? {} : workforceTelemetry,
+    priorPlan: priorWorkforcePlan
+  });
+  if (workforcePlan.targetAgentCount < 1) {
+    blocker = {
+      blockerFamily: 'semantic_workforce_no_ready_work',
+      blocker: 'Semantic workforce allocation found no dependency-ready executable work for the next wave.',
+      nextAction: 'Resolve dependency blockers or expand the objective with executable low-overlap work before launching another wave.',
+      waveNumber,
+      workforcePlan
+    };
+    break;
+  }
+  workforcePlans.push({ waveNumber, ...workforcePlan });
+  priorWorkforcePlan = workforcePlan;
+  writeJson(path.join(waveRoot, 'semantic_workforce_plan.json'), workforcePlan);
+  writeJson(path.join(artifactRoot, 'semantic_workforce_history.json'), { schemaVersion: 'clawd.agent_work.semantic_workforce_history.v1', controllerRunId, workforcePlans });
+  const waveContract = makeWaveContract({ contract, controllerRunId, waveNumber, waveRoot, surfaces: selectedSurfaces, previousWaveFactpackPath, expansionPolicy, workforcePlan });
   const waveContractPath = path.join(waveRoot, 'run_contract.json');
   writeJson(waveContractPath, waveContract);
 
@@ -349,7 +425,8 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
   const matrix = readJson(path.join(waveRoot, 'surface_matrix.json'), null);
   const policyReport = readJson(path.join(waveRoot, 'agent_work_policy_report.json'), null);
   const waveBlocker = readJson(path.join(waveRoot, 'blocker_report.json'), null);
-  const workerEvents = readJson(path.join(waveRoot, 'orchestrator_run', 'worker_events.json'), []);
+  const workerEventsPath = path.join(waveRoot, 'orchestrator_run', 'worker_events.json');
+  const workerEvents = readJson(workerEventsPath, null) || readJsonLines(path.join(waveRoot, 'orchestrator_run', 'worker_events.jsonl'));
   const waveFactpackPath = findWaveFactpackPath(waveRoot);
   const waveRecord = {
     waveNumber,
@@ -360,6 +437,7 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
     mechanicalGreen: completion?.mechanicalGreen === true,
     scaleProofReady: completion?.scaleProofReady === true,
     surfaceCount: selectedSurfaces.length,
+    semanticWorkforce: workforcePlan,
     completedSurfaceIds: completedIdsFromMatrix(matrix),
     waveFactpackPath,
     completion,
@@ -372,6 +450,7 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
   waves.push(waveRecord);
   completedSurfaceIds = stableList([...completedSurfaceIds, ...waveRecord.completedSurfaceIds]);
   previousWaveFactpackPath = waveFactpackPath;
+  workforceTelemetry = workforceTelemetryFromWave({ completion, workerEvents, workforcePlan, blocker: waveBlocker });
   writeJson(path.join(artifactRoot, 'objective_controller_state.json'), {
     schemaVersion: 'claw.agent_work_objective_controller_state.v0',
     generatedAt: new Date().toISOString(),
@@ -385,6 +464,8 @@ for (let waveNumber = 1; waveNumber <= maxWaves; waveNumber += 1) {
       mechanicalGreen: wave.mechanicalGreen,
       scaleProofReady: wave.scaleProofReady,
       surfaceCount: wave.surfaceCount,
+      targetAgentCount: wave.semanticWorkforce?.targetAgentCount || null,
+      workforcePlanDigest: wave.semanticWorkforce?.digest || null,
       completedSurfaceIds: wave.completedSurfaceIds,
       waveFactpackPath: wave.waveFactpackPath,
       blockerFamily: wave.blocker?.blockerFamily || null
@@ -575,6 +656,7 @@ const summary = {
     blockerFamily: waves.at(-1).blocker?.blockerFamily || null
   } : null,
   expansions,
+  workforcePlans,
   blocker,
   truthBoundary: 'Multi-wave objective control is proven only by wave artifacts and thresholdPass. Expansion waves are planning/control-plane work; they are not product parity claims by themselves.'
 };

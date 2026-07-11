@@ -149,7 +149,21 @@ export function resolveAgentWorkConfig({
 
 function normalizeObjectiveInput(input, { targetPath = process.cwd(), fidelity = 'production_slice', executionBoundary = 'remote_execution_required' } = {}) {
   if (!input) throw new Error('objective or handoff input is required');
-  if (typeof input === 'object') return clone(input);
+  if (typeof input === 'object') {
+    const normalized = clone(input);
+    const rawPolicy = normalized.workforcePolicy || normalized.workforce_policy || {};
+    const parsedRequested = Number(normalized.requestedAgentCount ?? normalized.requested_agent_count ?? normalized.agentCount ?? normalized.agents);
+    const operatorRequested = Number.isFinite(parsedRequested) && parsedRequested > 0 && rawPolicy.requestedAgentCountSource !== 'semantic_auto';
+    normalized.workforcePolicy = {
+      mode: operatorRequested ? 'bounded_auto' : 'semantic_auto',
+      maxAgents: operatorRequested ? Math.floor(parsedRequested) : 12,
+      ...rawPolicy,
+      requestedAgentCountSource: operatorRequested ? 'operator' : 'semantic_auto'
+    };
+    if (operatorRequested) normalized.requestedAgentCount = Math.floor(parsedRequested);
+    else delete normalized.requestedAgentCount;
+    return normalized;
+  }
   const text = clean(input);
   if (!text) throw new Error('objective text is required');
   return {
@@ -159,7 +173,7 @@ function normalizeObjectiveInput(input, { targetPath = process.cwd(), fidelity =
     objective: text,
     repoPath: targetPath,
     fidelity,
-    requestedAgentCount: 1,
+    workforcePolicy: { mode: 'semantic_auto', maxAgents: 12, requestedAgentCountSource: 'semantic_auto' },
     executionBoundary,
     stopCondition: 'supervisor_green_or_blocker_report',
     implementationSurface: 'mixed',
@@ -295,6 +309,11 @@ export function compileObjective({ input, outputDir, config = {}, options = {}, 
     fidelity: config.fidelity || resolvedConfig.resolved.fidelity || 'production_slice',
     executionBoundary: config.executionBoundary || resolvedConfig.resolved.executionBoundary || 'remote_execution_required'
   });
+  objectiveInput.workforcePolicy = {
+    ...(resolvedConfig.resolved.workforcePolicy || {}),
+    ...(config.workforcePolicy || {}),
+    ...(objectiveInput.workforcePolicy || {})
+  };
   if (objectiveInput.fidelity === 'full_clone' && !hasDeclaredReferenceSource(objectiveInput)) {
     writeJson(path.join(runRoot, 'agent_work_config_resolved.json'), resolvedConfig);
     const planningPacket = buildAgentWorkPlanningPacket({
@@ -340,6 +359,32 @@ export function compileObjective({ input, outputDir, config = {}, options = {}, 
   if (objectiveInput.fidelity === 'full_clone') {
     objectiveInput.doneWhen = stableList([...(objectiveInput.doneWhen || []), 'full_clone_parity_evidence']);
     objectiveInput.metadata = { ...(objectiveInput.metadata || {}), fullCloneParityEvidence: true };
+  }
+  let semanticWorkforcePreplan = null;
+  if (objectiveInput.workforcePolicy?.mode === 'semantic_auto') {
+    semanticWorkforcePreplan = buildAgentWorkPlanningPacket({
+      input: objectiveInput,
+      runRoot,
+      strictPlanning: resolvedConfig.resolved.strictPlanning === true,
+      currentState: options.currentState || {},
+      approval: options.approval || null
+    });
+    const selectedAgentCount = Math.max(1, Number(semanticWorkforcePreplan.workforcePlan?.targetAgentCount || 1));
+    objectiveInput.requestedAgentCount = selectedAgentCount;
+    objectiveInput.workforcePolicy = {
+      ...objectiveInput.workforcePolicy,
+      selectedAgentCount,
+      selectedPlanDigest: semanticWorkforcePreplan.workforcePlan?.digest || null,
+      requestedAgentCountSource: 'semantic_auto'
+    };
+    objectiveInput.metadata = {
+      ...(objectiveInput.metadata || {}),
+      semanticWorkforce: {
+        mode: 'semantic_auto',
+        selectedAgentCount,
+        planDigest: semanticWorkforcePreplan.workforcePlan?.digest || null
+      }
+    };
   }
   const compilation = compileCanonicalAgentWork({
     input: objectiveInput,
@@ -409,13 +454,15 @@ export function compileObjective({ input, outputDir, config = {}, options = {}, 
       phase4PlanningPacket: planningFiles.planningPacket,
       phase4PlanningQualificationPacket: planningFiles.planningQualificationPacket,
       planReviewPacket: planningFiles.planReviewPacket,
+      semanticWorkforcePlan: planningFiles.semanticWorkforcePlan,
+      decompositionWorkforcePlan: planningFiles.decompositionWorkforcePlan,
       blockerReport: planningBlockerPath,
       runtimeManifest: path.join(runRoot, 'runtime_manifest.json'),
       runDb: path.join(runRoot, 'run.db'),
       runEvents: path.join(runRoot, 'run_events.jsonl')
     },
-    data: { compilation: compilation.canonicalManifest, cliPacket, phase4Planning: planningPacket, runtime: runtimeProof },
-    truthBoundary: 'Planning now binds Phase 4 objective inventories, negative space, verifier-backed work graph, continuation policy, and plan-review digest; when green it also initializes the Phase 3 durable runtime. It still does not prove worker execution, accepted patches, independent verifier success, or completion.'
+    data: { compilation: compilation.canonicalManifest, cliPacket, phase4Planning: planningPacket, semanticWorkforcePreplan, runtime: runtimeProof },
+    truthBoundary: 'Planning binds objective inventories, negative space, verifier-backed work, semantic workforce selection, continuation policy, and plan-review digest; when green it also initializes the durable runtime. Planned agent count is not physical-concurrency proof.'
   });
 }
 

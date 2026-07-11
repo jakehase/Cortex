@@ -16,6 +16,14 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 
 ## Decisions
 
+## 2026-07-11 — Make semantic workforce sizing default-on
+
+- Decision: Make operator agent count optional. Derive the launch target from admitted dependency-ready, low-overlap executable surfaces; treat an explicit count as a safe upper bound; recompute per objective-controller wave under provider, verifier, merge, budget, and execution-plane pressure.
+- Reason: The Agent Work standard already required feasible concurrency from semantic work, but v1.0 left `requestedAgentCount` operator-supplied with a default of one and did not make the scheduler consume the planner recommendation. That was an implementation gap and an implicit scope downgrade.
+- Evidence: `packages/agent-work-workforce/index.mjs`; `semantic_workforce_plan.json`; `semantic_workforce_history.json`; `tests/agent-work-semantic-workforce.test.mjs`; `docs/agent-work-v1/SEMANTIC_WORKFORCE.md`.
+- Supersedes: The v1.0 behavior where omitted agent count silently became `1` and Phase 4 feasible concurrency remained advisory.
+- Follow-up: Requalify the integrated canonical checkout and retain physical/provider concurrency as a separate observed truth layer.
+
 ## 2026-07-07 — Shrink the worse-Codex layer instead of competing with Codex
 
 - Decision: Treat Cortex/OpenClaw/SLOS as the owned control plane and Codex as the execution worker; demote generic custom Codex-agent pilots/tournaments to explicit legacy replay/audit paths.

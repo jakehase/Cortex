@@ -2,6 +2,7 @@ export * from './contracts.mjs';
 export * from './architecture.mjs';
 export * from './pipeline.mjs';
 export * from '../agent-work-planning/index.mjs';
+export * from '../agent-work-workforce/index.mjs';
 export * from '../agent-work-execution/index.mjs';
 export * from '../agent-work-verifier/index.mjs';
 export * from '../agent-work-ops/index.mjs';

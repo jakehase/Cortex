@@ -54,6 +54,14 @@ function numberOr(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function optionalPositive(...values) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+  }
+  return null;
+}
+
 function normalizePermissions(input = {}) {
   const permissions = input.permissions || {};
   return {
@@ -122,6 +130,15 @@ export function normalizeCortexAgentWorkHandoff(input = {}, options = {}) {
     || input.routing?.recommendedLevels
   );
   const memoryCitations = stableList(input.memoryCitations || input.memory_citations || input.evidence?.memoryCitations || input.evidence?.memory_citations);
+  const requestedAgentCount = optionalPositive(input.requestedAgentCount, input.requested_agent_count, input.agents, input.agentCount, input.agent_count);
+  const rawWorkforcePolicy = input.workforcePolicy || input.workforce_policy || {};
+  const semanticallySelected = rawWorkforcePolicy.requestedAgentCountSource === 'semantic_auto';
+  const workforcePolicy = {
+    mode: requestedAgentCount && !semanticallySelected ? 'bounded_auto' : 'semantic_auto',
+    maxAgents: requestedAgentCount || numberOr(rawWorkforcePolicy.maxAgents || rawWorkforcePolicy.max_agents, 12),
+    ...rawWorkforcePolicy,
+    requestedAgentCountSource: requestedAgentCount && !semanticallySelected ? 'operator' : 'semantic_auto'
+  };
   return {
     schemaVersion: CORTEX_AGENT_WORK_HANDOFF_SCHEMA,
     generatedAt,
@@ -141,7 +158,8 @@ export function normalizeCortexAgentWorkHandoff(input = {}, options = {}) {
     artifactRoot: clean(input.artifactRoot || input.artifact_root || options.artifactRoot),
     scoreboardPath: clean(input.scoreboardPath || input.scoreboard_path),
     fidelity: clean(input.fidelity || input.requestedFidelity || input.requested_fidelity || 'production_slice'),
-    requestedAgentCount: numberOr(input.requestedAgentCount || input.requested_agent_count || input.agents || input.agentCount || input.agent_count, 1),
+    requestedAgentCount,
+    workforcePolicy,
     executionBoundary: clean(input.executionBoundary || input.execution_boundary || 'control_plane_allowed'),
     stopCondition: clean(input.stopCondition || input.stop_condition || 'supervisor_green_or_blocker_report'),
     implementationSurface: clean(input.implementationSurface || input.implementation_surface || 'product_code'),
@@ -184,6 +202,7 @@ export function cortexHandoffToAgentWorkSpec(input = {}, options = {}) {
     scoreboardPath: handoff.scoreboardPath,
     fidelity: handoff.fidelity,
     requestedAgentCount: handoff.requestedAgentCount,
+    workforcePolicy: handoff.workforcePolicy,
     executionBoundary: handoff.executionBoundary,
     stopCondition: handoff.stopCondition,
     permissions: handoff.permissions,

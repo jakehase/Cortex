@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildInventory, computeParity } from '../full-parity-engine/index.mjs';
 import { decomposeObjectiveToArchitectureEpics, decomposeObjectiveToSurfaces } from '../objective-surface-decomposer/index.mjs';
+import { deriveSemanticWorkforcePlan } from '../agent-work-workforce/index.mjs';
 
 export const AGENT_WORK_PHASE4_PLANNING_PACKET_SCHEMA = 'clawd.agent_work.phase4_planning_packet.v1';
 export const AGENT_WORK_PHASE4_REVIEW_PACKET_SCHEMA = 'clawd.agent_work.phase4_plan_review_packet.v1';
@@ -70,7 +71,12 @@ function repoExists(repoPath) {
 
 function requestedAgentCountFrom({ input = {}, contractBundle = {} } = {}) {
   const limits = contractBundle?.budgetContract?.limits || {};
-  return Number(input.requestedAgentCount || input.agentCount || limits.concurrency || 1) || 1;
+  const policy = input.workforcePolicy || input.workforce_policy || contractBundle?.objectiveContract?.workforcePolicy || {};
+  const mode = String(policy.mode || '').trim().toLowerCase().replace(/[-.\s]+/g, '_');
+  if (['auto', 'semantic', 'semantic_auto', 'dynamic', 'adaptive'].includes(mode) && policy.requestedAgentCountSource !== 'operator') return null;
+  const value = input.requestedAgentCount ?? input.agentCount ?? limits.concurrency;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
 }
 
 function normalizeObjective({ input = {}, contractBundle = {} } = {}) {
@@ -98,7 +104,8 @@ function normalizeObjective({ input = {}, contractBundle = {} } = {}) {
     stopCondition: clean(contract.stopCondition || input.stopCondition || 'supervisor_green_or_blocker_report'),
     doneWhen: stableList(contract.doneWhen?.length ? contract.doneWhen : input.doneWhen || ['independent_acceptance_green']),
     requestedClaims: stableList(contract.requestedClaims || input.requestedClaims),
-    requestedAgentCount: requestedAgentCountFrom({ input, contractBundle })
+    requestedAgentCount: requestedAgentCountFrom({ input, contractBundle }),
+    workforcePolicy: input.workforcePolicy || input.workforce_policy || contract.workforcePolicy || {}
   };
 }
 
@@ -390,32 +397,25 @@ export function buildVerifierBackedWorkGraph({ negativeSpaceRows = [], objective
   };
 }
 
-export function computeFeasibleConcurrency({ workGraph, requestedAgentCount = 1 } = {}) {
-  const cap = Math.max(1, Number(requestedAgentCount || 1));
-  const selected = [];
-  const usedFiles = new Set();
-  for (const node of workGraph?.nodes || []) {
-    if (selected.length >= cap) break;
-    const files = stableList(node.allowedFiles);
-    const collision = files.some((file) => usedFiles.has(file));
-    if (collision) continue;
-    selected.push(node.id);
-    for (const file of files) usedFiles.add(file);
-  }
+export function computeFeasibleConcurrency({ workGraph, requestedAgentCount = null, workforcePolicy = {}, budgets = {}, fidelity = 'production_slice', telemetry = {} } = {}) {
+  const plan = deriveSemanticWorkforcePlan({ workGraph, requestedAgentCount, workforcePolicy, budgets, fidelity, telemetry });
   return {
-    requestedAgentCount: cap,
-    feasibleConcurrency: selected.length,
-    selectedNodeIds: selected,
-    blockedNodeIds: (workGraph?.nodes || []).map((node) => node.id).filter((id) => !selected.includes(id)),
-    method: 'greedy_low_overlap_allowed_files',
-    truthBoundary: 'Concurrency is a planning estimate from allowed-file overlap. It does not prove worker availability or runtime throughput.'
+    requestedAgentCount: plan.requestedAgentCount,
+    feasibleConcurrency: plan.targetAgentCount,
+    selectedNodeIds: plan.selectedWorkItemIds,
+    blockedNodeIds: plan.deferredWorkItemIds,
+    method: 'semantic_low_overlap_workforce_allocator',
+    selectionMode: plan.selectionMode,
+    maxAgentCount: plan.maxAgentCount,
+    workforcePlanDigest: plan.digest,
+    truthBoundary: 'Concurrency is selected from executable low-overlap work and hard policy/budget/capacity constraints. Runtime evidence is still required before claiming physical concurrency.'
   };
 }
 
-export function buildPlanReviewPacket({ normalized, referenceInventory, implementationInventory, workGraph, concurrency, blockers = [], approval = null } = {}) {
+export function buildPlanReviewPacket({ normalized, referenceInventory, implementationInventory, workGraph, concurrency, workforcePlan = null, blockers = [], approval = null } = {}) {
   const estimatedBudget = {
     nodeCount: workGraph?.nodeCount || 0,
-    estimatedWorkerSpawns: concurrency?.feasibleConcurrency || 0,
+    estimatedWorkerSpawns: workforcePlan?.targetAgentCount ?? concurrency?.feasibleConcurrency ?? 0,
     estimatedVerifierRuns: (workGraph?.nodes || []).reduce((sum, node) => sum + stableList(node.requiredVerifiers).length, 0),
     riskLevel: blockers.length ? 'blocked' : (workGraph?.nodeCount || 0) > 20 ? 'high' : (workGraph?.nodeCount || 0) > 5 ? 'medium' : 'low'
   };
@@ -544,8 +544,41 @@ export function buildAgentWorkPlanningPacket({ input = {}, contractBundle = {}, 
 
   const negativeSpaceRows = buildPlanningNegativeSpaceRows({ implementationAdapter, parityResult });
   const workGraph = buildVerifierBackedWorkGraph({ negativeSpaceRows, objective: normalized, requestedAgentCount: normalized.requestedAgentCount });
-  const concurrency = computeFeasibleConcurrency({ workGraph, requestedAgentCount: normalized.requestedAgentCount });
-  const reviewPacket = buildPlanReviewPacket({ normalized, referenceInventory: referenceAdapter.inventory, implementationInventory: implementationAdapter.inventory, workGraph, concurrency, blockers, approval });
+  const declaredWorkItems = declaredSurfaces({ input, contractBundle });
+  const decompositionWorkforcePlan = deriveSemanticWorkforcePlan({
+    workGraph: workGraph.nodes.length ? workGraph : null,
+    workItems: workGraph.nodes.length ? [] : declaredWorkItems,
+    requestedAgentCount: normalized.requestedAgentCount,
+    workforcePolicy: normalized.workforcePolicy,
+    budgets: input.budgets || input.budget || contractBundle?.budgetContract?.limits || {},
+    fidelity: normalized.fidelity,
+    completedWorkItemIds: currentState.completedWorkItemIds || [],
+    telemetry: currentState.workforceTelemetry || {},
+    priorPlan: currentState.priorWorkforcePlan || null
+  });
+  const admittedWorkItems = declaredWorkItems.length ? declaredWorkItems : workGraph.nodes;
+  const workforcePlan = deriveSemanticWorkforcePlan({
+    workItems: admittedWorkItems,
+    requestedAgentCount: normalized.requestedAgentCount,
+    workforcePolicy: normalized.workforcePolicy,
+    budgets: input.budgets || input.budget || contractBundle?.budgetContract?.limits || {},
+    fidelity: normalized.fidelity,
+    completedWorkItemIds: currentState.completedWorkItemIds || [],
+    telemetry: currentState.workforceTelemetry || {},
+    priorPlan: currentState.priorWorkforcePlan || null
+  });
+  const concurrency = {
+    requestedAgentCount: workforcePlan.requestedAgentCount,
+    feasibleConcurrency: workforcePlan.targetAgentCount,
+    selectedNodeIds: workforcePlan.selectedWorkItemIds,
+    blockedNodeIds: workforcePlan.deferredWorkItemIds,
+    method: 'semantic_low_overlap_workforce_allocator',
+    selectionMode: workforcePlan.selectionMode,
+    maxAgentCount: workforcePlan.maxAgentCount,
+    workforcePlanDigest: workforcePlan.digest,
+    truthBoundary: 'Runtime concurrency is selected only from admitted executable surfaces. Decomposition capacity is reported separately and cannot inflate the launch count.'
+  };
+  const reviewPacket = buildPlanReviewPacket({ normalized, referenceInventory: referenceAdapter.inventory, implementationInventory: implementationAdapter.inventory, workGraph, concurrency, workforcePlan, blockers, approval });
   const continuationPolicy = deriveContinuationPolicy({
     supervisorState: currentState.supervisorState || {},
     currentWorkGraph: currentState.currentWorkGraph || null,
@@ -594,11 +627,13 @@ export function buildAgentWorkPlanningPacket({ input = {}, contractBundle = {}, 
       rows: negativeSpaceRows
     },
     workGraph,
+    workforcePlan,
+    decompositionWorkforcePlan,
     concurrency,
     planReview: reviewPacket,
     continuationPolicy,
     blockers,
-    truthBoundary: 'Phase 4 proves objective-bound inventories, negative-space planning, verifier-backed work graph generation, continuation policy, and plan-review digest binding. It does not prove worker execution, accepted patches, independent verifier success, parity completion, or release readiness.'
+    truthBoundary: 'Phase 4 proves objective-bound inventories, negative-space planning, verifier-backed work graph generation, admitted-surface workforce sizing, continuation policy, and plan-review digest binding. Decomposition capacity is separate from launch count, and neither is physical-concurrency proof.'
   };
 }
 
@@ -615,6 +650,9 @@ export function writeAgentWorkPlanningArtifacts(packet, artifactRoot) {
     implementationInventory: packet.implementationInventory ? writeJson(path.join(dir, 'implementation_inventory.json'), packet.implementationInventory) : null,
     negativeSpaceInventory: writeJson(path.join(dir, 'negative_space_inventory.json'), packet.planningNegativeSpace),
     workGraph: writeJson(path.join(dir, 'verifier_backed_work_graph.json'), packet.workGraph),
+    semanticWorkforcePlan: writeJson(path.join(root, 'semantic_workforce_plan.json'), packet.workforcePlan),
+    phase4SemanticWorkforcePlan: writeJson(path.join(dir, 'semantic_workforce_plan.json'), packet.workforcePlan),
+    decompositionWorkforcePlan: writeJson(path.join(dir, 'decomposition_workforce_plan.json'), packet.decompositionWorkforcePlan),
     continuationPolicy: writeJson(path.join(dir, 'continuation_policy.json'), packet.continuationPolicy),
     planReview: writeJson(path.join(dir, 'plan_review_packet.json'), packet.planReview),
     parityMatrix: packet.parity?.parityMatrix ? writeJson(path.join(dir, 'parity_matrix.json'), packet.parity.parityMatrix) : null,

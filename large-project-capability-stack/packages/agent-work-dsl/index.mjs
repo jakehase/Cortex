@@ -331,6 +331,7 @@ export function parseAgentWorkSpec(text) {
     surfaces: [],
     templates: [],
     budgets: {},
+    workforcePolicy: {},
     wavePolicy: {},
     expansionPolicy: {},
     evidenceSchemas: [],
@@ -366,14 +367,16 @@ export function parseAgentWorkSpec(text) {
       currentBlock = { kind: 'evidence', target: evidence };
       continue;
     }
-    const policyMatch = line.match(/^(budget|budgets|wave_policy|wave|expansion_policy|expansion)(?:\s+(.+))?$/i);
+    const policyMatch = line.match(/^(budget|budgets|workforce_policy|workforce|wave_policy|wave|expansion_policy|expansion)(?:\s+(.+))?$/i);
     if (policyMatch && indent === 0) {
       const kind = normalizePolicyKey(policyMatch[1]);
       const target = kind.startsWith('budget')
         ? spec.budgets
-        : kind.startsWith('wave')
-          ? spec.wavePolicy
-          : spec.expansionPolicy;
+        : kind.startsWith('workforce')
+          ? spec.workforcePolicy
+          : kind.startsWith('wave')
+            ? spec.wavePolicy
+            : spec.expansionPolicy;
       Object.assign(target, parseInlinePolicy(policyMatch[2]));
       currentBlock = { kind: 'policy', target };
       continue;
@@ -579,6 +582,22 @@ export function normalizeAgentWorkSpec(input = {}, options = {}) {
   const templateErrors = [];
   const resolvedRepoPath = repoPath ? path.resolve(repoPath) : '';
   const aiOsProfile = normalizeAiOsProfile(parsed.aiOs || parsed.ai_os || parsed.aios || parsed.metadata?.aiOs || parsed.metadata?.ai_os, { repoPath: resolvedRepoPath });
+  const rawRequestedAgentCount = parsed.agents ?? parsed.requestedAgents ?? parsed.requestedAgentCount ?? parsed.requested_agent_count;
+  const parsedRequestedAgentCount = Number(rawRequestedAgentCount);
+  const explicitRequestedAgentCount = Number.isFinite(parsedRequestedAgentCount) && parsedRequestedAgentCount > 0 ? Math.floor(parsedRequestedAgentCount) : null;
+  const rawWorkforcePolicy = normalizePolicyObject(parsed.workforcePolicy || parsed.workforce_policy || parsed.workforce);
+  const declaredMode = clean(rawWorkforcePolicy.mode || '').toLowerCase().replace(/[-.\s]+/g, '_');
+  const declaredCountSource = clean(rawWorkforcePolicy.requestedAgentCountSource || rawWorkforcePolicy.requestedagentcountsource || rawWorkforcePolicy.requested_agent_count_source);
+  const semanticallySelected = declaredCountSource === 'semantic_auto';
+  const semanticAuto = semanticallySelected
+    || ['auto', 'semantic', 'semantic_auto', 'dynamic', 'adaptive'].includes(declaredMode)
+    || (!explicitRequestedAgentCount && !['manual', 'manual_fixed', 'fixed'].includes(declaredMode));
+  const workforcePolicy = {
+    mode: semanticAuto ? 'semantic_auto' : (declaredMode || 'bounded_auto'),
+    maxAgents: numberOr(rawWorkforcePolicy.maxAgents || rawWorkforcePolicy.maxagents || rawWorkforcePolicy.max_agents || explicitRequestedAgentCount, 12),
+    ...rawWorkforcePolicy,
+    requestedAgentCountSource: explicitRequestedAgentCount && !semanticallySelected ? 'operator' : 'semantic_auto'
+  };
   const spec = {
     schemaVersion: AGENT_WORK_SPEC_SCHEMA,
     languageVersion: clean(parsed.languageVersion || parsed.language_version || AGENT_WORK_LANGUAGE_VERSION),
@@ -592,7 +611,8 @@ export function normalizeAgentWorkSpec(input = {}, options = {}) {
     artifactRoot,
     scoreboardPath: clean(parsed.scoreboardPath || parsed.scoreboard_path || DEFAULT_SCOREBOARD_PATH),
     fidelity: clean(parsed.fidelity || parsed.requestedFidelity || parsed.requested_fidelity || 'production_slice'),
-    requestedAgentCount: numberOr(parsed.agents || parsed.requestedAgents || parsed.requestedAgentCount || parsed.requested_agent_count, 1),
+    requestedAgentCount: explicitRequestedAgentCount,
+    workforcePolicy,
     executionBoundary: clean(parsed.executionBoundary || parsed.execution_boundary || 'control_plane_allowed'),
     stopCondition: clean(parsed.stopCondition || parsed.stop_condition || DEFAULT_STOP_CONDITION),
     permissions: {
@@ -638,7 +658,9 @@ export function validateAgentWorkSpec(spec = {}) {
   if (!clean(spec.goalId)) errors.push('goalId is required');
   if (!clean(spec.repoPath)) errors.push('repoPath is required');
   if (!FIDELITY_LATTICE.includes(spec.fidelity)) errors.push(`fidelity must be one of ${FIDELITY_LATTICE.join(', ')}`);
-  if (!Number.isFinite(Number(spec.requestedAgentCount)) || Number(spec.requestedAgentCount) < 1) errors.push('requestedAgentCount must be >= 1');
+  const workforceMode = clean(spec.workforcePolicy?.mode).toLowerCase().replace(/[-.\s]+/g, '_');
+  const semanticAuto = ['auto', 'semantic', 'semantic_auto', 'dynamic', 'adaptive'].includes(workforceMode);
+  if ((!Number.isFinite(Number(spec.requestedAgentCount)) || Number(spec.requestedAgentCount) < 1) && !semanticAuto) errors.push('requestedAgentCount must be >= 1 unless workforcePolicy.mode is semantic_auto');
   if (!Array.isArray(spec.surfaces) || spec.surfaces.length === 0) errors.push('at least one surface is required');
   for (const templateError of spec.templateErrors || []) errors.push(templateError);
   for (const surface of spec.surfaces || []) {
@@ -757,6 +779,7 @@ function buildRunContract(spec) {
       requestedActions: spec.requestedActions,
       doneWhen: spec.doneWhen,
       budgets: spec.budgets,
+      workforcePolicy: spec.workforcePolicy,
       wavePolicy: spec.wavePolicy,
       expansionPolicy: spec.expansionPolicy,
       evidenceSchemas,
@@ -775,6 +798,7 @@ function buildRunContract(spec) {
         runtime: defaultRuntimeDescriptor(),
         features: {
           budgets: nonEmptyObject(spec.budgets),
+          workforcePolicy: nonEmptyObject(spec.workforcePolicy),
           wavePolicy: nonEmptyObject(spec.wavePolicy),
           expansionPolicy: nonEmptyObject(spec.expansionPolicy),
           evidenceSchemas: evidenceSchemas.length > 0,

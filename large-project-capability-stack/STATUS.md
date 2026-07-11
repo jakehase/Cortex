@@ -6,7 +6,7 @@
 - Canonical plan: `/root/clawd/large-project-capability-stack/plan.md`
 - Decisions log: `/root/clawd/large-project-capability-stack/DECISIONS.md`
 - Last updated: `2026-07-11`
-- Status: `Agent Work v1.0.0 Phase 9 green for private/internal production_slice use`
+- Status: `Agent Work v1.0.0 Phase 9 green; v1.1 semantic-workforce amendment locally qualified for private/internal production_slice use`
 - Current fidelity: `production_slice`
 
 ## Current checkpoint
@@ -23,6 +23,18 @@
 - Phase 8 release-candidate qualification is green. The corrected persistent soak ran `361.06` minutes across `243` waves, merged `357/363` shards, observed `12,141,226` provider tokens, completed all 26 declared parity-for-scope surfaces, passed production-quality/objective-truth gates, and observed peak physical concurrency `2`; the separate cross-repo campaign—not the soak—proved 12 physical workers. The four-workload matrix is all complete.
 - Phase 9 is green. The supported CLI is `apps/agent-work/cli.mjs`, legacy paths are compatibility/evidence-only, migration/rollback rehearsal passed, a clean GitHub checkout at commit `9b9b3bf7184d1a4778341314a656b2f823836a02` passed `424/424`, and the 12-row Phase 9 surface matrix is `all_complete`.
 - Release identity: version `1.0.0`, tag `agent-work-v1.0.0`. No external announcement or deployment was performed.
+- The v1.1 semantic-workforce amendment is implemented and locally qualified: omitted agent counts now select a bounded semantic target, explicit counts remain upper bounds, Phase 4 emits separate executable/decomposition workforce plans, and the objective controller consumes and adapts the selected target per wave. This is not yet a new release tag or external deployment.
+
+## v1.1 semantic workforce mechanics
+
+- Canonical allocator: `packages/agent-work-workforce/index.mjs`.
+- Default policy: `semantic_auto`, minimum `1`, maximum `12`, and per-wave adaptation enabled.
+- Sizing inputs include dependency-ready work, conservative file-overlap ownership, fidelity/complexity, verifier obligations, budgets, provider/execution capacity, and prior-wave provider/merge/verifier/resource telemetry.
+- Operator-supplied agent count remains supported as a safe upper bound; it cannot inflate the target beyond independent ready work.
+- `semantic_workforce_plan.json` sizes admitted executable surfaces; `phase4_planning/decomposition_workforce_plan.json` reports larger planning/decomposition capacity separately.
+- The objective controller writes each workforce decision, its stable digest, wave-contract target, and `semantic_workforce_history.json`.
+- Planned/selected count remains separate from spawned, started, completed, productive, merged, and provider-observed worker truth.
+- Detailed contract: `docs/agent-work-v1/SEMANTIC_WORKFORCE.md`.
 
 ## Phase 6 implemented mechanics
 
@@ -72,6 +84,20 @@
 - `docs/agent-work-v1/PHASE8_RELEASE_CANDIDATE_RUNBOOK.md` documents the Phase 8 evidence order, workload classes, scale/soak rules, failure fixtures, and truth boundary.
 
 ## Latest validation
+
+Local v1.1 semantic-workforce amendment qualification on `2026-07-11`:
+
+```bash
+cd /root/clawd/large-project-capability-stack
+node --test tests/agent-work-semantic-workforce.test.mjs tests/agent-work-planning.test.mjs tests/canonical-agent-work.test.mjs
+# 17/17 pass
+npm test
+# 433/433 pass
+git diff --check
+# pass
+```
+
+This qualification proves deterministic contracts and controller consumption, not a new observed 12-worker campaign or provider-concurrency claim.
 
 Local control-plane Phase 8 deterministic validation on `2026-07-10`:
 

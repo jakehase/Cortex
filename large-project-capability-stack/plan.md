@@ -438,6 +438,16 @@ Planning sequence:
 8. require approval only when policy or user preference requires it;
 9. admit the run and create the durable state store.
 
+### Semantic workforce sizing standard
+
+Agent count is optional and semantic automatic sizing is the default. Before admission, the planner must emit a minimum, target, and maximum workforce decision from the admitted executable surface graph. It must consider dependency readiness, low-overlap file ownership, objective fidelity/complexity, verifier obligations, operator and budget caps, provider capacity, and execution-plane capacity.
+
+The objective controller must recompute this decision for each wave and may reduce the target for provider errors, low productive-merge yield, merge/verifier backlog, or resource pressure. An explicit operator count is an upper bound by default; it does not override insufficient independent work. The selected target and digest must be written into the wave contract and workforce-history artifacts.
+
+Potential parallel capacity discovered in negative-space decomposition must be reported separately from admitted executable launch capacity. It cannot inflate the worker launch count until those tasks have executable ownership and verifier contracts.
+
+Planning truth is not runtime truth: requested, semantically selected, spawned, started, completed, productive, merged, and provider-observed worker counts remain separate. Detailed contract: `docs/agent-work-v1/SEMANTIC_WORKFORCE.md`.
+
 Dynamic expansion rule:
 
 - A finite queue becoming empty is not success.
@@ -456,7 +466,8 @@ Dynamic expansion rule:
 - bounded retries by failure family;
 - separate implementation, verification, repair, and release lanes;
 - backpressure from merge queue, verifier queue, provider limits, and budget governor;
-- no agent-count inflation when ready low-overlap work is smaller than requested concurrency.
+- no agent-count inflation when ready low-overlap work is smaller than requested concurrency;
+- default-on semantic workforce recomputation at every wave, bounded by the proven release tier and live host/provider capacity.
 
 ### Worker isolation
 
