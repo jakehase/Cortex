@@ -5,7 +5,7 @@ Replaces keyword matching with true semantic understanding.
 """
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
 import os
 import json
@@ -2746,6 +2746,12 @@ class OutcomeFeedbackRequest(BaseModel):
     note: str = ""
 
 
+class CodecEventsRequest(BaseModel):
+    session_key: str = ""
+    events: List[Dict[str, Any]] = Field(default_factory=list)
+    max_chars: int = 420
+
+
 def analyze_intent_with_oracle(query: str) -> Dict[str, Any]:
     """Use L5 Oracle for semantic intent analysis."""
     if not OPENROUTER_API_KEY:
@@ -2949,6 +2955,40 @@ async def get_nexus_codec_status(request: Request, session_key: Optional[str] = 
         "level": 24,
         "name": "The Nexus",
         "codec": view,
+    }
+
+
+@router.post("/codec/events")
+async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request):
+    """Low-latency, authenticated Codec write-through path for trusted runtimes and recovery canaries."""
+    resolved_session_key = (payload.session_key or _codec_session_key(request) or "").strip()[:128]
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    if not payload.events or len(payload.events) > 32:
+        raise HTTPException(status_code=400, detail="events must contain between 1 and 32 records")
+    events = []
+    for row in payload.events:
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=400, detail="each event must be an object")
+        text = str(row.get("text") or "").strip()
+        if not text or len(text) > 8000:
+            raise HTTPException(status_code=400, detail="event text must contain between 1 and 8000 characters")
+        tags = row.get("tags") if isinstance(row.get("tags"), list) else []
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        events.append({"text": text, "tags": [str(tag)[:80] for tag in tags[:24]], "metadata": metadata})
+    state = await run_in_threadpool(update_codec_state_for_session, resolved_session_key, events)
+    packet = await run_in_threadpool(
+        get_codec_packet_for_session,
+        resolved_session_key,
+        max_chars=max(120, min(int(payload.max_chars), 2400)),
+    )
+    return {
+        "success": True,
+        "session_key": resolved_session_key,
+        "event_count": len(events),
+        "state_fingerprint": state.get("durable_write", {}).get("fingerprint"),
+        "codec": packet,
+        "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check."
     }
 
 
@@ -3733,7 +3773,7 @@ async def outcome_feedback(payload: OutcomeFeedbackRequest):
 
 @router.get("/orchestrate")
 @router.post("/orchestrate")
-async def orchestrate_query(query: str, request: Request = None):
+async def orchestrate_query(query: str, request: Request = None, codec_probe: bool = False):
     """Semantic query orchestration with Q&A fastlane option."""
     started = datetime.utcnow()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
@@ -3747,6 +3787,20 @@ async def orchestrate_query(query: str, request: Request = None):
         kernel_trace: Optional[Dict[str, Any]] = None
         kernel_result: Optional[Dict[str, Any]] = None
         codec_context = _codec_context_packet(session_key, query=query)
+        if codec_probe:
+            return {
+                "success": True,
+                "query": query,
+                "routing_method": "codec_recovery_probe",
+                "session_key": session_key,
+                "codec_context": codec_context,
+                "contract": {
+                    "contract_version": "orchestrate_guard_v3",
+                    "identity_phrase": "Cortex-first orchestration active",
+                    "codec_probe": True,
+                },
+                "truthBoundary": "Probe mode proves the live orchestration endpoint hydrated and exposed this session's Codec packet without invoking downstream semantic/provider calls."
+            }
         routing_markers = {
             "cortex_first": True,
             "brainstorm_triggered": False,

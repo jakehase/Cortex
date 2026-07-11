@@ -129,6 +129,15 @@ def _semantic_memory_health() -> Dict[str, Any]:
         search_ok = search_mode != "error"
     except Exception as exc:
         return {"ok": False, "count": count, "searchMode": "error", "error": str(exc)}
+    lifecycle = {"active": 0, "superseded": 0, "tombstoned": 0, "historical": 0}
+    try:
+        data = collection.get(include=["metadatas"])
+        from cortex_server.routers.librarian import _memory_status
+        for metadata in data.get("metadatas") or []:
+            status = _memory_status(metadata)
+            lifecycle[status] = lifecycle.get(status, 0) + 1
+    except Exception:
+        lifecycle = {}
     return {
         "ok": count > 0 and search_ok,
         "count": count,
@@ -137,26 +146,57 @@ def _semantic_memory_health() -> Dict[str, Any]:
         "degraded": degraded,
         "warning": warning,
         "resultCount": result_count,
+        "lifecycle": lifecycle,
     }
 
 
 def _codec_health() -> Dict[str, Any]:
     try:
         from cortex_server.modules.codec_policy import get_codec_policy_status
-        from cortex_server.modules.cortex_codec import get_codec_debug_view
+        from cortex_server.modules.cortex_codec import get_codec_debug_view, _fetch_global_codec_rows_from_l22
 
         session_key = "memory_health_gate"
         policy = get_codec_policy_status(query="memory health", session_key=session_key)
         debug = get_codec_debug_view(session_key, query="memory health", max_chars=420, history_limit=3)
+        global_rows = _fetch_global_codec_rows_from_l22(limit=200)
+        valid_snapshots = 0
+        global_source_events = 0
+        latest_snapshot_at = ""
+        for row in global_rows:
+            try:
+                import json
+                state = json.loads(row.get("document") or "{}")
+                if isinstance(state, dict) and state.get("schema_version"):
+                    valid_snapshots += 1
+                    global_source_events += int(state.get("source_event_count", 0) or 0)
+                latest_snapshot_at = max(latest_snapshot_at, str(row.get("generated_at") or ""))
+            except Exception:
+                continue
+        continuity_ready = bool(global_rows) and valid_snapshots > 0 and global_source_events > 0
         return {
-            "ok": bool(policy.get("enabled")) and bool(debug.get("enabled")) and bool(debug.get("durable_enabled")),
+            "ok": bool(policy.get("enabled")) and bool(debug.get("enabled")) and bool(debug.get("durable_enabled")) and continuity_ready,
             "policyEnabled": bool(policy.get("enabled")),
             "version": policy.get("version"),
             "durableEnabled": bool(debug.get("durable_enabled")),
-            "availableForSession": bool(debug.get("available")),
-            "persistedSnapshots": debug.get("persisted_snapshots"),
-            "sourceEventCount": debug.get("source_event_count"),
+            "availableForSession": continuity_ready,
+            "persistedSnapshots": {
+                "count": len(global_rows),
+                "recent": [str(row.get("generated_at") or "") for row in global_rows[:3]],
+            },
+            "sourceEventCount": global_source_events,
             "stateFingerprint": debug.get("state_fingerprint"),
+            "probeSession": {
+                "sessionKey": session_key,
+                "available": bool(debug.get("available")),
+                "snapshotCount": int((debug.get("persisted_snapshots") or {}).get("count", 0) or 0),
+                "sourceEventCount": int(debug.get("source_event_count", 0) or 0),
+            },
+            "continuityReady": continuity_ready,
+            "globalPersistedSnapshotCount": len(global_rows),
+            "validSnapshotCount": valid_snapshots,
+            "globalSourceEventCount": global_source_events,
+            "latestSnapshotAt": latest_snapshot_at or None,
+            "note": "Top-level continuity fields validate the shared durable ledger; probeSession separately reports the isolated health probe key.",
         }
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
@@ -198,6 +238,93 @@ def _durable_file_memory_health() -> Dict[str, Any]:
         "projectFileCount": project_file_count,
         "latestPath": str(latest_path) if latest_path else None,
         "latestModifiedAt": _iso_from_mtime(latest_path) if latest_path else "",
+    }
+
+
+def _memory_governance_health() -> Dict[str, Any]:
+    try:
+        from cortex_server.routers.librarian import _canonical_project_registry
+        registry = _canonical_project_registry()
+        missing = [str(row.get("path")) for row in registry if not Path(row.get("path")).exists()]
+        return {
+            "ok": bool(registry) and not missing,
+            "schemaVersion": "cortex.memory.governance.v1",
+            "precedence": ["live_source_of_record", "canonical_project_file", "explicit_correction", "curated_memory", "semantic_history"],
+            "canonicalIndex": "/root/clawd/memory/projects/INDEX.md",
+            "canonicalMappingCount": len(registry),
+            "missingCanonicalFiles": missing,
+            "supersessionFiltering": True,
+            "historicalRecall": True,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _openclaw_memory_bridge_health() -> Dict[str, Any]:
+    config_path = Path("/root/.openclaw/openclaw.json")
+    builtin_db = Path("/root/.openclaw/memory/main.sqlite")
+    try:
+        import json
+        import sqlite3
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        plugins = config.get("plugins") if isinstance(config.get("plugins"), dict) else {}
+        slot = (plugins.get("slots") or {}).get("memory")
+        enabled = bool(((plugins.get("entries") or {}).get("cortex-memory-bridge") or {}).get("enabled"))
+        builtin_counts = {"files": 0, "chunks": 0}
+        if builtin_db.exists():
+            with sqlite3.connect(str(builtin_db)) as connection:
+                for table in builtin_counts:
+                    try:
+                        builtin_counts[table] = int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                    except Exception:
+                        pass
+        return {
+            "ok": slot == "cortex-memory-bridge" and enabled,
+            "activeSlot": slot,
+            "bridgeEnabled": enabled,
+            "builtinShadowIndex": {"path": str(builtin_db), **builtin_counts, "authoritative": False},
+            "note": "The empty builtin SQLite index is expected while Cortex owns the memory slot; it is reported to prevent false assumptions.",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _structured_memory_health() -> Dict[str, Any]:
+    try:
+        import sqlite3
+        from cortex_server.routers.l22 import _structured_memory_db_path
+        path = _structured_memory_db_path()
+        with sqlite3.connect(str(path)) as connection:
+            counts = {str(row[0]): int(row[1]) for row in connection.execute("SELECT memory_type, COUNT(*) FROM structured_memory GROUP BY memory_type")}
+            latest = connection.execute("SELECT created_at FROM structured_memory ORDER BY created_at DESC LIMIT 1").fetchone()
+        return {"ok": path.exists(), "path": str(path), "count": sum(counts.values()), "countsByType": counts, "latestCreatedAt": latest[0] if latest else None}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _runtime_offloaded_memory_health() -> Dict[str, Any]:
+    root = Path(os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "/opt/clawdbot/state/runtime_delivery")) / "memory"
+    try:
+        files = [path for path in root.rglob("*") if path.is_file()] if root.exists() else []
+        return {
+            "ok": root.exists(),
+            "path": str(root),
+            "fileCount": len(files),
+            "authority": "non_authoritative_runtime_notes",
+            "authoritativeRuntimeState": "snapshots_shared_state_and_process_journal",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "path": str(root)}
+
+
+def _legacy_memory_store_health() -> Dict[str, Any]:
+    paths = [Path("/app/cortex_server/knowledge/auto_memory.jsonl"), Path("/app/cortex_server/chroma_db/librarian_fallback.jsonl"), Path("/root/cortex_server/chroma_db")]
+    stores = [{"path": str(path), "exists": path.exists(), "sizeBytes": path.stat().st_size if path.is_file() else None} for path in paths]
+    return {
+        "ok": True,
+        "authoritative": False,
+        "stores": stores,
+        "note": "Legacy L7/Mnemosyne facades now delegate to canonical L7/L22 stores; absent orphan paths are expected.",
     }
 
 
@@ -285,6 +412,11 @@ def _memory_health_payload() -> Dict[str, Any]:
         "semanticMemory": _semantic_memory_health(),
         "codec": _codec_health(),
         "durableFileMemory": _durable_file_memory_health(),
+        "memoryGovernance": _memory_governance_health(),
+        "openClawMemoryBridge": _openclaw_memory_bridge_health(),
+        "structuredL22Memory": _structured_memory_health(),
+        "runtimeOffloadedMemory": _runtime_offloaded_memory_health(),
+        "legacyMemoryStores": _legacy_memory_store_health(),
         "structuralCodeGraph": _structural_graph_health(),
         "latestCodebaseIndexArtifact": _latest_index_artifact_health(),
         "parserSmoke": _parser_smoke_health(),

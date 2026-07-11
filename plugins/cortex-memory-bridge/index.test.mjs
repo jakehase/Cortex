@@ -269,3 +269,19 @@ test('memory-system repair notes do not outrank domain facts for domain queries'
   assert.equal(results.results[0].citation, 'cortex:domain-fact');
   assert.ok(!results.results.some((row) => row.citation === 'cortex:meta-fix'));
 });
+
+test('explicit supersession is hidden for current queries and retained for historical queries', () => {
+  const cfg = {
+    curatedBoost: 0.24, projectFactBoost: 0.12, durableCandidatePenalty: 0.14,
+    noisyWhatsappPenalty: 0.26, noisyPatternPenalty: 0.2, conflictPenalty: 0.18,
+    recencyBoost: 0.12, explicitBoost: 0.14, corroborationBoost: 0.08, hardQueryCandidateCount: 12,
+  };
+  const rows = [
+    { id: 'old', text: 'Agent Work needs its first product dogfood.', score: 1, metadata: { memory_status: 'superseded' } },
+    { id: 'new', text: 'Agent Work product dogfood is already proven.', score: 0.8, metadata: { memory_status: 'active', authority_rank: 90, correction_memory: true } },
+  ];
+  const current = reconcileResults('What is the current Agent Work dogfood status?', rows, cfg);
+  assert.deepEqual(current.results.map((row) => row.citation), ['cortex:new']);
+  const history = reconcileResults('Show historical superseded Agent Work dogfood memory', rows, cfg);
+  assert.ok(history.results.some((row) => row.citation === 'cortex:old'));
+});

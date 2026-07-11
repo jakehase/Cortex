@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -1723,13 +1724,23 @@ def _fetch_codec_rows_from_l22(session_key: str, *, limit: int = 25) -> List[Dic
         return []
 
     try:
-        from cortex_server.routers.librarian import collection
+        from cortex_server.routers.l22 import list_structured_memory_records
 
-        rows = collection.get(
-            where={"codec_session_key": session_key},
-            limit=limit,
-            include=["documents", "metadatas"],
-        )
+        records = list_structured_memory_records(memory_type="codec_state", lookup_key=session_key, limit=limit)
+        return [{
+            "id": record.get("id"),
+            "document": record.get("content", ""),
+            "metadata": record.get("metadata", {}),
+            "generated_at": str((record.get("metadata") or {}).get("codec_generated_at") or record.get("created_at") or ""),
+            "fingerprint": str((record.get("metadata") or {}).get("codec_fingerprint") or ""),
+        } for record in records]
+    except ImportError:
+        # Compatibility fallback for older embedders and isolated unit-test doubles.
+        try:
+            from cortex_server.routers.librarian import collection
+            rows = collection.get(where={"codec_session_key": session_key}, limit=limit, include=["documents", "metadatas"])
+        except Exception:
+            return []
     except Exception:
         return []
 
@@ -1759,13 +1770,22 @@ def _fetch_global_codec_rows_from_l22(*, limit: int = 200) -> List[Dict[str, Any
         return []
 
     try:
-        from cortex_server.routers.librarian import collection
+        from cortex_server.routers.l22 import list_structured_memory_records
 
-        rows = collection.get(
-            where={"type": "codec_state"},
-            limit=limit,
-            include=["documents", "metadatas"],
-        )
+        records = list_structured_memory_records(memory_type="codec_state", limit=limit)
+        return [{
+            "id": record.get("id"),
+            "document": record.get("content", ""),
+            "metadata": record.get("metadata", {}),
+            "generated_at": str((record.get("metadata") or {}).get("codec_generated_at") or record.get("created_at") or ""),
+            "fingerprint": str((record.get("metadata") or {}).get("codec_fingerprint") or ""),
+        } for record in records]
+    except ImportError:
+        try:
+            from cortex_server.routers.librarian import collection
+            rows = collection.get(where={"type": "codec_state"}, limit=limit, include=["documents", "metadatas"])
+        except Exception:
+            return []
     except Exception:
         return []
 
@@ -2148,9 +2168,14 @@ def _prune_codec_snapshots_in_l22(session_key: str, *, keep_fingerprint: str = "
         }
 
     try:
-        from cortex_server.routers.librarian import collection
-
-        collection.delete(ids=delete_ids)
+        from cortex_server.routers.l22 import delete_structured_memory_records
+        delete_structured_memory_records(delete_ids)
+    except ImportError:
+        try:
+            from cortex_server.routers.librarian import collection
+            collection.delete(ids=delete_ids)
+        except Exception as exc:
+            return {"status": "delete_failed", "deleted": 0, "kept": len(keep_ids), "error": str(exc), "policy": policy}
     except Exception as exc:
         return {"status": "delete_failed", "deleted": 0, "kept": len(keep_ids), "error": str(exc), "policy": policy}
 
@@ -2181,7 +2206,9 @@ def _persist_codec_state_to_l22(session_key: str, state: Dict[str, Any]) -> Dict
             }
 
     try:
-        from cortex_server.routers.l22 import store_memory_record
+        # Resolve through importlib so isolated tests and compatibility runtimes can
+        # supply an L22 module without depending on a stale package attribute.
+        l22_router = importlib.import_module("cortex_server.routers.l22")
 
         content = json.dumps(state, ensure_ascii=False, sort_keys=True)
         utility_summary = state.get("utility_state", {}).get("summary", {}) if isinstance(state.get("utility_state", {}), dict) else {}
@@ -2198,7 +2225,8 @@ def _persist_codec_state_to_l22(session_key: str, state: Dict[str, Any]) -> Dict
             "codec_utility_item_count": int(utility_summary.get("item_count", 0) or 0),
             "codec_top_utility_score": round(max([_coerce_float(item.get("score"), 0.0) for item in top_items] or [0.0]), 3),
         }
-        result = store_memory_record(
+        store_record = getattr(l22_router, "store_structured_memory_record", l22_router.store_memory_record)
+        result = store_record(
             content=content,
             memory_type="codec_state",
             tags=["cortex_codec", "codec_state", "durable_memory"],

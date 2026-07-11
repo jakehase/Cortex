@@ -39,6 +39,33 @@ def test_nexus_orchestrate_surfaces_codec_context(monkeypatch):
     assert "Cortex Codec" in body["codec_context"]["summary"] or body["codec_context"]["packet"]
 
 
+def test_nexus_orchestrate_codec_probe_exposes_hydrated_packet_without_semantic_calls(monkeypatch):
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+
+    session_key = "nexus-codec-recovery-probe"
+    update_codec_state_for_session(
+        session_key,
+        [{"text": "Recovery canary codeword cedar-lantern-7291.", "tags": ["recovery", "canary"]}],
+    )
+
+    app = FastAPI()
+    app.add_middleware(HUDMiddleware)
+    app.include_router(nexus.router, prefix="/nexus")
+    client = TestClient(app)
+
+    response = client.get(
+        "/nexus/orchestrate",
+        params={"query": "Expose the recovered Codec canary.", "codec_probe": "true"},
+        headers={"x-session-id": session_key},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["routing_method"] == "codec_recovery_probe"
+    assert body["contract"]["codec_probe"] is True
+    assert body["codec_context"]["available"] is True
+    assert "cedar-lantern-7291" in body["codec_context"]["packet"] or "cedar-lantern-7291" in body["codec_context"]["summary"]
+
+
 def test_nexus_orchestrate_records_codec_execution_artifact(monkeypatch):
     monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False})
@@ -170,6 +197,31 @@ def test_nexus_codec_status_endpoint_exposes_debug_view(monkeypatch):
     assert body["codec"]["utility"]["retention_priority"] > 0
     assert body["codec"]["retention_policy"]["max_snapshots"] >= 1
     assert "persisted_snapshots" in body["codec"]
+
+
+def test_nexus_codec_events_endpoint_validates_and_writes_low_latency_state(monkeypatch):
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+    session_key = "codec-events-endpoint-test"
+
+    app = FastAPI()
+    app.add_middleware(HUDMiddleware)
+    app.include_router(nexus.router, prefix="/nexus")
+    client = TestClient(app)
+
+    response = client.post("/nexus/codec/events", json={
+        "session_key": session_key,
+        "events": [{"text": "Begin replies with [Cortex].", "tags": ["preference"], "metadata": {"source": "test"}}],
+        "max_chars": 500,
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["event_count"] == 1
+    assert body["codec"]["available"] is True
+    assert "[Cortex]" in body["codec"]["packet"] or "[Cortex]" in body["codec"]["summary"]
+
+    invalid = client.post("/nexus/codec/events", json={"session_key": session_key, "events": []})
+    assert invalid.status_code == 400
 
 
 def test_nexus_codec_benchmark_endpoint_exposes_comparison_view(monkeypatch):

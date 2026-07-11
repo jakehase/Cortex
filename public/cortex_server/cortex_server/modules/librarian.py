@@ -1,10 +1,4 @@
-"""Level 7: Librarian - Knowledge Graph
-Manages knowledge graph storage, retrieval, and semantic relationships.
-"""
-
-import json
-from pathlib import Path
-from datetime import datetime
+"""Level 7 compatibility facade over the canonical semantic Librarian router."""
 
 class Librarian:
     """Level 7: Knowledge Graph Manager."""
@@ -12,11 +6,13 @@ class Librarian:
     def __init__(self):
         self.level = 7
         self.name = "Librarian"
-        self.knowledge_path = Path('/app/cortex_server/knowledge/auto_memory.jsonl')
-        self.knowledge_path.parent.mkdir(parents=True, exist_ok=True)
     
     def status(self):
-        return {"level": self.level, "name": self.name, "status": "active"}
+        try:
+            from cortex_server.routers.librarian import collection
+            return {"level": self.level, "name": self.name, "status": "active", "memory_count": int(collection.count()), "backend": "cortex_memory_chroma"}
+        except Exception as exc:
+            return {"level": self.level, "name": self.name, "status": "degraded", "error": str(exc)}
     
     def index(self, entry: dict) -> dict:
         """
@@ -29,26 +25,16 @@ class Librarian:
         Returns:
             Dict with success status and entry_id
         """
-        # Generate entry ID
-        entry_id = f"kg_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(entry['query']) % 10000}"
-        
-        # Enrich entry with metadata
-        enriched_entry = {
-            **entry,
-            'entry_id': entry_id,
-            'indexed_at': datetime.now().isoformat(),
-            'version': 1
-        }
-        
-        # Append to knowledge graph
         try:
-            with open(self.knowledge_path, 'a') as f:
-                f.write(json.dumps(enriched_entry) + '\n')
+            from cortex_server.routers.librarian import index_with_novelty
+            text = str(entry.get("answer") or entry.get("text") or entry.get("query") or "").strip()
+            metadata = {key: value for key, value in entry.items() if key not in {"answer", "text"} and value is not None}
+            result = index_with_novelty(text=text, metadata=metadata, novelty_tags=["legacy_l7_facade"], source_scope="l7_compat")
             return {
                 'success': True,
-                'entry_id': entry_id,
+                'entry_id': result.get("id"),
                 'subject': entry.get('subject', 'General'),
-                'timestamp': enriched_entry['indexed_at']
+                'status': result.get("status"),
             }
         except Exception as e:
             return {

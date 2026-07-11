@@ -12,15 +12,149 @@ Plus novelty-aware extensions:
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import sqlite3
+import threading
 import uuid
 from cortex_server.routers.librarian import (
+    CHROMA_DIR,
     collection,
     index_with_novelty,
     robust_search,
     search_with_novelty,
+    _normalize_memory_metadata,
+    _supersede_prior_fact_versions,
 )
 
 router = APIRouter()
+_STRUCTURED_MEMORY_LOCK = threading.RLock()
+
+
+def _structured_memory_db_path() -> Path:
+    return Path(os.getenv("CORTEX_L22_STRUCTURED_DB", str(Path(CHROMA_DIR) / "l22_structured.sqlite3")))
+
+
+def _structured_memory_connection() -> sqlite3.Connection:
+    db_path = _structured_memory_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(db_path), timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA busy_timeout=10000")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS structured_memory (
+            id TEXT PRIMARY KEY,
+            memory_type TEXT NOT NULL,
+            lookup_key TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_structured_memory_type_key_created "
+        "ON structured_memory(memory_type, lookup_key, created_at DESC)"
+    )
+    return connection
+
+
+def store_structured_memory_record(*, content: str, memory_type: Optional[str] = "memory", tags: Optional[List[str]] = None, metadata: Optional[dict] = None) -> dict:
+    """Persist exact-lookup L22 state without invoking the semantic embedding path.
+
+    Structured snapshots such as Codec session state are retrieved by metadata key,
+    not similarity. Keeping them in this indexed L22 ledger avoids expensive Chroma
+    scans/embeddings while preserving process-restart durability.
+    """
+    if not (content or "").strip():
+        raise HTTPException(status_code=400, detail="Content cannot be empty")
+
+    memory_id = str(uuid.uuid4())
+    record_metadata = _normalize_memory_metadata(metadata)
+    resolved_type = str(memory_type or record_metadata.get("type") or "memory")
+    record_metadata.setdefault("type", resolved_type)
+    if tags:
+        record_metadata.setdefault("tags", list(tags))
+    record_metadata.setdefault("persistence_backend", "l22_structured_sqlite_v1")
+    lookup_key = str(record_metadata.get("codec_session_key") or record_metadata.get("lookup_key") or "")
+    created_at = str(record_metadata.get("codec_generated_at") or record_metadata.get("generated_at") or datetime.now(timezone.utc).isoformat())
+
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            connection.execute(
+                "INSERT INTO structured_memory(id, memory_type, lookup_key, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (memory_id, resolved_type, lookup_key, content, json.dumps(record_metadata, ensure_ascii=False, sort_keys=True), created_at),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+    return {"id": memory_id, "status": "stored", "metadata": record_metadata, "backend": "l22_structured_sqlite_v1"}
+
+
+def list_structured_memory_records(*, memory_type: Optional[str] = None, lookup_key: Optional[str] = None, limit: int = 25) -> List[dict]:
+    clauses = []
+    params: List[object] = []
+    if memory_type:
+        clauses.append("memory_type = ?")
+        params.append(str(memory_type))
+    if lookup_key is not None:
+        clauses.append("lookup_key = ?")
+        params.append(str(lookup_key))
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    query = f"SELECT id, memory_type, lookup_key, content, metadata_json, created_at FROM structured_memory{where} ORDER BY created_at DESC LIMIT ?"
+    params.append(max(1, min(int(limit), 1000)))
+
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            rows = connection.execute(query, params).fetchall()
+        finally:
+            connection.close()
+    records = []
+    for row in rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except Exception:
+            metadata = {}
+        records.append({
+            "id": row["id"],
+            "type": row["memory_type"],
+            "lookup_key": row["lookup_key"],
+            "content": row["content"],
+            "metadata": metadata,
+            "created_at": row["created_at"],
+        })
+    return records
+
+
+def delete_structured_memory_records(ids: List[str]) -> int:
+    normalized = [str(value) for value in ids if str(value or "").strip()]
+    if not normalized:
+        return 0
+    placeholders = ",".join("?" for _ in normalized)
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            cursor = connection.execute(f"DELETE FROM structured_memory WHERE id IN ({placeholders})", normalized)
+            connection.commit()
+            deleted = int(cursor.rowcount or 0)
+        finally:
+            connection.close()
+    return deleted
+
+
+def count_structured_memory_records() -> int:
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            return int(connection.execute("SELECT COUNT(*) FROM structured_memory").fetchone()[0])
+        finally:
+            connection.close()
 
 
 def store_memory_record(*, content: str, memory_type: Optional[str] = "memory", tags: Optional[List[str]] = None, metadata: Optional[dict] = None) -> dict:
@@ -34,6 +168,9 @@ def store_memory_record(*, content: str, memory_type: Optional[str] = "memory", 
         record_metadata.setdefault("tags", tags)
 
     collection.add(ids=[memory_id], documents=[content], metadatas=[record_metadata])
+    fact_key = str(record_metadata.get("fact_key") or "").strip()
+    if fact_key:
+        _supersede_prior_fact_versions(fact_key, superseded_by=memory_id)
     return {"id": memory_id, "status": "stored", "metadata": record_metadata}
 
 
@@ -73,6 +210,10 @@ async def l22_status():
         memory_count = int(collection.count())
     except Exception:
         memory_count = None
+    try:
+        structured_memory_count = count_structured_memory_records()
+    except Exception:
+        structured_memory_count = None
 
     return {
         "success": True,
@@ -85,8 +226,11 @@ async def l22_status():
             "store_novel",
             "search_novel",
             "canonical_persistence",
+            "exact_structured_persistence",
         ],
         "memory_count": memory_count,
+        "structured_memory_count": structured_memory_count,
+        "structured_memory_backend": "l22_structured_sqlite_v1",
         "novelty_version": "l7l22.v1.1",
     }
 

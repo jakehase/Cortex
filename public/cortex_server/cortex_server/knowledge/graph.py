@@ -67,6 +67,7 @@ class SQLiteStorage:
     """
 
     DEFAULT_DB_CANDIDATES = [
+        "/root/clawd/public/cortex_server/cortex_graph.db",
         "/opt/clawdbot/cortex_server/cortex_graph.db",
         "/opt/clawdbot/cortex_graph.db",
         "cortex_graph.db",

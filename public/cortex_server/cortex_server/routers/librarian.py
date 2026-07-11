@@ -179,6 +179,214 @@ class RecallResponse(BaseModel):
     warning: Optional[str] = None
 
 
+class SupersedeRequest(BaseModel):
+    memory_ids: List[str]
+    superseded_by: Optional[str] = None
+    reason: str = "explicit_correction"
+
+
+_CANONICAL_PROJECT_INDEX = Path(os.getenv("CORTEX_CANONICAL_PROJECT_INDEX", "/root/clawd/memory/projects/INDEX.md"))
+_CURRENT_QUERY_PATTERNS = re.compile(
+    r"\b(current|latest|now|next|recommend|roadmap|should we|what remains|remaining|status|state|done|completed|proven)\b",
+    re.IGNORECASE,
+)
+_HISTORICAL_QUERY_PATTERNS = re.compile(
+    r"\b(history|historical|timeline|previous|earlier|used to|at the time|superseded|tombstone|what happened)\b",
+    re.IGNORECASE,
+)
+
+
+def _query_wants_historical_memory(query: str) -> bool:
+    return bool(_HISTORICAL_QUERY_PATTERNS.search(str(query or "")))
+
+
+def _memory_status(metadata: Optional[Dict[str, Any]]) -> str:
+    meta = metadata or {}
+    status = str(meta.get("memory_status") or meta.get("status") or "active").strip().lower()
+    if bool(meta.get("tombstoned")):
+        return "tombstoned"
+    if bool(meta.get("superseded")) and status == "active":
+        return "superseded"
+    return status if status in {"active", "superseded", "tombstoned", "historical"} else "active"
+
+
+def _authority_rank(metadata: Optional[Dict[str, Any]]) -> int:
+    meta = metadata or {}
+    explicit = meta.get("authority_rank")
+    try:
+        if explicit is not None:
+            return max(0, min(100, int(explicit)))
+    except Exception:
+        pass
+    source = str(meta.get("source") or "").strip().lower()
+    if source == "live_source_of_record":
+        return 100
+    if source == "canonical_project_file" or bool(meta.get("canonical_project_memory")):
+        return 90
+    if bool(meta.get("correction_memory")) or "correction" in _metadata_tags(meta):
+        return 80
+    if _is_curated_memory(meta):
+        return 65
+    if source == "local_file_memory":
+        return 55
+    return 30
+
+
+def _canonical_project_registry() -> List[Dict[str, Any]]:
+    """Parse the user-maintained canonical registry instead of duplicating it in code."""
+    try:
+        text = _CANONICAL_PROJECT_INDEX.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+    rows: List[Dict[str, Any]] = []
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|") or "`memory/projects/" not in line:
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        aliases = [part.strip() for part in re.split(r",|/", cells[0]) if part.strip()]
+        match = re.search(r"`([^`]+)`", cells[1])
+        if not match:
+            continue
+        workspace_root = _CANONICAL_PROJECT_INDEX.parents[2] if len(_CANONICAL_PROJECT_INDEX.parents) >= 3 else Path("/root/clawd")
+        path = workspace_root / match.group(1)
+        rows.append({"aliases": aliases, "path": path, "rel_path": match.group(1)})
+    return rows
+
+
+def _matching_canonical_projects(query: str) -> List[Dict[str, Any]]:
+    normalized = " ".join(_tokenize(query))
+    matches = []
+    for row in _canonical_project_registry():
+        aliases = row.get("aliases") or []
+        for alias in aliases:
+            token_list = _tokenize(str(alias))
+            alias_tokens = " ".join(token_list)
+            distinctive_tokens = [token.lower() for token in re.findall(r"[A-Z0-9][A-Z0-9_-]{3,}", str(alias))]
+            contextual_tokens = [token for token in token_list if token not in distinctive_tokens and len(token) >= 4]
+            distinctive_match = any(token in normalized.split() for token in distinctive_tokens) and any(token in normalized.split() for token in contextual_tokens)
+            if alias_tokens and (alias_tokens in normalized or distinctive_match):
+                matches.append(row)
+                break
+    return matches
+
+
+def _canonical_section_chunks(path: Path, query: str, max_chunks: int = 6) -> List[Dict[str, Any]]:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return []
+    sections: List[tuple[str, int, List[str]]] = []
+    heading = "Document"
+    start = 1
+    buf: List[str] = []
+    for number, line in enumerate(lines, start=1):
+        if _is_markdown_heading(line):
+            if buf:
+                sections.append((heading, start, buf))
+            heading = re.sub(r"^\s*#+\s*", "", line).strip()
+            start = number
+            buf = [line]
+        else:
+            buf.append(line)
+    if buf:
+        sections.append((heading, start, buf))
+
+    current_query = bool(_CURRENT_QUERY_PATTERNS.search(str(query or "")))
+    priority_heading = re.compile(r"\b(current|correction|already proven|completed|next|remaining|blocker)\b", re.IGNORECASE)
+    ranked = []
+    for section_heading, line, content in sections:
+        text = "\n".join(part.rstrip() for part in content if part.strip()).strip()[:5000]
+        if not text:
+            continue
+        lexical = _lexical_score(query, f"{section_heading} {text}")
+        priority = 0.35 if current_query and priority_heading.search(section_heading) else 0.0
+        query_identifiers = {token for token in _tokenize(query) if any(char.isdigit() for char in token)}
+        identifier_hits = sum(1 for token in query_identifiers if token in set(_tokenize(f"{section_heading} {text}")))
+        identifier_boost = min(0.5, identifier_hits * 0.45)
+        if lexical <= 0 and priority <= 0 and identifier_boost <= 0:
+            continue
+        ranked.append({"line": line, "heading": section_heading, "text": text[:1800], "score": min(1.0, lexical + priority + identifier_boost)})
+    ranked.sort(key=lambda item: (item["score"], -item["line"]), reverse=True)
+    return ranked[: max(1, int(max_chunks))]
+
+
+def _canonical_project_search_rows(query: str, n_results: int = 8) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for project in _matching_canonical_projects(query):
+        path = project["path"]
+        for chunk in _canonical_section_chunks(path, query, max_chunks=max(4, n_results)):
+            section_status = "superseded" if re.search(r"\bsuperseded\b", str(chunk["heading"]), re.IGNORECASE) else "active"
+            rows.append({
+                "id": f"canonical-{_fingerprint(str(path))}-{chunk['line']}",
+                "text": chunk["text"],
+                "distance": round(max(0.0, 1.0 - float(chunk["score"])), 4),
+                "metadata": {
+                    "source": "canonical_project_file",
+                    "quality": "curated",
+                    "canonical_project_memory": True,
+                    "authority_rank": 90,
+                    "memory_status": section_status,
+                    "path": str(path),
+                    "relPath": project["rel_path"],
+                    "line": int(chunk["line"]),
+                    "section": chunk["heading"],
+                    "lexical_score": round(float(chunk["score"]), 4),
+                    "canonical_priority_score": round(float(chunk["score"]), 4),
+                    "recall_mode": "canonical_registry_direct_read",
+                    "tags": ["canonical_project_memory", "durable_memory", "source_of_truth"],
+                },
+                "_score": float(chunk["score"]),
+            })
+    return rows[: max(1, int(n_results))]
+
+
+def _normalize_memory_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    normalized = dict(metadata or {})
+    normalized.setdefault("memory_status", "active")
+    normalized.setdefault("authority_rank", _authority_rank(normalized))
+    normalized.setdefault("memory_schema_version", "cortex.memory.governance.v1")
+    normalized.setdefault("recorded_at", _utc_iso())
+    return normalized
+
+
+def supersede_memory_records(memory_ids: List[str], *, superseded_by: Optional[str] = None, reason: str = "explicit_correction") -> Dict[str, Any]:
+    ids = [str(value).strip() for value in memory_ids if str(value or "").strip()]
+    if not ids:
+        return {"updated": 0, "missing": []}
+    data = collection.get(ids=ids, include=["metadatas"])
+    found_ids = data.get("ids") or []
+    metas = data.get("metadatas") or []
+    updated = []
+    for index, memory_id in enumerate(found_ids):
+        metadata = _normalize_memory_metadata(metas[index] if index < len(metas) else {})
+        metadata.update({
+            "memory_status": "superseded",
+            "superseded": True,
+            "superseded_at": _utc_iso(),
+            "supersession_reason": str(reason or "explicit_correction")[:240],
+        })
+        if superseded_by:
+            metadata["superseded_by"] = str(superseded_by)
+        updated.append(metadata)
+    if found_ids:
+        collection.update(ids=found_ids, metadatas=updated)
+    missing = [memory_id for memory_id in ids if memory_id not in set(found_ids)]
+    return {"updated": len(found_ids), "ids": found_ids, "missing": missing, "superseded_by": superseded_by}
+
+
+def _supersede_prior_fact_versions(fact_key: str, *, superseded_by: str) -> int:
+    if not str(fact_key or "").strip():
+        return 0
+    try:
+        data = collection.get(where={"fact_key": str(fact_key)}, include=["metadatas"])
+        ids = [value for value in (data.get("ids") or []) if value != superseded_by]
+        return int(supersede_memory_records(ids, superseded_by=superseded_by, reason="newer_fact_key_revision").get("updated", 0))
+    except Exception:
+        return 0
+
+
 def _utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -582,13 +790,13 @@ def index_with_novelty(
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     memory_id = str(uuid.uuid4())
-    enriched_metadata = _build_novel_metadata(
+    enriched_metadata = _normalize_memory_metadata(_build_novel_metadata(
         text=text,
         metadata=metadata,
         novelty_tags=novelty_tags,
         source_scope=source_scope,
         compare_window=compare_window,
-    )
+    ))
 
     try:
         collection.add(
@@ -596,6 +804,9 @@ def index_with_novelty(
             documents=[text],
             metadatas=[enriched_metadata],
         )
+        fact_key = str(enriched_metadata.get("fact_key") or "").strip()
+        if fact_key:
+            _supersede_prior_fact_versions(fact_key, superseded_by=memory_id)
         return {
             "id": memory_id,
             "status": "stored",
@@ -921,6 +1132,8 @@ def _rank_memory_row(query: str, row: Dict[str, Any]) -> Dict[str, Any]:
     memory_system_meta_noise = _is_memory_system_meta_row(rank_text, metadata) and not _query_wants_memory_system(query)
     correction_memory = _is_fresh_fact_memory(rank_text, metadata)
     stale_negative_memory = _is_stale_negative_memory(query, rank_text, metadata, fresh_fact=correction_memory)
+    memory_status = _memory_status(metadata)
+    authority_rank = _authority_rank(metadata)
 
     score = (0.55 * lexical) + (0.35 * relevance)
     if curated:
@@ -935,6 +1148,9 @@ def _rank_memory_row(query: str, row: Dict[str, Any]) -> Dict[str, Any]:
         score -= 0.38
     if correction_memory:
         score += 0.12
+    score += min(0.24, authority_rank / 420.0)
+    if memory_status in {"superseded", "tombstoned"} and not _query_wants_historical_memory(query):
+        score -= 0.75
     if lexical >= 0.75:
         score += 0.18
     elif lexical >= 0.45:
@@ -950,6 +1166,9 @@ def _rank_memory_row(query: str, row: Dict[str, Any]) -> Dict[str, Any]:
         "memory_system_meta_noise": memory_system_meta_noise,
         "stale_negative_memory": stale_negative_memory,
         "correction_memory": correction_memory,
+        "memory_status": memory_status,
+        "authority_rank": authority_rank,
+        "historical_only": memory_status in {"superseded", "tombstoned"},
     }
     row["score"] = round(_clamp01(score), 4)
     row["_hybrid_score"] = round(_clamp01(score), 4)
@@ -984,6 +1203,9 @@ def _merge_ranked_rows(
         reverse=True,
     )
 
+    if not _query_wants_historical_memory(query):
+        ordered = [row for row in ordered if _memory_status(row.get("metadata")) not in {"superseded", "tombstoned"}]
+
     strong_non_noise = [
         row for row in ordered
         if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise")) and not bool(row.get("_memory_system_meta_noise")) and float(row.get("_hybrid_score", 0.0)) >= 0.22
@@ -994,6 +1216,17 @@ def _merge_ranked_rows(
     has_correction_memory = any(bool((row.get("metadata") or {}).get("correction_memory")) for row in ordered)
     if has_correction_memory and not _query_wants_negative_evidence(query):
         ordered = [row for row in ordered if not bool((row.get("metadata") or {}).get("stale_negative_memory"))]
+
+    if any(bool((row.get("metadata") or {}).get("canonical_project_memory")) for row in ordered) and not _query_wants_historical_memory(query):
+        ordered.sort(
+            key=lambda row: (
+                int((row.get("metadata") or {}).get("authority_rank") or 0),
+                float((row.get("metadata") or {}).get("canonical_priority_score") or 0.0),
+                float(row.get("_hybrid_score", 0.0)),
+                float(row.get("_lexical_score", 0.0)),
+            ),
+            reverse=True,
+        )
 
     cleaned: List[Dict[str, Any]] = []
     for row in ordered[: max(1, int(n_results))]:
@@ -1021,6 +1254,7 @@ def _semantic_rows_need_help(query: str, rows: List[Dict[str, Any]]) -> bool:
 
 def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    rows.extend(_canonical_project_search_rows(query, n_results=max(int(n_results) * 2, 8)))
 
     # Exact Chroma contains search first. Chroma's semantic query can miss
     # freshly-written unique identifiers, and bounded collection.get() scans can
@@ -1173,7 +1407,8 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
                 }
             )
         if exact_rows:
-            ranked_exact_rows = _merge_ranked_rows(query, [], exact_rows, n_results=max(len(exact_rows), max(1, int(n_results))))
+            canonical_rows = _canonical_project_search_rows(query, n_results=max(6, int(n_results) * 2))
+            ranked_exact_rows = _merge_ranked_rows(query, [], exact_rows + canonical_rows, n_results=max(len(exact_rows) + len(canonical_rows), max(1, int(n_results))))
             real_exact_rows = [
                 row for row in ranked_exact_rows
                 if not bool((row.get("metadata") or {}).get("codec_state_noise"))
@@ -1224,7 +1459,8 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
                 n_results=max(int(n_results) * 3, 8),
                 scan_limit=max(int(n_results) * 40, 240),
             )
-            strong_local_rows = [row for row in local_rows if float(row.get("_score", 0.0)) >= max(_LOCAL_FILE_MEMORY_MIN_SCORE, 0.34)]
+            canonical_rows = _canonical_project_search_rows(query, n_results=max(int(n_results) * 2, 8))
+            strong_local_rows = [row for row in local_rows if float(row.get("_score", 0.0)) >= max(_LOCAL_FILE_MEMORY_MIN_SCORE, 0.34)] + canonical_rows
             if strong_local_rows:
                 return {
                     "query": query,
@@ -1416,6 +1652,8 @@ async def librarian_status():
             "search_novel",
             "novelty_reranking",
             "robust_recall_fallback",
+            "canonical_project_precedence",
+            "supersession_tombstones",
         ],
         "novelty_version": "l7l22.v1.2",
         "embedding_health": _embedding_health_snapshot(),
@@ -1434,7 +1672,7 @@ async def embed_memory(request: EmbedRequest):
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     memory_id = str(uuid.uuid4())
-    metadata = request.metadata or {}
+    metadata = _normalize_memory_metadata(request.metadata)
 
     try:
         collection.add(
@@ -1442,6 +1680,9 @@ async def embed_memory(request: EmbedRequest):
             documents=[request.text],
             metadatas=[metadata],
         )
+        fact_key = str(metadata.get("fact_key") or "").strip()
+        if fact_key:
+            _supersede_prior_fact_versions(fact_key, superseded_by=memory_id)
         return EmbedResponse(id=memory_id, status="stored")
     except Exception as exc:
         _mark_embedding_error(exc)
@@ -1532,6 +1773,16 @@ async def recall_memory(request: RecallRequest):
         degraded=bool(result.get("degraded", False)),
         warning=result.get("warning"),
     )
+
+
+@router.post("/supersede")
+async def supersede_memory(request: SupersedeRequest):
+    """Mark semantic records as historical without deleting their audit trail."""
+    return {"success": True, **supersede_memory_records(
+        request.memory_ids,
+        superseded_by=request.superseded_by,
+        reason=request.reason,
+    )}
 
 
 @router.get("/stats")

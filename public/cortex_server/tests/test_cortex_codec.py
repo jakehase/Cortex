@@ -163,6 +163,8 @@ def test_session_codec_store_shares_state_and_packet(monkeypatch):
     assert packet["summary"]
 
 
+
+
 def test_codec_persists_to_l22_when_state_changes(monkeypatch):
     class _Recorder:
         def __init__(self):
@@ -175,6 +177,7 @@ def test_codec_persists_to_l22_when_state_changes(monkeypatch):
     recorder = _Recorder()
     fake_l22 = types.ModuleType("cortex_server.routers.l22")
     fake_l22.store_memory_record = recorder
+    fake_l22.list_structured_memory_records = lambda **kwargs: []
     monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", fake_l22)
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     monkeypatch.setattr(codec_module, "_load_codec_state_from_l22", lambda session_key: {})
@@ -215,6 +218,7 @@ def test_codec_can_hydrate_latest_state_from_l22(monkeypatch):
     fake_librarian = types.ModuleType("cortex_server.routers.librarian")
     fake_librarian.collection = _FakeCollection()
     monkeypatch.setitem(sys.modules, "cortex_server.routers.librarian", fake_librarian)
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", types.ModuleType("cortex_server.routers.l22"))
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     codec_module._SESSION_CODEC_STATE.pop("codec-hydrate-test", None)
     codec_module._SESSION_CODEC_PERSIST.pop("codec-hydrate-test", None)
@@ -279,6 +283,7 @@ def test_codec_retention_prunes_duplicate_and_old_snapshots(monkeypatch):
     fake_librarian = types.ModuleType("cortex_server.routers.librarian")
     fake_librarian.collection = _FakeCollection()
     monkeypatch.setitem(sys.modules, "cortex_server.routers.librarian", fake_librarian)
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", types.ModuleType("cortex_server.routers.l22"))
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     monkeypatch.setattr(codec_module, "CODEC_RETENTION_MAX_SNAPSHOTS", 4)
 
@@ -312,6 +317,7 @@ def test_codec_retention_prefers_high_utility_snapshot_over_newer_low_value_snap
     fake_librarian = types.ModuleType("cortex_server.routers.librarian")
     fake_librarian.collection = _FakeCollection()
     monkeypatch.setitem(sys.modules, "cortex_server.routers.librarian", fake_librarian)
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", types.ModuleType("cortex_server.routers.l22"))
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     monkeypatch.setattr(codec_module, "CODEC_RETENTION_MAX_SNAPSHOTS", 3)
     monkeypatch.setattr(codec_module, "CODEC_RETENTION_MIN_PRIORITY", 10.0)
@@ -348,6 +354,7 @@ def test_codec_retention_policy_can_keep_high_priority_overflow(monkeypatch):
     fake_librarian = types.ModuleType("cortex_server.routers.librarian")
     fake_librarian.collection = _FakeCollection()
     monkeypatch.setitem(sys.modules, "cortex_server.routers.librarian", fake_librarian)
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", types.ModuleType("cortex_server.routers.l22"))
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     monkeypatch.setattr(codec_module, "CODEC_RETENTION_MAX_SNAPSHOTS", 2)
     monkeypatch.setattr(codec_module, "CODEC_RETENTION_MIN_PRIORITY", 7.0)
@@ -441,6 +448,7 @@ def test_codec_migrates_legacy_v0_state_to_schema_v1(monkeypatch):
     fake_librarian = types.ModuleType("cortex_server.routers.librarian")
     fake_librarian.collection = _FakeCollection()
     monkeypatch.setitem(sys.modules, "cortex_server.routers.librarian", fake_librarian)
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", types.ModuleType("cortex_server.routers.l22"))
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     codec_module._SESSION_CODEC_STATE.pop("codec-legacy-migrate-test", None)
     codec_module._SESSION_CODEC_PERSIST.pop("codec-legacy-migrate-test", None)
@@ -592,6 +600,7 @@ def test_codec_global_rollup_enriches_matching_fact_across_sessions(monkeypatch)
     fake_librarian = types.ModuleType("cortex_server.routers.librarian")
     fake_librarian.collection = _FakeCollection()
     monkeypatch.setitem(sys.modules, "cortex_server.routers.librarian", fake_librarian)
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", types.ModuleType("cortex_server.routers.l22"))
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     codec_module._SESSION_CODEC_STATE.pop("codec-rollup-session-a", None)
     codec_module._SESSION_CODEC_PERSIST.pop("codec-rollup-session-a", None)
@@ -657,6 +666,7 @@ def test_codec_rollup_alias_matches_near_equivalent_fact_across_sessions(monkeyp
     fake_librarian = types.ModuleType("cortex_server.routers.librarian")
     fake_librarian.collection = _FakeCollection()
     monkeypatch.setitem(sys.modules, "cortex_server.routers.librarian", fake_librarian)
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", types.ModuleType("cortex_server.routers.l22"))
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     codec_module._SESSION_CODEC_STATE.pop("codec-alias-session-a", None)
     codec_module._SESSION_CODEC_PERSIST.pop("codec-alias-session-a", None)

@@ -4,10 +4,12 @@ type BridgeConfig = {
   baseUrl?: string;
   searchPath?: string;
   storePath?: string;
+  codecEventsPath?: string;
   timeoutMs?: number;
   retryCount?: number;
   retryBackoffMs?: number;
   enabledWriteThrough?: boolean;
+  enabledCodecContinuity?: boolean;
   curatedBoost?: number;
   projectFactBoost?: number;
   durableCandidatePenalty?: number;
@@ -66,16 +68,18 @@ const GetSchema = {
   properties: { path: { type: 'string' }, from: { type: 'number' }, lines: { type: 'number' } },
 } as const;
 
-function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount'>> & BridgeConfig {
+function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount'>> & BridgeConfig {
   const cfg = (pluginConfig ?? {}) as BridgeConfig;
   return {
     baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
     searchPath: cfg.searchPath ?? '/knowledge/search',
     storePath: cfg.storePath ?? '/l22/store',
+    codecEventsPath: cfg.codecEventsPath ?? '/nexus/codec/events',
     timeoutMs: cfg.timeoutMs ?? 12000,
     retryCount: cfg.retryCount ?? 2,
     retryBackoffMs: cfg.retryBackoffMs ?? 350,
     enabledWriteThrough: cfg.enabledWriteThrough ?? false,
+    enabledCodecContinuity: cfg.enabledCodecContinuity ?? true,
     curatedBoost: cfg.curatedBoost ?? 0.24,
     projectFactBoost: cfg.projectFactBoost ?? 0.12,
     durableCandidatePenalty: cfg.durableCandidatePenalty ?? 0.14,
@@ -262,6 +266,7 @@ function isStaleNegativeOrOpenWork(query: string, text: string, metadata: Record
   return /\bno found\b|\bno (?:explicit )?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b|\bfound no (?:explicit )?(?:evidence|record|records|memory|correspondence|source|sources|artifact|artifacts)\b|\bcould not (?:find|locate|confirm|verify|surface|recover)\b|\b(?:cannot|can't|unable to) (?:find|locate|confirm|verify|surface|recover)\b|\bnot (?:found|located|confirmed|verified|available|present|implemented|synced|documented)\b|\bnot in (?:memory|hard memory|durable memory|local files|the ledger|the repo)\b|\bmissing (?:from|in) (?:memory|hard memory|durable memory|local files|the ledger|the repo)\b|\bneed(?:s|ed)? to (?:implement|build|add|fix|repair|wire|create)\b|\bshould (?:implement|build|add|fix|repair|wire|create)\b|\bnext action\s*:\s*(?:implement|build|add|fix|repair|wire|create)\b|\bnot (?:yet )?implemented\b|\bunimplemented\b/i.test(t);
 }
 function sourceQualityScore(metadata: Record<string, unknown>): number {
+  if (metadata?.canonical_project_memory === true || metadata?.source === 'canonical_project_file') return 1;
   if (isCurated(metadata)) return 1;
   if (isProjectStateMemory(metadata)) return 0.92;
   if (isDurableCandidate(metadata)) return 0.66;
@@ -353,6 +358,11 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   const vague = isShortVagueQuery(query);
   const noiseSeeking = explicitNoiseSeekingQuery(query);
   if (isCurated(metadata)) { score += cfg.curatedBoost; signals.reasons.push('curated_boost'); }
+  const authorityRank = finiteNumber(metadata?.authority_rank) ?? 30;
+  score += Math.min(0.24, authorityRank / 420);
+  if (metadata?.canonical_project_memory === true || metadata?.source === 'canonical_project_file') { score += 0.2; signals.reasons.push('canonical_project_authority'); }
+  const memoryStatus = String(metadata?.memory_status ?? 'active').toLowerCase();
+  if (!looksHistoricalQuery(query) && (memoryStatus === 'superseded' || memoryStatus === 'tombstoned')) { score -= 0.8; signals.supersededPenalty += 0.8; signals.reasons.push('explicitly_superseded'); }
   if (isProjectStateMemory(metadata) && !historical) { score += cfg.projectFactBoost; signals.reasons.push('project_fact_boost'); }
   if (signals.lexicalOverlapScore >= 0.34) { signals.reasons.push('lexical_overlap'); }
   if (!vague && signals.lexicalOverlapScore === 0) { score -= 0.12; signals.reasons.push('no_overlap_penalty'); }
@@ -408,6 +418,8 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
   const mapped = items.map((item) => mapCandidate(query, item, cfg, groupedBySignature.get(normalizeValueSignature(String(item?.text ?? ''))) ?? 1));
   let visible = mapped.filter((item) => {
     const signals = item.metadata.candidateSignals as CandidateSignals;
+    const memoryStatus = String(item.metadata?.memory_status ?? 'active').toLowerCase();
+    if (!looksHistoricalQuery(query) && (memoryStatus === 'superseded' || memoryStatus === 'tombstoned')) return false;
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
     if (isGhostCache(item.metadata) && !queryIsAboutGhostCache(query)) return false;
     if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
@@ -614,7 +626,30 @@ function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: a
     tags,
     project: project ?? undefined,
     topic,
+    fact_key: topic ? `${project ?? 'global'}:${topic}` : undefined,
+    memory_status: 'active',
+    authority_rank: source.startsWith('curated-') ? 65 : 30,
+    memory_schema_version: 'cortex.memory.governance.v1',
+    correction_memory: /\bcorrection\s*:|\bcorrected\b|\bcurrent canonical status\b/i.test(text),
   };
+}
+
+async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
+  if (cfg.enabledCodecContinuity === false) return;
+  const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
+  if (!sessionKey) return;
+  const text = [extractAssistantVisibleText(event?.messages), extractText(event?.result), String(fallbackText || '')]
+    .filter(Boolean).join('\n').replace(/\s+/g, ' ').trim().slice(-2400);
+  if (text.length < 20 || containsSecretLike(text)) return;
+  try {
+    await postJson(cfg.baseUrl, cfg.codecEventsPath, {
+      session_key: sessionKey,
+      events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown' } }],
+      max_chars: 1200,
+    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+  } catch (error) {
+    api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed: ${String(error)}`);
+  }
 }
 async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
   if (!cfg.enabledWriteThrough) return;
@@ -747,6 +782,7 @@ const plugin = {
         api.logger.info?.(`cortex-memory-bridge: subagent_ended shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
       await maybeWriteThrough(api, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
+      await maybeWriteCodecContinuity(api, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
     });
 
     api.on('agent_end', async (event: any, ctx: any) => {
@@ -757,6 +793,7 @@ const plugin = {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
       await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      await maybeWriteCodecContinuity(api, cfg, event, ctx, fallbackText);
       if (key) recentOutputBySession.delete(key);
     });
   },

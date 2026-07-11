@@ -247,6 +247,68 @@ def test_local_file_memory_staleness_is_generic_not_morgan_specific(monkeypatch,
     assert all("Could not find" not in row["text"] for row in out["results"])
 
 
+def test_canonical_registry_direct_read_outranks_stale_semantic_recommendation(monkeypatch, tmp_path):
+    memory_root = tmp_path / "memory"
+    projects = memory_root / "projects"
+    projects.mkdir(parents=True)
+    canonical = projects / "agent-work-v1.md"
+    canonical.write_text(
+        "# Agent Work\n\n## Already proven\nReal product dogfood is already proven. Do not recommend a first dogfood run.\n\n"
+        "## Next\nCapture only semantic_auto workforce selection during the next useful product job.\n",
+        encoding="utf-8",
+    )
+    index = projects / "INDEX.md"
+    index.write_text("| Project / aliases | Canonical project state | Related |\n|---|---|---|\n| Agent Work, semantic workforce | `memory/projects/agent-work-v1.md` | old |\n", encoding="utf-8")
+
+    monkeypatch.setattr(librarian, "_CANONICAL_PROJECT_INDEX", index)
+    monkeypatch.setattr(librarian.collection, "query", lambda *a, **k: {
+        "ids": [["stale-1"]], "documents": [["Agent Work should run its first real product dogfood campaign next."]],
+        "distances": [[0.01]], "metadatas": [[{"source": "semantic_history", "memory_status": "active"}]],
+    })
+    monkeypatch.setattr(librarian.collection, "get", lambda *a, **k: {"ids": [], "documents": [], "metadatas": []})
+
+    out = librarian.robust_search("What should Agent Work do next?", n_results=3)
+    assert out["results"]
+    assert out["results"][0]["metadata"]["source"] == "canonical_project_file"
+    assert out["results"][0]["metadata"]["authority_rank"] == 90
+    assert "semantic_auto" in " ".join(row["text"] for row in out["results"])
+
+
+def test_superseded_records_hidden_by_default_but_available_to_history_queries():
+    rows = [
+        {"id": "old", "text": "Agent Work needs its first dogfood run.", "distance": 0.01, "metadata": {"memory_status": "superseded"}},
+        {"id": "new", "text": "Agent Work dogfood is already proven.", "distance": 0.2, "metadata": {"memory_status": "active", "correction_memory": True}},
+    ]
+    current = librarian._merge_ranked_rows("What is current for Agent Work dogfood?", rows, [], 5)
+    assert [row["id"] for row in current] == ["new"]
+    historical = librarian._merge_ranked_rows("Show historical superseded Agent Work dogfood memory", rows, [], 5)
+    assert {row["id"] for row in historical} == {"old", "new"}
+
+
+def test_canonical_version_identifier_beats_generic_current_heading(monkeypatch, tmp_path):
+    projects = tmp_path / "memory" / "projects"
+    projects.mkdir(parents=True)
+    (projects / "INDEX.md").write_text("| Project | Canonical | Related |\n|---|---|---|\n| Synthetic Labor OS, SLOS | `memory/projects/slos.md` | |\n", encoding="utf-8")
+    (projects / "slos.md").write_text(
+        "# SLOS\n\n## Current checkpoint — v20\nCurrent release is v20.\n\n"
+        "## Previous checkpoint — v19 adapter/prior-art gate\nV19 duplicated existing capabilities and was corrected to adapter_wrapper_only.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(librarian, "_CANONICAL_PROJECT_INDEX", projects / "INDEX.md")
+    rows = librarian._canonical_project_search_rows("What is current SLOS v19 status?", 2)
+    assert rows[0]["metadata"]["section"].startswith("Previous checkpoint — v19")
+
+
+def test_canonical_registry_matches_distinctive_acronym_alias(monkeypatch, tmp_path):
+    projects = tmp_path / "memory" / "projects"
+    projects.mkdir(parents=True)
+    (projects / "INDEX.md").write_text("| Project | Canonical | Related |\n|---|---|---|\n| PMHNP Tier 2 benchmark | `memory/projects/pmhnp.md` | |\n", encoding="utf-8")
+    (projects / "pmhnp.md").write_text("# PMHNP\n\n## Corrections\nTier 2 was verification only, not product code generation.\n", encoding="utf-8")
+    monkeypatch.setattr(librarian, "_CANONICAL_PROJECT_INDEX", projects / "INDEX.md")
+    rows = librarian._canonical_project_search_rows("PMHNP Tier 2 product code generation", 2)
+    assert rows and rows[0]["metadata"]["section"] == "Corrections"
+
+
 def test_negative_evidence_queries_can_still_return_missing_rows(monkeypatch, tmp_path):
     memory_root = tmp_path / "memory"
     memory_root.mkdir()
