@@ -1308,3 +1308,33 @@ Acceptance evidence:
 Truth boundary:
 
 This checkpoint proves bounded provider retrieval and model compute through explicit AIOS grants. It does not authorize send/post/email/schedule/publish/deploy/provider-write operations, arbitrary URLs or models, user-visible external action, Cortex/OpenClaw replacement, runtime replacement, benchmark promotion, or full product parity.
+
+## 28. AIOS v1 freeze and recurring provider-workflow checkpoint (2026-07-11)
+
+Status: **implemented, locally dogfooded, independently qualified, and promoted on the canonical default adapter path**.
+
+Completed product surfaces:
+
+- enforceable canonical v1 surface digest and exact runtime-operation allowlist;
+- freeze policy permitting only bugfix, security, and compatibility work in v1;
+- evidence evaluator requiring at least 20 successful runs and recurring friction across at least three occurrences, three runs, and two workflows before v1.1 design review;
+- explicit-approval gate that prevents execution evidence from automatically changing the language;
+- three recurring workflows—research synthesis, contradiction review, and implementation brief—built by composing existing provider read/compute jobs;
+- quote-aware invocation parsing for real retrieved evidence containing commas, semicolons, or recovery-like text;
+- per-run provenance, provider receipts, restart-safe completed-record reuse, controlled provider-write denial, verifier evidence, bounded completion claim, and JSONL execution telemetry;
+- canonical adapter `provider-workflow` entrypoint and package scripts for one-off workflow execution, 20-run dogfood, and v1.1 review.
+
+Observed local evidence:
+
+- 20/20 green executions across all three workflows;
+- 40/40 live provider calls returned HTTP 200 and stayed internal-artifact-only;
+- every run reused the completed compute record after restart and rejected `provider.write` at compile time;
+- all bounded completion claims were allowed after verifier evidence;
+- v1.1 review status `keep_v1_frozen`, with zero recurring friction candidates and automatic language changes blocked;
+- local evidence root: `/root/clawd/ai-os/artifacts/provider-workflow-dogfood/batch-20260711T225838Z`;
++- independent Hetzner evidence: `/home/jake/clawd-remote/ai-os/artifacts/provider-workflow-dogfood/remote-batch-final-20260711T2306Z`, with full suite and a separate 20/20 provider-fixture batch green;
++- promoted default adapter proof: `/root/clawd/ai-os/artifacts/openclaw-dogfood/v1-freeze-provider-workflows-final-20260711230332`.
+
+Stop condition for this checkpoint: full local suite green, exact-source independent Hetzner suite/workflow validation green, default adapter promoted, records updated, commit pushed, and user-facing delivery complete. All conditions except commit/push and delivery are green at this checkpoint.
+
+Truth boundary: workflow glue reduction is an estimated command-model metric, not measured human labor saved. This checkpoint proves recurring bounded internal workflows and a real evidence gate; it does not approve external writes, arbitrary providers/models, runtime replacement, native OS readiness, benchmark promotion, or full product parity.

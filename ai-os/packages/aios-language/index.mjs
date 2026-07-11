@@ -5,6 +5,7 @@ import { classifyTruthClaim } from "./api/truth-boundary.mjs";
 // Canonical AIOS v1 entrypoint. The legacy directive parser below remains exported
 // for compatibility, but new runtime adoption must use compileCanonicalAiosSource.
 export * from "./canonical.mjs";
+export * from "./governance/version-freeze.mjs";
 export * from "./runtime/provider-read-compute.mjs";
 export * from "./api/compile-result.mjs";
 export * from "./api/runtime-result.mjs";

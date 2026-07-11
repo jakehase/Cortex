@@ -69,3 +69,11 @@ Append-only durable decisions for AI OS. Keep current state in `STATUS.md`; keep
 - Boundary: Cortex/OpenClaw remain the reasoning and control plane. Provider responses are internal artifacts. Send, post, email, schedule, publish, deploy, provider-write, arbitrary URL, runtime replacement, and user-visible external action remain blocked absent separate explicit approval and proof.
 - Supersedes: The 2026-07-11 internal-only runtime boundary only for the narrow provider read/compute operations above; all other external capabilities remain fail-closed.
 - Follow-up: Add future providers or operations one capability family at a time with negative tests, deterministic fixtures, live proof, and independent execution-plane qualification.
+
+## 2026-07-11 — Freeze AIOS v1 and gate v1.1 on recurring execution evidence
+
+- Decision: Freeze the exact `aios.language.v1` grammar/compiler/runtime surface. v1 accepts bugfix, security, and compatibility changes only. Surface expansion requires a threshold-qualified `aios.language.v1.1-review.v1` artifact and explicit operator approval; evidence never changes the language automatically.
+- Reason: Provider read/compute made v1 useful enough for recurring internal work. More syntax without observed friction would create architecture for architecture's sake.
+- Implementation: canonical surface digest and exact runtime-operation allowlist in `packages/aios-language/governance/version-freeze.mjs`; policy in `kernel/policy/language-v1-freeze.json`; package test gate in `scripts/check-language-freeze.mjs` and `tests/language-governance.test.mjs`.
+- Evidence: 20/20 green runs across three workflows at `/root/clawd/ai-os/artifacts/provider-workflow-dogfood/batch-20260711T225838Z`; review result `keep_v1_frozen` with zero recurring friction candidates.
+- Boundary: This stabilizes a hosted production slice. It does not claim native OS completeness, runtime replacement, external-write authority, benchmark promotion, or full product parity.

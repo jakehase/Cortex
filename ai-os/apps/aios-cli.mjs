@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { compileCanonicalAiosSource } from '../packages/aios-language/canonical.mjs';
+import { AIOS_V1_RUNTIME_OPERATIONS } from '../packages/aios-language/governance/version-freeze.mjs';
 import {
   executeCapabilityGatedProviderOperation,
   normalizeProviderPolicy,
@@ -332,17 +333,8 @@ const runRoute = 'L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governo
 const runPacketType = 'aios.run.proof';
 const invocationStartedAt = new Date().toISOString();
 const invocationArgv = process.argv.slice(2);
-const allowedKernelSyscalls = new Set([
-  'kernel.echo',
-  'kernel.record',
-  'kernel.artifact.status',
-  'kernel.complete',
-  'process.admit',
-  'process.transition',
-  'provider.read',
-  'provider.compute',
-]);
-const syscallAllowedByKernelPolicy = (op) => allowedKernelSyscalls.has(op) || op.startsWith('kernel.');
+const allowedKernelSyscalls = new Set(AIOS_V1_RUNTIME_OPERATIONS);
+const syscallAllowedByKernelPolicy = (op) => allowedKernelSyscalls.has(op);
 
 const compactClientRuntime = () => ({
   cwd: process.cwd(),

@@ -1,12 +1,13 @@
 # AI OS Adapter
 
-Status: default-on canonical AIOS language compile→execute substrate for local status, recovery, handoff, and bounded internal jobs.
+Status: default-on canonical frozen-AIOS-v1 compile→execute substrate for local status, recovery, handoff, and capability-gated provider read/compute workflows.
 
-The adapter now compiles canonical `.aios` source before kernel execution. It is on by default for bounded internal status/recovery/handoff workflows while preserving the control-plane boundary: it does **not** replace Cortex/OpenClaw routing, the chat brain, provider execution, or external-write approval gates.
+The adapter compiles canonical `.aios` source before kernel execution. It is on by default for bounded internal status/recovery/handoff plus three recurring provider read/compute workflows while preserving the control-plane boundary: it does **not** replace Cortex/OpenClaw routing or the chat brain, and it exposes no provider writes or user-visible external actions.
 
 ## Boundary
 
-- Default-on for local/internal status, recovery, handoff, and bounded internal AIOS language jobs.
+- Default-on for local/internal status, recovery, handoff, bounded internal AIOS language jobs, and `research-synthesis`, `contradiction-review`, and `implementation-brief`.
+- AIOS v1 is mechanically frozen; surface expansion requires threshold-qualified execution evidence and explicit operator approval.
 - Canonical path: `.aios` → `aios.language.compiler.canonical.v1` → runtime-compatible job JSON → mediated kernel syscalls.
 - Legacy directive compilers remain compatibility exports, not the default adoption path.
 - No external handoff/provider writes are exposed.
@@ -37,6 +38,7 @@ node scripts/aios-adapter.mjs run <source.aios|job.json> --artifact-root ai-os/a
 node scripts/aios-adapter.mjs ps --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
 node scripts/aios-adapter.mjs logs --artifact-root ai-os/artifacts/openclaw-dogfood/<run> --process <process-id>
 node scripts/aios-adapter.mjs claim <source.aios|job.json> --artifact-root ai-os/artifacts/openclaw-dogfood/<run> --write-verifier-evidence
+node scripts/aios-adapter.mjs provider-workflow --workflow research-synthesis --query "current canonical project status"
 ```
 
 Promotion/proof command:
@@ -49,22 +51,24 @@ node scripts/aios-adapter.mjs promote-default --label default-on-integration
 
 Default-on promotion passed at:
 
-`/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346`
+`/root/clawd/ai-os/artifacts/openclaw-dogfood/v1-freeze-provider-workflows-final-20260711230332`
 
 Observed proof:
 
-- adapter: `openclaw-aios-adapter.v0.4-language-v1`
+- adapter: `openclaw-aios-adapter.v0.6-v1-freeze-provider-workflows`
 - canonical source: `adapter-dogfood.aios`
 - canonical compiler: `aios.language.compiler.canonical.v1`
 - compile proof green and compiled job emitted
-- `kernel.artifact.status` executed through mediated syscall runtime
+- exact frozen runtime-operation allowlist enforced; unknown `kernel.*` operations fail closed
+- three provider workflows available through the canonical adapter entrypoint
+- local 20/20 live-Cortex workflow executions green with internal-only provider artifacts, restart reuse, controlled provider-write denial, verifier evidence, and allowed claims
 - boot and run proofs green
 - process and logs visible
 - verifier evidence green
 - completion claim `claimStatus=allowed`
 - recovery report green, including canonical-language source/compile checks
 - `node scripts/aios-adapter.mjs status` and `recover` work with no root flags
-- independent Hetzner source-manifest match, full `npm test`, and dogfood compile→run proof passed
+- independent Hetzner source-manifest match, full `npm test`, separate 20/20 provider-fixture batch, and adapter workflow proof passed
 
 Validation after promotion:
 
@@ -75,7 +79,7 @@ cd /root/clawd && node scripts/aios-adapter.mjs recover
 cd /root/clawd/ai-os && npm test
 ```
 
-Observed 2026-07-11 local and Hetzner results: 7/7 contract tests, 6/6 language-adoption tests, product health (262 syntax / 259 import checks), and source-language operator smoke passed. The operator-smoke completion claim was allowed on both hosts.
+Observed 2026-07-11 local and Hetzner results: 7/7 contract tests, 10/10 language-adoption tests, 7/7 governance tests, product health (269 syntax / 262 import checks), and source-language operator smoke passed. Both 20-run evidence reviews returned `keep_v1_frozen`; no automatic language change is allowed.
 
 ## Prior proofs
 

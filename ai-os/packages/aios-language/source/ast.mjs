@@ -399,7 +399,7 @@ class Parser {
     if (!this.consumeKeyword("uses")) {
       this.addDiagnostic("AIOS_STEP_USES", `Step "${name}" must include "uses".`, start, this.offset);
     } else {
-      const invocation = this.readUntil(/[;\n]/).trim();
+      const invocation = this.readUntil(/[;\n]/, { respectQuotes: true }).trim();
       const parsed = parseInvocation(invocation);
       adapter = parsed.adapter;
       args = parsed.args;
@@ -476,9 +476,35 @@ class Parser {
     return match[0];
   }
 
-  readUntil(pattern) {
+  readUntil(pattern, options = {}) {
     const start = this.offset;
-    while (!this.eof() && !pattern.test(this.peek())) {
+    let quote = null;
+    let escaped = false;
+    while (!this.eof()) {
+      const char = this.peek();
+      if (options.respectQuotes) {
+        if (escaped) {
+          escaped = false;
+          this.offset += 1;
+          continue;
+        }
+        if (char === "\\" && quote) {
+          escaped = true;
+          this.offset += 1;
+          continue;
+        }
+        if (quote) {
+          if (char === quote) quote = null;
+          this.offset += 1;
+          continue;
+        }
+        if (char === "\"" || char === "'") {
+          quote = char;
+          this.offset += 1;
+          continue;
+        }
+      }
+      if (pattern.test(char)) break;
       this.offset += 1;
     }
     return this.source.slice(start, this.offset);
@@ -595,13 +621,63 @@ function stripQuotes(value) {
 }
 
 function splitList(value) {
-  return String(value ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+  return splitOutsideQuotes(value, ",").map((part) => part.trim()).filter(Boolean);
 }
 
 function splitOnce(value, delimiter) {
-  const index = String(value).indexOf(delimiter);
+  const input = String(value);
+  const index = indexOfOutsideQuotes(input, delimiter);
   if (index === -1) return [String(value), null];
-  return [String(value).slice(0, index), String(value).slice(index + delimiter.length)];
+  return [input.slice(0, index), input.slice(index + delimiter.length)];
+}
+
+function splitOutsideQuotes(value, delimiter) {
+  const input = String(value ?? "");
+  const parts = [];
+  let start = 0;
+  let offset = 0;
+  while (offset < input.length) {
+    const index = indexOfOutsideQuotes(input, delimiter, offset);
+    if (index === -1) break;
+    parts.push(input.slice(start, index));
+    start = index + delimiter.length;
+    offset = start;
+  }
+  parts.push(input.slice(start));
+  return parts;
+}
+
+function indexOfOutsideQuotes(value, delimiter, fromIndex = 0) {
+  const input = String(value);
+  let quote = null;
+  let escaped = false;
+  let roundDepth = 0;
+  let squareDepth = 0;
+  for (let index = fromIndex; index <= input.length - delimiter.length; index += 1) {
+    const char = input[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote) {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "(") roundDepth += 1;
+    else if (char === ")") roundDepth = Math.max(0, roundDepth - 1);
+    else if (char === "[") squareDepth += 1;
+    else if (char === "]") squareDepth = Math.max(0, squareDepth - 1);
+    if (roundDepth === 0 && squareDepth === 0 && input.startsWith(delimiter, index)) return index;
+  }
+  return -1;
 }
 
 function freezeNode(node) {

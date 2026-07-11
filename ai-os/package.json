@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run test:contracts && npm run test:language-adoption && npm run test:product-health && npm run test:operator-smoke",
+    "test": "npm run test:contracts && npm run test:language-adoption && npm run test:language-governance && npm run test:product-health && npm run test:operator-smoke",
     "test:contracts": "node --test tests/contracts.test.mjs",
     "test:language-adoption": "node --test tests/language-adoption.test.mjs",
+    "test:language-governance": "node --test tests/language-governance.test.mjs && node scripts/check-language-freeze.mjs",
     "test:product-health": "node scripts/check-product-health.mjs",
-    "test:operator-smoke": "node scripts/operator-smoke.mjs"
+    "test:operator-smoke": "node scripts/operator-smoke.mjs",
+    "workflow:provider": "node apps/run-provider-workflow.mjs",
+    "dogfood:provider": "node apps/run-provider-dogfood-batch.mjs",
+    "review:language-v1.1": "node scripts/review-language-v1-1.mjs"
   }
 }

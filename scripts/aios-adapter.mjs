@@ -8,6 +8,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = path.resolve(path.join(SCRIPT_DIR, '..'));
 const AI_OS_ROOT = path.join(WORKSPACE_ROOT, 'ai-os');
 const AIOS_CLI = path.join(AI_OS_ROOT, 'apps', 'aios-cli.mjs');
+const PROVIDER_WORKFLOW_RUNNER = path.join(AI_OS_ROOT, 'apps', 'run-provider-workflow.mjs');
 const DEFAULT_DOGFOOD_ROOT = path.join(AI_OS_ROOT, 'artifacts', 'openclaw-dogfood');
 const ROOT_POINTER_DIR = path.join(WORKSPACE_ROOT, 'artifacts', 'ai-os', 'dogfood');
 const ROOT_POINTER_FILE = path.join(ROOT_POINTER_DIR, 'latest-adapter-root.json');
@@ -15,7 +16,7 @@ const DEFAULT_CONFIG_FILE = path.join(WORKSPACE_ROOT, 'config', 'ai-os-adapter',
 const DEFAULT_STATE_FILE = path.join(WORKSPACE_ROOT, 'state', 'ai-os-adapter', 'default-on-state.json');
 const LAST_ROOT_FILE = path.join(WORKSPACE_ROOT, '.last_aios_adapter_root');
 const PROVIDER_DOGFOOD_SOURCE = path.join(AI_OS_ROOT, 'examples', 'capability-gated-provider.aios');
-const ADAPTER_VERSION = 'openclaw-aios-adapter.v0.5-provider-read-compute';
+const ADAPTER_VERSION = 'openclaw-aios-adapter.v0.6-v1-freeze-provider-workflows';
 const CANONICAL_LANGUAGE_VERSION = 'aios.language.v1';
 
 function nowStamp() {
@@ -23,7 +24,7 @@ function nowStamp() {
 }
 
 function usage(exitCode = 0) {
-  const text = `AI OS adapter — default-on local bridge for the AI OS language substrate\n\nUsage:\n  node scripts/aios-adapter.mjs promote-default [--label <name>]\n  node scripts/aios-adapter.mjs dogfood-smoke [--artifact-root <workspace-path>] [--label <name>]\n  node scripts/aios-adapter.mjs compile <source.aios> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs boot --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs run <source.aios|job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs ps --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs logs --artifact-root <workspace-path> --process <process-id>\n  node scripts/aios-adapter.mjs claim <source.aios|job.json> --artifact-root <workspace-path> [--write-verifier-evidence]\n  node scripts/aios-adapter.mjs status [--artifact-root <workspace-path>|--last]\n  node scripts/aios-adapter.mjs recover [--artifact-root <workspace-path>|--last]\n\nSafety boundary:\n  - Canonical .aios source is compiled before bounded execution.\n  - Default-on for internal status/recovery/handoff and capability-gated provider read/compute.\n  - Provider outputs stay inside the AIOS artifact root; user-visible/external writes remain blocked.\n  - Does not replace OpenClaw/Cortex routing or the chat/control-plane brain.\n  - Artifact roots must stay inside this workspace.\n`;
+  const text = `AI OS adapter — default-on local bridge for the AI OS language substrate\n\nUsage:\n  node scripts/aios-adapter.mjs promote-default [--label <name>]\n  node scripts/aios-adapter.mjs dogfood-smoke [--artifact-root <workspace-path>] [--label <name>]\n  node scripts/aios-adapter.mjs provider-workflow --workflow <id> --query <text> [--artifact-root <workspace-path>]\n  node scripts/aios-adapter.mjs compile <source.aios> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs boot --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs run <source.aios|job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs ps --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs logs --artifact-root <workspace-path> --process <process-id>\n  node scripts/aios-adapter.mjs claim <source.aios|job.json> --artifact-root <workspace-path> [--write-verifier-evidence]\n  node scripts/aios-adapter.mjs status [--artifact-root <workspace-path>|--last]\n  node scripts/aios-adapter.mjs recover [--artifact-root <workspace-path>|--last]\n\nSafety boundary:\n  - AIOS v1 is frozen; surface changes require execution evidence and explicit approval.\n  - Canonical .aios source is compiled before bounded execution.\n  - Default-on for internal status/recovery/handoff and capability-gated provider read/compute workflows.\n  - Provider outputs stay inside the AIOS artifact root; user-visible/external writes remain blocked.\n  - Does not replace OpenClaw/Cortex routing or the chat/control-plane brain.\n  - Artifact roots must stay inside this workspace.\n`;
   console.log(text);
   process.exit(exitCode);
 }
@@ -144,8 +145,8 @@ function defaultAdapterRoot({ mustExist = true } = {}) {
 
 function defaultSafetyBoundary({ defaultOn = false } = {}) {
   return defaultOn
-    ? 'default_on_internal_status_recovery_handoff_provider_read_compute_internal_artifacts_no_external_writes_no_runtime_replacement'
-    : 'opt_in_capability_gated_provider_read_compute_internal_artifacts_no_external_writes_no_default_runtime_replacement';
+    ? 'default_on_frozen_aios_v1_internal_status_recovery_handoff_provider_workflows_internal_artifacts_no_external_writes_no_runtime_replacement'
+    : 'opt_in_frozen_aios_v1_capability_gated_provider_workflows_internal_artifacts_no_external_writes_no_default_runtime_replacement';
 }
 
 function writeDefaultConfig({ artifactRoot, promotionReportPath = null, status = 'green' } = {}) {
@@ -161,17 +162,20 @@ function writeDefaultConfig({ artifactRoot, promotionReportPath = null, status =
     status,
     promotionReportPath,
     policy: {
-      defaultUses: ['status', 'recover', 'local_handoff', 'bounded_internal_jobs', 'provider_read', 'provider_compute_internal_artifacts'],
+      defaultUses: ['status', 'recover', 'local_handoff', 'bounded_internal_jobs', 'provider_read', 'provider_compute_internal_artifacts', 'provider_workflows'],
       canonicalLanguage: CANONICAL_LANGUAGE_VERSION,
+      languageV1Frozen: true,
+      languageSurfaceChangesRequireExecutionEvidenceAndApproval: true,
       sourceCompileRequiredForDogfood: true,
       capabilityGatedProviderReadCompute: true,
+      providerWorkflows: ['research-synthesis', 'contradiction-review', 'implementation-brief'],
       providerOutputBoundary: 'internal-artifact-only',
       externalWritesExposed: false,
       replacesCortexOpenClawRouting: false,
       replacesChatControlPlane: false,
       requiresExplicitApprovalFor: ['external_write', 'provider_handoff', 'default_runtime_replacement']
     },
-    truthBoundary: 'AI OS adapter is default-on for internal status/recovery/handoff plus capability-gated provider read/compute whose outputs remain internal artifacts. It does not replace Cortex/OpenClaw routing, expose user-visible/external writes, or promote failed benchmark output.'
+    truthBoundary: 'AIOS v1 is frozen and the adapter is default-on for internal status/recovery/handoff plus three capability-gated provider read/compute workflows whose outputs remain internal artifacts. Language expansion requires execution evidence and explicit approval. It does not replace Cortex/OpenClaw routing, expose user-visible/external writes, or promote failed benchmark output.'
   };
   writeJson(DEFAULT_CONFIG_FILE, config);
   return config;
@@ -252,6 +256,8 @@ function compactStatus(artifactRoot) {
     defaultOn: config?.enabled === true,
     defaultMode: config?.mode || null,
     canonicalLanguage: config?.policy?.canonicalLanguage || null,
+    languageV1Frozen: config?.policy?.languageV1Frozen === true,
+    providerWorkflows: config?.policy?.providerWorkflows || [],
     languageSourcePresent: languageSources.length > 0,
     languageSources,
     languageCompileOk: languageCompile?.ok === true,
@@ -519,6 +525,40 @@ function commandForward(command, args) {
   throw new Error(`unsupported forward command: ${command}`);
 }
 
+function commandProviderWorkflow(args) {
+  const workflow = String(args.workflow || '').trim();
+  const query = String(args.query || '').trim();
+  if (!workflow) throw new Error('provider-workflow requires --workflow <id>');
+  if (!query) throw new Error('provider-workflow requires --query <text>');
+  const artifactRoot = resolveAiOsArtifactRoot(args.artifactRoot || defaultArtifactRoot(`provider-workflow-${workflow}`));
+  const providerPolicy = resolveWorkspacePath(args.providerPolicy || path.join(AI_OS_ROOT, 'kernel', 'policy', 'provider-read-compute.json'), { mustExist: true });
+  const command = [
+    PROVIDER_WORKFLOW_RUNNER,
+    '--workflow', workflow,
+    '--query', query,
+    '--artifact-root', artifactRoot,
+    '--provider-policy', providerPolicy,
+    '--ledger', path.join(artifactRoot, 'ledger.jsonl')
+  ];
+  const result = spawnSync(process.execPath, command, {
+    cwd: AI_OS_ROOT,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      AIOS_OPERATOR: process.env.AIOS_OPERATOR || process.env.USER || 'openclaw',
+      AIOS_TENANT_ID: process.env.AIOS_TENANT_ID || 'openclaw-local'
+    },
+    maxBuffer: 32 * 1024 * 1024
+  });
+  const parsed = parseJsonOutput(result);
+  if (result.status !== 0) {
+    const error = new Error(`provider workflow failed: ${workflow}`);
+    error.details = { command, actualStatus: result.status, parsed, stdout: result.stdout, stderr: result.stderr };
+    throw error;
+  }
+  return parsed;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] || 'help';
@@ -527,6 +567,7 @@ async function main() {
     if (command === 'help' || command === '--help' || command === '-h') usage(0);
     else if (command === 'promote-default') output = commandPromoteDefault(args);
     else if (command === 'dogfood-smoke') output = commandDogfoodSmoke(args);
+    else if (command === 'provider-workflow') output = commandProviderWorkflow(args);
     else if (command === 'status') output = compactStatus(args.artifactRoot || (args.last ? lastRoot() : null));
     else if (command === 'recover') output = commandRecover(args);
     else if (['compile', 'boot', 'run', 'ps', 'logs', 'claim'].includes(command)) output = commandForward(command, args);

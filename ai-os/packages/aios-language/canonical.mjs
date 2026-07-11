@@ -6,15 +6,22 @@ import {
   normalizeProviderPolicy,
   providerOperationFromSyscall,
 } from "./runtime/provider-read-compute.mjs";
+import {
+  AIOS_CANONICAL_COMPILER,
+  AIOS_CANONICAL_GRAMMAR,
+  AIOS_CANONICAL_LANGUAGE_VERSION,
+  AIOS_CANONICAL_SOURCE_EXTENSION,
+  AIOS_V1_RUNTIME_OPERATIONS,
+} from "./governance/version-freeze.mjs";
 
-export const AIOS_CANONICAL_LANGUAGE_VERSION = "aios.language.v1";
-export const AIOS_CANONICAL_GRAMMAR = "job-block-v1";
-export const AIOS_CANONICAL_COMPILER = "aios.language.compiler.canonical.v1";
-export const AIOS_CANONICAL_SOURCE_EXTENSION = ".aios";
+export {
+  AIOS_CANONICAL_COMPILER,
+  AIOS_CANONICAL_GRAMMAR,
+  AIOS_CANONICAL_LANGUAGE_VERSION,
+  AIOS_CANONICAL_SOURCE_EXTENSION,
+} from "./governance/version-freeze.mjs";
 
-const INTERNAL_RUNTIME_PREFIXES = Object.freeze(["kernel."]);
-const INTERNAL_RUNTIME_OPERATIONS = new Set(["process.admit", "process.transition"]);
-const CAPABILITY_GATED_PROVIDER_OPERATIONS = new Set(["provider.read", "provider.compute"]);
+const CANONICAL_RUNTIME_OPERATIONS = new Set(AIOS_V1_RUNTIME_OPERATIONS);
 
 function sha256(value) {
   return createHash("sha256").update(String(value)).digest("hex");
@@ -34,11 +41,7 @@ function canonicalDiagnostic(severity, code, message, path = "$") {
 
 function runtimeOperation(adapter = "") {
   const normalized = String(adapter).trim();
-  return INTERNAL_RUNTIME_PREFIXES.some((prefix) => normalized.startsWith(prefix))
-    || INTERNAL_RUNTIME_OPERATIONS.has(normalized)
-    || CAPABILITY_GATED_PROVIDER_OPERATIONS.has(normalized)
-    ? normalized
-    : null;
+  return CANONICAL_RUNTIME_OPERATIONS.has(normalized) ? normalized : null;
 }
 
 function sourceJobForContract(ast, contract) {

@@ -11,12 +11,15 @@
 
 ## Current checkpoint
 
-- Current state: canonical AIOS v1 `.aios` compile→execute plus capability-gated provider read/compute is implemented and promoted as the default bounded adapter workflow.
-- Canonical identifiers: language `aios.language.v1`; grammar `job-block-v1`; compiler `aios.language.compiler.canonical.v1`; adapter `openclaw-aios-adapter.v0.5-provider-read-compute`; policy `aios.provider-read-compute-policy.v1`.
+- Current state: canonical AIOS v1 `.aios` compile→execute plus capability-gated provider read/compute is implemented; v1 is mechanically frozen and three recurring provider-backed workflows are dogfooded through the canonical adapter path.
+- Canonical identifiers: language `aios.language.v1`; grammar `job-block-v1`; compiler `aios.language.compiler.canonical.v1`; adapter `openclaw-aios-adapter.v0.6-v1-freeze-provider-workflows`; provider policy `aios.provider-read-compute-policy.v1`; freeze policy `aios.language.freeze-policy.v1`.
 - Approved provider operations: `provider.read` and `provider.compute`, currently allowlisted to Cortex `/knowledge/search` and `/oracle/chat`; outputs are retained as `aios.provider-result.v1` artifacts.
 - Latest verified artifact: `/root/clawd/ai-os/artifacts/provider-read-compute-adoption-20260711T2227Z/validation-summary.json`.
-- Default-on proof: `/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614`.
-- Latest validation: local and Hetzner full `npm test` passed on an exact source mirror; contracts 7/7, language adoption 10/10, product health 263 syntax / 260 imports, operator completion claims allowed. Live Cortex read and compute both returned HTTP 200 and produced internal-only result artifacts; default status/recovery are green.
+- Default-on proof: `/root/clawd/ai-os/artifacts/openclaw-dogfood/v1-freeze-provider-workflows-final-20260711230332`.
+- Latest local validation: full `npm test` passed—contracts 7/7, language adoption 10/10, governance 7/7, product health 269 syntax / 262 imports, operator completion claim allowed. Live Cortex provider workflows produced internal-only artifacts; default status/recovery are green.
+- Local workflow dogfood: `/root/clawd/ai-os/artifacts/provider-workflow-dogfood/batch-20260711T225838Z`; 20/20 green executions across `research-synthesis`, `contradiction-review`, and `implementation-brief`, each with live provider read/compute, restart-safe reuse, controlled provider-write denial, verifier evidence, and allowed bounded claim.
+- Independent Hetzner qualification: `/home/jake/clawd-remote/ai-os/artifacts/provider-workflow-dogfood/remote-batch-final-20260711T2306Z`; exact 294-file source mirror, full suite green, separate 20/20 provider-fixture executions green, adapter workflow green.
+- v1.1 evidence result on both execution sets: `keep_v1_frozen`; 20 successful runs, three workflows, zero recurring friction candidates, no automatic language change permitted.
 - Active execution plane: Hetzner `/home/jake/clawd-remote/ai-os` for heavy runs; local `/root/clawd/ai-os` is the canonical product tree.
 
 ## Active blockers
@@ -27,9 +30,9 @@
 
 ## Next actions
 
-1. Migrate additional read/compute workflows only through named provider, path, argument, model, tenant/workspace, and output-boundary grants.
-2. Add any new provider or operation one capability family at a time, with negative tests and one evidence-backed workflow.
-3. Keep send/post/email/schedule/publish/deploy/provider-write behavior blocked unless separately approved and proven.
+1. Keep AIOS v1 frozen and continue collecting workflow friction in the execution ledger.
+2. Open v1.1 design review only after threshold-qualified recurring friction and explicit operator approval.
+3. Add any future provider or operation one capability family at a time, with negative tests and evidence-backed workflows; keep send/post/email/schedule/publish/deploy/provider-write blocked unless separately approved and proven.
 
 ## Do not use / superseded
 

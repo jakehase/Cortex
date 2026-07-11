@@ -28,6 +28,20 @@ Stable identifiers:
 - Provider policy: `aios.provider-read-compute-policy.v1`
 - Provider grants: `aios.provider-access.v1`
 - Provider result: `aios.provider-result.v1`
+- Freeze policy: `aios.language.freeze-policy.v1`
+- v1.1 evidence review: `aios.language.v1.1-review.v1`
+
+## Enforced v1 freeze
+
+AIOS v1 is mechanically frozen, not merely documented as stable. `kernel/policy/language-v1-freeze.json` records the canonical language, grammar, compiler, source extension, declarations, provider operations, exact runtime operation allowlist, and their stable digest. `scripts/check-language-freeze.mjs` compares that policy to the live compiler surface and is part of `npm test`.
+
+Allowed v1 work is limited to bug fixes, security hardening, and compatibility fixes. New keywords, symbols, runtime operations, provider operations, or grammar versions fail the freeze check unless an `aios.language.v1.1-review.v1` artifact records sufficient recurring execution evidence **and** explicit operator approval. Evidence alone opens design review; it never changes the language automatically.
+
+The frozen runtime operations are exactly:
+
+- `kernel.echo`, `kernel.record`, `kernel.artifact.status`, `kernel.complete`;
+- `process.admit`, `process.transition`;
+- `provider.read`, `provider.compute`.
 
 ## Minimal internal source
 
@@ -105,6 +119,33 @@ node scripts/aios-adapter.mjs run ai-os/examples/capability-gated-provider.aios 
 
 Use `--provider-policy <path>` on `aios compile`, `aios run`, or the adapter compile/run commands to select a different workspace policy. Compile and run must use the same normalized policy digest.
 
+## Recurring provider workflows
+
+Three production-slice workflows compose the existing frozen `provider.read` and `provider.compute` operations without adding language syntax:
+
+- `research-synthesis` — grounded internal research note;
+- `contradiction-review` — stale-claim and contradiction audit;
+- `implementation-brief` — bounded implementation brief grounded in retrieved project truth.
+
+Each invocation performs read → synthesis → restart-safe completed-record reuse → controlled `provider.write` denial → verifier evidence → bounded completion claim. Retrieval and synthesis artifacts stay inside the selected AIOS artifact root and carry provenance hashes. Run one through the canonical adapter:
+
+```bash
+cd /root/clawd
+node scripts/aios-adapter.mjs provider-workflow \
+  --workflow research-synthesis \
+  --query "current canonical AIOS project status"
+```
+
+Or run the fixed 20-case dogfood set and evaluate the v1.1 evidence gate:
+
+```bash
+cd /root/clawd/ai-os
+npm run dogfood:provider -- --artifact-root artifacts/provider-workflow-dogfood/<batch>
+npm run review:language-v1.1 -- \
+  --ledger artifacts/provider-workflow-dogfood/<batch>/ledger.jsonl \
+  --output artifacts/provider-workflow-dogfood/<batch>/language-v1.1-review.json
+```
+
 ## Runtime mapping
 
 The canonical compiler emits a runtime-compatible job with:
@@ -121,7 +162,7 @@ Compilation writes `packets/language-compile.packet.json`. Runtime execution wri
 
 ## Fail-closed boundary
 
-The compiler permits bounded `kernel.*`, explicit `process.admit` / `process.transition`, and policy-backed `provider.read` / `provider.compute`. It blocks:
+The compiler permits only the exact frozen runtime operation list above. It blocks:
 
 - all other external capabilities and runtime adapters;
 - provider access without an exact declared capability and active policy grant;
@@ -141,4 +182,4 @@ npm run test:language-adoption
 npm test
 ```
 
-The language-adoption suite verifies canonical compilation, package-facade export, required declarations, fail-closed external writes, missing/invalid grants, provider/model/transport allowlists, deterministic read+compute over a local HTTP fixture, internal-artifact-only outputs, CLI compile→execute, and default adapter source auto-compilation.
+The language-adoption and governance suites verify canonical compilation, package-facade export, freeze-policy integrity, exact runtime operation enforcement, required declarations, quote-aware provider prompts, fail-closed external writes, missing/invalid grants, provider/model/transport allowlists, deterministic read+compute over a local HTTP fixture, internal-artifact-only outputs, CLI compile→execute, recurring workflow compilation, evidence thresholds, and default adapter source auto-compilation.
