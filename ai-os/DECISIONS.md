@@ -43,3 +43,12 @@ Append-only durable decisions for AI OS. Keep current state in `STATUS.md`; keep
 - Evidence: `/root/clawd/ai-os/STATUS.md`; `/root/clawd/ai-os/DECISIONS.md`; `scripts/plan-doctor.mjs`.
 - Supersedes: updating `plan.md` as a running diary.
 - Follow-up: Run `node scripts/plan-doctor.mjs` after lifecycle edits.
+
+## 2026-07-11 — Canonicalize AIOS v1 and make source compilation the default internal adapter path
+
+- Decision: New AIOS integrations use `.aios` `job-block-v1` source, `compileCanonicalAiosSource`, the `aios compile` operator command, and a compiled runtime job executed through mediated kernel syscalls. The default OpenClaw adapter now auto-compiles `.aios` source; older parser/compiler exports remain compatibility-only.
+- Reason: Broad adoption required one understandable source→compiler→runtime contract and a real dogfooded workflow, not multiple equivalent entrypoints or JSON-only adapter execution.
+- Evidence: `/root/clawd/ai-os/artifacts/language-adoption-20260711T211822Z/validation-summary.json`; `/root/clawd/ai-os/docs/LANGUAGE_V1.md`; default proof `/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346`.
+- Boundary: Default adoption is bounded to `kernel.*` plus explicit `process.admit`/`process.transition` operations. External capabilities/handoffs fail closed. Cortex/OpenClaw remain the reasoning/control plane; runtime replacement, native OS readiness, external writes, and full parity are not promoted.
+- Supersedes: Treating package-level `compileAiosSource` variants or hand-authored `.job.json` as the preferred new-integration path.
+- Follow-up: Migrate additional low-risk internal workflows one capability family at a time, with negative tests and verifier-backed proof.

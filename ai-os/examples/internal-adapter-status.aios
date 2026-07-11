@@ -1,0 +1,10 @@
+# Canonical AIOS v1 internal status workflow.
+# This workflow is intentionally local-only and performs no provider writes.
+job adapterStatus {
+  capability aios.status: read @internal;
+  memory adapterArtifacts: persistent;
+  step inspect uses kernel.artifact.status() reads [adapterArtifacts] -> status recover halt;
+  verify status exists;
+  truth adapterState: source="artifact-root", confidence="observed";
+  rollback retain_artifacts;
+}

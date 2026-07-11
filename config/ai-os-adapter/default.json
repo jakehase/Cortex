@@ -1,14 +1,14 @@
 {
   "schemaVersion": "openclaw.aios.adapter.default.v1",
   "enabled": true,
-  "mode": "always_on_internal_status_recovery_handoff",
-  "promotedAt": "2026-07-03T15:02:18.129Z",
-  "adapter": "openclaw-aios-adapter.v0.3-default-on",
-  "defaultArtifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/default-on-integration-20260703150217",
+  "mode": "always_on_internal_aios_language_status_recovery_handoff",
+  "promotedAt": "2026-07-11T21:33:46.313Z",
+  "adapter": "openclaw-aios-adapter.v0.4-language-v1",
+  "defaultArtifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
   "rootPointerFile": "/root/clawd/artifacts/ai-os/dogfood/latest-adapter-root.json",
   "lastRootFile": "/root/clawd/.last_aios_adapter_root",
   "status": "green",
-  "promotionReportPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/default-on-integration-20260703150217/reports/recovery-report.json",
+  "promotionReportPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/reports/recovery-report.json",
   "policy": {
     "defaultUses": [
       "status",
@@ -16,6 +16,8 @@
       "local_handoff",
       "bounded_internal_jobs"
     ],
+    "canonicalLanguage": "aios.language.v1",
+    "sourceCompileRequiredForDogfood": true,
     "externalWritesExposed": false,
     "replacesCortexOpenClawRouting": false,
     "replacesChatControlPlane": false,

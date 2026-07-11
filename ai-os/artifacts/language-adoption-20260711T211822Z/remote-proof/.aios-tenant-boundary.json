@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "contract": "aios.tenant.boundary.v0",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+  "tenantId": "openclaw-local",
+  "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+  "establishedBy": {
+    "requestId": "aiosreq_802c48b3f2e66a0e",
+    "operator": "jake",
+    "role": "operator",
+    "operatorScopeHash": "cf0feb3e82327f13434069137153bd66798951dea3a9b56ee79a8af958200772"
+  },
+  "establishedAt": "2026-07-11T21:33:23.933Z",
+  "boundaryRule": "Only CLI invocations with the same tenant id may read or mutate this artifact root.",
+  "boundaryHash": "e2ddca2c86097db0ef325521760e0fa75903c234dc4f6776e00360c7d9009075"
+}

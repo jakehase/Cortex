@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "aios.language-adoption.run-contract.v1",
+  "createdAt": "2026-07-11T21:18:22Z",
+  "replyAnchor": "Consolidate AI OS into one grammar, parser, compiler, KernelCallIR/job descriptor, CLI/adapter execution path, then migrate one safe internal workflow for broad adoption.",
+  "anchor": "Jake's 2026-07-11 request: Let's do what is needed for broad adoption, anchored to the immediately preceding AI OS language assessment and recommendation.",
+  "targetPath": "/root/clawd/ai-os plus /root/clawd/scripts/aios-adapter.mjs and bounded documentation/configuration",
+  "fidelity": "production_slice",
+  "scope": [
+    "canonical AIOS v1 frontend and compiler facade",
+    "aios compile operator command",
+    "default adapter .aios compile-run support",
+    "real internal artifact-status workflow",
+    "fail-closed external effect policy",
+    "end-to-end language adoption tests",
+    "default-on source-language dogfood promotion"
+  ],
+  "implementationSurface": "mixed product code, tests, docs, configuration, and evidence",
+  "executionPlacement": {
+    "local": "bounded implementation and focused tests",
+    "remote": "Hetzner for full mirrored validation"
+  },
+  "stopCondition": "completed_and_delivered",
+  "claimBoundary": "Broad internal AIOS language adoption path only. Cortex/OpenClaw remain reasoning and control plane; external writes and runtime replacement remain blocked."
+}

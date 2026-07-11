@@ -1,12 +1,14 @@
 # AI OS Adapter
 
-Status: default-on internal substrate for local AI OS status, recovery, and handoff.
+Status: default-on canonical AIOS language compile→execute substrate for local status, recovery, handoff, and bounded internal jobs.
 
-This adapter wires the AI OS language/kernel substrate into the current OpenClaw workspace. It is now on by default for bounded internal status/recovery/handoff operations, while preserving the control-plane boundary: it does **not** replace Cortex/OpenClaw routing, the chat brain, provider execution, or external-write approval gates.
+The adapter now compiles canonical `.aios` source before kernel execution. It is on by default for bounded internal status/recovery/handoff workflows while preserving the control-plane boundary: it does **not** replace Cortex/OpenClaw routing, the chat brain, provider execution, or external-write approval gates.
 
 ## Boundary
 
-- Default-on for local/internal status, recovery, handoff, and bounded internal AI OS jobs.
+- Default-on for local/internal status, recovery, handoff, and bounded internal AIOS language jobs.
+- Canonical path: `.aios` → `aios.language.compiler.canonical.v1` → runtime-compatible job JSON → mediated kernel syscalls.
+- Legacy directive compilers remain compatibility exports, not the default adoption path.
 - No external handoff/provider writes are exposed.
 - Does not replace OpenClaw/Cortex routing or the chat/control-plane brain.
 - Does not promote failed benchmark output; benchmark truth still comes from terminal artifacts.
@@ -29,11 +31,12 @@ Explicit commands still work for a specific root:
 ```bash
 node scripts/aios-adapter.mjs status --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
 node scripts/aios-adapter.mjs recover --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
+node scripts/aios-adapter.mjs compile <source.aios> --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
 node scripts/aios-adapter.mjs boot --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
-node scripts/aios-adapter.mjs run <job.json> --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
+node scripts/aios-adapter.mjs run <source.aios|job.json> --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
 node scripts/aios-adapter.mjs ps --artifact-root ai-os/artifacts/openclaw-dogfood/<run>
 node scripts/aios-adapter.mjs logs --artifact-root ai-os/artifacts/openclaw-dogfood/<run> --process <process-id>
-node scripts/aios-adapter.mjs claim <job.json> --artifact-root ai-os/artifacts/openclaw-dogfood/<run> --write-verifier-evidence
+node scripts/aios-adapter.mjs claim <source.aios|job.json> --artifact-root ai-os/artifacts/openclaw-dogfood/<run> --write-verifier-evidence
 ```
 
 Promotion/proof command:
@@ -46,21 +49,22 @@ node scripts/aios-adapter.mjs promote-default --label default-on-integration
 
 Default-on promotion passed at:
 
-`/root/clawd/ai-os/artifacts/openclaw-dogfood/default-on-integration-20260703150217`
+`/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346`
 
 Observed proof:
 
-- adapter: `openclaw-aios-adapter.v0.3-default-on`
-- boot proof green
-- run proof green
-- process visible
-- logs visible
+- adapter: `openclaw-aios-adapter.v0.4-language-v1`
+- canonical source: `adapter-dogfood.aios`
+- canonical compiler: `aios.language.compiler.canonical.v1`
+- compile proof green and compiled job emitted
+- `kernel.artifact.status` executed through mediated syscall runtime
+- boot and run proofs green
+- process and logs visible
 - verifier evidence green
 - completion claim `claimStatus=allowed`
-- recovery report green
-- recovery plan written
-- `node scripts/aios-adapter.mjs status` works with no root flags
-- `node scripts/aios-adapter.mjs recover` works with no root flags
+- recovery report green, including canonical-language source/compile checks
+- `node scripts/aios-adapter.mjs status` and `recover` work with no root flags
+- independent Hetzner source-manifest match, full `npm test`, and dogfood compile→run proof passed
 
 Validation after promotion:
 
@@ -71,9 +75,13 @@ cd /root/clawd && node scripts/aios-adapter.mjs recover
 cd /root/clawd/ai-os && npm test
 ```
 
-Observed `npm test` result: 7/7 contract tests passed, product health passed, and operator smoke passed.
+Observed 2026-07-11 local and Hetzner results: 7/7 contract tests, 6/6 language-adoption tests, product health (262 syntax / 259 import checks), and source-language operator smoke passed. The operator-smoke completion claim was allowed on both hosts.
 
 ## Prior proofs
+
+Prior JSON-job default-on promotion passed at:
+
+`/root/clawd/ai-os/artifacts/openclaw-dogfood/default-on-integration-20260703150217`
 
 Initial adapter smoke passed at:
 

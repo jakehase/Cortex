@@ -16,8 +16,11 @@ const runCli = (args, { expect = 0 } = {}) => {
   }
   return parsed;
 };
+const compile = runCli(['compile', 'examples/internal-adapter-status.aios', '--artifact-root', artifactRoot, '--workspace', 'operator-smoke']);
+const jobPath = compile?.jobPaths?.[0];
+if (!compile?.ok || !jobPath) throw new Error('canonical AIOS compile did not emit a runnable job');
 const boot = runCli(['boot', '--artifact-root', artifactRoot]);
-const run = runCli(['run', 'examples/hello.job.json', '--artifact-root', artifactRoot]);
+const run = runCli(['run', jobPath, '--artifact-root', artifactRoot]);
 const processId = run?.process?.id;
 if (!processId) throw new Error('run proof did not expose process.id');
 const ps = runCli(['ps', '--artifact-root', artifactRoot]);
@@ -30,16 +33,20 @@ fs.writeFileSync(path.join(artifactRoot, 'packets', 'verifier-evidence.packet.js
   generatedAt: new Date().toISOString(),
   evidence: [{ kind: 'operator_smoke', boot: boot.ok === true, run: run.ok === true, processId }],
   checks: [
+    { name: 'language_compile', ok: compile.ok === true && compile.status?.state === 'ready' },
     { name: 'boot', ok: boot.ok === true },
     { name: 'run', ok: run.ok === true },
     { name: 'ps', ok: ps.ok === true && ps.count >= 1 },
     { name: 'logs', ok: logs.ok === true && logs.count >= 1 }
   ]
 }, null, 2));
-const claim = runCli(['claim', 'examples/hello.job.json', '--artifact-root', artifactRoot]);
+const claim = runCli(['claim', jobPath, '--artifact-root', artifactRoot]);
 const report = {
   ok: true,
   artifactRoot,
+  canonicalLanguage: compile.language?.version || null,
+  compileProof: compile.proofPath,
+  jobPath,
   processId,
   bootProof: boot.proofPath,
   runProof: run.proofPath,

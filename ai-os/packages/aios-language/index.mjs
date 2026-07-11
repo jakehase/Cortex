@@ -2,6 +2,9 @@ import { createCompileResult } from "./api/compile-result.mjs";
 import { createRuntimeResult } from "./api/runtime-result.mjs";
 import { classifyTruthClaim } from "./api/truth-boundary.mjs";
 
+// Canonical AIOS v1 entrypoint. The legacy directive parser below remains exported
+// for compatibility, but new runtime adoption must use compileCanonicalAiosSource.
+export * from "./canonical.mjs";
 export * from "./api/compile-result.mjs";
 export * from "./api/runtime-result.mjs";
 export * from "./api/truth-boundary.mjs";

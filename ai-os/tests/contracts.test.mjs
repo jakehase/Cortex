@@ -83,8 +83,9 @@ test('token budget has bounded Wave 0 and gated Wave 1 spend', () => {
   assert.ok(wave1.highTokens >= 500_000_000);
 });
 
-test('boot sequence document preserves the Wave 0 truth boundary', () => {
+test('boot sequence document separates contract proof from bounded runtime proof', () => {
   const doc = readFileSync(join(root, 'docs/BOOT_SEQUENCE.md'), 'utf8');
-  assert.match(doc, /not proof that the runtime exists yet/i);
-  assert.match(doc, /Runtime boot proof is Wave 1/i);
+  assert.match(doc, /Contract tests alone are still not runtime proof/i);
+  assert.match(doc, /compile\/boot\/run\/verifier\/claim artifact chain/i);
+  assert.match(doc, /not native OS replacement, external-provider readiness, or full product parity/i);
 });

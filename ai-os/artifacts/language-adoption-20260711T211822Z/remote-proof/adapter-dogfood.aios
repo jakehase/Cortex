@@ -1,0 +1,9 @@
+# Real internal AIOS language dogfood workflow.
+job adapterStatus {
+  capability aios.status: read @internal;
+  memory adapterArtifacts: persistent;
+  step inspect uses kernel.artifact.status() reads [adapterArtifacts] -> status recover halt;
+  verify status exists;
+  truth adapterState: source="artifact-root", confidence="observed";
+  rollback retain_artifacts;
+}

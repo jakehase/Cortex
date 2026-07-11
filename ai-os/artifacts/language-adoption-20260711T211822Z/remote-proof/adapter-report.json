@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "generatedAt": "2026-07-11T21:33:24.095Z",
+  "adapter": "openclaw-aios-adapter.v0.4-language-v1",
+  "canonicalLanguage": "aios.language.v1",
+  "languageCompileProof": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/language-compile.packet.json",
+  "sourcePath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/adapter-dogfood.aios",
+  "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+  "jobPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/adapter-dogfood.compiled.job.json",
+  "defaultOn": false,
+  "safetyBoundary": "opt_in_internal_local_artifacts_only_no_external_writes_no_default_runtime_replacement",
+  "processId": "aiosproc_30e1024eb3abd135",
+  "bootProof": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/boot-proof.packet.json",
+  "runProof": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/run-proof.packet.json",
+  "verifierEvidence": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/verifier-evidence.packet.json",
+  "statusSyscall": {
+    "ordinal": 2,
+    "op": "kernel.artifact.status",
+    "mediatedBy": "aios.kernel.syscall.v0",
+    "ok": true,
+    "argsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "output": {
+      "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+      "observedAt": "2026-07-11T21:33:23.988Z",
+      "bootOk": true,
+      "priorRunOk": false,
+      "verifierOk": false,
+      "claimStatus": null,
+      "processCount": 0
+    },
+    "outputHash": "1c51f6636b20c639a4f3e91d1ce94b14984659b2a643de7dc01919ee5b9bde2d"
+  },
+  "psCount": 1,
+  "logCount": 10,
+  "claimStatus": "allowed",
+  "claimPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/completion-claim.packet.json",
+  "nextAction": "Use this bounded source-language path for additional internal workflows before expanding its capability catalog."
+}

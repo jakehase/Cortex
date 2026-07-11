@@ -1053,3 +1053,43 @@ Memory/update path:
 Plan truth boundary:
 
 This `plan.md` is a planning and coordination artifact. It is not implementation proof. Completion claims require the evidence and verifiers named above.
+
+## 25. Canonical AIOS v1 broad-adoption checkpoint — 2026-07-11
+
+Status: **implemented, independently validated, and promoted for bounded internal use**.
+
+The canonical new-integration path is now:
+
+```text
+.aios source (job-block-v1)
+  -> compileCanonicalAiosSource
+  -> aios.language.compile.proof
+  -> aios.language-job.v1 descriptor
+  -> mediated kernel/process syscalls
+  -> verifier evidence
+  -> bounded completion claim
+```
+
+Implemented surfaces:
+
+- canonical compiler/policy facade at `packages/aios-language/canonical.mjs`;
+- `aios compile` operator command and runtime-compatible job emission;
+- default OpenClaw adapter auto-compilation for `.aios` run/claim commands;
+- real `kernel.artifact.status` internal workflow;
+- source-language operator smoke as the package default test path;
+- fail-closed external-effect, declaration, CLI, runtime, and adapter tests;
+- canonical language documentation and promoted default configuration.
+
+Acceptance evidence:
+
+- local and Hetzner `npm test` green;
+- contracts 7/7 and language adoption 6/6 on both hosts;
+- product health 262 syntax checks / 259 import checks on both hosts;
+- local and remote source-language operator smoke completion claims allowed;
+- remote source manifest matched local SHA-256;
+- local default-on status and recovery green;
+- evidence bundle: `artifacts/language-adoption-20260711T211822Z/validation-summary.json`.
+
+Truth boundary:
+
+This checkpoint proves the canonical AIOS language is wired end-to-end for bounded internal workflows and is the default adapter dogfood path. It does not prove or approve Cortex/OpenClaw replacement, external writes/provider execution, native OS readiness, full product parity, or benchmark promotion.

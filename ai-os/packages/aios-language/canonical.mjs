@@ -1,0 +1,223 @@
+import { createHash } from "node:crypto";
+
+import { compileLanguageSource } from "./api/compiler-api.mjs";
+
+export const AIOS_CANONICAL_LANGUAGE_VERSION = "aios.language.v1";
+export const AIOS_CANONICAL_GRAMMAR = "job-block-v1";
+export const AIOS_CANONICAL_COMPILER = "aios.language.compiler.canonical.v1";
+export const AIOS_CANONICAL_SOURCE_EXTENSION = ".aios";
+
+const INTERNAL_RUNTIME_PREFIXES = Object.freeze(["kernel."]);
+const INTERNAL_RUNTIME_OPERATIONS = new Set(["process.admit", "process.transition"]);
+
+function sha256(value) {
+  return createHash("sha256").update(String(value)).digest("hex");
+}
+
+function stableClone(value) {
+  if (Array.isArray(value)) return value.map(stableClone);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableClone(value[key])]));
+  }
+  return value;
+}
+
+function canonicalDiagnostic(severity, code, message, path = "$") {
+  return Object.freeze({ severity, code, message, path });
+}
+
+function runtimeOperation(adapter = "") {
+  const normalized = String(adapter).trim();
+  return INTERNAL_RUNTIME_PREFIXES.some((prefix) => normalized.startsWith(prefix)) || INTERNAL_RUNTIME_OPERATIONS.has(normalized)
+    ? normalized
+    : null;
+}
+
+function sourceJobForContract(ast, contract) {
+  return (ast?.jobs ?? []).find((job) => job.name === contract.sourceName || contract.id.endsWith(`.${job.name}`)) ?? null;
+}
+
+function emitRuntimeJob(contract, sourceJob, context) {
+  const adapters = contract.adapterHandoff?.adapters ?? [];
+  const syscalls = adapters.map((adapter, index) => ({
+    id: adapter.step || `step-${index + 1}`,
+    op: runtimeOperation(adapter.adapter),
+    args: stableClone(adapter.input ?? {}),
+    reads: [...(adapter.reads ?? [])],
+    writes: [...(adapter.writes ?? [])],
+    recovery: adapter.recovery ?? sourceJob?.rollback?.strategy ?? "halt",
+  }));
+  const truthBoundaries = contract.verifier?.truthBoundaries ?? [];
+
+  return Object.freeze({
+    schemaVersion: "aios.language-job.v1",
+    id: contract.id,
+    name: contract.sourceName ?? sourceJob?.name ?? contract.id,
+    title: `AIOS language job: ${contract.sourceName ?? contract.id}`,
+    source: Object.freeze({
+      language: AIOS_CANONICAL_LANGUAGE_VERSION,
+      grammar: AIOS_CANONICAL_GRAMMAR,
+      compiler: AIOS_CANONICAL_COMPILER,
+      path: context.sourceName,
+      hash: context.sourceHash,
+    }),
+    boundary: Object.freeze({
+      mode: "internal-only",
+      tenantId: context.tenantId,
+      workspaceId: context.workspaceId,
+      externalWrites: false,
+    }),
+    capabilities: Object.freeze([...(contract.capabilities ?? [])]),
+    memory: Object.freeze([...(contract.memory ?? [])]),
+    syscalls: Object.freeze(syscalls),
+    verifierContracts: Object.freeze([...(contract.verifier?.contracts ?? [])]),
+    truthBoundary: Object.freeze({
+      required: true,
+      claims: Object.freeze([...truthBoundaries]),
+    }),
+    recovery: Object.freeze({
+      strategy: sourceJob?.rollback?.strategy ?? "halt",
+      target: sourceJob?.rollback?.target ?? null,
+      stepRecovery: Object.freeze(syscalls.map((syscall) => ({ step: syscall.id, action: syscall.recovery }))),
+    }),
+    handoff: Object.freeze({
+      providers: Object.freeze([...(contract.adapterHandoff?.providers ?? [])]),
+      external: contract.adapterHandoff?.external === true,
+      lifecycle: contract.lifecycle ?? null,
+    }),
+  });
+}
+
+export function compileCanonicalAiosSource(source = "", options = {}) {
+  const text = String(source ?? "");
+  const sourceName = String(options.sourceName ?? options.fileName ?? "inline.aios");
+  const sourceHash = sha256(text);
+  const tenantId = String(options.tenantId ?? options.tenant ?? "openclaw-local");
+  const workspaceId = String(options.workspaceId ?? options.workspace ?? "default");
+  const diagnostics = [];
+
+  if (!sourceName.endsWith(AIOS_CANONICAL_SOURCE_EXTENSION)) {
+    diagnostics.push(canonicalDiagnostic(
+      "error",
+      "AIOS_CANONICAL_SOURCE_EXTENSION",
+      `Canonical AIOS source must use the ${AIOS_CANONICAL_SOURCE_EXTENSION} extension.`,
+      "$.sourceName",
+    ));
+  }
+
+  const compiled = compileLanguageSource(text, {
+    ...options,
+    sourceName,
+    fileName: sourceName,
+    tenantId,
+    workspaceId,
+    allowedProviders: options.allowedProviders ?? ["runtime", "kernel", "process", "internal"],
+    deniedProviders: options.deniedProviders ?? [],
+  });
+
+  diagnostics.push(...(compiled.diagnostics?.diagnostics ?? []));
+  const contracts = compiled.kernel?.contracts ?? [];
+
+  if (contracts.length === 0) {
+    diagnostics.push(canonicalDiagnostic("error", "AIOS_CANONICAL_NO_JOBS", "Source must compile to at least one kernel job.", "$.jobs"));
+  }
+
+  for (const contract of contracts) {
+    const externalCapabilities = (contract.capabilities ?? []).filter((capability) => capability.boundary === "external");
+    if (externalCapabilities.length > 0 || contract.adapterHandoff?.external === true) {
+      diagnostics.push(canonicalDiagnostic(
+        "error",
+        "AIOS_CANONICAL_EXTERNAL_EFFECT_BLOCKED",
+        `Job ${contract.id} requests an external capability or handoff; broad-adoption runtime is internal-only.`,
+        `$.jobs.${contract.id}.boundary`,
+      ));
+    }
+    if ((contract.capabilities ?? []).length === 0) {
+      diagnostics.push(canonicalDiagnostic("error", "AIOS_CANONICAL_CAPABILITY_REQUIRED", `Job ${contract.id} must declare a capability.`, `$.jobs.${contract.id}.capabilities`));
+    }
+    if ((contract.verifier?.contracts ?? []).length === 0) {
+      diagnostics.push(canonicalDiagnostic("error", "AIOS_CANONICAL_VERIFIER_REQUIRED", `Job ${contract.id} must declare a verifier.`, `$.jobs.${contract.id}.verifier`));
+    }
+    if ((contract.verifier?.truthBoundaries ?? []).length === 0) {
+      diagnostics.push(canonicalDiagnostic("error", "AIOS_CANONICAL_TRUTH_REQUIRED", `Job ${contract.id} must declare a truth boundary.`, `$.jobs.${contract.id}.truthBoundary`));
+    }
+    for (const adapter of contract.adapterHandoff?.adapters ?? []) {
+      if (!runtimeOperation(adapter.adapter)) {
+        diagnostics.push(canonicalDiagnostic(
+          "error",
+          "AIOS_CANONICAL_RUNTIME_ADAPTER_BLOCKED",
+          `Adapter ${adapter.adapter} is not an internal kernel/process operation.`,
+          `$.jobs.${contract.id}.steps.${adapter.step ?? "unknown"}`,
+        ));
+      }
+    }
+  }
+
+  if (compiled.status?.exportReady !== true || compiled.restartStatus?.exportReady !== true) {
+    diagnostics.push(canonicalDiagnostic(
+      "error",
+      "AIOS_CANONICAL_EXPORT_NOT_READY",
+      `Compiler status is ${compiled.status?.state ?? "unknown"}; source is not ready for runtime export.`,
+      "$.compiler.status",
+    ));
+  }
+
+  const blockingDiagnostics = diagnostics.filter((diagnostic) => String(diagnostic.severity).toLowerCase() === "error");
+  const ok = blockingDiagnostics.length === 0;
+  const context = { sourceName, sourceHash, tenantId, workspaceId };
+  const jobs = ok
+    ? contracts.map((contract) => emitRuntimeJob(contract, sourceJobForContract(compiled.ast, contract), context))
+    : [];
+
+  return Object.freeze({
+    ok,
+    protocol: AIOS_CANONICAL_COMPILER,
+    language: Object.freeze({
+      version: AIOS_CANONICAL_LANGUAGE_VERSION,
+      grammar: AIOS_CANONICAL_GRAMMAR,
+      sourceExtension: AIOS_CANONICAL_SOURCE_EXTENSION,
+    }),
+    source: Object.freeze({ name: sourceName, hash: sourceHash, bytes: Buffer.byteLength(text, "utf8") }),
+    boundary: Object.freeze({
+      mode: "internal-only",
+      tenantId,
+      workspaceId,
+      externalWrites: false,
+      runtimeReplacement: false,
+    }),
+    status: Object.freeze({
+      state: ok ? "ready" : "blocked",
+      exportReady: ok,
+      jobCount: jobs.length,
+      diagnosticCount: diagnostics.length,
+      blockingDiagnosticCount: blockingDiagnostics.length,
+      nextAction: ok ? "run-compiled-language-job" : "resolve-language-diagnostics",
+    }),
+    diagnostics: Object.freeze(diagnostics),
+    jobs: Object.freeze(jobs),
+    compilerEvidence: Object.freeze({
+      frontendProtocol: compiled.protocol,
+      frontendStatus: compiled.status,
+      restartStatus: compiled.restartStatus,
+      boundary: compiled.boundary,
+      kernelContractCount: contracts.length,
+    }),
+  });
+}
+
+export function assertCanonicalAiosReady() {
+  const source = `job canonicalHealth {
+  capability aios.status: read @internal;
+  memory artifacts: persistent;
+  step inspect uses kernel.artifact.status() reads [artifacts] -> status recover halt;
+  verify status exists;
+  truth artifactState: source="artifact-root", confidence="observed";
+  rollback retain_artifacts;
+}`;
+  const compiled = compileCanonicalAiosSource(source, { sourceName: "canonical-health.aios" });
+  return Object.freeze({
+    ok: compiled.ok && compiled.jobs.length === 1 && compiled.jobs[0].syscalls[0]?.op === "kernel.artifact.status",
+    protocol: compiled.protocol,
+    status: compiled.status,
+  });
+}

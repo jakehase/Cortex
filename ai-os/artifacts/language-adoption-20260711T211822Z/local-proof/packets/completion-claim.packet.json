@@ -1,0 +1,332 @@
+{
+  "ok": true,
+  "command": "claim",
+  "packetType": "aios.completion.claim",
+  "operatorUserlandModule": "aios.operator.userland.claim.v0",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "operatorRequest": {
+    "contract": "aios.operator.request.v0",
+    "command": "claim",
+    "argv": [
+      "claim",
+      "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+      "--artifact-root",
+      "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346"
+    ],
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "operatorUserlandModule": "aios.operator.userland.claim.v0",
+    "expectedPacketType": "aios.completion.claim",
+    "startedAt": "2026-07-11T21:33:46.301Z",
+    "operatorScope": {
+      "contract": "aios.operator.scope.v0",
+      "tenantId": "openclaw-local",
+      "role": "operator",
+      "operator": "root",
+      "roleAcceptedForCommand": true,
+      "allowedRoles": [
+        "runner",
+        "operator",
+        "admin"
+      ],
+      "scopeHash": "e4e2f9f41ec24b9d072c4b7730a1f58d3bd8a9f2c1316ad4340e716abd122b36"
+    },
+    "client": {
+      "cwd": "/root/clawd/ai-os",
+      "node": "v22.22.1",
+      "platform": "linux",
+      "arch": "x64",
+      "pid": 271531,
+      "shell": null,
+      "operator": "root",
+      "ci": false,
+      "tty": {
+        "stdin": false,
+        "stdout": false,
+        "stderr": false
+      }
+    },
+    "requestId": "aiosreq_9edd2d838f94fa66",
+    "argvHash": "3dcc4a65bf6410bd3c01c48063f4052decb36fc7a02308ec694958790225cecb",
+    "handoff": {
+      "currentStage": "completion_claim_allowed",
+      "nextCommands": [
+        [
+          "aios",
+          "approve",
+          "--artifact-root",
+          "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+          "--subject",
+          "claim:f6016d1a943c9a18"
+        ]
+      ]
+    },
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "tenantBoundary": {
+      "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/.aios-tenant-boundary.json",
+      "status": "matched",
+      "tenantId": "openclaw-local",
+      "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+      "boundaryHash": "a46bb03a5d75c0ca10e65f7c89a5349560349edc17e6eace118e0c44ae430bde",
+      "establishedBy": {
+        "requestId": "aiosreq_8b83d046192a2348",
+        "operator": "root",
+        "role": "operator",
+        "operatorScopeHash": "acf6072883b45fbf2ec1dba181a72bd6107661c55d4631fb20fd0eab9b8eff9e"
+      }
+    },
+    "inputs": {
+      "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+      "tenantId": "openclaw-local",
+      "lifecycleSettings": {
+        "lifecycle": "enabled",
+        "scheduler": "immediate",
+        "approvals": "required"
+      },
+      "providerContract": {
+        "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-provider-contract.json",
+        "hash": "90e0f963840eef4ffe2c7d46aad181d531db7b4b63d4152995a3d66e13287472",
+        "providerId": "local-aios-cli",
+        "negotiatedCapabilities": [
+          "artifact_root_sync",
+          "completion_claim"
+        ],
+        "externalHandoff": "local_only"
+      }
+    },
+    "outputs": {
+      "claimSubject": "claim:f6016d1a943c9a18",
+      "requiredArtifactHashes": {
+        "bootProof": "9259de5c8e82624bc086464965fa86c5754d3f3605a5db7131a361051a8129d8",
+        "runProof": "efb7cc52d3d14543b478daffe9b8a571a9ea3032c514def123e8c51a8942e4c4",
+        "verifierEvidence": "4168d9102c67f798341d2557c0ee3610d3aa55bae9a77f6027f920db12af6f78"
+      },
+      "approvalRequirement": "required",
+      "lifecycleNextAction": "ready",
+      "providerSyncRevision": 5
+    },
+    "userVisibleContract": {
+      "contract": "aios.operator.user_visible_route_contract.v0",
+      "command": "claim",
+      "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+      "packetType": "aios.completion.claim",
+      "preview": {
+        "action": "Validate green boot/run/verifier evidence and create a completion claim.",
+        "target": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+        "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+        "reads": [
+          "job_json",
+          "boot_proof",
+          "run_proof",
+          "verifier_evidence"
+        ],
+        "produces": "aios.completion.claim"
+      },
+      "readiness": {
+        "ready": true,
+        "state": "ready_for_route_handler",
+        "missingInputs": [],
+        "requiredInputs": [
+          "artifactRoot",
+          "jobPath",
+          "tenantId"
+        ]
+      },
+      "validationSummary": {
+        "expectedInputCount": 3,
+        "presentInputCount": 3,
+        "tenantScoped": true,
+        "providerNegotiated": true,
+        "lifecycleState": {
+          "lifecycle": "enabled",
+          "scheduler": "immediate",
+          "approvals": "required"
+        }
+      },
+      "acceptance": {
+        "state": "satisfied",
+        "completed": 3,
+        "total": 3,
+        "checks": [
+          {
+            "name": "claim_subject_available",
+            "passed": true
+          },
+          {
+            "name": "required_artifact_hashes_available",
+            "passed": true
+          },
+          {
+            "name": "approval_requirement_reported",
+            "passed": true
+          }
+        ]
+      },
+      "nextStep": {
+        "state": "completion_claim_allowed",
+        "commands": [
+          [
+            "aios",
+            "approve",
+            "--artifact-root",
+            "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+            "--subject",
+            "claim:f6016d1a943c9a18"
+          ]
+        ],
+        "explanation": "After claim, clients can follow the first listed command when its placeholders are resolved."
+      },
+      "contractHash": "b0d802d315b2f1cd06296b735c5c6ed30e6c2c25cb9ca3a060305e7af15b7d24"
+    },
+    "stateHash": "7b1290e7c5e84dbaa0098bb94a8446c9bdf83ce3297fff4c97c86e3492c6c308"
+  },
+  "generatedAt": "2026-07-11T21:33:46.307Z",
+  "subject": "claim:f6016d1a943c9a18",
+  "job": {
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+    "hash": "284a3fb4c8204891f992f2dedcbd3e0e70ba4f54b4eb7b6f6ac3eb4999138ff7",
+    "id": "local.adapterStatus"
+  },
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+  "tenantBoundary": {
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/.aios-tenant-boundary.json",
+    "status": "matched",
+    "tenantId": "openclaw-local",
+    "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+    "boundaryHash": "a46bb03a5d75c0ca10e65f7c89a5349560349edc17e6eace118e0c44ae430bde",
+    "establishedBy": {
+      "requestId": "aiosreq_8b83d046192a2348",
+      "operator": "root",
+      "role": "operator",
+      "operatorScopeHash": "acf6072883b45fbf2ec1dba181a72bd6107661c55d4631fb20fd0eab9b8eff9e"
+    }
+  },
+  "lifecycleSettings": {
+    "ok": true,
+    "contract": "aios.operator.lifecycle_settings.v0",
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "source": "aios_cli_boot_flags",
+    "controls": {
+      "lifecycle": "enabled",
+      "scheduler": "immediate",
+      "approvals": "required"
+    },
+    "nextAction": {
+      "state": "ready",
+      "command": [
+        "aios",
+        "run",
+        "<job.json>",
+        "--artifact-root",
+        "<artifact-root>"
+      ],
+      "reason": "Lifecycle execution and immediate scheduling are enabled."
+    },
+    "updatedBy": {
+      "command": "boot",
+      "requestId": "aiosreq_8b83d046192a2348",
+      "operator": "root",
+      "role": "operator",
+      "tenantId": "openclaw-local"
+    },
+    "updatedAt": "2026-07-11T21:33:46.167Z",
+    "settingsHash": "fa42b1a0549112249372b8236a1fac3c42681f73891b190091d994977d9c0113",
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-lifecycle-settings.json",
+    "readable": true,
+    "missing": false
+  },
+  "providerContract": {
+    "ok": true,
+    "contract": "aios.service.provider_contract.v0",
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "providerId": "local-aios-cli",
+    "serviceId": "aios.operator.userland.claim.v0",
+    "tenantId": "openclaw-local",
+    "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+    "requiredCapabilities": [
+      "artifact_root_sync",
+      "completion_claim"
+    ],
+    "supportedCapabilities": [
+      "artifact_root_sync",
+      "boot_proof_write",
+      "completion_claim",
+      "external_handoff_state",
+      "lifecycle_log_read",
+      "process_lifecycle_write",
+      "process_table_read"
+    ],
+    "negotiatedCapabilities": [
+      "artifact_root_sync",
+      "completion_claim"
+    ],
+    "capabilityCatalog": {
+      "artifact_root_sync": "Read and update artifact-root metadata created by this CLI surface.",
+      "boot_proof_write": "Write boot proof packets and artifact layout manifests.",
+      "completion_claim": "Validate green artifacts and produce completion claim packets.",
+      "external_handoff_state": "Expose stable state for external provider handoff orchestration.",
+      "lifecycle_log_read": "Read lifecycle events and logs analytics for operator review.",
+      "process_lifecycle_write": "Admit jobs, execute mediated syscalls, and persist process records.",
+      "process_table_read": "Read process records, health, reconciliation, and fleet analytics."
+    },
+    "sync": {
+      "contract": "aios.provider.sync_metadata.v0",
+      "mode": "refresh",
+      "revision": 5,
+      "previousContractHash": "08b28957a23514a505d4fbda854a4a53ea9a2ce2f84acc73867fa804a96349f0",
+      "artifactRootHash": "6df6222ab9b922b05a7ab862019c1bc27bb2339b796b49da5101737387faea4f",
+      "lastCommand": "claim",
+      "lastPacketType": "aios.completion.claim",
+      "lastRequestId": "aiosreq_9edd2d838f94fa66",
+      "lastOperatorScopeHash": "e4e2f9f41ec24b9d072c4b7730a1f58d3bd8a9f2c1316ad4340e716abd122b36",
+      "syncedAt": "2026-07-11T21:33:46.304Z"
+    },
+    "externalHandoff": {
+      "contract": "aios.external_handoff_state.v0",
+      "enabled": false,
+      "state": "local_only",
+      "uri": null,
+      "command": "claim",
+      "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "requestId": "aiosreq_9edd2d838f94fa66",
+      "service": "aios.operator.userland.claim.v0",
+      "updatedAt": "2026-07-11T21:33:46.304Z"
+    },
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-provider-contract.json",
+    "contractHash": "90e0f963840eef4ffe2c7d46aad181d531db7b4b63d4152995a3d66e13287472"
+  },
+  "requiredArtifacts": {
+    "bootProof": {
+      "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/boot-proof.packet.json",
+      "hash": "9259de5c8e82624bc086464965fa86c5754d3f3605a5db7131a361051a8129d8",
+      "green": true
+    },
+    "runProof": {
+      "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/run-proof.packet.json",
+      "hash": "efb7cc52d3d14543b478daffe9b8a571a9ea3032c514def123e8c51a8942e4c4",
+      "green": true
+    },
+    "verifierEvidence": {
+      "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/verifier-evidence.packet.json",
+      "hash": "4168d9102c67f798341d2557c0ee3610d3aa55bae9a77f6027f920db12af6f78",
+      "green": true
+    }
+  },
+  "claimStatus": "allowed",
+  "approvalRequirement": "required",
+  "nextAction": {
+    "state": "awaiting_operator_approval",
+    "command": [
+      "aios",
+      "approve",
+      "--artifact-root",
+      "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "--subject",
+      "claim:f6016d1a943c9a18"
+    ]
+  },
+  "truthBoundary": "Completion claims require green boot proof, green run proof, and green verifier evidence under the artifact root.",
+  "claimHash": "c0a17b403e1fa8f8d5aecee10c0c288b0552c6f27ea673badea36652544116c2"
+}

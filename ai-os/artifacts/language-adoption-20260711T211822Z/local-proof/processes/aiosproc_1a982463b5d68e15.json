@@ -1,0 +1,564 @@
+{
+  "processId": "aiosproc_1a982463b5d68e15",
+  "job": {
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+    "id": "local.adapterStatus",
+    "title": "AIOS language job: local.adapterStatus",
+    "hash": "284a3fb4c8204891f992f2dedcbd3e0e70ba4f54b4eb7b6f6ac3eb4999138ff7"
+  },
+  "state": "completed",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "operatorRequest": {
+    "contract": "aios.operator.request.v0",
+    "command": "run",
+    "argv": [
+      "run",
+      "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+      "--artifact-root",
+      "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346"
+    ],
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "operatorUserlandModule": "aios.operator.userland.run.v0",
+    "expectedPacketType": "aios.run.proof",
+    "startedAt": "2026-07-11T21:33:46.194Z",
+    "operatorScope": {
+      "contract": "aios.operator.scope.v0",
+      "tenantId": "openclaw-local",
+      "role": "operator",
+      "operator": "root",
+      "roleAcceptedForCommand": true,
+      "allowedRoles": [
+        "runner",
+        "operator",
+        "admin"
+      ],
+      "scopeHash": "8e3423e6408893eaa8ff479aa3b6d7698c87577e6a96008155ceb8b608fefe4d"
+    },
+    "client": {
+      "cwd": "/root/clawd/ai-os",
+      "node": "v22.22.1",
+      "platform": "linux",
+      "arch": "x64",
+      "pid": 271498,
+      "shell": null,
+      "operator": "root",
+      "ci": false,
+      "tty": {
+        "stdin": false,
+        "stdout": false,
+        "stderr": false
+      }
+    },
+    "requestId": "aiosreq_197a94d6e38b9e95",
+    "argvHash": "3eb523281fc500e712944bfa8b8ac8370e5eb053bc996d6d8a20f78c22924c9c",
+    "handoff": {
+      "currentStage": "process_completed",
+      "nextCommands": [
+        [
+          "aios",
+          "logs",
+          "--artifact-root",
+          "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+          "--process",
+          "aiosproc_1a982463b5d68e15"
+        ],
+        [
+          "aios",
+          "claim",
+          "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+          "--artifact-root",
+          "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346"
+        ]
+      ]
+    },
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "tenantBoundary": {
+      "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/.aios-tenant-boundary.json",
+      "status": "matched",
+      "tenantId": "openclaw-local",
+      "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+      "boundaryHash": "a46bb03a5d75c0ca10e65f7c89a5349560349edc17e6eace118e0c44ae430bde",
+      "establishedBy": {
+        "requestId": "aiosreq_8b83d046192a2348",
+        "operator": "root",
+        "role": "operator",
+        "operatorScopeHash": "acf6072883b45fbf2ec1dba181a72bd6107661c55d4631fb20fd0eab9b8eff9e"
+      }
+    },
+    "inputs": {
+      "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+      "tenantId": "openclaw-local",
+      "lifecycleSettings": {
+        "lifecycle": "enabled",
+        "scheduler": "immediate",
+        "approvals": "required"
+      },
+      "providerContract": {
+        "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-provider-contract.json",
+        "hash": "2104180726a4a5c577ff88d835b2811f7ee3579ec48b0d4ec023f93beb835ad0",
+        "providerId": "local-aios-cli",
+        "negotiatedCapabilities": [
+          "artifact_root_sync",
+          "process_lifecycle_write"
+        ],
+        "externalHandoff": "local_only"
+      }
+    },
+    "outputs": {
+      "processId": "aiosproc_1a982463b5d68e15"
+    },
+    "userVisibleContract": {
+      "contract": "aios.operator.user_visible_route_contract.v0",
+      "command": "run",
+      "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+      "packetType": "aios.run.proof",
+      "preview": {
+        "action": "Admit a job, execute mediated syscalls, and persist a process record.",
+        "target": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+        "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+        "reads": [
+          "job_json",
+          "tenant_boundary",
+          "lifecycle_settings",
+          "provider_contract"
+        ],
+        "produces": "aios.run.proof"
+      },
+      "readiness": {
+        "ready": true,
+        "state": "ready_for_route_handler",
+        "missingInputs": [],
+        "requiredInputs": [
+          "artifactRoot",
+          "jobPath",
+          "tenantId"
+        ]
+      },
+      "validationSummary": {
+        "expectedInputCount": 3,
+        "presentInputCount": 3,
+        "tenantScoped": true,
+        "providerNegotiated": true,
+        "lifecycleState": {
+          "lifecycle": "enabled",
+          "scheduler": "immediate",
+          "approvals": "required"
+        }
+      },
+      "acceptance": {
+        "state": "partially_satisfied",
+        "completed": 1,
+        "total": 2,
+        "checks": [
+          {
+            "name": "process_id_available",
+            "passed": true
+          },
+          {
+            "name": "lifecycle_policy_reported",
+            "passed": false
+          }
+        ]
+      },
+      "nextStep": {
+        "state": "process_completed",
+        "commands": [
+          [
+            "aios",
+            "logs",
+            "--artifact-root",
+            "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+            "--process",
+            "aiosproc_1a982463b5d68e15"
+          ],
+          [
+            "aios",
+            "claim",
+            "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+            "--artifact-root",
+            "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346"
+          ]
+        ],
+        "explanation": "After run, clients can follow the first listed command when its placeholders are resolved."
+      },
+      "contractHash": "7ab0814c764ace5cea6e3b7162ad52e20dee5ae1c32e9613442758c19676eb9b"
+    },
+    "stateHash": "62cd5c9861c7fe1ad3bdaf300ee86570c9ca7278026af4d014027298139fa614"
+  },
+  "admittedBy": "aios-cli run",
+  "syscallMediator": "aios.kernel.syscall.v0",
+  "lifecycleSettings": {
+    "ok": true,
+    "contract": "aios.operator.lifecycle_settings.v0",
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "source": "aios_cli_boot_flags",
+    "controls": {
+      "lifecycle": "enabled",
+      "scheduler": "immediate",
+      "approvals": "required"
+    },
+    "nextAction": {
+      "state": "ready",
+      "command": [
+        "aios",
+        "run",
+        "<job.json>",
+        "--artifact-root",
+        "<artifact-root>"
+      ],
+      "reason": "Lifecycle execution and immediate scheduling are enabled."
+    },
+    "updatedBy": {
+      "command": "boot",
+      "requestId": "aiosreq_8b83d046192a2348",
+      "operator": "root",
+      "role": "operator",
+      "tenantId": "openclaw-local"
+    },
+    "updatedAt": "2026-07-11T21:33:46.167Z",
+    "settingsHash": "fa42b1a0549112249372b8236a1fac3c42681f73891b190091d994977d9c0113",
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-lifecycle-settings.json",
+    "readable": true,
+    "missing": false
+  },
+  "providerContract": {
+    "ok": true,
+    "contract": "aios.service.provider_contract.v0",
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "providerId": "local-aios-cli",
+    "serviceId": "aios.operator.userland.run.v0",
+    "tenantId": "openclaw-local",
+    "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+    "requiredCapabilities": [
+      "artifact_root_sync",
+      "process_lifecycle_write"
+    ],
+    "supportedCapabilities": [
+      "artifact_root_sync",
+      "boot_proof_write",
+      "external_handoff_state",
+      "process_lifecycle_write"
+    ],
+    "negotiatedCapabilities": [
+      "artifact_root_sync",
+      "process_lifecycle_write"
+    ],
+    "capabilityCatalog": {
+      "artifact_root_sync": "Read and update artifact-root metadata created by this CLI surface.",
+      "boot_proof_write": "Write boot proof packets and artifact layout manifests.",
+      "external_handoff_state": "Expose stable state for external provider handoff orchestration.",
+      "process_lifecycle_write": "Admit jobs, execute mediated syscalls, and persist process records."
+    },
+    "sync": {
+      "contract": "aios.provider.sync_metadata.v0",
+      "mode": "refresh",
+      "revision": 2,
+      "previousContractHash": "9dd62f3016f9264887725690854268f9c6e750f815248c6575cf6f845c1be56b",
+      "artifactRootHash": "6df6222ab9b922b05a7ab862019c1bc27bb2339b796b49da5101737387faea4f",
+      "lastCommand": "run",
+      "lastPacketType": "aios.run.proof",
+      "lastRequestId": "aiosreq_197a94d6e38b9e95",
+      "lastOperatorScopeHash": "8e3423e6408893eaa8ff479aa3b6d7698c87577e6a96008155ceb8b608fefe4d",
+      "syncedAt": "2026-07-11T21:33:46.198Z"
+    },
+    "externalHandoff": {
+      "contract": "aios.external_handoff_state.v0",
+      "enabled": false,
+      "state": "local_only",
+      "uri": null,
+      "command": "run",
+      "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "requestId": "aiosreq_197a94d6e38b9e95",
+      "service": "aios.operator.userland.run.v0",
+      "updatedAt": "2026-07-11T21:33:46.198Z"
+    },
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-provider-contract.json",
+    "contractHash": "2104180726a4a5c577ff88d835b2811f7ee3579ec48b0d4ec023f93beb835ad0"
+  },
+  "lifecycle": [
+    {
+      "ordinal": 1,
+      "state": "admitted",
+      "at": "2026-07-11T21:33:46.199Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "jobId": "local.adapterStatus",
+      "jobHash": "284a3fb4c8204891f992f2dedcbd3e0e70ba4f54b4eb7b6f6ac3eb4999138ff7",
+      "requestId": "aiosreq_197a94d6e38b9e95",
+      "admission": "aios.kernel.process_table.v0"
+    },
+    {
+      "ordinal": 2,
+      "state": "scheduled",
+      "at": "2026-07-11T21:33:46.199Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "scheduler": "aios.kernel.scheduler.v0"
+    },
+    {
+      "ordinal": 3,
+      "state": "running",
+      "at": "2026-07-11T21:33:46.199Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "syscallCount": 3
+    },
+    {
+      "ordinal": 1,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T21:33:46.199Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "syscall": "process.admit"
+    },
+    {
+      "ordinal": 1,
+      "state": "syscall_completed",
+      "at": "2026-07-11T21:33:46.199Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "syscall": "process.admit",
+      "resultHash": "8f7098be81f771b72d3f86587f63021e3f3f89b2c6524d90b1eaafe9ad29512d"
+    },
+    {
+      "ordinal": 2,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T21:33:46.199Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "syscall": "kernel.artifact.status"
+    },
+    {
+      "ordinal": 2,
+      "state": "syscall_completed",
+      "at": "2026-07-11T21:33:46.200Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "syscall": "kernel.artifact.status",
+      "resultHash": "a20a95b4e55fcf3b41cd9bb56b8018fabf089924cb2d38dda2454121f833838e"
+    },
+    {
+      "ordinal": 3,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T21:33:46.200Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "syscall": "kernel.complete"
+    },
+    {
+      "ordinal": 3,
+      "state": "syscall_completed",
+      "at": "2026-07-11T21:33:46.200Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "syscall": "kernel.complete",
+      "resultHash": "f6f51064a8294320ec621ef4d6e57ba591a4c8a49a4b930508d9a2e6dd356aa1"
+    },
+    {
+      "ordinal": 10,
+      "state": "completed",
+      "at": "2026-07-11T21:33:46.200Z",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "completedSyscalls": 3
+    }
+  ],
+  "syscallResults": [
+    {
+      "ordinal": 1,
+      "op": "process.admit",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "2e53a33240bb6e31fcc505c67eab0a8ba1dbab2763ab767fe7302bdd21801531",
+      "output": {
+        "admitted": "aiosproc_1a982463b5d68e15",
+        "jobId": "local.adapterStatus"
+      },
+      "outputHash": "8f7098be81f771b72d3f86587f63021e3f3f89b2c6524d90b1eaafe9ad29512d"
+    },
+    {
+      "ordinal": 2,
+      "op": "kernel.artifact.status",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "output": {
+        "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+        "observedAt": "2026-07-11T21:33:46.200Z",
+        "bootOk": true,
+        "priorRunOk": false,
+        "verifierOk": false,
+        "claimStatus": null,
+        "processCount": 0
+      },
+      "outputHash": "a20a95b4e55fcf3b41cd9bb56b8018fabf089924cb2d38dda2454121f833838e"
+    },
+    {
+      "ordinal": 3,
+      "op": "kernel.complete",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "c8f249b204d755ac0c917e812354aa4bc6d2ec7a453980fb5b41e37938b487fd",
+      "output": {
+        "completion": "completed"
+      },
+      "outputHash": "f6f51064a8294320ec621ef4d6e57ba591a4c8a49a4b930508d9a2e6dd356aa1"
+    }
+  ],
+  "analytics": {
+    "contract": "aios.operator.process_analytics.v0",
+    "generatedAt": "2026-07-11T21:33:46.205Z",
+    "summary": {
+      "processId": "aiosproc_1a982463b5d68e15",
+      "state": "completed",
+      "jobId": "local.adapterStatus",
+      "jobHash": "284a3fb4c8204891f992f2dedcbd3e0e70ba4f54b4eb7b6f6ac3eb4999138ff7",
+      "eventCount": 10,
+      "syscallCount": 3,
+      "completedSyscallCount": 3,
+      "failedSyscallCount": 0,
+      "firstEventAt": "2026-07-11T21:33:46.199Z",
+      "lastEventAt": "2026-07-11T21:33:46.200Z",
+      "durationMs": 1,
+      "terminal": true,
+      "recordPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/processes/aiosproc_1a982463b5d68e15.json"
+    },
+    "counters": {
+      "lifecycleStates": {
+        "admitted": 1,
+        "completed": 1,
+        "running": 1,
+        "scheduled": 1,
+        "syscall_completed": 3,
+        "syscall_dispatched": 3
+      },
+      "syscalls": {
+        "kernel.artifact.status": 1,
+        "kernel.complete": 1,
+        "process.admit": 1
+      }
+    },
+    "historySnapshot": {
+      "processId": "aiosproc_1a982463b5d68e15",
+      "jobId": "local.adapterStatus",
+      "state": "completed",
+      "eventCount": 10,
+      "syscallCount": 3,
+      "firstEventAt": "2026-07-11T21:33:46.199Z",
+      "lastEventAt": "2026-07-11T21:33:46.200Z",
+      "durationMs": 1,
+      "snapshotHash": "c6eb25cf8be3d490082d8a41191c087630870d32d743d9bf0e457df732bbfcbd"
+    },
+    "exportSummary": {
+      "format": "json",
+      "schema": "aios.operator.process_export_summary.v0",
+      "stableKey": "aiosproc_1a982463b5d68e15",
+      "columns": [
+        "processId",
+        "jobId",
+        "state",
+        "eventCount",
+        "syscallCount",
+        "durationMs",
+        "firstEventAt",
+        "lastEventAt"
+      ],
+      "row": {
+        "processId": "aiosproc_1a982463b5d68e15",
+        "jobId": "local.adapterStatus",
+        "state": "completed",
+        "eventCount": 10,
+        "syscallCount": 3,
+        "durationMs": 1,
+        "firstEventAt": "2026-07-11T21:33:46.199Z",
+        "lastEventAt": "2026-07-11T21:33:46.200Z"
+      }
+    },
+    "timeline": [
+      {
+        "ordinal": 1,
+        "state": "admitted",
+        "at": "2026-07-11T21:33:46.199Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": null,
+        "resultHash": null
+      },
+      {
+        "ordinal": 2,
+        "state": "scheduled",
+        "at": "2026-07-11T21:33:46.199Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": null,
+        "resultHash": null
+      },
+      {
+        "ordinal": 3,
+        "state": "running",
+        "at": "2026-07-11T21:33:46.199Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": null,
+        "resultHash": null
+      },
+      {
+        "ordinal": 1,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T21:33:46.199Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": "process.admit",
+        "resultHash": null
+      },
+      {
+        "ordinal": 1,
+        "state": "syscall_completed",
+        "at": "2026-07-11T21:33:46.199Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": "process.admit",
+        "resultHash": "8f7098be81f771b72d3f86587f63021e3f3f89b2c6524d90b1eaafe9ad29512d"
+      },
+      {
+        "ordinal": 2,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T21:33:46.199Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": "kernel.artifact.status",
+        "resultHash": null
+      },
+      {
+        "ordinal": 2,
+        "state": "syscall_completed",
+        "at": "2026-07-11T21:33:46.200Z",
+        "deltaMsFromPrevious": 1,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": "kernel.artifact.status",
+        "resultHash": "a20a95b4e55fcf3b41cd9bb56b8018fabf089924cb2d38dda2454121f833838e"
+      },
+      {
+        "ordinal": 3,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T21:33:46.200Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": "kernel.complete",
+        "resultHash": null
+      },
+      {
+        "ordinal": 3,
+        "state": "syscall_completed",
+        "at": "2026-07-11T21:33:46.200Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": "kernel.complete",
+        "resultHash": "f6f51064a8294320ec621ef4d6e57ba591a4c8a49a4b930508d9a2e6dd356aa1"
+      },
+      {
+        "ordinal": 10,
+        "state": "completed",
+        "at": "2026-07-11T21:33:46.200Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_1a982463b5d68e15",
+        "syscall": null,
+        "resultHash": null
+      }
+    ]
+  },
+  "recordHash": "4f27b2e9101fab40bf4fc7753a58eb665dff786176268d1c610efa2939e8c0f9"
+}

@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "packetType": "aios.process.index",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+  "generatedAt": "2026-07-11T21:33:23.992Z",
+  "updatedBy": "aios-cli run",
+  "processes": [
+    {
+      "processId": "aiosproc_30e1024eb3abd135",
+      "state": "completed",
+      "jobId": "local.adapterStatus",
+      "jobHash": "284a3fb4c8204891f992f2dedcbd3e0e70ba4f54b4eb7b6f6ac3eb4999138ff7",
+      "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+      "requestId": "aiosreq_abec04104751bb29",
+      "operatorUserlandModule": "aios.operator.userland.run.v0",
+      "recordPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/processes/aiosproc_30e1024eb3abd135.json",
+      "recordHash": "f3724a29754cfdbecac05e12a93ec03c7e2c0762405e961673dfdc096019eb77",
+      "updatedAt": "2026-07-11T21:33:23.988Z"
+    }
+  ],
+  "indexHash": "91f5512422963241c0ca8c706be50b9f9a198731b1beff0eb4a1b87ff6d93613"
+}

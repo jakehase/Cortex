@@ -14,13 +14,15 @@ const ROOT_POINTER_FILE = path.join(ROOT_POINTER_DIR, 'latest-adapter-root.json'
 const DEFAULT_CONFIG_FILE = path.join(WORKSPACE_ROOT, 'config', 'ai-os-adapter', 'default.json');
 const DEFAULT_STATE_FILE = path.join(WORKSPACE_ROOT, 'state', 'ai-os-adapter', 'default-on-state.json');
 const LAST_ROOT_FILE = path.join(WORKSPACE_ROOT, '.last_aios_adapter_root');
+const ADAPTER_VERSION = 'openclaw-aios-adapter.v0.4-language-v1';
+const CANONICAL_LANGUAGE_VERSION = 'aios.language.v1';
 
 function nowStamp() {
   return new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 }
 
 function usage(exitCode = 0) {
-  const text = `AI OS adapter — default-on local bridge for the AI OS language substrate\n\nUsage:\n  node scripts/aios-adapter.mjs promote-default [--label <name>]\n  node scripts/aios-adapter.mjs dogfood-smoke [--artifact-root <workspace-path>] [--label <name>]\n  node scripts/aios-adapter.mjs boot --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs run <job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs ps --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs logs --artifact-root <workspace-path> --process <process-id>\n  node scripts/aios-adapter.mjs claim <job.json> --artifact-root <workspace-path> [--write-verifier-evidence]\n  node scripts/aios-adapter.mjs status [--artifact-root <workspace-path>|--last]\n  node scripts/aios-adapter.mjs recover [--artifact-root <workspace-path>|--last]\n\nSafety boundary:\n  - Default-on for local/internal status, recovery, and handoff substrate.\n  - Does not replace OpenClaw/Cortex routing or the chat/control-plane brain.\n  - Artifact roots must stay inside this workspace.\n  - No external handoff/provider writes are exposed by this adapter.\n`;
+  const text = `AI OS adapter — default-on local bridge for the AI OS language substrate\n\nUsage:\n  node scripts/aios-adapter.mjs promote-default [--label <name>]\n  node scripts/aios-adapter.mjs dogfood-smoke [--artifact-root <workspace-path>] [--label <name>]\n  node scripts/aios-adapter.mjs compile <source.aios> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs boot --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs run <source.aios|job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs ps --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs logs --artifact-root <workspace-path> --process <process-id>\n  node scripts/aios-adapter.mjs claim <source.aios|job.json> --artifact-root <workspace-path> [--write-verifier-evidence]\n  node scripts/aios-adapter.mjs status [--artifact-root <workspace-path>|--last]\n  node scripts/aios-adapter.mjs recover [--artifact-root <workspace-path>|--last]\n\nSafety boundary:\n  - Canonical .aios source is compiled before bounded internal execution.\n  - Default-on for local/internal status, recovery, and handoff substrate.\n  - Does not replace OpenClaw/Cortex routing or the chat/control-plane brain.\n  - Artifact roots must stay inside this workspace.\n  - No external handoff/provider writes are exposed by this adapter.\n`;
   console.log(text);
   process.exit(exitCode);
 }
@@ -149,9 +151,9 @@ function writeDefaultConfig({ artifactRoot, promotionReportPath = null, status =
   const config = {
     schemaVersion: 'openclaw.aios.adapter.default.v1',
     enabled: true,
-    mode: 'always_on_internal_status_recovery_handoff',
+    mode: 'always_on_internal_aios_language_status_recovery_handoff',
     promotedAt: new Date().toISOString(),
-    adapter: 'openclaw-aios-adapter.v0.3-default-on',
+    adapter: ADAPTER_VERSION,
     defaultArtifactRoot: artifactRoot,
     rootPointerFile: ROOT_POINTER_FILE,
     lastRootFile: LAST_ROOT_FILE,
@@ -159,6 +161,8 @@ function writeDefaultConfig({ artifactRoot, promotionReportPath = null, status =
     promotionReportPath,
     policy: {
       defaultUses: ['status', 'recover', 'local_handoff', 'bounded_internal_jobs'],
+      canonicalLanguage: CANONICAL_LANGUAGE_VERSION,
+      sourceCompileRequiredForDogfood: true,
       externalWritesExposed: false,
       replacesCortexOpenClawRouting: false,
       replacesChatControlPlane: false,
@@ -175,7 +179,8 @@ function writeDefaultState({ artifactRoot, status = 'green', report = null } = {
     schemaVersion: 'openclaw.aios.adapter.default_state.v1',
     updatedAt: new Date().toISOString(),
     enabled: true,
-    mode: 'always_on_internal_status_recovery_handoff',
+    mode: 'always_on_internal_aios_language_status_recovery_handoff',
+    canonicalLanguage: CANONICAL_LANGUAGE_VERSION,
     artifactRoot,
     status,
     report,
@@ -234,6 +239,8 @@ function compactStatus(artifactRoot) {
   const boot = readJson(path.join(root, 'packets', 'boot-proof.packet.json'), null);
   const run = readJson(path.join(root, 'packets', 'run-proof.packet.json'), null);
   const verifierEvidence = readJson(path.join(root, 'packets', 'verifier-evidence.packet.json'), null);
+  const languageCompile = readJson(path.join(root, 'packets', 'language-compile.packet.json'), null);
+  const languageSources = fs.readdirSync(root).filter((entry) => entry.endsWith('.aios')).sort();
   const rollbackPlanPath = path.join(root, 'reports', 'rollback-plan.md');
   const recoveryPlanPath = path.join(root, 'reports', 'recovery-plan.md');
   return {
@@ -241,6 +248,11 @@ function compactStatus(artifactRoot) {
     artifactRoot: root,
     defaultOn: config?.enabled === true,
     defaultMode: config?.mode || null,
+    canonicalLanguage: config?.policy?.canonicalLanguage || null,
+    languageSourcePresent: languageSources.length > 0,
+    languageSources,
+    languageCompileOk: languageCompile?.ok === true,
+    languageCompileProof: languageCompile ? path.join(root, 'packets', 'language-compile.packet.json') : null,
     defaultConfigFile: config?.enabled === true ? DEFAULT_CONFIG_FILE : null,
     adapterReportPresent: Boolean(adapterReport),
     adapterReportSource: adapterReportDirect ? 'adapter-report.json' : statusReport ? 'reports/status-report.json' : recoveryReport ? 'reports/recovery-report.json' : null,
@@ -323,7 +335,16 @@ function commandRecover(args) {
       rollbackPlan: path.join(reportsDir, 'rollback-plan.md'),
       recoveryPlan: path.join(reportsDir, 'recovery-plan.md')
     }),
-    recoveryCheck('job_descriptor_present', jobCandidates.length > 0, { jobCandidates })
+    recoveryCheck('job_descriptor_present', jobCandidates.length > 0, { jobCandidates }),
+    recoveryCheck(
+      'canonical_language_compile_present_when_required',
+      status.canonicalLanguage ? status.languageSourcePresent && status.languageCompileOk : true,
+      {
+        canonicalLanguage: status.canonicalLanguage,
+        languageSources: status.languageSources,
+        languageCompileProof: status.languageCompileProof
+      }
+    )
   ];
   const statusLabel = checks.every((check) => check.ok) ? 'green' : checks.some((check) => check.ok) ? 'degraded' : 'red';
   const actions = [
@@ -337,7 +358,7 @@ function commandRecover(args) {
     ok: statusLabel === 'green',
     status: statusLabel,
     generatedAt: new Date().toISOString(),
-    adapter: readDefaultConfig()?.enabled === true ? 'openclaw-aios-adapter.v0.3-default-on' : 'openclaw-aios-adapter.v0.2-recovery',
+    adapter: readDefaultConfig()?.enabled === true ? ADAPTER_VERSION : 'openclaw-aios-adapter.v0.2-recovery',
     artifactRoot,
     safetyBoundary: readDefaultConfig()?.enabled === true ? defaultSafetyBoundary({ defaultOn: true }) : defaultSafetyBoundary({ defaultOn: false }),
     statusSummary: status,
@@ -360,40 +381,43 @@ function commandDogfoodSmoke(args) {
   const artifactRoot = resolveAiOsArtifactRoot(args.artifactRoot || defaultArtifactRoot(args.label || (defaultOn ? 'default-on-adapter' : 'adapter-smoke')));
   const safetyBoundary = defaultSafetyBoundary({ defaultOn });
   fs.mkdirSync(artifactRoot, { recursive: true });
-  const jobPath = path.join(artifactRoot, 'adapter-dogfood.job.json');
-  writeJson(jobPath, {
-    schemaVersion: 'aios.adapter-dogfood-job.v0.1',
-    id: `${defaultOn ? 'aios-adapter-default-on' : 'aios-adapter-dogfood'}-${nowStamp()}`,
-    objective: defaultOn
-      ? 'Promote the OpenClaw AI OS adapter to the default-on internal status/recovery/handoff substrate.'
-      : 'Exercise the OpenClaw AI OS adapter through boot, run, ps, logs, verifier evidence, and claim.',
-    truthBoundary: defaultOn
-      ? 'Internal default-on adapter substrate only; no external writes, no chat/control-plane replacement, and no failed benchmark-output promotion.'
-      : 'Internal opt-in adapter smoke only; no external writes and no default runtime replacement.'
-  });
+  const sourcePath = path.join(artifactRoot, 'adapter-dogfood.aios');
+  fs.writeFileSync(sourcePath, `# Real internal AIOS language dogfood workflow.\njob adapterStatus {\n  capability aios.status: read @internal;\n  memory adapterArtifacts: persistent;\n  step inspect uses kernel.artifact.status() reads [adapterArtifacts] -> status recover halt;\n  verify status exists;\n  truth adapterState: source="artifact-root", confidence="observed";\n  rollback retain_artifacts;\n}\n`);
 
+  const languageCompile = runAios(['compile', sourcePath, '--artifact-root', artifactRoot, '--workspace', 'openclaw']);
+  const jobPath = languageCompile?.jobPaths?.[0];
+  if (!languageCompile?.ok || !jobPath) throw new Error('AIOS language compile did not emit a runnable job');
   const boot = runAios(['boot', '--artifact-root', artifactRoot]);
   const run = runAios(['run', jobPath, '--artifact-root', artifactRoot]);
   const processId = run?.process?.id;
   if (!processId) throw new Error('AI OS run did not return process.id');
+  const statusSyscall = run?.syscallResults?.find((entry) => entry.op === 'kernel.artifact.status');
   const ps = runAios(['ps', '--artifact-root', artifactRoot]);
   const logs = runAios(['logs', '--artifact-root', artifactRoot, '--process', processId]);
   const checks = [
+    { name: 'canonical_language_compile_green', ok: languageCompile?.ok === true && languageCompile?.status?.state === 'ready', proofPath: languageCompile?.proofPath || null },
+    { name: 'compiled_job_emitted', ok: fs.existsSync(jobPath), jobPath },
+    { name: 'external_effects_blocked', ok: languageCompile?.boundary?.externalWrites === false && languageCompile?.boundary?.runtimeReplacement === false },
     { name: 'boot_proof_green', ok: boot?.ok === true, proofPath: boot?.proofPath || null },
     { name: 'run_proof_green', ok: run?.ok === true, proofPath: run?.proofPath || null },
+    { name: 'internal_status_syscall_observed', ok: statusSyscall?.ok === true && statusSyscall?.output?.bootOk === true, output: statusSyscall?.output || null },
     { name: 'process_visible', ok: ps?.ok === true && Number(ps.count || 0) >= 1, count: ps?.count ?? null },
     { name: 'logs_visible', ok: logs?.ok === true && Number(logs.count || 0) >= 1, count: logs?.count ?? null }
   ];
   const verifier = writeVerifierEvidence({
     artifactRoot,
     checks,
-    evidence: [{ kind: 'openclaw_aios_adapter_smoke', processId, generatedAt: new Date().toISOString() }]
+    evidence: [{ kind: 'openclaw_aios_language_compile_run_smoke', language: CANONICAL_LANGUAGE_VERSION, sourcePath, jobPath, processId, generatedAt: new Date().toISOString() }]
   });
   const claim = runAios(['claim', jobPath, '--artifact-root', artifactRoot]);
+  const ok = checks.every((check) => check.ok === true) && claim?.claimStatus === 'allowed';
   const report = {
-    ok: true,
+    ok,
     generatedAt: new Date().toISOString(),
-    adapter: defaultOn ? 'openclaw-aios-adapter.v0.3-default-on' : 'openclaw-aios-adapter.v0.1',
+    adapter: ADAPTER_VERSION,
+    canonicalLanguage: CANONICAL_LANGUAGE_VERSION,
+    languageCompileProof: languageCompile?.proofPath || null,
+    sourcePath,
     artifactRoot,
     jobPath,
     defaultOn,
@@ -402,13 +426,14 @@ function commandDogfoodSmoke(args) {
     bootProof: boot?.proofPath || null,
     runProof: run?.proofPath || null,
     verifierEvidence: verifier.verifierPath,
+    statusSyscall: statusSyscall || null,
     psCount: ps?.count ?? null,
     logCount: logs?.count ?? null,
     claimStatus: claim?.claimStatus || null,
     claimPath: claim?.claimPath || null,
     nextAction: defaultOn
-      ? 'AI OS adapter is eligible to stay on by default for internal status/recovery/handoff; runtime replacement and external writes remain blocked.'
-      : 'Use this adapter for one bounded real internal dogfood task before promoting beyond experimental substrate.'
+      ? 'Canonical AIOS language compile-run is eligible to stay on by default for internal status/recovery/handoff; runtime replacement and external writes remain blocked.'
+      : 'Use this bounded source-language path for additional internal workflows before expanding its capability catalog.'
   };
   writeJson(path.join(artifactRoot, 'adapter-report.json'), report);
   rememberRoot(artifactRoot);
@@ -426,7 +451,8 @@ function commandPromoteDefault(args) {
     ok: recovery.ok === true,
     status: recovery.ok === true ? 'default_on' : 'default_on_degraded',
     generatedAt: new Date().toISOString(),
-    adapter: 'openclaw-aios-adapter.v0.3-default-on',
+    adapter: ADAPTER_VERSION,
+    canonicalLanguage: CANONICAL_LANGUAGE_VERSION,
     artifactRoot: smoke.artifactRoot,
     defaultConfigFile: DEFAULT_CONFIG_FILE,
     defaultStateFile: DEFAULT_STATE_FILE,
@@ -442,13 +468,28 @@ function commandPromoteDefault(args) {
   };
 }
 
+function compileRuntimeInput(inputPath, artifactRoot) {
+  if (!inputPath.endsWith('.aios')) return { jobPath: inputPath, languageCompilation: null };
+  const languageCompilation = runAios(['compile', inputPath, '--artifact-root', artifactRoot, '--workspace', 'openclaw']);
+  const jobPath = languageCompilation?.jobPaths?.[0];
+  if (!languageCompilation?.ok || !jobPath) throw new Error('AIOS source compilation did not emit a runnable job');
+  return { jobPath, languageCompilation };
+}
+
 function commandForward(command, args) {
-  const artifactRoot = resolveAiOsArtifactRoot(args.artifactRoot || (args.last ? lastRoot() : null) || defaultAdapterRoot({ mustExist: command !== 'boot' }), { mustExist: command !== 'boot' });
-  const job = args._[1] ? resolveWorkspacePath(args._[1], { mustExist: true }) : null;
+  const artifactMustExist = !['boot', 'compile'].includes(command);
+  const artifactRoot = resolveAiOsArtifactRoot(args.artifactRoot || (args.last ? lastRoot() : null) || defaultAdapterRoot({ mustExist: artifactMustExist }), { mustExist: artifactMustExist });
+  const inputPath = args._[1] ? resolveWorkspacePath(args._[1], { mustExist: true }) : null;
+  if (command === 'compile') {
+    if (!inputPath || !inputPath.endsWith('.aios')) throw new Error('compile requires <source.aios>');
+    return runAios(['compile', inputPath, '--artifact-root', artifactRoot, '--workspace', 'openclaw']);
+  }
   if (command === 'boot') return runAios(['boot', '--artifact-root', artifactRoot]);
   if (command === 'run') {
-    if (!job) throw new Error('run requires <job.json>');
-    return runAios(['run', job, '--artifact-root', artifactRoot]);
+    if (!inputPath) throw new Error('run requires <source.aios|job.json>');
+    const { jobPath, languageCompilation } = compileRuntimeInput(inputPath, artifactRoot);
+    const output = runAios(['run', jobPath, '--artifact-root', artifactRoot]);
+    return languageCompilation ? { ...output, languageCompilation: { proofPath: languageCompilation.proofPath, status: languageCompilation.status, sourcePath: inputPath, jobPath } } : output;
   }
   if (command === 'ps') return runAios(['ps', '--artifact-root', artifactRoot]);
   if (command === 'logs') {
@@ -456,11 +497,13 @@ function commandForward(command, args) {
     return runAios(['logs', '--artifact-root', artifactRoot, '--process', args.process]);
   }
   if (command === 'claim') {
-    if (!job) throw new Error('claim requires <job.json>');
+    if (!inputPath) throw new Error('claim requires <source.aios|job.json>');
+    const { jobPath, languageCompilation } = compileRuntimeInput(inputPath, artifactRoot);
     if (args.writeVerifierEvidence) {
       writeVerifierEvidence({ artifactRoot, checks: [{ name: 'manual_adapter_verifier_evidence_requested', ok: true }], evidence: [{ kind: 'manual_adapter_evidence' }] });
     }
-    return runAios(['claim', job, '--artifact-root', artifactRoot]);
+    const output = runAios(['claim', jobPath, '--artifact-root', artifactRoot]);
+    return languageCompilation ? { ...output, languageCompilation: { proofPath: languageCompilation.proofPath, status: languageCompilation.status, sourcePath: inputPath, jobPath } } : output;
   }
   throw new Error(`unsupported forward command: ${command}`);
 }
@@ -475,7 +518,7 @@ async function main() {
     else if (command === 'dogfood-smoke') output = commandDogfoodSmoke(args);
     else if (command === 'status') output = compactStatus(args.artifactRoot || (args.last ? lastRoot() : null));
     else if (command === 'recover') output = commandRecover(args);
-    else if (['boot', 'run', 'ps', 'logs', 'claim'].includes(command)) output = commandForward(command, args);
+    else if (['compile', 'boot', 'run', 'ps', 'logs', 'claim'].includes(command)) output = commandForward(command, args);
     else usage(2);
     console.log(JSON.stringify(output, null, 2));
   } catch (error) {

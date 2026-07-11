@@ -2,11 +2,13 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { compileCanonicalAiosSource } from '../packages/aios-language/canonical.mjs';
+
 const command = process.argv[2] || 'help';
-const known = ['help', 'boot', 'run', 'claim', 'ps', 'logs', 'approve'];
+const known = ['help', 'compile', 'boot', 'run', 'claim', 'ps', 'logs', 'approve'];
 const cliDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(cliDir, '..');
 
@@ -44,6 +46,7 @@ const fail = (code, reason, details = {}) => {
 
 const usage = {
   help: 'aios help',
+  compile: 'aios compile <source.aios> --artifact-root <path> [--workspace <id>] [--tenant <id>] [--role <role>]',
   boot: 'aios boot --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>] [--kernel-contracts <path>] [--hosted-boot-module <path>] [--lifecycle enabled|disabled] [--scheduler immediate|hold] [--approvals required|optional]',
   run: 'aios run <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>]',
   claim: 'aios claim <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>]',
@@ -325,6 +328,7 @@ const invocationArgv = process.argv.slice(2);
 const allowedKernelSyscalls = new Set([
   'kernel.echo',
   'kernel.record',
+  'kernel.artifact.status',
   'kernel.complete',
   'process.admit',
   'process.transition',
@@ -1117,7 +1121,30 @@ const buildRunProofPacket = ({
   return runProof;
 };
 
-const executeKernelSyscalls = ({ processId, jobMeta, syscallRequests, lifecycle }) => {
+const inspectArtifactStatus = async (artifactRoot) => {
+  const readPacket = async (relativePath) => {
+    const packetPath = join(artifactRoot, relativePath);
+    if (!existsSync(packetPath)) return null;
+    const payload = await tryReadJsonFile(packetPath);
+    return payload?.__aiosReadError ? null : payload;
+  };
+  const boot = await readPacket(join('packets', 'boot-proof.packet.json'));
+  const runProof = await readPacket(join('packets', 'run-proof.packet.json'));
+  const verifier = await readPacket(join('packets', 'verifier-evidence.packet.json'));
+  const claim = await readPacket(join('packets', 'completion-claim.packet.json'));
+  const processIndex = await readPacket(join('processes', 'process-index.json'));
+  return {
+    artifactRoot,
+    observedAt: new Date().toISOString(),
+    bootOk: boot?.ok === true,
+    priorRunOk: runProof?.ok === true,
+    verifierOk: verifier?.ok === true,
+    claimStatus: claim?.claimStatus ?? null,
+    processCount: Array.isArray(processIndex?.processes) ? processIndex.processes.length : 0,
+  };
+};
+
+const executeKernelSyscalls = async ({ artifactRoot, processId, jobMeta, syscallRequests, lifecycle }) => {
   const results = [];
   for (const request of syscallRequests) {
     if (!syscallAllowedByKernelPolicy(request.op)) {
@@ -1132,6 +1159,8 @@ const executeKernelSyscalls = ({ processId, jobMeta, syscallRequests, lifecycle 
       ? { echoed: String(request.args.message ?? request.args.text ?? '') }
       : request.op === 'kernel.record'
         ? { recorded: request.args }
+        : request.op === 'kernel.artifact.status'
+          ? await inspectArtifactStatus(artifactRoot)
         : request.op === 'kernel.complete'
           ? { completion: request.args.status ?? 'complete' }
       : request.op === 'process.admit'
@@ -1937,7 +1966,8 @@ const run = async (operatorRequest) => {
     processId,
     syscallCount: syscallRequests.length,
   });
-  const syscallResults = executeKernelSyscalls({
+  const syscallResults = await executeKernelSyscalls({
+    artifactRoot,
     processId,
     jobMeta,
     syscallRequests,
@@ -2669,6 +2699,75 @@ const approve = async (operatorRequest) => {
   }
 };
 
+const compile = async (operatorRequest) => {
+  const { positional: sourceInput, flags } = parsePositionalCommand(process.argv.slice(3), 'source');
+  const sourcePath = resolveInsideWorkspace(sourceInput, 'source');
+  const artifactRoot = resolveInsideWorkspace(flags['artifact-root'], '--artifact-root');
+  const workspaceId = normalizeScopeToken(flags.workspace, 'default', 'workspace');
+  const source = await readFile(sourcePath, 'utf8');
+  await mkdir(artifactRoot, { recursive: true });
+  await mkdir(join(artifactRoot, 'packets'), { recursive: true });
+
+  const result = compileCanonicalAiosSource(source, {
+    sourceName: basename(sourcePath),
+    tenantId: operatorRequest.operatorScope.tenantId,
+    workspaceId,
+    actorId: operatorRequest.operatorScope.operator,
+    role: operatorRequest.operatorScope.role,
+  });
+  const safeBase = basename(sourcePath).replace(/\.aios$/i, '').replace(/[^a-zA-Z0-9_.-]/g, '-') || 'program';
+  const jobPaths = [];
+  if (result.ok) {
+    for (const [index, job] of result.jobs.entries()) {
+      const suffix = result.jobs.length > 1 ? `-${index + 1}` : '';
+      const jobPath = join(artifactRoot, `${safeBase}${suffix}.compiled.job.json`);
+      await writeFile(jobPath, `${JSON.stringify(job, null, 2)}\n`, 'utf8');
+      jobPaths.push(jobPath);
+    }
+  }
+  const requestState = withOperatorRequestState(operatorRequest, {
+    artifactRoot,
+    inputs: { sourcePath, workspaceId, tenantId: operatorRequest.operatorScope.tenantId },
+    outputs: { jobPaths, compileState: result.status.state },
+  });
+  const packet = {
+    ok: result.ok,
+    command: 'compile',
+    packetType: 'aios.language.compile.proof',
+    operatorUserlandModule: 'aios.operator.userland.compile.v1',
+    route: runRoute,
+    operatorRequest: requestState,
+    generatedAt: new Date().toISOString(),
+    artifactRoot,
+    sourcePath,
+    jobPaths,
+    language: result.language,
+    boundary: result.boundary,
+    status: result.status,
+    diagnostics: result.diagnostics,
+    compilerEvidence: result.compilerEvidence,
+  };
+  packet.proofHash = sha256({
+    packetType: packet.packetType,
+    source: result.source,
+    jobPaths,
+    boundary: result.boundary,
+    status: result.status,
+    diagnostics: result.diagnostics,
+  });
+  const proofPath = join(artifactRoot, 'packets', 'language-compile.packet.json');
+  await writeFile(proofPath, `${JSON.stringify(packet, null, 2)}\n`, 'utf8');
+  if (!result.ok) {
+    fail(EXIT_CODES.runtimeBlocked, 'aios_language_compile_blocked', {
+      sourcePath,
+      proofPath,
+      status: result.status,
+      diagnostics: result.diagnostics,
+    });
+  }
+  printJson({ ...packet, proofPath });
+};
+
 const help = async (operatorRequest) => {
   printJson({
     ok: true,
@@ -2702,7 +2801,7 @@ const help = async (operatorRequest) => {
       enforcedBy: ['run'],
       reportedBy: ['boot', 'ps', 'logs'],
     },
-    truthBoundary: 'AI OS CLI routes boot, run, claim, ps, logs, and approve through operator-userland handlers.',
+    truthBoundary: 'AI OS CLI compiles canonical .aios source and routes boot, run, claim, ps, logs, and approve through operator-userland handlers. External effects remain blocked by the canonical compiler and provider approval gates.',
   });
 };
 
@@ -2714,6 +2813,19 @@ const operatorUserlandModules = {
     successExitCode: EXIT_CODES.success,
     failureExitCodes: [EXIT_CODES.invalidInput, EXIT_CODES.runtimeBlocked],
     allowedRoles: ['viewer', 'runner', 'approver', 'operator', 'admin'],
+  },
+  compile: {
+    moduleId: 'aios.operator.userland.compile.v1',
+    handler: compile,
+    packetType: 'aios.language.compile.proof',
+    successExitCode: EXIT_CODES.success,
+    failureExitCodes: [EXIT_CODES.invalidInput, EXIT_CODES.runtimeBlocked],
+    requiredPositionals: ['source'],
+    requiredFlags: ['artifact-root'],
+    optionalFlags: ['workspace'],
+    allowedRoles: ['runner', 'operator', 'admin'],
+    requiredCapabilities: ['artifact_root_sync', 'language_compile'],
+    capabilities: ['language_compile'],
   },
   boot: {
     moduleId: 'aios.operator.userland.boot.v0',
