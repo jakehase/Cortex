@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "clawd.canonical_execution_path.v0",
+  "activePath": [
+    "openclaw",
+    "cortex",
+    "agent_work",
+    "codex_workers_remote",
+    "independent_verifier",
+    "openclaw_delivery"
+  ],
+  "canonicalCompiler": "apps/agent-work/cli.mjs",
+  "canonicalController": "apps/system-benchmark/run-agent-work-objective-controller.mjs",
+  "heavyExecutionHostRole": "execution_plane",
+  "heavyExecutionDefaultHost": "37.27.129.239",
+  "compatibilityAdapters": [
+    {
+      "id": "synthetic_labor_os_v19",
+      "status": "compatibility_only",
+      "sunsetCondition": "all active callers compile directly to Agent Work"
+    },
+    {
+      "id": "synthetic_labor_os_v20_rc",
+      "status": "mechanism_donor_only",
+      "sunsetCondition": "hard-dogfood gates are represented in Agent Work verifier policy"
+    },
+    {
+      "id": "ai_os_adapter",
+      "status": "bounded_internal_bridge",
+      "sunsetCondition": null
+    }
+  ],
+  "quarantined": [
+    "synthetic_labor_os_v1_v18",
+    "direct_codex_wrappers"
+  ],
+  "claimBoundary": "A compiled contract is not execution. A green controller is not parity unless independent acceptance and the declared parity matrix are green."
+}

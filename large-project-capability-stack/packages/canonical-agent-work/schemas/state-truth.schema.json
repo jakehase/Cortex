@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.state_truth.v1",
+  "title": "Agent Work v1 projected run truth",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "state", "stateVersion", "terminal", "ok", "generatedAt", "evidenceComplete", "contradictions", "nextAction"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.state_truth.v1" },
+    "runId": { "type": "string", "minLength": 1 },
+    "state": { "enum": ["draft", "compiled", "awaiting_plan_approval", "admitted", "queued", "running", "verifying", "replanning", "green", "blocked", "cancelled", "failed"] },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "terminal": { "type": "boolean" },
+    "ok": { "type": "boolean" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "evidenceComplete": { "type": "boolean" },
+    "contradictions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "nextAction": { "type": "string", "minLength": 1 }
+  }
+}

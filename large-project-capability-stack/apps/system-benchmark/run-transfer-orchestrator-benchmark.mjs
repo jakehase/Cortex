@@ -100,6 +100,9 @@ function shellQuote(value = '') {
 
 function isProductSourceFile(filePath = '') {
   const rel = String(filePath || '').replace(/^\.\//, '');
+  const conventionalProduct = /^(?:src|lib|server|client|web)\//.test(rel)
+    && /\.(?:mjs|cjs|js|jsx|ts|tsx|py|rb|go|rs|java|kt|kts|cs|php|vue|svelte|html|css|scss|json)$/i.test(rel)
+    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(rel);
   const appPackageProduct = /^(apps|packages)\//.test(rel)
     && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(rel);
   const godotProduct = (
@@ -108,7 +111,7 @@ function isProductSourceFile(filePath = '') {
   )
     && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(rel)
     && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(rel);
-  return appPackageProduct || godotProduct;
+  return conventionalProduct || appPackageProduct || godotProduct;
 }
 
 function isStaticSiteProductFile(filePath = '') {

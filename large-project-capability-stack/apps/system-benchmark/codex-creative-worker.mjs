@@ -99,19 +99,45 @@ function parseJsonEnv(value, fallback = null) {
   }
 }
 
+function stableList(values = []) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))).sort();
+}
+
+function aggregateRepoProductPathVariants(value = '') {
+  const normalized = String(value || '').replace(/^\.\//, '');
+  const prefixes = [
+    'large-project-capability-stack/',
+    'ai-os/',
+    'pmhnp-denial-copilot/',
+    'pmhnpbilling-site/',
+    'mailchimp-clone/'
+  ];
+  return stableList([
+    normalized,
+    ...prefixes
+      .filter((prefix) => normalized.startsWith(prefix))
+      .map((prefix) => normalized.slice(prefix.length))
+  ]);
+}
+
 function isCreativeProductFile(rel = '') {
-  const value = String(rel || '').replace(/^\.\//, '');
-  if (!value || path.isAbsolute(value) || value.includes('..')) return false;
-  const appPackageProduct = /^(apps|packages)\//.test(value)
-    && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(value)
-    && !/(^|\/)tests?\//i.test(value);
-  const godotProduct = (
-    value === 'project.godot'
-    || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(value)
-  )
-    && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(value)
-    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
-  return appPackageProduct || godotProduct;
+  const rawValue = String(rel || '').replace(/^\.\//, '');
+  if (!rawValue || path.isAbsolute(rawValue) || rawValue.includes('..')) return false;
+  return aggregateRepoProductPathVariants(rawValue).some((value) => {
+    const conventionalProduct = /^(?:src|lib|server|client|web)\//.test(value)
+      && /\.(?:mjs|cjs|js|jsx|ts|tsx|py|rb|go|rs|java|kt|kts|cs|php|vue|svelte|html|css|scss|json)$/i.test(value)
+      && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
+    const appPackageProduct = /^(apps|packages)\//.test(value)
+      && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(value)
+      && !/(^|\/)tests?\//i.test(value);
+    const godotProduct = (
+      value === 'project.godot'
+      || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(value)
+    )
+      && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(value)
+      && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
+    return conventionalProduct || appPackageProduct || godotProduct;
+  });
 }
 
 function positiveInt(value, fallback = 0) {
@@ -703,7 +729,7 @@ const minIterations = Math.max(1, Number(process.env.CREATIVE_WORKER_MIN_ITERATI
 const minRuntimeMs = Math.max(0, Number(process.env.CREATIVE_WORKER_MIN_RUNTIME_MS || 0));
 const baseIterationTimeoutMs = clamp(process.env.CODEX_CREATIVE_ITERATION_TIMEOUT_MS || 420000, 30000, 1800000);
 const codexBin = process.env.CODEX_BIN || 'codex';
-const codexModel = process.env.CODEX_CREATIVE_MODEL || process.env.CODEX_MODEL || 'gpt-5.5';
+const codexModel = process.env.CODEX_CREATIVE_MODEL || process.env.CODEX_MODEL || 'gpt-5.6-sol';
 const codexSandbox = process.env.CODEX_CREATIVE_SANDBOX || 'workspace-write';
 const maxIterations = Math.max(minIterations, Number(process.env.CODEX_CREATIVE_MAX_ITERATIONS || Math.max(minIterations, 12)));
 

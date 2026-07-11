@@ -29,10 +29,13 @@ import {
   createLocalExecutionPlan,
   createRemoteDispatchManifest,
   createWorkQueueArtifact,
+  DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS,
   deriveJobTruth,
   evaluateExecutionPlaneReadiness,
   evaluateImprovementProposal,
   evaluateRemoteDispatchResult,
+  HISTORICAL_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS,
+  LEGACY_SYNTHETIC_LABOR_OS_CODEX_EXPERIMENT_SYNC_PATHS,
   pauseJob,
   queueJob,
   recordJobTestEvidence,
@@ -48,7 +51,9 @@ import {
   writeCleanV0DemoProof,
   verifyArtifactBundleManifest,
   writeSyntheticLaborOsJob,
-  writeHundredAgentScaleProof
+  writeHundredAgentScaleProof,
+  SYNTHETIC_LABOR_OS_LEGACY_QUARANTINE_ROOT,
+  SYNTHETIC_LABOR_OS_CONTROL_PLANE_REMOTE_SYNC_PATHS
 } from '../packages/synthetic-labor-os/index.mjs';
 import {
   buildV20HardDogfoodDependencyManifest,
@@ -193,6 +198,31 @@ test('Synthetic Labor OS matrix keeps primitive and product status separate whil
   assert.equal(docsTests.osProductStatus, 'implemented');
   assert.equal(improvement.primitiveStatus, 'implemented');
   assert.equal(improvement.osProductStatus, 'implemented');
+});
+
+test('Synthetic Labor OS default remote sync is now thin control plane, not legacy Codex pilot sprawl', () => {
+  assert.equal(DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS, SYNTHETIC_LABOR_OS_CONTROL_PLANE_REMOTE_SYNC_PATHS);
+  assert.equal(new Set(DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS).size, DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.length);
+  assert.ok(DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes('apps/synthetic-labor-os/v20-hard-dogfood-rc.mjs'));
+  assert.ok(DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes('apps/system-benchmark/cortex-codex-boundary.mjs'));
+  assert.ok(DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes('docs/cortex-codex-boundary-and-ops.md'));
+  assert.ok(!DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes('apps/synthetic-labor-os/codex-agent-work-item.mjs'));
+  assert.ok(!DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes('apps/synthetic-labor-os/v3-remote-codex-pilot.mjs'));
+  assert.ok(!DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes('apps/synthetic-labor-os/v18-whole-os-tournament.mjs'));
+  assert.ok(LEGACY_SYNTHETIC_LABOR_OS_CODEX_EXPERIMENT_SYNC_PATHS.includes(`${SYNTHETIC_LABOR_OS_LEGACY_QUARANTINE_ROOT}/apps/synthetic-labor-os/codex-agent-work-item.mjs`));
+  assert.ok(HISTORICAL_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes(`${SYNTHETIC_LABOR_OS_LEGACY_QUARANTINE_ROOT}/apps/synthetic-labor-os/v18-whole-os-tournament.mjs`));
+});
+
+test('Synthetic Labor OS package commands expose active control-plane paths and a legacy manifest only', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+  const scripts = pkg.scripts || {};
+  assert.ok(scripts['ops:synthetic-labor-os:legacy:manifest']);
+  assert.match(scripts['ops:synthetic-labor-os:legacy:manifest'], /_quarantine\/synthetic-labor-os-legacy-20260707\/MANIFEST\.md/);
+  assert.ok(!Object.keys(scripts).some((name) => /^ops:synthetic-labor-os:legacy:v(?:[1-9]|1[0-8])-/.test(name)));
+  assert.ok(!scripts['ops:synthetic-labor-os:v3-remote-codex-pilot']);
+  assert.ok(!scripts['ops:synthetic-labor-os:v18-whole-os-tournament']);
+  assert.ok(scripts['ops:synthetic-labor-os:v19-release-packet']);
+  assert.ok(scripts['ops:synthetic-labor-os:v20-hard-dogfood-rc']);
 });
 
 test('Synthetic Labor OS summary is red when all rows are not product implemented', () => {
@@ -774,117 +804,25 @@ test('Synthetic Labor OS v20 release-candidate packet gates hard dogfood evidenc
   assert.ok(blocked.failures.includes('gate_failed:pre_sync_green'));
 });
 
-test('Synthetic Labor OS v3 Codex work item wrapper verifies structured agent evidence without real provider calls in tests', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'slos-v3-fake-codex-'));
-  const fakeCodex = path.join(temp, 'fake-codex.mjs');
-  fs.writeFileSync(fakeCodex, `#!/usr/bin/env node
-import fs from 'node:fs';
-const args = process.argv.slice(2);
-if (args.includes('--version')) { console.log('codex-cli fake-test'); process.exit(0); }
-const outputIndex = args.indexOf('--output-last-message');
-const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : null;
-if (!outputPath) process.exit(2);
-fs.writeFileSync(outputPath, JSON.stringify({
-  marker: 'SLOS_CODEX_AGENT_WORK_ITEM_DONE',
-  jobId: 'slos-v3-wrapper-test',
-  workItem: 'remote-codex-bounded-audit',
-  observedFiles: ['packages/synthetic-labor-os/index.mjs'],
-  recommendation: 'Keep the remote Codex work item bounded and require returned provenance before any completion claim.',
-  nextActions: ['Run the real v3 pilot on the execution plane'],
-  truthBoundary: 'Remote Codex agent work item only; no merge/publish/broad-scale proof.'
-}));
-console.log(JSON.stringify({ type: 'agent_message', model: 'fake-codex', usage: { input_tokens: 10, output_tokens: 5 } }));
-process.exit(0);
-`);
-  fs.chmodSync(fakeCodex, 0o755);
-  const cli = path.join(WORKSPACE_ROOT, 'large-project-capability-stack/apps/synthetic-labor-os/codex-agent-work-item.mjs');
-  const run = spawnSync(process.execPath, [
-    cli,
-    '--job-id', 'slos-v3-wrapper-test',
-    '--artifact-root', temp,
-    '--repo-root', WORKSPACE_ROOT,
-    '--codex-bin', fakeCodex,
-    '--max-runtime-ms', '30000'
-  ], { cwd: WORKSPACE_ROOT, encoding: 'utf8' });
+test('Synthetic Labor OS legacy Codex-era scripts are recoverably quarantined out of the active app path', () => {
+  const stackRoot = path.join(WORKSPACE_ROOT, 'large-project-capability-stack');
+  const manifestPath = path.join(stackRoot, SYNTHETIC_LABOR_OS_LEGACY_QUARANTINE_ROOT, 'quarantine_manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
-  assert.equal(run.status, 0, run.stderr || run.stdout);
-  const payload = JSON.parse(run.stdout);
-  const proof = JSON.parse(fs.readFileSync(payload.proofPath, 'utf8'));
-
-  assert.equal(payload.ok, true);
-  assert.equal(proof.ok, true);
-  assert.equal(proof.codex.exitCode, 0);
-  assert.equal(proof.verification.ok, true);
-  assert.equal(proof.agentOutput.marker, 'SLOS_CODEX_AGENT_WORK_ITEM_DONE');
-  assert.equal(proof.eventSummary.observedPositiveTokenValueCount >= 1, true);
-  assert.match(proof.truthBoundary, /bounded read-only remote Codex CLI work item/);
-});
-
-test('Synthetic Labor OS v4 Codex patch proposal wrapper verifies review-ready diff without applying it', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'slos-v4-fake-codex-'));
-  const repo = path.join(temp, 'repo');
-  fs.mkdirSync(path.join(repo, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(repo, 'docs', 'existing.md'), '# Existing docs\n');
-  const fakeCodex = path.join(temp, 'fake-codex.mjs');
-  fs.writeFileSync(fakeCodex, `#!/usr/bin/env node
-import fs from 'node:fs';
-const args = process.argv.slice(2);
-if (args.includes('--version')) { console.log('codex-cli fake-patch-test'); process.exit(0); }
-const outputIndex = args.indexOf('--output-last-message');
-const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : null;
-if (!outputPath) process.exit(2);
-const diff = [
-  'diff --git a/docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md b/docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md',
-  'new file mode 100644',
-  'index 0000000..1111111',
-  '--- /dev/null',
-  '+++ b/docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md',
-  '@@ -0,0 +1,5 @@',
-  '+# Synthetic Labor OS v4 Patch Proposal',
-  '+',
-  '+This patch remains review-only.',
-  '+',
-  '+It is not applied.'
-].join('\\n') + '\\n';
-fs.writeFileSync(outputPath, JSON.stringify({
-  marker: 'SLOS_CODEX_PATCH_PROPOSAL_DONE',
-  jobId: 'slos-v4-wrapper-test',
-  workItem: 'remote-codex-reviewable-patch-proposal',
-  targetFiles: ['docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md'],
-  rationale: 'Create a small review-only documentation proposal that proves patch artifacts can be returned without applying them.',
-  unifiedDiff: diff,
-  tests: ['git apply --check --whitespace=nowarn patch_proposal.diff'],
-  truthBoundary: 'Remote Codex patch proposal only; patch not applied/merged/published.'
-}));
-console.log(JSON.stringify({ type: 'agent_message', model: 'fake-codex', usage: { input_tokens: 12, output_tokens: 7 } }));
-process.exit(0);
-`);
-  fs.chmodSync(fakeCodex, 0o755);
-  const cli = path.join(WORKSPACE_ROOT, 'large-project-capability-stack/apps/synthetic-labor-os/codex-patch-proposal-work-item.mjs');
-  const run = spawnSync(process.execPath, [
-    cli,
-    '--job-id', 'slos-v4-wrapper-test',
-    '--artifact-root', temp,
-    '--repo-root', repo,
-    '--codex-bin', fakeCodex,
-    '--max-runtime-ms', '30000',
-    '--context-file', 'docs/existing.md',
-    '--allowed-target', 'docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md'
-  ], { cwd: WORKSPACE_ROOT, encoding: 'utf8' });
-
-  assert.equal(run.status, 0, run.stderr || run.stdout);
-  const payload = JSON.parse(run.stdout);
-  const proof = JSON.parse(fs.readFileSync(payload.proofPath, 'utf8'));
-
-  assert.equal(payload.ok, true);
-  assert.equal(payload.reviewReady, true);
-  assert.equal(proof.ok, true);
-  assert.equal(proof.reviewReady, true);
-  assert.equal(proof.patchApplied, false);
-  assert.equal(proof.patchVerification.gitApplyCheck.ok, true);
-  assert.deepEqual(proof.patchVerification.diffPaths, ['docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md']);
-  assert.equal(fs.existsSync(path.join(repo, 'docs', 'SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md')), false);
-  assert.match(proof.truthBoundary, /patch proposal is review-ready/);
+  assert.equal(manifest.schemaVersion, 'claw.workspace_quarantine.synthetic_labor_os_legacy.v1');
+  assert.equal(manifest.movedCount, 29);
+  assert.ok(manifest.entries.some((entry) => entry.originalPath === 'apps/synthetic-labor-os/codex-agent-work-item.mjs'));
+  assert.ok(manifest.entries.some((entry) => entry.originalPath === 'apps/synthetic-labor-os/v18-whole-os-tournament.mjs'));
+  for (const entry of manifest.entries) {
+    const original = path.join(stackRoot, entry.originalPath);
+    const quarantined = path.join(stackRoot, entry.quarantinePath);
+    assert.equal(fs.existsSync(original), false, `${entry.originalPath} should not remain in active app path`);
+    assert.equal(fs.existsSync(quarantined), true, `${entry.quarantinePath} should exist for recovery`);
+    const sha = crypto.createHash('sha256').update(fs.readFileSync(quarantined)).digest('hex');
+    assert.equal(sha, entry.sha256);
+    assert.ok(LEGACY_SYNTHETIC_LABOR_OS_CODEX_EXPERIMENT_SYNC_PATHS.includes(entry.quarantinePath));
+    assert.ok(!DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS.includes(entry.quarantinePath));
+  }
 });
 
 test('Synthetic Labor OS v5 apply gate requires approval, applies patch, and validates without merge or publish', () => {
@@ -940,483 +878,18 @@ test('Synthetic Labor OS v5 apply gate requires approval, applies patch, and val
   assert.match(proof.truthBoundary, /not a merge, publish/);
 });
 
-test('Synthetic Labor OS v6 provenance chain links proposal, approval, apply, and validation artifacts', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'slos-v6-provenance-'));
-  const repo = path.join(temp, 'repo');
-  fs.mkdirSync(repo, { recursive: true });
-  const patchPath = path.join(temp, 'patch.diff');
-  fs.writeFileSync(patchPath, 'diff --git a/docs/v6.md b/docs/v6.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/v6.md\n@@ -0,0 +1 @@\n+# v6\n');
-  const patchSha = crypto.createHash('sha256').update(fs.readFileSync(patchPath)).digest('hex');
-  const v4ProofPath = path.join(temp, 'v4-proof.json');
-  fs.writeFileSync(v4ProofPath, JSON.stringify({
-    ok: true,
-    reviewReady: true,
-    patchApplied: false,
-    codex: { version: 'codex-cli fake' },
-    patchProposal: { path: patchPath, sha256: patchSha, targetFiles: ['docs/v6.md'] },
-    patchVerification: { gitApplyCheck: { ok: true } }
-  }, null, 2));
-  const v4SummaryPath = path.join(temp, 'v4-summary.json');
-  fs.writeFileSync(v4SummaryPath, JSON.stringify({
-    ok: true,
-    reviewReady: true,
-    patchApplied: false,
-    targetFiles: ['docs/v6.md'],
-    returnedPatchProofPath: v4ProofPath,
-    codexVersion: 'codex-cli fake',
-    remoteHost: 'remote.example'
-  }, null, 2));
-  const approvalPath = path.join(temp, 'approval.json');
-  fs.writeFileSync(approvalPath, JSON.stringify({
-    schemaVersion: 'claw.synthetic_labor_os.v5.patch_apply_approval',
-    approvalId: 'approval-v6-test',
-    approved: true,
-    actor: 'test-operator',
-    approvedAt: '2026-06-29T00:00:00.000Z',
-    patchSha256: patchSha,
-    approvedTargets: ['docs/v6.md'],
-    prohibitedActions: ['merge', 'publish', 'deploy', 'external_send', 'broad_scale_claim']
-  }, null, 2));
-  const v5ProofPath = path.join(temp, 'v5-proof.json');
-  fs.writeFileSync(v5ProofPath, JSON.stringify({
-    ok: true,
-    patchApplied: true,
-    implementationClaimAllowedForApprovedPatch: true,
-    patch: { sha256: patchSha, diffPaths: ['docs/v6.md'] },
-    approval: { verification: { ok: true } },
-    gates: {
-      gitApplyCheck: { ok: true },
-      gitApply: { ok: true },
-      validationRuns: [{ command: 'test', ok: true, exitCode: 0, durationMs: 1 }]
-    },
-    targetSnapshots: { changedTargets: ['docs/v6.md'] }
-  }, null, 2));
-  const v5SummaryPath = path.join(temp, 'v5-summary.json');
-  fs.writeFileSync(v5SummaryPath, JSON.stringify({
-    ok: true,
-    patchApplied: true,
-    implementationClaimAllowedForApprovedPatch: true,
-    patchPath,
-    patchSha256: patchSha,
-    approvalPath,
-    proofPath: v5ProofPath
-  }, null, 2));
-
-  const cli = path.join(WORKSPACE_ROOT, 'large-project-capability-stack/apps/synthetic-labor-os/v6-provenance-chain.mjs');
-  const run = spawnSync(process.execPath, [
-    cli,
-    '--artifact-root', path.join(temp, 'artifacts'),
-    '--repo-root', repo,
-    '--v4-summary', v4SummaryPath,
-    '--v5-summary', v5SummaryPath
-  ], { cwd: WORKSPACE_ROOT, encoding: 'utf8' });
-
-  assert.equal(run.status, 0, run.stderr || run.stdout);
-  const payload = JSON.parse(run.stdout);
-  const chain = JSON.parse(fs.readFileSync(payload.chainPath, 'utf8'));
-
-  assert.equal(payload.ok, true);
-  assert.equal(chain.links.proposal.ok, true);
-  assert.equal(chain.links.approval.ok, true);
-  assert.equal(chain.links.apply.ok, true);
-  assert.equal(chain.links.validation.ok, true);
-  assert.deepEqual(chain.patch.changedTargets, ['docs/v6.md']);
-  assert.match(chain.truthBoundary, /not a merge, publish/);
-});
-
-test('Synthetic Labor OS v7 through v11 finish and release pipeline passes over fixture artifacts without external writes', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'slos-v10-finish-'));
-  const repo = path.join(temp, 'repo');
-  fs.mkdirSync(path.join(repo, 'docs'), { recursive: true });
-  spawnSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8' });
-  const patchPath = path.join(temp, 'patch.diff');
-  fs.writeFileSync(patchPath, [
-    'diff --git a/docs/v10.md b/docs/v10.md',
-    'new file mode 100644',
-    'index 0000000..1111111',
-    '--- /dev/null',
-    '+++ b/docs/v10.md',
-    '@@ -0,0 +1,3 @@',
-    '+# v10',
-    '+',
-    '+Fixture patch.'
-  ].join('\n') + '\n');
-  assert.equal(spawnSync('git', ['apply', patchPath], { cwd: repo, encoding: 'utf8' }).status, 0);
-  const patchSha = crypto.createHash('sha256').update(fs.readFileSync(patchPath)).digest('hex');
-  const v4ProofPath = path.join(temp, 'v4-proof.json');
-  fs.writeFileSync(v4ProofPath, JSON.stringify({
-    ok: true,
-    reviewReady: true,
-    patchApplied: false,
-    codex: { version: 'codex-cli fake', exitCode: 0 },
-    patchProposal: { path: patchPath, sha256: patchSha, targetFiles: ['docs/v10.md'] },
-    patchVerification: { gitApplyCheck: { ok: true } }
-  }, null, 2));
-  const v4SummaryPath = path.join(temp, 'v4-summary.json');
-  fs.writeFileSync(v4SummaryPath, JSON.stringify({
-    ok: true,
-    reviewReady: true,
-    patchApplied: false,
-    targetFiles: ['docs/v10.md'],
-    returnedPatchProofPath: v4ProofPath,
-    codexVersion: 'codex-cli fake',
-    remoteHost: 'remote.example'
-  }, null, 2));
-  const approvalPath = path.join(temp, 'approval.json');
-  fs.writeFileSync(approvalPath, JSON.stringify({
-    schemaVersion: 'claw.synthetic_labor_os.v5.patch_apply_approval',
-    approvalId: 'approval-v10-test',
-    approved: true,
-    actor: 'test-operator',
-    approvedAt: '2026-06-29T00:00:00.000Z',
-    patchSha256: patchSha,
-    approvedTargets: ['docs/v10.md'],
-    prohibitedActions: ['merge', 'publish', 'deploy', 'external_send', 'broad_scale_claim']
-  }, null, 2));
-  const v5ProofPath = path.join(temp, 'v5-proof.json');
-  fs.writeFileSync(v5ProofPath, JSON.stringify({
-    ok: true,
-    patchApplied: true,
-    implementationClaimAllowedForApprovedPatch: true,
-    gitApplyContext: { cwd: repo, directoryArg: '', gitTopLevel: repo, relativeRepoPath: '' },
-    patch: { sha256: patchSha, diffPaths: ['docs/v10.md'] },
-    approval: { verification: { ok: true } },
-    gates: {
-      gitApplyCheck: { ok: true },
-      gitApply: { ok: true },
-      validationRuns: [{ command: 'test', ok: true, exitCode: 0, durationMs: 1 }]
-    },
-    targetSnapshots: { changedTargets: ['docs/v10.md'] }
-  }, null, 2));
-  const v5SummaryPath = path.join(temp, 'v5-summary.json');
-  fs.writeFileSync(v5SummaryPath, JSON.stringify({
-    ok: true,
-    patchApplied: true,
-    implementationClaimAllowedForApprovedPatch: true,
-    patchPath,
-    patchSha256: patchSha,
-    approvalPath,
-    proofPath: v5ProofPath
-  }, null, 2));
-  const v0MatrixPath = path.join(temp, 'v0-matrix.json');
-  fs.writeFileSync(v0MatrixPath, JSON.stringify({
-    summary: {
-      v0ProductReady: true,
-      byPrimitiveStatus: { implemented: 14, partial: 0, missing: 0 },
-      byOsProductStatus: { implemented: 14, partial: 0, missing: 0 },
-      honestClaim: 'fixture green'
-    }
-  }, null, 2));
-  const stackRoot = path.join(WORKSPACE_ROOT, 'large-project-capability-stack');
-  const run = (script, args = []) => spawnSync(process.execPath, [path.join(stackRoot, script), ...args], { cwd: stackRoot, encoding: 'utf8', maxBuffer: 40 * 1024 * 1024 });
-
-  const v6 = run('apps/synthetic-labor-os/v6-provenance-chain.mjs', ['--artifact-root', path.join(temp, 'v6'), '--repo-root', repo, '--v4-summary', v4SummaryPath, '--v5-summary', v5SummaryPath]);
-  assert.equal(v6.status, 0, v6.stderr || v6.stdout);
-  const v7 = run('apps/synthetic-labor-os/v7-replay-rollback-audit.mjs', ['--artifact-root', path.join(temp, 'v7'), '--repo-root', repo, '--chain', path.join(temp, 'v6/v6_provenance_chain.json')]);
-  assert.equal(v7.status, 0, v7.stderr || v7.stdout);
-  const v8 = run('apps/synthetic-labor-os/v8-e2e-demo.mjs', ['--artifact-root', path.join(temp, 'v8'), '--repo-root', repo, '--v4-summary', v4SummaryPath, '--v5-summary', v5SummaryPath]);
-  assert.equal(v8.status, 0, v8.stderr || v8.stdout);
-  const v8Payload = JSON.parse(v8.stdout);
-  const v9 = run('apps/synthetic-labor-os/v9-finished-claim-report.mjs', ['--artifact-root', path.join(temp, 'v9'), '--repo-root', repo, '--v0-matrix', v0MatrixPath, '--v6-summary', v8Payload.v6SummaryPath, '--v7-summary', v8Payload.v7SummaryPath, '--v8-summary', v8Payload.summaryPath]);
-  assert.equal(v9.status, 0, v9.stderr || v9.stdout);
-  const v10 = run('apps/synthetic-labor-os/v10-scale-smoke.mjs', ['--artifact-root', path.join(temp, 'v10'), '--repo-root', repo, '--v0-matrix', v0MatrixPath, '--v4-summary', v4SummaryPath, '--v5-summary', v5SummaryPath, '--smoke-command', 'node --version']);
-  assert.equal(v10.status, 0, v10.stderr || v10.stdout);
-  const v10Payload = JSON.parse(v10.stdout);
-  const v11 = run('apps/synthetic-labor-os/v11-release-bundle.mjs', ['--artifact-root', path.join(temp, 'v11'), '--repo-root', repo, '--v10-summary', path.join(temp, 'v10/v10_scale_smoke_summary.json')]);
-  assert.equal(v11.status, 0, v11.stderr || v11.stdout);
-  const v11Payload = JSON.parse(v11.stdout);
-
-  assert.equal(v10Payload.ok, true);
-  assert.equal(v10Payload.finishedForBoundedV10Sequence, true);
-  assert.match(v10Payload.truthBoundary, /does not merge, publish/);
-  assert.equal(v11Payload.ok, true);
-  assert.equal(v11Payload.artifactCount >= 7, true);
-  assert.match(v11Payload.truthBoundary, /does not merge, publish/);
-});
-
-test('Synthetic Labor OS v13 through v15 operator and release-candidate gates pass with fixture evidence', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'slos-v15-rc-'));
-  const repo = path.join(temp, 'repo');
-  fs.mkdirSync(path.join(repo, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(repo, 'docs/v12-fixture.md'), '# v12 fixture\n');
-  fs.writeFileSync(path.join(repo, 'package.json'), JSON.stringify({
-    type: 'module',
-    scripts: {
-      'ops:synthetic-labor-os:v10-scale-smoke': 'node x',
-      'ops:synthetic-labor-os:v11-release-bundle': 'node x',
-      'ops:synthetic-labor-os:v12-fresh-replay': 'node x',
-      'ops:synthetic-labor-os:v13-operator-doctor': 'node x'
-    }
-  }, null, 2));
-  const v11SummaryPath = path.join(temp, 'v11.json');
-  fs.writeFileSync(v11SummaryPath, JSON.stringify({ ok: true, status: 'green_release_bundle' }, null, 2));
-  const chainPath = path.join(temp, 'v12-chain.json');
-  fs.writeFileSync(chainPath, JSON.stringify({ ok: true }, null, 2));
-  const v12SummaryPath = path.join(temp, 'v12.json');
-  fs.writeFileSync(v12SummaryPath, JSON.stringify({
-    ok: true,
-    status: 'green_fresh_remote_replay',
-    target: 'docs/v12-fixture.md',
-    freshTargetExists: true,
-    chainPath
-  }, null, 2));
-  const stackRoot = path.join(WORKSPACE_ROOT, 'large-project-capability-stack');
-  const run = (script, args = []) => spawnSync(process.execPath, [path.join(stackRoot, script), ...args], { cwd: stackRoot, encoding: 'utf8', maxBuffer: 40 * 1024 * 1024 });
-  const v13 = run('apps/synthetic-labor-os/v13-operator-doctor.mjs', [
-    '--artifact-root', path.join(temp, 'v13'),
-    '--repo-root', repo,
-    '--v11-summary', v11SummaryPath,
-    '--v12-summary', v12SummaryPath
+test('Synthetic Labor OS active app directory keeps only current control-plane scripts after quarantine', () => {
+  const activeDir = path.join(WORKSPACE_ROOT, 'large-project-capability-stack/apps/synthetic-labor-os');
+  const activeFiles = fs.readdirSync(activeDir).filter((name) => name.endsWith('.mjs')).sort();
+  assert.deepEqual(activeFiles, [
+    'apply-patch-gate.mjs',
+    'job-lifecycle.mjs',
+    'local-runner.mjs',
+    'operator-console.mjs',
+    'operator-dashboard.mjs',
+    'proof-harness.mjs',
+    'remote-dispatcher.mjs',
+    'v19-release-packet.mjs',
+    'v20-hard-dogfood-rc.mjs'
   ]);
-  assert.equal(v13.status, 0, v13.stderr || v13.stdout);
-  const v13Payload = JSON.parse(v13.stdout);
-  const v14 = run('apps/synthetic-labor-os/v14-multi-job-smoke.mjs', [
-    '--artifact-root', path.join(temp, 'v14'),
-    '--repo-root', repo
-  ]);
-  assert.equal(v14.status, 0, v14.stderr || v14.stdout);
-  const v14Payload = JSON.parse(v14.stdout);
-  const v15 = run('apps/synthetic-labor-os/v15-release-candidate.mjs', [
-    '--artifact-root', path.join(temp, 'v15'),
-    '--repo-root', repo,
-    '--v11-summary', v11SummaryPath,
-    '--v12-summary', v12SummaryPath,
-    '--v13-summary', v13Payload.summaryPath,
-    '--v14-summary', v14Payload.summaryPath,
-    '--smoke-command', 'node --version'
-  ]);
-  assert.equal(v15.status, 0, v15.stderr || v15.stdout);
-  const v15Payload = JSON.parse(v15.stdout);
-
-  assert.equal(v13Payload.ok, true);
-  assert.equal(v14Payload.appliedJobCount, 2);
-  assert.equal(v14Payload.blockedConflictCount, 1);
-  assert.equal(v15Payload.ok, true);
-  assert.equal(v15Payload.greenEvidenceGateCount, 4);
-  assert.match(v15Payload.truthBoundary, /does not merge, publish/);
-});
-
-test('Synthetic Labor OS v16 tournament scorer requires review-ready proof before ranking candidates', async () => {
-  const { scoreIteration } = await import('../apps/synthetic-labor-os/v16-iteration-worker.mjs');
-  const target = 'docs/v16-candidate.md';
-  const green = scoreIteration({
-    exitCode: 0,
-    payload: { ok: true },
-    target,
-    proof: {
-      ok: true,
-      reviewReady: true,
-      patchApplied: false,
-      patchVerification: { gitApplyCheck: { ok: true } },
-      eventSummary: { observedPositiveTokenValueTotal: 1000 },
-      patchProposal: {
-        targetFiles: [target],
-        rationale: 'This is a sufficiently detailed rationale for the selected candidate.',
-        tests: ['git apply --check patch.diff'],
-        unifiedDiff: [
-          'diff --git a/docs/v16-candidate.md b/docs/v16-candidate.md',
-          'new file mode 100644',
-          '--- /dev/null',
-          '+++ b/docs/v16-candidate.md',
-          '@@ -0,0 +1,3 @@',
-          '+# Candidate',
-          '+',
-          '+Review-ready candidate.'
-        ].join('\n')
-      }
-    }
-  });
-  const red = scoreIteration({
-    exitCode: 0,
-    payload: { ok: true },
-    target,
-    proof: {
-      ok: true,
-      reviewReady: true,
-      patchApplied: false,
-      patchVerification: { gitApplyCheck: { ok: true } },
-      patchProposal: {
-        targetFiles: ['docs/wrong.md'],
-        rationale: 'wrong target',
-        tests: ['test'],
-        unifiedDiff: 'diff --git a/docs/wrong.md b/docs/wrong.md\n'
-      }
-    }
-  });
-
-  assert.equal(green.failures.length, 0);
-  assert.equal(green.score > 1000, true);
-  assert.equal(red.score, 0);
-  assert.ok(red.failures.includes('target_mismatch'));
-});
-
-test('Synthetic Labor OS v17 role tournament verifier accepts a target-scoped scored candidate patch', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'slos-v17-verifier-'));
-  const workspace = path.join(temp, 'workspace');
-  const root = path.join(workspace, 'apps/synthetic-labor-os-v17/candidate_01');
-  fs.mkdirSync(path.join(root, 'role-artifacts'), { recursive: true });
-  fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true });
-  spawnSync('git', ['init', '-q'], { cwd: workspace, encoding: 'utf8' });
-  const target = 'docs/SYNTHETIC_LABOR_OS_V17_TEST_CANDIDATE_01.md';
-  fs.writeFileSync(path.join(root, 'architecture.json'), JSON.stringify({
-    id: 'candidate_01',
-    title: 'Verifier fixture candidate',
-    pattern: 'target-scoped operator runbook patch',
-    layers: ['strategy', 'patch', 'review'],
-    rationale: 'fixture rationale',
-    tradeoffs: ['fixture tradeoff'],
-    reviewFocus: ['target isolation'],
-    candidateTarget: target
-  }, null, 2));
-  fs.writeFileSync(path.join(root, 'README.md'), '# Candidate\n');
-  fs.writeFileSync(path.join(root, 'role-artifacts/strategy.md'), 'strategy rationale and review focus\n');
-  fs.writeFileSync(path.join(root, 'candidate_patch.diff'), [
-    `diff --git a/${target} b/${target}`,
-    'new file mode 100644',
-    'index 0000000..1111111',
-    '--- /dev/null',
-    `+++ b/${target}`,
-    '@@ -0,0 +1,5 @@',
-    '+# Synthetic Labor OS v17 Fixture',
-    '+',
-    '+This SLOS candidate documents operator role-agent tournament boundaries.',
-    '+',
-    '+It does not merge, publish, deploy, or send externally.'
-  ].join('\n') + '\n');
-  fs.writeFileSync(path.join(root, 'proposal.md'), 'SLOS operator proposal with target boundary.\n');
-  fs.writeFileSync(path.join(root, 'role-artifacts/patch-author-notes.md'), 'Patch notes for SLOS operator.\n');
-  fs.mkdirSync(path.join(workspace, 'tests/synthetic-labor-os-v17'), { recursive: true });
-  fs.writeFileSync(path.join(workspace, 'tests/synthetic-labor-os-v17/candidate_01.test-plan.md'), 'Validate with git apply --check, target isolation, truth boundary, and SLOS test gate.\n');
-  fs.writeFileSync(path.join(root, 'role-artifacts/test-plan.md'), 'git apply target truth validation SLOS\n');
-  fs.writeFileSync(path.join(root, 'role-artifacts/adversarial-review.md'), 'Risk counterexample verdict target claim honesty.\n');
-  fs.writeFileSync(path.join(root, 'role-artifacts/adversarial-review.json'), JSON.stringify({ verdict: 'accept', risks: ['scope drift'], counterexamples: ['wrong target'] }, null, 2));
-  fs.writeFileSync(path.join(root, 'role-artifacts/scorecard.json'), JSON.stringify({
-    score: 91,
-    strengths: ['clear target', 'honest boundary'],
-    weaknesses: ['docs only'],
-    rationale: 'Good role-agent tournament documentation patch.',
-    candidateTarget: target,
-    shouldWin: true
-  }, null, 2));
-  fs.writeFileSync(path.join(root, 'role-artifacts/refinement-notes.md'), 'score strength weakness rationale winner recommendation\n');
-  const verifier = path.join(WORKSPACE_ROOT, 'large-project-capability-stack/apps/synthetic-labor-os/v17-role-verifier.mjs');
-  const patchRun = spawnSync(process.execPath, [verifier, 'patch', workspace, 'candidate_01::scorer_refiner'], { cwd: workspace, encoding: 'utf8' });
-  const scoreRun = spawnSync(process.execPath, [verifier, 'score', workspace, 'candidate_01::scorer_refiner'], { cwd: workspace, encoding: 'utf8' });
-
-  assert.equal(patchRun.status, 0, patchRun.stderr || patchRun.stdout);
-  assert.equal(scoreRun.status, 0, scoreRun.stderr || scoreRun.stdout);
-  const score = JSON.parse(scoreRun.stdout);
-  assert.equal(score.ok, true);
-  assert.equal(score.metadata.patch.diffPaths[0], target);
-  assert.equal(score.metadata.finalScore >= 91, true);
-});
-
-test('Synthetic Labor OS v18 verifier requires whole-OS runtime and test patch, not docs-only output', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'slos-v18-verifier-'));
-  const sourceRepo = path.join(temp, 'source');
-  const workspace = path.join(temp, 'workspace');
-  const candidateRoot = path.join(workspace, 'apps/synthetic-labor-os-v18/candidate_01');
-  fs.mkdirSync(path.join(candidateRoot, 'role-artifacts'), { recursive: true });
-  fs.mkdirSync(path.join(workspace, 'tests/synthetic-labor-os-v18'), { recursive: true });
-  fs.mkdirSync(path.join(sourceRepo, 'apps/synthetic-labor-os'), { recursive: true });
-  fs.mkdirSync(path.join(sourceRepo, 'packages/synthetic-labor-os'), { recursive: true });
-  fs.mkdirSync(path.join(sourceRepo, 'tests'), { recursive: true });
-  fs.mkdirSync(path.join(sourceRepo, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(sourceRepo, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
-  fs.writeFileSync(path.join(sourceRepo, 'apps/synthetic-labor-os/operator-dashboard.mjs'), [
-    'export function renderDashboard() {',
-    "  return 'ok';",
-    '}',
-    ''
-  ].join('\n') + '\n');
-  fs.writeFileSync(path.join(sourceRepo, 'packages/synthetic-labor-os/index.mjs'), 'export const syntheticLaborOsFixture = true;\n');
-  fs.writeFileSync(path.join(sourceRepo, 'tests/synthetic-labor-os.test.mjs'), [
-    "import test from 'node:test';",
-    "import assert from 'node:assert/strict';",
-    "test('fixture baseline', () => { assert.equal(1, 1); });",
-    ''
-  ].join('\n') + '\n');
-  fs.writeFileSync(path.join(sourceRepo, 'tests/synthetic-labor-os-remote-smoke.test.mjs'), "import test from 'node:test';\ntest('remote smoke fixture', () => {});\n");
-  fs.writeFileSync(path.join(sourceRepo, 'docs/SYNTHETIC_LABOR_OS_V0.md'), '# Fixture docs\n');
-  fs.writeFileSync(path.join(workspace, 'v18_source_manifest.json'), JSON.stringify({
-    sourceRepoPath: sourceRepo,
-    validationCommands: ['node --test tests/synthetic-labor-os.test.mjs']
-  }, null, 2));
-  fs.writeFileSync(path.join(candidateRoot, 'architecture.json'), JSON.stringify({
-    id: 'candidate_01',
-    title: 'Whole OS verifier fixture',
-    theme: 'operator command center for live jobs',
-    proposedRuntimeChange: 'add status helper',
-    affectedFiles: ['apps/synthetic-labor-os/operator-dashboard.mjs', 'tests/synthetic-labor-os.test.mjs'],
-    tests: ['node --test tests/synthetic-labor-os.test.mjs'],
-    risks: ['fixture only']
-  }, null, 2));
-  fs.writeFileSync(path.join(candidateRoot, 'README.md'), 'Runtime and test fixture candidate.\n');
-  fs.writeFileSync(path.join(candidateRoot, 'role-artifacts/systems-architect-brief.md'), 'Change runtime and test files, not docs only.\n');
-  fs.writeFileSync(path.join(candidateRoot, 'whole_os_candidate.patch'), [
-    'diff --git a/apps/synthetic-labor-os/operator-dashboard.mjs b/apps/synthetic-labor-os/operator-dashboard.mjs',
-    'index 5c8f8ef..94a83c5 100644',
-    '--- a/apps/synthetic-labor-os/operator-dashboard.mjs',
-    '+++ b/apps/synthetic-labor-os/operator-dashboard.mjs',
-    '@@ -1,4 +1,8 @@',
-    ' export function renderDashboard() {',
-    "   return 'ok';",
-    ' }',
-    '+',
-    '+export function renderV18FixtureStatus() {',
-    "+  return 'whole-os runtime proof boundary';",
-    '+}',
-    ' ',
-    'diff --git a/tests/synthetic-labor-os.test.mjs b/tests/synthetic-labor-os.test.mjs',
-    'index 092c0ad..c6ce7a3 100644',
-    '--- a/tests/synthetic-labor-os.test.mjs',
-    '+++ b/tests/synthetic-labor-os.test.mjs',
-    '@@ -1,4 +1,5 @@',
-    " import test from 'node:test';",
-    " import assert from 'node:assert/strict';",
-    " test('fixture baseline', () => { assert.equal(1, 1); });",
-    "+test('v18 whole-os fixture evidence', () => { assert.match('truth boundary provenance', /truth boundary/); });",
-    ' '
-  ].join('\n') + '\n');
-  fs.writeFileSync(path.join(candidateRoot, 'proposal.md'), 'Whole OS runtime proposal with tests and truth boundary.\n');
-  fs.writeFileSync(path.join(candidateRoot, 'role-artifacts/runtime-implementer-notes.md'), 'Runtime patch touches SLOS dashboard and tests.\n');
-  fs.writeFileSync(path.join(workspace, 'tests/synthetic-labor-os-v18/candidate_01.test-plan.md'), 'Run node --test tests/synthetic-labor-os.test.mjs after applying the patch.\n');
-  fs.writeFileSync(path.join(candidateRoot, 'role-artifacts/test-engineer-notes.md'), 'Validation covers runtime behavior and test evidence.\n');
-  fs.writeFileSync(path.join(candidateRoot, 'role-artifacts/adversarial-review.md'), 'Risk counterexample verdict: not docs-only, runtime and test paths are present.\n');
-  fs.writeFileSync(path.join(candidateRoot, 'role-artifacts/adversarial-review.json'), JSON.stringify({ verdict: 'accept', risks: ['fixture only'], counterexamples: ['docs-only patch rejected'] }, null, 2));
-  fs.writeFileSync(path.join(candidateRoot, 'role-artifacts/scorecard.json'), JSON.stringify({
-    score: 92,
-    strengths: ['runtime path changed', 'test path changed'],
-    weaknesses: ['fixture only'],
-    rationale: 'Valid whole-OS runtime and test candidate.',
-    changedRuntimeFiles: ['apps/synthetic-labor-os/operator-dashboard.mjs'],
-    changedTestFiles: ['tests/synthetic-labor-os.test.mjs'],
-    validationCommand: 'node --test tests/synthetic-labor-os.test.mjs',
-    shouldWin: true
-  }, null, 2));
-  fs.writeFileSync(path.join(candidateRoot, 'role-artifacts/refinement-notes.md'), 'Final score includes runtime and test evidence.\n');
-  const verifier = path.join(WORKSPACE_ROOT, 'large-project-capability-stack/apps/synthetic-labor-os/v18-whole-os-verifier.mjs');
-  const patchRun = spawnSync(process.execPath, [verifier, 'patch', workspace, 'candidate_01::release_scorer'], { cwd: workspace, encoding: 'utf8' });
-  const validationRun = spawnSync(process.execPath, [verifier, 'validation', workspace, 'candidate_01::release_scorer'], { cwd: workspace, encoding: 'utf8' });
-  const scoreRun = spawnSync(process.execPath, [verifier, 'score', workspace, 'candidate_01::release_scorer'], { cwd: workspace, encoding: 'utf8' });
-
-  assert.equal(patchRun.status, 0, patchRun.stderr || patchRun.stdout);
-  assert.equal(validationRun.status, 0, validationRun.stderr || validationRun.stdout);
-  assert.equal(scoreRun.status, 0, scoreRun.stderr || scoreRun.stdout);
-  const score = JSON.parse(scoreRun.stdout);
-  assert.equal(score.ok, true);
-  assert.deepEqual(score.metadata.runtimePaths, ['apps/synthetic-labor-os/operator-dashboard.mjs']);
-  assert.deepEqual(score.metadata.testPaths, ['tests/synthetic-labor-os.test.mjs']);
-
-  fs.writeFileSync(path.join(candidateRoot, 'whole_os_candidate.patch'), [
-    'diff --git a/docs/SYNTHETIC_LABOR_OS_V0.md b/docs/SYNTHETIC_LABOR_OS_V0.md',
-    'index 1111111..2222222 100644',
-    '--- a/docs/SYNTHETIC_LABOR_OS_V0.md',
-    '+++ b/docs/SYNTHETIC_LABOR_OS_V0.md',
-    '@@ -1 +1,2 @@',
-    ' # Fixture docs',
-    '+Docs-only truth boundary note.'
-  ].join('\n') + '\n');
-  const docsOnlyRun = spawnSync(process.execPath, [verifier, 'patch-shape', workspace, 'candidate_01::release_scorer'], { cwd: workspace, encoding: 'utf8' });
-  assert.notEqual(docsOnlyRun.status, 0, docsOnlyRun.stdout);
 });

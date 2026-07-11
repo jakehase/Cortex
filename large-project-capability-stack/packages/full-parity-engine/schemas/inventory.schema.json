@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.full_parity.inventory.v0",
+  "type": "object",
+  "required": ["schemaVersion", "source", "surfaceCount", "duplicateIds", "surfaces", "digest"],
+  "properties": {
+    "schemaVersion": {"const": "clawd.full_parity.inventory.v0"},
+    "source": {"type": "string", "minLength": 1},
+    "surfaceCount": {"type": "integer", "minimum": 0},
+    "duplicateIds": {"type": "array", "maxItems": 0},
+    "surfaces": {"type": "array", "items": {"type": "object", "required": ["id", "required", "verifiers", "evidence"]}},
+    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

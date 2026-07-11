@@ -152,6 +152,90 @@ test('live transfer worker reuses creative-worker external verification evidence
   assert.equal(payload.verifierResults[0].metadata.checkKinds.includes('mock-reused-external-verifier'), true);
 });
 
+test('live transfer worker accepts conventional brownfield src product targets', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'live-transfer-worker-src-target-'));
+  const repo = path.join(root, 'repo');
+  const target = 'src/domain/appealDeadline.mjs';
+  write(path.join(repo, target), 'export function assessAppealDeadline() { return { before: true }; }\n');
+  const verifierCommand = `${process.execPath} -e "console.log(JSON.stringify({ ok: true, checkKinds: ['src-product-target'] }))"`;
+  const mockWorker = path.join(root, 'mock-src-creative-worker.mjs');
+  write(mockWorker, `import fs from 'node:fs';
+import path from 'node:path';
+const workspace = process.env.CREATIVE_WORKER_WORKSPACE;
+const target = process.env.CREATIVE_WORKER_ALLOWED_FILES.split(',')[0];
+fs.appendFileSync(path.join(workspace, target), '\\nexport const brownfieldSrcTargetAccepted = true;\\n');
+fs.writeFileSync(process.env.CREATIVE_WORKER_EVIDENCE_PATH, JSON.stringify({
+  ok: true,
+  surfaceId: process.env.CREATIVE_WORKER_SURFACE_ID,
+  startedAt: new Date().toISOString(),
+  finishedAt: new Date().toISOString(),
+  creativeRuntimeMs: 1,
+  minRuntimeMs: 0,
+  minIterations: 1,
+  iterationCount: 1,
+  iterations: [{ step: 'mock_iteration_1', changedAllowedFilesAfterIteration: [target] }],
+  filesChanged: [target],
+  productFilesChanged: [target],
+  externalVerification: { enabled: false, failureCount: 0, runs: [] },
+  risks: [],
+  retryable: true
+}, null, 2));
+`);
+  const assignmentPath = path.join(root, 'assignment.json');
+  const resultPath = path.join(root, 'result.json');
+  const verifierCatalog = {
+    src_surface_command_1: { id: 'src_surface_command_1', command: verifierCommand, surfaceId: 'src_surface' }
+  };
+  write(assignmentPath, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    workspacePath: repo,
+    resultPath,
+    logPath: path.join(root, 'worker.log'),
+    verifierScriptPath: path.join(process.cwd(), 'apps/system-benchmark/live-transfer-verifier.mjs'),
+    executionMode: 'test_live_worker',
+    agentId: 'agent-src',
+    lease: { leaseId: 'lease-src', attempt: 1 },
+    contextPack: {
+      inputs: {
+        productDiffMode: 'creative_product_work',
+        creativeProductWork: { required: true, minIterations: 1, workerCommand: `${process.execPath} ${mockWorker}` },
+        verifierCatalog
+      },
+      guardrails: { allowedFiles: [target], fileAreas: [target] },
+      acceptanceChecks: []
+    },
+    shard: {
+      id: 'src_surface',
+      allowedFiles: [target],
+      fileAreas: [target],
+      requiredVerifiers: ['src_surface_command_1'],
+      inputs: { verifierCatalog },
+      metadata: { surfaceId: 'src_surface', productDiffMode: 'creative_product_work' }
+    }
+  }, null, 2));
+
+  const result = spawnSync(process.execPath, [
+    path.join(process.cwd(), 'apps/system-benchmark/live-transfer-worker.mjs'),
+    '--assignment', assignmentPath
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_COMMAND: `${process.execPath} ${mockWorker}`,
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0'
+    }
+  });
+
+  const failureEvidence = fs.existsSync(resultPath) ? fs.readFileSync(resultPath, 'utf8') : '';
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${failureEvidence}`);
+  const payload = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  assert.equal(payload.ok, true);
+  assert.equal(payload.implementation.metadata.creativeWorkerEvidence.productModifiedFiles.includes(target), true);
+  assert.equal(payload.verifierResults[0].ok, true);
+});
+
 test('live transfer worker recovers durable creative product checkpoint after wrapper timeout', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'live-transfer-worker-timeout-checkpoint-'));
   const repo = path.join(root, 'repo');
@@ -3876,9 +3960,9 @@ test('creative product benchmark requires creative worker evidence beyond verifi
 test('codex creative worker compact mode uses bounded brief and external verification', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-compact-'));
   const workspace = path.join(root, 'repo');
-  write(path.join(workspace, 'packages', 'app', 'creative-surface.mjs'), 'export function describeCreativeSurface(input = {}) { return { ok: true, input }; }\n');
+  write(path.join(workspace, 'src', 'domain', 'creative-surface.mjs'), 'export function describeCreativeSurface(input = {}) { return { ok: true, input }; }\n');
   write(path.join(workspace, 'tests', 'noisy-other.test.mjs'), `import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('unrelated noisy verifier fails if it is run', () => { assert.equal(4, 3); });\n`);
-  write(path.join(workspace, 'tests', 'creative-surface.test.mjs'), `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { compactProductDelta } from '../packages/app/creative-surface.mjs';\ntest('compact product delta works', () => { assert.equal(compactProductDelta({ id: 'demo' }).kind, 'compact_delta'); });\n`);
+  write(path.join(workspace, 'tests', 'creative-surface.test.mjs'), `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { compactProductDelta } from '../src/domain/creative-surface.mjs';\ntest('compact product delta works', () => { assert.equal(compactProductDelta({ id: 'demo' }).kind, 'compact_delta'); });\n`);
   const taskPath = path.join(root, 'task.json');
   const evidencePath = path.join(root, 'evidence.json');
   const packetPath = path.join(root, 'cortex-packet.json');
@@ -3896,11 +3980,11 @@ test('codex creative worker compact mode uses bounded brief and external verific
     cortexRoute: 'test_compact_route',
     surface: { id: 'creative_surface', goal: 'Add compact product behavior' },
     instructions: ['Implement real product behavior only.'],
-    files: [{ path: 'packages/app/creative-surface.mjs', role: 'product_target', exists: true }],
+    files: [{ path: 'src/domain/creative-surface.mjs', role: 'product_target', exists: true }],
     runnableChecks: [],
     budgetPolicy: { promptMode: 'compact' }
   }, null, 2));
-  write(mockCodex, `#!/usr/bin/env node\nimport fs from 'node:fs';\nimport path from 'node:path';\nconst prompt = process.argv.at(-1) || '';\nfs.writeFileSync(path.join(process.cwd(), '__last_prompt.txt'), prompt);\nfs.appendFileSync(path.join(process.cwd(), 'packages/app/creative-surface.mjs'), \`\nconst compactDeltaKind = 'compact_delta';\nexport function compactProductDelta(input = {}) { return { kind: compactDeltaKind, id: input.id || null, verified: true }; }\n\`);\nconsole.log('tokens used');\nconsole.log('1,234');\n`);
+  write(mockCodex, `#!/usr/bin/env node\nimport fs from 'node:fs';\nimport path from 'node:path';\nconst prompt = process.argv.at(-1) || '';\nfs.writeFileSync(path.join(process.cwd(), '__last_prompt.txt'), prompt);\nfs.appendFileSync(path.join(process.cwd(), 'src/domain/creative-surface.mjs'), \`\nconst compactDeltaKind = 'compact_delta';\nexport function compactProductDelta(input = {}) { return { kind: compactDeltaKind, id: input.id || null, verified: true }; }\n\`);\nconsole.log('tokens used');\nconsole.log('1,234');\n`);
   fs.chmodSync(mockCodex, 0o755);
   const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
   const spawned = spawnSync(process.execPath, [worker], {
@@ -3911,7 +3995,7 @@ test('codex creative worker compact mode uses bounded brief and external verific
       CREATIVE_WORKER_TASK_PATH: taskPath,
       CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
       CREATIVE_WORKER_WORKSPACE: workspace,
-      CREATIVE_WORKER_ALLOWED_FILES: 'packages/app/creative-surface.mjs,tests/creative-surface.test.mjs,tests/noisy-other.test.mjs',
+      CREATIVE_WORKER_ALLOWED_FILES: 'src/domain/creative-surface.mjs,tests/creative-surface.test.mjs,tests/noisy-other.test.mjs',
       CREATIVE_WORKER_SURFACE_ID: 'creative_surface',
       CREATIVE_WORKER_AGENT_ID: 'agent-compact',
       CREATIVE_WORKER_CORTEX_REQUIRED: '1',

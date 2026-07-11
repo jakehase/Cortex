@@ -26,12 +26,12 @@ export const SYNTHETIC_LABOR_OS_ARTIFACT_BUNDLE_SCHEMA = 'claw.synthetic_labor_o
 export const SYNTHETIC_LABOR_OS_RUN_LEDGER_SCHEMA = 'claw.synthetic_labor_os.v19.run_ledger';
 export const SYNTHETIC_LABOR_OS_RELEASE_PACKET_SCHEMA = 'claw.synthetic_labor_os.v19.release_packet';
 
-export const DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS = Object.freeze([
+export const SYNTHETIC_LABOR_OS_CONTROL_PLANE_REMOTE_SYNC_PATHS = Object.freeze([
   'package.json',
   'packages/synthetic-labor-os/index.mjs',
   'apps/system-benchmark/audit-synthetic-labor-os-v0.mjs',
-  'apps/synthetic-labor-os/codex-agent-work-item.mjs',
-  'apps/synthetic-labor-os/codex-patch-proposal-work-item.mjs',
+  'apps/system-benchmark/cortex-codex-boundary.mjs',
+  'apps/system-benchmark/cortex-ops-health-dashboard.mjs',
   'apps/synthetic-labor-os/apply-patch-gate.mjs',
   'apps/synthetic-labor-os/job-lifecycle.mjs',
   'apps/synthetic-labor-os/local-runner.mjs',
@@ -39,40 +39,58 @@ export const DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS = Object.freeze([
   'apps/synthetic-labor-os/operator-dashboard.mjs',
   'apps/synthetic-labor-os/proof-harness.mjs',
   'apps/synthetic-labor-os/remote-dispatcher.mjs',
-  'apps/synthetic-labor-os/v1-pilot.mjs',
-  'apps/synthetic-labor-os/v2-remote-pilot.mjs',
-  'apps/synthetic-labor-os/v3-remote-codex-pilot.mjs',
-  'apps/synthetic-labor-os/v4-remote-patch-pilot.mjs',
-  'apps/synthetic-labor-os/v5-apply-pilot.mjs',
-  'apps/synthetic-labor-os/v6-provenance-chain.mjs',
-  'apps/synthetic-labor-os/v7-replay-rollback-audit.mjs',
-  'apps/synthetic-labor-os/v8-e2e-demo.mjs',
-  'apps/synthetic-labor-os/v9-finished-claim-report.mjs',
-  'apps/synthetic-labor-os/v10-scale-smoke.mjs',
-  'apps/synthetic-labor-os/v11-release-bundle.mjs',
-  'apps/synthetic-labor-os/v12-fresh-replay.mjs',
-  'apps/synthetic-labor-os/v13-operator-doctor.mjs',
-  'apps/synthetic-labor-os/v14-multi-job-smoke.mjs',
-  'apps/synthetic-labor-os/v15-release-candidate.mjs',
-  'apps/synthetic-labor-os/v16-iteration-worker.mjs',
-  'apps/synthetic-labor-os/v16-iteration-tournament.mjs',
-  'apps/synthetic-labor-os/v17-role-catalog.mjs',
-  'apps/synthetic-labor-os/v17-role-implementation.mjs',
-  'apps/synthetic-labor-os/v17-role-verifier.mjs',
-  'apps/synthetic-labor-os/v17-role-tournament-remote.mjs',
-  'apps/synthetic-labor-os/v17-role-tournament.mjs',
-  'apps/synthetic-labor-os/v18-whole-os-catalog.mjs',
-  'apps/synthetic-labor-os/v18-whole-os-implementation.mjs',
-  'apps/synthetic-labor-os/v18-whole-os-verifier.mjs',
-  'apps/synthetic-labor-os/v18-whole-os-tournament-remote.mjs',
-  'apps/synthetic-labor-os/v18-whole-os-tournament.mjs',
-  'apps/synthetic-labor-os/v19-release-packet.mjs',
   'apps/synthetic-labor-os/v20-hard-dogfood-rc.mjs',
-  'docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md',
+  'docs/cortex-codex-boundary-and-ops.md',
+  'docs/SYNTHETIC_LABOR_OS_V0.md',
   'tests/synthetic-labor-os.test.mjs',
-  'tests/synthetic-labor-os-remote-smoke.test.mjs',
+  'tests/synthetic-labor-os-remote-smoke.test.mjs'
+]);
+
+export const SYNTHETIC_LABOR_OS_LEGACY_QUARANTINE_ROOT = '_quarantine/synthetic-labor-os-legacy-20260707';
+
+export const LEGACY_SYNTHETIC_LABOR_OS_CODEX_EXPERIMENT_SYNC_PATHS = Object.freeze([
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/codex-agent-work-item.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/codex-patch-proposal-work-item.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v1-pilot.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v10-scale-smoke.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v11-release-bundle.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v12-fresh-replay.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v13-operator-doctor.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v14-multi-job-smoke.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v15-release-candidate.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v16-iteration-tournament.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v16-iteration-worker.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-catalog.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-implementation.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-tournament-remote.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-tournament.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-verifier.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-catalog.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-implementation.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-tournament-remote.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-tournament.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-verifier.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v2-remote-pilot.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v3-remote-codex-pilot.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v4-remote-patch-pilot.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v5-apply-pilot.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v6-provenance-chain.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v7-replay-rollback-audit.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v8-e2e-demo.mjs',
+  '_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v9-finished-claim-report.mjs',
+  'docs/SYNTHETIC_LABOR_OS_V4_PATCH_PROPOSAL.md',
   'docs/SYNTHETIC_LABOR_OS_V0.md'
 ]);
+
+// Active default sync is intentionally the thin control plane. Older SLOS Codex
+// pilots/tournaments are quarantined and remain available only for audit/replay
+// via the explicit legacy list; they must not be pulled into current jobs by accident.
+export const DEFAULT_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS = SYNTHETIC_LABOR_OS_CONTROL_PLANE_REMOTE_SYNC_PATHS;
+
+export const HISTORICAL_SYNTHETIC_LABOR_OS_REMOTE_SYNC_PATHS = Object.freeze(Array.from(new Set([
+  ...SYNTHETIC_LABOR_OS_CONTROL_PLANE_REMOTE_SYNC_PATHS,
+  ...LEGACY_SYNTHETIC_LABOR_OS_CODEX_EXPERIMENT_SYNC_PATHS
+])));
 
 export const SYNTHETIC_LABOR_OS_JOB_STATES = Object.freeze([
   'drafted',

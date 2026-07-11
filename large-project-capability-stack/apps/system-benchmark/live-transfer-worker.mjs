@@ -1068,19 +1068,41 @@ function safeRelativeSourcePath(value = '') {
   return rel;
 }
 
+function aggregateRepoProductPathVariants(value = '') {
+  const normalized = String(value || '').replace(/^\.\//, '');
+  const prefixes = [
+    'large-project-capability-stack/',
+    'ai-os/',
+    'pmhnp-denial-copilot/',
+    'pmhnpbilling-site/',
+    'mailchimp-clone/'
+  ];
+  return stableList([
+    normalized,
+    ...prefixes
+      .filter((prefix) => normalized.startsWith(prefix))
+      .map((prefix) => normalized.slice(prefix.length))
+  ]);
+}
+
 function isCreativeProductTarget(rel = '') {
-  const value = String(rel || '').replace(/^\.\//, '');
-  if (!value || path.isAbsolute(value) || value.includes('..')) return false;
-  const appPackageProduct = /^(apps|packages)\//.test(value)
-    && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(value)
-    && !/(^|\/)tests?\//i.test(value);
-  const godotProduct = (
-    value === 'project.godot'
-    || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(value)
-  )
-    && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(value)
-    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
-  return appPackageProduct || godotProduct;
+  const rawValue = String(rel || '').replace(/^\.\//, '');
+  if (!rawValue || path.isAbsolute(rawValue) || rawValue.includes('..')) return false;
+  return aggregateRepoProductPathVariants(rawValue).some((value) => {
+    const conventionalProduct = /^(?:src|lib|server|client|web)\//.test(value)
+      && /\.(?:mjs|cjs|js|jsx|ts|tsx|py|rb|go|rs|java|kt|kts|cs|php|vue|svelte|html|css|scss|json)$/i.test(value)
+      && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
+    const appPackageProduct = /^(apps|packages)\//.test(value)
+      && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(value)
+      && !/(^|\/)tests?\//i.test(value);
+    const godotProduct = (
+      value === 'project.godot'
+      || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(value)
+    )
+      && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(value)
+      && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?)\//i.test(value);
+    return conventionalProduct || appPackageProduct || godotProduct;
+  });
 }
 
 function creativeAllowedSourceFiles(assignment) {

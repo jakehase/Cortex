@@ -38,7 +38,9 @@ import {
   planAdaptiveWaveBudget,
   promptModeForContinuousWave,
   readJson,
+  resumedControllerClockStart,
   stableList,
+  shouldDeferMissingProductionQualityGate,
   summarizeWaveBudgetLedger,
   summarizeWaveArtifacts,
   updateContinuousStateFromWave,
@@ -200,6 +202,17 @@ function csvWithRequiredEntry(value = '', requiredEntry = '') {
   return entries.join(',');
 }
 
+function csvWithRequiredEntries(value = '', requiredEntries = []) {
+  const entries = stableList(String(value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean));
+  for (const required of stableList(requiredEntries)) {
+    if (required && !entries.includes(required)) entries.push(required);
+  }
+  return entries.join(',');
+}
+
 function hostRole() {
   return String(process.env.BENCHMARK_HOST_ROLE || process.env.HOST_ROLE || '').trim();
 }
@@ -300,7 +313,14 @@ function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', con
   const meteringEnv = meteringPlan ? envFromLlmMeteringPlan(meteringPlan, { physicalWorkerCount: selectedCount }) : {};
   const contextMaxWorkerTokens = Math.max(1, Number(args.contextGovernorMaxWorkerTokens || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS || 3200));
   const workerWorkspaceMode = String(process.env.ORCHESTRATOR_WORKER_WORKSPACE_MODE || '').trim() || 'isolated_product_copy';
-  const workerWorkspaceCopyPaths = csvWithRequiredEntry(process.env.ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS || '', 'tests');
+  const workerWorkspaceCopyPaths = csvWithRequiredEntries(process.env.ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS || '', [
+    'tests',
+    'large-project-capability-stack/tests',
+    'ai-os/tests',
+    'pmhnp-denial-copilot/tests',
+    'pmhnpbilling-site/tests',
+    'mailchimp-clone/tests'
+  ]);
   return {
     ...process.env,
     ORCHESTRATOR_WORKER_WORKSPACE_MODE: workerWorkspaceMode,
@@ -859,7 +879,13 @@ function objectiveTruthPolicyFromArgs({ args = {}, contract = {}, controllerRoot
   const baseDir = path.dirname(args.contractPath || controllerRoot || process.cwd());
   const surfaceMatrixPath = resolveOptionalPath(args.objectiveTruthSurfaceMatrixPath || configured.surfaceMatrixPath || configured.surfaceMatrix || configured.matrixPath, baseDir);
   const negativeSpacePath = resolveOptionalPath(args.objectiveTruthNegativeSpacePath || configured.negativeSpacePath || configured.negativeSpaceQueuePath || configured.nextWorkQueuePath, baseDir);
-  const productionQualityGatePath = resolveOptionalPath(args.objectiveTruthProductionQualityGatePath || configured.productionQualityGatePath || configured.qualityGatePath || null, baseDir);
+  const productionQualityGatePath = resolveOptionalPath(
+    args.objectiveTruthProductionQualityGatePath
+      || configured.productionQualityGatePath
+      || configured.qualityGatePath
+      || (productionQualityPolicy.enabled === true ? path.join(controllerRoot, 'production_quality_gate.json') : null),
+    baseDir
+  );
   const autoEnabled = Boolean(
     configured.enabled === true
     || configured.required === true
@@ -1001,8 +1027,16 @@ function promoteWaveLearning({ policy = {}, waveRoot, baseContract, waveNumber }
 }
 
 function evaluateScoredContinuousStop({ state, target, remainingExecutableSurfaceCount = 1, nowMs = Date.now(), deadlineMs = null, maxWavesReached = false } = {}) {
-  const rawMetrics = aggregateContinuousMetrics(state);
-  const thresholdMetrics = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
+  const elapsedOptions = {
+    controllerStartedAtMs: state.controllerStartedAtMs,
+    nowMs,
+    useControllerElapsed: true
+  };
+  const rawMetrics = aggregateContinuousMetrics(state, elapsedOptions);
+  const thresholdMetrics = aggregateContinuousThresholdMetrics(state, {
+    rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0,
+    ...elapsedOptions
+  });
   const objectiveTruthInputs = readObjectiveTruthInputs({ policy: state.objectiveTruthPolicy || {}, state, metrics: thresholdMetrics, target });
   const objectiveRemaining = Number(objectiveTruthInputs?.objectiveTruth?.remainingExecutableSurfaceCount || 0);
   const decision = evaluateContinuousStop({
@@ -1085,6 +1119,8 @@ let state = {
   schemaVersion: 'clawd.continuous_real_workload_controller_state.v1',
   generatedAt: new Date(startedAtMs).toISOString(),
   updatedAt: new Date(startedAtMs).toISOString(),
+  controllerStartedAtMs: startedAtMs,
+  controllerStartedAt: new Date(startedAtMs).toISOString(),
   benchmarkId: baseContract.benchmarkId || null,
   runId: baseContract.runId || null,
   controllerArtifactRoot: controllerRoot,
@@ -1137,10 +1173,13 @@ let state = {
   status: 'running'
 };
 if (resumeState) {
+  const resumedClockStartMs = resumedControllerClockStart({ resumeState, startedAtMs });
   state = {
     ...state,
     resumedFromStatePath: args.resumeStatePath,
     resumedFromControllerArtifactRoot: resumeState.controllerArtifactRoot || null,
+    controllerStartedAtMs: resumedClockStartMs,
+    controllerStartedAt: new Date(resumedClockStartMs).toISOString(),
     completedSurfaceIds: stableList(resumeState.completedSurfaceIds || []),
     completedProductFiles: stableList(resumeState.completedProductFiles || []),
     surfaceAttempts: resumeState.surfaceAttempts && typeof resumeState.surfaceAttempts === 'object' ? { ...resumeState.surfaceAttempts } : {},
@@ -1333,6 +1372,18 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     deadlineMs,
     maxWavesReached: false
   });
+  const remainingBaseSurfaceCount = allSurfaces.filter((surface) => {
+    const surfaceId = surface?.id;
+    return surfaceId
+      && !(state.completedSurfaceIds || []).includes(surfaceId)
+      && Number(state.surfaceAttempts?.[surfaceId] || 0) < Math.max(1, Number(args.maxAttemptsPerSurface || 2));
+  }).length;
+  const deferMissingQualityGate = shouldDeferMissingProductionQualityGate({
+    objectiveTruth: preStop.decision.objectiveTruth,
+    metrics: preStop.thresholdMetrics,
+    target,
+    remainingExecutableSurfaceCount: remainingBaseSurfaceCount
+  });
   if (preStop.decision.action === 'stop_green') {
     finalDecision = preStop.decision;
     state.metrics = preStop.rawMetrics;
@@ -1342,7 +1393,7 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
   }
 
   let forcedObjectiveTruthSurfaces = null;
-  if (preStop.decision.reason === 'objective_truth_pending' && objectiveTruthPolicy.enabled === true && objectiveTruthPolicy.repairEnabled === true) {
+  if (!deferMissingQualityGate && preStop.decision.reason === 'objective_truth_pending' && objectiveTruthPolicy.enabled === true && objectiveTruthPolicy.repairEnabled === true) {
     const qualityGate = objectiveTruthPolicy.productionQualityGatePath ? readJson(objectiveTruthPolicy.productionQualityGatePath, null) : null;
     forcedObjectiveTruthSurfaces = createObjectiveTruthRepairSurfaces({
       objectiveTruth: preStop.decision.objectiveTruth,
@@ -1938,8 +1989,13 @@ const recordedProductionQualityGate = readJson(path.join(controllerRoot, 'produc
 if (recordedProductionQualityGate && typeof recordedProductionQualityGate === 'object') {
   state.productionQualityGate = recordedProductionQualityGate.metrics || recordedProductionQualityGate;
 }
-const metrics = aggregateContinuousMetrics(state);
-const thresholdMetrics = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
+const finalNowMs = Date.now();
+const finalElapsedOptions = { controllerStartedAtMs: state.controllerStartedAtMs, nowMs: finalNowMs, useControllerElapsed: true };
+const metrics = aggregateContinuousMetrics(state, finalElapsedOptions);
+const thresholdMetrics = aggregateContinuousThresholdMetrics(state, {
+  rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0,
+  ...finalElapsedOptions
+});
 const finalScaleProof = continuousScaleProofForArtifacts({ metrics, requestedAgentCount, state });
 const finalTiming = attemptTimingSummary({ state, initialWaveSummaryCount, startedAtMs, finishedAtMs: Date.now() });
 const thresholdEvaluation = evaluateBenchmarkThresholds({
@@ -1984,6 +2040,16 @@ const finalUnmetGates = {
   thresholdFailures: thresholdEvaluation.failures || [],
   terminalReason: finalDecision?.reason || null
 };
+const postFinalGateDecision = evaluateContinuousStop({
+  metrics: thresholdMetrics,
+  target,
+  remainingExecutableSurfaceCount: Number(finalObjectiveTruthInputs?.objectiveTruth?.remainingExecutableSurfaceCount || 0),
+  nowMs: finalNowMs,
+  deadlineMs: null,
+  maxWavesReached: false,
+  objectiveTruth: finalObjectiveTruthInputs?.objectiveTruth || null
+});
+if (postFinalGateDecision.thresholdPass === true) finalDecision = postFinalGateDecision;
 if (finalDecision?.thresholdPass === true && thresholdEvaluation.ok !== true) {
   finalDecision = {
     action: 'stop_blocked',

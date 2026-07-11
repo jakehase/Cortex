@@ -2,6 +2,8 @@
 
 Synthetic Labor OS v0 is a thin control-plane product shell around the existing orchestration primitives. Its job is not to spawn chaos; its job is to make work legible, testable, reviewable, and honestly claimable.
 
+> 2026-07-07 consolidation note: SLOS v1-v18 pilots/tournaments and direct Codex work-item wrappers are archived under `_quarantine/synthetic-labor-os-legacy-20260707/` and are no longer active package commands. Use `npm run ops:synthetic-labor-os:legacy:manifest` to inspect the recovery manifest before replaying any of them. Active control-plane scripts remain in `apps/synthetic-labor-os/`.
+
 ## Why tests are first-class
 
 Unit tests are the coordination contract for agent work. With one developer, tests catch regressions. With many agents, tests also become the shared language that tells each worker: this is the behavior you must preserve while changing your slice.
@@ -77,7 +79,7 @@ Safety boundary:
 One-command pilot:
 
 ```bash
-npm run ops:synthetic-labor-os:v1-pilot
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 Default artifact root:
@@ -91,7 +93,7 @@ The next slice moves from local execution to a real control-plane/execution-plan
 One-command remote pilot:
 
 ```bash
-npm run ops:synthetic-labor-os:v2-remote-pilot
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 Default execution plane:
@@ -129,10 +131,10 @@ That smoke test avoids depending on broader control-plane workspace files that m
 The v3 pilot runs one bounded real Codex CLI work item on the execution plane and returns its provenance artifacts through the same OS job/claim-gate path:
 
 ```bash
-npm run ops:synthetic-labor-os:v3-remote-codex-pilot
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
-The pilot command is intentionally read-only from the Codex worker's point of view. The remote command invokes `apps/synthetic-labor-os/codex-agent-work-item.mjs`, which:
+The pilot command is intentionally read-only from the Codex worker's point of view. The remote command invokes `_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/codex-agent-work-item.mjs`, which:
 
 - verifies the configured Codex binary is available on the remote host,
 - builds a bounded read-only `context_pack.json` from the SLOS package, v3 wrapper/pilot, and docs,
@@ -149,10 +151,10 @@ Truth boundary: v3 proves one bounded read-only remote Codex CLI work item with 
 The v4 pilot advances from read-only agent observation to a reviewable work product:
 
 ```bash
-npm run ops:synthetic-labor-os:v4-remote-patch-pilot
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
-The remote command invokes `apps/synthetic-labor-os/codex-patch-proposal-work-item.mjs`, which:
+The remote command invokes `_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/codex-patch-proposal-work-item.mjs`, which:
 
 - builds a bounded read-only context pack,
 - asks Codex for a structured patch proposal,
@@ -169,7 +171,7 @@ Truth boundary: v4 proves a bounded remote Codex patch proposal can become revie
 The v5 pilot consumes a returned v4 patch proposal only after an explicit approval artifact exists:
 
 ```bash
-npm run ops:synthetic-labor-os:v5-apply-pilot
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 The local command invokes `apps/synthetic-labor-os/apply-patch-gate.mjs`, which:
@@ -190,7 +192,7 @@ Truth boundary: v5 may prove one approved patch was applied to the current workt
 The v6 pilot links the scattered v4/v5 artifacts into one auditable chain:
 
 ```bash
-npm run ops:synthetic-labor-os:v6-provenance-chain
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 The chain verifies:
@@ -207,7 +209,7 @@ Truth boundary: v6 proves artifact lineage and claim integrity for one approved 
 ## v7 replay, rollback, and tamper audit
 
 ```bash
-npm run ops:synthetic-labor-os:v7-replay-rollback-audit
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v7 replays the v6 provenance chain, verifies that the applied patch has a dry-run rollback path via `git apply --reverse --check`, and runs negative/tamper cases that must fail closed. It does not actually roll back the worktree.
@@ -215,7 +217,7 @@ v7 replays the v6 provenance chain, verifies that the applied patch has a dry-ru
 ## v8 one-command E2E demo
 
 ```bash
-npm run ops:synthetic-labor-os:v8-e2e-demo
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v8 packages the existing green v4/v5 real artifacts with fresh v6/v7 verification into a single end-to-end trace: objective → remote Codex patch proposal → approval/apply → provenance → replay/rollback/tamper hardening. By default it does not launch a new remote Codex call.
@@ -223,7 +225,7 @@ v8 packages the existing green v4/v5 real artifacts with fresh v6/v7 verificatio
 ## v9 finished-claim report
 
 ```bash
-npm run ops:synthetic-labor-os:v9-finished-claim-report
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v9 turns the audited matrix and v6/v7/v8 proofs into an operator-facing finished-claim report. It authorizes only a bounded internal claim for the SLOS v0/v10 productization sequence, not a public/full/autonomous-labor claim.
@@ -231,7 +233,7 @@ v9 turns the audited matrix and v6/v7/v8 proofs into an operator-facing finished
 ## v10 scale smoke finish gate
 
 ```bash
-npm run ops:synthetic-labor-os:v10-scale-smoke
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v10 runs the packaged E2E demo, finished-claim report, and local smoke commands. It is the bounded finish gate for this sequence. Green v10 means the v0 productization path is packaged and passing for the audited scope; it still does not merge, publish, deploy, send externally, or prove unlimited autonomous labor capability.
@@ -239,7 +241,7 @@ v10 runs the packaged E2E demo, finished-claim report, and local smoke commands.
 ## v11 release bundle / handoff pack
 
 ```bash
-npm run ops:synthetic-labor-os:v11-release-bundle
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v11 packages the green v10 evidence into an internal release bundle with:
@@ -253,7 +255,7 @@ The bundle is a handoff/audit package only. It does not merge, publish, deploy, 
 ## v12 fresh replay
 
 ```bash
-npm run ops:synthetic-labor-os:v12-fresh-replay
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v12 proves the proposal → approval → apply → provenance path can start from fresh inputs. It creates a new target path, dispatches a bounded remote Codex patch proposal, applies that returned patch through the approval gate, and builds a fresh provenance chain over the new artifacts.
@@ -261,7 +263,7 @@ v12 proves the proposal → approval → apply → provenance path can start fro
 ## v13 operator doctor
 
 ```bash
-npm run ops:synthetic-labor-os:v13-operator-doctor
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v13 is the operator UX/config validation surface. It checks required npm scripts, writes/validates local operator config, verifies latest v11/v12 evidence, and emits JSON/Markdown runbook output.
@@ -269,7 +271,7 @@ v13 is the operator UX/config validation surface. It checks required npm scripts
 ## v14 multi-job workload smoke
 
 ```bash
-npm run ops:synthetic-labor-os:v14-multi-job-smoke
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v14 uses an isolated smoke repository to apply two approved jobs and prove a conflicting third job fails closed at the apply gate. It exercises multi-job behavior without touching the product worktree or external systems.
@@ -277,7 +279,7 @@ v14 uses an isolated smoke repository to apply two approved jobs and prove a con
 ## v15 release-candidate gate
 
 ```bash
-npm run ops:synthetic-labor-os:v15-release-candidate
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v15 verifies v11/v12/v13/v14 evidence and runs smoke commands. Green v15 means this internal SLOS production slice is release-candidate ready for the audited scope only. It does not merge, publish, deploy, send externally, or claim unlimited autonomous labor capability.
@@ -285,7 +287,7 @@ v15 verifies v11/v12/v13/v14 evidence and runs smoke commands. Green v15 means t
 ## v16 20-iteration agent tournament
 
 ```bash
-npm run ops:synthetic-labor-os:v16-iteration-tournament
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v16 orchestrates 20 remote Codex proposal iterations on the execution plane. Each iteration gets a distinct target and angle, returns a review-ready patch proposal, and is scored by a deterministic rubric. The launcher applies only the selected best proposal through the approval/apply gate, then builds provenance for the winner.
@@ -295,7 +297,7 @@ Non-winning iterations remain proposals only. v16 does not merge, publish, deplo
 ## v17 architecture-showcase-style role-agent tournament
 
 ```bash
-npm run ops:synthetic-labor-os:v17-role-tournament
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v17 mirrors the architecture showcase pattern for Synthetic Labor OS:
@@ -313,7 +315,7 @@ This is the multi-agent version of the tournament. It does not merge, publish, d
 ## v18 whole-Synthetic-Labor-OS variant tournament
 
 ```bash
-npm run ops:synthetic-labor-os:v18-whole-os-tournament
+npm run ops:synthetic-labor-os:legacy:manifest # archived; recover before replay
 ```
 
 v18 is the corrected full-target version of the role-agent tournament:

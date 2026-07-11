@@ -10,6 +10,26 @@ This document is intentionally **non-behavior-changing**. It records labels, che
 - A run may be described as **real Codex/model work** only when provider/runtime/ledger evidence exists.
 - Chat/control-plane Cortex activation does not by itself make remote workers “Cortex agents.”
 
+## Codex consolidation rule
+
+Do not rebuild Codex inside this stack.
+
+Keep and improve the owned control-plane surfaces:
+
+- task contracts, work queues, and lifecycle state.
+- Cortex memory/context/routing inputs.
+- execution-plane placement and artifact return.
+- budget, approval, and sandbox boundaries.
+- truth gates, claim ledgers, and anti-fake-green supervision.
+
+Shrink or retire surfaces whose primary job is to imitate a coding agent that Codex already provides:
+
+- bespoke one-off Codex pilots.
+- role/whole-OS tournaments whose value is mostly “many Codex agents ran.”
+- custom prompt loops that do not add durable supervision, approval, replay, or claim-gate value.
+
+The active SLOS remote-sync default is now the thin control-plane set. Historical Codex pilot/tournament files are recoverably quarantined under `_quarantine/synthetic-labor-os-legacy-20260707/` and stay available only through the explicit legacy sync list / manifest for replay/audit; they must not be pulled into new runs by default.
+
 ## What must not be weakened
 
 Keep these mandatory for creative/large worker launches:

@@ -20,12 +20,15 @@ import {
   evaluateProductionQualityGate,
   evaluateTokenEfficiency,
   evaluateTokenEfficiencyDebtRecovery,
+  isProductSourceFile,
   isUsageLimitReason,
   planCreativeBundleRuntime,
   planAdaptiveWaveBudget,
   planObjectiveExpansionSurfaceSelection,
   promptModeForContinuousWave,
+  resumedControllerClockStart,
   selectNextWaveSurfaces,
+  shouldDeferMissingProductionQualityGate,
   summarizeWaveBudgetLedger,
   summarizeWaveArtifacts,
   updateContinuousStateFromWave
@@ -48,6 +51,29 @@ test('continuous controller selects one executable surface per primary product f
     'packages/app/routes/templates.mjs'
   ]);
   assert.equal(selection.selectedSurfaceIds.includes('docs_only_bad'), false);
+});
+
+test('continuous controller admits safe nested aggregate product paths', () => {
+  const aggregateSurfaces = [
+    { id: 'shared_nested', targetFiles: ['large-project-capability-stack/packages/agent-work-release-candidate/cross-repo/shared-01.mjs'] },
+    { id: 'aios_nested', targetFiles: ['ai-os/src/kernel/runtime.ts'] },
+    { id: 'pmhnp_nested', targetFiles: ['pmhnp-denial-copilot/src/claim-guard/denialPolicy.ts'] },
+    { id: 'nested_docs_bad', targetFiles: ['large-project-capability-stack/docs/phase8.md'] },
+    { id: 'nested_test_bad', targetFiles: ['large-project-capability-stack/tests/phase8-crossrepo.test.mjs'] }
+  ];
+
+  assert.equal(isProductSourceFile('large-project-capability-stack/packages/agent-work-release-candidate/cross-repo/shared-01.mjs'), true);
+  assert.equal(isProductSourceFile('ai-os/src/kernel/runtime.ts'), true);
+  assert.equal(isProductSourceFile('pmhnp-denial-copilot/src/claim-guard/denialPolicy.ts'), true);
+  assert.equal(isProductSourceFile('large-project-capability-stack/tests/phase8-crossrepo.test.mjs'), false);
+  assert.equal(isProductSourceFile('../large-project-capability-stack/packages/escape.mjs'), false);
+
+  const selection = selectNextWaveSurfaces({ surfaces: aggregateSurfaces, requestedAgentCount: 5, state: {} });
+  assert.deepEqual(selection.selectedSurfaceIds.sort(), [
+    'aios_nested',
+    'pmhnp_nested',
+    'shared_nested'
+  ]);
 });
 
 test('continuous controller defers recently rejected files on the first scheduling pass', () => {
@@ -305,6 +331,7 @@ test('objective truth repair surfaces are generic orchestration work items, not 
         lane: 'security_account_enterprise',
         productFiles: ['packages/app/routes/team-permissions.mjs'],
         targetedTests: ['tests/team-permissions.test.mjs'],
+        verification: ['node --test tests/team-permissions.test.mjs'],
         blockers: [{ kind: 'leaf_proof_missing' }]
       }]
     },
@@ -315,6 +342,9 @@ test('objective truth repair surfaces are generic orchestration work items, not 
   assert.equal(repairSurfaces[0].metadata.objectiveTruthRepair, true);
   assert.equal(repairSurfaces[0].metadata.objectiveTruthSourceKind, 'surface_matrix');
   assert.deepEqual(repairSurfaces[0].productFiles, ['packages/app/routes/team-permissions.mjs']);
+  assert.deepEqual(repairSurfaces[0].targetedTests, ['tests/team-permissions.test.mjs']);
+  assert.deepEqual(repairSurfaces[0].verification, ['node --test tests/team-permissions.test.mjs']);
+  assert.equal(repairSurfaces[0].verification.some((command) => command.includes('node --test node --test')), false);
   assert.match(repairSurfaces[0].productGoal, /Generic agent-orchestration objective-truth repair/i);
   assert.doesNotMatch(repairSurfaces[0].productGoal, /Mailchimp/i);
 });
@@ -441,6 +471,64 @@ test('continuous controller aggregates wave truth without calling partial produc
   });
   assert.equal(decision.action, 'continue');
   assert.equal(decision.thresholdPass, false);
+});
+
+test('continuous metrics distinguish repeated wave-local labels as separate worker process invocations', () => {
+  const first = summarizeWaveArtifacts({
+    completionSummary: { shardCount: 2, mergedShardCount: 2, concurrencyTruth: { uniqueAgentIds: ['agent-1', 'agent-2'] } },
+    patchQueue: { merged: [{ shardId: 'a', agentId: 'agent-1' }, { shardId: 'b', agentId: 'agent-2' }] },
+    waveNumber: 1
+  });
+  const second = summarizeWaveArtifacts({
+    completionSummary: { shardCount: 2, mergedShardCount: 2, concurrencyTruth: { uniqueAgentIds: ['agent-1', 'agent-2'] } },
+    patchQueue: { merged: [{ shardId: 'c', agentId: 'agent-1' }, { shardId: 'd', agentId: 'agent-2' }] },
+    waveNumber: 2
+  });
+  const metrics = aggregateContinuousMetrics({ waveSummaries: [first, second] }, {
+    useControllerElapsed: true,
+    controllerStartedAtMs: 1_000,
+    nowMs: 361_000
+  });
+  assert.deepEqual(first.rawAgentIds, ['agent-1', 'agent-2']);
+  assert.deepEqual(first.uniqueAgentIds, ['wave-001:agent-1', 'wave-001:agent-2']);
+  assert.equal(first.workerIdentityBasis, 'wave_qualified_agent_process_invocation');
+  assert.equal(metrics.uniqueAgentCount, 4);
+  assert.equal(metrics.autonomyWindowMinutes, 6);
+  assert.equal(metrics.activeWaveWindowMinutes, 0);
+  assert.equal(metrics.controllerElapsedMinutes, 6);
+  assert.equal(metrics.durationEvidenceBasis, 'controller_wall_clock_with_active_wave_floor');
+});
+
+test('controller defers a missing final quality artifact while duration and grounded work remain', () => {
+  const objectiveTruth = { failures: [{ reason: 'production_quality_gate_missing' }] };
+  assert.equal(shouldDeferMissingProductionQualityGate({
+    objectiveTruth,
+    metrics: { controllerElapsedMinutes: 16.33 },
+    target: { durationTargetMinutes: 360 },
+    remainingExecutableSurfaceCount: 943
+  }), true);
+  assert.equal(shouldDeferMissingProductionQualityGate({
+    objectiveTruth,
+    metrics: { controllerElapsedMinutes: 360 },
+    target: { durationTargetMinutes: 360 },
+    remainingExecutableSurfaceCount: 943
+  }), false);
+  assert.equal(shouldDeferMissingProductionQualityGate({
+    objectiveTruth: { failures: [{ reason: 'test_regression_introduced' }] },
+    metrics: { controllerElapsedMinutes: 16.33 },
+    target: { durationTargetMinutes: 360 },
+    remainingExecutableSurfaceCount: 943
+  }), false);
+});
+
+test('resume clock preserves prior active controller duration without counting stopped downtime', () => {
+  const startedAtMs = 10_000_000;
+  const resumed = resumedControllerClockStart({
+    startedAtMs,
+    resumeState: { thresholdMetrics: { controllerElapsedMinutes: 16.33 } }
+  });
+  assert.equal(resumed, startedAtMs - 16.33 * 60_000);
+  assert.equal(resumedControllerClockStart({ startedAtMs, resumeState: null }), startedAtMs);
 });
 
 test('continuous scale proof separates aggregate waved execution from unique-worker proof', () => {

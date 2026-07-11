@@ -444,18 +444,41 @@ export function evaluateTokenEfficiencyDebtRecovery({
   };
 }
 
+function aggregateRepoProductPathVariants(value = '') {
+  const normalized = String(value || '').replace(/^\.\//, '');
+  const prefixes = [
+    'large-project-capability-stack/',
+    'ai-os/',
+    'pmhnp-denial-copilot/',
+    'pmhnpbilling-site/',
+    'mailchimp-clone/'
+  ];
+  return stableList([
+    normalized,
+    ...prefixes
+      .filter((prefix) => normalized.startsWith(prefix))
+      .map((prefix) => normalized.slice(prefix.length))
+  ]);
+}
+
 export function isProductSourceFile(filePath = '') {
   const rel = String(filePath || '').replace(/^\.\//, '');
-  const appPackageProduct = /^(apps|packages)\//.test(rel)
-    && /\.(?:mjs|js|jsx|ts|tsx|html|css)$/i.test(rel)
-    && !/(^|\/)tests?\//i.test(rel);
-  const godotProduct = (
-    rel === 'project.godot'
-    || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(rel)
-  )
-    && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(rel)
-    && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?|coverage|dist|build)\//i.test(rel);
-  return appPackageProduct || godotProduct;
+  if (!rel || path.isAbsolute(rel) || rel.includes('..')) return false;
+  return aggregateRepoProductPathVariants(rel).some((candidate) => {
+    const conventionalProduct = /^(?:src|lib|server|client|web)\//.test(candidate)
+      && /\.(?:mjs|cjs|js|jsx|ts|tsx|py|rb|go|rs|java|kt|kts|cs|php|vue|svelte|html|css|scss|json)$/i.test(candidate)
+      && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?|coverage|dist|build)\//i.test(candidate);
+    const appPackageProduct = /^(apps|packages)\//.test(candidate)
+      && /\.(?:mjs|js|jsx|ts|tsx|html|css|json)$/i.test(candidate)
+      && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?|coverage|dist|build)\//i.test(candidate);
+    const godotProduct = (
+      candidate === 'project.godot'
+      || /^(?:scripts|scenes|ui|assets|autoload|addons|tools\/editor|tools\/qa)\//.test(candidate)
+    )
+      && /\.(?:gd|tscn|tres|res|cfg|json|import|shader|material|godot)$/i.test(candidate)
+      && !/(^|\/)(?:docs?|tests?|__tests__|artifacts?|benchmarks?|fixtures?|mocks?|coverage|dist|build)\//i.test(candidate);
+    return conventionalProduct || appPackageProduct || godotProduct;
+  });
 }
 
 export function primaryProductFile(surface = {}) {
@@ -1017,8 +1040,18 @@ function objectiveTruthSurfaceTests(surface = {}) {
   return stableList([
     ...(surface.targetedTests || []),
     ...(surface.targeted_tests || []),
-    ...(surface.verification || []).filter((entry) => /(?:^|\s)(?:node\s+--test|npm\s+test|pnpm\s+test|yarn\s+test)/.test(String(entry || ''))),
     surface.testFile
+  ]);
+}
+
+function objectiveTruthVerification(surface = {}, targetedTests = []) {
+  return stableList([
+    ...(surface.verification || []).map((entry) => {
+      const value = String(entry || '').trim();
+      if (!value) return '';
+      return /^(?:node\s+--test|npm\s+test|pnpm\s+test|yarn\s+test)(?:\s|$)/.test(value) ? value : `node --test ${value}`;
+    }),
+    ...targetedTests.map((file) => `node --test ${file}`)
   ]);
 }
 
@@ -1040,7 +1073,7 @@ function objectiveTruthSurfaceWork(surface = {}, index = 0) {
     productFiles,
     targetFiles: productFiles,
     targetedTests,
-    verification: stableList([...(surface.verification || []), ...targetedTests.map((file) => `node --test ${file}`)]),
+    verification: objectiveTruthVerification(surface, targetedTests),
     stopCondition: surface.stopCondition || 'objective_surface_green_or_blocker_report',
     originalSurface: surface
   };
@@ -1070,7 +1103,7 @@ function normalizeObjectiveWorkItem(item = {}, index = 0, sourceKind = 'next_wor
     productFiles,
     targetFiles: productFiles,
     targetedTests,
-    verification: stableList([...(item.verification || []), ...targetedTests.map((file) => `node --test ${file}`)]),
+    verification: objectiveTruthVerification(item, targetedTests),
     stopCondition: item.stopCondition || 'objective_work_item_green_or_blocker_report',
     originalWorkItem: item
   };
@@ -1271,7 +1304,7 @@ export function createObjectiveTruthRepairSurfaces({
       targetFiles: productFiles,
       productFiles,
       allowedFiles: stableList([...(item.allowedFiles || []), ...productFiles, ...targetedTests]),
-      verification: stableList([...(item.verification || []), ...targetedTests.map((file) => `node --test ${file}`)]),
+      verification: objectiveTruthVerification(item, targetedTests),
       targetedTests,
       stopCondition: item.stopCondition || 'objective_surface_green_or_blocker_report',
       issueIds: stableList([id, item.sourceId, item.sourceKind, ...productFiles]),
@@ -1782,6 +1815,10 @@ function countWaveTruthContradictions(completionSummary = {}, truthConflicts = n
 export function summarizeWaveArtifacts({ completionSummary = {}, patchQueue = {}, truthConflicts = null, waveNumber = null } = {}) {
   const patchSummary = summarizePatchQueue(patchQueue || {});
   const landing = completionSummary.landingEvidenceSummary || {};
+  const rawAgentIds = stableList(completionSummary.concurrencyTruth?.uniqueAgentIds || patchSummary.mergedAgentIds || []);
+  const workerInvocationIds = waveNumber == null
+    ? rawAgentIds
+    : rawAgentIds.map((agentId) => `wave-${String(waveNumber).padStart(3, '0')}:${agentId}`);
   return {
     waveNumber,
     runId: completionSummary.runId || null,
@@ -1793,7 +1830,10 @@ export function summarizeWaveArtifacts({ completionSummary = {}, patchQueue = {}
     mergedShardCount: Number(completionSummary.mergedShardCount || patchSummary.mergedPatchCount || 0),
     rejectedPatchCount: Number(completionSummary.concurrencyTruth?.rejectedPatchCount ?? patchSummary.rejectedPatchCount ?? 0),
     peakConcurrency: Number(completionSummary.peakConcurrency || completionSummary.concurrencyTruth?.peakConcurrentWorkers || 0),
-    uniqueAgentIds: stableList(completionSummary.concurrencyTruth?.uniqueAgentIds || patchSummary.mergedAgentIds || []),
+    uniqueAgentIds: workerInvocationIds,
+    rawAgentIds,
+    workerInvocationIds,
+    workerIdentityBasis: waveNumber == null ? 'agent_id' : 'wave_qualified_agent_process_invocation',
     activeWorkerMinutes: Number(completionSummary.concurrencyTruth?.activeWorkerMinutes || 0),
     truthContradictions: countWaveTruthContradictions(completionSummary, truthConflicts),
     fakeGreenIncidents: completionSummary.thresholdPass === true && completionSummary.mechanicalGreen !== true ? 1 : 0,
@@ -1956,7 +1996,15 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
   const excludedBackoffRejectedPatchCount = excludeBudgetBackoffRejections
     ? selectedWaves.reduce((sum, wave) => sum + Math.min(Number(wave.rejectedPatchCount || 0), sumReasonCounts(waveRejectedReasonCounts(wave), isBudgetBackoffReason)), 0)
     : 0;
-  const durationMinutes = waves.reduce((sum, wave) => sum + Number(wave.durationMinutes || 0), 0);
+  const activeWaveWindowMinutes = waves.reduce((sum, wave) => sum + Number(wave.durationMinutes || 0), 0);
+  const controllerStartedAtMs = Number(options.controllerStartedAtMs || 0);
+  const controllerNowMs = Number(options.nowMs || Date.now());
+  const controllerElapsedMinutes = options.useControllerElapsed === true && controllerStartedAtMs > 0
+    ? Math.max(0, (controllerNowMs - controllerStartedAtMs) / 60_000)
+    : null;
+  const durationMinutes = controllerElapsedMinutes == null
+    ? activeWaveWindowMinutes
+    : Math.max(activeWaveWindowMinutes, controllerElapsedMinutes);
   const activeWorkerMinutes = waves.reduce((sum, wave) => sum + Number(wave.activeWorkerMinutes || 0), 0);
   const truthContradictions = waves.reduce((sum, wave) => sum + Number(wave.truthContradictions || 0), 0);
   const fakeGreenIncidents = waves.reduce((sum, wave) => sum + Number(wave.fakeGreenIncidents || 0), 0);
@@ -2046,6 +2094,9 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
     repeatBlockerRate: repeatBlockerRateFromReasonCounts(scoredRejectedBlockerSignatureCounts),
     handoffEfficiency: totalShards ? Number((selectedMerged / totalShards).toFixed(4)) : 0,
     autonomyWindowMinutes: Number(durationMinutes.toFixed(2)),
+    activeWaveWindowMinutes: Number(activeWaveWindowMinutes.toFixed(2)),
+    controllerElapsedMinutes: controllerElapsedMinutes == null ? null : Number(controllerElapsedMinutes.toFixed(2)),
+    durationEvidenceBasis: controllerElapsedMinutes == null ? 'summed_wave_runtime' : 'controller_wall_clock_with_active_wave_floor',
     activeWorkerMinutes: Number(activeWorkerMinutes.toFixed(3)),
     truthIntegrityContradictions: truthContradictions,
     fakeGreenIncidents,
@@ -2108,6 +2159,29 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
 
 export function aggregateContinuousThresholdMetrics(state = {}, options = {}) {
   return aggregateContinuousMetrics(state, { ...options, scoringMode: 'threshold', excludeBudgetBackoffRejections: true });
+}
+
+export function shouldDeferMissingProductionQualityGate({ objectiveTruth = null, metrics = {}, target = {}, remainingExecutableSurfaceCount = 0 } = {}) {
+  const failures = Array.isArray(objectiveTruth?.failures) ? objectiveTruth.failures : [];
+  const missingQualityOnly = failures.length > 0
+    && failures.every((failure) => failure?.reason === 'production_quality_gate_missing');
+  const currentMinutes = Number(metrics.controllerElapsedMinutes ?? metrics.autonomyWindowMinutes ?? 0);
+  const targetMinutes = Math.max(0, Number(target.durationTargetMinutes || 0));
+  return missingQualityOnly
+    && targetMinutes > 0
+    && currentMinutes < targetMinutes
+    && Number(remainingExecutableSurfaceCount || 0) > 0;
+}
+
+export function resumedControllerClockStart({ resumeState = null, startedAtMs = Date.now() } = {}) {
+  if (!resumeState) return Number(startedAtMs);
+  const priorElapsedMinutes = Math.max(0, Number(
+    resumeState.thresholdMetrics?.controllerElapsedMinutes
+    ?? resumeState.metrics?.controllerElapsedMinutes
+    ?? resumeState.attemptTiming?.resumedAggregateDurationMinutes
+    ?? 0
+  ));
+  return Number(startedAtMs) - priorElapsedMinutes * 60_000;
 }
 
 export function deriveContinuousScaleProof({ metrics = {}, requestedAgentCount = 0, waveAgentCount = null, waveSchedulingPolicy = {} } = {}) {

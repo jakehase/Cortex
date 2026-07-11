@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.task.v1",
+  "title": "Agent Work v1 task contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "runId", "objectiveId", "surfaceIds", "goal", "allowedFiles", "requiredVerifiers", "dependencies", "state", "stateVersion", "idempotencyKey", "generatedAt", "source"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.task.v1" },
+    "taskId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "objectiveId": { "type": "string", "minLength": 1 },
+    "surfaceIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "goal": { "type": "string", "minLength": 1 },
+    "allowedFiles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "requiredVerifiers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "dependencies": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "state": { "enum": ["proposed", "ready", "leased", "running", "result_received", "staged", "verifying", "accepted", "rejected", "conflicted", "retryable", "blocked"] },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.objective_contract.v1",
+  "title": "Agent Work v1 objective contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "objectiveId", "objective", "anchor", "replyAnchor", "targetPath", "fidelity", "scope", "implementationSurface", "stopCondition", "doneWhen", "requestedClaims", "generatedAt", "source"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.objective_contract.v1" },
+    "objectiveId": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9][a-z0-9_]*$" },
+    "objective": { "type": "string", "minLength": 1 },
+    "anchor": { "type": "string", "minLength": 1 },
+    "replyAnchor": { "type": ["string", "null"] },
+    "targetPath": { "type": "string", "minLength": 1 },
+    "fidelity": { "enum": ["prototype", "production_slice", "parity_for_scope", "full_clone"] },
+    "scope": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "implementationSurface": { "enum": ["product_code", "scaffolding_control_plane", "docs_tests", "mixed"] },
+    "stopCondition": { "type": "string", "minLength": 1 },
+    "doneWhen": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "requestedClaims": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": { "type": "object", "additionalProperties": true }
+  }
+}

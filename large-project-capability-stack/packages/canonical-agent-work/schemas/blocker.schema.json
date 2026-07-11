@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.blocker.v1",
+  "title": "Agent Work v1 blocker report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "blockerId", "runId", "family", "code", "summary", "observedEvidence", "reproductionSteps", "nextAction", "retryable", "terminal", "generatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.blocker.v1" },
+    "blockerId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "family": { "enum": ["product", "infrastructure", "provider", "budget", "security", "decision", "truth_contradiction", "unknown"] },
+    "code": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9][a-z0-9_]*$" },
+    "summary": { "type": "string", "minLength": 1 },
+    "observedEvidence": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "reproductionSteps": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "nextAction": { "type": "string", "minLength": 1 },
+    "retryable": { "type": "boolean" },
+    "terminal": { "type": "boolean" },
+    "generatedAt": { "type": "string", "format": "date-time" }
+  }
+}

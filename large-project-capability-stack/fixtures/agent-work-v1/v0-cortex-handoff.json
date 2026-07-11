@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "cortex.agent_work_handoff.v0",
+  "generatedAt": "2026-07-10T06:00:00.000Z",
+  "objective": "Implement and verify the Agent Work v1 contract freeze",
+  "replyAnchor": "Jake said: Start it",
+  "repoPath": "/tmp/agent-work-v1-fixture-repo",
+  "artifactRoot": "/tmp/agent-work-v1-fixture-artifacts",
+  "fidelity": "production_slice",
+  "implementationSurface": "mixed",
+  "requestedClaims": ["phase_1_contract_freeze"],
+  "requestedAgentCount": 2,
+  "executionBoundary": "remote_execution_required",
+  "stopCondition": "phase_1_contract_and_authority_freeze_green_or_blocker",
+  "permissions": {
+    "allow": ["read_repo", "write_product_code", "run_tests"],
+    "forbid": ["external_send", "touch_prod"]
+  },
+  "budgets": {
+    "token_cap": 250000,
+    "duration_minutes": 60,
+    "global_calls": 4,
+    "max_retries": 2
+  },
+  "doneWhen": [
+    "v1_contract_bundle_valid",
+    "authority_matrix_valid",
+    "no_truth_layer_overclaim"
+  ],
+  "surfaces": [
+    {
+      "id": "contract_catalog",
+      "label": "Contract catalog",
+      "goal": "Freeze and validate the Agent Work v1 contract catalog",
+      "files": ["packages/canonical-agent-work/contracts.mjs"],
+      "verify": ["node --test tests/agent-work-v1-contracts.test.mjs"]
+    },
+    {
+      "id": "authority_matrix",
+      "label": "Authority matrix",
+      "goal": "Assign one authority to each consequential orchestration decision",
+      "files": ["config/agent-work-v1/authority-matrix.json"],
+      "verify": ["node --test tests/agent-work-v1-contracts.test.mjs"],
+      "deps": ["contract_catalog"]
+    }
+  ]
+}
