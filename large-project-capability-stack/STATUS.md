@@ -6,7 +6,7 @@
 - Canonical plan: `/root/clawd/large-project-capability-stack/plan.md`
 - Decisions log: `/root/clawd/large-project-capability-stack/DECISIONS.md`
 - Last updated: `2026-07-11`
-- Status: `Agent Work v1.0.0 Phase 9 green; v1.1 semantic-workforce amendment locally qualified for private/internal production_slice use`
+- Status: `Agent Work v1.1.0 semantic-workforce release candidate locally green for private/internal production_slice use`
 - Current fidelity: `production_slice`
 
 ## Current checkpoint
@@ -22,8 +22,8 @@
 - Phase 7 operations, security, and remote-deployment readiness is green as a production-slice implementation with local + Hetzner qualification.
 - Phase 8 release-candidate qualification is green. The corrected persistent soak ran `361.06` minutes across `243` waves, merged `357/363` shards, observed `12,141,226` provider tokens, completed all 26 declared parity-for-scope surfaces, passed production-quality/objective-truth gates, and observed peak physical concurrency `2`; the separate cross-repo campaign—not the soak—proved 12 physical workers. The four-workload matrix is all complete.
 - Phase 9 is green. The supported CLI is `apps/agent-work/cli.mjs`, legacy paths are compatibility/evidence-only, migration/rollback rehearsal passed, a clean GitHub checkout at commit `9b9b3bf7184d1a4778341314a656b2f823836a02` passed `424/424`, and the 12-row Phase 9 surface matrix is `all_complete`.
-- Release identity: version `1.0.0`, tag `agent-work-v1.0.0`. No external announcement or deployment was performed.
-- The v1.1 semantic-workforce amendment is implemented and locally qualified: omitted agent counts now select a bounded semantic target, explicit counts remain upper bounds, Phase 4 emits separate executable/decomposition workforce plans, and the objective controller consumes and adapts the selected target per wave. This is not yet a new release tag or external deployment.
+- Previous release identity: version `1.0.0`, tag `agent-work-v1.0.0`.
+- Release candidate identity: version `1.1.0`, intended tag `agent-work-v1.1.0`. The semantic-workforce amendment is implemented and locally qualified: omitted agent counts now select a bounded semantic target, explicit counts remain upper bounds, Phase 4 emits separate executable/decomposition workforce plans, and the objective controller consumes and adapts the selected target per wave. The tag remains gated on clean execution-plane qualification.
 
 ## v1.1 semantic workforce mechanics
 

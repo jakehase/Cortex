@@ -41,11 +41,12 @@ function greenInput() {
   };
 }
 
-test('Phase 9 declares a stable v1 release identity and bounded exact claim', () => {
-  assert.equal(AGENT_WORK_VERSION, '1.0.0');
-  assert.equal(AGENT_WORK_RELEASE_TAG, 'agent-work-v1.0.0');
+test('Phase 9 declares a stable v1.1 release identity and bounded exact claim', () => {
+  assert.equal(AGENT_WORK_VERSION, '1.1.0');
+  assert.equal(AGENT_WORK_RELEASE_TAG, 'agent-work-v1.1.0');
   assert.match(AGENT_WORK_V1_RELEASE_CLAIM, /private\/internal use/);
   assert.match(AGENT_WORK_V1_RELEASE_CLAIM, /production_slice/);
+  assert.match(AGENT_WORK_V1_RELEASE_CLAIM, /semantic workforce sizing enabled by default/);
   assert.ok(AGENT_WORK_V1_LIMITATIONS.some((entry) => /peak physical concurrency to 2/.test(entry)));
   assert.ok(AGENT_WORK_V1_LIMITATIONS.some((entry) => /not a public GA/.test(entry)));
 });

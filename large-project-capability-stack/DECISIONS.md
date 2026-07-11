@@ -24,6 +24,14 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Supersedes: The v1.0 behavior where omitted agent count silently became `1` and Phase 4 feasible concurrency remained advisory.
 - Follow-up: Requalify the integrated canonical checkout and retain physical/provider concurrency as a separate observed truth layer.
 
+## 2026-07-11 — Release semantic workforce sizing as Agent Work v1.1.0
+
+- Decision: Treat default-on semantic workforce sizing as a backward-compatible minor release, not a local-only amendment.
+- Reason: Accepted features are complete only when they are wired into the canonical default path, persisted to the authoritative remote, versioned when applicable, and verified from a clean execution-plane checkout.
+- Evidence: `package.json`; `config/agent-work-v1/architecture-policy.json`; `docs/agent-work-v1/RELEASE_NOTES_V1_1.md`; focused and full local/Hetzner qualification recorded in `STATUS.md`.
+- Supersedes: The temporary state where v1.1 behavior existed only in the local canonical checkout while v1.0.0 remained the latest external release.
+- Follow-up: Tag `agent-work-v1.1.0` only after the exact release source passes local and clean Hetzner qualification. Do not turn this release into a public deployment or a new physical-concurrency claim.
+
 ## 2026-07-07 — Shrink the worse-Codex layer instead of competing with Codex
 
 - Decision: Treat Cortex/OpenClaw/SLOS as the owned control plane and Codex as the execution worker; demote generic custom Codex-agent pilots/tournaments to explicit legacy replay/audit paths.

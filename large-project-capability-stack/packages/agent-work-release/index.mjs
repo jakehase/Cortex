@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { validateCanonicalEntrypoints } from '../canonical-agent-work/architecture.mjs';
 
-export const AGENT_WORK_VERSION = '1.0.0';
-export const AGENT_WORK_RELEASE_TAG = 'agent-work-v1.0.0';
+export const AGENT_WORK_VERSION = '1.1.0';
+export const AGENT_WORK_RELEASE_TAG = 'agent-work-v1.1.0';
 export const AGENT_WORK_PHASE9_MATRIX_SCHEMA = 'clawd.agent_work.phase9_surface_matrix.v1';
 export const AGENT_WORK_PHASE9_RELEASE_SCHEMA = 'clawd.agent_work.phase9_release_packet.v1';
-export const AGENT_WORK_V1_RELEASE_CLAIM = 'Agent Work v1.0.0 is green for private/internal use at production_slice fidelity across the declared four-workload Phase 8 matrix, with the canonical Agent Work CLI and facade, evidence-backed recovery, and bounded aggregate 12-worker qualification.';
+export const AGENT_WORK_V1_RELEASE_CLAIM = 'Agent Work v1.1.0 is green for private/internal use at production_slice fidelity across the declared four-workload Phase 8 matrix, with semantic workforce sizing enabled by default, the canonical Agent Work CLI and facade, evidence-backed recovery, and bounded aggregate 12-worker qualification.';
 export const AGENT_WORK_V1_LIMITATIONS = Object.freeze([
   'This is not a public GA announcement or production deployment.',
   'This is not universal parity, a full clone, or proof of all repository classes.',
@@ -23,6 +23,8 @@ const REQUIRED_DOCS = Object.freeze([
   'docs/agent-work-v1/EXTENSIONS.md',
   'docs/agent-work-v1/MIGRATION_AND_ROLLBACK.md',
   'docs/agent-work-v1/RELEASE_NOTES_V1.md',
+  'docs/agent-work-v1/RELEASE_NOTES_V1_1.md',
+  'docs/agent-work-v1/SEMANTIC_WORKFORCE.md',
   'docs/agent-work-v1/PHASE7_OPERATIONS_RUNBOOK.md',
   'docs/agent-work-v1/PHASE8_RELEASE_CANDIDATE_RUNBOOK.md'
 ]);

@@ -34,6 +34,6 @@
     "artifact snapshot repositories"
   ],
   "truthBoundary": "Benchmark and compatibility entrypoints may consume the canonical facade but do not become a second Agent Work product API.",
-  "releaseVersion": "1.0.0",
-  "releaseTag": "agent-work-v1.0.0"
+  "releaseVersion": "1.1.0",
+  "releaseTag": "agent-work-v1.1.0"
 }

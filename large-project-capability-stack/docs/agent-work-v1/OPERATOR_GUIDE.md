@@ -17,6 +17,10 @@ npm run agent-work:report -- artifacts/my-run --format json
 
 Other supported commands are `resume`, `cancel`, and `replay`. Stable exit codes are `0` success, `1` blocked, `2` invalid/denied, `3` infrastructure failure, and `4` cancelled.
 
+## Workforce default
+
+As of v1.1.0, omit agent count to use canonical semantic sizing. Agent Work derives a bounded wave target from admitted dependency-ready work, ownership overlap, fidelity/complexity, verifier obligations, budgets, provider capacity, execution capacity, and prior-wave pressure. An explicit count remains supported but is a maximum, not a promise that the runtime will fabricate that many independent workers. See `SEMANTIC_WORKFORCE.md` for artifacts and truth boundaries.
+
 ## Operating boundary
 
 1. Compile and inspect contracts on the control plane.

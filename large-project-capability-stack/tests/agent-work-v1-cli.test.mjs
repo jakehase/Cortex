@@ -171,7 +171,7 @@ test('the pre-v1 CLI location is a warning-emitting wrapper over the product CLI
 
 test('agent-work package scripts route through the canonical product facade, not benchmark controllers', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  assert.equal(pkg.version, '1.0.0');
+  assert.equal(pkg.version, '1.1.0');
   assert.equal(pkg.bin['agent-work'], 'apps/agent-work/cli.mjs');
   const productScripts = Object.entries(pkg.scripts).filter(([name]) => name.startsWith('agent-work:'));
   assert.ok(productScripts.length >= AGENT_WORK_COMMANDS.length);
