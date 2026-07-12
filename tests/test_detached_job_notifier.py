@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 
@@ -71,6 +73,87 @@ class DetachedJobNotifierTests(unittest.TestCase):
             self.assertEqual(send_log.read_text().splitlines(), ["send"])
             delivered = json.loads(ledger.read_text())["delivered"]
             self.assertEqual(len(delivered), 1)
+
+    def test_grace_period_suppresses_a_recovered_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            state = root / "state.json"
+            ledger = root / "ledger.json"
+            send_log = root / "sends.log"
+            sender = root / "sender"
+            state.write_text(json.dumps({"status": "blocked", "candidateHead": "abc", "blocker": "temporary"}))
+            sender.write_text(
+                "#!/bin/sh\nprintf 'send\\n' >> \"$FAKE_SEND_LOG\"\nprintf '{\"ok\":true}\n'\n"
+            )
+            sender.chmod(0o755)
+
+            def recover() -> None:
+                time.sleep(0.03)
+                state.write_text(json.dumps({"status": "validating_full", "candidateHead": "abc"}))
+
+            thread = threading.Thread(target=recover)
+            thread.start()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--state-file",
+                    str(state),
+                    "--job-label",
+                    "test job",
+                    "--target",
+                    "+15555550123",
+                    "--sender",
+                    str(sender),
+                    "--dedupe-file",
+                    str(ledger),
+                    "--terminal-grace-seconds",
+                    "0.1",
+                    "--once",
+                ],
+                env={**os.environ, "FAKE_SEND_LOG": str(send_log)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            thread.join()
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertFalse(send_log.exists())
+            self.assertFalse(ledger.exists())
+
+    def test_grace_period_delivers_a_persistent_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            state = root / "state.json"
+            ledger = root / "ledger.json"
+            sender = root / "sender"
+            state.write_text(json.dumps({"status": "blocked", "candidateHead": "abc", "blocker": "persistent"}))
+            sender.write_text("#!/bin/sh\nprintf '{\"ok\":true,\"messageId\":\"proof-grace\"}\n'\n")
+            sender.chmod(0o755)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--state-file",
+                    str(state),
+                    "--job-label",
+                    "test job",
+                    "--target",
+                    "+15555550123",
+                    "--sender",
+                    str(sender),
+                    "--dedupe-file",
+                    str(ledger),
+                    "--terminal-grace-seconds",
+                    "0.05",
+                    "--once",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(json.loads(ledger.read_text())["delivered"]), 1)
 
     def test_sender_failure_is_not_marked_delivered(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

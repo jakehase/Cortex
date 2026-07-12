@@ -227,6 +227,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--job-label", required=True)
     parser.add_argument("--terminal-status", action="append", dest="terminal_statuses")
     parser.add_argument("--poll-seconds", type=float, default=30.0)
+    parser.add_argument(
+        "--terminal-grace-seconds",
+        type=float,
+        default=0.0,
+        help="Require the same terminal state to persist this long before delivery",
+    )
     parser.add_argument("--once", action="store_true", help="Check once; do not wait or retry")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--routing-file", type=Path, default=DEFAULT_ROUTING_FILE)
@@ -242,15 +248,43 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     terminals = set(args.terminal_statuses or DEFAULT_TERMINAL_STATUSES)
     delay = max(1.0, args.poll_seconds)
+    grace = max(0.0, args.terminal_grace_seconds)
+    pending_key: str | None = None
+    pending_since = 0.0
 
     while True:
         try:
             state = read_json_state(args.state_file, args.ssh_host)
             if state["status"] not in terminals:
+                pending_key = None
+                pending_since = 0.0
                 if args.once:
                     return 3
                 time.sleep(delay)
                 continue
+
+            source = f"{args.ssh_host or 'local'}:{args.state_file}"
+            current_key = notification_key(args.job_label, source, state)
+            now = time.monotonic()
+            if grace and current_key != pending_key:
+                pending_key = current_key
+                pending_since = now
+                if args.once:
+                    time.sleep(grace)
+                    confirmed = read_json_state(args.state_file, args.ssh_host)
+                    if confirmed["status"] not in terminals:
+                        return 3
+                    confirmed_key = notification_key(args.job_label, source, confirmed)
+                    if confirmed_key != current_key:
+                        return 3
+                    process_terminal_state(args, confirmed)
+                    return 0
+                time.sleep(delay)
+                continue
+            if grace and now - pending_since < grace:
+                time.sleep(min(delay, max(0.01, grace - (now - pending_since))))
+                continue
+
             process_terminal_state(args, state)
             if args.once:
                 return 0

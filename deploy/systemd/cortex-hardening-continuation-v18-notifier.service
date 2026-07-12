@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=/root/clawd
-ExecStart=/usr/bin/python3 /root/clawd/scripts/detached_job_notifier.py --ssh-host jake@37.27.129.239 --state-file /home/jake/cortex-hardening/cortex-hardening-20260711T2330Z/continuation-v18-state.json --job-label "Cortex hardening continuation v18" --sender /usr/bin/openclaw --poll-seconds 30
+ExecStart=/usr/bin/python3 /root/clawd/scripts/detached_job_notifier.py --ssh-host jake@37.27.129.239 --state-file /home/jake/cortex-hardening/cortex-hardening-20260711T2330Z/continuation-v18-state.json --job-label "Cortex hardening continuation v18" --sender /usr/bin/openclaw --poll-seconds 30 --terminal-grace-seconds 120
 Restart=always
 RestartSec=10
 
