@@ -9,7 +9,7 @@ import re
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -363,8 +363,9 @@ class MaintenanceQueueStore:
         actor: str,
         reason: str,
         requeued_at: Optional[str] = None,
+        before_publish: Optional[Callable[[Optional[str]], None]] = None,
     ) -> tuple[MaintenanceQueueItem, Optional[str]]:
-        """Atomically start the next generation of a terminal queue item."""
+        """Atomically start the next generation after its predecessor is quiescent."""
         target = str(item_id or "").strip()
         if not target:
             raise ValueError("maintenance queue item_id must be non-empty")
@@ -381,6 +382,12 @@ class MaintenanceQueueStore:
                 raise RuntimeError(f"maintenance item '{target}' is not requeueable from status '{item.status}'")
 
             old_process_id = str(item.process_id or "").strip() or None
+            # Keep the terminal item non-claimable and retain exclusive queue
+            # ownership until the caller has made the prior generation safe.
+            # If the callback raises (including process crash/persistence
+            # failure), no queue mutation is written and requeue can be retried.
+            if before_publish is not None:
+                before_publish(old_process_id)
             metadata = dict(item.metadata or {})
             generation = int(metadata.get("mission_control_requeue_count", 0) or 0) + 1
             next_process_id, process_id_base = _requeue_process_id(item, metadata, generation)

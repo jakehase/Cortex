@@ -1559,22 +1559,37 @@ def requeue_objective(objective_key: str, *, actor: str = "cortex", reason: Opti
             status_code=400,
             detail=f"maintenance item '{item_id}' is not requeueable from status '{resolved_status or 'unknown'}'",
         )
+
+    def quiesce_previous_process(old_process_id: Optional[str]) -> None:
+        if not old_process_id:
+            return
+        old_process = get_process(old_process_id)
+        if old_process is None:
+            raise RuntimeError(f"cannot confirm prior process '{old_process_id}' is quiescent")
+        status = str(old_process.get("status") or "").strip().lower()
+        if status in TERMINAL_PROCESS_STATUSES:
+            return
+        if status != "paused" or bool(old_process.get("enabled", True)):
+            pause_process(old_process_id)
+        confirmed = get_process(old_process_id)
+        if confirmed is None or str(confirmed.get("status") or "").strip().lower() != "paused" or bool(confirmed.get("enabled", True)):
+            raise RuntimeError(f"cannot confirm prior process '{old_process_id}' is paused")
+
     try:
         _, old_process_id = stores["maintenance_queue_store"].requeue(
             item_id,
             actor=actor,
             reason=str(reason or "operator_requeue"),
+            before_publish=quiesce_previous_process,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"maintenance item '{item_id}' no longer exists") from exc
-    # External scheduler side effects occur only after this request owns the
-    # successful queue transition. A losing concurrent request remains inert.
+    # The queue transition is published only after the old process has been
+    # confirmed terminal or paused while this request owns the queue lock.
     old_process = get_process(old_process_id) if old_process_id else None
     if old_process_id and old_process is not None:
-        if str(old_process.get("status") or "").strip().lower() not in TERMINAL_PROCESS_STATUSES | {"paused"}:
-            pause_process(old_process_id)
         record_process_event(
             old_process_id,
             "mission_control_requeued",
