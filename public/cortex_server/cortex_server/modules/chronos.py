@@ -4,6 +4,8 @@ Level 14: Self-Evolving System
 Runs the Dreamer → Council → Materializer → Diplomat → Geneticist pipeline every night at 03:00.
 """
 import asyncio
+import threading
+import weakref
 from datetime import datetime
 from pathlib import Path
 import json
@@ -32,21 +34,26 @@ class Chronos:
         
     async def start_scheduler(self):
         """Start the async scheduler loop."""
+        if self.running:
+            return
         self.running = True
         self._log("🕐 Chronos started. Watching for 03:00...")
         
-        while self.running:
-            now = datetime.now()
-            current_time = now.strftime("%H:%M")
-            current_date = now.strftime("%Y-%m-%d")
+        try:
+            while self.running:
+                now = datetime.now()
+                current_time = now.strftime("%H:%M")
+                current_date = now.strftime("%Y-%m-%d")
             
             # Check if it's 03:00 and we haven't run today
-            if current_time == "03:00" and self.last_run_date != current_date:
-                self.last_run_date = current_date
-                await self.run_night_shift()
+                if current_time == "03:00" and self.last_run_date != current_date:
+                    self.last_run_date = current_date
+                    await self.run_night_shift()
             
             # Sleep for 60 seconds before next check
-            await asyncio.sleep(60)
+                await asyncio.sleep(60)
+        finally:
+            self.running = False
     
     async def run_night_shift(self):
         """Execute the full evolution cycle."""
@@ -379,17 +386,30 @@ class {class_name}:
     
     def stop(self):
         """Stop the scheduler."""
+        was_running = self.running
         self.running = False
-        self._log("🛑 Chronos stopped.")
+        if was_running:
+            self._log("🛑 Chronos stopped.")
 
 
 # Singleton instance
 _chronos_instance = None
+_chronos_instances = weakref.WeakKeyDictionary()
+_chronos_lock = threading.Lock()
 
 
 def get_chronos() -> Chronos:
-    """Get or create Chronos singleton."""
+    """Get or create the Chronos instance for the running event loop."""
     global _chronos_instance
-    if _chronos_instance is None:
-        _chronos_instance = Chronos()
-    return _chronos_instance
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        if _chronos_instance is None:
+            _chronos_instance = Chronos()
+        return _chronos_instance
+    with _chronos_lock:
+        instance = _chronos_instances.get(loop)
+        if instance is None:
+            instance = Chronos()
+            _chronos_instances[loop] = instance
+        return instance

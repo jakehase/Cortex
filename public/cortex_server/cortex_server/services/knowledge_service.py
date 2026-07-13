@@ -21,8 +21,8 @@ class KnowledgeService:
         if request.node_type:
             try:
                 node_type = NodeType(request.node_type)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                raise ValueError(f"invalid node_type: {request.node_type}") from exc
         
         nodes = self.graph.query(
             node_type=node_type,
@@ -73,17 +73,21 @@ class KnowledgeService:
         self,
         node_id: str,
         edge_type: Optional[str] = None,
-        direction: str = "out"
+        direction: str = "out",
+        limit: int = 100,
     ) -> Dict[str, Any]:
         """Get neighbors of a node."""
         etype = None
         if edge_type:
             try:
                 etype = EdgeType(edge_type)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                raise ValueError(f"invalid edge_type: {edge_type}") from exc
+        if direction not in {"out", "in", "both"}:
+            raise ValueError("direction must be one of: out, in, both")
         
-        neighbors = self.graph.get_neighbors(node_id, etype, direction)
+        bounded_limit = max(1, min(100, int(limit)))
+        neighbors = self.graph.get_neighbors(node_id, etype, direction, bounded_limit)
         return {
             "node_id": node_id,
             "neighbors": neighbors,

@@ -10,6 +10,8 @@ from typing import Dict, List, Any, Optional
 import os
 import json
 import hashlib
+import hmac
+import math
 import re
 import threading
 import time
@@ -1264,16 +1266,24 @@ def _apply_cognitive_stage(cognitive_cfg: Dict[str, Any], query: str, quality: D
         "min_safety": float(gates.get("min_safety", 0.9)),
         "min_confidence": float(gates.get("min_confidence", 0.6)),
     }
+    try:
+        safety = float(quality["safety"])
+        safety_valid = math.isfinite(safety)
+    except (KeyError, TypeError, ValueError):
+        safety = 0.0
+        safety_valid = False
+
     pass_gates = (
         quality["evidence"] >= thresholded["min_evidence"]
         and quality["consistency"] >= thresholded["min_consistency"]
-        and quality["safety"] >= thresholded["min_safety"]
+        and safety_valid
+        and safety >= thresholded["min_safety"]
         and quality["confidence"] >= thresholded["min_confidence"]
     )
 
     rollback_cfg = cognitive_cfg.get("rollback", {}) if isinstance(cognitive_cfg.get("rollback", {}), dict) else {}
     rollback_triggered = bool(rollback_cfg.get("enabled", True)) and (
-        (rollback_cfg.get("trip_on_safety_breach", True) and quality["safety"] < thresholded["min_safety"])
+        (rollback_cfg.get("trip_on_safety_breach", True) and (not safety_valid or safety < thresholded["min_safety"]))
         or (rollback_cfg.get("trip_on_low_confidence", True) and quality["confidence"] < thresholded["min_confidence"])
     )
 
@@ -1317,13 +1327,35 @@ def _persist_codec_replay_report(record: Dict[str, Any]) -> None:
         pass
 
 
-def _persist_codec_live_reexec_report(record: Dict[str, Any]) -> None:
+def _codec_live_reexec_reports_path() -> Path:
+    configured = _CODEC_LIVE_REEXEC_REPORTS_PATH
+    if configured.exists():
+        return configured
     try:
-        _CODEC_LIVE_REEXEC_REPORTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _CODEC_LIVE_REEXEC_REPORTS_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        configured.parent.mkdir(parents=True, exist_ok=True)
+        return configured
+    except OSError:
+        fallback = _CODEC_EVAL_HISTORY_PATH.parent / "nexus_codec_live_reexec_reports.jsonl"
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+def _persist_codec_live_reexec_report(record: Dict[str, Any]) -> bool:
+    try:
+        persisted = dict(record)
+        persisted["schema_version"] = "cortex.codec.live_reexecution_report.v1"
+        persisted["source"] = "nexus.live_reexecute"
+        canonical = json.dumps(persisted, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        persisted["integrity"] = {
+            "algorithm": "sha256",
+            "digest": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        }
+        report_path = _codec_live_reexec_reports_path()
+        with report_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(persisted, ensure_ascii=False) + "\n")
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _persist_codec_corpus_export(record: Dict[str, Any]) -> None:
@@ -3141,8 +3173,7 @@ async def get_nexus_codec_corpus_replay_live_reexecute(request: Request, session
             "backend": backend,
             "live_reexecution": report,
         }
-        _persist_codec_live_reexec_report(payload)
-        persisted = True
+        persisted = _persist_codec_live_reexec_report(payload)
     return {
         "success": True,
         "level": 24,
@@ -3202,8 +3233,9 @@ async def get_nexus_codec_corpus_replay_live_reexecute_reports(request: Request,
         raise HTTPException(status_code=400, detail="session_key is required")
     rows: List[Dict[str, Any]] = []
     try:
-        if _CODEC_LIVE_REEXEC_REPORTS_PATH.exists():
-            with _CODEC_LIVE_REEXEC_REPORTS_PATH.open("r", encoding="utf-8") as f:
+        report_path = _codec_live_reexec_reports_path()
+        if report_path.exists():
+            with report_path.open("r", encoding="utf-8") as f:
                 for line in f:
                     line = (line or "").strip()
                     if not line:
@@ -3213,6 +3245,20 @@ async def get_nexus_codec_corpus_replay_live_reexecute_reports(request: Request,
                     except Exception:
                         continue
                     if not isinstance(row, dict):
+                        continue
+                    integrity = row.get("integrity")
+                    if (
+                        row.get("schema_version") != "cortex.codec.live_reexecution_report.v1"
+                        or row.get("source") != "nexus.live_reexecute"
+                        or not isinstance(integrity, dict)
+                        or integrity.get("algorithm") != "sha256"
+                    ):
+                        continue
+                    unsigned = dict(row)
+                    unsigned.pop("integrity", None)
+                    canonical = json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                    expected_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+                    if not hmac.compare_digest(str(integrity.get("digest") or ""), expected_digest):
                         continue
                     if resolved_session_key and str(row.get("session_key") or "") != resolved_session_key:
                         continue

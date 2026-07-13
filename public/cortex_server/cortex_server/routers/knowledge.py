@@ -2,9 +2,9 @@
 Knowledge Graph Router - API endpoints for graph operations.
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+from typing import Annotated, Optional, List, Dict, Any
 from datetime import datetime, timezone
 from pathlib import Path
 import os
@@ -24,33 +24,40 @@ service = KnowledgeService()
 _DEFAULT_DURABLE_MEMORY_ROOTS = [Path("/root/clawd/memory")]
 _DEFAULT_CODEBASE_INDEX_ROOT = Path("/root/clawd/artifacts/cortex-codebase-memory")
 
+BoundedKnowledgeText = Annotated[str, Field(max_length=16_384)]
+
 
 class KnowledgeSearchRequest(BaseModel):
-    query: str
-    n_results: int = 5
+    query: str = Field(..., max_length=16_384)
+    n_results: int = Field(5, ge=1, le=100)
+
+
+class BoundedGraphQueryRequest(GraphQueryRequest):
+    query: str = Field(..., max_length=16_384)
+    limit: int = Field(100, ge=1, le=100)
 
 
 class StructuralSearchRequest(BaseModel):
-    query: str = ""
+    query: BoundedKnowledgeText = ""
     node_type: Optional[str] = None
-    limit: int = 25
+    limit: int = Field(25, ge=1, le=100)
     include_neighbors: bool = False
 
 
 class PriorArtGateRequest(BaseModel):
-    objective: str
-    planned_capabilities: List[str] = []
-    planned_paths: List[str] = []
-    proposed_action: str = "unspecified"
-    n_results: int = 5
+    objective: str = Field(..., max_length=32_768)
+    planned_capabilities: List[BoundedKnowledgeText] = Field(default_factory=list, max_items=100)
+    planned_paths: List[BoundedKnowledgeText] = Field(default_factory=list, max_items=100)
+    proposed_action: str = Field("unspecified", max_length=64)
+    n_results: int = Field(5, ge=1, le=20)
 
 
 class ImpactRequest(BaseModel):
-    query: Optional[str] = None
-    node_id: Optional[str] = None
+    query: Optional[BoundedKnowledgeText] = None
+    node_id: Optional[BoundedKnowledgeText] = None
     edge_type: Optional[str] = None
     direction: str = "both"
-    limit: int = 10
+    limit: int = Field(10, ge=1, le=50)
 
 
 def _node_to_dict(node) -> Optional[Dict[str, Any]]:
@@ -442,11 +449,12 @@ async def knowledge_status():
         except Exception:
             memory_count = None
 
+        available = memory_count is not None
         return {
-            "success": True,
+            "success": available,
             "level": 22,
             "name": "Mnemosyne",
-            "status": "active",
+            "status": "active" if available else "unavailable",
             "capabilities": [
                 "knowledge_graph",
                 "semantic_search",
@@ -526,6 +534,8 @@ async def prior_art_gate(request: PriorArtGateRequest):
             planned_paths=request.planned_paths,
         )
         memory_rows: List[Dict[str, Any]] = []
+        memory_query_succeeded = False
+        memory_query_failed = False
         for query in [*request.planned_capabilities, *terms[:6]]:
             if not str(query or "").strip():
                 continue
@@ -535,11 +545,18 @@ async def prior_art_gate(request: PriorArtGateRequest):
                     n_results=max(1, min(int(request.n_results or 5), 10)),
                     allow_fallback=True,
                 )
-                memory_rows.extend(result.get("results", []) or [])
+                if result.get("available") is not True:
+                    memory_query_failed = True
+                else:
+                    memory_query_succeeded = True
+                    memory_rows.extend(result.get("results", []) or [])
             except Exception:
-                continue
+                memory_query_failed = True
+        memory_available = memory_query_succeeded and not memory_query_failed
 
         structural_rows: List[Dict[str, Any]] = []
+        structural_query_succeeded = False
+        structural_query_failed = False
         seen_nodes = set()
         for term in terms[:8]:
             try:
@@ -551,8 +568,10 @@ async def prior_art_gate(request: PriorArtGateRequest):
                     if node_id:
                         seen_nodes.add(node_id)
                     structural_rows.append({"node": node_dict})
+                structural_query_succeeded = True
             except Exception:
-                continue
+                structural_query_failed = True
+        structural_available = structural_query_succeeded and not structural_query_failed
 
         gate = build_prior_art_gate(
             objective=request.objective,
@@ -561,6 +580,8 @@ async def prior_art_gate(request: PriorArtGateRequest):
             proposed_action=request.proposed_action,
             memory_results=memory_rows,
             structural_results=structural_rows,
+            memory_available=memory_available,
+            structural_available=structural_available,
         )
         return {"success": gate.get("ok", False), **gate}
     except Exception as e:
@@ -575,7 +596,7 @@ async def prior_art_gate(request: PriorArtGateRequest):
 
 
 @router.post("/query")
-async def query_graph(request: GraphQueryRequest):
+async def query_graph(request: BoundedGraphQueryRequest):
     """Query the knowledge graph."""
     try:
         result = await service.query(request)
@@ -607,7 +628,7 @@ async def structural_search(request: StructuralSearchRequest):
             try:
                 node_type = NodeType(request.node_type)
             except ValueError:
-                node_type = None
+                raise HTTPException(status_code=422, detail="invalid node_type")
         nodes = service.graph.query(
             node_type=node_type,
             name_pattern=request.query or None,
@@ -619,10 +640,12 @@ async def structural_search(request: StructuralSearchRequest):
             if request.include_neighbors:
                 item["neighbors"] = [
                     _neighbor_to_dict(n)
-                    for n in service.graph.get_neighbors(node.id, direction="both")[:25]
+                    for n in service.graph.get_neighbors(node.id, direction="both", limit=25)
                 ]
             results.append(item)
         return {"success": True, "query": request.query, "results": results, "count": len(results)}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "query": request.query, "results": [], "count": 0, "error": str(e)}
 
@@ -646,11 +669,13 @@ async def structural_impact(request: ImpactRequest):
             try:
                 edge_type = EdgeType(request.edge_type)
             except ValueError:
-                edge_type = None
+                raise HTTPException(status_code=422, detail="invalid edge_type")
 
         impacts = []
         for node in nodes[: max(1, min(50, request.limit or 10))]:
-            neighbors = service.graph.get_neighbors(node.id, edge_type=edge_type, direction=request.direction)
+            if request.direction not in {"out", "in", "both"}:
+                raise HTTPException(status_code=422, detail="invalid direction")
+            neighbors = service.graph.get_neighbors(node.id, edge_type=edge_type, direction=request.direction, limit=request.limit)
             impacts.append({
                 "node": _node_to_dict(node),
                 "neighbors": [_neighbor_to_dict(n) for n in neighbors[:100]],
@@ -698,10 +723,17 @@ async def create_edge(request: GraphEdgeCreateRequest):
 
 
 @router.get("/nodes/{node_id}/neighbors")
-async def get_neighbors(node_id: str, edge_type: str = None, direction: str = "out"):
+async def get_neighbors(
+    node_id: str,
+    edge_type: str = None,
+    direction: str = "out",
+    limit: int = Query(100, ge=1, le=100),
+):
     """Get neighbors of a node."""
     try:
-        result = await service.get_neighbors(node_id, edge_type, direction)
+        result = await service.get_neighbors(node_id, edge_type, direction, limit)
         return {"success": True, "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         return {"success": False, "error": str(e)}

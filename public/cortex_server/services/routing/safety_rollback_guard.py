@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, Iterable, List
 
 
@@ -26,11 +27,35 @@ def evaluate_rollback(
     recovery_seconds: float | None = None,
 ) -> Dict[str, object]:
     reasons = list(reasons or [])
-    if float(metrics.get("quality_non_regression_rate", 1.0) or 1.0) < 0.99:
+    metrics = metrics if isinstance(metrics, dict) else {}
+
+    def metric(name: str, *, zero_valid: bool = True) -> float | None:
+        value = metrics.get(name)
+        if isinstance(value, bool):
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(parsed) or (not zero_valid and parsed == 0.0):
+            return None
+        return parsed
+
+    quality = metric("quality_non_regression_rate", zero_valid=False)
+    latency = metric("p95_latency_delta")
+    violations = metric("risk_policy_violation_count")
+    for name, value in (
+        ("quality_non_regression_rate", quality),
+        ("p95_latency_delta", latency),
+        ("risk_policy_violation_count", violations),
+    ):
+        if value is None:
+            reasons.append(f"invalid_metric:{name}")
+    if quality is not None and quality < 0.99:
         reasons.append("quality_regression")
-    if float(metrics.get("p95_latency_delta", 0.0) or 0.0) > 0.05:
+    if latency is not None and latency > 0.05:
         reasons.append("latency_spike")
-    if int(metrics.get("risk_policy_violation_count", 0) or 0) > 0:
+    if violations is not None and violations > 0:
         reasons.append("risk_violation")
     reasons = _unique_reasons(reasons)
     rollback_required = bool(reasons)

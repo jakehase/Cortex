@@ -4,7 +4,7 @@ Tool Service - Business logic for CLI tool operations.
 
 from typing import Dict, Any, Optional
 from cortex_server.tools.ffmpeg_wrapper import FFmpegWrapper
-from cortex_server.tools.git_wrapper import GitRepo
+from cortex_server.tools.git_wrapper import GitRepo, run_git_async
 from cortex_server.tools.docker_wrapper import Docker, ContainerConfig
 from cortex_server.models.requests import (
     FFMPEGConvertRequest, FFMPEGExtractAudioRequest, FFMPEGThumbnailRequest,
@@ -14,13 +14,20 @@ from cortex_server.models.requests import (
 from cortex_server.modules.runtime_trace import (
     emit_output_events,
     git_diff_snapshot,
+    git_diff_snapshot_async,
     git_status_snapshot,
+    git_status_snapshot_async,
     record_trace_event,
     shell_preview,
 )
 
 
 class ToolService:
+
+    @staticmethod
+    def _safe_error(_: Exception) -> str:
+        """Do not expose command lines, host paths, or subprocess stderr via the API."""
+        return "Tool operation failed"
 
     def _trace_start(self, trace_context: Optional[Dict[str, Any]], tool_name: str, payload: Optional[Dict[str, Any]] = None) -> None:
         record_trace_event(trace_context, "tool_call_started", {"tool": tool_name, **dict(payload or {})})
@@ -53,20 +60,33 @@ class ToolService:
             cached = git_diff_snapshot(repo_path, cached=True)
             if cached and (cached.get("stat_lines") or cached.get("patch_preview")):
                 record_trace_event(trace_context, "git_diff_cached_snapshot", cached)
+
+    async def _trace_finish_async(self, trace_context, tool_name, result=None, *, repo_path=None, capture_git=False):
+        self._trace_finish(trace_context, tool_name, result, repo_path=repo_path, capture_git=False)
+        if not capture_git or not repo_path or trace_context is None:
+            return
+        status = await git_status_snapshot_async(repo_path)
+        if status:
+            record_trace_event(trace_context, "git_status_snapshot", status)
+        unstaged = await git_diff_snapshot_async(repo_path, cached=False)
+        if unstaged and (unstaged.get("stat_lines") or unstaged.get("patch_preview")):
+            record_trace_event(trace_context, "git_diff_snapshot", unstaged)
+        cached = await git_diff_snapshot_async(repo_path, cached=True)
+        if cached and (cached.get("stat_lines") or cached.get("patch_preview")):
+            record_trace_event(trace_context, "git_diff_cached_snapshot", cached)
     
-    def _git_identity_configured(self, repo_path: str) -> tuple[bool, str]:
-        import subprocess
+    async def _git_identity_configured(self, repo_path: str) -> tuple[bool, str]:
         try:
-            n = subprocess.run(["git", "-C", repo_path, "config", "user.name"], capture_output=True, text=True)
-            e = subprocess.run(["git", "-C", repo_path, "config", "user.email"], capture_output=True, text=True)
+            n = await run_git_async(["git", "-C", repo_path, "config", "user.name"], timeout=5)
+            e = await run_git_async(["git", "-C", repo_path, "config", "user.email"], timeout=5)
             name = n.stdout.strip()
             email = e.stdout.strip()
             if name and email:
                 return True, ""
 
             # fallback global
-            ng = subprocess.run(["git", "config", "--global", "user.name"], capture_output=True, text=True)
-            eg = subprocess.run(["git", "config", "--global", "user.email"], capture_output=True, text=True)
+            ng = await run_git_async(["git", "config", "--global", "user.name"], timeout=5)
+            eg = await run_git_async(["git", "config", "--global", "user.email"], timeout=5)
             gname = ng.stdout.strip()
             gemail = eg.stdout.strip()
             if gname and gemail:
@@ -98,7 +118,7 @@ class ToolService:
             self._trace_finish(trace_context, "ffmpeg.convert", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "ffmpeg.convert", payload)
             return payload
     
@@ -115,7 +135,7 @@ class ToolService:
             self._trace_finish(trace_context, "ffmpeg.extract_audio", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "ffmpeg.extract_audio", payload)
             return payload
     
@@ -132,7 +152,7 @@ class ToolService:
             self._trace_finish(trace_context, "ffmpeg.thumbnail", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "ffmpeg.thumbnail", payload)
             return payload
     
@@ -145,7 +165,7 @@ class ToolService:
             self._trace_finish(trace_context, "ffmpeg.info", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "ffmpeg.info", payload)
             return payload
     
@@ -165,11 +185,11 @@ class ToolService:
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
-            self._trace_finish(trace_context, "git.clone", payload, repo_path=request.destination, capture_git=True)
+            await self._trace_finish_async(trace_context, "git.clone", payload, repo_path=request.destination, capture_git=True)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
-            self._trace_finish(trace_context, "git.clone", payload, repo_path=request.destination, capture_git=True)
+            payload = {"success": False, "error": self._safe_error(e)}
+            await self._trace_finish_async(trace_context, "git.clone", payload, repo_path=request.destination, capture_git=True)
             return payload
     
     async def git_pull(self, request: GitPullRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -187,11 +207,11 @@ class ToolService:
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
-            self._trace_finish(trace_context, "git.pull", payload, repo_path=request.repo_path, capture_git=True)
+            await self._trace_finish_async(trace_context, "git.pull", payload, repo_path=request.repo_path, capture_git=True)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
-            self._trace_finish(trace_context, "git.pull", payload, repo_path=request.repo_path, capture_git=True)
+            payload = {"success": False, "error": self._safe_error(e)}
+            await self._trace_finish_async(trace_context, "git.pull", payload, repo_path=request.repo_path, capture_git=True)
             return payload
     
     async def git_status(self, repo_path: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -199,18 +219,18 @@ class ToolService:
         self._trace_start(trace_context, "git.status", {"repo_path": repo_path})
         try:
             repo = GitRepo(repo_path)
-            status = repo.status()
+            status = await repo.status_async()
             payload = {
                 "success": True,
                 "staged": [s.dict() for s in status["staged"]],
                 "unstaged": [s.dict() for s in status["unstaged"]],
                 "untracked": [s.dict() for s in status["untracked"]],
             }
-            self._trace_finish(trace_context, "git.status", payload, repo_path=repo_path, capture_git=True)
+            await self._trace_finish_async(trace_context, "git.status", payload, repo_path=repo_path, capture_git=True)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
-            self._trace_finish(trace_context, "git.status", payload, repo_path=repo_path, capture_git=True)
+            payload = {"success": False, "error": self._safe_error(e)}
+            await self._trace_finish_async(trace_context, "git.status", payload, repo_path=repo_path, capture_git=True)
             return payload
     
     async def git_log(self, repo_path: str, max_count: int = 10, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -218,38 +238,33 @@ class ToolService:
         self._trace_start(trace_context, "git.log", {"repo_path": repo_path, "max_count": max_count})
         try:
             repo = GitRepo(repo_path)
-            commits = repo.log(max_count=max_count)
+            commits = await repo.log_async(max_count=max_count)
             payload = {
                 "success": True,
                 "commits": [c.dict() for c in commits],
             }
-            self._trace_finish(trace_context, "git.log", payload, repo_path=repo_path, capture_git=False)
+            await self._trace_finish_async(trace_context, "git.log", payload, repo_path=repo_path, capture_git=False)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
-            self._trace_finish(trace_context, "git.log", payload, repo_path=repo_path, capture_git=False)
+            payload = {"success": False, "error": self._safe_error(e)}
+            await self._trace_finish_async(trace_context, "git.log", payload, repo_path=repo_path, capture_git=False)
             return payload
     
     async def git_init(self, repo_path: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Initialize a new git repository."""
         self._trace_start(trace_context, "git.init", {"repo_path": repo_path})
         try:
-            import subprocess
-            result = subprocess.run(
-                ["git", "init", repo_path],
-                capture_output=True,
-                text=True
-            )
+            result = await run_git_async(["git", "init", "--", repo_path])
             payload = {
-                "success": result.returncode == 0,
+                "success": result.success,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
-            self._trace_finish(trace_context, "git.init", payload, repo_path=repo_path, capture_git=True)
+            await self._trace_finish_async(trace_context, "git.init", payload, repo_path=repo_path, capture_git=True)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
-            self._trace_finish(trace_context, "git.init", payload, repo_path=repo_path, capture_git=True)
+            payload = {"success": False, "error": self._safe_error(e)}
+            await self._trace_finish_async(trace_context, "git.init", payload, repo_path=repo_path, capture_git=True)
             return payload
     
     async def git_add(self, repo_path: str, files: str = ".", *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -257,41 +272,41 @@ class ToolService:
         self._trace_start(trace_context, "git.add", {"repo_path": repo_path, "files": files})
         try:
             repo = GitRepo(repo_path)
-            result = repo._run("add", files)
+            result = await repo._run_async("add", "--", files)
             payload = {
                 "success": result.success,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
-            self._trace_finish(trace_context, "git.add", payload, repo_path=repo_path, capture_git=True)
+            await self._trace_finish_async(trace_context, "git.add", payload, repo_path=repo_path, capture_git=True)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
-            self._trace_finish(trace_context, "git.add", payload, repo_path=repo_path, capture_git=True)
+            payload = {"success": False, "error": self._safe_error(e)}
+            await self._trace_finish_async(trace_context, "git.add", payload, repo_path=repo_path, capture_git=True)
             return payload
     
     async def git_commit(self, repo_path: str, message: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create a commit."""
         self._trace_start(trace_context, "git.commit", {"repo_path": repo_path, "message": message})
         try:
-            ok, err = self._git_identity_configured(repo_path)
+            ok, err = await self._git_identity_configured(repo_path)
             if not ok:
                 payload = {"success": False, "error": err, "error_code": "git_identity_missing"}
-                self._trace_finish(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
+                await self._trace_finish_async(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
                 return payload
 
             repo = GitRepo(repo_path)
-            result = repo.commit(message)
+            result = await repo.commit_async(message)
             payload = {
                 "success": result.success,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
-            self._trace_finish(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
+            await self._trace_finish_async(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
-            self._trace_finish(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
+            payload = {"success": False, "error": self._safe_error(e)}
+            await self._trace_finish_async(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
             return payload
     
     # Docker operations
@@ -312,7 +327,7 @@ class ToolService:
             self._trace_finish(trace_context, "docker.run", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "docker.run", payload)
             return payload
     
@@ -325,7 +340,7 @@ class ToolService:
             self._trace_finish(trace_context, "docker.list", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "docker.list", payload)
             return payload
     
@@ -338,7 +353,7 @@ class ToolService:
             self._trace_finish(trace_context, "docker.stop", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "docker.stop", payload)
             return payload
     
@@ -355,7 +370,7 @@ class ToolService:
             self._trace_finish(trace_context, "docker.build", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "docker.build", payload)
             return payload
     
@@ -368,7 +383,7 @@ class ToolService:
             self._trace_finish(trace_context, "docker.pull", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "docker.pull", payload)
             return payload
     
@@ -383,6 +398,6 @@ class ToolService:
             self._trace_finish(trace_context, "docker.logs", payload)
             return payload
         except Exception as e:
-            payload = {"success": False, "error": str(e)}
+            payload = {"success": False, "error": self._safe_error(e)}
             self._trace_finish(trace_context, "docker.logs", payload)
             return payload

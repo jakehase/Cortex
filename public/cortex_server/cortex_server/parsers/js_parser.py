@@ -14,6 +14,25 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 
+TRUNCATION_MESSAGE = "JavaScript record limit reached; output truncated"
+
+
+class _BudgetExceeded(Exception):
+    pass
+
+
+class _RecordList(list):
+    def __init__(self, budget):
+        super().__init__()
+        self._budget = budget
+
+    def append(self, item):
+        if self._budget[0] >= self._budget[1]:
+            raise _BudgetExceeded
+        self._budget[0] += 1
+        super().append(item)
+
+
 @dataclass
 class JSParseError:
     """Error during parsing."""
@@ -28,6 +47,7 @@ class JSParseResult:
     nodes: List[Dict[str, Any]] = field(default_factory=list)
     edges: List[Dict[str, Any]] = field(default_factory=list)
     errors: List[JSParseError] = field(default_factory=list)
+    truncated: bool = False
     
     @property
     def ok(self) -> bool:
@@ -40,6 +60,7 @@ class JSParserConfig:
     extract_jsdoc: bool = True
     max_file_bytes: Optional[int] = 2_000_000
     use_tree_sitter: bool = True  # If False, use Node.js/babel parser
+    max_records: int = 20_000
 
 
 class JSParser:
@@ -107,26 +128,53 @@ class JSParser:
     def parse_file(self, filepath: str) -> JSParseResult:
         """Parse a JS/TS file and return extracted entities."""
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                source = f.read()
+            limit = self.config.max_file_bytes
+            with open(filepath, "rb") as f:
+                raw = f.read(limit + 1 if limit else -1)
+            if limit and len(raw) > limit:
+                result = JSParseResult()
+                result.errors.append(JSParseError(filepath, f"File too large: exceeds {limit} bytes"))
+                return result
         except Exception as e:
             result = JSParseResult()
             result.errors.append(JSParseError(filepath, f"IO error: {e}"))
             return result
         
+        return self.parse_bytes(raw, filepath)
+
+    def parse_bytes(self, raw: bytes, filepath: str) -> JSParseResult:
+        """Parse an already-opened immutable snapshot."""
+        limit = self.config.max_file_bytes
+        if limit and len(raw) > limit:
+            return JSParseResult(errors=[JSParseError(filepath, f"File too large: exceeds {limit} bytes")])
+        try:
+            source = raw.decode("utf-8")
+        except Exception as e:
+            return JSParseResult(errors=[JSParseError(filepath, f"IO error: {e}")])
         ext = Path(filepath).suffix.lower()
         is_typescript = ext in (".ts", ".tsx")
         
-        if self._tree_sitter_available and self.config.use_tree_sitter:
-            return self._parse_with_tree_sitter(source, filepath, is_typescript)
-        elif self._node_parser_available is False:
-            return self._parse_lightweight(source, filepath, is_typescript, fallback_reason="Node/Babel parser unavailable")
-        else:
+        try:
+            if self._tree_sitter_available and self.config.use_tree_sitter:
+                return self._parse_with_tree_sitter(source, filepath, is_typescript)
+            if self._node_parser_available is False:
+                return self._parse_lightweight(source, filepath, is_typescript, fallback_reason="Node/Babel parser unavailable")
             return self._parse_with_node(source, filepath, is_typescript)
-    
+        except _BudgetExceeded:
+            result = self._active_result
+            result.truncated = True
+            result.errors.append(JSParseError(filepath, TRUNCATION_MESSAGE))
+            return result
+
+    def _new_result(self) -> JSParseResult:
+        budget = [0, self.config.max_records]
+        result = JSParseResult(nodes=_RecordList(budget), edges=_RecordList(budget))
+        self._active_result = result
+        return result
+
     def _parse_with_tree_sitter(self, source: str, filepath: str, is_typescript: bool) -> JSParseResult:
         """Parse using tree-sitter."""
-        result = JSParseResult()
+        result = self._new_result()
         
         try:
             from tree_sitter import Language
@@ -155,6 +203,8 @@ class JSParser:
             
             self._extract_tree_sitter_nodes(root, result, filepath, module_id, source)
             
+        except _BudgetExceeded:
+            raise
         except Exception as e:
             result.errors.append(JSParseError(filepath, f"Parse error: {e}"))
         
@@ -318,7 +368,7 @@ class JSParser:
     
     def _parse_with_node(self, source: str, filepath: str, is_typescript: bool) -> JSParseResult:
         """Parse using Node.js and Babel as fallback."""
-        result = JSParseResult()
+        result = self._new_result()
         
         # Create temporary file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".js" if not is_typescript else ".ts", delete=False) as f:
@@ -333,8 +383,8 @@ const path = require('path');
 
 try {
     const babel = require('@babel/parser');
-    const code = fs.readFileSync(process.argv[2], 'utf8');
-    const isTS = process.argv[3] === 'true';
+    const code = fs.readFileSync(process.argv[1], 'utf8');
+    const isTS = process.argv[2] === 'true';
     
     const ast = babel.parse(code, {
         sourceType: 'unambiguous',
@@ -345,14 +395,17 @@ try {
     
     const nodes = [];
     const edges = [];
+    const maxRecords = Number(process.argv[3]);
+    let truncated = false;
     
     function traverse(node, parent, state) {
-        if (!node) return;
+        if (!node || truncated) return;
         
         switch(node.type) {
             case 'FunctionDeclaration':
             case 'FunctionExpression':
             case 'ArrowFunctionExpression':
+                if (nodes.length + edges.length >= maxRecords) { truncated = true; return; }
                 nodes.push({
                     type: 'Function',
                     name: node.id?.name || parent?.id?.name || 'anonymous',
@@ -362,6 +415,7 @@ try {
                 });
                 break;
             case 'ClassDeclaration':
+                if (nodes.length + edges.length >= maxRecords) { truncated = true; return; }
                 nodes.push({
                     type: 'Class',
                     name: node.id?.name || 'anonymous',
@@ -370,6 +424,7 @@ try {
                 });
                 break;
             case 'ImportDeclaration':
+                if (nodes.length + edges.length >= maxRecords) { truncated = true; return; }
                 edges.push({
                     type: 'IMPORTS',
                     source: node.source?.value,
@@ -378,6 +433,7 @@ try {
                 break;
             case 'ExportNamedDeclaration':
             case 'ExportDefaultDeclaration':
+                if (nodes.length + edges.length >= maxRecords) { truncated = true; return; }
                 edges.push({
                     type: 'EXPORTS',
                     line: node.loc?.start?.line,
@@ -397,14 +453,14 @@ try {
     }
     
     traverse(ast, null, {});
-    console.log(JSON.stringify({nodes, edges, error: null}));
+    console.log(JSON.stringify({nodes, edges, error: null, truncated}));
 } catch(e) {
     console.log(JSON.stringify({nodes: [], edges: [], error: e.message}));
 }
 """
             
             proc = subprocess.run(
-                ["node", "-e", parse_script, temp_path, str(is_typescript).lower()],
+                ["node", "-e", parse_script, temp_path, str(is_typescript).lower(), str(max(0, self.config.max_records - 1))],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -436,11 +492,16 @@ try {
                         edge["source_id"] = module_id
                         edge["target_id"] = edge.get("source", "unknown")
                         result.edges.append(edge)
+                    if data.get("truncated"):
+                        result.truncated = True
+                        result.errors.append(JSParseError(filepath, TRUNCATION_MESSAGE))
             else:
                 if "Cannot find module '@babel/parser'" in proc.stderr:
                     self._node_parser_available = False
                 return self._parse_lightweight(source, filepath, is_typescript, fallback_reason=f"Node.js error: {proc.stderr}")
                 
+        except _BudgetExceeded:
+            raise
         except FileNotFoundError:
             self._node_parser_available = False
             return self._parse_lightweight(source, filepath, is_typescript, fallback_reason="Node.js not available for JS parsing")
@@ -466,7 +527,7 @@ try {
         graph primitives we need most for agent context planning: modules,
         imports, functions, classes, HTTP routes, exports, and rough call edges.
         """
-        result = JSParseResult()
+        result = self._new_result()
         language = "typescript" if is_typescript else "javascript"
         lines = source.splitlines()
         module_id = f"module:{filepath}"

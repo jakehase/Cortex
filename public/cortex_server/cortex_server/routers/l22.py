@@ -10,7 +10,7 @@ Plus novelty-aware extensions:
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime, timezone
 import json
@@ -26,7 +26,10 @@ from cortex_server.routers.librarian import (
     robust_search,
     search_with_novelty,
     _normalize_memory_metadata,
-    _supersede_prior_fact_versions,
+    _add_memory_with_supersession,
+    FactSupersessionError,
+    MemoryTag,
+    _validate_memory_metadata,
 )
 
 router = APIRouter()
@@ -167,38 +170,42 @@ def store_memory_record(*, content: str, memory_type: Optional[str] = "memory", 
     if tags:
         record_metadata.setdefault("tags", tags)
 
-    collection.add(ids=[memory_id], documents=[content], metadatas=[record_metadata])
-    fact_key = str(record_metadata.get("fact_key") or "").strip()
-    if fact_key:
-        _supersede_prior_fact_versions(fact_key, superseded_by=memory_id)
+    try:
+        _add_memory_with_supersession(memory_id, content, record_metadata)
+    except FactSupersessionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"id": memory_id, "status": "stored", "metadata": record_metadata}
 
 
 class L22StoreRequest(BaseModel):
-    type: Optional[str] = "memory"
-    content: str
-    tags: Optional[List[str]] = None
+    type: Optional[str] = Field("memory", max_length=128)
+    content: str = Field(..., max_length=1_000_000)
+    tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
     metadata: Optional[dict] = None
+
+    _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
 
 
 class L22SearchRequest(BaseModel):
-    query: str
-    n_results: int = 5
+    query: str = Field(..., max_length=16_384)
+    n_results: int = Field(5, ge=1, le=100)
 
 
 class L22NovelStoreRequest(BaseModel):
-    type: Optional[str] = "memory"
-    content: str
-    tags: Optional[List[str]] = None
+    type: Optional[str] = Field("memory", max_length=128)
+    content: str = Field(..., max_length=1_000_000)
+    tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
     metadata: Optional[dict] = None
-    novelty_tags: Optional[List[str]] = None
-    compare_window: int = 40
+    novelty_tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
+    compare_window: int = Field(40, ge=1, le=500)
     min_novelty: float = 0.0
+
+    _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
 
 
 class L22NovelSearchRequest(BaseModel):
-    query: str
-    n_results: int = 5
+    query: str = Field(..., max_length=16_384)
+    n_results: int = Field(5, ge=1, le=100)
     novelty_weight: float = 0.35
     semantic_weight: float = 0.65
     min_novelty: float = 0.0
@@ -215,11 +222,12 @@ async def l22_status():
     except Exception:
         structured_memory_count = None
 
+    available = memory_count is not None or structured_memory_count is not None
     return {
-        "success": True,
+        "success": available,
         "level": 22,
         "name": "Mnemosyne",
-        "status": "active",
+        "status": "active" if available else "unavailable",
         "capabilities": [
             "store",
             "search",

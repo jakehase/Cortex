@@ -7,15 +7,19 @@ Adds resilient fallback recall paths when embedding providers fail.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, field_validator
+from typing import Annotated, List, Optional, Dict, Any
+import asyncio
 import chromadb
 import uuid
 import os
+import stat
 import shutil
 import re
 import json
 import threading
+import fcntl
+from contextlib import contextmanager
 from hashlib import sha256
 from datetime import datetime, timezone
 from pathlib import Path
@@ -81,6 +85,7 @@ _LOW_SIGNAL_LOCAL_MEMORY_QUERY_TOKENS = {
     "jake", "cortex", "assistant",
 }
 _EMBEDDING_HEALTH_LOCK = threading.Lock()
+_FACT_SUPERSESSION_LOCK = threading.RLock()
 _EMBEDDING_HEALTH: Dict[str, Any] = {
     "status": "ok",
     "last_error": "",
@@ -88,11 +93,85 @@ _EMBEDDING_HEALTH: Dict[str, Any] = {
     "fallback_writes": 0,
     "fallback_searches": 0,
 }
+_COLLECTION_HEALTH_TIMEOUT_SECONDS = 1.0
+
+
+class FactSupersessionError(RuntimeError):
+    """A new fact was removed because prior versions could not be superseded."""
+
+
+def _fact_supersession_lock_path() -> Path:
+    configured = os.getenv("CORTEX_FACT_SUPERSESSION_LOCK_PATH")
+    return Path(configured) if configured else Path(CHROMA_DIR) / ".fact-supersession.lock"
+
+
+@contextmanager
+def _fact_supersession_transaction():
+    """Serialize a complete fact revision across threads and processes.
+
+    The in-process lock is always acquired first. ``flock`` ownership belongs to
+    the open file description and is released by the kernel when a process dies,
+    so a crashed writer cannot leave a stale durable lock behind.
+    """
+    with _FACT_SUPERSESSION_LOCK:
+        lock_path = _fact_supersession_lock_path()
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+MAX_MEMORY_METADATA_BYTES = 65_536
+MAX_MEMORY_METADATA_DEPTH = 8
+MAX_MEMORY_METADATA_NODES = 1_000
+MAX_MEMORY_METADATA_STRING = 16_384
+MemoryTag = Annotated[str, Field(max_length=256)]
+
+
+def _validate_memory_metadata(value: Optional[dict]) -> Optional[dict]:
+    if value is None:
+        return value
+    nodes = 0
+
+    def visit(item: Any, depth: int) -> None:
+        nonlocal nodes
+        nodes += 1
+        if nodes > MAX_MEMORY_METADATA_NODES:
+            raise ValueError("metadata has too many values")
+        if depth > MAX_MEMORY_METADATA_DEPTH:
+            raise ValueError("metadata is too deeply nested")
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if not isinstance(key, str) or len(key) > 256:
+                    raise ValueError("metadata keys must be bounded strings")
+                visit(child, depth + 1)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child, depth + 1)
+        elif isinstance(item, str):
+            if len(item) > MAX_MEMORY_METADATA_STRING:
+                raise ValueError("metadata string is too long")
+        elif item is not None and not isinstance(item, (bool, int, float)):
+            raise ValueError("metadata contains an unsupported value")
+
+    visit(value, 0)
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("metadata must be finite JSON") from exc
+    if len(encoded) > MAX_MEMORY_METADATA_BYTES:
+        raise ValueError("metadata exceeds byte limit")
+    return value
 
 
 class EmbedRequest(BaseModel):
-    text: str
+    text: str = Field(..., max_length=1_000_000)
     metadata: Optional[dict] = None
+
+    _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
 
 
 class EmbedResponse(BaseModel):
@@ -101,8 +180,8 @@ class EmbedResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    query: str
-    n_results: int = 3
+    query: str = Field(..., max_length=16_384)
+    n_results: int = Field(3, ge=1, le=100)
     allow_fallback: bool = True
 
 
@@ -122,11 +201,13 @@ class SearchResponse(BaseModel):
 
 
 class NovelEmbedRequest(BaseModel):
-    text: str
+    text: str = Field(..., max_length=1_000_000)
     metadata: Optional[dict] = None
-    novelty_tags: Optional[List[str]] = None
-    compare_window: int = 40
+    novelty_tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
+    compare_window: int = Field(40, ge=1, le=500)
     min_novelty: float = 0.0
+
+    _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
 
 
 class NovelEmbedResponse(BaseModel):
@@ -138,8 +219,8 @@ class NovelEmbedResponse(BaseModel):
 
 
 class NovelSearchRequest(BaseModel):
-    query: str
-    n_results: int = 5
+    query: str = Field(..., max_length=16_384)
+    n_results: int = Field(5, ge=1, le=100)
     novelty_weight: float = 0.28
     semantic_weight: float = 0.72
     min_novelty: float = 0.0
@@ -167,8 +248,8 @@ class NovelSearchResponse(BaseModel):
 
 
 class RecallRequest(BaseModel):
-    query: str
-    n_results: int = 5
+    query: str = Field(..., max_length=16_384)
+    n_results: int = Field(5, ge=1, le=100)
 
 
 class RecallResponse(BaseModel):
@@ -180,7 +261,7 @@ class RecallResponse(BaseModel):
 
 
 class SupersedeRequest(BaseModel):
-    memory_ids: List[str]
+    memory_ids: List[str] = Field(..., min_items=1, max_items=500)
     superseded_by: Optional[str] = None
     reason: str = "explicit_correction"
 
@@ -379,12 +460,46 @@ def supersede_memory_records(memory_ids: List[str], *, superseded_by: Optional[s
 def _supersede_prior_fact_versions(fact_key: str, *, superseded_by: str) -> int:
     if not str(fact_key or "").strip():
         return 0
-    try:
+    with _fact_supersession_transaction():
         data = collection.get(where={"fact_key": str(fact_key)}, include=["metadatas"])
         ids = [value for value in (data.get("ids") or []) if value != superseded_by]
         return int(supersede_memory_records(ids, superseded_by=superseded_by, reason="newer_fact_key_revision").get("updated", 0))
-    except Exception:
-        return 0
+
+
+def _add_memory_with_supersession(memory_id: str, text: str, metadata: Dict[str, Any]) -> None:
+    """Serialize same-fact writes and compensate if supersession cannot commit."""
+    fact_key = str(metadata.get("fact_key") or "").strip()
+    with _fact_supersession_transaction():
+        if not fact_key:
+            collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+            return
+        prior = collection.get(where={"fact_key": fact_key}, include=["metadatas"])
+        prior_ids = [value for value in (prior.get("ids") or []) if value != memory_id]
+        prior_metas = list(prior.get("metadatas") or [])
+        pending_metadata = {**metadata, "memory_status": "tombstoned", "tombstoned": True,
+                            "supersession_pending": True}
+        collection.add(ids=[memory_id], documents=[text], metadatas=[pending_metadata])
+        try:
+            supersede_memory_records(prior_ids, superseded_by=memory_id, reason="newer_fact_key_revision")
+            active_metadata = dict(metadata)
+            active_metadata.pop("tombstoned", None)
+            active_metadata.pop("supersession_pending", None)
+            active_metadata["memory_status"] = "active"
+            collection.update(ids=[memory_id], metadatas=[active_metadata])
+        except Exception as exc:
+            compensation_errors = []
+            try:
+                collection.delete(ids=[memory_id])
+            except Exception as compensation_exc:
+                compensation_errors.append(str(compensation_exc))
+            try:
+                if prior_ids:
+                    collection.update(ids=prior_ids, metadatas=prior_metas)
+            except Exception as compensation_exc:
+                compensation_errors.append(str(compensation_exc))
+            if compensation_errors:
+                raise FactSupersessionError("fact supersession and compensation failed: " + "; ".join(compensation_errors)) from exc
+            raise FactSupersessionError("fact supersession failed; new version was removed") from exc
 
 
 def _utc_iso() -> str:
@@ -464,6 +579,66 @@ def _read_fallback_rows(limit: int = 200) -> List[Dict[str, Any]]:
     if len(rows) > limit:
         rows = rows[-limit:]
     return rows
+
+
+def _fallback_store_appendable() -> bool:
+    """Probe fallback appendability without creating or changing the store."""
+    path = _FALLBACK_LOG_PATH
+    try:
+        path_info = path.lstat()
+    except FileNotFoundError:
+        # A missing file can be created only in an existing writable/searchable
+        # directory. The writer creates missing parents, so walk to the nearest
+        # existing ancestor and ensure every missing component is creatable.
+        parent = path.parent
+        while True:
+            try:
+                parent_info = parent.stat()
+                break
+            except FileNotFoundError:
+                next_parent = parent.parent
+                if next_parent == parent:
+                    return False
+                parent = next_parent
+            except OSError:
+                return False
+        return (
+            stat.S_ISDIR(parent_info.st_mode)
+            and os.access(parent, os.W_OK | os.X_OK)
+        )
+    except OSError:
+        return False
+
+    # Fallback logs are ordinary files. Refuse symlinks and special files even
+    # when opening them for append would technically succeed.
+    if stat.S_ISLNK(path_info.st_mode) or not stat.S_ISREG(path_info.st_mode):
+        return False
+
+    flags = os.O_WRONLY | os.O_APPEND
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return False
+    try:
+        return stat.S_ISREG(os.fstat(descriptor).st_mode)
+    finally:
+        os.close(descriptor)
+
+
+async def _collection_available() -> bool:
+    """Probe persistent semantic storage without blocking the event loop."""
+    try:
+        count = await asyncio.wait_for(
+            asyncio.to_thread(collection.count),
+            timeout=_COLLECTION_HEALTH_TIMEOUT_SECONDS,
+        )
+        return int(count) >= 0
+    except Exception:
+        return False
 
 
 def _configured_local_file_memory_roots() -> List[Path]:
@@ -799,19 +974,14 @@ def index_with_novelty(
     ))
 
     try:
-        collection.add(
-            ids=[memory_id],
-            documents=[text],
-            metadatas=[enriched_metadata],
-        )
-        fact_key = str(enriched_metadata.get("fact_key") or "").strip()
-        if fact_key:
-            _supersede_prior_fact_versions(fact_key, superseded_by=memory_id)
+        _add_memory_with_supersession(memory_id, text, enriched_metadata)
         return {
             "id": memory_id,
             "status": "stored",
             "metadata": enriched_metadata,
         }
+    except FactSupersessionError:
+        raise
     except Exception as exc:
         _mark_embedding_error(exc)
         _persist_fallback_memory(memory_id, text, enriched_metadata, reason=str(exc), mode="novelty_embed")
@@ -1252,9 +1422,15 @@ def _semantic_rows_need_help(query: str, rows: List[Dict[str, Any]]) -> bool:
     return all(float(row.get("_lexical_score", 0.0)) < 0.18 for row in ranked)
 
 
-def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) -> List[Dict[str, Any]]:
+def _lexical_search_rows(
+    query: str,
+    n_results: int = 5,
+    scan_limit: int = 300,
+    availability: Optional[List[bool]] = None,
+) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     rows.extend(_canonical_project_search_rows(query, n_results=max(int(n_results) * 2, 8)))
+    fallback_query_succeeded = bool(rows)
 
     # Exact Chroma contains search first. Chroma's semantic query can miss
     # freshly-written unique identifiers, and bounded collection.get() scans can
@@ -1268,6 +1444,7 @@ def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) 
                 limit=max(1, min(max(int(n_results) * 3, 12), 80)),
                 include=["documents", "metadatas"],
             )
+            fallback_query_succeeded = True
             exact_ids = exact_data.get("ids") or []
             exact_docs = exact_data.get("documents") or []
             exact_metas = exact_data.get("metadatas") or []
@@ -1297,6 +1474,7 @@ def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) 
     # Chroma documents (works even when embedding provider is currently down).
     try:
         data = collection.get(limit=max(1, min(scan_limit, 500)), include=["documents", "metadatas"])
+        fallback_query_succeeded = True
         ids = data.get("ids") or []
         docs = data.get("documents") or []
         metas = data.get("metadatas") or []
@@ -1356,6 +1534,7 @@ def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) 
             scan_limit=max(scan_limit, _LOCAL_FILE_MEMORY_MAX_FILES),
         )
     )
+    fallback_query_succeeded = fallback_query_succeeded or bool(rows)
 
     dedup: Dict[str, Dict[str, Any]] = {}
     for item in rows:
@@ -1365,6 +1544,8 @@ def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) 
             dedup[key] = item
 
     ordered = sorted(dedup.values(), key=lambda x: float(x.get("_score", 0.0)), reverse=True)
+    if availability is not None:
+        availability.append(fallback_query_succeeded)
     return ordered[: max(1, int(n_results))]
 
 
@@ -1372,6 +1553,7 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+    exact_query_succeeded = False
     # Exact lexical contains must run before semantic search. Embedding ranking can
     # return plausible but wrong neighbors for unique markers/IDs and otherwise
     # prevent fallback from executing. Durable-memory recall needs exact facts to
@@ -1383,6 +1565,7 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
             limit=max(1, min(max(int(n_results) * 3, 12), 80)),
             include=["documents", "metadatas"],
         )
+        exact_query_succeeded = True
         exact_rows: List[Dict[str, Any]] = []
         exact_ids = exact_data.get("ids") or []
         exact_docs = exact_data.get("documents") or []
@@ -1427,14 +1610,17 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
                 "search_mode": "exact_lexical",
                 "degraded": False,
                 "warning": None,
+                "available": True,
             }
     except Exception:
         pass
 
     semantic_warning: Optional[str] = None
     semantic_rows: List[Dict[str, Any]] = []
+    semantic_query_succeeded = False
     try:
         results = collection.query(query_texts=[query], n_results=max(1, int(n_results)))
+        semantic_query_succeeded = True
         out_rows: List[Dict[str, Any]] = []
         ids = results.get("ids") or []
         docs = results.get("documents") or []
@@ -1468,6 +1654,7 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
                     "search_mode": "semantic_hybrid",
                     "degraded": False,
                     "warning": None,
+                    "available": True,
                 }
             return {
                 "query": query,
@@ -1475,6 +1662,7 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
                 "search_mode": "semantic",
                 "degraded": False,
                 "warning": None,
+                "available": True,
             }
 
         semantic_warning = "semantic_low_signal" if out_rows else "semantic_empty"
@@ -1489,10 +1677,17 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
             "search_mode": "semantic",
             "degraded": bool(semantic_warning),
             "warning": semantic_warning,
+            "available": exact_query_succeeded or semantic_query_succeeded,
         }
 
     _mark_fallback_search()
-    lexical_rows = _lexical_search_rows(query, n_results=max(1, int(n_results)))
+    fallback_availability: List[bool] = []
+    lexical_rows = _lexical_search_rows(
+        query,
+        n_results=max(1, int(n_results)),
+        availability=fallback_availability,
+    )
+    memory_available = exact_query_succeeded or semantic_query_succeeded or any(fallback_availability)
     merged_rows = _merge_ranked_rows(query, semantic_rows, lexical_rows, n_results=max(1, int(n_results)))
     if merged_rows:
         return {
@@ -1501,6 +1696,7 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
             "search_mode": "semantic_hybrid" if semantic_rows else "lexical_fallback",
             "degraded": bool(semantic_warning),
             "warning": semantic_warning or ("fallback_requested" if not semantic_rows else None),
+            "available": memory_available,
         }
 
     for row in lexical_rows:
@@ -1512,6 +1708,7 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
         "search_mode": "lexical_fallback",
         "degraded": True,
         "warning": semantic_warning or "fallback_requested",
+        "available": memory_available,
     }
 
 
@@ -1639,11 +1836,15 @@ def search_with_novelty(
 @router.get("/status")
 async def librarian_status():
     """L7 Librarian status."""
+    embedding = _embedding_health_snapshot()
+    collection_available = await _collection_available()
+    fallback_available = _fallback_store_appendable()
+    available = collection_available or fallback_available
     return {
-        "success": True,
+        "success": available,
         "level": 7,
         "name": "Librarian",
-        "status": "active",
+        "status": "active" if available else "unavailable",
         "capabilities": [
             "embed",
             "search",
@@ -1656,7 +1857,7 @@ async def librarian_status():
             "supersession_tombstones",
         ],
         "novelty_version": "l7l22.v1.2",
-        "embedding_health": _embedding_health_snapshot(),
+        "embedding_health": embedding,
         "embedding_runtime": runtime_pressure.pressure_snapshot(),
         "fallback_store": str(_FALLBACK_LOG_PATH),
     }
@@ -1675,15 +1876,10 @@ async def embed_memory(request: EmbedRequest):
     metadata = _normalize_memory_metadata(request.metadata)
 
     try:
-        collection.add(
-            ids=[memory_id],
-            documents=[request.text],
-            metadatas=[metadata],
-        )
-        fact_key = str(metadata.get("fact_key") or "").strip()
-        if fact_key:
-            _supersede_prior_fact_versions(fact_key, superseded_by=memory_id)
+        _add_memory_with_supersession(memory_id, request.text, metadata)
         return EmbedResponse(id=memory_id, status="stored")
+    except FactSupersessionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         _mark_embedding_error(exc)
         _persist_fallback_memory(memory_id, request.text, metadata, reason=str(exc), mode="embed")

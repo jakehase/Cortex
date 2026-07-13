@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier, Lock
+
+import pytest
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
+from cortex_server.runtime import MaintenanceQueueItem, MaintenanceQueueStore
 
 
 MINIMAL_PROFILE = {
@@ -67,6 +72,228 @@ def _mark_item_done(*, stores, item):
         actor="pytest",
         provenance={"source": "test_runtime_maintenance_queue"},
     )
+
+
+def test_maintenance_queue_claim_is_atomic_across_store_instances(tmp_path):
+    path = tmp_path / "queue.json"
+    MaintenanceQueueStore(path).enqueue(MaintenanceQueueItem(objective="one", source_text="one"))
+    barrier = Barrier(2)
+
+    def claim():
+        barrier.wait()
+        item, _ = MaintenanceQueueStore(path).claim_next(
+            claimed_at="2026-03-01T00:00:00.000Z",
+            process_id_for_item=lambda row: f"proc_{row.item_id}",
+        )
+        return item.item_id if item else None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claimed = list(pool.map(lambda _: claim(), range(2)))
+
+    assert sum(value is not None for value in claimed) == 1
+    state = MaintenanceQueueStore(path).get_state()
+    assert [row.status for row in state.items] == ["active"]
+
+
+def test_maintenance_queue_requeue_is_atomic_across_store_instances(tmp_path):
+    path = tmp_path / "queue.json"
+    original = MaintenanceQueueItem(
+        objective="one",
+        source_text="one",
+        status="completed",
+        process_id="proc_one",
+        completed_at="2026-03-01T00:00:00.000Z",
+    )
+    MaintenanceQueueStore(path).enqueue(original)
+    barrier = Barrier(2)
+
+    def requeue():
+        barrier.wait()
+        try:
+            item, source_process_id = MaintenanceQueueStore(path).requeue(
+                original.item_id,
+                actor="operator",
+                reason="retry",
+                requeued_at="2026-03-01T00:01:00.000Z",
+            )
+            return item.process_id, source_process_id
+        except RuntimeError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: requeue(), range(2)))
+
+    assert results.count(("proc_one_rq1", "proc_one")) == 1
+    assert results.count(None) == 1
+    item = MaintenanceQueueStore(path).get(original.item_id)
+    assert item is not None
+    assert item.status == "pending"
+    assert item.process_id == "proc_one_rq1"
+    assert item.metadata["mission_control_requeue_count"] == 1
+
+
+def test_maintenance_queue_requeue_uses_locked_item_and_preserves_intervening_commit(tmp_path):
+    """Order the old lookup/version race deterministically around another commit."""
+    path = tmp_path / "queue.json"
+    store = MaintenanceQueueStore(path)
+    original = store.enqueue(
+        MaintenanceQueueItem(objective="one", source_text="one", status="completed", process_id="proc_one")
+    )
+
+    stale_item = store.get(original.item_id)
+    assert stale_item is not None
+    # This commit lands where the old implementation separately read its CAS
+    # version, after resolving the item snapshot. It must neither be lost nor
+    # allow that stale snapshot to create the same generation again.
+    unrelated = store.enqueue(MaintenanceQueueItem(objective="two", source_text="two"))
+    winner, _ = MaintenanceQueueStore(path).requeue(original.item_id, actor="winner", reason="first")
+
+    with pytest.raises(RuntimeError, match="not requeueable from status 'pending'"):
+        store.requeue(stale_item.item_id, actor="loser", reason="stale")
+
+    state = store.get_state()
+    assert {row.item_id for row in state.items} == {original.item_id, unrelated.item_id}
+    current = next(row for row in state.items if row.item_id == original.item_id)
+    assert current.process_id == winner.process_id == "proc_one_rq1"
+    assert current.metadata["mission_control_last_requeue_actor"] == "winner"
+    assert next(row for row in state.items if row.item_id == unrelated.item_id).status == "pending"
+
+
+def test_repeated_requeue_ids_use_stable_bounded_base_for_legacy_generations(tmp_path):
+    path = tmp_path / "queue.json"
+    legacy_base = "proc_" + ("legacy-source-" * 20)
+    legacy_recursive = legacy_base + "_rq1_rq2_rq999"
+    store = MaintenanceQueueStore(path)
+    item = store.enqueue(MaintenanceQueueItem(
+        objective="migrated", source_text="migrated", status="completed",
+        process_id=legacy_recursive,
+        metadata={"mission_control_requeue_count": 2499},
+    ))
+
+    generated = []
+    for generation in range(2500, 4501):
+        item, _ = store.requeue(item.item_id, actor="test", reason="repeat")
+        generated.append(item.process_id)
+        assert item.process_id.endswith(f"_rq{generation}")
+        assert len(item.process_id) <= 128
+        assert item.process_id.count("_rq") == 1
+        if generation < 4500:
+            item.status = "completed"
+            store.save(item)
+
+    assert len(generated) == len(set(generated))
+    current = store.get(item.item_id)
+    assert current.metadata["mission_control_process_id_base"] == legacy_base
+    assert current.metadata["mission_control_requeue_count"] == 4500
+
+
+@pytest.mark.parametrize("invalid", [0, -1, True, False, 1.5, "2"])
+def test_maintenance_queue_rejects_invalid_capacity_without_persisting(tmp_path, invalid):
+    path = tmp_path / "queue.json"
+    store = MaintenanceQueueStore(path)
+    store.configure(max_active_items=3)
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="positive integer"):
+        store.configure(max_active_items=invalid)
+
+    assert path.read_bytes() == before
+    assert store.get_state().max_active_items == 3
+
+
+@pytest.mark.parametrize("mutation", ["enqueue", "replace_items", "save"])
+@pytest.mark.parametrize("invalid", [0, -1, True, 1.5, "2"])
+def test_all_queue_capacity_mutations_reject_invalid_values(tmp_path, mutation, invalid):
+    path = tmp_path / "queue.json"
+    store = MaintenanceQueueStore(path)
+    original = MaintenanceQueueItem(objective="original", source_text="original")
+    store.enqueue(original, max_active_items=2)
+    before = path.read_bytes()
+    replacement = MaintenanceQueueItem(objective="replacement", source_text="replacement")
+
+    with pytest.raises(ValueError, match="positive integer"):
+        if mutation == "enqueue":
+            store.enqueue(replacement, max_active_items=invalid)
+        elif mutation == "replace_items":
+            store.replace_items([replacement], max_active_items=invalid)
+        else:
+            store.save(replacement, max_active_items=invalid)
+
+    assert path.read_bytes() == before
+
+
+def test_maintenance_queue_sync_preserves_enqueue_during_claim_side_effects(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    first = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="first", source_text="first", roadmap_contract={"objective": "first"})
+    )
+    original_create = orchestrator.create_process_from_workflow
+    injected = MaintenanceQueueItem(objective="concurrent", source_text="concurrent", roadmap_contract={"objective": "concurrent"})
+    calls = 0
+    calls_lock = Lock()
+
+    def create_and_enqueue(*args, **kwargs):
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        stores["maintenance_queue_store"].enqueue(injected)
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "create_process_from_workflow", create_and_enqueue)
+    result = orchestrator._runtime_maintenance_queue_sync(
+        stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
+    )
+
+    state = stores["maintenance_queue_store"].get_state()
+    assert calls == 1
+    assert result["action_count"] == 1
+    assert {row.item_id for row in state.items} == {first.item_id, injected.item_id}
+    assert next(row for row in state.items if row.item_id == injected.item_id).status == "pending"
+
+
+def test_maintenance_queue_sync_preserves_same_item_mutation_during_claim_side_effects(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    queued = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="first", source_text="first", roadmap_contract={"objective": "first"})
+    )
+    original_create = orchestrator.create_process_from_workflow
+
+    def create_and_mutate(*args, **kwargs):
+        current = stores["maintenance_queue_store"].get(queued.item_id)
+        assert current is not None
+        assert current.process_id == kwargs["process_id"]
+        current.status = "blocked"
+        current.blocked_at = "2026-03-01T00:00:01.000Z"
+        current.last_transition_at = current.blocked_at
+        current.metadata = {"concurrent": "preserve"}
+        current.projection = {"concurrent": "preserve"}
+        stores["maintenance_queue_store"].save(current)
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "create_process_from_workflow", create_and_mutate)
+    result = orchestrator._runtime_maintenance_queue_sync(
+        stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
+    )
+
+    current = stores["maintenance_queue_store"].get(queued.item_id)
+    assert current is not None
+    assert result["action_count"] == 1
+    assert current.status == "blocked"
+    assert current.blocked_at == "2026-03-01T00:00:01.000Z"
+    assert current.metadata == {"concurrent": "preserve"}
+    assert current.projection == {"concurrent": "preserve"}
 
 
 

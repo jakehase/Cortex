@@ -138,7 +138,14 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "snapshot_store": ProcessSnapshotStore(root / "snapshots"),
         "shared_state_store": SharedProcessStateStore(root / "shared_state"),
         "journal": ProcessJournal(root / "journal.jsonl"),
-        "session_registry": SessionRegistryStore(root / "session_registry.json"),
+        "session_registry": SessionRegistryStore(
+            root / "session_registry.json",
+            max_sessions=int(os.getenv("ORCHESTRATOR_MAX_SESSIONS", "1000")),
+            max_questions=int(os.getenv("ORCHESTRATOR_MAX_SESSION_QUESTIONS", "50")),
+            max_question_bytes=int(os.getenv("ORCHESTRATOR_MAX_SESSION_QUESTION_BYTES", "8192")),
+            max_metadata_bytes=int(os.getenv("ORCHESTRATOR_MAX_SESSION_METADATA_BYTES", "65536")),
+            max_state_bytes=int(os.getenv("ORCHESTRATOR_MAX_SESSION_STATE_BYTES", "4000000")),
+        ),
         "watcher_store": WatcherRuntimeStore(root / "watchers.json"),
         "runtime_memory_store": RuntimeMemoryStore(root / "memory"),
         "delivery_dlq": DeliveryDeadLetterStore(root / "delivery_dlq.jsonl"),
@@ -148,7 +155,11 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "loop_store": ProductionBuildLoopStore(root / "production_build_loop"),
         "roadmap_store": RoadmapExecutionStore(root / "roadmap_executor"),
         "follow_up_store": RuntimeFollowUpStore(root / "runtime_follow_ups.json"),
-        "maintenance_queue_store": MaintenanceQueueStore(root / "maintenance_queue.json"),
+        "maintenance_queue_store": MaintenanceQueueStore(
+            root / "maintenance_queue.json",
+            max_items=int(os.getenv("ORCHESTRATOR_MAX_MAINTENANCE_ITEMS", "1000")),
+            max_state_bytes=int(os.getenv("ORCHESTRATOR_MAX_MAINTENANCE_STATE_BYTES", "4000000")),
+        ),
     }
 
 
@@ -1634,9 +1645,24 @@ def _runtime_maintenance_queue_sync(
         by_id[item.item_id] = item
 
     capacity = max(1, int(queue_state.max_active_items or 1))
-    if allow_claim and active_count < capacity:
-        available = capacity - active_count
-        for item in pending[:available]:
+    # Persist refreshed projections/statuses with the captured version.  A CAS
+    # failure means another writer won; reload on the next sync rather than
+    # replacing its state.
+    try:
+        queue_state = queue_store.merge_items(list(by_id.values()), expected_updated_at=queue_state.updated_at)
+    except RuntimeError:
+        queue_state = queue_store.get_state()
+
+    if allow_claim:
+        claim_budget = max(0, capacity - sum(1 for row in queue_state.items if row.status == "active"))
+        for _ in range(claim_budget):
+            item, claimed_state = queue_store.claim_next(claimed_at=now_iso, process_id_for_item=_maintenance_queue_process_id)
+            if item is None:
+                queue_state = claimed_state
+                break
+            claimed_item_snapshot = model_dump_compat(item)
+            # The active transition above is the ownership fence. Only this
+            # caller can cross it and perform non-idempotent dispatch work.
             process = get_runtime_process(item.process_id) if item.process_id else None
             if process is None:
                 process = create_process_from_workflow(
@@ -1696,11 +1722,26 @@ def _runtime_maintenance_queue_sync(
                     "follow_up_dispatch": follow_up_bridge.get("dispatch"),
                 }
             )
-            if item.status == "active":
-                active_count += 1
+            # Merge just the claimed record. Concurrent enqueues are retained.
+            # If another writer changed the queue version, retry only when this
+            # record is still exactly the one we claimed. A process ID is not an
+            # item-level version: transitions and metadata/projection updates can
+            # legitimately retain it and must not be overwritten by this stale
+            # local record. Side effects are never repeated.
+            for persistence_attempt in range(3):
+                try:
+                    queue_state = queue_store.merge_items([item], expected_updated_at=claimed_state.updated_at)
+                    break
+                except RuntimeError:
+                    claimed_state = queue_store.get_state()
+                    current = next((row for row in claimed_state.items if row.item_id == item.item_id), None)
+                    if current is None or model_dump_compat(current) != claimed_item_snapshot:
+                        queue_state = claimed_state
+                        break
+                    if persistence_attempt == 2:
+                        queue_state = claimed_state
 
-    persisted = [by_id[item.item_id] for item in items]
-    queue_store.replace_items(persisted, max_active_items=queue_state.max_active_items)
+    persisted = list(queue_state.items)
     return {
         "max_active_items": capacity,
         "active_count": sum(1 for item in persisted if item.status == "active"),

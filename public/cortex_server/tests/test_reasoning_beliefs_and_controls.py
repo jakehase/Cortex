@@ -1,6 +1,8 @@
 import json
 import asyncio
 
+import pytest
+
 import cortex_server.modules.reasoning_approvals as approvals
 import cortex_server.modules.reasoning_beliefs as beliefs
 import cortex_server.modules.reasoning_scheduler as scheduler
@@ -61,9 +63,11 @@ def test_verification_contracts_and_safety_gate_work(tmp_path, monkeypatch):
         granted_by="Jake",
         scope="workflow",
         workflow_id="wf_demo",
+        node_ids=["lights"],
         endpoint_prefixes=["/homeassistant/service"],
         methods=["POST"],
         risk_levels=["high"],
+        metadata={"role": "approver"},
     )
     approved = evaluate_step_permission(
         {"endpoint": "/homeassistant/service", "method": "POST", "node_id": "lights", "metadata": {}},
@@ -74,6 +78,8 @@ def test_verification_contracts_and_safety_gate_work(tmp_path, monkeypatch):
         stage="pre",
         step={"endpoint": "/homeassistant/service", "method": "POST", "node_id": "lights", "metadata": {}},
         workflow_metadata={"workflow_id": "wf_demo", "approval_grant_ids": [grant["grant_id"]]},
+        user_id="Jake",
+        role="approver",
     )
 
     assert pre["ok"] is True
@@ -85,8 +91,80 @@ def test_verification_contracts_and_safety_gate_work(tmp_path, monkeypatch):
     assert approval_contract["ok"] is True
 
 
+def test_approval_contract_rejects_forgeable_legacy_caller_fields(tmp_path, monkeypatch):
+    monkeypatch.setattr(approvals, "DEFAULT_STATE_PATH", tmp_path / "reasoning_approvals.json")
+    monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
+
+    result = evaluate_contracts(
+        [{"kind": "approval_required", "stage": "pre", "approval_scope": "workflow"}],
+        stage="pre",
+        step={"endpoint": "/homeassistant/service", "method": "POST", "node_id": "lights"},
+        workflow_metadata={"workflow_id": "wf_demo"},
+        user_id="Jake",
+        role="approver",
+        approved=True,
+    )
+
+    assert result["ok"] is False
+    assert result["results"][0]["passed"] is False
+    assert result["results"][0]["observed"]["approval_grant_id"] is None
+
+
+@pytest.mark.parametrize(
+    ("scope", "grant_bindings"),
+    [
+        ("workflow", {"workflow_id": "wf_demo"}),
+        ("endpoint", {"endpoint_prefixes": ["/homeassistant/service"]}),
+        ("risk_class", {"risk_levels": ["high"]}),
+    ],
+)
+def test_approval_contract_accepts_authoritative_grant_without_node_or_caller_bindings(
+    tmp_path, monkeypatch, scope, grant_bindings
+):
+    monkeypatch.setattr(approvals, "DEFAULT_STATE_PATH", tmp_path / "reasoning_approvals.json")
+    monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
+    grant = approvals.create_approval_grant(
+        granted_by="grant-issuer-not-caller",
+        scope=scope,
+        methods=["POST"],
+        **grant_bindings,
+    )
+
+    result = evaluate_contracts(
+        [{"kind": "approval_required", "stage": "pre", "approval_scope": scope}],
+        stage="pre",
+        step={"endpoint": "/homeassistant/service", "method": "POST", "metadata": {}},
+        workflow_metadata={"workflow_id": "wf_demo", "approval_grant_ids": [grant["grant_id"]]},
+    )
+
+    assert result["ok"] is True
+    assert result["results"][0]["observed"]["approval_grant_id"] == grant["grant_id"]
+
+
+def test_approval_contract_enforces_explicit_role_binding(tmp_path, monkeypatch):
+    monkeypatch.setattr(approvals, "DEFAULT_STATE_PATH", tmp_path / "reasoning_approvals.json")
+    monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
+    grant = approvals.create_approval_grant(
+        scope="workflow",
+        workflow_id="wf_demo",
+        metadata={"role": "approver"},
+    )
+    contract = [{"kind": "approval_required", "stage": "pre", "approval_scope": "workflow"}]
+    context = {
+        "stage": "pre",
+        "step": {"endpoint": "/safe", "method": "POST"},
+        "workflow_metadata": {"workflow_id": "wf_demo", "approval_grant_ids": [grant["grant_id"]]},
+    }
+
+    assert evaluate_contracts(contract, role="approver", **context)["ok"] is True
+    assert evaluate_contracts(contract, role="operator", **context)["ok"] is False
+    assert evaluate_contracts(contract, **context)["ok"] is False
+
+
 
 def test_recurring_process_pause_resume_and_explain(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
     monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,24 @@ def summarize_runtime_health(snapshot: dict) -> dict:
     }
 
 
+def rollback_metrics_from_replay(replay: dict) -> dict:
+    """Shape probe telemetry without converting malformed input into health."""
+    quality_delta = replay.get("quality_delta") if isinstance(replay, dict) else None
+    if isinstance(quality_delta, bool):
+        quality_delta = None
+    try:
+        parsed_delta = float(quality_delta)
+    except (TypeError, ValueError):
+        parsed_delta = None
+    if parsed_delta is not None and not math.isfinite(parsed_delta):
+        parsed_delta = None
+    return {
+        "quality_non_regression_rate": None if parsed_delta is None else (1.0 if parsed_delta >= -0.01 else 0.95),
+        "p95_latency_delta": 0.03,
+        "risk_policy_violation_count": 0,
+    }
+
+
 def main() -> int:
     if not DATASET_PATH.exists():
         raise SystemExit("missing baseline dataset; run cortex_r9_step1_baseline_telemetry.py first")
@@ -53,11 +72,9 @@ def main() -> int:
     runtime_policy = runtime_policy_snapshot()
     runtime_hint = runtime_outcome_hint(archetype="coding", query="Fix this pytest failure in orchestrator runtime analytics")
     runtime_health = summarize_runtime_health(runtime_health_snapshot())
-    rollback = evaluate_rollback({
-        "quality_non_regression_rate": 1.0 if replay.get("quality_delta", 0.0) >= -0.01 else 0.95,
-        "p95_latency_delta": 0.03,
-        "risk_policy_violation_count": 0,
-    })
+    rollback_metrics = rollback_metrics_from_replay(replay)
+    rollback = evaluate_rollback(rollback_metrics)
+    rollback["metrics"] = rollback_metrics
     payload = {
         "generated_at": now_iso(),
         "replay": replay,

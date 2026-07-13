@@ -1,4 +1,4 @@
-type BridgeConfig = { baseUrl?: string; timeoutMs?: number };
+type BridgeConfig = { baseUrl?: string; timeoutMs?: number; maxResponseBytes?: number };
 
 const BrowseSchema = {
   type: 'object',
@@ -23,17 +23,37 @@ function cfg(pluginConfig?: Record<string, unknown>): Required<BridgeConfig> {
   return {
     baseUrl: (c.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
     timeoutMs: typeof c.timeoutMs === 'number' ? c.timeoutMs : 15000,
+    maxResponseBytes: typeof c.maxResponseBytes === 'number' ? c.maxResponseBytes : 1_048_576,
   };
 }
 
-async function requestText(url: string, init: RequestInit, timeoutMs: number) {
+export async function requestText(url: string, init: RequestInit, timeoutMs: number, maxResponseBytes: number) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal, headers: { 'content-type': 'application/json', ...(init.headers || {}) } });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
-    return text;
+    const declared = Number(res.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maxResponseBytes) {
+      try { void res.body?.cancel().catch(() => {}); } catch { /* Preserve the bounded-read failure if cleanup fails. */ }
+      throw new Error(`response exceeds ${maxResponseBytes} bytes`);
+    }
+    const reader = res.body?.getReader();
+    let size = 0;
+    const chunks: Uint8Array[] = [];
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxResponseBytes) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${maxResponseBytes} bytes`); }
+        chunks.push(value);
+      }
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const text = new TextDecoder().decode(bytes);
+    return { ok: res.ok, status: res.status, text };
   } finally {
     clearTimeout(timer);
   }
@@ -65,8 +85,9 @@ const plugin = {
         };
         const endpoint = hasUrl ? '/browser/browse' : '/browser/search';
         try {
-          const raw = await requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', body: JSON.stringify(payload) }, c.timeoutMs);
-          return JSON.stringify({ ok: true, provider: 'cortex-browser', endpoint, data: maybeJson(raw) });
+          const response = await requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', body: JSON.stringify(payload) }, c.timeoutMs, c.maxResponseBytes);
+          if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.text.slice(0, 300)}`);
+          return JSON.stringify({ ok: true, provider: 'cortex-browser', endpoint, data: maybeJson(response.text) });
         } catch (error) {
           return JSON.stringify({ ok: false, provider: 'cortex-browser', endpoint, error: error instanceof Error ? error.message : String(error) });
         }
@@ -81,9 +102,8 @@ const plugin = {
       execute: async () => {
         const c = cfg(api.pluginConfig);
         try {
-          const res = await fetch(`${c.baseUrl}/browser/status`);
-          const text = await res.text();
-          return JSON.stringify({ ok: res.ok, status: res.status, body: maybeJson(text) });
+          const response = await requestText(`${c.baseUrl}/browser/status`, { method: 'GET' }, c.timeoutMs, c.maxResponseBytes);
+          return JSON.stringify({ ok: response.ok, status: response.status, body: maybeJson(response.text) });
         } catch (error) {
           return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
         }

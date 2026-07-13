@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 type RouteLevel = { level: number; name?: string; reason?: string; method?: string; score?: number };
 type RoutePlan = {
@@ -65,8 +66,105 @@ type PendingCreativitySuppression = {
 
 type LastGoodRoutePlan = {
   savedAt: string;
+  provenance: string;
   plan: RoutePlan;
+  tag: string;
 };
+
+const ALLOWED_CORTEX_LEVELS = new Set(Array.from({ length: 38 }, (_, index) => index + 1));
+const ROUTE_PLAN_KEYS = new Set(['recommendedLevels', 'routingMethod', 'reasoning', 'routingError', 'routingMarkers', 'workflowCheckpoint']);
+const ROUTE_LEVEL_KEYS = new Set(['level', 'name', 'reason', 'method', 'score']);
+const CHECKPOINT_KEYS = new Set(['checkpoint_id', 'state_machine', 'current_state', 'retry_policy', 'levels', 'durable_store']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+function hasOnlyKeys(value: Record<string, unknown>, allowed: Set<string>): boolean {
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+function isBoundedString(value: unknown, maxLength = 8_192, allowEmpty = true): value is string {
+  return typeof value === 'string' && value.length <= maxLength && (allowEmpty || value.length > 0);
+}
+function isJsonMetadata(value: unknown, depth = 0): boolean {
+  if (value === null || typeof value === 'boolean') return true;
+  if (typeof value === 'string') return value.length <= 16_384;
+  if (typeof value === 'number') return Number.isFinite(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER;
+  if (depth >= 8) return false;
+  if (Array.isArray(value)) return value.length <= 128 && value.every((item) => isJsonMetadata(item, depth + 1));
+  if (!isRecord(value) || Object.keys(value).length > 128) return false;
+  return Object.entries(value).every(([key, item]) => key.length <= 256 && isJsonMetadata(item, depth + 1));
+}
+function isWorkflowCheckpoint(value: unknown): boolean {
+  if (!isRecord(value) || !hasOnlyKeys(value, CHECKPOINT_KEYS)) return false;
+  if (!isBoundedString(value.checkpoint_id, 128, false)) return false;
+  if (!Array.isArray(value.state_machine) || value.state_machine.length < 1 || value.state_machine.length > 32 || !value.state_machine.every((item) => isBoundedString(item, 128, false))) return false;
+  if (!isBoundedString(value.current_state, 128, false) || !isBoundedString(value.durable_store, 4_096, false)) return false;
+  if (!isRecord(value.retry_policy) || !hasOnlyKeys(value.retry_policy, new Set(['max_attempts', 'backoff_ms']))) return false;
+  const maxAttempts = value.retry_policy.max_attempts;
+  const backoffMs = value.retry_policy.backoff_ms;
+  if (!Number.isInteger(maxAttempts) || (maxAttempts as number) < 0 || (maxAttempts as number) > 100) return false;
+  if (!Number.isInteger(backoffMs) || (backoffMs as number) < 0 || (backoffMs as number) > 3_600_000) return false;
+  return Array.isArray(value.levels) && value.levels.length <= 38
+    && value.levels.every((level) => Number.isInteger(level) && ALLOWED_CORTEX_LEVELS.has(level as number));
+}
+function isRouteLevel(value: unknown): value is RouteLevel {
+  if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_LEVEL_KEYS)) return false;
+  if (!Number.isInteger(value.level) || !ALLOWED_CORTEX_LEVELS.has(value.level as number)) return false;
+  for (const field of ['name', 'reason', 'method'] as const) {
+    if (value[field] !== undefined && !isBoundedString(value[field], 4_096)) return false;
+  }
+  return value.score === undefined || (typeof value.score === 'number' && Number.isFinite(value.score) && value.score >= 0 && value.score <= 1);
+}
+function isRoutePlan(value: unknown): value is RoutePlan {
+  if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_PLAN_KEYS)) return false;
+  if (!Array.isArray(value.recommendedLevels) || value.recommendedLevels.length < 1 || value.recommendedLevels.length > 64 || !value.recommendedLevels.every(isRouteLevel)) return false;
+  if (value.routingMethod !== undefined && !isBoundedString(value.routingMethod, 1_024)) return false;
+  if (value.routingError !== undefined && !isBoundedString(value.routingError, 8_192)) return false;
+  if (value.reasoning !== undefined && (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item)))) return false;
+  if (value.routingMarkers !== undefined && (!isRecord(value.routingMarkers) || !isJsonMetadata(value.routingMarkers))) return false;
+  return value.workflowCheckpoint === undefined || isWorkflowCheckpoint(value.workflowCheckpoint);
+}
+function isLastGoodRoutePlan(value: unknown): value is LastGoodRoutePlan {
+  return isRecord(value)
+    && hasOnlyKeys(value, new Set(['savedAt', 'provenance', 'plan', 'tag']))
+    && isBoundedString(value.savedAt, 64, false)
+    && isBoundedString(value.provenance, 2_048, false)
+    && typeof value.tag === 'string'
+    && /^[0-9a-f]{64}$/.test(value.tag)
+    && isRoutePlan(value.plan);
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
+}
+
+function cachePayload(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'plan'>): string {
+  return canonicalJson({ savedAt: cache.savedAt, provenance: cache.provenance, plan: cache.plan });
+}
+
+function signRouteCache(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'plan'>, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(cachePayload(cache), 'utf8').digest('hex');
+}
+
+function verifyRouteCache(cache: unknown, secret: string | null): cache is LastGoodRoutePlan {
+  if (!secret || !isLastGoodRoutePlan(cache)) return false;
+  const supplied = Buffer.from(cache.tag, 'hex');
+  const expected = Buffer.from(signRouteCache(cache, secret), 'hex');
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+function liveRouteLevels(value: unknown): RouteLevel[] | null {
+  if (!isRecord(value)) return null;
+  const levels = value.recommended_levels ?? value.recommended;
+  if (!Array.isArray(levels) || levels.length < 1 || levels.length > 64 || !levels.every(isRouteLevel)) return null;
+  if (value.routing_method !== undefined && !isBoundedString(value.routing_method, 1_024)) return null;
+  if (value.reasoning !== undefined && (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item)))) return null;
+  if (value.routing_markers !== undefined && (!isRecord(value.routing_markers) || !isJsonMetadata(value.routing_markers))) return null;
+  if (value.workflow_checkpoint !== undefined && !isWorkflowCheckpoint(value.workflow_checkpoint)) return null;
+  return levels;
+}
 
 type RunState = {
   prompt: string;
@@ -334,14 +432,33 @@ function uniqueLevels(levels: RouteLevel[]): RouteLevel[] {
   }
   return out;
 }
-async function postJson(url: string, body: unknown, timeoutMs: number): Promise<any> {
+
+function normalizeLiveLevels(levels: RouteLevel[]): RouteLevel[] {
+  const mandatory: RouteLevel[] = [
+    { level: 24, name: 'Nexus', reason: 'mandatory upstream routing' },
+    { level: 5, name: 'Oracle', reason: 'baseline reasoning' },
+  ];
+  const deduplicated = uniqueLevels(levels);
+  const byLevel = new Map(deduplicated.map((item) => [item.level, item]));
+  const nonMandatory = deduplicated.filter((item) => item.level !== 24 && item.level !== 5);
+  return [byLevel.get(24) || mandatory[0], ...nonMandatory.slice(0, 62), byLevel.get(5) || mandatory[1]];
+}
+async function postJson(url: string, body: unknown, timeoutMs: number, maxResponseBytes = 1_048_576): Promise<any> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal,
     });
-    const text = await res.text();
+    const declared = Number(res.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maxResponseBytes) {
+      try { void res.body?.cancel().catch(() => {}); } catch {}
+      throw new Error(`response exceeds ${maxResponseBytes} bytes`);
+    }
+    const reader = res.body?.getReader(); let size = 0; const chunks: Uint8Array[] = [];
+    if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > maxResponseBytes) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${maxResponseBytes} bytes`); } chunks.push(value); }
+    const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const text = new TextDecoder().decode(bytes);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
     return text ? JSON.parse(text) : {};
   } finally { clearTimeout(t); }
@@ -358,9 +475,255 @@ function classifyTask(prompt: string): string {
 function loadJson<T>(targetPath: string, fallback: T): T {
   try { return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as T; } catch { return fallback; }
 }
-function saveJson(targetPath: string, value: unknown) {
+type LockOwner = { version: 1; pid: number; startIdentity: string; token: string; createdAt: string };
+type LockContender = LockOwner & { ticket: number | null };
+const MALFORMED_LOCK_GRACE_MS = 30_000;
+function processStartIdentity(pid: number): string | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    const fields = stat.slice(close + 2).split(' ');
+    return fields[19] || null;
+  } catch { return null; }
+}
+function processIsAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error: any) { return error?.code === 'EPERM'; }
+}
+function parseLockOwner(text: string): LockOwner | null {
+  try {
+    const value = JSON.parse(text);
+    return isRecord(value) && value.version === 1 && Number.isInteger(value.pid) && (value.pid as number) > 0
+      && isBoundedString(value.startIdentity, 256, false) && isBoundedString(value.token, 256, false)
+      && isBoundedString(value.createdAt, 64, false) ? value as LockOwner : null;
+  } catch {
+    const [pidText, createdText] = text.trim().split(/\s+/);
+    const pid = Number(pidText);
+    return Number.isInteger(pid) && pid > 0 && Number.isFinite(Number(createdText))
+      ? { version: 1, pid, startIdentity: '', token: `legacy:${pidText}:${createdText}`, createdAt: new Date(Number(createdText)).toISOString() }
+      : null;
+  }
+}
+function ownerIsDefinitelyStale(owner: LockOwner): boolean {
+  if (!processIsAlive(owner.pid)) return true;
+  if (!owner.startIdentity) return false;
+  const actualIdentity = processStartIdentity(owner.pid);
+  return actualIdentity !== null && actualIdentity !== owner.startIdentity;
+}
+function unlinkIfOwned(lock: string, token: string): boolean {
+  try {
+    const owner = parseLockOwner(fs.readFileSync(lock, 'utf8'));
+    if (!owner || owner.token !== token) return false;
+    fs.unlinkSync(lock);
+    return true;
+  } catch { return false; }
+}
+function malformedLockIsStale(lock: string): boolean {
+  try {
+    const first = fs.statSync(lock);
+    if (Date.now() - first.mtimeMs < MALFORMED_LOCK_GRACE_MS) return false;
+    if (parseLockOwner(fs.readFileSync(lock, 'utf8'))) return false;
+    const second = fs.statSync(lock);
+    return first.dev === second.dev && first.ino === second.ino
+      && first.size === second.size && first.mtimeMs === second.mtimeMs;
+  } catch { return false; }
+}
+function malformedContenderIsStale(entry: string): boolean {
+  try {
+    const first = fs.statSync(entry);
+    if (Date.now() - first.mtimeMs < MALFORMED_LOCK_GRACE_MS) return false;
+    const second = fs.statSync(entry);
+    return first.dev === second.dev && first.ino === second.ino
+      && first.size === second.size && first.mtimeMs === second.mtimeMs;
+  } catch { return false; }
+}
+function createCompleteLock(lock: string): { fd: number; owner: LockOwner } {
+  const owner: LockOwner = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: processStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: crypto.randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+  };
+  const temporary = `${lock}.${process.pid}.${owner.token}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx');
+    fs.writeFileSync(fd, JSON.stringify(owner));
+    fs.fsyncSync(fd);
+    // Publishing a hard link is exclusive and atomic: readers can only observe
+    // either no lock or the complete, fsynced owner record.
+    fs.linkSync(temporary, lock);
+    // The temporary name is only cleanup after the lock has been published;
+    // failure to remove that alias must not abandon the live lock.
+    try { fs.unlinkSync(temporary); } catch {}
+    return { fd, owner };
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+function sleepForLock(): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+}
+function publishContender(guard: string, contender: LockContender): string {
+  const entry = path.join(guard, `${contender.pid}-${contender.token}`);
+  const temporary = `${entry}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx');
+    fs.writeFileSync(fd, JSON.stringify(contender));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(temporary, entry);
+    return entry;
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+function readContenders(guard: string): Array<{ path: string; owner: LockContender | null; staleMalformed: boolean }> {
+  const result: Array<{ path: string; owner: LockContender | null; staleMalformed: boolean }> = [];
+  for (const name of fs.readdirSync(guard)) {
+    if (name.endsWith('.tmp')) continue;
+    const entry = path.join(guard, name);
+    let text = '';
+    try { text = fs.readFileSync(entry, 'utf8'); } catch { continue; }
+    const parsed = parseLockOwner(text) as LockContender | null;
+    let ticket: unknown;
+    try { const raw = JSON.parse(text); ticket = isRecord(raw) ? raw.ticket : undefined; } catch {}
+    const owner = parsed && (ticket === null || (Number.isSafeInteger(ticket) && (ticket as number) > 0))
+      ? { ...parsed, ticket: ticket as number | null } : null;
+    result.push({
+      path: entry,
+      owner,
+      staleMalformed: !owner && malformedContenderIsStale(entry),
+    });
+  }
+  return result;
+}
+function acquireReclamationGuard(lock: string, deadline: number): { entry: string; owner: LockContender } {
+  const guard = `${lock}.guard`;
+  fs.mkdirSync(guard, { recursive: true });
+  const base: LockContender = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: processStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: crypto.randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+    ticket: null,
+  };
+  const entry = publishContender(guard, base);
+  try {
+    let maxTicket = 0;
+    for (const contender of readContenders(guard)) {
+      if (contender.path === entry) continue;
+      if (contender.owner && ownerIsDefinitelyStale(contender.owner)) unlinkIfOwned(contender.path, contender.owner.token);
+      else if (!contender.owner && contender.staleMalformed) try { fs.unlinkSync(contender.path); } catch {}
+      else if (contender.owner?.ticket) maxTicket = Math.max(maxTicket, contender.owner.ticket);
+    }
+    const owner = { ...base, ticket: maxTicket + 1 };
+    const replacement = `${entry}.ticket`;
+    fs.writeFileSync(replacement, JSON.stringify(owner), { flag: 'wx' });
+    fs.renameSync(replacement, entry);
+    while (true) {
+      let blocked = false;
+      for (const contender of readContenders(guard)) {
+        if (contender.path === entry) continue;
+        if (contender.owner && ownerIsDefinitelyStale(contender.owner)) { unlinkIfOwned(contender.path, contender.owner.token); continue; }
+        if (!contender.owner && contender.staleMalformed) { try { fs.unlinkSync(contender.path); } catch {}; continue; }
+        if (!contender.owner || contender.owner.ticket === null
+          || contender.owner.ticket < owner.ticket
+          || (contender.owner.ticket === owner.ticket && contender.owner.token < owner.token)) blocked = true;
+      }
+      if (!blocked) return { entry, owner };
+      if (Date.now() >= deadline) throw new Error(`timed out acquiring state lock ${lock}`);
+      sleepForLock();
+    }
+  } catch (error) {
+    unlinkIfOwned(entry, base.token);
+    throw error;
+  }
+}
+function withFileLock<T>(targetPath: string, transaction: () => T): T {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, JSON.stringify(value, null, 2));
+  const lock = `${targetPath}.lock`;
+  const deadline = Date.now() + 5_000;
+  const guard = acquireReclamationGuard(lock, deadline);
+  let lockFd: number | undefined;
+  let owner: LockOwner | undefined;
+  try { while (lockFd === undefined) {
+    try {
+      ({ fd: lockFd, owner } = createCompleteLock(lock));
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      try {
+        const existing = parseLockOwner(fs.readFileSync(lock, 'utf8'));
+        if (existing && ownerIsDefinitelyStale(existing)) unlinkIfOwned(lock, existing.token);
+        else if (!existing && malformedLockIsStale(lock)) fs.unlinkSync(lock);
+      } catch {}
+      if (Date.now() >= deadline) throw new Error(`timed out acquiring state lock ${lock}`);
+      sleepForLock();
+    }
+  }
+    return transaction();
+  } finally {
+    if (lockFd !== undefined) fs.closeSync(lockFd);
+    if (owner) unlinkIfOwned(lock, owner.token);
+    unlinkIfOwned(guard.entry, guard.owner.token);
+  }
+}
+
+function reclaimWriteTemporaries(targetPath: string): void {
+  const directory = path.dirname(targetPath);
+  const basename = path.basename(targetPath).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const temporaryName = new RegExp(`^${basename}\\.\\d+\\.\\d+\\.tmp$`);
+  const flags = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
+  const dirFd = fs.openSync(directory, flags);
+  try {
+    const opened = fs.fstatSync(dirFd);
+    const named = fs.lstatSync(directory);
+    if (!opened.isDirectory() || !named.isDirectory() || opened.dev !== named.dev || opened.ino !== named.ino) {
+      throw new Error(`state directory changed while reclaiming temporary files for ${targetPath}`);
+    }
+    const anchoredDirectory = `/proc/self/fd/${dirFd}`;
+    for (const name of fs.readdirSync(anchoredDirectory)) {
+      if (!temporaryName.test(name)) continue;
+      try { fs.unlinkSync(path.join(anchoredDirectory, name)); } catch (error: any) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    }
+  } finally {
+    fs.closeSync(dirFd);
+  }
+}
+
+function writeJsonAtomic(targetPath: string, value: unknown) {
+  reclaimWriteTemporaries(targetPath);
+  const tmp = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    const fd = fs.openSync(tmp, 'wx');
+    try { fs.writeFileSync(fd, JSON.stringify(value, null, 2)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, targetPath);
+    const dirFd = fs.openSync(path.dirname(targetPath), 'r');
+    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+  } finally {
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
+
+function saveJson(targetPath: string, value: unknown) {
+  withFileLock(targetPath, () => writeJsonAtomic(targetPath, value));
+}
+function updateJson<T, R>(targetPath: string, fallback: T, mutate: (value: T) => R): R {
+  return withFileLock(targetPath, () => {
+    const value = loadJson(targetPath, fallback);
+    const result = mutate(value);
+    writeJsonAtomic(targetPath, value);
+    return result;
+  });
 }
 function buildFailureModes(prompt: string, plan: RoutePlan): string[] {
   const task = classifyTask(prompt);
@@ -382,9 +745,12 @@ function loadStats(statsPath: string): RouteStats {
   } catch {}
   return { version: 1, updatedAt: nowIso(), byLevel: {}, byTask: {} };
 }
-function saveStats(statsPath: string, stats: RouteStats) {
-  fs.mkdirSync(path.dirname(statsPath), { recursive: true });
-  fs.writeFileSync(statsPath, JSON.stringify({ ...stats, updatedAt: nowIso() }, null, 2));
+function updateStats(statsPath: string, mutate: (stats: RouteStats) => void) {
+  withFileLock(statsPath, () => {
+    const stats = loadStats(statsPath);
+    mutate(stats);
+    writeJsonAtomic(statsPath, { ...stats, updatedAt: nowIso() });
+  });
 }
 function scoreLevel(level: RouteLevel, stats: RouteStats, taskClass: string): number {
   const base = typeof level.score === 'number' ? level.score : 0.5;
@@ -540,6 +906,12 @@ export default function register(api: any) {
   const baseUrl = normalizeBaseUrl(cfg.baseUrl);
   const requireRouting = asBool(cfg.requireRouting, true);
   const timeoutMs = asNumber(cfg.timeoutMs, 8000);
+  const maxResponseBytes = asNumber(cfg.maxResponseBytes, 1_048_576);
+  const maxCachedPlanAgeMs = asNumber(cfg.maxCachedPlanAgeMs, 300_000);
+  // Capture once at construction so later mutation of the caller-owned config cannot change trust.
+  const routeCacheHmacSecret = typeof cfg.routeCacheHmacSecret === 'string' && cfg.routeCacheHmacSecret.length > 0
+    ? String(cfg.routeCacheHmacSecret)
+    : null;
   const maxLevels = asNumber(cfg.maxLevels, 10);
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
   const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);
@@ -586,42 +958,17 @@ export default function register(api: any) {
 
   quarantineOversizedOracleSessions();
 
-  function loadFingerprintHistory(): string[] {
-    try { return JSON.parse(fs.readFileSync(historyPath, 'utf8')); } catch { return []; }
-  }
-  function saveFingerprintHistory(history: string[]) {
-    const compact: string[] = [];
-    for (const item of history.slice(-200)) {
-      if (!item) continue;
-      if (compact.some((existing) => similarity(existing, item) >= 0.92)) continue;
-      compact.push(item);
-    }
-    fs.mkdirSync(path.dirname(historyPath), { recursive: true });
-    fs.writeFileSync(historyPath, JSON.stringify(compact.slice(-100), null, 2));
-  }
   function loadPromptHistory(): PromptHistoryEntry[] {
     try {
       const raw = JSON.parse(fs.readFileSync(promptHistoryPath, 'utf8'));
       return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') as PromptHistoryEntry[] : [];
     } catch { return []; }
   }
-  function savePromptHistory(history: PromptHistoryEntry[]) {
-    fs.mkdirSync(path.dirname(promptHistoryPath), { recursive: true });
-    fs.writeFileSync(promptHistoryPath, JSON.stringify(history.slice(-creativityHistorySize), null, 2));
-  }
-  function loadCreativityRetryState(): Record<string, CreativityAudit> {
-    try { return JSON.parse(fs.readFileSync(creativityRetryPath, 'utf8')); } catch { return {}; }
-  }
-  function saveCreativityRetryState(state: Record<string, CreativityAudit>) {
-    fs.mkdirSync(path.dirname(creativityRetryPath), { recursive: true });
-    fs.writeFileSync(creativityRetryPath, JSON.stringify(state, null, 2));
-  }
-  function loadCreativityMetrics(): any {
-    try { return JSON.parse(fs.readFileSync(creativityMetricsPath, 'utf8')); } catch { return { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }; }
-  }
-  function saveCreativityMetrics(metrics: any) {
-    fs.mkdirSync(path.dirname(creativityMetricsPath), { recursive: true });
-    fs.writeFileSync(creativityMetricsPath, JSON.stringify({ ...metrics, updatedAt: nowIso() }, null, 2));
+  function updateCreativityMetrics(mutate: (metrics: any) => void) {
+    updateJson(creativityMetricsPath, { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }, (metrics: any) => {
+      mutate(metrics);
+      metrics.updatedAt = nowIso();
+    });
   }
   function extractDeliveryKeyFromSessionKey(sessionKey: string): string | undefined {
     const match = /^agent:[^:]+:([^:]+):direct:(.+)$/.exec(sessionKey);
@@ -640,25 +987,37 @@ export default function register(api: any) {
   async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
     let plan: RoutePlan | null = null;
     try {
-      const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs);
-      const recommended = Array.isArray(data?.recommended_levels) ? data.recommended_levels : (Array.isArray(data?.recommended) ? data.recommended : []);
-      let normalized = uniqueLevels((recommended as RouteLevel[]).slice(0, Math.max(maxLevels, 20)));
-      if (!normalized.some((x) => x.level === 24)) normalized = [{ level: 24, name: 'Nexus', reason: 'mandatory upstream routing' }, ...normalized];
-      if (!normalized.some((x) => x.level === 5)) normalized.push({ level: 5, name: 'Oracle', reason: 'baseline reasoning' });
-      plan = {
-        recommendedLevels: normalized,
-        routingMethod: typeof data?.routing_method === 'string' ? data.routing_method : 'nexus_orchestration',
-        reasoning: Array.isArray(data?.reasoning) ? data.reasoning.map((x: any) => String(x)) : [],
-        routingMarkers: typeof data?.routing_markers === 'object' && data.routing_markers ? data.routing_markers : undefined,
-        workflowCheckpoint: typeof data?.workflow_checkpoint === 'object' && data.workflow_checkpoint ? data.workflow_checkpoint : undefined,
+      const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs, maxResponseBytes);
+      const recommended = liveRouteLevels(data);
+      if (!recommended) throw new Error('invalid live route response schema');
+      const rawPlan: RoutePlan = {
+        recommendedLevels: normalizeLiveLevels(recommended),
+        routingMethod: data.routing_method,
+        reasoning: data.reasoning,
+        routingMarkers: data.routing_markers,
+        workflowCheckpoint: data.workflow_checkpoint,
       };
-      saveJson(lastGoodPlanPath, { savedAt: nowIso(), plan } satisfies LastGoodRoutePlan);
+      if (!isRoutePlan(rawPlan)) throw new Error('invalid normalized live route plan');
+      plan = {
+        recommendedLevels: rawPlan.recommendedLevels,
+        routingMethod: rawPlan.routingMethod || 'nexus_orchestration',
+        reasoning: rawPlan.reasoning || [],
+        routingMarkers: rawPlan.routingMarkers,
+        workflowCheckpoint: rawPlan.workflowCheckpoint,
+      };
+      if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
+      if (routeCacheHmacSecret) {
+        const cache = { savedAt: nowIso(), provenance: baseUrl, plan };
+        saveJson(lastGoodPlanPath, { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan);
+      }
     } catch (error) {
       const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
       api.logger.warn(message);
       const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(lastGoodPlanPath, null);
-      if (lastGoodPlan?.plan?.recommendedLevels?.length) {
-        const cachedAgeMs = Math.max(0, Date.now() - Date.parse(lastGoodPlan.savedAt || ''));
+      const savedAtMs = Date.parse(lastGoodPlan?.savedAt || '');
+      const cachedAgeMs = Date.now() - savedAtMs;
+      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
+      if (validCache && lastGoodPlan) {
         api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
         plan = {
           ...lastGoodPlan.plan,
@@ -678,18 +1037,8 @@ export default function register(api: any) {
           },
         };
       } else {
-        if (requireRouting) api.logger.warn('cortex-route-gate: requireRouting enabled but no cached plan was available, using minimal fallback envelope');
-        plan = {
-          recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
-          routingMethod: 'fallback',
-          routingError: String(error),
-          reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
-          routingMarkers: {
-            degraded: true,
-            cachedFallback: false,
-            requireRouting,
-          },
-        };
+        if (requireRouting) throw new Error(`routing unavailable while requireRouting is enabled: ${String(error)}`);
+        throw new Error(`routing unavailable and no valid last-good route plan exists: ${String(error)}`);
       }
     }
     const intentText = latestUserTurnText(messages) || tailIntentText(prompt);
@@ -713,12 +1062,22 @@ export default function register(api: any) {
     }
     const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxLevels, creativity);
     const fingerprint = fingerprintText(prompt);
-    const history = loadFingerprintHistory();
-    const duplicateRisk = history.some((x) => similarity(x, fingerprint) >= 0.9);
-    history.push(fingerprint);
-    saveFingerprintHistory(history);
-    const promptHistory = priorPromptHistory.concat([{ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) }]);
-    savePromptHistory(promptHistory);
+    const duplicateRisk = updateJson(historyPath, [] as string[], (history) => {
+      const duplicate = history.some((x) => similarity(x, fingerprint) >= 0.9);
+      history.push(fingerprint);
+      const compact: string[] = [];
+      for (const item of history.slice(-200)) {
+        if (!item) continue;
+        if (compact.some((existing) => similarity(existing, item) >= 0.92)) continue;
+        compact.push(item);
+      }
+      history.splice(0, history.length, ...compact.slice(-100));
+      return duplicate;
+    });
+    updateJson(promptHistoryPath, [] as PromptHistoryEntry[], (history) => {
+      history.push({ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) });
+      history.splice(0, Math.max(0, history.length - creativityHistorySize));
+    });
     return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText };
   }
 
@@ -731,9 +1090,22 @@ export default function register(api: any) {
       api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${stateKey || 'unknown'}`);
       return;
     }
-    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText } = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey);
-    const retryState = stateKey ? loadCreativityRetryState() : {};
-    const retryAudit = stateKey && creativity.requested ? retryState[stateKey] : undefined;
+    let route;
+    try {
+      route = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey);
+    } catch (error) {
+      if (requireRouting) throw error;
+      api.logger.warn?.(`cortex-route-gate: optional routing skipped: ${String(error)}`);
+      return;
+    }
+    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText } = route;
+    const retryAudit = stateKey && creativity.requested
+      ? updateJson(creativityRetryPath, {} as Record<string, CreativityAudit>, (state) => {
+          const audit = state[stateKey];
+          if (audit) delete state[stateKey];
+          return audit;
+        })
+      : undefined;
     if (stateKey) {
       runStateByKey.set(stateKey, {
         prompt,
@@ -749,7 +1121,7 @@ export default function register(api: any) {
         creativityAudit: retryAudit,
       });
     }
-    if (stateKey && retryAudit && creativity.requested) { const metrics = loadCreativityMetrics(); metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; saveCreativityMetrics(metrics); delete retryState[stateKey]; saveCreativityRetryState(retryState); }
+    if (stateKey && retryAudit && creativity.requested) updateCreativityMetrics((metrics) => { metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; });
     api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
     return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
@@ -807,18 +1179,15 @@ export default function register(api: any) {
       audit.retryRecommended = !audit.passed;
     }
     rs.creativityAudit = audit;
-    const metrics = loadCreativityMetrics();
-    metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
-    if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
-    saveCreativityMetrics(metrics);
-    const retryState = stateKey ? loadCreativityRetryState() : undefined;
-    if (audit.passed && stateKey && retryState?.[stateKey]) {
-      delete retryState[stateKey];
-      saveCreativityRetryState(retryState);
-    }
-    if (!audit.passed && stateKey && retryState) {
-      retryState[stateKey] = audit;
-      saveCreativityRetryState(retryState);
+    updateCreativityMetrics((metrics) => {
+      metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
+      if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
+    });
+    if (stateKey) updateJson(creativityRetryPath, {} as Record<string, CreativityAudit>, (state) => {
+      if (audit.passed) delete state[stateKey];
+      else state[stateKey] = audit;
+    });
+    if (!audit.passed && stateKey) {
       rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
       api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
 
@@ -831,9 +1200,7 @@ export default function register(api: any) {
           retryPrompt: buildCreativityAutoRetryPrompt(audit),
           sessionKey: stateKey,
         });
-        const metrics2 = loadCreativityMetrics();
-        metrics2.counters.retryTriggered = Number(metrics2.counters.retryTriggered || 0) + 1;
-        saveCreativityMetrics(metrics2);
+        updateCreativityMetrics((metrics) => { metrics.counters.retryTriggered = Number(metrics.counters.retryTriggered || 0) + 1; });
         rs.observedSignals.push('creativity_retry_predelivery');
         api.logger.info?.(`cortex-route-gate: scheduled pre-delivery creativity retry session=${stateKey} delivery=${deliveryKey}`);
         api.sendUserMessage(buildCreativityAutoRetryPrompt(audit), { deliverAs: 'followUp' });
@@ -858,22 +1225,22 @@ export default function register(api: any) {
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
-    const stats = loadStats(statsPath);
     const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
     const success = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
-    const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
-    taskBucket.uses += 1;
-    if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
-    stats.byTask[rs.taskClass] = taskBucket;
-    for (const level of rs.plan.recommendedLevels) {
-      const bucket = stats.byLevel[String(level.level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
-      bucket.uses += 1;
-      if (success) bucket.successes += 1; else bucket.failures += 1;
-      bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
-      bucket.lastReason = success ? 'successful_run' : (rs.observedSignals[0] || 'failed_run');
-      stats.byLevel[String(level.level)] = bucket;
-    }
-    saveStats(statsPath, stats);
+    updateStats(statsPath, (stats) => {
+      const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
+      taskBucket.uses += 1;
+      if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
+      stats.byTask[rs.taskClass] = taskBucket;
+      for (const level of rs.plan.recommendedLevels) {
+        const bucket = stats.byLevel[String(level.level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
+        bucket.uses += 1;
+        if (success) bucket.successes += 1; else bucket.failures += 1;
+        bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
+        bucket.lastReason = success ? 'successful_run' : (rs.observedSignals[0] || 'failed_run');
+        stats.byLevel[String(level.level)] = bucket;
+      }
+    });
     if ((contradictions.contradictions || []).length > 0 && rs.observedSignals.every((x) => !x.startsWith('contradiction:'))) {
       const severe = (contradictions.contradictions || []).filter((x: any) => x?.severity === 'high').length;
       if (severe > 0) rs.observedSignals.push(`contradiction:high:${severe}`);
@@ -881,3 +1248,5 @@ export default function register(api: any) {
     runStateByKey.delete(stateKey);
   });
 }
+
+export { updateJson, withFileLock };

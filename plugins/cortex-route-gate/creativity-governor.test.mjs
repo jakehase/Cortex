@@ -8,17 +8,14 @@ import register from './index.ts';
 
 const originalFetch = globalThis.fetch;
 
-globalThis.fetch = async () => ({
-  ok: true,
-  text: async () => JSON.stringify({
+globalThis.fetch = async () => new Response(JSON.stringify({
     recommended_levels: [
       { level: 24, name: 'Nexus', reason: 'test routing' },
       { level: 5, name: 'Oracle', reason: 'test routing' },
     ],
     routing_method: 'semantic_orchestration',
     reasoning: ['test harness routing'],
-  }),
-});
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
 
 test.after(() => {
   globalThis.fetch = originalFetch;
@@ -136,38 +133,26 @@ test('ordinary status prompt does not inject creativity governor', async () => {
   assert.doesNotMatch(context, /L13 Dreamer/);
 });
 
-test('requireRouting degrades to fallback envelope instead of throwing when Cortex fetch fails', async () => {
+test('requireRouting rejects the turn when Cortex fetch fails', async () => {
   globalThis.fetch = async () => {
     throw new TypeError('fetch failed');
   };
 
   const harness = createHarness({ requireRouting: true });
-  const context = await runBeforePromptBuild(harness, {
+  await assert.rejects(() => runBeforePromptBuild(harness, {
     prompt: 'Normal prompt wrapper.',
-    messages: [
-      {
-        role: 'user',
-        content: 'Did the benchmark finish?',
-      },
-    ],
-    sessionKey: 'agent:main:test:require-routing-fallback',
-  });
+    messages: [{ role: 'user', content: 'Did the benchmark finish?' }],
+    sessionKey: 'agent:main:test:require-routing-reject',
+  }), /routing unavailable while requireRouting is enabled/);
 
-  assert.match(context, /CORTEX_ROUTE_GATE/);
-  assert.match(context, /routing_method: fallback/);
-  assert.match(context, /Cortex routing failed, using fallback mandatory routing envelope/i);
-
-  globalThis.fetch = async () => ({
-    ok: true,
-    text: async () => JSON.stringify({
+  globalThis.fetch = async () => new Response(JSON.stringify({
       recommended_levels: [
         { level: 24, name: 'Nexus', reason: 'test routing' },
         { level: 5, name: 'Oracle', reason: 'test routing' },
       ],
       routing_method: 'semantic_orchestration',
       reasoning: ['test harness routing'],
-    }),
-  });
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
 });
 
 test('cron turns are ineligible even if they contain creativity language', async () => {

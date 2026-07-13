@@ -1547,54 +1547,39 @@ def acknowledge_blocker(objective_key: str, *, blocker_fingerprint: str, actor: 
 
 def requeue_objective(objective_key: str, *, actor: str = "cortex", reason: Optional[str] = None) -> JsonDict:
     stores = _stores()
-    queue_item, process = _resolve_objective(objective_key, stores=stores)
+    queue_item, _ = _resolve_objective(objective_key, stores=stores)
     if queue_item is None:
         raise HTTPException(status_code=400, detail="only maintenance-backed objectives can be requeued")
     item_id = str(queue_item.get("item_id") or "").strip()
     if not item_id:
         raise HTTPException(status_code=400, detail="maintenance queue item missing item_id")
-    queue_status = str(queue_item.get("status") or "").strip().lower()
-    if queue_status not in {"blocked", "completed"}:
-        raise HTTPException(status_code=400, detail=f"maintenance item '{item_id}' is not requeueable from status '{queue_status or 'unknown'}'")
-
-    old_process_id = str(queue_item.get("process_id") or "").strip() or None
-    if old_process_id:
-        old_process = get_process(old_process_id)
-        if old_process is not None and str(old_process.get("status") or "").strip().lower() not in TERMINAL_PROCESS_STATUSES | {"paused"}:
+    resolved_status = str(queue_item.get("status") or "").strip().lower()
+    if resolved_status not in {"blocked", "completed"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"maintenance item '{item_id}' is not requeueable from status '{resolved_status or 'unknown'}'",
+        )
+    try:
+        _, old_process_id = stores["maintenance_queue_store"].requeue(
+            item_id,
+            actor=actor,
+            reason=str(reason or "operator_requeue"),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"maintenance item '{item_id}' no longer exists") from exc
+    # External scheduler side effects occur only after this request owns the
+    # successful queue transition. A losing concurrent request remains inert.
+    old_process = get_process(old_process_id) if old_process_id else None
+    if old_process_id and old_process is not None:
+        if str(old_process.get("status") or "").strip().lower() not in TERMINAL_PROCESS_STATUSES | {"paused"}:
             pause_process(old_process_id)
-        if old_process is not None:
-            record_process_event(
-                old_process_id,
-                "mission_control_requeued",
-                {"objective_key": objective_key, "item_id": item_id, "actor": actor, "reason": str(reason or "operator_requeue")},
-            )
-
-    metadata = dict(queue_item.get("metadata") or {})
-    requeue_count = int(metadata.get("mission_control_requeue_count", 0) or 0) + 1
-    metadata.update(
-        {
-            "mission_control_requeue_count": requeue_count,
-            "mission_control_last_requeue_at": _now_iso(),
-            "mission_control_last_requeue_reason": str(reason or "operator_requeue").strip() or "operator_requeue",
-            "mission_control_last_requeue_actor": str(actor or "cortex").strip() or "cortex",
-            "mission_control_previous_process_id": old_process_id,
-        }
-    )
-
-    next_process_id = f"{(old_process_id or 'proc_maintenance_item').rstrip()}_rq{requeue_count}"
-    queue_item.update(
-        {
-            "status": "pending",
-            "process_id": next_process_id,
-            "claimed_at": None,
-            "completed_at": None,
-            "blocked_at": None,
-            "last_transition_at": _now_iso(),
-            "projection": {},
-            "metadata": metadata,
-        }
-    )
-    stores["maintenance_queue_store"].save(queue_item)
+        record_process_event(
+            old_process_id,
+            "mission_control_requeued",
+            {"objective_key": objective_key, "item_id": item_id, "actor": actor, "reason": str(reason or "operator_requeue")},
+        )
     _sync_queue(stores)
     return objective_detail(item_id)
 

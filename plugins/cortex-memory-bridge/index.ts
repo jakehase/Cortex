@@ -1,4 +1,5 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/memory-core';
+import { createHash } from 'node:crypto';
 
 type BridgeConfig = {
   baseUrl?: string;
@@ -22,6 +23,9 @@ type BridgeConfig = {
   explicitBoost?: number;
   corroborationBoost?: number;
   hardQueryCandidateCount?: number;
+  maxResponseBytes?: number;
+  lifecycleMaxInFlight?: number;
+  recentOutputMaxChars?: number;
 };
 
 type MemoryCandidate = {
@@ -59,6 +63,128 @@ type ReconcileResult = {
   conflicts: Array<{ entity?: string; attribute?: string; paths: string[]; values: string[] }>;
 };
 
+const LIFECYCLE_DEDUP_MAX_ENTRIES = 4096;
+const LIFECYCLE_DEDUP_TTL_MS = 10 * 60 * 1000;
+const LIFECYCLE_MAX_IN_FLIGHT = 64;
+const RECENT_OUTPUT_MAX_ENTRIES = 1024;
+const RECENT_OUTPUT_TTL_MS = 10 * 60 * 1000;
+const RECENT_OUTPUT_MAX_CHARS = 4096;
+
+function lifecyclePersistenceKey(session: string, payload: string): string {
+  const sessionBytes = Buffer.from(session, 'utf8');
+  const payloadBytes = Buffer.from(payload, 'utf8');
+  const encodedLength = (length: number) => {
+    const buffer = Buffer.allocUnsafe(8);
+    buffer.writeBigUInt64BE(BigInt(length));
+    return buffer;
+  };
+  const digest = createHash('sha256')
+    .update(encodedLength(sessionBytes.length))
+    .update(sessionBytes)
+    .update(encodedLength(payloadBytes.length))
+    .update(payloadBytes)
+    .digest('hex');
+  return `${session}:${digest}`;
+}
+
+function lifecycleIdentity(event: any, ctx: any): string | undefined {
+  for (const field of ['runId', 'run_id', 'completionId', 'completion_id']) {
+    for (const source of [ctx, event]) {
+      const value = source?.[field];
+      if (typeof value === 'string' && value.trim()) {
+        const digest = createHash('sha256').update(value.trim(), 'utf8').digest('hex');
+        return `${field.replace('_', '').toLowerCase()}:${digest}`;
+      }
+    }
+  }
+  return undefined;
+}
+
+class ExpiringLruMap<T> {
+  private readonly entries = new Map<string, { value: T; expiresAt: number }>();
+  private readonly maxEntries: number;
+  private readonly ttlMs: number;
+
+  constructor(maxEntries: number, ttlMs: number) {
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || !Number.isSafeInteger(ttlMs) || ttlMs < 1) {
+      throw new Error('ExpiringLruMap requires positive integer bounds');
+    }
+    this.maxEntries = maxEntries;
+    this.ttlMs = ttlMs;
+  }
+
+  get(key: string, now = Date.now()): T | undefined {
+    this.pruneExpired(now);
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: string, value: T, now = Date.now()): void {
+    this.pruneExpired(now);
+    this.entries.delete(key);
+    while (this.entries.size >= this.maxEntries) {
+      const oldest = this.entries.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
+    this.entries.set(key, { value, expiresAt: now + this.ttlMs });
+  }
+
+  delete(key: string): boolean { return this.entries.delete(key); }
+
+  get size(): number { return this.entries.size; }
+
+  private pruneExpired(now: number): void {
+    for (const [key, entry] of this.entries) {
+      if (entry.expiresAt <= now) this.entries.delete(key);
+    }
+  }
+}
+
+class ExpiringLruSet {
+  private readonly entries = new Map<string, number>();
+  private readonly maxEntries: number;
+  private readonly ttlMs: number;
+
+  constructor(maxEntries: number, ttlMs: number) {
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || !Number.isSafeInteger(ttlMs) || ttlMs < 1) {
+      throw new Error('ExpiringLruSet requires positive integer bounds');
+    }
+    this.maxEntries = maxEntries;
+    this.ttlMs = ttlMs;
+  }
+
+  has(key: string, now = Date.now()): boolean {
+    this.pruneExpired(now);
+    const expiresAt = this.entries.get(key);
+    if (expiresAt === undefined) return false;
+    // Reinsert to make successful lookups the most-recently-used entries.
+    this.entries.delete(key);
+    this.entries.set(key, expiresAt);
+    return true;
+  }
+
+  add(key: string, now = Date.now()): void {
+    this.pruneExpired(now);
+    this.entries.delete(key);
+    while (this.entries.size >= this.maxEntries) {
+      const oldest = this.entries.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
+    this.entries.set(key, now + this.ttlMs);
+  }
+
+  private pruneExpired(now: number): void {
+    for (const [key, expiresAt] of this.entries) {
+      if (expiresAt <= now) this.entries.delete(key);
+    }
+  }
+}
+
 const SearchSchema = {
   type: 'object', additionalProperties: false, required: ['query'],
   properties: { query: { type: 'string', minLength: 1 }, maxResults: { type: 'number', minimum: 1, maximum: 50 }, minScore: { type: 'number', minimum: 0, maximum: 1 } },
@@ -68,7 +194,7 @@ const GetSchema = {
   properties: { path: { type: 'string' }, from: { type: 'number' }, lines: { type: 'number' } },
 } as const;
 
-function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount'>> & BridgeConfig {
+function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount' | 'maxResponseBytes' | 'lifecycleMaxInFlight' | 'recentOutputMaxChars'>> & BridgeConfig {
   const cfg = (pluginConfig ?? {}) as BridgeConfig;
   return {
     baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
@@ -79,7 +205,14 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     retryCount: cfg.retryCount ?? 2,
     retryBackoffMs: cfg.retryBackoffMs ?? 350,
     enabledWriteThrough: cfg.enabledWriteThrough ?? false,
-    enabledCodecContinuity: cfg.enabledCodecContinuity ?? true,
+    enabledCodecContinuity: cfg.enabledCodecContinuity ?? false,
+    maxResponseBytes: cfg.maxResponseBytes ?? 1_048_576,
+    lifecycleMaxInFlight: Number.isSafeInteger(cfg.lifecycleMaxInFlight) && Number(cfg.lifecycleMaxInFlight) > 0
+      ? Math.min(4096, Number(cfg.lifecycleMaxInFlight))
+      : LIFECYCLE_MAX_IN_FLIGHT,
+    recentOutputMaxChars: Number.isSafeInteger(cfg.recentOutputMaxChars) && Number(cfg.recentOutputMaxChars) > 0
+      ? Math.min(65_536, Number(cfg.recentOutputMaxChars))
+      : RECENT_OUTPUT_MAX_CHARS,
     curatedBoost: cfg.curatedBoost ?? 0.24,
     projectFactBoost: cfg.projectFactBoost ?? 0.12,
     durableCandidatePenalty: cfg.durableCandidatePenalty ?? 0.14,
@@ -509,15 +642,25 @@ function retryableError(error: unknown): boolean {
   const msg = String((error as any)?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
 }
-async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250) {
+async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576) {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      return await res.json();
+      const cap = maxResponseBytes;
+      const declared = Number(res.headers.get('content-length'));
+      if (Number.isFinite(declared) && declared > cap) {
+        try { void res.body?.cancel().catch(() => {}); } catch {}
+        throw new Error(`response exceeds ${cap} bytes`);
+      }
+      const reader = res.body?.getReader(); let size = 0; const chunks: Uint8Array[] = [];
+      if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > cap) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${cap} bytes`); } chunks.push(value); }
+      const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      const text = new TextDecoder().decode(bytes);
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${text.slice(0, 300)}`);
+      return text ? JSON.parse(text) : {};
     } catch (error) {
       lastError = error;
       if (attempt >= retryCount || !retryableError(error)) throw error;
@@ -635,24 +778,27 @@ function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: a
 }
 
 async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
-  if (cfg.enabledCodecContinuity === false) return;
+  if (cfg.enabledCodecContinuity === false) return true;
   const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
-  if (!sessionKey) return;
+  if (!sessionKey) return true;
   const text = [extractAssistantVisibleText(event?.messages), extractText(event?.result), String(fallbackText || '')]
     .filter(Boolean).join('\n').replace(/\s+/g, ' ').trim().slice(-2400);
-  if (text.length < 20 || containsSecretLike(text)) return;
+  if (text.length < 20 || containsSecretLike(text)) return true;
   try {
     await postJson(cfg.baseUrl, cfg.codecEventsPath, {
+      idempotency_key: ctx?.idempotencyKey,
       session_key: sessionKey,
       events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown' } }],
       max_chars: 1200,
-    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
+    return true;
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed: ${String(error)}`);
+    return false;
   }
 }
 async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
-  if (!cfg.enabledWriteThrough) return;
+  if (!cfg.enabledWriteThrough) return true;
   const text = [
     extractAssistantVisibleText(event?.messages),
     extractText(event?.result),
@@ -660,20 +806,22 @@ async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof 
   ].filter(Boolean).join('\n').replace(/\s+/g, ' ').trim();
   if (!text) {
     api.logger.info?.('cortex-memory-bridge: write-through skipped (no extractable text)');
-    return;
+    return true;
   }
   const recent = text.slice(-2000);
   const dur = durabilityScore(recent);
   if (dur.score < cfg.minDurabilityScore) {
     api.logger.info?.(`cortex-memory-bridge: write-through skipped (score=${dur.score.toFixed(2)} < min=${cfg.minDurabilityScore.toFixed(2)} reasons=${dur.reasons.join(',') || 'none'})`);
-    return;
+    return true;
   }
   const senderScoped = buildWriteThroughMetadata(cfg, ctx, recent, dur);
   try {
-    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped, idempotency_key: ctx?.idempotencyKey }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
     api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
+    return true;
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: write-through failed: ${String(error)}`);
+    return false;
   }
 }
 
@@ -683,7 +831,35 @@ const plugin = {
   description: 'Bridge from OpenClaw memory_search into Cortex /knowledge/search with optional durable-memory write-through.',
   kind: 'memory',
   register(api: OpenClawPluginApi) {
-    const recentOutputBySession = new Map<string, string>();
+    const recentOutputMaxChars = resolveConfig(api.pluginConfig).recentOutputMaxChars;
+    const recentOutputBySession = new ExpiringLruMap<string>(RECENT_OUTPUT_MAX_ENTRIES, RECENT_OUTPUT_TTL_MS);
+    const completed = new ExpiringLruSet(LIFECYCLE_DEDUP_MAX_ENTRIES, LIFECYCLE_DEDUP_TTL_MS);
+    const inFlight = new Map<string, Promise<boolean>>();
+    const makePersistenceKey = (session: string, event: any, ctx: any, fallback?: string) => {
+      const identity = lifecycleIdentity(event, ctx);
+      const payload = identity ? `lifecycle:${identity}` : `content:${String(fallback || '').slice(-recentOutputMaxChars)}`;
+      return lifecyclePersistenceKey(session, payload);
+    };
+    const persistLifecycle = (persistenceKey: string, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) => {
+      if (completed.has(persistenceKey)) return Promise.resolve(true);
+      const existing = inFlight.get(persistenceKey);
+      if (existing) return existing;
+      if (inFlight.size >= cfg.lifecycleMaxInFlight) {
+        api.logger.warn?.(`cortex-memory-bridge: lifecycle persistence rejected at in-flight capacity ${cfg.lifecycleMaxInFlight}`);
+        return Promise.resolve(false);
+      }
+      const pending = (async () => {
+        const writeThroughSucceeded = await maybeWriteThrough(api, cfg, event, { ...ctx, idempotencyKey: persistenceKey }, fallbackText);
+        const codecSucceeded = await maybeWriteCodecContinuity(api, cfg, event, { ...ctx, idempotencyKey: persistenceKey }, fallbackText);
+        const succeeded = writeThroughSucceeded && codecSucceeded;
+        if (succeeded) completed.add(persistenceKey);
+        return succeeded;
+      })().finally(() => {
+        inFlight.delete(persistenceKey);
+      });
+      inFlight.set(persistenceKey, pending);
+      return pending;
+    };
 
     api.registerMemoryRuntime({
       async getMemorySearchManager(params: { agentId: string }) {
@@ -721,12 +897,12 @@ const plugin = {
             ? Math.max(requestedMax, Math.max(cfg.hardQueryCandidateCount, 20))
             : Math.max(requestedMax, 8);
         try {
-          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
           let rawItems = Array.isArray(response?.results) ? response.results : [];
           if (recentSummaryQuery && !rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) {
             const seen = new Set(rawItems.map((item: any) => String(item?.id ?? '')));
             for (const expandedQuery of [`recent status summary ${query}`.trim(), `question: ${query} answer:`.trim(), 'Cortex memory bridge repair completed']) {
-              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
               const extra = Array.isArray(expanded?.results) ? expanded.results : [];
               for (const item of extra) {
                 const id = String(item?.id ?? '');
@@ -770,8 +946,8 @@ const plugin = {
 
     api.on('llm_output', (event: any, ctx: any) => {
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
-      const text = extractText(event).replace(/\s+/g, ' ').trim();
-      if (key && text) recentOutputBySession.set(key, text.slice(-4000));
+      const text = extractText(event);
+      if (key && text) recentOutputBySession.set(key, text.slice(-recentOutputMaxChars));
     });
 
     api.on('subagent_ended', async (event: any, ctx: any) => {
@@ -781,8 +957,8 @@ const plugin = {
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: subagent_ended shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
-      await maybeWriteThrough(api, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
-      await maybeWriteCodecContinuity(api, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
+      const persistenceKey = makePersistenceKey(key, event, ctx, fallbackText || extractText(event?.result));
+      await persistLifecycle(persistenceKey, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
     });
 
     api.on('agent_end', async (event: any, ctx: any) => {
@@ -792,12 +968,12 @@ const plugin = {
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
-      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-      await maybeWriteCodecContinuity(api, cfg, event, ctx, fallbackText);
+      const persistenceKey = makePersistenceKey(key, event, ctx, fallbackText || extractText(event?.result));
+      await persistLifecycle(persistenceKey, cfg, event, ctx, fallbackText);
       if (key) recentOutputBySession.delete(key);
     });
   },
 };
 
 export default plugin;
-export { durabilityScore, buildWriteThroughMetadata, reconcileResults };
+export { ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults };

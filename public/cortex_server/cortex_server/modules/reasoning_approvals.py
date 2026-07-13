@@ -5,7 +5,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 from cortex_server.modules.reasoning_store import list_docs, replace_namespace_docs
@@ -16,6 +16,7 @@ DEFAULT_DB_PATH = Path(os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state
 ENABLE_LEGACY_JSON_FALLBACK = str(os.getenv("REASONING_APPROVALS_ENABLE_LEGACY_JSON_FALLBACK", "0")).strip().lower() in {"1", "true", "yes", "on"}
 _NAMESPACE = "approval_grants"
 _LOCK = threading.RLock()
+_LIST_BINDINGS = ("node_ids", "endpoint_prefixes", "methods", "risk_levels")
 
 
 class ReasoningApprovalError(ValueError):
@@ -85,6 +86,11 @@ def load_state() -> Dict[str, Any]:
 
 def save_state(state: Dict[str, Any]) -> Dict[str, Any]:
     grants = [dict(row) for row in (state.get("grants") or []) if isinstance(row, dict)]
+    # The generic document store supplies created_at for ordinary documents.
+    # Suppress that behavior here: for grants it is authorization provenance,
+    # and persisting an old malformed row must not manufacture provenance.
+    for grant in grants:
+        grant.setdefault("created_at", None)
     state["updated_at"] = _now_iso()
     with _LOCK:
         replace_namespace_docs(_NAMESPACE, grants, id_field="grant_id", db_path=_db_path())
@@ -105,10 +111,55 @@ def _parse_ts(value: Optional[str]) -> Optional[datetime]:
 
 
 
-def _normalize_grant(grant: Dict[str, Any]) -> Dict[str, Any]:
+def _string_binding(
+    value: Any, *, transform: Optional[Callable[[str], str]] = None
+) -> Optional[List[str]]:
+    """Return a normalized string binding, or None when its shape is unsafe."""
+    if not isinstance(value, (list, tuple)):
+        return None
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        return None
+    if transform is None:
+        return list(value)
+    return [transform(item) for item in value]
+
+
+def _endpoint_prefix_binding(value: Any) -> Optional[List[str]]:
+    prefixes = _string_binding(value)
+    if prefixes is None:
+        return None
+    normalized: List[str] = []
+    for prefix in prefixes:
+        # A prefix is an absolute URL path. Preserve the historically accepted
+        # trailing slash, but reject ambiguous repeated-slash forms rather than
+        # allowing rstrip() to turn them into an empty authorization boundary.
+        if not prefix.startswith("/") or "//" in prefix:
+            return None
+        normalized.append(prefix if prefix == "/" else prefix.rstrip("/"))
+    return normalized
+
+
+def _normalized_bindings(grant: Dict[str, Any]) -> Optional[Dict[str, List[str]]]:
+    transforms = {"methods": str.upper, "risk_levels": str.lower}
+    bindings: Dict[str, List[str]] = {}
+    for field in _LIST_BINDINGS:
+        if field == "endpoint_prefixes":
+            value = _endpoint_prefix_binding(grant.get(field))
+        else:
+            value = _string_binding(grant.get(field), transform=transforms.get(field))
+        if value is None:
+            return None
+        bindings[field] = value
+    return bindings
+
+
+def _normalize_grant(grant: Dict[str, Any], *, new: bool = False) -> Dict[str, Any]:
     out = dict(grant or {})
     out.setdefault("grant_id", f"grant_{uuid4().hex[:12]}")
-    out.setdefault("created_at", _now_iso())
+    # Provenance may only be minted while creating a grant. Persisted rows must
+    # retain a missing/malformed timestamp so authorization fails closed.
+    if new:
+        out.setdefault("created_at", _now_iso())
     out.setdefault("granted_by", "human")
     out.setdefault("scope", "workflow")
     out.setdefault("workflow_id", None)
@@ -121,10 +172,16 @@ def _normalize_grant(grant: Dict[str, Any]) -> Dict[str, Any]:
     out.setdefault("revoked_at", None)
     out.setdefault("note", None)
     out.setdefault("metadata", {})
-    out["node_ids"] = [str(x) for x in (out.get("node_ids") or []) if str(x).strip()]
-    out["endpoint_prefixes"] = [str(x) for x in (out.get("endpoint_prefixes") or []) if str(x).strip()]
-    out["methods"] = [str(x).upper() for x in (out.get("methods") or []) if str(x).strip()]
-    out["risk_levels"] = [str(x).lower() for x in (out.get("risk_levels") or []) if str(x).strip()]
+    bindings = _normalized_bindings(out)
+    if bindings is None:
+        if new:
+            raise ReasoningApprovalError(
+                "approval bindings must be lists or tuples containing only nonblank strings"
+            )
+        # Keep malformed persisted values intact so later authorization can
+        # detect them and fail closed rather than laundering them into a grant.
+    else:
+        out.update(bindings)
     out["metadata"] = dict(out.get("metadata") or {})
     return out
 
@@ -134,7 +191,7 @@ def create_approval_grant(**kwargs: Any) -> Dict[str, Any]:
     with _LOCK:
         state = load_state()
         grants = state.setdefault("grants", [])
-        grant = _normalize_grant(kwargs)
+        grant = _normalize_grant(kwargs, new=True)
         grants.append(grant)
         if len(grants) > 1000:
             del grants[:-1000]
@@ -179,8 +236,15 @@ def revoke_approval_grant(grant_id: str) -> Dict[str, Any]:
 def _is_active(grant: Dict[str, Any], *, now_iso: Optional[str] = None) -> bool:
     if grant.get("revoked_at"):
         return False
+    # A durable grant must carry a parseable provenance timestamp. Missing or
+    # corrupted provenance on a persisted row fails closed.
+    if _parse_ts(grant.get("created_at")) is None:
+        return False
     now_dt = _parse_ts(now_iso) or datetime.now(timezone.utc)
-    expires_at = _parse_ts(grant.get("expires_at"))
+    raw_expires_at = grant.get("expires_at")
+    expires_at = _parse_ts(raw_expires_at)
+    if raw_expires_at and expires_at is None:
+        return False
     if expires_at and expires_at <= now_dt:
         return False
     return True
@@ -193,21 +257,19 @@ def resolve_approval_grants(workflow_metadata: Optional[Dict[str, Any]] = None, 
     out: List[Dict[str, Any]] = []
     seen: set[str] = set()
 
-    embedded = []
-    embedded.extend(workflow_metadata.get("approval_grants") or [])
     step_metadata = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
-    embedded.extend((step_metadata or {}).get("approval_grants") or [])
-    for item in embedded:
-        if isinstance(item, dict):
-            grant = _normalize_grant(item)
-            gid = str(grant.get("grant_id") or "")
-            if gid and gid not in seen:
-                seen.add(gid)
-                out.append(grant)
-
+    # Callers may only nominate persisted grants by ID.  Embedded grant bodies are
+    # untrusted input, even when they contain a plausible grant_id.
     grant_ids: List[str] = []
-    grant_ids.extend(str(x) for x in (workflow_metadata.get("approval_grant_ids") or []) if str(x).strip())
-    grant_ids.extend(str(x) for x in ((step_metadata or {}).get("approval_grant_ids") or []) if str(x).strip())
+    for candidates in (
+        workflow_metadata.get("approval_grant_ids"),
+        (step_metadata or {}).get("approval_grant_ids"),
+    ):
+        if not isinstance(candidates, (list, tuple)):
+            continue
+        if any(not isinstance(candidate, str) or not candidate.strip() for candidate in candidates):
+            continue
+        grant_ids.extend(candidates)
     for grant_id in grant_ids:
         grant = get_approval_grant(grant_id)
         if grant and grant_id not in seen:
@@ -236,32 +298,40 @@ def grant_allows_step(
     for grant in resolve_approval_grants(workflow_metadata, step):
         if not _is_active(grant):
             continue
+        bindings = _normalized_bindings(grant)
+        if bindings is None:
+            continue
         if required_scope and str(grant.get("scope") or "") != str(required_scope):
             continue
         grant_workflow_id = str(grant.get("workflow_id") or "")
-        if grant_workflow_id and workflow_id and grant_workflow_id != workflow_id:
+        if grant_workflow_id and grant_workflow_id != workflow_id:
             continue
         grant_task_id = str(grant.get("task_id") or "")
-        if grant_task_id and task_id and grant_task_id != task_id:
+        if grant_task_id and grant_task_id != task_id:
             continue
-        node_ids = [str(x) for x in (grant.get("node_ids") or []) if str(x).strip()]
+        node_ids = bindings["node_ids"]
         if node_ids and node_id not in node_ids:
             continue
-        endpoint_prefixes = [str(x) for x in (grant.get("endpoint_prefixes") or []) if str(x).strip()]
-        if endpoint_prefixes and not any(endpoint.startswith(prefix) for prefix in endpoint_prefixes):
+        endpoint_prefixes = bindings["endpoint_prefixes"]
+        if endpoint_prefixes and not any(
+            (prefix == "/" and endpoint.startswith("/"))
+            or endpoint == prefix
+            or endpoint.startswith(prefix + "/")
+            for prefix in endpoint_prefixes
+        ):
             continue
-        methods = [str(x).upper() for x in (grant.get("methods") or []) if str(x).strip()]
+        methods = bindings["methods"]
         if methods and method not in methods:
             continue
-        risk_levels = [str(x).lower() for x in (grant.get("risk_levels") or []) if str(x).strip()]
-        if risk_levels and risk_value and risk_value not in risk_levels:
+        risk_levels = bindings["risk_levels"]
+        if risk_levels and risk_value not in risk_levels:
             continue
         scope = str(grant.get("scope") or "workflow")
-        if scope == "step" and not node_ids and not node_id:
+        if scope == "step" and (not node_ids or not node_id or node_id not in node_ids):
             continue
         if scope == "endpoint" and not endpoint_prefixes:
             continue
-        if scope == "risk_class" and risk_levels and risk_value and risk_value not in risk_levels:
+        if scope == "risk_class" and (not risk_levels or not risk_value or risk_value not in risk_levels):
             continue
         return grant
     return None

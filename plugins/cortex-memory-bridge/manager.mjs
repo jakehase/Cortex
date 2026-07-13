@@ -7,6 +7,7 @@ function resolveConfig(cfg) {
     timeoutMs: Number(pluginCfg.timeoutMs || 12000),
     retryCount: Number(pluginCfg.retryCount ?? 2),
     retryBackoffMs: Number(pluginCfg.retryBackoffMs ?? 350),
+    maxResponseBytes: Number(pluginCfg.maxResponseBytes ?? 1_048_576),
     curatedBoost: Number(pluginCfg.curatedBoost ?? 0.24),
     projectFactBoost: Number(pluginCfg.projectFactBoost ?? 0.12),
     durableCandidatePenalty: Number(pluginCfg.durableCandidatePenalty ?? 0.14),
@@ -381,15 +382,24 @@ function retryableError(error) {
   const msg = String(error?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
 }
-async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 250) {
+async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576) {
   let lastError;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      return await res.json();
+      const declared = Number(res.headers.get('content-length'));
+      if (Number.isFinite(declared) && declared > maxResponseBytes) {
+        try { void res.body?.cancel().catch(() => {}); } catch {}
+        throw new Error(`response exceeds ${maxResponseBytes} bytes`);
+      }
+      const reader = res.body?.getReader(); let size = 0; const chunks = [];
+      if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > maxResponseBytes) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${maxResponseBytes} bytes`); } chunks.push(value); }
+      const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      const text = new TextDecoder().decode(bytes);
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${text.slice(0, 300)}`);
+      return text ? JSON.parse(text) : {};
     } catch (error) {
       lastError = error;
       if (attempt >= retryCount || !retryableError(error)) throw error;
@@ -412,7 +422,7 @@ export class CortexMemorySearchManager {
     const classification = classifyQuery(query);
     const requestedMax = Number(opts.maxResults || 6);
     const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, this.rcfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
-    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, { query, n_results: fetchCount }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs);
+    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, { query, n_results: fetchCount }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes);
     const items = Array.isArray(response?.results) ? response.results : [];
     const reconciled = reconcileResults(query, items, this.rcfg);
     let results = reconciled.results.slice(0, requestedMax);

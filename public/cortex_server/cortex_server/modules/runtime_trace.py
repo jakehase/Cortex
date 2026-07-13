@@ -176,6 +176,41 @@ def git_diff_snapshot(repo_path: Optional[str], *, cached: bool = False) -> Opti
         return None
 
 
+async def git_status_snapshot_async(repo_path: Optional[str]) -> Optional[JsonDict]:
+    target = str(repo_path or "").strip()
+    if not target:
+        return None
+    try:
+        from cortex_server.tools.git_wrapper import run_git_async
+        short = await run_git_async(["git", "-C", target, "status", "--short"])
+        branch = await run_git_async(["git", "-C", target, "rev-parse", "--abbrev-ref", "HEAD"])
+        return {"repo_path": target, "branch": _clean_text(branch.stdout.strip(), limit=120),
+                "status_lines": _clean_rows(short.stdout, limit=40, row_limit=220),
+                "status_preview": _clean_text(short.stdout, limit=1200),
+                "stderr_preview": _clean_text(short.stderr, limit=400)}
+    except Exception:
+        return None
+
+
+async def git_diff_snapshot_async(repo_path: Optional[str], *, cached: bool = False) -> Optional[JsonDict]:
+    target = str(repo_path or "").strip()
+    if not target:
+        return None
+    try:
+        from cortex_server.tools.git_wrapper import run_git_async
+        args = ["diff", "--cached", "--stat"] if cached else ["diff", "--stat"]
+        patch_args = ["diff", "--cached", "--unified=0"] if cached else ["diff", "--unified=0"]
+        diff = await run_git_async(["git", "-C", target, *args])
+        patch = await run_git_async(["git", "-C", target, *patch_args])
+        return {"repo_path": target, "cached": bool(cached),
+                "stat_lines": _clean_rows(diff.stdout, limit=30, row_limit=240),
+                "stat_preview": _clean_text(diff.stdout, limit=1000),
+                "patch_preview": _clean_text(patch.stdout, limit=1600),
+                "stderr_preview": _clean_text(diff.stderr or patch.stderr, limit=400)}
+    except Exception:
+        return None
+
+
 def classify_command(argv: Sequence[str]) -> str:
     rows = [str(row or "").strip() for row in (argv or []) if str(row or "").strip()]
     joined = " ".join(rows).lower()
@@ -195,7 +230,9 @@ __all__ = [
     "emit_output_events",
     "extract_trace_context",
     "git_diff_snapshot",
+    "git_diff_snapshot_async",
     "git_status_snapshot",
+    "git_status_snapshot_async",
     "record_trace_event",
     "shell_preview",
 ]

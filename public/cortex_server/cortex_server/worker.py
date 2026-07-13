@@ -17,9 +17,29 @@ from cortex_server.modules.ouroboros import Ouroboros
 
 app = Celery(
     "cortex_tasks",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0",
+    broker=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
+    backend=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
 )
+
+
+def check_redis_connection() -> bool:
+    """Return true only after the configured Celery broker is reachable."""
+    try:
+        socket_timeout = max(0.1, min(float(os.getenv("CORTEX_REDIS_STARTUP_TIMEOUT_SECONDS", "2.0")), 30.0))
+    except ValueError:
+        socket_timeout = 2.0
+    connection = app.connection_for_read(
+        url=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
+        transport_options={
+            "socket_connect_timeout": socket_timeout,
+            "socket_timeout": socket_timeout,
+        },
+    )
+    try:
+        connection.ensure_connection(max_retries=0)
+        return True
+    finally:
+        connection.release()
 
 
 @app.task(name="cortex_tasks.long_running_research")
