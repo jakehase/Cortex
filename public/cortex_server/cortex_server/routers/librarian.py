@@ -105,6 +105,11 @@ def _fact_supersession_lock_path() -> Path:
     return Path(configured) if configured else Path(CHROMA_DIR) / ".fact-supersession.lock"
 
 
+def _fact_supersession_journal_dir() -> Path:
+    configured = os.getenv("CORTEX_FACT_SUPERSESSION_JOURNAL_DIR")
+    return Path(configured) if configured else Path(CHROMA_DIR) / ".fact-supersession-journal"
+
+
 @contextmanager
 def _fact_supersession_transaction():
     """Serialize a complete fact revision across threads and processes.
@@ -122,6 +127,122 @@ def _fact_supersession_transaction():
                 yield
             finally:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _write_fact_supersession_journal(entry: Dict[str, Any]) -> Path:
+    """Durably publish a transaction intent before changing Chroma state."""
+    journal_dir = _fact_supersession_journal_dir()
+    journal_dir_existed = journal_dir.exists()
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    if not journal_dir_existed:
+        _sync_directory(journal_dir.parent)
+    transaction_id = str(entry["transaction_id"])
+    journal_path = journal_dir / f"{transaction_id}.json"
+    temporary_path = journal_dir / f".{transaction_id}.{uuid.uuid4().hex}.tmp"
+    try:
+        encoded = json.dumps(entry, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        descriptor = os.open(temporary_path, flags, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as journal_file:
+                journal_file.write(encoded)
+                journal_file.flush()
+                os.fsync(journal_file.fileno())
+        except Exception:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            raise
+        os.replace(temporary_path, journal_path)
+        _sync_directory(journal_dir)
+        return journal_path
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _remove_fact_supersession_journal(journal_path: Path) -> None:
+    journal_path.unlink()
+    _sync_directory(journal_path.parent)
+
+
+def _read_fact_supersession_journal(journal_path: Path) -> Dict[str, Any]:
+    try:
+        entry = json.loads(journal_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}") from exc
+    if not isinstance(entry, dict) or entry.get("version") != 1:
+        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
+    required_strings = ("transaction_id", "fact_key", "memory_id", "text")
+    if any(not isinstance(entry.get(key), str) or not entry[key] for key in required_strings):
+        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
+    if not isinstance(entry.get("metadata"), dict):
+        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
+    return entry
+
+
+def _recover_fact_supersessions_locked() -> None:
+    """Roll forward every durable intent. Caller must hold the process lock."""
+    journal_dir = _fact_supersession_journal_dir()
+    if not journal_dir.exists():
+        return
+    try:
+        journal_paths = sorted(journal_dir.glob("*.json"))
+    except OSError as exc:
+        raise FactSupersessionError("fact supersession journal is unavailable") from exc
+    for journal_path in journal_paths:
+        entry = _read_fact_supersession_journal(journal_path)
+        fact_key = entry["fact_key"]
+        memory_id = entry["memory_id"]
+        metadata = dict(entry["metadata"])
+        try:
+            current = collection.get(where={"fact_key": fact_key}, include=["metadatas"])
+            current_ids = list(current.get("ids") or [])
+            if memory_id not in current_ids:
+                pending_metadata = {
+                    **metadata,
+                    "memory_status": "tombstoned",
+                    "tombstoned": True,
+                    "supersession_pending": True,
+                }
+                collection.add(ids=[memory_id], documents=[entry["text"]], metadatas=[pending_metadata])
+                current_ids.append(memory_id)
+            prior_ids = [row_id for row_id in current_ids if row_id != memory_id]
+            supersede_memory_records(
+                prior_ids,
+                superseded_by=memory_id,
+                reason="newer_fact_key_revision",
+                _skip_recovery=True,
+            )
+            active_metadata = dict(metadata)
+            active_metadata.pop("tombstoned", None)
+            active_metadata.pop("supersession_pending", None)
+            active_metadata["memory_status"] = "active"
+            collection.update(ids=[memory_id], metadatas=[active_metadata])
+            _remove_fact_supersession_journal(journal_path)
+        except FactSupersessionError:
+            raise
+        except Exception as exc:
+            raise FactSupersessionError(
+                f"could not recover fact supersession transaction {entry['transaction_id']}"
+            ) from exc
+
+
+def _recover_fact_supersessions() -> None:
+    with _fact_supersession_transaction():
+        _recover_fact_supersessions_locked()
 
 
 MAX_MEMORY_METADATA_BYTES = 65_536
@@ -432,7 +553,15 @@ def _normalize_memory_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, 
     return normalized
 
 
-def supersede_memory_records(memory_ids: List[str], *, superseded_by: Optional[str] = None, reason: str = "explicit_correction") -> Dict[str, Any]:
+def supersede_memory_records(
+    memory_ids: List[str],
+    *,
+    superseded_by: Optional[str] = None,
+    reason: str = "explicit_correction",
+    _skip_recovery: bool = False,
+) -> Dict[str, Any]:
+    if not _skip_recovery:
+        _recover_fact_supersessions()
     ids = [str(value).strip() for value in memory_ids if str(value or "").strip()]
     if not ids:
         return {"updated": 0, "missing": []}
@@ -461,31 +590,59 @@ def _supersede_prior_fact_versions(fact_key: str, *, superseded_by: str) -> int:
     if not str(fact_key or "").strip():
         return 0
     with _fact_supersession_transaction():
+        _recover_fact_supersessions_locked()
         data = collection.get(where={"fact_key": str(fact_key)}, include=["metadatas"])
         ids = [value for value in (data.get("ids") or []) if value != superseded_by]
-        return int(supersede_memory_records(ids, superseded_by=superseded_by, reason="newer_fact_key_revision").get("updated", 0))
+        return int(supersede_memory_records(
+            ids,
+            superseded_by=superseded_by,
+            reason="newer_fact_key_revision",
+            _skip_recovery=True,
+        ).get("updated", 0))
 
 
 def _add_memory_with_supersession(memory_id: str, text: str, metadata: Dict[str, Any]) -> None:
-    """Serialize same-fact writes and compensate if supersession cannot commit."""
+    """Serialize same-fact writes and journal them for crash-safe recovery."""
     fact_key = str(metadata.get("fact_key") or "").strip()
     with _fact_supersession_transaction():
+        _recover_fact_supersessions_locked()
         if not fact_key:
             collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
             return
         prior = collection.get(where={"fact_key": fact_key}, include=["metadatas"])
         prior_ids = [value for value in (prior.get("ids") or []) if value != memory_id]
         prior_metas = list(prior.get("metadatas") or [])
+        try:
+            journal_path = _write_fact_supersession_journal({
+                "version": 1,
+                "transaction_id": uuid.uuid4().hex,
+                "fact_key": fact_key,
+                "memory_id": memory_id,
+                "text": text,
+                "metadata": metadata,
+                "created_at": _utc_iso(),
+            })
+        except Exception as exc:
+            raise FactSupersessionError(
+                "fact supersession journal could not be persisted; existing fact was preserved"
+            ) from exc
         pending_metadata = {**metadata, "memory_status": "tombstoned", "tombstoned": True,
                             "supersession_pending": True}
-        collection.add(ids=[memory_id], documents=[text], metadatas=[pending_metadata])
+        chroma_committed = False
         try:
-            supersede_memory_records(prior_ids, superseded_by=memory_id, reason="newer_fact_key_revision")
+            collection.add(ids=[memory_id], documents=[text], metadatas=[pending_metadata])
+            supersede_memory_records(
+                prior_ids,
+                superseded_by=memory_id,
+                reason="newer_fact_key_revision",
+                _skip_recovery=True,
+            )
             active_metadata = dict(metadata)
             active_metadata.pop("tombstoned", None)
             active_metadata.pop("supersession_pending", None)
             active_metadata["memory_status"] = "active"
             collection.update(ids=[memory_id], metadatas=[active_metadata])
+            chroma_committed = True
         except Exception as exc:
             compensation_errors = []
             try:
@@ -499,7 +656,18 @@ def _add_memory_with_supersession(memory_id: str, text: str, metadata: Dict[str,
                 compensation_errors.append(str(compensation_exc))
             if compensation_errors:
                 raise FactSupersessionError("fact supersession and compensation failed: " + "; ".join(compensation_errors)) from exc
+            try:
+                _remove_fact_supersession_journal(journal_path)
+            except Exception as compensation_exc:
+                raise FactSupersessionError("fact supersession compensation could not clear its journal") from compensation_exc
             raise FactSupersessionError("fact supersession failed; new version was removed") from exc
+        if chroma_committed:
+            try:
+                _remove_fact_supersession_journal(journal_path)
+            except Exception as exc:
+                raise FactSupersessionError(
+                    "fact supersession committed but its recovery journal could not be cleared"
+                ) from exc
 
 
 def _utc_iso() -> str:
@@ -1552,6 +1720,7 @@ def _lexical_search_rows(
 def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -> Dict[str, Any]:
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
+    _recover_fact_supersessions()
 
     exact_query_succeeded = False
     # Exact lexical contains must run before semantic search. Embedding ranking can
@@ -1722,6 +1891,7 @@ def search_with_novelty(
 ) -> Dict[str, Any]:
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
+    _recover_fact_supersessions()
 
     nw = _clamp01(novelty_weight)
     sw = _clamp01(semantic_weight)

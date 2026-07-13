@@ -118,6 +118,11 @@ def _write_shared_fact(barrier, row_id):
     librarian._add_memory_with_supersession(row_id, row_id, {"fact_key": "same"})
 
 
+@pytest.fixture(autouse=True)
+def isolated_fact_supersession_journal(tmp_path, monkeypatch):
+    monkeypatch.setenv("CORTEX_FACT_SUPERSESSION_JOURNAL_DIR", str(tmp_path / "fact-journal"))
+
+
 @pytest.mark.parametrize("memory_ok,structural_ok", [(False, True), (True, False), (False, False)])
 def test_prior_art_gate_fails_closed_when_either_recall_plane_is_unavailable(memory_ok, structural_ok):
     gate = build_prior_art_gate(
@@ -394,6 +399,74 @@ def test_compensation_failure_is_reported_without_exposing_new_active_version(mo
     assert fake.rows["new"]["metadata"]["memory_status"] == "tombstoned"
     assert fake.rows["new"]["metadata"]["supersession_pending"] is True
     assert fake.rows["old"]["metadata"]["memory_status"] == "active"
+
+
+def test_crash_after_prior_supersession_is_rolled_forward_before_recall(monkeypatch):
+    class SimulatedProcessCrash(BaseException):
+        pass
+
+    fake = FakeCollection()
+    fake.add(["old"], ["the color was blue"], [{"fact_key": "color", "memory_status": "active"}])
+    monkeypatch.setattr(librarian, "collection", fake)
+    original_update = fake.update
+    calls = 0
+
+    def crash_during_activation(ids, metadatas):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise SimulatedProcessCrash()
+        return original_update(ids, metadatas)
+
+    monkeypatch.setattr(fake, "update", crash_during_activation)
+    with pytest.raises(SimulatedProcessCrash):
+        librarian._add_memory_with_supersession(
+            "new",
+            "the color is durable green",
+            {"fact_key": "color", "memory_status": "active"},
+        )
+
+    assert fake.rows["old"]["metadata"]["memory_status"] == "superseded"
+    assert fake.rows["new"]["metadata"]["memory_status"] == "tombstoned"
+    monkeypatch.setattr(fake, "update", original_update)
+
+    recalled = librarian.robust_search("durable green", n_results=1)
+
+    assert recalled["results"][0]["id"] == "new"
+    assert fake.rows["new"]["metadata"]["memory_status"] == "active"
+    assert fake.rows["old"]["metadata"]["superseded_by"] == "new"
+    assert list(librarian._fact_supersession_journal_dir().glob("*.json")) == []
+
+
+def test_journal_persistence_failure_leaves_existing_fact_untouched(monkeypatch):
+    fake = FakeCollection()
+    original = {"fact_key": "key", "memory_status": "active", "marker": "preserve"}
+    fake.add(["old"], ["old"], [original])
+    monkeypatch.setattr(librarian, "collection", fake)
+
+    def fail_journal(_entry):
+        raise OSError("journal disk unavailable")
+
+    monkeypatch.setattr(librarian, "_write_fact_supersession_journal", fail_journal)
+    with pytest.raises(librarian.FactSupersessionError, match="existing fact was preserved"):
+        librarian._add_memory_with_supersession("new", "new", {"fact_key": "key"})
+
+    assert set(fake.rows) == {"old"}
+    assert fake.rows["old"]["metadata"] == original
+
+
+def test_malformed_supersession_journal_fails_recall_closed(monkeypatch):
+    journal_dir = librarian._fact_supersession_journal_dir()
+    journal_dir.mkdir(parents=True)
+    (journal_dir / "broken.json").write_text("{not-json", encoding="utf-8")
+
+    class UntouchedCollection:
+        def get(self, **_kwargs):
+            pytest.fail("collection read before journal validation")
+
+    monkeypatch.setattr(librarian, "collection", UntouchedCollection())
+    with pytest.raises(librarian.FactSupersessionError, match="invalid fact supersession journal"):
+        librarian.robust_search("current fact")
 
 
 def test_concurrent_same_fact_writes_leave_exactly_one_active_version(monkeypatch):
