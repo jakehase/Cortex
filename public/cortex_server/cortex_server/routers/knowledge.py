@@ -3,10 +3,11 @@ Knowledge Graph Router - API endpoints for graph operations.
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Annotated, Optional, List, Dict, Any
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import os
 import tempfile
 from cortex_server.models.requests import (
@@ -25,6 +26,72 @@ _DEFAULT_DURABLE_MEMORY_ROOTS = [Path("/root/clawd/memory")]
 _DEFAULT_CODEBASE_INDEX_ROOT = Path("/root/clawd/artifacts/cortex-codebase-memory")
 
 BoundedKnowledgeText = Annotated[str, Field(max_length=16_384)]
+
+MAX_GRAPH_STRING_LENGTH = 16_384
+MAX_GRAPH_TYPE_LENGTH = 256
+MAX_GRAPH_LANGUAGE_LENGTH = 256
+MAX_GRAPH_METADATA_BYTES = 65_536
+MAX_GRAPH_METADATA_DEPTH = 8
+MAX_GRAPH_METADATA_NODES = 1_000
+MAX_GRAPH_METADATA_STRING = 16_384
+MAX_GRAPH_METADATA_KEY = 256
+
+
+def _validate_graph_metadata(value: Dict[str, Any]) -> Dict[str, Any]:
+    nodes = 0
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        nodes += 1
+        if nodes > MAX_GRAPH_METADATA_NODES:
+            raise ValueError("metadata has too many values")
+        if depth > MAX_GRAPH_METADATA_DEPTH:
+            raise ValueError("metadata is too deeply nested")
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if not isinstance(key, str) or len(key) > MAX_GRAPH_METADATA_KEY:
+                    raise ValueError("metadata keys must be bounded strings")
+                pending.append((child, depth + 1))
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+        elif isinstance(item, str):
+            if len(item) > MAX_GRAPH_METADATA_STRING:
+                raise ValueError("metadata string is too long")
+        elif item is not None and not isinstance(item, (bool, int, float)):
+            raise ValueError("metadata contains an unsupported value")
+
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("metadata must be finite JSON") from exc
+    if len(encoded) > MAX_GRAPH_METADATA_BYTES:
+        raise ValueError("metadata exceeds byte limit")
+    return value
+
+
+class BoundedGraphNodeCreateRequest(GraphNodeCreateRequest):
+    id: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    type: str = Field(max_length=MAX_GRAPH_TYPE_LENGTH)
+    name: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
+    uri: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    language: Optional[str] = Field(default=None, max_length=MAX_GRAPH_LANGUAGE_LENGTH)
+
+    _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
+
+
+class BoundedGraphEdgeCreateRequest(GraphEdgeCreateRequest):
+    id: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    type: str = Field(max_length=MAX_GRAPH_TYPE_LENGTH)
+    source_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
+    target_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
+    context: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+
+    _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
 
 
 class KnowledgeSearchRequest(BaseModel):
@@ -689,7 +756,7 @@ async def structural_impact(request: ImpactRequest):
 
 
 @router.post("/nodes")
-async def create_node(request: GraphNodeCreateRequest):
+async def create_node(request: BoundedGraphNodeCreateRequest):
     """Create a new node in the graph."""
     try:
         result = await service.create_node(request)
@@ -713,7 +780,7 @@ async def get_node(node_id: str):
 
 
 @router.post("/edges")
-async def create_edge(request: GraphEdgeCreateRequest):
+async def create_edge(request: BoundedGraphEdgeCreateRequest):
     """Create a new edge in the graph."""
     try:
         result = await service.create_edge(request)
