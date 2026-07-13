@@ -1008,7 +1008,12 @@ export default function register(api: any) {
       if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
       if (routeCacheHmacSecret) {
         const cache = { savedAt: nowIso(), provenance: baseUrl, plan };
-        saveJson(lastGoodPlanPath, { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan);
+        const signedCache = { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan;
+        try {
+          saveJson(lastGoodPlanPath, signedCache);
+        } catch (error) {
+          api.logger.warn?.(`cortex-route-gate: failed to persist last-good route plan: ${String(error)}`);
+        }
       }
     } catch (error) {
       const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
