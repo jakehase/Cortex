@@ -188,6 +188,24 @@ def test_git_uses_option_terminators_and_preserves_success_contract(monkeypatch,
     assert result.model_dump() == {"success": True, "stdout": "updated", "stderr": "", "returncode": 0}
 
 
+def test_git_checkout_passes_validated_branch_as_branch_operand(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return SyncDoneProcess(cmd, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_run)
+    result = repo(tmp_path).checkout("feature")
+
+    assert calls == [["git", "checkout", "feature"]]
+    assert result.success is True
+
+    with pytest.raises(git_wrapper.GitError, match="Invalid Git branch"):
+        repo(tmp_path).checkout("--detach")
+    assert len(calls) == 1
+
+
 def test_sync_git_capture_keeps_only_bounded_tail(monkeypatch, tmp_path):
     monkeypatch.setattr(git_wrapper, "MAX_OUTPUT_CHARS", 8)
     def fake_popen(cmd, **kwargs):
@@ -337,6 +355,37 @@ async def test_git_timeout_escalates_and_reaps(monkeypatch, tmp_path):
     assert (proc.terminated, proc.killed) == (1, 1)
     assert proc.returncode == -9
     assert proc.waited >= 2
+
+
+@pytest.mark.asyncio
+async def test_git_timeout_covers_pending_spawn_and_reaps_late_child(
+    monkeypatch, tmp_path, recwarn
+):
+    proc = HangingProcess()
+    spawn_started = asyncio.Event()
+    release_spawn = asyncio.Event()
+
+    async def create_process(*args, **kwargs):
+        spawn_started.set()
+        try:
+            await release_spawn.wait()
+        except asyncio.CancelledError:
+            await release_spawn.wait()
+        return proc
+
+    monkeypatch.setattr(git_wrapper, "DEFAULT_TIMEOUT", 0.001)
+    monkeypatch.setattr(git_wrapper, "TERMINATE_GRACE", 0.01)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    task = asyncio.create_task(repo(tmp_path)._run_async("status"))
+    await spawn_started.wait()
+
+    with pytest.raises(git_wrapper.GitError, match="timed out"):
+        await asyncio.wait_for(task, 0.1)
+
+    release_spawn.set()
+    await asyncio.sleep(0.03)
+    assert (proc.terminated, proc.killed, proc.returncode) == (1, 1, -9)
+    assert not [w for w in recwarn if issubclass(w.category, RuntimeWarning)]
 
 
 @pytest.mark.asyncio

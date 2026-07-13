@@ -134,11 +134,19 @@ async def run_git_async(
     cmd: List[str], cwd: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT
 ) -> "GitResult":
     """Run Git without blocking, and retain ownership of the child until reaped."""
-    proc = await spawn_owned(asyncio.create_subprocess_exec(
-        *cmd, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    ), TERMINATE_GRACE, _stop_process)
+    deadline = asyncio.get_running_loop().time() + timeout
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        raise GitError("Git command timed out")
     try:
-        out, err = await _bounded_async_command(proc, timeout)
+        proc = await asyncio.wait_for(spawn_owned(asyncio.create_subprocess_exec(
+            *cmd, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        ), TERMINATE_GRACE, _stop_process), remaining)
+    except asyncio.TimeoutError:
+        raise GitError("Git command timed out")
+    try:
+        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+        out, err = await _bounded_async_command(proc, remaining)
     except asyncio.CancelledError:
         await asyncio.shield(_stop_process(proc))
         raise
@@ -460,7 +468,7 @@ class GitRepo:
         """Checkout a branch."""
         if create:
             return self._run("checkout", "-b", _ref(branch, "branch"))
-        return self._run("checkout", "--", _ref(branch, "branch"))
+        return self._run("checkout", _ref(branch, "branch"))
     
     def get_remotes(self) -> List[Dict[str, str]]:
         """Get list of remotes."""
