@@ -1,11 +1,18 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 import cortex_server.modules.reasoning_approvals as approvals
 import cortex_server.modules.reasoning_beliefs as beliefs
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.modules.reasoning_planner import ReasoningPlanGraph
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_delivery_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
 
 
 
