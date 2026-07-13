@@ -455,16 +455,22 @@ async def test_dead_shared_service_rejects_second_owner_without_reference_corrup
 async def test_cancelled_second_acquisition_keeps_first_owner(
     monkeypatch, lifecycle_fakes
 ):
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    # Redis startup is incidental to this ownership test. Run the fake inline
+    # so cancellation timing covers only shared-service acquisition.
+    monkeypatch.setattr(main.asyncio, "to_thread", run_inline)
     first = main.create_app()
     first_context = first.router.lifespan_context(first)
     await first_context.__aenter__()
 
     original_acquire = main._shared_service_owners.acquire
 
-    async def cancel_at_awareness(name, app, start):
+    async def cancel_at_awareness(name, app, start, rollback=None):
         if app is second and name == "awareness":
             raise asyncio.CancelledError("cancelled during second acquisition")
-        return await original_acquire(name, app, start)
+        return await original_acquire(name, app, start, rollback)
 
     monkeypatch.setattr(main._shared_service_owners, "acquire", cancel_at_awareness)
     second = main.create_app()

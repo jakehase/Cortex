@@ -196,13 +196,14 @@ def test_git_checkout_passes_validated_branch_as_branch_operand(monkeypatch, tmp
         return SyncDoneProcess(cmd, **kwargs)
 
     monkeypatch.setattr(subprocess, "Popen", fake_run)
-    result = repo(tmp_path).checkout("feature")
+    git_repo = repo(tmp_path)
+    result = git_repo.checkout("feature")
 
     assert calls == [["git", "checkout", "feature"]]
     assert result.success is True
 
     with pytest.raises(git_wrapper.GitError, match="Invalid Git branch"):
-        repo(tmp_path).checkout("--detach")
+        git_repo.checkout("--detach")
     assert len(calls) == 1
 
 
