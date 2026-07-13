@@ -11,6 +11,31 @@ class HangingStream:
         await asyncio.Event().wait()
 
 
+class ChunkStream:
+    def __init__(self, *chunks):
+        self.chunks = list(chunks)
+
+    async def read(self, size=-1):
+        await asyncio.sleep(0)
+        return self.chunks.pop(0) if self.chunks else b""
+
+
+class CompletedProcess:
+    def __init__(self, stdout=(), stderr=(), returncode=0):
+        self.stdout = ChunkStream(*stdout)
+        self.stderr = ChunkStream(*stderr)
+        self.returncode = returncode
+
+    async def wait(self):
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = -15
+
+    def kill(self):
+        self.returncode = -9
+
+
 class TerminableProcess:
     def __init__(self):
         self.returncode = None
@@ -84,3 +109,32 @@ async def test_docker_spawn_and_execution_share_one_deadline(monkeypatch, kind):
         await asyncio.wait_for(run_command(kind, timeout=1.0), 0.2)
 
     assert proc.terminated == 1
+
+
+@pytest.mark.asyncio
+async def test_docker_captured_stdout_at_limit_remains_complete(monkeypatch):
+    proc = CompletedProcess(stdout=(b"1234", b"5678"))
+    monkeypatch.setattr(docker_wrapper, "MAX_OUTPUT_BYTES", 8)
+    monkeypatch.setattr(docker_wrapper, "_spawn_owned", lambda *a, **k: asyncio.sleep(0, result=proc))
+
+    assert await docker_wrapper._run_cmd(["docker", "ps"]) == "12345678"
+
+
+@pytest.mark.asyncio
+async def test_docker_captured_stdout_overflow_fails_closed(monkeypatch):
+    proc = CompletedProcess(stdout=(b'{"ID":"first"}\n', b'{"ID":"second"}\n'))
+    monkeypatch.setattr(docker_wrapper, "MAX_OUTPUT_BYTES", 20)
+    monkeypatch.setattr(docker_wrapper, "_spawn_owned", lambda *a, **k: asyncio.sleep(0, result=proc))
+
+    with pytest.raises(docker_wrapper.DockerError, match="output limit exceeded"):
+        await docker_wrapper._run_cmd(["docker", "ps", "--format", "{{json .}}"])
+
+
+@pytest.mark.asyncio
+async def test_docker_stderr_overflow_keeps_bounded_failure_diagnostic(monkeypatch):
+    proc = CompletedProcess(stderr=(b"discarded", b"useful-tail"), returncode=1)
+    monkeypatch.setattr(docker_wrapper, "MAX_OUTPUT_BYTES", 11)
+    monkeypatch.setattr(docker_wrapper, "_spawn_owned", lambda *a, **k: asyncio.sleep(0, result=proc))
+
+    with pytest.raises(docker_wrapper.DockerError, match="^useful-tail$"):
+        await docker_wrapper._run_cmd(["docker", "ps"])

@@ -835,9 +835,7 @@ async def test_docker_rejects_bad_environment_name_before_launch(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_docker_output_is_bounded_and_inspect_environment_is_normalized(monkeypatch):
-    real_run_cmd = docker_wrapper._run_cmd
-    monkeypatch.setattr(docker_wrapper, "MAX_OUTPUT_BYTES", 9)
+async def test_docker_inspect_environment_is_normalized(monkeypatch):
     payload = [{"Id": "1234567890abcdef", "Name": "/demo", "Config": {"Image": "img", "Env": ["A=1", "TOKEN=a=b", "malformed"]}, "State": {"Status": "running"}}]
 
     async def fake_run(args, **kwargs):
@@ -848,10 +846,6 @@ async def test_docker_output_is_bounded_and_inspect_environment_is_normalized(mo
     container = await docker_wrapper.ContainerManager().inspect("safe-id")
     assert container.id == "1234567890ab"
     assert container.env == {"A": "1", "TOKEN": "a=b"}
-
-    done = AsyncDoneProcess(stdout=(b"0123", b"4567", b"89TAIL"))
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", lambda *a, **k: asyncio.sleep(0, result=done))
-    assert await real_run_cmd(["docker", "ps"]) == "56789TAIL"
 
 
 @pytest.mark.asyncio

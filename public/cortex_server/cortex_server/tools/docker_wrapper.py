@@ -9,7 +9,7 @@ import re
 import stat
 import time
 from pathlib import Path
-from typing import AsyncIterator, Dict, List, Optional, Sequence, Any
+from typing import AsyncIterator, Dict, List, Optional, Sequence, Tuple, Any
 from pydantic import BaseModel, Field
 from .subprocess_lifecycle import (
     close_process_transports,
@@ -196,19 +196,22 @@ async def _run_cmd(
     except asyncio.TimeoutError:
         raise DockerError("Docker command timed out") from None
     
-    async def drain(stream: Any) -> bytearray:
+    async def drain(stream: Any) -> Tuple[bytearray, bool]:
         retained = bytearray()
+        overflowed = False
         if stream is None:
-            return retained
+            return retained, overflowed
         while True:
             chunk = await stream.read(64 * 1024)
             if not chunk:
-                return retained
+                return retained, overflowed
             if len(chunk) >= MAX_OUTPUT_BYTES:
+                overflowed = overflowed or len(chunk) > MAX_OUTPUT_BYTES or bool(retained)
                 retained[:] = chunk[-MAX_OUTPUT_BYTES:]
             else:
                 overflow = len(retained) + len(chunk) - MAX_OUTPUT_BYTES
                 if overflow > 0:
+                    overflowed = True
                     del retained[:overflow]
                 retained.extend(chunk)
 
@@ -254,11 +257,14 @@ async def _run_cmd(
         await _settle_tasks(tasks)
         raise DockerError("Docker command failed") from None
 
-    stderr = bytes(results[1])
-    stdout = bytes(results[2]) if stdout_task is not None else b""
+    stderr = bytes(results[1][0])
+    stdout = bytes(results[2][0]) if stdout_task is not None else b""
+    stdout_overflowed = results[2][1] if stdout_task is not None else False
     
     if proc.returncode != 0:
         raise DockerError((stderr or b"Unknown error").decode(errors="replace").strip())
+    if stdout_overflowed:
+        raise DockerError("Docker command output limit exceeded")
     
     return stdout.decode(errors="replace") if stdout else ""
 
