@@ -17,6 +17,7 @@ import stat
 import shutil
 import re
 import json
+import logging
 import threading
 import fcntl
 from contextlib import contextmanager
@@ -28,6 +29,7 @@ from cortex_server.modules.librarian_embedding import build_embedding_function
 from cortex_server.modules import runtime_pressure
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Initialize ChromaDB client with persistent storage
 # Use host-mounted /app path for durability across container rebuilds.
@@ -665,9 +667,11 @@ def _add_memory_with_supersession(memory_id: str, text: str, metadata: Dict[str,
             try:
                 _remove_fact_supersession_journal(journal_path)
             except Exception as exc:
-                raise FactSupersessionError(
-                    "fact supersession committed but its recovery journal could not be cleared"
-                ) from exc
+                logger.warning(
+                    "fact supersession committed; recovery journal cleanup remains pending for %s: %s",
+                    journal_path.name,
+                    exc,
+                )
 
 
 def _utc_iso() -> str:

@@ -455,6 +455,37 @@ def test_journal_persistence_failure_leaves_existing_fact_untouched(monkeypatch)
     assert fake.rows["old"]["metadata"] == original
 
 
+@pytest.mark.asyncio
+async def test_committed_embed_succeeds_when_journal_cleanup_fails_and_recovers(monkeypatch, caplog):
+    fake = FakeCollection()
+    fake.add(["old"], ["old"], [{"fact_key": "key", "memory_status": "active"}])
+    monkeypatch.setattr(librarian, "collection", fake)
+    remove_journal = librarian._remove_fact_supersession_journal
+
+    def fail_cleanup(_journal_path):
+        raise OSError("journal directory is temporarily read-only")
+
+    monkeypatch.setattr(librarian, "_remove_fact_supersession_journal", fail_cleanup)
+    with caplog.at_level("WARNING", logger=librarian.__name__):
+        response = await librarian.embed_memory(
+            librarian.EmbedRequest(text="new", metadata={"fact_key": "key"})
+        )
+
+    assert response.status == "stored"
+    assert fake.rows[response.id]["metadata"]["memory_status"] == "active"
+    assert fake.rows["old"]["metadata"]["memory_status"] == "superseded"
+    journal_paths = list(librarian._fact_supersession_journal_dir().glob("*.json"))
+    assert len(journal_paths) == 1
+    assert "recovery journal cleanup remains pending" in caplog.text
+
+    monkeypatch.setattr(librarian, "_remove_fact_supersession_journal", remove_journal)
+    librarian._recover_fact_supersessions()
+
+    assert fake.rows[response.id]["metadata"]["memory_status"] == "active"
+    assert fake.rows["old"]["metadata"]["superseded_by"] == response.id
+    assert list(librarian._fact_supersession_journal_dir().glob("*.json")) == []
+
+
 def test_malformed_supersession_journal_fails_recall_closed(monkeypatch):
     journal_dir = librarian._fact_supersession_journal_dir()
     journal_dir.mkdir(parents=True)
