@@ -183,11 +183,18 @@ async def _run_cmd(
     capture: bool = True,
 ) -> str:
     """Run a Docker CLI command."""
-    proc = await _spawn_owned(
-        *args,
-        stdout=asyncio.subprocess.PIPE if capture else None,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    deadline = time.monotonic() + (timeout or DEFAULT_TIMEOUT)
+    try:
+        proc = await asyncio.wait_for(
+            _spawn_owned(
+                *args,
+                stdout=asyncio.subprocess.PIPE if capture else None,
+                stderr=asyncio.subprocess.PIPE,
+            ),
+            max(0.0, deadline - time.monotonic()),
+        )
+    except asyncio.TimeoutError:
+        raise DockerError("Docker command timed out") from None
     
     async def drain(stream: Any) -> bytearray:
         retained = bytearray()
@@ -213,7 +220,7 @@ async def _run_cmd(
     try:
         done, pending = await asyncio.wait(
             tasks,
-            timeout=timeout or DEFAULT_TIMEOUT,
+            timeout=max(0.0, deadline - time.monotonic()),
             return_when=asyncio.FIRST_EXCEPTION,
         )
         for task in done:
@@ -258,13 +265,19 @@ async def _run_cmd(
 
 async def _stream_cmd(args: List[str]) -> AsyncIterator[str]:
     """Stream bounded, line-framed output under one total command deadline."""
-    proc = await _spawn_owned(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-
     deadline = time.monotonic() + DEFAULT_TIMEOUT
+    try:
+        proc = await asyncio.wait_for(
+            _spawn_owned(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            ),
+            max(0.0, deadline - time.monotonic()),
+        )
+    except asyncio.TimeoutError:
+        raise DockerError("Docker command timed out") from None
+
     pending = bytearray()
     output_bytes = 0
     try:
