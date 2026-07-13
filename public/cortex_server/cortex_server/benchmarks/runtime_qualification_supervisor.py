@@ -1697,13 +1697,31 @@ def reconcile_active_process(date: str, *, state: Optional[JsonDict] = None) -> 
                 and isinstance(exit_code, int) and not isinstance(exit_code, bool)
             )
             expected_identity = active.get("process_identity")
-            marker_valid = bool(
-                marker_valid
-                and _valid_process_identity(expected_identity)
-                and marker.get("process_id") == pid
-                and marker.get("process_start_time") == expected_identity.get("start_time")
-                and _identity_matches(expected_identity, marker.get("process_identity"))
-            )
+            synchronous = active.get("execution_mode") == "synchronous"
+            if synchronous:
+                persisted_run = state["stages"].get(stage, {}).get("supervisor_run")
+                expected_command_digest = _command_sha256(stage_command(date, stage, run_id=run_id))
+                marker_valid = bool(
+                    marker_valid
+                    and _valid_process_identity(expected_identity)
+                    and isinstance(persisted_run, dict)
+                    and persisted_run.get("run_id") == run_id
+                    and persisted_run.get("stage") == stage
+                    and persisted_run.get("started_at") == active.get("started_at")
+                    and persisted_run.get("status") == "running"
+                    and marker.get("execution_mode") == "synchronous"
+                    and expected_command_digest is not None
+                    and _command_sha256(active.get("command")) == expected_command_digest
+                    and marker.get("command_sha256") == expected_command_digest
+                )
+            else:
+                marker_valid = bool(
+                    marker_valid
+                    and _valid_process_identity(expected_identity)
+                    and marker.get("process_id") == pid
+                    and marker.get("process_start_time") == expected_identity.get("start_time")
+                    and _identity_matches(expected_identity, marker.get("process_identity"))
+                )
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
             marker_valid = False
             exit_code = None
@@ -1720,15 +1738,19 @@ def reconcile_active_process(date: str, *, state: Optional[JsonDict] = None) -> 
             if not isinstance(run_record, dict) or run_record.get("run_id") != active.get("run_id"):
                 run_record = {"run_id": active.get("run_id"), "stage": stage, "started_at": active.get("started_at")}
                 row["supervisor_run"] = run_record
-            run_record.update({
+            recovered_run = {
                 "status": "succeeded" if exit_code == 0 else "failed",
                 "exit_code": exit_code,
                 "exit_observed_by_supervisor": True,
                 "finished_at": active["finished_at"],
-                "process_id": pid,
-                "process_identity": expected_identity,
                 "exit_code_path": str(exit_code_path),
-            })
+            }
+            if synchronous:
+                recovered_run["command_sha256"] = expected_command_digest
+            else:
+                recovered_run["process_id"] = pid
+                recovered_run["process_identity"] = expected_identity
+            run_record.update(recovered_run)
         if marker_valid:
             verification = verify_stage(date, stage, expected_run=run_record)
             spec = _stage_specs(date).get(stage)

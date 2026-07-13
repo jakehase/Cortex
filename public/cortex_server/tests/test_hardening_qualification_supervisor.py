@@ -676,6 +676,105 @@ def test_synchronous_launch_reaps_child_when_active_state_cannot_persist(monkeyp
     assert events == ["popen", ("killpg", 4321, supervisor.signal.SIGTERM), ("wait", 5)]
 
 
+def test_synchronous_success_recovers_after_final_state_persistence_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    identity = process_identity()
+
+    class FakeProcess:
+        pid = 4321
+        returncode = 0
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def communicate(self) -> tuple[str, str]:
+            return "995 passed", ""
+
+    supervisor.load_or_create_state(DATE)
+    original_save = supervisor.save_state
+    failed = False
+
+    def fail_final_save(date: str, state: dict) -> None:
+        nonlocal failed
+        marker_written = any(supervisor.qualification_root(DATE).glob("_runs/validation/*/exit_code.txt"))
+        if not failed and marker_written and state.get("active_process") is None:
+            failed = True
+            raise OSError("simulated final state persistence failure")
+        original_save(date, state)
+
+    monkeypatch.setattr(supervisor.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(supervisor, "_process_identity", lambda _pid: identity)
+    monkeypatch.setattr(supervisor, "save_state", fail_final_save)
+
+    with pytest.raises(OSError, match="final state persistence failure"):
+        supervisor.launch_stage(DATE, "validation")
+
+    crashed = supervisor.load_or_create_state(DATE)
+    assert crashed["active_process"]["execution_mode"] == "synchronous"
+    assert crashed["stages"]["validation"]["supervisor_run"]["status"] == "running"
+
+    reconciled = supervisor.reconcile_state(DATE)
+
+    assert reconciled["active_process"] is None
+    assert reconciled["stages"]["validation"]["status"] == "complete"
+    assert reconciled["stages"]["validation"]["completed"] is True
+    recovered_run = reconciled["stages"]["validation"]["supervisor_run"]
+    assert recovered_run["status"] == "succeeded"
+    assert recovered_run["command_sha256"] == supervisor._command_sha256(
+        supervisor.stage_command(DATE, "validation", run_id=recovered_run["run_id"])
+    )
+    assert "process_identity" not in recovered_run
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("execution_mode", "background"),
+        ("command_sha256", "0" * 64),
+        ("date", "2026-04-02"),
+        ("run_id", "other-run"),
+    ],
+)
+def test_synchronous_recovery_rejects_unbound_exit_markers(
+    monkeypatch: pytest.MonkeyPatch, field: str, value: str,
+) -> None:
+    root = supervisor.qualification_root(DATE)
+    run_id = "expected-run"
+    command = supervisor.stage_command(DATE, "validation", run_id=run_id)
+    exit_path = root / "_runs" / "validation" / run_id / "exit_code.txt"
+    marker = {
+        "schema_version": "cortex.runtime.qualification.exit.v1",
+        "date": DATE,
+        "stage": "validation",
+        "run_id": run_id,
+        "exit_code": 0,
+        "execution_mode": "synchronous",
+        "command_sha256": supervisor._command_sha256(command),
+    }
+    marker[field] = value
+    write_json(exit_path, marker)
+    identity = process_identity()
+    started_at = "2026-04-01T00:00:00Z"
+    state = supervisor.build_initial_state(DATE)
+    state["stages"]["validation"]["status"] = "running"
+    state["stages"]["validation"]["supervisor_run"] = {
+        "run_id": run_id, "stage": "validation", "started_at": started_at,
+        "status": "running", "exit_code": None, "exit_observed_by_supervisor": False,
+    }
+    state["active_process"] = {
+        "stage": "validation", "pid": 4321, "run_id": run_id, "started_at": started_at,
+        "command": command, "exit_code_path": str(exit_path), "process_identity": identity,
+        "execution_mode": "synchronous",
+    }
+    supervisor.save_state(DATE, state)
+    monkeypatch.setattr(supervisor, "_process_identity", lambda _pid: identity)
+
+    active = supervisor.reconcile_active_process(DATE)
+
+    assert active is not None
+    assert active["recovery_error"] == "invalid_exit_marker"
+    assert supervisor.load_or_create_state(DATE)["stages"]["validation"]["status"] == "running"
+
+
 @pytest.mark.parametrize("contents", ["[1, 2]", "{broken", "\udcff"])
 def test_corrupt_json_artifacts_are_incomplete_with_reason(tmp_path: Path, contents: str) -> None:
     path = supervisor.qualification_root(DATE) / "experiments" / "index.json"
