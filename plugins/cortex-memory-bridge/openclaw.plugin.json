@@ -8,6 +8,8 @@
     "additionalProperties": false,
     "properties": {
       "baseUrl": { "type": "string" },
+      "writeToken": { "type": "string", "minLength": 1 },
+      "writeTokenHeader": { "type": "string", "minLength": 1 },
       "searchPath": { "type": "string" },
       "storePath": { "type": "string" },
       "timeoutMs": { "type": "number", "minimum": 100, "maximum": 60000 },
@@ -38,6 +40,16 @@
     "baseUrl": {
       "label": "Cortex Base URL",
       "placeholder": "http://127.0.0.1:18888"
+    },
+    "writeToken": {
+      "label": "Cortex write token",
+      "sensitive": true,
+      "advanced": true
+    },
+    "writeTokenHeader": {
+      "label": "Cortex write token header",
+      "placeholder": "x-cortex-write-token",
+      "advanced": true
     },
     "searchPath": {
       "label": "Search Path",

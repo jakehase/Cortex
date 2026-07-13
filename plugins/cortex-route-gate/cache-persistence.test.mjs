@@ -6,10 +6,12 @@ import path from 'node:path';
 
 import register from './index.ts';
 
-async function invokeWithUnwritableCache(requireRouting) {
+async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = false) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-cache-persistence-'));
   const cachePath = path.join(stateDir, 'last-good-plan.json');
   fs.mkdirSync(cachePath);
+  const crashTemporary = path.join(stateDir, 'prompt-history.json.999999.1.tmp');
+  if (seedCrashTemporary) fs.writeFileSync(crashTemporary, 'partial');
   const handlers = new Map();
   const warnings = [];
   register({
@@ -40,7 +42,7 @@ async function invokeWithUnwritableCache(requireRouting) {
       { prompt: 'Route this request', messages: [{ role: 'user', content: 'Route this request' }] },
       { sessionKey: `agent:main:test:cache-persistence-${requireRouting}` },
     );
-    return { context: String(result?.appendSystemContext || ''), warnings, stateDir };
+    return { context: String(result?.appendSystemContext || ''), warnings, stateDir, crashTemporary };
   } catch (error) {
     fs.rmSync(stateDir, { recursive: true, force: true });
     throw error;
@@ -65,3 +67,41 @@ for (const requireRouting of [true, false]) {
     }
   });
 }
+
+test('atomic persistence reclaims crash leftovers without Linux /proc descriptor paths', async () => {
+  const originalReaddirSync = fs.readdirSync;
+  const originalStatSync = fs.statSync;
+  let procAttempts = 0;
+  fs.readdirSync = function (target, options) {
+    if (String(target).startsWith('/proc/self/fd/')) {
+      procAttempts += 1;
+      const error = new Error('procfs unavailable');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return originalReaddirSync.call(this, target, options);
+  };
+  fs.statSync = function (target, options) {
+    if (String(target).startsWith('/proc/self/fd/')) {
+      procAttempts += 1;
+      const error = new Error('procfs unavailable');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return originalStatSync.call(this, target, options);
+  };
+  try {
+    const { context, warnings, stateDir, crashTemporary } = await invokeWithUnwritableCache(false, true);
+    try {
+      assert.match(context, /routing_method: live_persistence_test/);
+      assert.ok(procAttempts > 0);
+      assert.equal(fs.existsSync(crashTemporary), false);
+      assert.equal(warnings.length, 1);
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  } finally {
+    fs.readdirSync = originalReaddirSync;
+    fs.statSync = originalStatSync;
+  }
+});

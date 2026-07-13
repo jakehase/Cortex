@@ -1,9 +1,13 @@
 function resolveConfig(cfg) {
   const rootEntry = cfg?.plugins?.entries?.['cortex-memory-bridge'];
   const pluginCfg = rootEntry?.config || (cfg && typeof cfg === 'object' ? cfg : {}) || {};
+  const writeTokenHeader = pluginCfg.writeTokenHeader ?? 'x-cortex-write-token';
+  if (typeof writeTokenHeader !== 'string' || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(writeTokenHeader)) throw new Error('invalid Cortex write-token header name');
   return {
     baseUrl: String(pluginCfg.baseUrl || 'http://127.0.0.1:18888').replace(/\/$/, ''),
     searchPath: String(pluginCfg.searchPath || '/knowledge/search'),
+    writeToken: typeof pluginCfg.writeToken === 'string' ? pluginCfg.writeToken : '',
+    writeTokenHeader: writeTokenHeader.toLowerCase(),
     timeoutMs: Number(pluginCfg.timeoutMs || 12000),
     retryCount: Number(pluginCfg.retryCount ?? 2),
     retryBackoffMs: Number(pluginCfg.retryBackoffMs ?? 350),
@@ -382,13 +386,13 @@ function retryableError(error) {
   const msg = String(error?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
 }
-async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576) {
+async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576, writeHeaders = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify(body), signal: controller.signal });
       const declared = Number(res.headers.get('content-length'));
       if (Number.isFinite(declared) && declared > maxResponseBytes) {
         try { void res.body?.cancel().catch(() => {}); } catch {}
@@ -422,7 +426,8 @@ export class CortexMemorySearchManager {
     const classification = classifyQuery(query);
     const requestedMax = Number(opts.maxResults || 6);
     const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, this.rcfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
-    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, { query, n_results: fetchCount }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes);
+    const writeHeaders = this.rcfg.writeToken ? { [this.rcfg.writeTokenHeader]: this.rcfg.writeToken } : {};
+    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, { query, n_results: fetchCount }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes, writeHeaders);
     const items = Array.isArray(response?.results) ? response.results : [];
     const reconciled = reconcileResults(query, items, this.rcfg);
     let results = reconciled.results.slice(0, requestedMax);

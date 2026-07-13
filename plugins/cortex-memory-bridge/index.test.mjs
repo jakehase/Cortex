@@ -3,6 +3,30 @@ import assert from 'node:assert/strict';
 
 import plugin, { ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
+test('memory POSTs attach the configured write-token header', async () => {
+  const handlers = new Map();
+  const originalFetch = globalThis.fetch;
+  let headers;
+  globalThis.fetch = async (_url, options) => {
+    headers = new Headers(options?.headers);
+    return { ok: true, headers: new Headers(), body: null };
+  };
+  try {
+    plugin.register({
+      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, writeToken: 'memory-secret', writeTokenHeader: 'x-memory-token' },
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    handlers.get('llm_output')({ content: 'durable authorized lifecycle output' }, { sessionKey: 'authorized-session' });
+    await handlers.get('agent_end')({}, { sessionKey: 'authorized-session' });
+    assert.equal(headers.get('x-memory-token'), 'memory-secret');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('lifecycle keys hash exact length-delimited session and payload bytes', () => {
   const sharedSuffix = 'x'.repeat(5_000);
   const first = lifecyclePersistenceKey('session', `first:${sharedSuffix}`);

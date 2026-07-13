@@ -3,6 +3,25 @@ import assert from 'node:assert/strict';
 
 import { CortexMemorySearchManager } from './manager.mjs';
 
+test('manager search attaches configured Cortex write authorization', async () => {
+  const originalFetch = globalThis.fetch;
+  let headers;
+  globalThis.fetch = async (_url, options) => {
+    headers = new Headers(options?.headers);
+    return new Response('{"results":[]}');
+  };
+  try {
+    const manager = await CortexMemorySearchManager.create({
+      cfg: { retryCount: 0, writeToken: 'manager-secret', writeTokenHeader: 'x-manager-token' },
+      agentId: 'authorization-test',
+    });
+    await manager.search('authorized search');
+    assert.equal(headers.get('x-manager-token'), 'manager-secret');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('concurrent declared-size rejections do not await body cancellation', async () => {
   const originalFetch = globalThis.fetch;
   const releases = [];

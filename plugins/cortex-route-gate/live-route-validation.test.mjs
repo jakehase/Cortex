@@ -22,17 +22,20 @@ function cachedPlan() {
   return { ...cache, tag: crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson(cache)).digest('hex') };
 }
 
-async function invoke({ requireRouting, cache, response }) {
+async function invoke({ requireRouting, cache, response, config = {}, inspectRequest }) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-live-route-'));
   if (cache) fs.writeFileSync(path.join(stateDir, 'last-good-plan.json'), JSON.stringify(cache));
   const handlers = new Map();
   register({
-    config: { enabled: true, requireRouting, baseUrl: 'http://127.0.0.1:18888', routeCacheHmacSecret: CACHE_SECRET, stateDir },
+    config: { enabled: true, requireRouting, baseUrl: 'http://127.0.0.1:18888', routeCacheHmacSecret: CACHE_SECRET, stateDir, ...config },
     logger: { info() {}, warn() {} },
     on(name, handler) { handlers.set(name, handler); },
   });
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
+  globalThis.fetch = async (url, init) => {
+    inspectRequest?.(url, init);
+    return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
   try {
     const result = await handlers.get('before_prompt_build')(
       { prompt: 'Route this', messages: [{ role: 'user', content: 'Route this' }] },
@@ -63,6 +66,43 @@ test('optional routing does not treat a malformed HTTP 200 as a live plan', asyn
   const { context, saved } = await invoke({ requireRouting: false, response: { recommended_levels: [] } });
   assert.equal(context, '');
   assert.equal(saved, null);
+});
+
+test('live routing accepts boolean always_on and strips transport-only metadata from persisted plans', async () => {
+  const { context, saved } = await invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24, name: 'Nexus', reason: 'live', always_on: true }], routing_method: 'always_on_test' },
+  });
+  assert.match(context, /routing_method: always_on_test/);
+  assert.equal(saved.plan.recommendedLevels[0].level, 24);
+  assert.equal('always_on' in saved.plan.recommendedLevels[0], false);
+});
+
+test('live routing rejects non-boolean always_on metadata', async () => {
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24, always_on: 'true' }] },
+  }), /invalid live route response schema/);
+});
+
+test('routing POST uses the configured sensitive write-token header', async () => {
+  let request;
+  await invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    config: { writeToken: 'route-secret', writeTokenHeader: 'X-Custom-Cortex-Token' },
+    inspectRequest(url, init) { request = { url, init }; },
+  });
+  assert.equal(request.init.method, 'POST');
+  assert.equal(new Headers(request.init.headers).get('x-custom-cortex-token'), 'route-secret');
+});
+
+test('routing fails closed on an invalid write-token header name', async () => {
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    config: { writeToken: 'route-secret', writeTokenHeader: 'bad header' },
+  }), /invalid Cortex write-token header name/);
 });
 
 for (const count of [63, 64]) {

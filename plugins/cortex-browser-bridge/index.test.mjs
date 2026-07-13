@@ -33,6 +33,18 @@ function statusTool(pluginConfig) {
   return tool;
 }
 
+function browseTool(pluginConfig) {
+  let tool;
+  plugin.register({
+    pluginConfig,
+    registerTool(factory, options) {
+      if (options.names.includes('cortex_browse')) tool = factory();
+    },
+  });
+  assert.ok(tool);
+  return tool;
+}
+
 async function executeStatus(pluginConfig) {
   return JSON.parse(await statusTool(pluginConfig).execute());
 }
@@ -61,6 +73,24 @@ test('status preserves a successful HTTP status and parsed body', async t => {
     status: 200,
     body: { available: true },
   });
+});
+
+test('browser POST attaches the configured write-token header while status GET does not', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), init });
+    return new Response('{}', { status: 200 });
+  };
+  try {
+    const config = { baseUrl: 'http://bridge.invalid', writeToken: 'browser-secret', writeTokenHeader: 'x-browser-token' };
+    await browseTool(config).execute('call', { query: 'test' });
+    await executeStatus(config);
+    assert.equal(new Headers(requests[0].init.headers).get('x-browser-token'), 'browser-secret');
+    assert.equal(new Headers(requests[1].init.headers).has('x-browser-token'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 for (const status of [404, 503]) {

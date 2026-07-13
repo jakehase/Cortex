@@ -26,6 +26,8 @@ type BridgeConfig = {
   maxResponseBytes?: number;
   lifecycleMaxInFlight?: number;
   recentOutputMaxChars?: number;
+  writeToken?: string;
+  writeTokenHeader?: string;
 };
 
 type MemoryCandidate = {
@@ -196,6 +198,8 @@ const GetSchema = {
 
 function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount' | 'maxResponseBytes' | 'lifecycleMaxInFlight' | 'recentOutputMaxChars'>> & BridgeConfig {
   const cfg = (pluginConfig ?? {}) as BridgeConfig;
+  const writeTokenHeader = cfg.writeTokenHeader ?? 'x-cortex-write-token';
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(writeTokenHeader)) throw new Error('invalid Cortex write-token header name');
   return {
     baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
     searchPath: cfg.searchPath ?? '/knowledge/search',
@@ -213,6 +217,8 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     recentOutputMaxChars: Number.isSafeInteger(cfg.recentOutputMaxChars) && Number(cfg.recentOutputMaxChars) > 0
       ? Math.min(65_536, Number(cfg.recentOutputMaxChars))
       : RECENT_OUTPUT_MAX_CHARS,
+    writeToken: typeof cfg.writeToken === 'string' ? cfg.writeToken : '',
+    writeTokenHeader: writeTokenHeader.toLowerCase(),
     curatedBoost: cfg.curatedBoost ?? 0.24,
     projectFactBoost: cfg.projectFactBoost ?? 0.12,
     durableCandidatePenalty: cfg.durableCandidatePenalty ?? 0.14,
@@ -638,17 +644,20 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
 }
 
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function cortexWriteHeaders(cfg: Pick<BridgeConfig, 'writeToken' | 'writeTokenHeader'>): Record<string, string> {
+  return cfg.writeToken ? { [cfg.writeTokenHeader || 'x-cortex-write-token']: cfg.writeToken } : {};
+}
 function retryableError(error: unknown): boolean {
   const msg = String((error as any)?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
 }
-async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576) {
+async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576, writeHeaders: Record<string, string> = {}) {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+      const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify(body), signal: controller.signal });
       const cap = maxResponseBytes;
       const declared = Number(res.headers.get('content-length'));
       if (Number.isFinite(declared) && declared > cap) {
@@ -790,7 +799,7 @@ async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType
       session_key: sessionKey,
       events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown' } }],
       max_chars: 1200,
-    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
+    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
     return true;
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed: ${String(error)}`);
@@ -816,7 +825,7 @@ async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof 
   }
   const senderScoped = buildWriteThroughMetadata(cfg, ctx, recent, dur);
   try {
-    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped, idempotency_key: ctx?.idempotencyKey }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
+    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped, idempotency_key: ctx?.idempotencyKey }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
     api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
     return true;
   } catch (error) {
@@ -897,12 +906,12 @@ const plugin = {
             ? Math.max(requestedMax, Math.max(cfg.hardQueryCandidateCount, 20))
             : Math.max(requestedMax, 8);
         try {
-          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
+          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
           let rawItems = Array.isArray(response?.results) ? response.results : [];
           if (recentSummaryQuery && !rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) {
             const seen = new Set(rawItems.map((item: any) => String(item?.id ?? '')));
             for (const expandedQuery of [`recent status summary ${query}`.trim(), `question: ${query} answer:`.trim(), 'Cortex memory bridge repair completed']) {
-              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes);
+              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
               const extra = Array.isArray(expanded?.results) ? expanded.results : [];
               for (const item of extra) {
                 const id = String(item?.id ?? '');

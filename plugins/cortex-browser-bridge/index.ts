@@ -1,4 +1,4 @@
-type BridgeConfig = { baseUrl?: string; timeoutMs?: number; maxResponseBytes?: number };
+type BridgeConfig = { baseUrl?: string; timeoutMs?: number; maxResponseBytes?: number; writeToken?: string; writeTokenHeader?: string };
 
 const BrowseSchema = {
   type: 'object',
@@ -20,10 +20,14 @@ const StatusSchema = {
 
 function cfg(pluginConfig?: Record<string, unknown>): Required<BridgeConfig> {
   const c = (pluginConfig ?? {}) as BridgeConfig;
+  const writeTokenHeader = c.writeTokenHeader ?? 'x-cortex-write-token';
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(writeTokenHeader)) throw new Error('invalid Cortex write-token header name');
   return {
     baseUrl: (c.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
     timeoutMs: typeof c.timeoutMs === 'number' ? c.timeoutMs : 15000,
     maxResponseBytes: typeof c.maxResponseBytes === 'number' ? c.maxResponseBytes : 1_048_576,
+    writeToken: typeof c.writeToken === 'string' ? c.writeToken : '',
+    writeTokenHeader: writeTokenHeader.toLowerCase(),
   };
 }
 
@@ -85,7 +89,8 @@ const plugin = {
         };
         const endpoint = hasUrl ? '/browser/browse' : '/browser/search';
         try {
-          const response = await requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', body: JSON.stringify(payload) }, c.timeoutMs, c.maxResponseBytes);
+          const writeHeaders = c.writeToken ? { [c.writeTokenHeader]: c.writeToken } : {};
+          const response = await requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', headers: writeHeaders, body: JSON.stringify(payload) }, c.timeoutMs, c.maxResponseBytes);
           if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.text.slice(0, 300)}`);
           return JSON.stringify({ ok: true, provider: 'cortex-browser', endpoint, data: maybeJson(response.text) });
         } catch (error) {

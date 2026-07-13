@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 type RouteLevel = { level: number; name?: string; reason?: string; method?: string; score?: number };
+type LiveRouteLevel = RouteLevel & { always_on?: boolean };
 type RoutePlan = {
   recommendedLevels: RouteLevel[];
   routingMethod?: string;
@@ -74,6 +75,7 @@ type LastGoodRoutePlan = {
 const ALLOWED_CORTEX_LEVELS = new Set(Array.from({ length: 38 }, (_, index) => index + 1));
 const ROUTE_PLAN_KEYS = new Set(['recommendedLevels', 'routingMethod', 'reasoning', 'routingError', 'routingMarkers', 'workflowCheckpoint']);
 const ROUTE_LEVEL_KEYS = new Set(['level', 'name', 'reason', 'method', 'score']);
+const LIVE_ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_KEYS, 'always_on']);
 const CHECKPOINT_KEYS = new Set(['checkpoint_id', 'state_machine', 'current_state', 'retry_policy', 'levels', 'durable_store']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -115,6 +117,11 @@ function isRouteLevel(value: unknown): value is RouteLevel {
   }
   return value.score === undefined || (typeof value.score === 'number' && Number.isFinite(value.score) && value.score >= 0 && value.score <= 1);
 }
+function isLiveRouteLevel(value: unknown): value is LiveRouteLevel {
+  if (!isRecord(value) || !hasOnlyKeys(value, LIVE_ROUTE_LEVEL_KEYS)) return false;
+  const { always_on: alwaysOn, ...routeLevel } = value;
+  return (alwaysOn === undefined || typeof alwaysOn === 'boolean') && isRouteLevel(routeLevel);
+}
 function isRoutePlan(value: unknown): value is RoutePlan {
   if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_PLAN_KEYS)) return false;
   if (!Array.isArray(value.recommendedLevels) || value.recommendedLevels.length < 1 || value.recommendedLevels.length > 64 || !value.recommendedLevels.every(isRouteLevel)) return false;
@@ -155,10 +162,10 @@ function verifyRouteCache(cache: unknown, secret: string | null): cache is LastG
   const expected = Buffer.from(signRouteCache(cache, secret), 'hex');
   return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
 }
-function liveRouteLevels(value: unknown): RouteLevel[] | null {
+function liveRouteLevels(value: unknown): LiveRouteLevel[] | null {
   if (!isRecord(value)) return null;
   const levels = value.recommended_levels ?? value.recommended;
-  if (!Array.isArray(levels) || levels.length < 1 || levels.length > 64 || !levels.every(isRouteLevel)) return null;
+  if (!Array.isArray(levels) || levels.length < 1 || levels.length > 64 || !levels.every(isLiveRouteLevel)) return null;
   if (value.routing_method !== undefined && !isBoundedString(value.routing_method, 1_024)) return null;
   if (value.reasoning !== undefined && (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item)))) return null;
   if (value.routing_markers !== undefined && (!isRecord(value.routing_markers) || !isJsonMetadata(value.routing_markers))) return null;
@@ -183,6 +190,11 @@ type RunState = {
 function normalizeBaseUrl(value: unknown): string {
   const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:18888';
   return text.endsWith('/') ? text.slice(0, -1) : text;
+}
+function normalizeWriteTokenHeader(value: unknown): string {
+  if (value === undefined) return 'x-cortex-write-token';
+  if (typeof value !== 'string' || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(value)) throw new Error('invalid Cortex write-token header name');
+  return value.toLowerCase();
 }
 function asBool(value: unknown, fallback: boolean): boolean { return typeof value === 'boolean' ? value : fallback; }
 function asNumber(value: unknown, fallback: number): number { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
@@ -443,12 +455,12 @@ function normalizeLiveLevels(levels: RouteLevel[]): RouteLevel[] {
   const nonMandatory = deduplicated.filter((item) => item.level !== 24 && item.level !== 5);
   return [byLevel.get(24) || mandatory[0], ...nonMandatory.slice(0, 62), byLevel.get(5) || mandatory[1]];
 }
-async function postJson(url: string, body: unknown, timeoutMs: number, maxResponseBytes = 1_048_576): Promise<any> {
+async function postJson(url: string, body: unknown, timeoutMs: number, maxResponseBytes = 1_048_576, writeHeaders: Record<string, string> = {}): Promise<any> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal,
+      method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify(body), signal: ctrl.signal,
     });
     const declared = Number(res.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > maxResponseBytes) {
@@ -681,22 +693,48 @@ function reclaimWriteTemporaries(targetPath: string): void {
   const basename = path.basename(targetPath).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const temporaryName = new RegExp(`^${basename}\\.\\d+\\.\\d+\\.tmp$`);
   const flags = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
-  const dirFd = fs.openSync(directory, flags);
+  let dirFd: number | undefined;
   try {
-    const opened = fs.fstatSync(dirFd);
     const named = fs.lstatSync(directory);
-    if (!opened.isDirectory() || !named.isDirectory() || opened.dev !== named.dev || opened.ino !== named.ino) {
+    if (!named.isDirectory()) {
       throw new Error(`state directory changed while reclaiming temporary files for ${targetPath}`);
     }
-    const anchoredDirectory = `/proc/self/fd/${dirFd}`;
-    for (const name of fs.readdirSync(anchoredDirectory)) {
+    let opened = named;
+    let reclamationDirectory = directory;
+    try {
+      dirFd = fs.openSync(directory, flags);
+      opened = fs.fstatSync(dirFd);
+      if (!opened.isDirectory() || opened.dev !== named.dev || opened.ino !== named.ino) {
+        throw new Error(`state directory changed while reclaiming temporary files for ${targetPath}`);
+      }
+      const procDirectory = `/proc/self/fd/${dirFd}`;
+      try {
+        const procStat = fs.statSync(procDirectory);
+        if (!procStat.isDirectory() || procStat.dev !== opened.dev || procStat.ino !== opened.ino) throw new Error('directory descriptor identity mismatch');
+        reclamationDirectory = procDirectory;
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+        // Non-Linux platforms do not expose directory descriptors through /proc.
+      }
+    } catch (error: any) {
+      if (dirFd !== undefined || process.platform !== 'win32' || !['EISDIR', 'EPERM', 'EINVAL', 'ENOTSUP'].includes(error?.code)) throw error;
+      // Windows cannot open a directory as a file descriptor. The named path
+      // is revalidated before every deletion below.
+    }
+    for (const name of fs.readdirSync(reclamationDirectory)) {
       if (!temporaryName.test(name)) continue;
-      try { fs.unlinkSync(path.join(anchoredDirectory, name)); } catch (error: any) {
+      if (reclamationDirectory === directory) {
+        const current = fs.lstatSync(directory);
+        if (!current.isDirectory() || current.dev !== opened.dev || current.ino !== opened.ino) {
+          throw new Error(`state directory changed while reclaiming temporary files for ${targetPath}`);
+        }
+      }
+      try { fs.unlinkSync(path.join(reclamationDirectory, name)); } catch (error: any) {
         if (error?.code !== 'ENOENT') throw error;
       }
     }
   } finally {
-    fs.closeSync(dirFd);
+    if (dirFd !== undefined) fs.closeSync(dirFd);
   }
 }
 
@@ -707,8 +745,10 @@ function writeJsonAtomic(targetPath: string, value: unknown) {
     const fd = fs.openSync(tmp, 'wx');
     try { fs.writeFileSync(fd, JSON.stringify(value, null, 2)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, targetPath);
-    const dirFd = fs.openSync(path.dirname(targetPath), 'r');
-    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    if (process.platform !== 'win32') {
+      const dirFd = fs.openSync(path.dirname(targetPath), 'r');
+      try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    }
   } finally {
     try { fs.unlinkSync(tmp); } catch {}
   }
@@ -907,6 +947,9 @@ export default function register(api: any) {
   const requireRouting = asBool(cfg.requireRouting, true);
   const timeoutMs = asNumber(cfg.timeoutMs, 8000);
   const maxResponseBytes = asNumber(cfg.maxResponseBytes, 1_048_576);
+  const writeToken = typeof cfg.writeToken === 'string' && cfg.writeToken.length > 0 ? String(cfg.writeToken) : null;
+  const writeTokenHeader = normalizeWriteTokenHeader(cfg.writeTokenHeader);
+  const writeHeaders = writeToken ? { [writeTokenHeader]: writeToken } : {};
   const maxCachedPlanAgeMs = asNumber(cfg.maxCachedPlanAgeMs, 300_000);
   // Capture once at construction so later mutation of the caller-owned config cannot change trust.
   const routeCacheHmacSecret = typeof cfg.routeCacheHmacSecret === 'string' && cfg.routeCacheHmacSecret.length > 0
@@ -987,7 +1030,7 @@ export default function register(api: any) {
   async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
     let plan: RoutePlan | null = null;
     try {
-      const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs, maxResponseBytes);
+      const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs, maxResponseBytes, writeHeaders);
       const recommended = liveRouteLevels(data);
       if (!recommended) throw new Error('invalid live route response schema');
       const rawPlan: RoutePlan = {

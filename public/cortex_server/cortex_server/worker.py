@@ -22,6 +22,13 @@ app = Celery(
 )
 
 
+def _cortex_write_headers() -> dict[str, str]:
+    """Build authorization headers for mutating calls back into Cortex."""
+    token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
+    header = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip()
+    return {header: token} if token and header else {}
+
+
 def check_redis_connection() -> bool:
     """Return true only after the configured Celery broker is reachable."""
     try:
@@ -117,7 +124,7 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
     }
 
     try:
-        oracle_resp = requests.post(ORACLE_URL, json=oracle_payload, timeout=60)
+        oracle_resp = requests.post(ORACLE_URL, json=oracle_payload, headers=_cortex_write_headers(), timeout=60)
         plan_text = oracle_resp.json().get("response", "")
     except Exception as e:
         plan_text = f"Error: {str(e)}"
@@ -158,7 +165,7 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             "args": [f"Swarm Task {i}: {task}"]
         }
         try:
-            queue_resp = requests.post(QUEUE_URL, json=queue_payload, timeout=10)
+            queue_resp = requests.post(QUEUE_URL, json=queue_payload, headers=_cortex_write_headers(), timeout=10)
             task_id = queue_resp.json().get("task_id")
             if task_id:
                 task_ids.append(task_id)
@@ -196,7 +203,7 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
     }
 
     try:
-        requests.post(LIBRARIAN_EMBED, json=librarian_payload, timeout=10)
+        requests.post(LIBRARIAN_EMBED, json=librarian_payload, headers=_cortex_write_headers(), timeout=10)
     except:
         pass
 

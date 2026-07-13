@@ -30,6 +30,8 @@ test('existing route-gate configuration remains valid', () => {
     baseUrl: 'http://127.0.0.1:18888',
     enabled: true,
     requireRouting: true,
+    writeToken: 'secret',
+    writeTokenHeader: 'x-cortex-write-token',
     timeoutMs: 8000,
     maxLevels: 10,
     creativityGovernorEnabled: true,
@@ -37,6 +39,12 @@ test('existing route-gate configuration remains valid', () => {
     creativityQuarantineTerms: 8,
     stateDir: '/tmp/cortex-route-gate',
   }), true);
+});
+
+test('write authorization configuration is exposed and the token is sensitive', () => {
+  assert.equal(validateConfig({ writeToken: 'secret', writeTokenHeader: 'x-custom-token' }), true);
+  assert.equal(validateConfig({ writeToken: '' }), false);
+  assert.equal(manifest.uiHints.writeToken.sensitive, true);
 });
 
 for (const [name, minimum, defaultValue, maximum] of [
