@@ -555,6 +555,7 @@ def create_app() -> FastAPI:
         mode=write_auth_mode,
         token=write_token,
         header_name=write_token_header,
+        allowed_origins=allowed_origins,
     )
 
     @app.middleware("http")
@@ -731,7 +732,7 @@ def create_app() -> FastAPI:
             "type": "apiKey",
             "in": "header",
             "name": write_token_header,
-            "description": "Required for non-loopback mutating requests. Loopback is a trusted capability boundary in token_or_loopback mode.",
+            "description": "Required for non-loopback mutating requests and browser requests from untrusted origins in token_or_loopback mode.",
         }
         for path_item in schema.get("paths", {}).values():
             for method in ("post", "put", "patch", "delete"):
