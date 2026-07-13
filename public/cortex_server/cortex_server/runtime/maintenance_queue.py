@@ -356,6 +356,145 @@ class MaintenanceQueueStore:
                     self._write_state(state)
             return claimed, state
 
+    def begin_dispatch(
+        self,
+        *,
+        claimed_at: str,
+        lease_expires_at: str,
+        owner: str,
+        process_id_for_item,
+    ) -> tuple[Optional[MaintenanceQueueItem], MaintenanceQueueState]:
+        """Atomically claim one item and attach a recoverable dispatch lease."""
+        normalized_owner = str(owner or "").strip()
+        if not normalized_owner:
+            raise ValueError("maintenance dispatch owner must be non-empty")
+        # Validate before taking the lock so malformed leases never mutate state.
+        datetime.fromisoformat(str(lease_expires_at or "").strip().replace("Z", "+00:00"))
+        claimed = None
+        with self._lock():
+            state = self._load_state()
+            active_count = sum(1 for row in state.items if row.status == "active")
+            if active_count < max(1, int(state.max_active_items or 1)):
+                pending = sorted(
+                    (row for row in state.items if row.status == "pending"),
+                    key=lambda row: (int(row.priority), str(row.created_at), str(row.item_id)),
+                )
+                if pending:
+                    claimed = pending[0]
+                    claimed.status = "active"
+                    claimed.process_id = claimed.process_id or str(process_id_for_item(claimed))
+                    claimed.claimed_at = claimed_at
+                    claimed.last_transition_at = claimed_at
+                    claimed.metadata = {
+                        **dict(claimed.metadata or {}),
+                        "maintenance_dispatch_state": "dispatching",
+                        "maintenance_dispatch_owner": normalized_owner,
+                        "maintenance_dispatch_lease_expires_at": lease_expires_at,
+                    }
+                    state.updated_at = _next_version(state.updated_at)
+                    self._write_state(state)
+            return claimed, state
+
+    def release_dispatch(self, item_id: str, *, owner: str, released_at: str, reason: str) -> bool:
+        """Return an owned, unfinished dispatch to pending without clobbering another writer."""
+        released = False
+        with self._lock():
+            state = self._load_state()
+            item = next((row for row in state.items if row.item_id == item_id), None)
+            metadata = dict(item.metadata or {}) if item is not None else {}
+            if (
+                item is not None
+                and item.status == "active"
+                and metadata.get("maintenance_dispatch_state") == "dispatching"
+                and metadata.get("maintenance_dispatch_owner") == owner
+            ):
+                metadata.pop("maintenance_dispatch_owner", None)
+                metadata.pop("maintenance_dispatch_lease_expires_at", None)
+                metadata.update(
+                    {
+                        "maintenance_dispatch_state": "pending",
+                        "maintenance_dispatch_last_failure": str(reason or "dispatch_failed"),
+                        "maintenance_dispatch_last_failure_at": released_at,
+                    }
+                )
+                item.status = "pending"
+                item.claimed_at = None
+                item.last_transition_at = released_at
+                item.metadata = metadata
+                state.updated_at = _next_version(state.updated_at)
+                self._write_state(state)
+                released = True
+        return released
+
+    def recover_expired_dispatches(self, *, now: str) -> MaintenanceQueueState:
+        """Requeue dispatches whose owner disappeared before durable confirmation."""
+        now_at = datetime.fromisoformat(str(now or "").strip().replace("Z", "+00:00"))
+        with self._lock():
+            state = self._load_state()
+            changed = False
+            for item in state.items:
+                metadata = dict(item.metadata or {})
+                if item.status != "active" or metadata.get("maintenance_dispatch_state") != "dispatching":
+                    continue
+                try:
+                    expires_at = datetime.fromisoformat(
+                        str(metadata.get("maintenance_dispatch_lease_expires_at") or "").strip().replace("Z", "+00:00")
+                    )
+                    expired = expires_at <= now_at
+                except (TypeError, ValueError):
+                    # A malformed/missing recovery fence must fail closed rather
+                    # than permanently consume queue capacity.
+                    expired = True
+                if not expired:
+                    continue
+                metadata.pop("maintenance_dispatch_owner", None)
+                metadata.pop("maintenance_dispatch_lease_expires_at", None)
+                metadata.update(
+                    {
+                        "maintenance_dispatch_state": "pending",
+                        "maintenance_dispatch_last_failure": "dispatch_lease_expired",
+                        "maintenance_dispatch_last_failure_at": now,
+                    }
+                )
+                item.status = "pending"
+                item.claimed_at = None
+                item.last_transition_at = now
+                item.metadata = metadata
+                changed = True
+            if changed:
+                state.updated_at = _next_version(state.updated_at)
+                self._write_state(state)
+            return state
+
+    def finish_dispatch(self, item: MaintenanceQueueItem | JsonDict, *, owner: str, confirmed_at: str) -> tuple[bool, MaintenanceQueueState]:
+        """Publish dispatch results only while the caller still owns the item lease."""
+        record = item if isinstance(item, MaintenanceQueueItem) else _item_validate(item)
+        with self._lock():
+            state = self._load_state()
+            current = next((row for row in state.items if row.item_id == record.item_id), None)
+            metadata = dict(current.metadata or {}) if current is not None else {}
+            if (
+                current is None
+                or current.status != "active"
+                or metadata.get("maintenance_dispatch_state") != "dispatching"
+                or metadata.get("maintenance_dispatch_owner") != owner
+            ):
+                return False, state
+            completed_metadata = {**metadata, **dict(record.metadata or {})}
+            completed_metadata.pop("maintenance_dispatch_owner", None)
+            completed_metadata.pop("maintenance_dispatch_lease_expires_at", None)
+            completed_metadata.update(
+                {
+                    "maintenance_dispatch_state": "confirmed",
+                    "maintenance_dispatch_confirmed_at": confirmed_at,
+                }
+            )
+            record.metadata = completed_metadata
+            state.items = [record if row.item_id == record.item_id else row for row in state.items]
+            state.updated_at = _next_version(state.updated_at)
+            self._write_state(state)
+            return True, state
+
     def requeue(
         self,
         item_id: str,

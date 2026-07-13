@@ -296,6 +296,128 @@ def test_maintenance_queue_sync_preserves_same_item_mutation_during_claim_side_e
     assert current.projection == {"concurrent": "preserve"}
 
 
+def test_maintenance_dispatch_failure_releases_claim_and_retries_existing_process(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    queued = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="recover dispatch", source_text="recover dispatch", roadmap_contract={"objective": "recover dispatch"})
+    )
+    original_reconcile = orchestrator.reconcile_roadmap_execution
+
+    def fail_after_process_creation(*args, **kwargs):
+        raise OSError("injected roadmap persistence failure")
+
+    monkeypatch.setattr(orchestrator, "reconcile_roadmap_execution", fail_after_process_creation)
+    with pytest.raises(OSError, match="injected roadmap persistence failure"):
+        orchestrator._runtime_maintenance_queue_sync(
+            stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
+        )
+
+    released = stores["maintenance_queue_store"].get(queued.item_id)
+    assert released is not None
+    assert released.status == "pending"
+    assert released.claimed_at is None
+    assert released.metadata["maintenance_dispatch_state"] == "pending"
+    assert scheduler.get_process(released.process_id) is not None
+
+    monkeypatch.setattr(orchestrator, "reconcile_roadmap_execution", original_reconcile)
+    result = orchestrator._runtime_maintenance_queue_sync(
+        stores=stores, now=datetime(2026, 3, 1, 0, 0, 1, tzinfo=timezone.utc), allow_claim=True
+    )
+
+    recovered = stores["maintenance_queue_store"].get(queued.item_id)
+    assert result["action_count"] == 1
+    assert recovered is not None
+    assert recovered.status == "active"
+    assert recovered.metadata["maintenance_dispatch_state"] == "confirmed"
+    assert recovered.process_id == released.process_id
+    assert stores["roadmap_store"].load_state(recovered.process_id) is not None
+
+
+def test_maintenance_dispatch_cancellation_releases_capacity(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    queued = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="cancel dispatch", source_text="cancel dispatch", roadmap_contract={"objective": "cancel dispatch"})
+    )
+
+    def cancel_dispatch(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(orchestrator, "create_process_from_workflow", cancel_dispatch)
+    with pytest.raises(asyncio.CancelledError):
+        orchestrator._runtime_maintenance_queue_sync(
+            stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
+        )
+
+    released = stores["maintenance_queue_store"].get(queued.item_id)
+    assert released is not None
+    assert released.status == "pending"
+    assert released.claimed_at is None
+    assert released.metadata["maintenance_dispatch_last_failure"] == "CancelledError:dispatch_failed"
+
+
+def test_maintenance_expired_dispatch_lease_recovers_crash_without_stealing_live_claim(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    queued = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="crash recovery", source_text="crash recovery", roadmap_contract={"objective": "crash recovery"})
+    )
+    claimed, _ = stores["maintenance_queue_store"].begin_dispatch(
+        claimed_at="2026-03-01T00:00:00.000Z",
+        lease_expires_at="2026-03-01T00:05:00.000Z",
+        owner="crashed-worker",
+        process_id_for_item=orchestrator._maintenance_queue_process_id,
+    )
+    assert claimed is not None
+    orchestrator.create_process_from_workflow(
+        orchestrator._maintenance_queue_workflow(claimed), process_id=claimed.process_id, owner="cortex"
+    )
+    create_calls = 0
+    original_create = orchestrator.create_process_from_workflow
+
+    def count_create(*args, **kwargs):
+        nonlocal create_calls
+        create_calls += 1
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "create_process_from_workflow", count_create)
+    before_expiry = orchestrator._runtime_maintenance_queue_sync(
+        stores=stores, now=datetime(2026, 3, 1, 0, 4, 59, tzinfo=timezone.utc), allow_claim=True
+    )
+    still_owned = stores["maintenance_queue_store"].get(queued.item_id)
+    assert before_expiry["action_count"] == 0
+    assert still_owned is not None
+    assert still_owned.metadata["maintenance_dispatch_owner"] == "crashed-worker"
+    assert stores["roadmap_store"].load_state(claimed.process_id) is None
+
+    after_expiry = orchestrator._runtime_maintenance_queue_sync(
+        stores=stores, now=datetime(2026, 3, 1, 0, 5, tzinfo=timezone.utc), allow_claim=True
+    )
+    recovered = stores["maintenance_queue_store"].get(queued.item_id)
+    assert after_expiry["action_count"] == 1
+    assert create_calls == 0
+    assert recovered is not None
+    assert recovered.process_id == claimed.process_id
+    assert recovered.metadata["maintenance_dispatch_state"] == "confirmed"
+    assert stores["roadmap_store"].load_state(claimed.process_id) is not None
+
+
 
 def test_runtime_maintenance_intake_claim_and_follow_up(tmp_path, monkeypatch):
     db_path = tmp_path / "runtime.db"

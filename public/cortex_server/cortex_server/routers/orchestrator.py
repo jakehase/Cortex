@@ -10,12 +10,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import os
 import json
 import asyncio
 import httpx
+from uuid import uuid4
 
 from cortex_server.modules.diplomat import get_diplomat
 from cortex_server.modules.reasoning_approvals import create_approval_grant
@@ -1605,7 +1606,11 @@ def _runtime_maintenance_queue_sync(
     current_time = now or datetime.now().astimezone()
     now_iso = current_time.isoformat(timespec="milliseconds").replace("+00:00", "Z")
     queue_store = stores["maintenance_queue_store"]
-    queue_state = queue_store.get_state()
+    # A claimant can disappear between the durable queue claim and roadmap
+    # initialization. Expired dispatch leases make those records runnable
+    # again while preventing a concurrent synchronizer from stealing a live
+    # claim.
+    queue_state = queue_store.recover_expired_dispatches(now=now_iso)
     items = list(queue_state.items)
     by_id = {item.item_id: item for item in items}
     actions: List[Dict[str, Any]] = []
@@ -1656,61 +1661,82 @@ def _runtime_maintenance_queue_sync(
     if allow_claim:
         claim_budget = max(0, capacity - sum(1 for row in queue_state.items if row.status == "active"))
         for _ in range(claim_budget):
-            item, claimed_state = queue_store.claim_next(claimed_at=now_iso, process_id_for_item=_maintenance_queue_process_id)
+            dispatch_owner = f"maintenance-queue:{uuid4().hex}"
+            lease_expires_at = (current_time + timedelta(minutes=5)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            item, claimed_state = queue_store.begin_dispatch(
+                claimed_at=now_iso,
+                lease_expires_at=lease_expires_at,
+                owner=dispatch_owner,
+                process_id_for_item=_maintenance_queue_process_id,
+            )
             if item is None:
                 queue_state = claimed_state
                 break
-            claimed_item_snapshot = model_dump_compat(item)
             # The active transition above is the ownership fence. Only this
             # caller can cross it and perform non-idempotent dispatch work.
-            process = get_runtime_process(item.process_id) if item.process_id else None
-            if process is None:
-                process = create_process_from_workflow(
-                    _maintenance_queue_workflow(item),
-                    process_id=item.process_id or _maintenance_queue_process_id(item),
-                    owner="cortex",
-                    session_key=str((item.source_message or {}).get("session_key") or "").strip() or None,
+            try:
+                process = get_runtime_process(item.process_id) if item.process_id else None
+                if process is None:
+                    process = create_process_from_workflow(
+                        _maintenance_queue_workflow(item),
+                        process_id=item.process_id or _maintenance_queue_process_id(item),
+                        owner="cortex",
+                        session_key=str((item.source_message or {}).get("session_key") or "").strip() or None,
+                    )
+                item.process_id = process.get("process_id")
+                _ensure_runtime_session_plane_bootstrap(item.process_id, process=process, stores=stores)
+                _bootstrap_runtime_delivery_state(item.process_id, process=process, stores=stores)
+                contract = _maintenance_queue_contract_for_process(item, process_id=item.process_id)
+                reconciled = reconcile_roadmap_execution(
+                    contract,
+                    roadmap_store=stores["roadmap_store"],
+                    snapshot_store=stores["snapshot_store"],
+                    shared_state_store=stores["shared_state_store"],
+                    mailbox=stores["mailbox"],
+                    supervisor=stores["supervisor"],
+                    release_store=stores["release_store"],
+                    controller_id="maintenance-queue",
+                    controller_session_id=f"maintenance-queue:{item.item_id}",
+                    journal=stores["journal"],
+                    now=current_time,
                 )
-            item.process_id = process.get("process_id")
-            _ensure_runtime_session_plane_bootstrap(item.process_id, process=process, stores=stores)
-            _bootstrap_runtime_delivery_state(item.process_id, process=process, stores=stores)
-            contract = _maintenance_queue_contract_for_process(item, process_id=item.process_id)
-            reconciled = reconcile_roadmap_execution(
-                contract,
-                roadmap_store=stores["roadmap_store"],
-                snapshot_store=stores["snapshot_store"],
-                shared_state_store=stores["shared_state_store"],
-                mailbox=stores["mailbox"],
-                supervisor=stores["supervisor"],
-                release_store=stores["release_store"],
-                controller_id="maintenance-queue",
-                controller_session_id=f"maintenance-queue:{item.item_id}",
-                journal=stores["journal"],
-                now=current_time,
-            )
-            process = _sync_runtime_process_roadmap_state(
-                item.process_id,
-                process=get_runtime_process(item.process_id) or process,
-                stores=stores,
-                event_kind="runtime_maintenance_queue_claimed",
-                event_payload={"item_id": item.item_id, "queue_name": item.queue_name, "status": (reconciled.get("state") or {}).get("status")},
-            )
-            follow_up_bridge = _bridge_runtime_roadmap_follow_up(item.process_id, process=process, stores=stores, now=current_time)
-            process = follow_up_bridge.get("process") or process
-            latest_state_model = stores["roadmap_store"].load_state(item.process_id)
-            latest_reports = stores["roadmap_store"].reports(item.process_id)
-            latest_report_model = latest_reports[-1] if latest_reports else None
-            state_payload = model_dump_compat(latest_state_model) if latest_state_model is not None else ((reconciled.get("state") if isinstance(reconciled.get("state"), dict) else None) or {})
-            latest_report = model_dump_compat(latest_report_model) if latest_report_model is not None else (reconciled.get("report") if isinstance(reconciled.get("report"), dict) else None)
-            item.status = str(state_payload.get("status") or "active").strip() or "active"
-            item.claimed_at = item.claimed_at or now_iso
-            if item.status == "completed":
-                item.completed_at = item.completed_at or now_iso
-            if item.status == "blocked":
-                item.blocked_at = item.blocked_at or now_iso
-            item.last_transition_at = now_iso
-            item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report, stores=stores)
-            by_id[item.item_id] = item
+                process = _sync_runtime_process_roadmap_state(
+                    item.process_id,
+                    process=get_runtime_process(item.process_id) or process,
+                    stores=stores,
+                    event_kind="runtime_maintenance_queue_claimed",
+                    event_payload={"item_id": item.item_id, "queue_name": item.queue_name, "status": (reconciled.get("state") or {}).get("status")},
+                )
+                follow_up_bridge = _bridge_runtime_roadmap_follow_up(item.process_id, process=process, stores=stores, now=current_time)
+                process = follow_up_bridge.get("process") or process
+                latest_state_model = stores["roadmap_store"].load_state(item.process_id)
+                latest_reports = stores["roadmap_store"].reports(item.process_id)
+                latest_report_model = latest_reports[-1] if latest_reports else None
+                state_payload = model_dump_compat(latest_state_model) if latest_state_model is not None else ((reconciled.get("state") if isinstance(reconciled.get("state"), dict) else None) or {})
+                latest_report = model_dump_compat(latest_report_model) if latest_report_model is not None else (reconciled.get("report") if isinstance(reconciled.get("report"), dict) else None)
+                item.status = str(state_payload.get("status") or "active").strip() or "active"
+                item.claimed_at = item.claimed_at or now_iso
+                if item.status == "completed":
+                    item.completed_at = item.completed_at or now_iso
+                if item.status == "blocked":
+                    item.blocked_at = item.blocked_at or now_iso
+                item.last_transition_at = now_iso
+                item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report, stores=stores)
+                by_id[item.item_id] = item
+                _, queue_state = queue_store.finish_dispatch(item, owner=dispatch_owner, confirmed_at=now_iso)
+            except BaseException as exc:
+                try:
+                    queue_store.release_dispatch(
+                        item.item_id,
+                        owner=dispatch_owner,
+                        released_at=now_iso,
+                        reason=f"{type(exc).__name__}:dispatch_failed",
+                    )
+                except Exception:
+                    # Preserve the dispatch exception. A failed rollback remains
+                    # protected by the durable lease and is recovered later.
+                    pass
+                raise
             actions.append(
                 {
                     "kind": "maintenance_queue_claim",
@@ -1722,24 +1748,6 @@ def _runtime_maintenance_queue_sync(
                     "follow_up_dispatch": follow_up_bridge.get("dispatch"),
                 }
             )
-            # Merge just the claimed record. Concurrent enqueues are retained.
-            # If another writer changed the queue version, retry only when this
-            # record is still exactly the one we claimed. A process ID is not an
-            # item-level version: transitions and metadata/projection updates can
-            # legitimately retain it and must not be overwritten by this stale
-            # local record. Side effects are never repeated.
-            for persistence_attempt in range(3):
-                try:
-                    queue_state = queue_store.merge_items([item], expected_updated_at=claimed_state.updated_at)
-                    break
-                except RuntimeError:
-                    claimed_state = queue_store.get_state()
-                    current = next((row for row in claimed_state.items if row.item_id == item.item_id), None)
-                    if current is None or model_dump_compat(current) != claimed_item_snapshot:
-                        queue_state = claimed_state
-                        break
-                    if persistence_attempt == 2:
-                        queue_state = claimed_state
 
     persisted = list(queue_state.items)
     return {
