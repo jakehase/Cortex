@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import Future
 import json
 import logging
 import multiprocessing
@@ -614,6 +615,61 @@ def test_ledger_burst_has_exact_admission_cap_drops_and_recovers_without_leaks(
     finally:
         release_writer.set()
         admission._executor.shutdown(wait=True)
+
+
+@pytest.mark.parametrize("failure_type", [asyncio.CancelledError, KeyboardInterrupt])
+@pytest.mark.parametrize("failure_source", ["admission", "drop_metric"])
+def test_telemetry_base_exception_does_not_replace_success_response(
+    monkeypatch, failure_type, failure_source
+):
+    def fail(*args, **kwargs):
+        raise failure_type("telemetry failure")
+
+    if failure_source == "admission":
+        monkeypatch.setattr(ledger._durable_write_admission, "submit", fail)
+    else:
+        monkeypatch.setattr(ledger._durable_write_admission, "submit", lambda entry: None)
+        monkeypatch.setattr(ledger, "record_event_ledger_durable_write_drop", fail)
+
+    middleware = ledger.EventLedgerMiddleware(app=lambda scope, receive, send: None)
+
+    async def application(_request):
+        return JSONResponse({"ok": True})
+
+    response = asyncio.run(middleware.dispatch(_request("/telemetry-failure"), application))
+
+    assert response.status_code == 200
+    assert json.loads(response.body) == {"ok": True}
+    assert response.headers["x-cortex-event-id"]
+
+
+def test_request_task_cancellation_during_telemetry_wait_propagates(monkeypatch):
+    durable_write = Future()
+    submitted = asyncio.Event()
+
+    def submit(entry):
+        submitted.set()
+        return durable_write
+
+    monkeypatch.setattr(ledger._durable_write_admission, "submit", submit)
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_TELEMETRY_DEADLINE_SECONDS", 10.0)
+    middleware = ledger.EventLedgerMiddleware(app=lambda scope, receive, send: None)
+
+    async def application(_request):
+        return JSONResponse({"ok": True})
+
+    async def scenario():
+        dispatch_task = asyncio.create_task(
+            middleware.dispatch(_request("/cancel-during-telemetry"), application)
+        )
+        await asyncio.wait_for(submitted.wait(), timeout=0.5)
+        dispatch_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await dispatch_task
+        durable_write.set_result(None)
+        await asyncio.sleep(0)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("failure", [asyncio.CancelledError(), KeyboardInterrupt()])

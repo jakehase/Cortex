@@ -322,6 +322,7 @@ class EventLedgerMiddleware(BaseHTTPMiddleware):
         status_code = 500
         error_name = None
         application_error: BaseException | None = None
+        request_task = asyncio.current_task()
 
         try:
             response = await call_next(request)
@@ -331,6 +332,9 @@ class EventLedgerMiddleware(BaseHTTPMiddleware):
             error_name = type(exc).__name__
             raise
         finally:
+            telemetry_cancellations = (
+                request_task.cancelling() if request_task is not None else 0
+            )
             try:
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 levels = getattr(request.state, "activated_levels", []) or []
@@ -374,10 +378,16 @@ class EventLedgerMiddleware(BaseHTTPMiddleware):
                     logger.warning("event_ledger_append_failed: %s", exc)
                 except BaseException:
                     pass
-                # Telemetry must not replace an application failure already in
-                # flight, but cancellation during telemetry on a successful
-                # request still belongs to the caller and must propagate.
-                if application_error is None and not isinstance(exc, Exception):
+                # Telemetry must never replace an application result. A
+                # CancelledError only belongs to the caller when cancellation
+                # was actually requested for this dispatch task; telemetry
+                # implementations can themselves raise BaseException.
+                if (
+                    application_error is None
+                    and isinstance(exc, asyncio.CancelledError)
+                    and request_task is not None
+                    and request_task.cancelling() > telemetry_cancellations
+                ):
                     raise
 
             if response is not None:
