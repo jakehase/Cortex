@@ -184,6 +184,58 @@ def test_shared_service_registry_does_not_survive_sequential_asyncio_runs():
     assert all(task.get_loop() is loop for loop, task in seen)
 
 
+@pytest.mark.asyncio
+async def test_cancelled_new_service_acquisition_rolls_back_spawned_task(monkeypatch):
+    owners = main._SharedServiceOwners()
+    app = SimpleNamespace(
+        state=SimpleNamespace(background_tasks=set(), lifecycle_checks={})
+    )
+    worker_started = asyncio.Event()
+    worker_cancelled = asyncio.Event()
+    ownership_window = asyncio.Event()
+    hold_ownership_window = asyncio.Event()
+    stopped = []
+    spawned = None
+
+    async def worker():
+        worker_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            worker_cancelled.set()
+
+    async def start():
+        nonlocal spawned
+        spawned = asyncio.create_task(worker())
+        return spawned
+
+    async def stop():
+        stopped.append("awareness")
+
+    async def pause_before_ownership(delay):
+        assert delay == 0
+        ownership_window.set()
+        await hold_ownership_window.wait()
+
+    monkeypatch.setattr(main.asyncio, "sleep", pause_before_ownership)
+
+    acquisition = asyncio.create_task(
+        owners.acquire("awareness", app, start, stop)
+    )
+    await ownership_window.wait()
+    await worker_started.wait()
+    acquisition.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await acquisition
+
+    assert spawned.done()
+    assert worker_cancelled.is_set()
+    assert stopped == ["awareness"]
+    assert app.state.background_tasks == set()
+    assert owners.registry_size() == 0
+
+
 @pytest.fixture
 def lifecycle_fakes(monkeypatch):
     _install_minimal_routers(monkeypatch)
@@ -449,7 +501,7 @@ async def test_cancellation_during_chronos_startup_runs_full_cleanup(
             pytest.fail("lifespan must not yield")
 
     assert all(task.done() for task in app.state.background_tasks)
-    assert lifecycle_fakes.stopped == ["scheduler"]
+    assert lifecycle_fakes.stopped == ["chronos", "scheduler"]
 
 
 @pytest.mark.asyncio
@@ -771,7 +823,7 @@ async def test_partial_startup_failure_still_cleans_up_started_components(
         assert app.state.lifecycle_checks["awareness"]["ok"] is True
 
     assert lifecycle_fakes.cancelled == ["awareness"]
-    assert lifecycle_fakes.stopped == ["awareness", "scheduler"]
+    assert lifecycle_fakes.stopped == ["chronos", "awareness", "scheduler"]
 
 
 @pytest.mark.asyncio

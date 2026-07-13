@@ -110,7 +110,7 @@ class _SharedServiceOwners:
         with self._lock:
             return len(self._loops)
 
-    async def acquire(self, name, app, start):
+    async def acquire(self, name, app, start, rollback=None):
         loop = asyncio.get_running_loop()
         while True:
             with self._lock:
@@ -156,6 +156,7 @@ class _SharedServiceOwners:
             # different loop. Startup transitions are expected to be brief.
             await asyncio.sleep(0)
 
+        task = None
         try:
             task = await start()
             if task is not None:
@@ -163,11 +164,21 @@ class _SharedServiceOwners:
                 if task.done():
                     task.result()
         except BaseException as exc:
-            with self._lock:
-                state = self._state(loop, name)
-                state["starting"] = False
-                state["error"] = f"{type(exc).__name__}: {exc}"
-                self._prune_loop_locked(loop)
+            try:
+                if task is not None:
+                    if not task.done():
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                    if rollback is not None:
+                        await rollback()
+            except BaseException:
+                logger.exception("Failed to roll back %s startup cleanly", name)
+            finally:
+                with self._lock:
+                    state = self._state(loop, name)
+                    state["starting"] = False
+                    state["error"] = f"{type(exc).__name__}: {exc}"
+                    self._prune_loop_locked(loop)
             raise
 
         with self._lock:
@@ -461,11 +472,25 @@ def create_app() -> FastAPI:
                 monitor_redis(), name="cortex-redis-monitor"
             )
 
+            async def stop_service(name):
+                if name == "awareness":
+                    from cortex_server.routers.awareness import stop_awareness
+                    await stop_awareness()
+                elif name == "chronos":
+                    from cortex_server.modules.chronos import get_chronos
+                    get_chronos().stop()
+                else:
+                    from cortex_server.scheduler import stop_scheduler
+                    await stop_scheduler()
+
             try:
                 from cortex_server.scheduler import start_scheduler
                 async def start_main_scheduler():
                     start_scheduler()
-                await _shared_service_owners.acquire("scheduler", app, start_main_scheduler)
+                await _shared_service_owners.acquire(
+                    "scheduler", app, start_main_scheduler,
+                    lambda: stop_service("scheduler"),
+                )
                 acquired.append("scheduler")
             except Exception as e:
                 app.state.lifecycle_checks["scheduler"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
@@ -474,14 +499,20 @@ def create_app() -> FastAPI:
                 from cortex_server.modules.chronos import get_chronos
                 async def start_chronos():
                     return asyncio.create_task(get_chronos().start_scheduler(), name="cortex-chronos")
-                await _shared_service_owners.acquire("chronos", app, start_chronos)
+                await _shared_service_owners.acquire(
+                    "chronos", app, start_chronos,
+                    lambda: stop_service("chronos"),
+                )
                 acquired.append("chronos")
             except Exception as e:
                 app.state.lifecycle_checks["chronos"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
                 logger.warning("Chronos is not ready: %s", e)
             try:
                 from cortex_server.routers.awareness import start_awareness
-                await _shared_service_owners.acquire("awareness", app, start_awareness)
+                await _shared_service_owners.acquire(
+                    "awareness", app, start_awareness,
+                    lambda: stop_service("awareness"),
+                )
                 acquired.append("awareness")
             except Exception as e:
                 app.state.lifecycle_checks["awareness"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
@@ -496,17 +527,6 @@ def create_app() -> FastAPI:
                 # strongly referenced and observe it before the lifespan disappears.
                 if redis_worker is not None:
                     await asyncio.gather(redis_worker, return_exceptions=True)
-                async def stop_service(name):
-                    if name == "awareness":
-                        from cortex_server.routers.awareness import stop_awareness
-                        await stop_awareness()
-                    elif name == "chronos":
-                        from cortex_server.modules.chronos import get_chronos
-                        get_chronos().stop()
-                    else:
-                        from cortex_server.scheduler import stop_scheduler
-                        await stop_scheduler()
-
                 for name in reversed(acquired):
                     try:
                         await _shared_service_owners.release(
