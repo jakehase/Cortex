@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import json
 import os
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -122,3 +124,41 @@ def test_background_cli_preserves_supervisor_identity_and_fails_closed_on_mismat
     with pytest.raises(RuntimeError, match="does not match persisted active process"):
         cli.main(["--date", DATE, "run-stage", "--stage", "baseline", "--background"])
     assert state_path.read_bytes() == before_mismatch
+
+
+def test_foreground_run_stage_does_not_block_concurrent_cli_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = _load_cli()
+    monkeypatch.setattr(supervisor, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "_qualification_root", lambda _date: tmp_path)
+    monkeypatch.setattr(cli, "_print", lambda _payload: None)
+    launch_waiting = threading.Event()
+    release_launch = threading.Event()
+    status_completed = threading.Event()
+
+    def foreground_launch(_date: str, _stage: str, *, background: bool = False) -> dict:
+        assert background is False
+        launch_waiting.set()
+        assert release_launch.wait(timeout=5)
+        return {"launched": True, "background": False, "returncode": 0, "stage": "baseline"}
+
+    def status_summary(_date: str) -> dict:
+        status_completed.set()
+        return {"all_complete": False}
+
+    monkeypatch.setattr(supervisor, "launch_stage", foreground_launch)
+    monkeypatch.setattr(supervisor, "stage_status_summary", status_summary)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        foreground = executor.submit(
+            cli.main, ["--date", DATE, "run-stage", "--stage", "baseline"]
+        )
+        assert launch_waiting.wait(timeout=5)
+        status = executor.submit(cli.main, ["--date", DATE, "status"])
+        status_was_concurrent = status_completed.wait(timeout=2)
+        release_launch.set()
+        assert foreground.result(timeout=5) == 0
+        assert status.result(timeout=5) == 0
+
+    assert status_was_concurrent is True

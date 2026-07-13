@@ -160,6 +160,14 @@ def main(argv=None) -> int:
         _print(payload)
         return 0 if payload.get("all_complete") else 3
 
+    # A foreground launch deliberately drops the library-owned lock while it
+    # waits for the workload.  Do not retain this command-wide recursive lock,
+    # or status and termination commands cannot observe or stop that workload.
+    if args.command == "run-stage" and not args.background:
+        result = supervisor.launch_stage(date, args.stage, background=False)
+        _print(result)
+        return 0
+
     with _process_lock(date):
         if args.command == "init":
             state = supervisor.load_or_create_state(date)
@@ -184,8 +192,7 @@ def main(argv=None) -> int:
             return 0
         if args.command == "run-stage":
             result = supervisor.launch_stage(date, args.stage, background=bool(args.background))
-            if args.background:
-                result = _validate_background_launch(date, result)
+            result = _validate_background_launch(date, result)
             _print(result)
             return 0
         if args.command == "poll":
