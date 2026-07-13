@@ -207,21 +207,21 @@ def test_git_checkout_passes_validated_branch_as_branch_operand(monkeypatch, tmp
     assert len(calls) == 1
 
 
-def test_sync_git_capture_keeps_only_bounded_tail(monkeypatch, tmp_path):
+@pytest.mark.parametrize("stream_name", ["stdout", "stderr"])
+def test_sync_git_output_limit_fails_closed_for_either_stream(
+    monkeypatch, tmp_path, stream_name
+):
     monkeypatch.setattr(git_wrapper, "MAX_OUTPUT_CHARS", 8)
+
     def fake_popen(cmd, **kwargs):
         proc = SyncDoneProcess(cmd, **kwargs)
-        proc.stdout = SyncChunks(b"pre", b"fix-", b"TAIL")
-        proc.stderr = SyncChunks(b"sec", b"ret-", b"ERR")
-        proc.returncode = 1
+        setattr(proc, stream_name, SyncChunks(b"complete", b"overflow"))
         return proc
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
-    result = repo(tmp_path)._run("status")
-
-    assert result.stdout == "fix-TAIL"
-    assert result.stderr == "cret-ERR"
+    with pytest.raises(git_wrapper.GitError, match="output limit exceeded"):
+        repo(tmp_path).status()
 
 
 def test_sync_git_clone_uses_bounded_incremental_capture(monkeypatch):
@@ -229,14 +229,48 @@ def test_sync_git_clone_uses_bounded_incremental_capture(monkeypatch):
 
     def fake_popen(cmd, **kwargs):
         proc = SyncDoneProcess(cmd, **kwargs)
-        proc.stdout = SyncChunks(b"discard", b"-TAIL")
-        proc.stderr = SyncChunks(b"old", b"-ERROR")
+        proc.stdout = SyncChunks(b"d-", b"TAIL")
+        proc.stderr = SyncChunks(b"-ERROR")
         return proc
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     result = git_wrapper.GitRepo.clone("local-source", "destination")
     assert result.stdout == "d-TAIL"
     assert result.stderr == "-ERROR"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream_name", ["stdout", "stderr"])
+async def test_async_git_output_limit_fails_closed_for_either_stream(
+    monkeypatch, stream_name
+):
+    monkeypatch.setattr(git_wrapper, "MAX_OUTPUT_CHARS", 8)
+    proc = AsyncDoneProcess()
+    setattr(proc, stream_name, AsyncChunks(b"complete", b"overflow"))
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", lambda *a, **k: asyncio.sleep(0, result=proc)
+    )
+
+    with pytest.raises(git_wrapper.GitError, match="output limit exceeded"):
+        await git_wrapper.run_git_async(["git", "status"])
+
+
+@pytest.mark.asyncio
+async def test_async_git_output_at_limit_preserves_success_contract(monkeypatch):
+    monkeypatch.setattr(git_wrapper, "MAX_OUTPUT_CHARS", 6)
+    proc = AsyncDoneProcess(stdout=(b"d-", b"TAIL"), stderr=(b"-ERROR",))
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", lambda *a, **k: asyncio.sleep(0, result=proc)
+    )
+
+    result = await git_wrapper.run_git_async(["git", "status"])
+
+    assert result.model_dump() == {
+        "success": True,
+        "stdout": "d-TAIL",
+        "stderr": "-ERROR",
+        "returncode": 0,
+    }
 
 
 def test_sync_git_timeout_terminates_kills_and_reaps(monkeypatch, tmp_path):

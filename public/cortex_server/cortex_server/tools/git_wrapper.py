@@ -20,6 +20,7 @@ DEFAULT_TIMEOUT = 60.0
 MAX_OUTPUT_CHARS = 1024 * 1024
 TERMINATE_GRACE = 1.0
 READ_CHUNK_BYTES = 64 * 1024
+OUTPUT_LIMIT_ERROR = "Git command output limit exceeded"
 
 
 def _close_sync_pipes(proc: Any) -> None:
@@ -50,12 +51,15 @@ def _bounded_sync_command(
     """Run with concurrent fixed-capacity pipe drains and a hard deadline."""
     proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     tails = [bytearray(), bytearray()]
+    overflowed = [False, False]
 
-    def drain(stream: Any, tail: bytearray) -> None:
+    def drain(stream: Any, tail: bytearray, stream_index: int) -> None:
         while True:
             chunk = stream.read(READ_CHUNK_BYTES)
             if not chunk:
                 return
+            if len(tail) + len(chunk) > MAX_OUTPUT_CHARS:
+                overflowed[stream_index] = True
             if len(chunk) >= MAX_OUTPUT_CHARS:
                 tail[:] = chunk[-MAX_OUTPUT_CHARS:]
             else:
@@ -64,8 +68,8 @@ def _bounded_sync_command(
                     del tail[:overflow]
                 tail.extend(chunk)
 
-    readers = [threading.Thread(target=drain, args=(stream, tail), daemon=True)
-               for stream, tail in zip((proc.stdout, proc.stderr), tails)]
+    readers = [threading.Thread(target=drain, args=(stream, tail, index), daemon=True)
+               for index, (stream, tail) in enumerate(zip((proc.stdout, proc.stderr), tails))]
     for reader in readers:
         reader.start()
     deadline = time.monotonic() + timeout
@@ -92,19 +96,24 @@ def _bounded_sync_command(
         for stream in (proc.stdout, proc.stderr):
             stream.close()
         raise GitError("Git command timed out")
+    if any(overflowed):
+        raise GitError(OUTPUT_LIMIT_ERROR)
     return GitResult(success=proc.returncode == 0,
                      stdout=bytes(tails[0]).decode(errors="replace").strip(),
                      stderr=bytes(tails[1]).decode(errors="replace").strip(),
                      returncode=proc.returncode)
 
 
-async def _bounded_async_command(proc: Any, timeout: float) -> tuple[bytes, bytes]:
-    async def drain(stream: Any) -> bytearray:
+async def _bounded_async_command(proc: Any, timeout: float) -> tuple[bytes, bytes, bool]:
+    async def drain(stream: Any) -> tuple[bytearray, bool]:
         tail = bytearray()
+        overflowed = False
         while True:
             chunk = await stream.read(READ_CHUNK_BYTES)
             if not chunk:
-                return tail
+                return tail, overflowed
+            if len(tail) + len(chunk) > MAX_OUTPUT_CHARS:
+                overflowed = True
             if len(chunk) >= MAX_OUTPUT_CHARS:
                 tail[:] = chunk[-MAX_OUTPUT_CHARS:]
             else:
@@ -122,7 +131,9 @@ async def _bounded_async_command(proc: Any, timeout: float) -> tuple[bytes, byte
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
-    return bytes(values[1]), bytes(values[2])
+    stdout, stdout_overflowed = values[1]
+    stderr, stderr_overflowed = values[2]
+    return bytes(stdout), bytes(stderr), stdout_overflowed or stderr_overflowed
 
 
 async def _stop_process(proc: Any) -> None:
@@ -146,7 +157,7 @@ async def run_git_async(
         raise GitError("Git command timed out")
     try:
         remaining = max(0.0, deadline - asyncio.get_running_loop().time())
-        out, err = await _bounded_async_command(proc, remaining)
+        out, err, output_overflowed = await _bounded_async_command(proc, remaining)
     except asyncio.CancelledError:
         await asyncio.shield(_stop_process(proc))
         raise
@@ -156,6 +167,8 @@ async def run_git_async(
     except BaseException:
         await asyncio.shield(_stop_process(proc))
         raise
+    if output_overflowed:
+        raise GitError(OUTPUT_LIMIT_ERROR)
     return GitResult(
         success=proc.returncode == 0,
         stdout=out.decode(errors="replace").strip(),
