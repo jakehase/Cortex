@@ -945,6 +945,13 @@ export default function register(api: any) {
   const cfg = api.pluginConfig || api.config || {};
   if (!asBool(cfg.enabled, true)) return;
 
+  const sessionIdentityHmacSecret = typeof cfg.sessionIdentityHmacSecret === 'string' && cfg.sessionIdentityHmacSecret.trim().length > 0
+    ? String(cfg.sessionIdentityHmacSecret)
+    : null;
+  if (!sessionIdentityHmacSecret) {
+    throw new Error('cortex-route-gate requires an explicitly provisioned keyed session identity secret (sessionIdentityHmacSecret) shared with cortex-memory-bridge');
+  }
+
   const baseUrl = normalizeBaseUrl(cfg.baseUrl);
   const requireRouting = asBool(cfg.requireRouting, true);
   const timeoutMs = asNumber(cfg.timeoutMs, 8000);
@@ -953,13 +960,23 @@ export default function register(api: any) {
   const writeToken = typeof cfg.writeToken === 'string' && cfg.writeToken.length > 0 ? String(cfg.writeToken) : null;
   const writeTokenHeader = normalizeWriteTokenHeader(cfg.writeTokenHeader);
   const writeHeaders = writeToken ? { [writeTokenHeader]: writeToken } : {};
+  const tenantId = typeof cfg.tenantId === 'string' && cfg.tenantId.trim() ? cfg.tenantId.trim() : 'cortex-local';
+  const workspaceId = typeof cfg.workspaceId === 'string' && cfg.workspaceId.trim() ? cfg.workspaceId.trim() : 'default';
+  const defaultAgentId = typeof cfg.agentId === 'string' && cfg.agentId.trim() ? cfg.agentId.trim() : 'main';
+  const defaultUserId = typeof cfg.userId === 'string' && cfg.userId.trim() ? cfg.userId.trim() : 'local-user';
+  const defaultChannelId = typeof cfg.channelId === 'string' && cfg.channelId.trim() ? cfg.channelId.trim() : 'local-channel';
+  const scopeCredentialId = typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '';
+  const scopeHmacSecret = typeof cfg.scopeHmacSecret === 'string' ? String(cfg.scopeHmacSecret) : '';
+  if (Boolean(scopeCredentialId) !== Boolean(scopeHmacSecret)) {
+    throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret together');
+  }
+  if ((!scopeCredentialId || !scopeHmacSecret) && (tenantId !== 'cortex-local' || workspaceId !== 'default')) {
+    throw new Error('cortex-route-gate requires scoped credentials for a non-default tenant or workspace');
+  }
   const maxCachedPlanAgeMs = asNumber(cfg.maxCachedPlanAgeMs, 300_000);
   // Capture once at construction so later mutation of the caller-owned config cannot change trust.
   const routeCacheHmacSecret = typeof cfg.routeCacheHmacSecret === 'string' && cfg.routeCacheHmacSecret.length > 0
     ? String(cfg.routeCacheHmacSecret)
-    : null;
-  const sessionIdentityHmacSecret = typeof cfg.sessionIdentityHmacSecret === 'string' && cfg.sessionIdentityHmacSecret.length > 0
-    ? String(cfg.sessionIdentityHmacSecret)
     : null;
   const maxLevels = asNumber(cfg.maxLevels, 10);
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
@@ -983,6 +1000,48 @@ export default function register(api: any) {
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
+
+  function nexusPrincipalHeaders(ctx: any, sessionIdentity: string): Record<string, string> {
+    const scope = {
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      agent_id: String(ctx?.agentId || defaultAgentId).trim(),
+      user_id: String(ctx?.userId || ctx?.requesterSenderId || defaultUserId).trim(),
+      channel_id: String(ctx?.channelId || ctx?.messageChannel || defaultChannelId).trim(),
+      session_id: sessionIdentity,
+    };
+    const boundedOpaqueId = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
+    if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {
+      throw new Error('routing requires a complete bounded trusted Cortex principal');
+    }
+    const headers: Record<string, string> = {
+      ...writeHeaders,
+      'x-session-id': sessionIdentity,
+      'x-cortex-tenant-id': scope.tenant_id,
+      'x-cortex-workspace-id': scope.workspace_id,
+      'x-cortex-agent-id': scope.agent_id,
+      'x-cortex-user-id': scope.user_id,
+      'x-cortex-channel-id': scope.channel_id,
+      'x-cortex-session-id': scope.session_id,
+    };
+    if (scopeCredentialId && scopeHmacSecret) {
+      if (!boundedOpaqueId.test(scopeCredentialId)) throw new Error('routing scope credential ID is invalid');
+      headers['x-cortex-scope-credential-id'] = scopeCredentialId;
+      headers['x-cortex-scope-signature'] = crypto.createHmac('sha256', scopeHmacSecret)
+        .update([
+          'cortex.memory.principal.v2',
+          scopeCredentialId,
+          scope.tenant_id,
+          scope.workspace_id,
+          scope.agent_id,
+          scope.user_id,
+          scope.channel_id,
+          scope.session_id,
+        ].join('\n'), 'utf8')
+        .digest('hex');
+    }
+    return headers;
+  }
 
   function archiveOversizedOracleSessions() {
     if (!oracleSessionQuarantineEnabled || !oracleSessionResetBytes || oracleSessionResetBytes < 1024) return;
@@ -1037,7 +1096,7 @@ export default function register(api: any) {
     }
   }
 
-  async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
+  async function getPlan(prompt: string, messages: unknown[], sessionKey: string | undefined, trustedContext: any): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
     let plan: RoutePlan | null = null;
     try {
       if (Buffer.byteLength(prompt, 'utf8') > maxRoutingPromptBytes) {
@@ -1049,7 +1108,7 @@ export default function register(api: any) {
         { query: prompt },
         timeoutMs,
         maxResponseBytes,
-        { ...writeHeaders, 'x-session-id': sessionIdentity },
+        nexusPrincipalHeaders(trustedContext, sessionIdentity),
       );
       const recommended = liveRouteLevels(data);
       if (!recommended) throw new Error('invalid live route response schema');
@@ -1160,7 +1219,7 @@ export default function register(api: any) {
     }
     let route;
     try {
-      route = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey);
+      route = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey, ctx);
     } catch (error) {
       if (requireRouting) throw error;
       api.logger.warn?.(`cortex-route-gate: optional routing skipped: ${String(error)}`);

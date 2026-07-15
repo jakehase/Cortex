@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHmac } from 'node:crypto';
 
 import plugin, { ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
@@ -23,6 +24,173 @@ const successfulCommitResponse = () => new Response(JSON.stringify({
   durable_write: { status: 'stored' },
   assurance: { memory_commit: { eligible: true } },
 }));
+
+test('registration rejects an unprovisioned shared session secret before hooks or lifecycle replay start', () => {
+  for (const sessionIdentityHmacSecret of [undefined, '', '   ']) {
+    let registrations = 0;
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-invalid-config-'));
+    try {
+      assert.throws(() => plugin.register({
+        pluginConfig: {
+          stateDir,
+          ...(sessionIdentityHmacSecret === undefined ? {} : { sessionIdentityHmacSecret }),
+        },
+        logger: { info() {}, warn() {} },
+        on() { registrations += 1; },
+        registerMemoryRuntime() { registrations += 1; },
+        registerTool() { registrations += 1; },
+      }), /explicitly provisioned sessionIdentityHmacSecret/);
+      assert.equal(registrations, 0);
+      assert.deepEqual(fs.readdirSync(stateDir), [], 'registration failure must not create lifecycle state');
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('lifecycle writes and memory_search recall remain isolated across trusted invocation contexts', async () => {
+  const handlers = new Map();
+  let searchFactory;
+  const recordsByScope = new Map();
+  const codecScopes = [];
+  const searchScopes = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(String(options?.body || '{}'));
+    const scopeKey = JSON.stringify(body.scope);
+    if (String(url).endsWith('/nexus/codec/events')) {
+      codecScopes.push(body.scope);
+      recordsByScope.set(scopeKey, body.events[0].text);
+      return new Response('{"success":true}');
+    }
+    if (String(url).endsWith('/knowledge/search')) {
+      searchScopes.push(body.scope);
+      const text = recordsByScope.get(scopeKey);
+      return new Response(JSON.stringify({
+        results: text ? [{
+          id: `record-${searchScopes.length}`,
+          path: `codec/${body.scope.session_id}`,
+          text,
+          score: 0.95,
+          metadata: { source: 'curated-project-facts', quality: 'curated', scope: body.scope },
+        }] : [],
+        search_mode: 'semantic',
+      }));
+    }
+    throw new Error(`unexpected endpoint ${url}`);
+  };
+
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ enabledCodecContinuity: true, enabledWriteThrough: false, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool(factory, options) {
+        if (options?.names?.includes('memory_search')) searchFactory = factory;
+      },
+    });
+
+    const sessions = [
+      {
+        hook: { sessionKey: 'session-alpha', userId: 'user-alpha', channelId: 'channel-alpha', agentId: 'agent-alpha' },
+        tool: { sessionKey: 'session-alpha', requesterSenderId: 'user-alpha', messageChannel: 'channel-alpha', agentId: 'agent-alpha' },
+        memory: 'Cobalt launch decision belongs only to session alpha.',
+      },
+      {
+        hook: { sessionKey: 'session-beta', userId: 'user-beta', channelId: 'channel-beta', agentId: 'agent-beta' },
+        tool: { sessionKey: 'session-beta', requesterSenderId: 'user-beta', messageChannel: 'channel-beta', agentId: 'agent-beta' },
+        memory: 'Amber release decision belongs only to session beta.',
+      },
+    ];
+
+    for (const entry of sessions) {
+      handlers.get('llm_output')({ content: entry.memory }, entry.hook);
+      await handlers.get('agent_end')({}, entry.hook);
+    }
+
+    const alpha = JSON.parse(await searchFactory(sessions[0].tool).execute('alpha-search', { query: 'cobalt launch decision' }));
+    const beta = JSON.parse(await searchFactory(sessions[1].tool).execute('beta-search', { query: 'amber release decision' }));
+    assert.match(alpha.results[0].snippet, /session alpha/);
+    assert.doesNotMatch(alpha.results[0].snippet, /session beta/);
+    assert.match(beta.results[0].snippet, /session beta/);
+    assert.doesNotMatch(beta.results[0].snippet, /session alpha/);
+    assert.deepEqual(searchScopes, codecScopes, 'tool reads use the exact lifecycle principal scopes');
+    assert.notEqual(searchScopes[0].session_id, searchScopes[1].session_id);
+    assert.equal(searchScopes[0].session_id, `openclaw-${createHmac('sha256', 'session-test-secret').update('session-alpha').digest('hex')}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('memory_search fails closed without complete trusted factory identity and never contacts Cortex', async () => {
+  let searchFactory;
+  let fetched = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { fetched = true; return new Response('{"results":[]}'); };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig(),
+      logger: { info() {}, warn() {} },
+      on() {},
+      registerMemoryRuntime() {},
+      registerTool(factory, options) {
+        if (options?.names?.includes('memory_search')) searchFactory = factory;
+      },
+    });
+    const result = JSON.parse(await searchFactory({ sessionKey: 'only-a-session' }).execute('missing-principal', { query: 'private memory' }));
+    assert.equal(result.disabled, true);
+    assert.match(result.error, /trusted invocation context: missing userId, channelId, agentId/);
+    assert.equal(fetched, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('memory runtime manager binds and preserves trusted invocation identity', async () => {
+  let memoryRuntime;
+  let requestBody;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    requestBody = JSON.parse(String(options?.body || '{}'));
+    return new Response('{"results":[],"search_mode":"semantic"}');
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig(),
+      logger: { info() {}, warn() {} },
+      on() {},
+      registerMemoryRuntime(runtime) { memoryRuntime = runtime; },
+      registerTool() {},
+    });
+
+    const unavailable = await memoryRuntime.getMemorySearchManager({ agentId: 'manager-agent' });
+    assert.equal(unavailable.manager, null);
+    assert.match(unavailable.error, /trusted invocation context: missing sessionKey, userId, channelId/);
+
+    const available = await memoryRuntime.getMemorySearchManager({
+      sessionKey: 'manager-session',
+      requesterSenderId: 'manager-user',
+      messageChannel: 'manager-channel',
+      agentId: 'manager-agent',
+    });
+    assert.ok(available.manager);
+    await available.manager.search('manager scoped recall', {
+      sessionKey: 'untrusted-override-session',
+      userId: 'untrusted-override-user',
+    });
+    assert.deepEqual(requestBody.scope, {
+      tenant_id: 'tenant-test',
+      workspace_id: 'workspace-test',
+      agent_id: 'manager-agent',
+      user_id: 'manager-user',
+      channel_id: 'manager-channel',
+      session_id: `openclaw-${createHmac('sha256', 'session-test-secret').update('manager-session').digest('hex')}`,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test('memory POSTs attach the configured write-token header', async () => {
   const handlers = new Map();
@@ -542,7 +710,12 @@ test('parallel declared-size rejections do not await stalled body cancellation',
       on() {},
       registerMemoryRuntime() {},
       registerTool(factory, options) {
-        if (options?.names?.includes('memory_search')) searchTool = factory();
+        if (options?.names?.includes('memory_search')) searchTool = factory({
+          sessionKey: 'oversized-session',
+          requesterSenderId: 'oversized-user',
+          messageChannel: 'test-channel',
+          agentId: 'main',
+        });
       },
     });
 

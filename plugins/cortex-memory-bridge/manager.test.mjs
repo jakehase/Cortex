@@ -11,6 +11,16 @@ const scopedConfig = {
   scopeHmacSecret: 'scope-test-secret',
   sessionIdentityHmacSecret: 'session-test-secret',
 };
+const managerParams = (cfg, identity = {}) => {
+  const invocationContext = {
+    sessionKey: 'manager-session',
+    userId: 'manager-user',
+    channelId: 'manager-channel',
+    agentId: 'agent-a',
+    ...identity,
+  };
+  return { cfg, agentId: invocationContext.agentId, invocationContext };
+};
 
 test('manager search attaches configured Cortex write authorization', async () => {
   const originalFetch = globalThis.fetch;
@@ -20,10 +30,10 @@ test('manager search attaches configured Cortex write authorization', async () =
     return new Response('{"results":[]}');
   };
   try {
-    const manager = await CortexMemorySearchManager.create({
-      cfg: { ...scopedConfig, retryCount: 0, writeToken: 'manager-secret', writeTokenHeader: 'x-manager-token' },
-      agentId: 'authorization-test',
-    });
+    const manager = await CortexMemorySearchManager.create(managerParams(
+      { ...scopedConfig, retryCount: 0, writeToken: 'manager-secret', writeTokenHeader: 'x-manager-token' },
+      { agentId: 'authorization-test' },
+    ));
     await manager.search('authorized search');
     assert.equal(headers.get('x-manager-token'), 'manager-secret');
   } finally {
@@ -48,10 +58,10 @@ test('concurrent declared-size rejections do not await body cancellation', async
   });
 
   try {
-    const manager = await CortexMemorySearchManager.create({
-      cfg: { ...scopedConfig, maxResponseBytes: 64, retryCount: 0 },
-      agentId: 'size-limit-test',
-    });
+    const manager = await CortexMemorySearchManager.create(managerParams(
+      { ...scopedConfig, maxResponseBytes: 64, retryCount: 0 },
+      { agentId: 'size-limit-test' },
+    ));
     const searches = Array.from({ length: 8 }, (_, index) => manager.search(`oversized-${index}`));
     const results = Promise.allSettled(searches);
     let settled = false;
@@ -80,11 +90,13 @@ test('manager forwards signed tenant, workspace, and agent scope', async () => {
     return new Response('{"results":[],"search_mode":"semantic","degraded":false}');
   };
   try {
-    const manager = await CortexMemorySearchManager.create({
-      cfg: scopedConfig,
+    const manager = await CortexMemorySearchManager.create(managerParams(scopedConfig, {
+      sessionKey: 'session-a',
+      userId: 'user-a',
+      channelId: 'local-channel',
       agentId: 'agent-a',
-    });
-    await manager.search('scoped search', { userId: 'user-a', sessionKey: 'session-a' });
+    }));
+    await manager.search('scoped search', { userId: 'model-controlled-user', sessionKey: 'model-controlled-session' });
 
     assert.deepEqual(request.body.scope, {
       tenant_id: 'tenant-test',
@@ -104,19 +116,24 @@ test('manager forwards signed tenant, workspace, and agent scope', async () => {
 });
 
 test('manager fails closed when non-default memory scope lacks authentication', async () => {
-  const manager = await CortexMemorySearchManager.create({
-    cfg: { tenantId: 'tenant-a', workspaceId: 'workspace-a', sessionIdentityHmacSecret: 'session-test-secret' },
-    agentId: 'agent-a',
-  });
+  const manager = await CortexMemorySearchManager.create(managerParams(
+    { tenantId: 'tenant-a', workspaceId: 'workspace-a', sessionIdentityHmacSecret: 'session-test-secret' },
+  ));
   await assert.rejects(() => manager.search('unscoped search'), /scopeCredentialId and scopeHmacSecret/);
 });
 
 test('manager rejects unkeyed session identity fallback', async () => {
-  const manager = await CortexMemorySearchManager.create({
-    cfg: { tenantId: 'cortex-local', workspaceId: 'default' },
-    agentId: 'agent-a',
-  });
+  const manager = await CortexMemorySearchManager.create(managerParams(
+    { tenantId: 'cortex-local', workspaceId: 'default' },
+  ));
   await assert.rejects(() => manager.search('local search'), /sessionIdentityHmacSecret is required/);
+});
+
+test('manager construction fails closed when its trusted invocation seam is incomplete', async () => {
+  await assert.rejects(
+    () => CortexMemorySearchManager.create({ cfg: scopedConfig, agentId: 'agent-a' }),
+    /trusted invocation context: missing sessionKey, userId, channelId/,
+  );
 });
 
 for (const response of [
@@ -127,7 +144,7 @@ for (const response of [
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => new Response(JSON.stringify(response));
     try {
-      const manager = await CortexMemorySearchManager.create({ cfg: scopedConfig, agentId: 'agent-a' });
+      const manager = await CortexMemorySearchManager.create(managerParams(scopedConfig));
       await assert.rejects(() => manager.search('availability test'), /Cortex memory search unavailable/);
       assert.equal((await manager.probeEmbeddingAvailability()).ok, false);
       assert.equal(await manager.probeVectorAvailability(), false);
@@ -147,7 +164,7 @@ test('manager accepts a degraded healthy fallback with no matching results', asy
     warning: 'semantic provider unavailable; lexical fallback returned no match',
   }));
   try {
-    const manager = await CortexMemorySearchManager.create({ cfg: scopedConfig, agentId: 'agent-a' });
+    const manager = await CortexMemorySearchManager.create(managerParams(scopedConfig));
     assert.deepEqual(await manager.search('clean empty fallback'), []);
     assert.equal((await manager.probeEmbeddingAvailability()).ok, true);
   } finally {
@@ -164,7 +181,7 @@ test('manager accepts degraded lexical recall when a backend returned results', 
     results: [{ id: 'fallback-1', text: 'usable fallback memory', distance: 0.1, metadata: {} }],
   }));
   try {
-    const manager = await CortexMemorySearchManager.create({ cfg: scopedConfig, agentId: 'agent-a' });
+    const manager = await CortexMemorySearchManager.create(managerParams(scopedConfig));
     const results = await manager.search('usable fallback');
     assert.equal(results.length, 1);
     assert.equal((await manager.probeEmbeddingAvailability()).ok, true);

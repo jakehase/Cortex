@@ -18,7 +18,9 @@ from cortex_server.runtime.release_workflow import (
     advance_release_workflow,
     capture_release_rollback_fencepost,
     compile_release_handoff,
+    create_release_artifact_receipt,
     evaluate_release_promotion_gate,
+    record_release_artifact_receipt,
     record_release_fencepost,
     record_release_handoff,
     repair_release_workflow,
@@ -1317,6 +1319,79 @@ class RuntimeSoakHarness:
             actor="release-coordinator",
             provenance={"scenario": "release_delivery", "phase": "seed"},
         )
+        artifact_store = self.release_store.artifact_store()
+        verifier_id = "soak-independent-release-verifier"
+        verifier_secret = f"soak-release-verifier:{process_id}"
+        verifier_credentials = {verifier_id: verifier_secret}
+
+        def _record_stage_evidence(
+            active_state: ReleaseWorkflowState,
+            *,
+            target_stage: str,
+        ) -> tuple[ReleaseWorkflowState, str]:
+            artifact_hashes: List[str] = []
+            for artifact_id, artifact_kind in (
+                (artifact_release_bundle, "release_bundle"),
+                (artifact_smoke_report, "smoke_report"),
+            ):
+                receipt = create_release_artifact_receipt(
+                    active_state,
+                    artifact_store=artifact_store,
+                    artifact_id=artifact_id,
+                    payload={
+                        "artifact_id": artifact_id,
+                        "candidate_ref": active_state.candidate_ref,
+                        "revision_id": active_state.revision_id,
+                        "validation": "passed",
+                    },
+                    artifact_kind=artifact_kind,
+                    producer="soak-build-worker",
+                    verifier=verifier_id,
+                    verifier_secret=verifier_secret,
+                )
+                active_state = record_release_artifact_receipt(
+                    active_state,
+                    receipt,
+                    artifact_store=artifact_store,
+                    verifier_credentials=verifier_credentials,
+                )
+                artifact_hashes.append(receipt.content_hash)
+
+            evidence_id = f"evidence:{process_id}:{target_stage}"
+            claims = {
+                "deployment_id": f"deployment:{process_id}:{target_stage}",
+                "cohort_id": "soak-canary-cohort",
+                "traffic_volume": 1000,
+                "observation_window_seconds": 900,
+                "artifact_hashes": artifact_hashes,
+                "metrics": {"availability": 0.999, "error_rate": 0.001},
+                "thresholds": {
+                    "minimum_traffic": 500,
+                    "minimum_observation_seconds": 600,
+                    "minimum_availability": 0.99,
+                    "maximum_error_rate": 0.01,
+                    "rollback_error_rate": 0.02,
+                },
+            }
+            evidence = create_release_artifact_receipt(
+                active_state,
+                artifact_store=artifact_store,
+                artifact_id=evidence_id,
+                payload=claims,
+                artifact_kind="canary_evidence",
+                target_stage=target_stage,
+                claims=claims,
+                producer="soak-canary-runner",
+                verifier=verifier_id,
+                verifier_secret=verifier_secret,
+            )
+            active_state = record_release_artifact_receipt(
+                active_state,
+                evidence,
+                artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
+            )
+            return active_state, evidence_id
 
         verify_handoff = compile_release_handoff(
             state=release_state,
@@ -1349,9 +1424,6 @@ class RuntimeSoakHarness:
             expected_revision_id=shared_state.revision_id,
             reject_stale_revision=True,
         )
-        verify_acked = self.mailbox.acknowledge(verify_message.message_id, actor="verifier")
-        release_state = record_release_handoff(release_state, verify_acked, stage="build_verified")
-        self.supervisor.release(verifier_lease.lease_id)
 
         artifact_event_1 = self.journal.append(
             process_id=process_id,
@@ -1388,6 +1460,27 @@ class RuntimeSoakHarness:
             metadata={"captured_by": "verifier"},
         )
         release_state = record_release_fencepost(release_state, build_fencepost)
+        release_state, canary_evidence_id = _record_stage_evidence(
+            release_state,
+            target_stage="canary_verified",
+        )
+        verify_acked = self.mailbox.acknowledge(
+            verify_message.message_id,
+            actor="verifier",
+            result_receipt={
+                "candidate_ref": release_state.candidate_ref,
+                "release_id": release_state.release_id,
+                "revision_id": release_state.revision_id,
+                "result": "approved",
+                "evidence_receipts": [canary_evidence_id],
+            },
+        )
+        release_state = record_release_handoff(
+            release_state,
+            verify_acked,
+            stage="canary_verified",
+        )
+        self.supervisor.release(verifier_lease.lease_id)
         self.release_store.save(
             release_state,
             actor="verifier",
@@ -1405,6 +1498,8 @@ class RuntimeSoakHarness:
             required_fencepost_stages=["build_verified"],
             required_artifacts=required_artifacts,
             required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
         canary_promotion = advance_release_workflow(
             release_state,
@@ -1448,6 +1543,32 @@ class RuntimeSoakHarness:
             metadata={"release_stage": "canary_verified"},
             world_state_overrides={"release_stage": "canary_verified", "canary": "healthy"},
         )
+        canary_fencepost = capture_release_rollback_fencepost(
+            snapshot=snapshot,
+            shared_state=shared_state,
+            stage="canary_verified",
+            latest_event=self.journal.latest(process_id=process_id),
+            metadata={"captured_by": "soak-canary-verifier", "pre_promotion": True},
+        )
+        release_state = release_state.model_copy(
+            update={
+                "revision_id": shared_state.revision_id,
+                "metadata": {
+                    **dict(release_state.metadata or {}),
+                    "release_artifacts": [],
+                },
+            }
+        )
+        release_state = record_release_fencepost(release_state, canary_fencepost)
+        release_state, production_evidence_id = _record_stage_evidence(
+            release_state,
+            target_stage="production",
+        )
+        self.release_store.save(
+            release_state,
+            actor=verifier_id,
+            provenance={"scenario": "release_delivery", "phase": "production_evidence"},
+        )
 
         promote_handoff = compile_release_handoff(
             state=release_state,
@@ -1473,7 +1594,7 @@ class RuntimeSoakHarness:
             dedupe_key=f"release_promote:{process_id}",
             payload={"objective": promote_handoff.objective, "scope": promote_handoff.scope},
         )
-        release_state = record_release_handoff(release_state, stale_promote_message, stage="canary_verified")
+        release_state = record_release_handoff(release_state, stale_promote_message, stage="production")
         stale_lease = self.supervisor.assign(process_id=process_id, scope="release_promote", agent_id="release-manager", lease_seconds=1)
         self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=10))
         self.mailbox.receive(
@@ -1486,7 +1607,7 @@ class RuntimeSoakHarness:
             (row for row in self.mailbox.list(process_id=process_id) if row.message_id == stale_promote_message.message_id),
             stale_promote_message,
         )
-        release_state = record_release_handoff(release_state, stale_message, stage="canary_verified")
+        release_state = record_release_handoff(release_state, stale_message, stage="production")
 
         production_gate_before = evaluate_release_promotion_gate(
             state=release_state,
@@ -1498,9 +1619,11 @@ class RuntimeSoakHarness:
             dependability_report={"success": True, "profile": "release_gate"},
             required_fencepost_stages=required_fenceposts,
             required_artifacts=required_artifacts,
-            required_handoff_count=2,
+            required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
-        repaired = repair_release_workflow(
+        recovery = repair_release_workflow(
             release_state,
             snapshot=snapshot,
             shared_state=shared_state,
@@ -1510,7 +1633,47 @@ class RuntimeSoakHarness:
             dependability_report={"success": True, "profile": "release_gate"},
             required_fencepost_stages=required_fenceposts,
             required_artifacts=required_artifacts,
-            required_handoff_count=2,
+            required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
+        )
+        recovered_messages = self.mailbox.receive(
+            to_agent="release-manager",
+            process_id=process_id,
+            expected_revision_id=shared_state.revision_id,
+            reject_stale_revision=True,
+        )
+        if len(recovered_messages) != 1:
+            raise RuntimeError("release repair did not redeliver exactly one production approval")
+        production_acked = self.mailbox.acknowledge(
+            recovered_messages[0].message_id,
+            actor="release-manager",
+            result_receipt={
+                "candidate_ref": recovery["state"].candidate_ref,
+                "release_id": recovery["state"].release_id,
+                "revision_id": recovery["state"].revision_id,
+                "result": "approved",
+                "evidence_receipts": [production_evidence_id],
+            },
+        )
+        release_state = record_release_handoff(
+            recovery["state"],
+            production_acked,
+            stage="production",
+        )
+        repaired = repair_release_workflow(
+            release_state,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            mailbox=self.mailbox,
+            supervisor=self.supervisor,
+            target_stage="production",
+            dependability_report={"success": True, "profile": "release_gate"},
+            required_fencepost_stages=required_fenceposts,
+            required_artifacts=required_artifacts,
+            required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
         release_state = repaired["state"]
         self.release_store.save(

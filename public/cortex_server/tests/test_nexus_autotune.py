@@ -47,8 +47,14 @@ def test_complexity_query_auto_l9(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch):
+async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch, tmp_path):
     observed = {}
+    original_transaction = nexus.ExecutionTransaction
+    monkeypatch.setattr(
+        nexus,
+        "ExecutionTransaction",
+        lambda **kwargs: original_transaction(**kwargs, journal_dir=tmp_path / "transactions"),
+    )
     monkeypatch.setattr(nexus, "get_policy_snapshot", lambda: {
         "autotune_enabled": True,
         "complexity_hard_threshold": 0.45,
@@ -62,6 +68,34 @@ async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch):
         "recommended_policy": "deliberate_council",
         "baseline_policy": "fastlane_memory",
     })
+    monkeypatch.setattr(nexus._OUTCOME_TUNER, "observe", lambda _record: {"decision": {"stage": "bounded_rollout"}})
+    monkeypatch.setattr(nexus, "_outcome_tuner_for_scope", lambda _scope: nexus._OUTCOME_TUNER)
+    monkeypatch.setattr(nexus, "observe_outcome", lambda *_args, **_kwargs: {"autotune_enabled": True})
+    monkeypatch.setattr(nexus._LATENCY_GOVERNOR, "observe", lambda _record: {"recorded": True})
+    monkeypatch.setattr(nexus._BANDIT_SCHEDULER, "update", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(nexus._DELTA_CACHE, "update", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(nexus, "_persist_checkpoint", lambda _checkpoint: None)
+    monkeypatch.setattr(nexus, "_refresh_context", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        nexus,
+        "_update_codec_context",
+        lambda _session_key, _query, _response="", **_kwargs: {
+            "enabled": True,
+            "available": False,
+            "packet": "",
+            "summary": "",
+        },
+    )
+
+    def observed_codec_outcome(**kwargs):
+        metrics = nexus._execution_flow_metrics(
+            kwargs["execution_transaction"],
+            kwargs["validator_result"],
+            kwargs["fastlane"],
+        )
+        return {"recorded": True, "execution_metrics": metrics}
+
+    monkeypatch.setattr(nexus, "_observe_codec_execution_outcome", observed_codec_outcome)
     monkeypatch.setattr(
         nexus,
         "build_route_features",
@@ -87,7 +121,7 @@ async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/nexus/orchestrate", json={}, params={"query": "What is 2+2?"})
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     body = response.json()
     assert observed["query"] == "What is 2+2?"
     assert body["routing_method"] == "adaptive_deliberate_council"

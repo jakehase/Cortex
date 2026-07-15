@@ -1,0 +1,456 @@
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from cortex_server.modules import cortex_codec
+from cortex_server.modules.memory_scope import (
+    MemoryScopeAuthError,
+    authenticate_memory_principal,
+    memory_scope_signature,
+)
+from cortex_server.routers import nexus
+
+
+def _scope(tenant: str, agent: str, session: str) -> dict[str, str]:
+    return {
+        "tenant_id": tenant,
+        "workspace_id": "workspace-shared",
+        "agent_id": agent,
+        "user_id": f"user-{agent}",
+        "channel_id": "channel-shared",
+        "session_id": session,
+    }
+
+
+def _credential_headers(
+    scope: dict[str, str],
+    *,
+    credential_id: str,
+    secret: str,
+    outcome_token: str = "",
+) -> dict[str, str]:
+    headers = {
+        "x-session-id": scope["session_id"],
+        "x-cortex-tenant-id": scope["tenant_id"],
+        "x-cortex-workspace-id": scope["workspace_id"],
+        "x-cortex-agent-id": scope["agent_id"],
+        "x-cortex-user-id": scope["user_id"],
+        "x-cortex-channel-id": scope["channel_id"],
+        "x-cortex-session-id": scope["session_id"],
+        "x-cortex-scope-credential-id": credential_id,
+        "x-cortex-scope-signature": memory_scope_signature(
+            **scope,
+            credential_id=credential_id,
+            secret=secret,
+        ),
+    }
+    if outcome_token:
+        headers["x-cortex-outcome-feedback-token"] = outcome_token
+    return headers
+
+
+def test_signed_dynamic_session_policy_authorizes_fresh_bounded_sessions(monkeypatch):
+    fixed = _scope("tenant-dynamic", "bridge-agent", "unused")
+    allowed = {
+        **{field: value for field, value in fixed.items() if field != "session_id"},
+        "session_id": {
+            "type": "signed_dynamic",
+            "prefix": "openclaw-",
+            "max_length": 80,
+        },
+    }
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps({"bridge-dynamic": {"secret": "dynamic-secret", "allowed_scopes": [allowed]}}),
+    )
+
+    principals = []
+    for suffix in ("a" * 64, "b" * 64):
+        scope = {**fixed, "session_id": f"openclaw-{suffix}"}
+        principals.append(
+            authenticate_memory_principal(
+                tenant_id=scope["tenant_id"],
+                workspace_id=scope["workspace_id"],
+                scope=scope,
+                credential_id="bridge-dynamic",
+                signature=memory_scope_signature(
+                    **scope,
+                    credential_id="bridge-dynamic",
+                    secret="dynamic-secret",
+                ),
+                production=True,
+            )
+        )
+
+    assert [principal.session_id for principal in principals] == [
+        f"openclaw-{'a' * 64}",
+        f"openclaw-{'b' * 64}",
+    ]
+    assert principals[0].storage_workspace_id != principals[1].storage_workspace_id
+
+    escaped = {**fixed, "session_id": "other-session"}
+    with pytest.raises(MemoryScopeAuthError, match="not authorized"):
+        authenticate_memory_principal(
+            tenant_id=escaped["tenant_id"],
+            workspace_id=escaped["workspace_id"],
+            scope=escaped,
+            credential_id="bridge-dynamic",
+            signature=memory_scope_signature(
+                **escaped,
+                credential_id="bridge-dynamic",
+                secret="dynamic-secret",
+            ),
+            production=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_session(monkeypatch, tmp_path):
+    session_id = "openclaw-shared-session"
+    scope_a = _scope("tenant-shared", "agent-a", session_id)
+    scope_b = _scope("tenant-shared", "agent-b", session_id)
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps(
+            {
+                "credential-a": {"secret": "secret-a", "allowed_scopes": [scope_a]},
+                "credential-b": {"secret": "secret-b", "allowed_scopes": [scope_b]},
+            }
+        ),
+    )
+    monkeypatch.setattr(cortex_codec, "CODEC_DURABLE_ENABLED", False)
+
+    async def direct_call(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(nexus, "run_in_threadpool", direct_call)
+    request = SimpleNamespace(headers={"x-session-id": session_id}, client=SimpleNamespace(host="127.0.0.1"))
+    principals = []
+    for credential_id, secret, scope, marker in (
+        ("credential-a", "secret-a", scope_a, "private-marker-a"),
+        ("credential-b", "secret-b", scope_b, "private-marker-b"),
+    ):
+        signature = memory_scope_signature(**scope, credential_id=credential_id, secret=secret)
+        response = await nexus.post_nexus_codec_events(
+            nexus.CodecEventsRequest(
+                session_key=session_id,
+                events=[{"text": marker, "tags": ["continuity"]}],
+                tenant_id=scope["tenant_id"],
+                workspace_id=scope["workspace_id"],
+                scope=scope,
+                scope_credential_id=credential_id,
+                scope_signature=signature,
+            ),
+            request,
+        )
+        assert response["success"] is True
+        principals.append(
+            authenticate_memory_principal(
+                tenant_id=scope["tenant_id"],
+                workspace_id=scope["workspace_id"],
+                scope=scope,
+                credential_id=credential_id,
+                signature=signature,
+                production=True,
+            )
+        )
+
+    packet_a = nexus._codec_context_packet(
+        session_id,
+        tenant_id=principals[0].tenant_id,
+        workspace_id=principals[0].storage_workspace_id,
+        telemetry_session_key=nexus._principal_continuity_key(principals[0], session_id),
+    )
+    packet_b = nexus._codec_context_packet(
+        session_id,
+        tenant_id=principals[1].tenant_id,
+        workspace_id=principals[1].storage_workspace_id,
+        telemetry_session_key=nexus._principal_continuity_key(principals[1], session_id),
+    )
+
+    assert "private-marker-a" in packet_a["packet"] or "private-marker-a" in packet_a["summary"]
+    assert "private-marker-b" not in packet_a["packet"] and "private-marker-b" not in packet_a["summary"]
+    assert "private-marker-b" in packet_b["packet"] or "private-marker-b" in packet_b["summary"]
+    assert "private-marker-a" not in packet_b["packet"] and "private-marker-a" not in packet_b["summary"]
+    assert nexus._principal_continuity_key(principals[0], session_id) != nexus._principal_continuity_key(
+        principals[1], session_id
+    )
+
+    original_transaction = nexus.ExecutionTransaction
+    monkeypatch.setattr(
+        nexus,
+        "ExecutionTransaction",
+        lambda **kwargs: original_transaction(**kwargs, journal_dir=tmp_path / "transactions"),
+    )
+    monkeypatch.setattr(
+        nexus,
+        "analyze_intent_with_oracle",
+        lambda _query: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"},
+    )
+    monkeypatch.setattr(
+        nexus,
+        "gather_live_evidence",
+        lambda *_args, **_kwargs: {
+            "required": False,
+            "mode": "not_required",
+            "evidence_count": 0,
+            "degraded": False,
+        },
+    )
+    monkeypatch.setattr(nexus, "_fetch_kernel_online_levels", lambda: None)
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "_persist_checkpoint", lambda _checkpoint: None)
+    monkeypatch.setattr(nexus, "_refresh_context", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(nexus, "observe_outcome", lambda *_args, **_kwargs: {"autotune_enabled": True})
+    monkeypatch.setattr(nexus._LATENCY_GOVERNOR, "observe", lambda _record: {"recorded": True})
+    monkeypatch.setattr(
+        nexus._LATENCY_GOVERNOR,
+        "speculative_prefetch",
+        lambda *_args, **_kwargs: {"enabled": False, "results": {}},
+    )
+    monkeypatch.setattr(nexus._BANDIT_SCHEDULER, "update", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(nexus._DELTA_CACHE, "update", lambda *_args, **_kwargs: None)
+
+    def preserve_codec_context(session_key, query, _response="", **kwargs):
+        return nexus._codec_context_packet(
+            session_key,
+            query=query,
+            tenant_id=kwargs.get("tenant_id"),
+            workspace_id=kwargs.get("workspace_id"),
+            telemetry_session_key=kwargs.get("telemetry_session_key"),
+        )
+
+    monkeypatch.setattr(nexus, "_update_codec_context", preserve_codec_context)
+
+    class _Tuner:
+        def get_policy_hint(self, **_kwargs):
+            return {
+                "stage": "shadow",
+                "rollout_percent": 0,
+                "apply_recommendation": False,
+                "recommended_policy": None,
+            }
+
+        def observe(self, _record):
+            return {"decision": {"stage": "shadow"}}
+
+    monkeypatch.setattr(nexus, "_outcome_tuner_for_scope", lambda _scope: _Tuner())
+
+    def observed_codec_outcome(**kwargs):
+        metrics = nexus._execution_flow_metrics(
+            kwargs["execution_transaction"],
+            kwargs["validator_result"],
+            kwargs["fastlane"],
+        )
+        return {"recorded": True, "execution_metrics": metrics}
+
+    monkeypatch.setattr(nexus, "_observe_codec_execution_outcome", observed_codec_outcome)
+    original_prepare = nexus.cortex_kernel_v2.prepare_request
+    kernel_session_keys = []
+
+    def capture_kernel_session(*args, **kwargs):
+        kernel_session_keys.append(kwargs.get("session_key"))
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(nexus.cortex_kernel_v2, "prepare_request", capture_kernel_session)
+    nexus.cortex_kernel_v2.reset_state()
+
+    orchestration_packets = []
+    for credential_id, secret, scope in (
+        ("credential-a", "secret-a", scope_a),
+        ("credential-b", "secret-b", scope_b),
+    ):
+        result = await nexus.orchestrate_query(
+            query="Plan principal-scoped continuity isolation.",
+            request=SimpleNamespace(
+                headers=_credential_headers(scope, credential_id=credential_id, secret=secret),
+                client=SimpleNamespace(host="127.0.0.1"),
+                state=SimpleNamespace(request_id=f"request-{credential_id}"),
+            ),
+            payload={},
+        )
+        assert result["success"] is True
+        orchestration_packets.append(result["codec_context"]["packet"] or result["codec_context"]["summary"])
+
+    assert "private-marker-a" in orchestration_packets[0]
+    assert "private-marker-b" not in orchestration_packets[0]
+    assert "private-marker-b" in orchestration_packets[1]
+    assert "private-marker-a" not in orchestration_packets[1]
+    assert len(set(kernel_session_keys)) == 2
+    assert all(key and key.startswith("principal:") for key in kernel_session_keys)
+
+
+def test_orchestration_principal_authentication_fails_closed_in_production(monkeypatch):
+    scope = _scope("tenant-auth", "agent-auth", "openclaw-auth-session")
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps({"credential-auth": {"secret": "secret-auth", "allowed_scopes": [scope]}}),
+    )
+
+    with pytest.raises(HTTPException, match="full principal"):
+        nexus._authenticated_nexus_principal(
+            SimpleNamespace(headers={"x-session-id": scope["session_id"]}),
+            session_hint=scope["session_id"],
+        )
+
+    headers = _credential_headers(scope, credential_id="credential-auth", secret="secret-auth")
+    principal, session_id = nexus._authenticated_nexus_principal(
+        SimpleNamespace(headers=headers),
+        session_hint=scope["session_id"],
+    )
+    assert principal.scope == scope
+    assert session_id == scope["session_id"]
+
+    mismatched = {**headers, "x-session-id": "openclaw-other-session"}
+    with pytest.raises(HTTPException, match="transport session"):
+        nexus._authenticated_nexus_principal(
+            SimpleNamespace(headers=mismatched),
+            session_hint=scope["session_id"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limits(monkeypatch, tmp_path):
+    scope = _scope("tenant-feedback", "agent-feedback", "openclaw-feedback-session")
+    other_scope = _scope("tenant-other", "agent-other", "openclaw-feedback-session")
+    credentials = {
+        "credential-feedback": {"secret": "secret-feedback", "allowed_scopes": [scope]},
+        "credential-other": {"secret": "secret-other", "allowed_scopes": [other_scope]},
+    }
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", json.dumps(credentials))
+    monkeypatch.setenv("NEXUS_OUTCOME_FEEDBACK_TOKEN", "feedback-control")
+    monkeypatch.setenv("NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY", "feedback-signing")
+    monkeypatch.setenv("NEXUS_OUTCOME_FEEDBACK_RATE_LIMIT", "1")
+    monkeypatch.setattr(nexus, "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH", tmp_path / "receipts.json")
+
+    headers = _credential_headers(
+        scope,
+        credential_id="credential-feedback",
+        secret="secret-feedback",
+        outcome_token="feedback-control",
+    )
+    request = SimpleNamespace(headers=headers, state=SimpleNamespace(cortex_write_authorization="write_token"))
+    principal, _ = nexus._authenticated_nexus_principal(request, session_hint=scope["session_id"])
+
+    observed = []
+
+    class _Tuner:
+        artifact_dir = tmp_path
+
+        def observe(self, record):
+            observed.append(dict(record))
+            return {"decision": {"stage": "shadow"}}
+
+    codec_calls = []
+    monkeypatch.setattr(nexus, "_outcome_tuner_for_scope", lambda _scope: _Tuner())
+    monkeypatch.setattr(
+        nexus,
+        "apply_codec_outcome_feedback_for_session",
+        lambda *args, **kwargs: codec_calls.append((args, kwargs)) or {"state_revision": 7},
+    )
+
+    issued = nexus._issue_outcome_feedback_receipt(
+        scope=principal.storage_metadata,
+        execution_id="executed-request-1",
+        query="Plan the observed rollout.",
+        task_archetype="planning",
+        policy_label="server-observed-policy",
+        codec_variant="referents_plus_codec",
+        validator_pass=True,
+        execution_success=True,
+        recovery_needed=False,
+        latency_ms=321,
+        outcome_confidence=0.91,
+    )
+
+    with pytest.raises(ValidationError):
+        nexus.OutcomeFeedbackReceiptRequest(
+            receipt=issued["receipt"],
+            policy_label="caller-forged-policy",
+        )
+
+    unauthorized = SimpleNamespace(headers={**headers, "x-cortex-outcome-feedback-token": ""}, state=request.state)
+    with pytest.raises(HTTPException) as denied:
+        await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]), unauthorized)
+    assert denied.value.status_code == 403
+
+    body, signature = issued["receipt"].split(".", 1)
+    tampered = f"{body}.{'A' if signature[0] != 'A' else 'B'}{signature[1:]}"
+    with pytest.raises(HTTPException) as invalid_signature:
+        await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=tampered), request)
+    assert invalid_signature.value.status_code == 403
+
+    other_request = SimpleNamespace(
+        headers=_credential_headers(
+            other_scope,
+            credential_id="credential-other",
+            secret="secret-other",
+            outcome_token="feedback-control",
+        ),
+        state=request.state,
+    )
+    with pytest.raises(HTTPException) as wrong_tenant:
+        await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]), other_request)
+    assert wrong_tenant.value.status_code == 403
+    assert wrong_tenant.value.detail["reason"] == "scope_binding_mismatch"
+
+    result = await nexus.outcome_feedback(
+        nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]),
+        request,
+    )
+    assert result["recorded"] is True
+    assert result["codec_policy"]["variant"] == "referents_plus_codec"
+    assert observed[0]["policy_label"] == "server-observed-policy"
+    assert observed[0]["validator_result"] == {"pass": True, "source": "nexus.orchestrate.receipt"}
+    assert codec_calls[0][1] == {
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.storage_workspace_id,
+    }
+
+    with pytest.raises(HTTPException) as replay:
+        await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]), request)
+    assert replay.value.status_code == 409
+    assert replay.value.detail["reason"] == "receipt_already_consumed"
+
+    second = nexus._issue_outcome_feedback_receipt(
+        scope=principal.storage_metadata,
+        execution_id="executed-request-2",
+        query="Plan the second observed rollout.",
+        task_archetype="planning",
+        policy_label="server-observed-policy",
+        codec_variant="query_only",
+        validator_pass=False,
+        execution_success=False,
+        recovery_needed=True,
+        latency_ms=654,
+        outcome_confidence=0.62,
+    )
+    with pytest.raises(HTTPException) as rate_limited:
+        await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=second["receipt"]), request)
+    assert rate_limited.value.status_code == 429
+    assert rate_limited.value.detail["reason"] == "tenant_rate_limit_exceeded"
+
+
+def test_outcome_tuner_cache_is_tenant_scoped(monkeypatch, tmp_path):
+    monkeypatch.setenv("NEXUS_OUTCOME_ARTIFACT_DIR", str(tmp_path))
+    nexus._TENANT_OUTCOME_TUNERS.clear()
+
+    tenant_a = nexus._outcome_tuner_for_scope({"tenant_id": "tenant-policy-a"})
+    tenant_b = nexus._outcome_tuner_for_scope({"tenant_id": "tenant-policy-b"})
+    local_tenant = nexus._outcome_tuner_for_scope({"tenant_id": "cortex-local"})
+
+    assert tenant_a is not tenant_b
+    assert local_tenant is not nexus._OUTCOME_TUNER
+    assert tenant_a.state_path != tenant_b.state_path
+    assert tenant_a.artifact_dir.parent == tmp_path / "tenants"
+    assert tenant_b.artifact_dir.parent == tmp_path / "tenants"
+    assert local_tenant.artifact_dir.parent == tmp_path / "tenants"
+    nexus._TENANT_OUTCOME_TUNERS.clear()

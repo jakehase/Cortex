@@ -6,6 +6,7 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
+    "required": ["sessionIdentityHmacSecret"],
     "properties": {
       "baseUrl": { "type": "string" },
       "writeToken": { "type": "string", "minLength": 1 },
@@ -33,7 +34,7 @@
       "sessionId": { "type": "string", "minLength": 1 },
       "scopeCredentialId": { "type": "string", "minLength": 1 },
       "scopeHmacSecret": { "type": "string", "minLength": 1 },
-      "sessionIdentityHmacSecret": { "type": "string", "minLength": 1 },
+      "sessionIdentityHmacSecret": { "type": "string", "minLength": 1, "pattern": "\\S" },
       "curatedBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "projectFactBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "durableCandidatePenalty": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -114,7 +115,8 @@
     "sessionIdentityHmacSecret": {
       "label": "Shared session identity HMAC secret",
       "sensitive": true,
-      "advanced": true
+      "advanced": true,
+      "help": "Explicitly provision the exact same secret in cortex-memory-bridge and cortex-route-gate. It has no built-in default."
     },
     "curatedBoost": {
       "label": "Curated Result Boost",

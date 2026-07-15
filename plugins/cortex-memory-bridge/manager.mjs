@@ -443,6 +443,18 @@ function scopedIdentity(rcfg, agentId, opts = {}) {
   return scope;
 }
 
+function requireTrustedPrincipalContext(context, fallbackAgentId) {
+  const trusted = Object.freeze({
+    sessionKey: String(context?.sessionKey || context?.sessionId || '').trim(),
+    userId: String(context?.userId || context?.requesterSenderId || '').trim(),
+    channelId: String(context?.channelId || context?.messageChannel || '').trim(),
+    agentId: String(context?.agentId || fallbackAgentId || '').trim(),
+  });
+  const missing = Object.entries(trusted).filter(([, value]) => !value).map(([field]) => field);
+  if (missing.length) throw new Error(`Cortex memory manager requires trusted invocation context: missing ${missing.join(', ')}`);
+  return trusted;
+}
+
 function scopedHeaders(rcfg, scope) {
   const secret = String(rcfg.scopeHmacSecret || '');
   const headers = rcfg.writeToken ? { [rcfg.writeTokenHeader]: rcfg.writeToken } : {};
@@ -501,7 +513,8 @@ function unavailableSearchReason(response) {
 export class CortexMemorySearchManager {
   constructor(params) {
     this.cfg = params.cfg;
-    this.agentId = params.agentId;
+    this.invocationContext = requireTrustedPrincipalContext(params.invocationContext || params, params.agentId);
+    this.agentId = this.invocationContext.agentId;
     this.rcfg = resolveConfig(params.cfg);
   }
   static async create(params) { return new CortexMemorySearchManager(params); }
@@ -509,7 +522,7 @@ export class CortexMemorySearchManager {
     const classification = classifyQuery(query);
     const requestedMax = Number(opts.maxResults || 6);
     const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, this.rcfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
-    const scope = scopedIdentity(this.rcfg, this.agentId, opts);
+    const scope = scopedIdentity(this.rcfg, this.agentId, this.invocationContext);
     const headers = scopedHeaders(this.rcfg, scope);
     const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
       query,
@@ -541,7 +554,7 @@ export class CortexMemorySearchManager {
   }
   async probeSearchAvailability() {
     try {
-      const scope = scopedIdentity(this.rcfg, this.agentId);
+      const scope = scopedIdentity(this.rcfg, this.agentId, this.invocationContext);
       const headers = scopedHeaders(this.rcfg, scope);
       const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
         query: 'cortex memory backend availability probe',

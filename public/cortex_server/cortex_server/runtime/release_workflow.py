@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import json
 import fcntl
+import hashlib
+import hmac
+import json
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -95,7 +97,122 @@ def _parse_ts(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-def _is_bound_release_approval(message: AgentMessage, state: "ReleaseWorkflowState") -> bool:
+def _release_verifier_credentials() -> Dict[str, str]:
+    raw = os.getenv("CORTEX_RELEASE_VERIFIER_CREDENTIALS", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("CORTEX_RELEASE_VERIFIER_CREDENTIALS must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("CORTEX_RELEASE_VERIFIER_CREDENTIALS must map verifier IDs to secrets")
+    credentials = {
+        str(verifier or "").strip(): str(secret or "").strip()
+        for verifier, secret in parsed.items()
+    }
+    if any(not verifier or not secret for verifier, secret in credentials.items()):
+        raise RuntimeError("CORTEX_RELEASE_VERIFIER_CREDENTIALS contains an empty verifier or secret")
+    return credentials
+
+
+def _artifact_payload_bytes(payload: Any) -> bytes:
+    if isinstance(payload, bytes):
+        return payload
+    if isinstance(payload, bytearray):
+        return bytes(payload)
+    if isinstance(payload, str):
+        return payload.encode("utf-8")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+class ReleaseArtifactStore:
+    """Content-addressed immutable release outputs used by signed attestations."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+
+    def _target(self, content_hash: str) -> Path:
+        digest = str(content_hash or "").removeprefix("sha256:")
+        if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+            raise ValueError("content_hash must be a lowercase SHA-256 digest")
+        return self.path / digest[:2] / f"{digest}.artifact"
+
+    def put(self, payload: Any) -> tuple[str, str]:
+        encoded = _artifact_payload_bytes(payload)
+        content_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+        target = self._target(content_hash)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            if target.read_bytes() != encoded:
+                raise ValueError("immutable artifact digest collision")
+        else:
+            temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+            try:
+                with temporary.open("xb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, target)
+                directory_fd = os.open(target.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+        return content_hash, content_hash
+
+    def resolve(self, artifact_ref: str) -> bytes:
+        target = self._target(artifact_ref)
+        if not target.exists():
+            raise FileNotFoundError(f"immutable release artifact not found: {artifact_ref}")
+        encoded = target.read_bytes()
+        actual = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+        if not hmac.compare_digest(actual, str(artifact_ref or "")):
+            raise ValueError("immutable release artifact failed content hash verification")
+        return encoded
+
+
+def _artifact_attestation_payload(receipt: Dict[str, Any]) -> bytes:
+    return json.dumps(
+        {
+            "version": "cortex.release-artifact-attestation.v1",
+            "artifact_id": receipt.get("artifact_id"),
+            "artifact_ref": receipt.get("artifact_ref"),
+            "content_hash": receipt.get("content_hash"),
+            "artifact_kind": receipt.get("artifact_kind"),
+            "target_stage": receipt.get("target_stage"),
+            "candidate_ref": receipt.get("candidate_ref"),
+            "release_id": receipt.get("release_id"),
+            "revision_id": receipt.get("revision_id"),
+            "producer": receipt.get("producer"),
+            "verifier": receipt.get("verifier"),
+            "validation_outcome": receipt.get("validation_outcome"),
+            "claims": dict(receipt.get("claims") or {}),
+            "created_at": receipt.get("created_at"),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def release_artifact_attestation_signature(receipt: Dict[str, Any], *, secret: str) -> str:
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    return hmac.new(signing_secret.encode("utf-8"), _artifact_attestation_payload(receipt), hashlib.sha256).hexdigest()
+
+
+def _is_bound_release_approval(
+    message: AgentMessage,
+    state: "ReleaseWorkflowState",
+    *,
+    target_stage: str,
+    valid_receipts: Dict[str, "ReleaseArtifactReceipt"],
+    required_artifact_hashes: Sequence[str],
+) -> bool:
     if message.delivery_status != "acked" or message.acked_by != message.to_agent:
         return False
     ack = message.ack_receipt or {}
@@ -105,13 +222,29 @@ def _is_bound_release_approval(message: AgentMessage, state: "ReleaseWorkflowSta
     if release_ack_authentication_required() and ack.get("authentication") != "hmac-sha256":
         return False
     evidence = result.get("evidence_receipts")
-    return bool(
+    bindings_valid = bool(
         ack.get("actor") == message.to_agent
         and result.get("candidate_ref") == state.candidate_ref
         and result.get("release_id") == state.release_id
         and result.get("revision_id") == state.revision_id
         and isinstance(evidence, list)
         and evidence
+    )
+    if not bindings_valid:
+        return False
+    resolved_receipts: List[ReleaseArtifactReceipt] = []
+    for evidence_id in _dedupe_rows([str(row) for row in evidence]):
+        receipt = valid_receipts.get(evidence_id)
+        if receipt is None:
+            return False
+        resolved_receipts.append(receipt)
+    return any(
+        _canary_evidence_satisfies_stage(
+            receipt,
+            target_stage=target_stage,
+            required_artifact_hashes=required_artifact_hashes,
+        )
+        for receipt in resolved_receipts
     )
 
 
@@ -208,18 +341,24 @@ class ReleaseWorkflowState(BaseModel):
 
 
 class ReleaseArtifactReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     artifact_id: str
+    artifact_ref: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    artifact_kind: str
+    target_stage: Optional[str] = None
     candidate_ref: str
     release_id: str
     revision_id: str
     producer: str
+    verifier: str
     validation_outcome: str
+    claims: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
+    attestation_signature: str = Field(pattern=r"^[0-9a-f]{64}$")
 
-    @field_validator("artifact_id", "candidate_ref", "release_id", "revision_id", "producer")
+    @field_validator("artifact_id", "artifact_kind", "candidate_ref", "release_id", "revision_id", "producer", "verifier")
     @classmethod
     def _receipt_non_empty(cls, value: str) -> str:
         text = str(value or "").strip()
@@ -235,6 +374,16 @@ class ReleaseArtifactReceipt(BaseModel):
             raise ValueError("validation_outcome must be passed or failed")
         return outcome
 
+    @field_validator("target_stage")
+    @classmethod
+    def _receipt_target_stage(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("target_stage must be non-empty when provided")
+        return text
+
     @field_validator("created_at")
     @classmethod
     def _receipt_timestamp(cls, value: str) -> str:
@@ -242,9 +391,129 @@ class ReleaseArtifactReceipt(BaseModel):
         return value
 
 
+def create_release_artifact_receipt(
+    state: ReleaseWorkflowState,
+    *,
+    artifact_store: ReleaseArtifactStore,
+    artifact_id: str,
+    payload: Any,
+    artifact_kind: str,
+    producer: str,
+    verifier: str,
+    verifier_secret: str,
+    validation_outcome: str = "passed",
+    target_stage: Optional[str] = None,
+    claims: Optional[Dict[str, Any]] = None,
+    created_at: Optional[str] = None,
+) -> ReleaseArtifactReceipt:
+    artifact_ref, content_hash = artifact_store.put(payload)
+    unsigned = {
+        "artifact_id": str(artifact_id or "").strip(),
+        "artifact_ref": artifact_ref,
+        "content_hash": content_hash,
+        "artifact_kind": str(artifact_kind or "").strip(),
+        "target_stage": str(target_stage or "").strip() or None,
+        "candidate_ref": state.candidate_ref,
+        "release_id": state.release_id,
+        "revision_id": state.revision_id,
+        "producer": str(producer or "").strip(),
+        "verifier": str(verifier or "").strip(),
+        "validation_outcome": str(validation_outcome or "").strip(),
+        "claims": dict(claims or {}),
+        "created_at": str(created_at or _now_iso()),
+    }
+    return ReleaseArtifactReceipt.model_validate(
+        {
+            **unsigned,
+            "attestation_signature": release_artifact_attestation_signature(unsigned, secret=verifier_secret),
+        }
+    )
+
+
+def verify_release_artifact_receipt(
+    receipt: ReleaseArtifactReceipt,
+    *,
+    artifact_store: ReleaseArtifactStore,
+    verifier_credentials: Optional[Dict[str, str]] = None,
+) -> None:
+    if receipt.producer == receipt.verifier:
+        raise PermissionError("release artifact producer cannot self-verify")
+    credentials = dict(verifier_credentials) if verifier_credentials is not None else _release_verifier_credentials()
+    secret = str(credentials.get(receipt.verifier) or "").strip()
+    if not secret:
+        raise PermissionError(f"release artifact verifier is not authorized: {receipt.verifier}")
+    expected_signature = release_artifact_attestation_signature(receipt.model_dump(), secret=secret)
+    if not hmac.compare_digest(receipt.attestation_signature, expected_signature):
+        raise PermissionError("release artifact attestation signature is invalid")
+    encoded = artifact_store.resolve(receipt.artifact_ref)
+    actual_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+    if not hmac.compare_digest(receipt.content_hash, actual_hash):
+        raise ValueError("release artifact receipt content hash does not match immutable artifact")
+    if receipt.artifact_kind == "canary_evidence":
+        try:
+            artifact_claims = json.loads(encoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("canary evidence artifact must be canonical JSON") from exc
+        if artifact_claims != receipt.claims or encoded != _artifact_payload_bytes(receipt.claims):
+            raise ValueError("canary evidence claims do not match immutable artifact content")
+
+
+def _canary_evidence_satisfies_stage(
+    receipt: ReleaseArtifactReceipt,
+    *,
+    target_stage: str,
+    required_artifact_hashes: Sequence[str],
+) -> bool:
+    if receipt.artifact_kind != "canary_evidence" or receipt.target_stage != target_stage:
+        return False
+    claims = dict(receipt.claims or {})
+    deployment_id = str(claims.get("deployment_id") or "").strip()
+    cohort_id = str(claims.get("cohort_id") or "").strip()
+    artifact_hashes = set(_dedupe_rows([str(row) for row in claims.get("artifact_hashes") or []]))
+    metrics = claims.get("metrics") if isinstance(claims.get("metrics"), dict) else {}
+    thresholds = claims.get("thresholds") if isinstance(claims.get("thresholds"), dict) else {}
+    try:
+        traffic_volume = int(claims.get("traffic_volume", 0) or 0)
+        observation_window = int(claims.get("observation_window_seconds", 0) or 0)
+        minimum_traffic = int(thresholds.get("minimum_traffic", 1) or 1)
+        minimum_observation = int(thresholds.get("minimum_observation_seconds", 1) or 1)
+        availability = float(metrics["availability"])
+        error_rate = float(metrics["error_rate"])
+        minimum_availability = float(thresholds["minimum_availability"])
+        maximum_error_rate = float(thresholds["maximum_error_rate"])
+        rollback_error_rate = float(thresholds["rollback_error_rate"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(
+        deployment_id
+        and cohort_id
+        and traffic_volume >= max(1, minimum_traffic)
+        and observation_window >= max(1, minimum_observation)
+        and 0.0 <= availability <= 1.0
+        and 0.0 <= error_rate <= 1.0
+        and 0.0 <= minimum_availability <= 1.0
+        and 0.0 <= maximum_error_rate < rollback_error_rate <= 1.0
+        and availability >= minimum_availability
+        and error_rate <= maximum_error_rate
+        and error_rate < rollback_error_rate
+        and set(required_artifact_hashes).issubset(artifact_hashes)
+    )
+
+
+def _artifact_kind_matches_requirement(artifact_id: str, receipt: ReleaseArtifactReceipt) -> bool:
+    if artifact_id.startswith("artifact_release_bundle:"):
+        return receipt.artifact_kind == "release_bundle"
+    if artifact_id.startswith("artifact_smoke_report:"):
+        return receipt.artifact_kind == "smoke_report"
+    return receipt.artifact_kind != "canary_evidence"
+
+
 def record_release_artifact_receipt(
     state: ReleaseWorkflowState,
     receipt: ReleaseArtifactReceipt | Dict[str, Any],
+    *,
+    artifact_store: ReleaseArtifactStore,
+    verifier_credentials: Optional[Dict[str, str]] = None,
 ) -> ReleaseWorkflowState:
     record = receipt if isinstance(receipt, ReleaseArtifactReceipt) else ReleaseArtifactReceipt.model_validate(receipt)
     if (
@@ -253,6 +522,20 @@ def record_release_artifact_receipt(
         or record.revision_id != state.revision_id
     ):
         raise ValueError("artifact receipt is not bound to the active release candidate and revision")
+    verify_release_artifact_receipt(
+        record,
+        artifact_store=artifact_store,
+        verifier_credentials=verifier_credentials,
+    )
+    existing = next(
+        (
+            row for row in list((state.metadata or {}).get("release_artifacts") or [])
+            if isinstance(row, dict) and str(row.get("artifact_id") or "") == record.artifact_id
+        ),
+        None,
+    )
+    if existing is not None and existing != record.model_dump():
+        raise ValueError(f"immutable release artifact receipt already exists: {record.artifact_id}")
     rows = [
         row for row in list((state.metadata or {}).get("release_artifacts") or [])
         if isinstance(row, dict) and str(row.get("artifact_id") or "") != record.artifact_id
@@ -382,6 +665,10 @@ class ReleaseWorkflowStore:
         target = self._target(process_id)
         return target.with_name(f".{target.name}.rollback.lock")
 
+    def artifact_store(self) -> ReleaseArtifactStore:
+        root = self.path.parent / f"{self.path.stem}_artifacts" if self.path.suffix else self.path / "artifacts"
+        return ReleaseArtifactStore(root)
+
     @contextmanager
     def rollback_transaction(self, process_id: str):
         lock_target = self._rollback_lock_target(process_id)
@@ -401,6 +688,21 @@ class ReleaseWorkflowStore:
         if not isinstance(data, dict):
             raise ValueError(f"invalid rollback intent for {process_id}")
         return data
+
+    def pending_rollback_process_ids(self) -> List[str]:
+        root = self.path.parent if self.path.suffix else self.path
+        if not root.exists():
+            return []
+        process_ids: List[str] = []
+        for target in sorted(root.glob(".*.json.rollback-intent.json")):
+            try:
+                payload = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            process_id = str(payload.get("process_id") or "").strip() if isinstance(payload, dict) else ""
+            if process_id and payload.get("status") in {"in_progress", "recovery_required"}:
+                process_ids.append(process_id)
+        return _dedupe_rows(process_ids)
 
     def save_rollback_intent(self, process_id: str, intent: Dict[str, Any]) -> Dict[str, Any]:
         payload = dict(intent)
@@ -641,6 +943,8 @@ def evaluate_release_promotion_gate(
     allowed_active_agents: Optional[List[str]] = None,
     allowed_lifecycle_states: Optional[List[str]] = None,
     require_dependability: bool = True,
+    artifact_store: Optional[ReleaseArtifactStore] = None,
+    verifier_credentials: Optional[Dict[str, str]] = None,
 ) -> JsonDict:
     if snapshot.process_id != state.process_id or shared_state.process_id != state.process_id:
         raise ValueError("release workflow state, snapshot, and shared_state must refer to the same process_id")
@@ -676,7 +980,6 @@ def evaluate_release_promotion_gate(
         for row in (mailbox_messages or [])
         if row.process_id == state.process_id and row.message_id in tracked_message_ids
     ]
-    acked_messages = [row for row in relevant_messages if _is_bound_release_approval(row, state)]
     dead_letter_messages = [row for row in relevant_messages if row.delivery_status == "dead_letter"]
     stale_handoff_records = [
         row
@@ -699,6 +1002,13 @@ def evaluate_release_promotion_gate(
     for raw_receipt in state.metadata.get("release_artifacts") or []:
         try:
             receipt = ReleaseArtifactReceipt.model_validate(raw_receipt)
+            if artifact_store is None:
+                raise ValueError("immutable artifact store is required")
+            verify_release_artifact_receipt(
+                receipt,
+                artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
+            )
         except Exception:
             invalid_artifact_receipts.append(
                 str((raw_receipt or {}).get("artifact_id") or "invalid_receipt")
@@ -715,8 +1025,47 @@ def evaluate_release_promotion_gate(
             invalid_artifact_receipts.append(receipt.artifact_id)
             continue
         valid_artifact_receipts.append(receipt)
-    present_artifacts = {receipt.artifact_id for receipt in valid_artifact_receipts}
-    missing_artifacts = [artifact_id for artifact_id in required_artifact_ids if artifact_id not in present_artifacts]
+    valid_receipts_by_id = {receipt.artifact_id: receipt for receipt in valid_artifact_receipts}
+    present_artifacts = set(valid_receipts_by_id)
+    missing_artifacts = [
+        artifact_id for artifact_id in required_artifact_ids
+        if artifact_id not in valid_receipts_by_id
+        or not _artifact_kind_matches_requirement(artifact_id, valid_receipts_by_id[artifact_id])
+    ]
+    required_artifact_hashes = [
+        valid_receipts_by_id[artifact_id].content_hash
+        for artifact_id in required_artifact_ids
+        if artifact_id in valid_receipts_by_id
+        and _artifact_kind_matches_requirement(artifact_id, valid_receipts_by_id[artifact_id])
+    ]
+    acked_messages = [
+        row for row in relevant_messages
+        if _is_bound_release_approval(
+            row,
+            state,
+            target_stage=target,
+            valid_receipts=valid_receipts_by_id,
+            required_artifact_hashes=required_artifact_hashes,
+        )
+    ]
+    invalid_evidence_ids: List[str] = []
+    for row in relevant_messages:
+        ack = row.ack_receipt if isinstance(row.ack_receipt, dict) else {}
+        result = ack.get("result_receipt") if isinstance(ack.get("result_receipt"), dict) else {}
+        evidence_ids = _dedupe_rows([str(value) for value in result.get("evidence_receipts") or []])
+        unknown_ids = [value for value in evidence_ids if value not in valid_receipts_by_id]
+        invalid_evidence_ids.extend(unknown_ids)
+        resolved = [valid_receipts_by_id[value] for value in evidence_ids if value in valid_receipts_by_id]
+        if resolved and not any(
+            _canary_evidence_satisfies_stage(
+                receipt,
+                target_stage=target,
+                required_artifact_hashes=required_artifact_hashes,
+            )
+            for receipt in resolved
+        ):
+            invalid_evidence_ids.extend(evidence_ids)
+    invalid_evidence_receipt_ids = sorted(set(invalid_evidence_ids))
 
     dependability_success = bool((dependability_report or {}).get("success")) if require_dependability else True
     checks = {
@@ -764,6 +1113,7 @@ def evaluate_release_promotion_gate(
             {
                 "check": "handoff_receipts_ok",
                 "summary": f"acked handoffs {len(acked_messages)} below required {int(required_handoff_count or 0)}",
+                "invalid_evidence_receipt_ids": invalid_evidence_receipt_ids,
             }
         )
     if not checks["dead_letters_clear"]:
@@ -843,6 +1193,7 @@ def evaluate_release_promotion_gate(
         "missing_artifacts": missing_artifacts,
         "valid_artifact_receipt_ids": sorted(present_artifacts),
         "invalid_artifact_receipt_ids": invalid_artifact_receipts,
+        "invalid_evidence_receipt_ids": invalid_evidence_receipt_ids,
         "dead_letter_ids": [row.message_id for row in dead_letter_messages],
         "acked_handoff_ids": [row.message_id for row in acked_messages],
         "stale_handoff_records": [dict(row) for row in stale_handoff_records],
@@ -952,10 +1303,22 @@ def rollback_release_workflow(
                 target = row
                 break
     else:
-        target = state.rollback_fenceposts[-1]
+        preferred_prior_stage: Optional[str] = None
+        for entry in reversed(state.promotion_history):
+            if (
+                str(entry.get("action") or "") != "rollback"
+                and str(entry.get("to_stage") or "").strip() == state.current_stage
+            ):
+                preferred_prior_stage = str(entry.get("from_stage") or "").strip() or None
+                break
+        eligible = [row for row in state.rollback_fenceposts if row.stage != state.current_stage]
+        if preferred_prior_stage:
+            target = next((row for row in reversed(eligible) if row.stage == preferred_prior_stage), None)
+        if target is None and eligible:
+            target = eligible[-1]
 
     if target is None:
-        selector = fencepost_id or stage or "latest"
+        selector = fencepost_id or stage or "prior_stage"
         raise KeyError(f"rollback fencepost not found for {state.process_id}: {selector}")
 
     rollback_entry = {
@@ -1056,6 +1419,8 @@ def repair_release_workflow(
     allowed_active_agents: Optional[List[str]] = None,
     allowed_lifecycle_states: Optional[List[str]] = None,
     require_dependability: Optional[bool] = None,
+    artifact_store: Optional[ReleaseArtifactStore] = None,
+    verifier_credentials: Optional[Dict[str, str]] = None,
 ) -> JsonDict:
     stage_target = str(target_stage or (gate or {}).get("target_stage") or state.target_environment).strip()
     if not stage_target:
@@ -1075,6 +1440,8 @@ def repair_release_workflow(
         allowed_active_agents=allowed_active_agents,
         allowed_lifecycle_states=allowed_lifecycle_states,
         require_dependability=bool(require_dependability) if require_dependability is not None else bool((gate or {}).get("require_dependability", True)),
+        artifact_store=artifact_store,
+        verifier_credentials=verifier_credentials,
     )
 
     updated_state = _apply_gate_result(state, active_gate)
@@ -1153,6 +1520,8 @@ def repair_release_workflow(
         allowed_active_agents=allowed_active_agents or list(active_gate.get("allowed_active_agents") or []),
         allowed_lifecycle_states=allowed_lifecycle_states or list(active_gate.get("allowed_lifecycle_states") or []),
         require_dependability=bool(require_dependability) if require_dependability is not None else bool(active_gate.get("require_dependability", True)),
+        artifact_store=artifact_store,
+        verifier_credentials=verifier_credentials,
     )
     updated_state = _apply_gate_result(updated_state, refreshed_gate)
 
@@ -1196,6 +1565,8 @@ def apply_release_rollback_restore(
     actor: Optional[str] = None,
     reason: str = "rollback",
     new_revision_id: Optional[str] = None,
+    required_projections: Optional[Sequence[str]] = None,
+    projection_callback: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> JsonDict:
     transaction_store = release_store or ReleaseWorkflowStore(Path(snapshot_store.path).parent / "rollback_transactions")
     normalized_reason = str(reason or "rollback").strip() or "rollback"
@@ -1237,6 +1608,8 @@ def apply_release_rollback_restore(
                     "rolled_state": _workflow_dump_compat(rolled_state),
                     "fencepost": target_fencepost,
                     "restore_state": restore_state,
+                    "required_projections": _dedupe_rows(list(required_projections or [])),
+                    "completed_projections": [],
                 },
             )
 
@@ -1394,12 +1767,61 @@ def apply_release_rollback_restore(
                     )
             intent = transaction_store.save_rollback_intent(
                 state.process_id,
-                {**intent, "phase": "committed", "status": "committed", "applied_revision_id": restored_shared.revision_id},
+                {
+                    **intent,
+                    "phase": "core_committed",
+                    "status": "in_progress",
+                    "applied_revision_id": restored_shared.revision_id,
+                },
+            )
+            projection_result: Dict[str, Any] = {}
+            required_projection_names = _dedupe_rows(list(intent.get("required_projections") or []))
+            if required_projection_names:
+                if projection_callback is None:
+                    raise RuntimeError(
+                        "rollback recovery requires projection callback for: "
+                        + ", ".join(required_projection_names)
+                    )
+                projection_result = dict(
+                    projection_callback(
+                        applied_state=applied_state,
+                        restored_snapshot=restored_snapshot,
+                        restored_shared_state=restored_shared,
+                        rollback_event=rollback_event,
+                        intent=intent,
+                    )
+                    or {}
+                )
+                completed_projection_names = _dedupe_rows(
+                    list(projection_result.get("completed_projections") or [])
+                )
+                missing_projection_names = [
+                    name for name in required_projection_names
+                    if name not in completed_projection_names
+                ]
+                if missing_projection_names:
+                    raise RuntimeError(
+                        "rollback projections remain incomplete: "
+                        + ", ".join(missing_projection_names)
+                    )
+                intent = transaction_store.save_rollback_intent(
+                    state.process_id,
+                    {
+                        **intent,
+                        "phase": "projections_committed",
+                        "status": "in_progress",
+                        "completed_projections": completed_projection_names,
+                    },
+                )
+            intent = transaction_store.save_rollback_intent(
+                state.process_id,
+                {**intent, "phase": "committed", "status": "committed"},
             )
         except BaseException as exc:
+            latest_intent = transaction_store.load_rollback_intent(state.process_id) or intent
             transaction_store.save_rollback_intent(
                 state.process_id,
-                {**intent, "status": "recovery_required", "last_error": f"{type(exc).__name__}: {exc}"},
+                {**latest_intent, "status": "recovery_required", "last_error": f"{type(exc).__name__}: {exc}"},
             )
             raise
 
@@ -1412,6 +1834,7 @@ def apply_release_rollback_restore(
             "shared_state": restored_shared,
             "rollback_event": (rollback_event.model_dump() if hasattr(rollback_event, "model_dump") else rollback_event.dict()) if rollback_event is not None else None,
             "rollback_transaction": intent,
+            "rollback_projections": projection_result,
             "applied": True,
             "operator_summary": (
                 f"release rollback applied for {state.process_id}: {state.current_stage} -> {applied_state.current_stage} "
@@ -1422,6 +1845,7 @@ def apply_release_rollback_restore(
 
 __all__ = [
     "ReleaseArtifactReceipt",
+    "ReleaseArtifactStore",
     "ReleaseRollbackFencepost",
     "ReleaseWorkflowHistoryRecord",
     "ReleaseWorkflowState",
@@ -1431,11 +1855,14 @@ __all__ = [
     "capture_release_rollback_fencepost",
     "compile_release_handoff",
     "compile_release_repair_plan",
+    "create_release_artifact_receipt",
     "evaluate_release_promotion_gate",
     "record_release_fencepost",
     "record_release_artifact_receipt",
     "record_release_handoff",
+    "release_artifact_attestation_signature",
     "repair_release_workflow",
     "rollback_release_workflow",
+    "verify_release_artifact_receipt",
     "ValidationError",
 ]

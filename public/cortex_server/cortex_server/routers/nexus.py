@@ -6,8 +6,9 @@ Replaces keyword matching with true semantic understanding.
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Mapping, Optional
 import base64
+import fcntl
 import os
 import json
 import hashlib
@@ -40,8 +41,9 @@ from cortex_server.modules.outcome_tuner import OutcomeTuner
 from cortex_server.modules.world_grounding import gather_live_evidence
 from cortex_server.modules.route_health import ROUTE_HEALTH
 from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
-from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
+from cortex_server.modules.cortex_codec import apply_codec_outcome_feedback_for_session, get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
+from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, MemoryScopeAuthError, authenticate_memory_principal
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
@@ -173,6 +175,20 @@ _ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
 _ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
 _ASSURANCE_RECEIPT_LOCK = threading.Lock()
 _CONSUMED_ASSURANCE_RECEIPTS: Dict[str, int] = {}
+_OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.outcome-feedback-receipt.v1"
+_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = max(
+    30,
+    min(int(os.getenv("NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS", "300")), 900),
+)
+_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = Path(
+    os.getenv(
+        "NEXUS_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
+        "/opt/clawdbot/state/nexus_outcome_feedback_receipts.json",
+    )
+)
+_OUTCOME_FEEDBACK_RECEIPT_LOCK = threading.Lock()
+_TENANT_OUTCOME_TUNER_LOCK = threading.RLock()
+_TENANT_OUTCOME_TUNERS: Dict[str, OutcomeTuner] = {}
 _ASSURANCE_RESERVED_METADATA = {
     "assurance",
     "assurance_receipt",
@@ -259,7 +275,12 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
 def _codec_session_key(request: Optional[Request]) -> str:
     if request is None:
         return ""
-    hdr = (request.headers.get("x-session-id") or request.headers.get("x-chat-id") or "").strip()
+    hdr = (
+        request.headers.get("x-cortex-session-id")
+        or request.headers.get("x-session-id")
+        or request.headers.get("x-chat-id")
+        or ""
+    ).strip()
     if hdr:
         return hdr[:128]
     client_host = (request.client.host if getattr(request, "client", None) else "anon") or "anon"
@@ -267,10 +288,35 @@ def _codec_session_key(request: Optional[Request]) -> str:
     return f"{client_host}|{user_agent}"
 
 
-def _codec_context_packet(session_key: str, query: str = "") -> Dict[str, Any]:
+def _principal_continuity_key(principal: AuthenticatedMemoryPrincipal, session_key: str) -> str:
+    canonical = "\0".join(
+        (
+            principal.credential_id,
+            principal.tenant_id,
+            principal.storage_workspace_id,
+            str(session_key or principal.session_id),
+        )
+    )
+    return f"principal:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def _codec_context_packet(
+    session_key: str,
+    query: str = "",
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    telemetry_session_key: Optional[str] = None,
+) -> Dict[str, Any]:
     if not NEXUS_CODEC_ENABLED or not session_key:
         return {"enabled": bool(NEXUS_CODEC_ENABLED), "available": False, "packet": "", "summary": "", "durable": {}, "session_telemetry": {}}
-    packet = get_codec_packet_for_session(session_key, max_chars=NEXUS_CODEC_MAX_CHARS, query=query)
+    packet = get_codec_packet_for_session(
+        session_key,
+        max_chars=NEXUS_CODEC_MAX_CHARS,
+        query=query,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     return {
         "enabled": True,
         "available": bool(packet.get("available")),
@@ -278,7 +324,7 @@ def _codec_context_packet(session_key: str, query: str = "") -> Dict[str, Any]:
         "summary": packet.get("summary", ""),
         "max_chars": NEXUS_CODEC_MAX_CHARS,
         "durable": packet.get("durable", {}),
-        "session_telemetry": get_codec_session_telemetry(session_key),
+        "session_telemetry": get_codec_session_telemetry(telemetry_session_key or session_key),
     }
 
 
@@ -476,8 +522,13 @@ def _observe_codec_execution_outcome(
     fastlane: Optional[Dict[str, Any]],
     note: str = "",
     explicit_success: Optional[bool] = None,
+    served_variant: Optional[str] = None,
 ) -> Dict[str, Any]:
-    variant = _infer_codec_execution_variant(query, codec_context or {}, referent_info or {})
+    variant = (
+        str(served_variant)
+        if served_variant in {"query_only", "referents_only", "referents_plus_codec"}
+        else _infer_codec_execution_variant(query, codec_context or {}, referent_info or {})
+    )
     metrics = _execution_flow_metrics(execution_transaction or {}, validator_result or {}, fastlane)
     recovery_needed = bool(metrics.get("escalated")) or not bool(metrics.get("validator_pass")) or not bool(metrics.get("tx_completed")) or int(metrics.get("failed_steps", 0)) > 0 or int(metrics.get("rollback_count", 0)) > 0
     execution_success = bool(explicit_success) if explicit_success is not None else bool(metrics.get("tx_completed") and metrics.get("validator_pass") and not recovery_needed)
@@ -803,7 +854,16 @@ def _codec_evaluation_view(session_key: str, *, eval_query: str = "", max_chars:
     return debug
 
 
-def _update_codec_context(session_key: str, query: str, response: str = "", *, routing_method: str = "") -> Dict[str, Any]:
+def _update_codec_context(
+    session_key: str,
+    query: str,
+    response: str = "",
+    *,
+    routing_method: str = "",
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    telemetry_session_key: Optional[str] = None,
+) -> Dict[str, Any]:
     if not NEXUS_CODEC_ENABLED or not session_key:
         return {"enabled": bool(NEXUS_CODEC_ENABLED), "available": False, "packet": "", "summary": ""}
     events = []
@@ -820,8 +880,19 @@ def _update_codec_context(session_key: str, query: str, response: str = "", *, r
             "metadata": {"source": "nexus.orchestrate", "routing_method": routing_method or "response"},
         })
     if events:
-        update_codec_state_for_session(session_key, events)
-    return _codec_context_packet(session_key, query=query)
+        update_codec_state_for_session(
+            session_key,
+            events,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+    return _codec_context_packet(
+        session_key,
+        query=query,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        telemetry_session_key=telemetry_session_key,
+    )
 
 
 def _is_referent_query(query: str) -> bool:
@@ -2808,28 +2879,74 @@ def _bounded_scope_value(value: str, default: str) -> str:
     return normalized
 
 
-def _assurance_scope(request: Optional[Request]) -> Dict[str, str]:
-    headers = request.headers if request is not None else {}
-    authorization = getattr(getattr(request, "state", None), "cortex_write_authorization", "") if request is not None else ""
-    tenant_id = _bounded_scope_value(headers.get("x-cortex-tenant-id", ""), "cortex-local")
-    workspace_id = _bounded_scope_value(headers.get("x-cortex-workspace-id", ""), "default")
-    raw_scope = {
-        "tenant_id": tenant_id,
-        "workspace_id": workspace_id,
-        "agent_id": _bounded_scope_value(headers.get("x-cortex-agent-id", ""), "local-agent"),
-        "user_id": _bounded_scope_value(headers.get("x-cortex-user-id", ""), "local-user"),
-        "channel_id": _bounded_scope_value(headers.get("x-cortex-channel-id", ""), "local-channel"),
-        "session_id": _bounded_scope_value(headers.get("x-cortex-session-id", ""), "local-session"),
-    }
-    from cortex_server.routers.librarian import _authenticated_memory_principal_scope
+def _production_memory_scope_mode() -> bool:
+    environment = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower()
+    strict = os.getenv("CORTEX_MEMORY_SCOPE_STRICT", "").strip().lower()
+    return environment in {"production", "prod", "staging"} or strict in {"1", "true", "yes", "on"}
 
-    principal = _authenticated_memory_principal_scope(
-        tenant_id,
-        workspace_id,
-        headers.get("x-cortex-scope-signature", ""),
-        scope=raw_scope if headers.get("x-cortex-agent-id") else None,
-        scope_credential_id=headers.get("x-cortex-scope-credential-id", ""),
+
+def _authenticated_nexus_principal(
+    request: Optional[Request],
+    *,
+    session_hint: str = "",
+) -> tuple[AuthenticatedMemoryPrincipal, str]:
+    headers = request.headers if request is not None else {}
+    scoped_header_names = {
+        "tenant_id": "x-cortex-tenant-id",
+        "workspace_id": "x-cortex-workspace-id",
+        "agent_id": "x-cortex-agent-id",
+        "user_id": "x-cortex-user-id",
+        "channel_id": "x-cortex-channel-id",
+        "session_id": "x-cortex-session-id",
+    }
+    has_scoped_identity = any(
+        str(headers.get(name, "") or "").strip()
+        for name in (
+            *scoped_header_names.values(),
+            "x-cortex-scope-credential-id",
+            "x-cortex-scope-signature",
+        )
     )
+    raw_scope: Optional[Dict[str, str]] = None
+    tenant_id: Optional[str] = None
+    workspace_id: Optional[str] = None
+    if has_scoped_identity:
+        missing = [field for field, name in scoped_header_names.items() if not str(headers.get(name, "") or "").strip()]
+        if missing:
+            raise HTTPException(status_code=403, detail=f"full authenticated principal scope is required: {', '.join(missing)}")
+        raw_scope = {
+            field: _bounded_scope_value(headers.get(name, ""), "")
+            for field, name in scoped_header_names.items()
+        }
+        tenant_id = raw_scope["tenant_id"]
+        workspace_id = raw_scope["workspace_id"]
+
+    scoped_session = str(headers.get("x-cortex-session-id", "") or "").strip()
+    transport_session = str(headers.get("x-session-id", "") or "").strip()
+    if scoped_session and transport_session and not hmac.compare_digest(scoped_session, transport_session):
+        raise HTTPException(status_code=403, detail="transport session must match the authenticated principal session")
+
+    try:
+        principal = authenticate_memory_principal(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            scope=raw_scope,
+            credential_id=headers.get("x-cortex-scope-credential-id", ""),
+            signature=headers.get("x-cortex-scope-signature", ""),
+            production=_production_memory_scope_mode(),
+        )
+    except MemoryScopeAuthError as exc:
+        status_code = 503 if "not configured" in str(exc) else 403
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    resolved_session = str(session_hint or principal.session_id).strip()[:128]
+    if has_scoped_identity and not hmac.compare_digest(principal.session_id, resolved_session):
+        raise HTTPException(status_code=403, detail="request session must match the authenticated principal session")
+    return principal, resolved_session
+
+
+def _assurance_scope(request: Optional[Request]) -> Dict[str, str]:
+    authorization = getattr(getattr(request, "state", None), "cortex_write_authorization", "") if request is not None else ""
+    principal, _session_key = _authenticated_nexus_principal(request)
     return {
         **principal.storage_metadata,
         "authorization": _bounded_scope_value(authorization, "request_boundary"),
@@ -2969,6 +3086,215 @@ def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[
     return payload
 
 
+def _outcome_feedback_signing_key() -> bytes:
+    configured = os.getenv("NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY", "").strip()
+    return configured.encode("utf-8") if configured else _ASSURANCE_SIGNING_KEY
+
+
+def _encode_outcome_feedback_receipt(payload: Dict[str, Any]) -> str:
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    signature = hmac.new(_outcome_feedback_signing_key(), body, hashlib.sha256).digest()
+    return f"{_b64url_encode(body)}.{_b64url_encode(signature)}"
+
+
+def _decode_outcome_feedback_receipt(receipt: str) -> Dict[str, Any]:
+    try:
+        body_part, signature_part = str(receipt or "").split(".", 1)
+        body = _b64url_decode(body_part)
+        supplied = _b64url_decode(signature_part)
+        expected = hmac.new(_outcome_feedback_signing_key(), body, hashlib.sha256).digest()
+        if not hmac.compare_digest(supplied, expected):
+            raise ValueError("signature_mismatch")
+        payload = json.loads(body.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid_payload")
+        return payload
+    except Exception as exc:
+        if isinstance(exc, ValueError) and str(exc) in {"signature_mismatch", "invalid_payload"}:
+            raise
+        raise ValueError("malformed_receipt") from exc
+
+
+def _outcome_receipt_scope(scope: Mapping[str, Any]) -> Dict[str, str]:
+    fields = (
+        "tenant_id",
+        "workspace_id",
+        "agent_id",
+        "user_id",
+        "channel_id",
+        "session_id",
+        "scope_credential_id",
+        "storage_workspace_id",
+    )
+    return {field: str(scope.get(field) or "") for field in fields}
+
+
+def _issue_outcome_feedback_receipt(
+    *,
+    scope: Mapping[str, Any],
+    execution_id: str,
+    query: str,
+    task_archetype: str,
+    policy_label: str,
+    codec_variant: str,
+    validator_pass: bool,
+    execution_success: bool,
+    recovery_needed: bool,
+    latency_ms: int,
+    outcome_confidence: float,
+) -> Dict[str, Any]:
+    issued_at = int(time.time())
+    payload = {
+        "version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
+        "jti": secrets.token_hex(16),
+        "issued_at": issued_at,
+        "expires_at": issued_at + _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS,
+        "execution_id": str(execution_id or "")[:128],
+        "query_hash": hashlib.sha256(str(query or "").encode("utf-8")).hexdigest(),
+        "task_archetype": str(task_archetype or "simple_qa")[:80],
+        "policy_label": str(policy_label or "unknown")[:128],
+        "codec_variant": str(codec_variant or "query_only")[:64],
+        "validator_pass": bool(validator_pass),
+        "execution_success": bool(execution_success),
+        "recovery_needed": bool(recovery_needed),
+        "latency_ms": max(0, int(latency_ms)),
+        "outcome_confidence": round(max(0.0, min(1.0, float(outcome_confidence))), 3),
+        "scope": _outcome_receipt_scope(scope),
+    }
+    return {"receipt": _encode_outcome_feedback_receipt(payload), "payload": payload}
+
+
+def _verify_outcome_feedback_receipt(receipt: str, request: Optional[Request]) -> Dict[str, Any]:
+    payload = _decode_outcome_feedback_receipt(receipt)
+    now = int(time.time())
+    if payload.get("version") != _OUTCOME_FEEDBACK_RECEIPT_VERSION:
+        raise ValueError("unsupported_receipt_version")
+    if int(payload.get("issued_at", 0)) > now + 5 or int(payload.get("expires_at", 0)) < now:
+        raise ValueError("expired_receipt")
+    if not str(payload.get("jti") or "") or not str(payload.get("execution_id") or ""):
+        raise ValueError("missing_receipt_identity")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("query_hash") or "")):
+        raise ValueError("invalid_query_binding")
+    if payload.get("codec_variant") not in {"query_only", "referents_only", "referents_plus_codec"}:
+        raise ValueError("invalid_codec_variant")
+    current_scope = _outcome_receipt_scope(_assurance_scope(request))
+    if payload.get("scope") != current_scope:
+        raise ValueError("scope_binding_mismatch")
+    return payload
+
+
+def _outcome_feedback_limits() -> tuple[int, int]:
+    try:
+        limit = int(os.getenv("NEXUS_OUTCOME_FEEDBACK_RATE_LIMIT", "30"))
+        window = int(os.getenv("NEXUS_OUTCOME_FEEDBACK_RATE_WINDOW_SECONDS", "60"))
+    except ValueError:
+        limit, window = 30, 60
+    return max(1, min(limit, 1000)), max(1, min(window, 3600))
+
+
+def _consume_outcome_feedback_receipt(payload: Mapping[str, Any]) -> None:
+    """Persist replay and tenant rate-limit state under an inter-process file lock."""
+
+    now = int(time.time())
+    expires_at = int(payload.get("expires_at", 0) or 0)
+    jti = str(payload.get("jti") or "")
+    tenant_id = str((payload.get("scope") or {}).get("tenant_id") or "")
+    tenant_key = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
+    limit, window = _outcome_feedback_limits()
+    state_path = _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH
+    lock_path = state_path.with_suffix(state_path.suffix + ".lock")
+
+    try:
+        with _OUTCOME_FEEDBACK_RECEIPT_LOCK:
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            with lock_path.open("a+", encoding="utf-8") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    if state_path.exists():
+                        try:
+                            state = json.loads(state_path.read_text(encoding="utf-8"))
+                        except (json.JSONDecodeError, OSError) as exc:
+                            raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
+                    else:
+                        state = {"version": 1, "consumed": {}, "rates": {}}
+                    if (
+                        not isinstance(state, dict)
+                        or state.get("version") != 1
+                        or not isinstance(state.get("consumed"), dict)
+                        or not isinstance(state.get("rates"), dict)
+                    ):
+                        raise RuntimeError("outcome_feedback_replay_store_invalid")
+                    if any(
+                        not str(key)
+                        or not isinstance(values, list)
+                        or any(not isinstance(value, (int, float)) for value in values)
+                        for key, values in state["rates"].items()
+                    ):
+                        raise RuntimeError("outcome_feedback_replay_store_invalid")
+                    try:
+                        consumed = {
+                            str(key): int(value)
+                            for key, value in state["consumed"].items()
+                            if str(key) and int(value or 0) >= now
+                        }
+                        rates = {
+                            str(key): [
+                                int(value)
+                                for value in values
+                                if isinstance(value, (int, float)) and int(value) > now - window
+                            ][-1000:]
+                            for key, values in state["rates"].items()
+                            if str(key) and isinstance(values, list)
+                        }
+                    except (TypeError, ValueError) as exc:
+                        raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
+                    rates = {key: values for key, values in rates.items() if values}
+                    if jti in consumed:
+                        raise ValueError("receipt_already_consumed")
+                    recent = list(rates.get(tenant_key) or [])
+                    if len(recent) >= limit:
+                        raise ValueError("tenant_rate_limit_exceeded")
+                    consumed[jti] = expires_at
+                    recent.append(now)
+                    rates[tenant_key] = recent[-limit:]
+                    new_state = {"version": 1, "consumed": consumed, "rates": rates}
+                    temp_path = state_path.with_name(
+                        f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
+                    )
+                    temp_path.write_text(json.dumps(new_state, sort_keys=True), encoding="utf-8")
+                    os.replace(temp_path, state_path)
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    except ValueError:
+        raise
+    except OSError as exc:
+        raise RuntimeError("outcome_feedback_replay_store_unavailable") from exc
+
+
+def _require_outcome_feedback_control(request: Optional[Request]) -> None:
+    configured = os.getenv("NEXUS_OUTCOME_FEEDBACK_TOKEN", "").strip()
+    if not configured:
+        raise HTTPException(status_code=503, detail="outcome feedback control-plane credential is not configured")
+    supplied = str((request.headers if request is not None else {}).get("x-cortex-outcome-feedback-token", "") or "")
+    if not supplied or not hmac.compare_digest(supplied, configured):
+        raise HTTPException(status_code=403, detail="outcome feedback control-plane credential required")
+
+
+def _outcome_tuner_for_scope(scope: Mapping[str, Any]) -> OutcomeTuner:
+    tenant_id = str(scope.get("tenant_id") or "cortex-local")
+    tenant_key = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
+    with _TENANT_OUTCOME_TUNER_LOCK:
+        tuner = _TENANT_OUTCOME_TUNERS.get(tenant_key)
+        if tuner is not None:
+            return tuner
+        while len(_TENANT_OUTCOME_TUNERS) >= 256:
+            _TENANT_OUTCOME_TUNERS.pop(next(iter(_TENANT_OUTCOME_TUNERS)))
+        root = Path(os.getenv("NEXUS_OUTCOME_ARTIFACT_DIR", str(_OUTCOME_TUNER.artifact_dir)))
+        tuner = OutcomeTuner(artifact_dir=root / "tenants" / tenant_key)
+        _TENANT_OUTCOME_TUNERS[tenant_key] = tuner
+        return tuner
+
+
 
 class AutoIndexRequest(BaseModel):
     query: str
@@ -3008,6 +3334,12 @@ class OutcomeFeedbackRequest(BaseModel):
     recovery_needed: bool = False
     validator_pass: Optional[bool] = None
     note: str = ""
+
+
+class OutcomeFeedbackReceiptRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    receipt: str = Field(..., min_length=32, max_length=8192)
 
 
 class CodecEventsRequest(BaseModel):
@@ -3235,15 +3567,18 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         raise HTTPException(status_code=400, detail="session_key is required")
     if not payload.events or len(payload.events) > 32:
         raise HTTPException(status_code=400, detail="events must contain between 1 and 32 records")
-    from cortex_server.routers.librarian import _authenticated_memory_principal_scope
-
-    principal = _authenticated_memory_principal_scope(
-        payload.tenant_id,
-        payload.workspace_id,
-        payload.scope_signature,
-        scope=payload.scope,
-        scope_credential_id=payload.scope_credential_id,
-    )
+    try:
+        principal = authenticate_memory_principal(
+            tenant_id=payload.tenant_id,
+            workspace_id=payload.workspace_id,
+            scope=payload.scope,
+            credential_id=payload.scope_credential_id,
+            signature=payload.scope_signature,
+            production=_production_memory_scope_mode(),
+        )
+    except MemoryScopeAuthError as exc:
+        status_code = 503 if "not configured" in str(exc) else 403
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     if principal.session_id != resolved_session_key:
         raise HTTPException(status_code=403, detail="Codec session key must match the authenticated principal session")
     events = []
@@ -3261,11 +3596,15 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         update_codec_state_for_session,
         resolved_session_key,
         events,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
     )
     packet = await run_in_threadpool(
         get_codec_packet_for_session,
         resolved_session_key,
         max_chars=max(120, min(int(payload.max_chars), 2400)),
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
     )
     return {
         "success": True,
@@ -4050,30 +4389,62 @@ async def autotune_status():
 
 
 @router.post("/outcome/feedback")
-async def outcome_feedback(payload: OutcomeFeedbackRequest):
-    validator_pass = bool(payload.validator_pass) if payload.validator_pass is not None else (not bool(payload.user_correction or payload.recovery_needed))
+async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Request):
+    _require_outcome_feedback_control(request)
+    try:
+        receipt = _verify_outcome_feedback_receipt(payload.receipt, request)
+        _consume_outcome_feedback_receipt(receipt)
+    except ValueError as exc:
+        status_code = 429 if str(exc) == "tenant_rate_limit_exceeded" else 409 if str(exc) == "receipt_already_consumed" else 403
+        raise HTTPException(
+            status_code=status_code,
+            detail={"error": "valid_execution_outcome_receipt_required", "reason": str(exc)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    scope = dict(receipt.get("scope") or {})
     record = {
-        "query": payload.query,
-        "task_archetype": payload.task_archetype or classify_task_archetype(payload.query),
-        "policy_label": payload.policy_label or "feedback",
-        "execution_success": not bool(payload.recovery_needed),
-        "validator_result": {"pass": validator_pass},
-        "latency_ms": 0,
-        "user_correction": bool(payload.user_correction),
-        "recovery_needed": bool(payload.recovery_needed),
-        "note": payload.note,
+        "query": "",
+        "query_hash": receipt["query_hash"][:16],
+        "task_archetype": receipt["task_archetype"],
+        "policy_label": receipt["policy_label"],
+        "execution_success": bool(receipt["execution_success"]),
+        "validator_result": {"pass": bool(receipt["validator_pass"]), "source": "nexus.orchestrate.receipt"},
+        "latency_ms": int(receipt["latency_ms"]),
+        "user_correction": False,
+        "recovery_needed": bool(receipt["recovery_needed"]),
+        "execution_id": receipt["execution_id"],
+        "receipt_id": receipt["jti"],
+        "tenant_id": scope.get("tenant_id"),
+        "storage_workspace_id": scope.get("storage_workspace_id"),
+        "source": "signed_execution_receipt",
     }
-    out = _OUTCOME_TUNER.observe(record)
-    codec_out = observe_codec_outcome(
-        query=payload.query,
-        policy_label=payload.codec_variant or payload.policy_label,
-        execution_success=not bool(payload.recovery_needed),
-        user_correction=bool(payload.user_correction),
-        recovery_needed=bool(payload.recovery_needed),
-        validator_pass=validator_pass,
-        note=payload.note,
+    with _TENANT_OUTCOME_TUNER_LOCK:
+        out = _outcome_tuner_for_scope(scope).observe(record)
+    codec_state = apply_codec_outcome_feedback_for_session(
+        str(scope.get("session_id") or ""),
+        {
+            "status": "success" if receipt["execution_success"] and receipt["validator_pass"] and not receipt["recovery_needed"] else "failure",
+            "text": f"Server-observed {receipt['codec_variant']} execution {receipt['execution_id']}",
+        },
+        tenant_id=str(scope.get("tenant_id") or ""),
+        workspace_id=str(scope.get("storage_workspace_id") or ""),
     )
-    return {"success": True, "recorded": True, "artifact": out, "codec_policy": codec_out}
+    return {
+        "success": True,
+        "recorded": True,
+        "receipt_id": receipt["jti"],
+        "execution_id": receipt["execution_id"],
+        "tenant_id": scope.get("tenant_id"),
+        "artifact": out,
+        "codec_policy": {
+            "recorded": True,
+            "variant": receipt["codec_variant"],
+            "scope": "authenticated_tenant_session",
+            "state_revision": codec_state.get("state_revision"),
+        },
+    }
 
 
 @router.get("/orchestrate")
@@ -4103,18 +4474,39 @@ async def orchestrate_query(
         raise HTTPException(status_code=422, detail="query is required")
     if len(query) > 1_048_576:
         raise HTTPException(status_code=422, detail="query exceeds maximum length")
+    requested_session_key = _codec_session_key(request)
+    principal, session_key = _authenticated_nexus_principal(
+        request,
+        session_hint=requested_session_key,
+    )
+    continuity_session_key = _principal_continuity_key(principal, session_key)
+    principal_scope = principal.storage_metadata
+    outcome_tuner = _outcome_tuner_for_scope(principal_scope)
     started = datetime.utcnow()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
-    session_key = _codec_session_key(request)
     tx_id = (request_id or hashlib.sha256(f"{query}|{started.isoformat()}".encode("utf-8")).hexdigest()[:16])
-    tx = ExecutionTransaction(tx_id=tx_id, tx_type="nexus_orchestrate", metadata={"query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16]})
+    tx = ExecutionTransaction(
+        tx_id=tx_id,
+        tx_type="nexus_orchestrate",
+        metadata={
+            "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
+            "tenant_id": principal.tenant_id,
+            "storage_workspace_id": principal.storage_workspace_id,
+        },
+    )
     try:
         recommended = []
         reasoning = []
         routing_method = "semantic_orchestration"
         kernel_trace: Optional[Dict[str, Any]] = None
         kernel_result: Optional[Dict[str, Any]] = None
-        codec_context = _codec_context_packet(session_key, query=query)
+        codec_context = _codec_context_packet(
+            session_key,
+            query=query,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+            telemetry_session_key=continuity_session_key,
+        )
         if codec_probe:
             return {
                 "success": True,
@@ -4180,7 +4572,8 @@ async def orchestrate_query(
             kernel_contract=kernel_contract,
         )
         archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate, kernel_contract=kernel_contract)
-        policy_hint = _OUTCOME_TUNER.get_policy_hint(archetype=archetype, query=query)
+        with _TENANT_OUTCOME_TUNER_LOCK:
+            policy_hint = outcome_tuner.get_policy_hint(archetype=archetype, query=query)
         adaptive_route: Dict[str, Any] = {
             "enabled": bool(autotune_policy.get("autotune_enabled", True)),
             "evaluated": False,
@@ -4273,9 +4666,10 @@ async def orchestrate_query(
         if isinstance(prefetch.get("results", {}).get("context"), dict) and prefetch.get("results", {}).get("context", {}).get("resolved"):
             referent_info = prefetch["results"]["context"]
 
+        served_codec_variant = _infer_codec_execution_variant(query, codec_context, referent_info)
         kernel_trace = cortex_kernel_v2.prepare_request(
             query,
-            session_key=session_key or None,
+            session_key=continuity_session_key or None,
             response_mode="nexus_orchestrate",
             requested_model="nexus",
             continuity_prefix=_kernel_continuity_prefix(referent_info),
@@ -4819,6 +5213,9 @@ async def orchestrate_query(
             query,
             (fastlane.get("answer") if isinstance(fastlane, dict) and isinstance(fastlane.get("answer"), str) else ""),
             routing_method=routing_method,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+            telemetry_session_key=continuity_session_key,
         )
 
         if request is not None:
@@ -4879,34 +5276,39 @@ async def orchestrate_query(
                 "ethics": bool(risk_flags),
             },
         )
-        outcome_artifact = _OUTCOME_TUNER.observe({
-            "query": query,
-            "task_archetype": archetype,
-            "activated_chain": activated,
-            "policy_label": str((bandit_choice or {}).get("selected_arm") or routing_method),
-            "routing_method": routing_method,
-            "model_used": str(semantic_result.get("method") or ("qa_fastlane" if fastlane else "fallback")),
-            "tools_attempted": tool_path_observability.get("steps", []),
-            "tools_used": [step for step in tool_path_observability.get("steps", []) if step not in {"escalate"}],
-            "latency_ms": elapsed_ms,
-            "retry_count": int(execution_tx.get("step_attempts_total", 0)) - len(execution_tx.get("steps", [])),
-            "validator_result": validator_result,
-            "execution_success": True,
-            "user_correction": False,
-            "recovery_needed": bool(isinstance(fastlane, dict) and fastlane.get("escalated")),
-            "assurance_verdict": assurance.get("verdict"),
-            "assurance_reason_codes": assurance.get("reason_codes", []),
-            "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
-        })
+        observed_policy_label = str((bandit_choice or {}).get("selected_arm") or routing_method)
+        with _TENANT_OUTCOME_TUNER_LOCK:
+            outcome_artifact = outcome_tuner.observe({
+                "query": query,
+                "task_archetype": archetype,
+                "activated_chain": activated,
+                "policy_label": observed_policy_label,
+                "routing_method": routing_method,
+                "model_used": str(semantic_result.get("method") or ("qa_fastlane" if fastlane else "fallback")),
+                "tools_attempted": tool_path_observability.get("steps", []),
+                "tools_used": [step for step in tool_path_observability.get("steps", []) if step not in {"escalate"}],
+                "latency_ms": elapsed_ms,
+                "retry_count": int(execution_tx.get("step_attempts_total", 0)) - len(execution_tx.get("steps", [])),
+                "validator_result": validator_result,
+                "execution_success": True,
+                "user_correction": False,
+                "recovery_needed": bool(isinstance(fastlane, dict) and fastlane.get("escalated")),
+                "assurance_verdict": assurance.get("verdict"),
+                "assurance_reason_codes": assurance.get("reason_codes", []),
+                "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
+                "tenant_id": principal.tenant_id,
+                "storage_workspace_id": principal.storage_workspace_id,
+            })
         codec_execution_artifact = _observe_codec_execution_outcome(
             query=query,
-            session_key=session_key,
+            session_key=continuity_session_key,
             codec_context=codec_context,
             referent_info=referent_info,
             execution_transaction=execution_tx,
             validator_result=validator_result,
             fastlane=fastlane,
             note=f"nexus_orchestrate:{routing_method}",
+            served_variant=served_codec_variant,
         )
         latency_artifact = _LATENCY_GOVERNOR.observe({
             "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
@@ -4931,6 +5333,35 @@ async def orchestrate_query(
             used_backend=str(semantic_result.get("method") or ("qa_fastlane" if fastlane else "nexus_orchestrate")),
             fallback_reason="fastlane_escalated" if isinstance(fastlane, dict) and fastlane.get("escalated") else ("world_grounding_degraded" if bool(world_grounding.get("degraded", False)) else None),
             contract_ok=bool(validator_result.get("pass")),
+        )
+        execution_metrics = (
+            dict(codec_execution_artifact.get("execution_metrics") or {})
+            if isinstance(codec_execution_artifact, dict)
+            else {}
+        )
+        receipt_recovery_needed = bool(
+            execution_metrics.get("escalated")
+            or not execution_metrics.get("validator_pass")
+            or not execution_metrics.get("tx_completed")
+            or int(execution_metrics.get("failed_steps", 0) or 0) > 0
+            or int(execution_metrics.get("rollback_count", 0) or 0) > 0
+        )
+        outcome_feedback_receipt = _issue_outcome_feedback_receipt(
+            scope=principal_scope,
+            execution_id=tx_id,
+            query=query,
+            task_archetype=archetype,
+            policy_label=observed_policy_label,
+            codec_variant=served_codec_variant,
+            validator_pass=bool(validator_result.get("pass")),
+            execution_success=bool(
+                execution_metrics.get("tx_completed")
+                and execution_metrics.get("validator_pass")
+                and not receipt_recovery_needed
+            ),
+            recovery_needed=receipt_recovery_needed,
+            latency_ms=elapsed_ms,
+            outcome_confidence=float(execution_metrics.get("confidence", 0.0) or 0.0),
         )
 
         return {
@@ -4974,6 +5405,12 @@ async def orchestrate_query(
             "execution_transaction": execution_tx,
             "validator_result": validator_result,
             "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=kernel_result),
+            "outcome_feedback": {
+                "receipt": outcome_feedback_receipt["receipt"],
+                "receipt_version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
+                "expires_at": outcome_feedback_receipt["payload"]["expires_at"],
+                "execution_id": tx_id,
+            },
             "artifact_paths": {
                 "outcome_tuner": outcome_artifact,
                 "latency_governor": latency_artifact,
@@ -4989,7 +5426,7 @@ async def orchestrate_query(
         try:
             _observe_codec_execution_outcome(
                 query=query,
-                session_key=locals().get("session_key", ""),
+                session_key=locals().get("continuity_session_key", ""),
                 codec_context=locals().get("codec_context", {}) if isinstance(locals().get("codec_context", {}), dict) else {},
                 referent_info=locals().get("referent_info", {}) if isinstance(locals().get("referent_info", {}), dict) else {},
                 execution_transaction=failed_tx if isinstance(failed_tx, dict) else {"status": "failed"},
@@ -4997,6 +5434,7 @@ async def orchestrate_query(
                 fastlane=locals().get("fastlane") if isinstance(locals().get("fastlane"), dict) else None,
                 note=f"nexus_orchestrate_exception:{type(e).__name__}",
                 explicit_success=False,
+                served_variant=locals().get("served_codec_variant"),
             )
         except Exception:
             pass

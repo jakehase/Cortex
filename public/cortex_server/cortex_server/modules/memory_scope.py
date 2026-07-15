@@ -21,6 +21,7 @@ PRINCIPAL_FIELDS = (
     "session_id",
 )
 _SCOPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
+_DYNAMIC_SESSION_POLICY_FIELDS = frozenset({"type", "prefix", "max_length"})
 
 
 class MemoryScopeAuthError(ValueError):
@@ -142,6 +143,72 @@ def _configured_credentials() -> Dict[str, Dict[str, object]]:
     return credentials
 
 
+def normalize_memory_scope_policy(allowed: object, credential_id: str) -> Dict[str, object]:
+    """Validate and normalize an exact or bounded dynamic-session policy."""
+    if not isinstance(allowed, dict):
+        raise MemoryScopeAuthError(f"memory scope credential {credential_id!r} has an invalid allowed scope")
+    unknown = set(allowed) - set(PRINCIPAL_FIELDS)
+    missing = [field for field in PRINCIPAL_FIELDS if field not in allowed]
+    if unknown or missing:
+        raise MemoryScopeAuthError(f"memory scope credential {credential_id!r} has an invalid allowed scope")
+
+    policy: Dict[str, object] = {
+        field: _normalize(allowed.get(field), field)
+        for field in PRINCIPAL_FIELDS[:-1]
+    }
+
+    session_policy = allowed.get("session_id")
+    if not isinstance(session_policy, dict):
+        policy["session_id"] = _normalize(session_policy, "session_id")
+        return policy
+
+    if set(session_policy) - _DYNAMIC_SESSION_POLICY_FIELDS:
+        raise MemoryScopeAuthError(f"memory scope credential {credential_id!r} has an invalid dynamic session policy")
+    if str(session_policy.get("type") or "").strip() != "signed_dynamic":
+        raise MemoryScopeAuthError(f"memory scope credential {credential_id!r} has an invalid dynamic session policy")
+    prefix = _normalize(session_policy.get("prefix"), "dynamic session prefix")
+    try:
+        max_length = int(session_policy.get("max_length", 128))
+    except (TypeError, ValueError) as exc:
+        raise MemoryScopeAuthError(
+            f"memory scope credential {credential_id!r} has an invalid dynamic session policy"
+        ) from exc
+    if max_length < len(prefix) + 1 or max_length > 128:
+        raise MemoryScopeAuthError(f"memory scope credential {credential_id!r} has an invalid dynamic session policy")
+    policy["session_id"] = {
+        "type": "signed_dynamic",
+        "prefix": prefix,
+        "max_length": max_length,
+    }
+    return policy
+
+
+def memory_scope_policy_matches(scope: Mapping[str, object], allowed: object, credential_id: str) -> bool:
+    """Match a normalized principal against a validated credential policy."""
+
+    normalized_scope = normalize_principal_scope(scope)
+    policy = normalize_memory_scope_policy(allowed, credential_id)
+    fixed_scope = {field: policy[field] for field in PRINCIPAL_FIELDS[:-1]}
+    session_policy = policy["session_id"]
+    if not isinstance(session_policy, dict):
+        return (
+            fixed_scope == {field: normalized_scope[field] for field in PRINCIPAL_FIELDS[:-1]}
+            and session_policy == normalized_scope["session_id"]
+        )
+    session_id = normalized_scope["session_id"]
+    return (
+        fixed_scope == {field: normalized_scope[field] for field in PRINCIPAL_FIELDS[:-1]}
+        and session_id.startswith(str(session_policy["prefix"]))
+        and len(session_id) <= int(session_policy["max_length"])
+    )
+
+
+def _allowed_scope_matches(scope: Mapping[str, str], allowed: object, credential_id: str) -> bool:
+    """Backward-compatible internal alias for policy matching."""
+
+    return memory_scope_policy_matches(scope, allowed, credential_id)
+
+
 @dataclass(frozen=True)
 class AuthenticatedMemoryPrincipal:
     credential_id: str
@@ -201,12 +268,11 @@ def authenticate_memory_principal(
     if not supplied_id or supplied_id not in credentials:
         raise MemoryScopeAuthError("unknown memory scope credential")
     credential = credentials[supplied_id]
-    allowed_scopes = []
-    for allowed in credential["allowed_scopes"]:
-        if not isinstance(allowed, dict):
-            raise MemoryScopeAuthError(f"memory scope credential {supplied_id!r} has an invalid allowed scope")
-        allowed_scopes.append(normalize_principal_scope(allowed))
-    if normalized not in allowed_scopes:
+    allowed_matches = [
+        memory_scope_policy_matches(normalized, allowed, supplied_id)
+        for allowed in credential["allowed_scopes"]
+    ]
+    if not any(allowed_matches):
         raise MemoryScopeAuthError("credential is not authorized for the requested principal scope")
     expected = memory_scope_signature(
         **normalized,

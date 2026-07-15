@@ -25,9 +25,12 @@ from cortex_server.runtime.production_build_loop import (
     _stage_gate_for,
 )
 from cortex_server.runtime.release_workflow import (
+    ReleaseArtifactReceipt,
     ReleaseWorkflowState,
+    create_release_artifact_receipt,
     evaluate_release_promotion_gate,
     record_release_artifact_receipt,
+    release_artifact_attestation_signature,
 )
 from cortex_server.runtime.shared_process_state import (
     SharedProcessState,
@@ -213,12 +216,12 @@ async def test_codec_events_hydrate_the_same_live_nexus_session(monkeypatch):
     scope = _principal("codec-agent", session_key)
     stored = {}
 
-    def update_state(key, events):
-        stored[key] = list(events)
+    def update_state(key, events, **scope_kwargs):
+        stored[(scope_kwargs.get("tenant_id"), scope_kwargs.get("workspace_id"), key)] = list(events)
         return {"durable_write": {"fingerprint": "test-fingerprint"}}
 
-    def get_packet(key, **_kwargs):
-        events = stored.get(key, [])
+    def get_packet(key, **scope_kwargs):
+        events = stored.get((scope_kwargs.get("tenant_id"), scope_kwargs.get("workspace_id"), key), [])
         packet = "\n".join(str(event.get("text") or "") for event in events)
         return {"available": bool(packet), "packet": packet, "summary": packet, "durable": {}}
 
@@ -250,7 +253,20 @@ async def test_codec_events_hydrate_the_same_live_nexus_session(monkeypatch):
         ),
         request,
     )
-    live_packet = nexus._codec_context_packet(session_key, query="cobalt river")
+    principal = librarian._authenticated_memory_principal_scope(
+        scope["tenant_id"],
+        scope["workspace_id"],
+        signature,
+        scope=scope,
+        scope_credential_id="codec-bridge",
+    )
+    live_packet = nexus._codec_context_packet(
+        session_key,
+        query="cobalt river",
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        telemetry_session_key=nexus._principal_continuity_key(principal, session_key),
+    )
 
     assert response["success"] is True
     assert live_packet["available"] is True
@@ -314,13 +330,22 @@ def test_release_gate_rejects_bare_and_stale_artifact_ids(tmp_path):
     )
     assert blocked["checks"]["artifacts_ready"] is False
 
+    artifact_store = harness.release_store.artifact_store()
+    receipt = create_release_artifact_receipt(
+        state.model_copy(update={"metadata": {}}),
+        artifact_store=artifact_store,
+        artifact_id=artifact_id,
+        payload=b"current immutable build output",
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier="independent-verifier",
+        verifier_secret="verifier-secret",
+    )
     state = record_release_artifact_receipt(
         state.model_copy(update={"metadata": {}}),
-        {
-            **stale,
-            "candidate_ref": state.candidate_ref,
-            "content_hash": f"sha256:{hashlib.sha256(b'current').hexdigest()}",
-        },
+        receipt,
+        artifact_store=artifact_store,
+        verifier_credentials={"independent-verifier": "verifier-secret"},
     )
     ready = evaluate_release_promotion_gate(
         state=state,
@@ -329,8 +354,66 @@ def test_release_gate_rejects_bare_and_stale_artifact_ids(tmp_path):
         target_stage="canary_verified",
         dependability_report={"success": True},
         required_artifacts=[artifact_id],
+        artifact_store=artifact_store,
+        verifier_credentials={"independent-verifier": "verifier-secret"},
     )
     assert ready["checks"]["artifacts_ready"] is True
+
+
+def test_release_receipt_recomputes_signed_hash_from_immutable_output(tmp_path):
+    state = ReleaseWorkflowState(
+        process_id="proc-forged-artifact",
+        candidate_ref="candidate:forged",
+        target_environment="production",
+        revision_id="rev-1",
+    )
+    artifact_store = RuntimeSoakHarness(tmp_path / "soak").release_store.artifact_store()
+    fabricated_hash = f"sha256:{hashlib.sha256(b'fabricated').hexdigest()}"
+    unsigned = {
+        "artifact_id": "artifact_release_bundle:proc-forged-artifact",
+        "artifact_ref": fabricated_hash,
+        "content_hash": fabricated_hash,
+        "artifact_kind": "release_bundle",
+        "target_stage": None,
+        "candidate_ref": state.candidate_ref,
+        "release_id": state.release_id,
+        "revision_id": state.revision_id,
+        "producer": "builder",
+        "verifier": "independent-verifier",
+        "validation_outcome": "passed",
+        "claims": {},
+        "created_at": "2026-07-15T12:00:00.000Z",
+    }
+    receipt = ReleaseArtifactReceipt(
+        **unsigned,
+        attestation_signature=release_artifact_attestation_signature(unsigned, secret="verifier-secret"),
+    )
+
+    with pytest.raises(FileNotFoundError, match="immutable release artifact not found"):
+        record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={"independent-verifier": "verifier-secret"},
+        )
+
+    self_attested = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_smoke_report:proc-forged-artifact",
+        payload={"result": "passed"},
+        artifact_kind="smoke_report",
+        producer="builder",
+        verifier="builder",
+        verifier_secret="builder-secret",
+    )
+    with pytest.raises(PermissionError, match="cannot self-verify"):
+        record_release_artifact_receipt(
+            state,
+            self_attested,
+            artifact_store=artifact_store,
+            verifier_credentials={"builder": "builder-secret"},
+        )
 
 
 def test_release_ack_requires_intended_recipient_and_bound_evidence(monkeypatch, tmp_path):

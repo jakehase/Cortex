@@ -13,13 +13,56 @@ from cortex_server.runtime import (
     compile_release_handoff,
     evaluate_release_promotion_gate,
     record_release_fencepost,
+    record_release_artifact_receipt,
     record_release_handoff,
     repair_release_workflow,
     rollback_release_workflow,
     normalize_session_event,
 )
 from cortex_server.runtime.session_registry import SessionRegistryStore
+from cortex_server.runtime.release_workflow import create_release_artifact_receipt
 from cortex_server.runtime.shared_process_state import SharedProcessState
+
+
+VERIFIER_ID = "independent-release-verifier"
+VERIFIER_SECRET = "release-workflow-test-secret"
+
+
+def _record_canary_evidence(harness, state, *, evidence_id: str, target_stage: str):
+    claims = {
+        "deployment_id": f"deployment:{state.process_id}:{target_stage}",
+        "cohort_id": "canary-cohort",
+        "traffic_volume": 100,
+        "observation_window_seconds": 600,
+        "artifact_hashes": [],
+        "metrics": {"availability": 1.0, "error_rate": 0.0},
+        "thresholds": {
+            "minimum_traffic": 10,
+            "minimum_observation_seconds": 300,
+            "minimum_availability": 0.99,
+            "maximum_error_rate": 0.01,
+            "rollback_error_rate": 0.02,
+        },
+    }
+    artifact_store = harness.release_store.artifact_store()
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=evidence_id,
+        payload=claims,
+        artifact_kind="canary_evidence",
+        target_stage=target_stage,
+        claims=claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    return record_release_artifact_receipt(
+        state,
+        receipt,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
 
 
 
@@ -72,9 +115,30 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         },
     )
     state = record_release_handoff(state, acked, stage="canary_verified")
-
     fencepost = capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified")
     state = record_release_fencepost(state, fencepost)
+
+    unresolved_gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        target_stage="canary_verified",
+        mailbox_messages=harness.mailbox.list(process_id="proc_release_history"),
+        dependability_report={"success": True},
+        required_fencepost_stages=["build_verified"],
+        required_handoff_count=1,
+        artifact_store=harness.release_store.artifact_store(),
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    assert unresolved_gate["checks"]["handoff_receipts_ok"] is False
+    assert unresolved_gate["invalid_evidence_receipt_ids"] == ["evidence:canary-verification"]
+
+    state = _record_canary_evidence(
+        harness,
+        state,
+        evidence_id="evidence:canary-verification",
+        target_stage="canary_verified",
+    )
 
     gate = evaluate_release_promotion_gate(
         state=state,
@@ -86,6 +150,8 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified"],
         required_handoff_count=1,
+        artifact_store=harness.release_store.artifact_store(),
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
     )
     promoted = advance_release_workflow(state, gate=gate, next_stage="canary_verified", actor="release-manager")
     stored = harness.release_store.save(promoted["state"], actor="release-manager", provenance={"phase": "promote_canary"})
@@ -200,6 +266,12 @@ def test_release_gate_ignores_stale_handoff_history_after_current_ack(tmp_path):
         revision_id="rev_1",
         current_stage="canary_verified",
     )
+    state = _record_canary_evidence(
+        harness,
+        state,
+        evidence_id="evidence:build:new",
+        target_stage="production",
+    )
     for candidate in ("build:old", "build:new"):
         message = harness.mailbox.send(
             process_id=state.process_id,
@@ -239,6 +311,8 @@ def test_release_gate_ignores_stale_handoff_history_after_current_ack(tmp_path):
         mailbox_messages=harness.mailbox.list(process_id=state.process_id),
         dependability_report={"success": True},
         required_handoff_count=1,
+        artifact_store=harness.release_store.artifact_store(),
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
     )
 
     assert gate["safe_push"] is True

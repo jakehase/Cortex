@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import hashlib
+import json
 
 from cortex_server.runtime import RuntimeSoakHarness
 import cortex_server.runtime.production_build_loop as production_build_loop
@@ -23,6 +23,7 @@ from cortex_server.runtime.release_workflow import (
     record_release_fencepost,
     record_release_handoff,
     record_release_artifact_receipt,
+    create_release_artifact_receipt,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState
 
@@ -45,25 +46,76 @@ MINIMAL_PROFILE = {
 }
 
 
-def _with_artifact_receipts(state, *artifact_ids):
+VERIFIER_ID = "independent-release-verifier"
+VERIFIER_SECRET = "test-release-verifier-secret"
+
+
+def _with_artifact_receipts(state, release_store, *artifact_ids):
+    artifact_store = release_store.artifact_store()
     for artifact_id in artifact_ids:
+        artifact_kind = "smoke_report" if "smoke_report" in artifact_id else "release_bundle"
+        receipt = create_release_artifact_receipt(
+            state,
+            artifact_store=artifact_store,
+            artifact_id=artifact_id,
+            payload={"artifact_id": artifact_id, "result": "passed"},
+            artifact_kind=artifact_kind,
+            producer="build-worker",
+            verifier=VERIFIER_ID,
+            verifier_secret=VERIFIER_SECRET,
+        )
         state = record_release_artifact_receipt(
             state,
-            {
-                "artifact_id": artifact_id,
-                "content_hash": f"sha256:{hashlib.sha256(artifact_id.encode()).hexdigest()}",
-                "candidate_ref": state.candidate_ref,
-                "release_id": state.release_id,
-                "revision_id": state.revision_id,
-                "producer": "test-verifier",
-                "validation_outcome": "passed",
-            },
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
         )
     return state
 
 
 def _approve_pending_release_handoff(harness, process_id, stage):
     state = harness.release_store.load(process_id)
+    artifact_store = harness.release_store.artifact_store()
+    artifact_hashes = [
+        str(row.get("content_hash"))
+        for row in state.metadata.get("release_artifacts") or []
+        if isinstance(row, dict) and row.get("artifact_kind") != "canary_evidence"
+    ]
+    evidence_id = f"evidence:{stage}"
+    claims = {
+        "deployment_id": f"deployment:{process_id}:{stage}",
+        "cohort_id": "canary-10-percent",
+        "traffic_volume": 1000,
+        "observation_window_seconds": 900,
+        "artifact_hashes": artifact_hashes,
+        "metrics": {"availability": 0.999, "error_rate": 0.001},
+        "thresholds": {
+            "minimum_traffic": 500,
+            "minimum_observation_seconds": 600,
+            "minimum_availability": 0.99,
+            "maximum_error_rate": 0.01,
+            "rollback_error_rate": 0.02,
+        },
+    }
+    evidence_receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=evidence_id,
+        payload=claims,
+        artifact_kind="canary_evidence",
+        target_stage=stage,
+        claims=claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        evidence_receipt,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    harness.release_store.save(state, actor=VERIFIER_ID)
     message = next(
         row for row in harness.mailbox.list(process_id=process_id)
         if row.delivery_status in {"queued", "inflight"}
@@ -84,7 +136,7 @@ def _approve_pending_release_handoff(harness, process_id, stage):
             "release_id": state.release_id,
             "revision_id": state.revision_id,
             "result": "approved",
-            "evidence_receipts": [f"evidence:{stage}"],
+            "evidence_receipts": [evidence_id],
         },
     )
     harness.release_store.save(
@@ -154,7 +206,8 @@ def _contract(
 
 
 
-def test_production_loop_persists_through_intermediate_milestones_until_completion(tmp_path):
+def test_production_loop_persists_through_intermediate_milestones_until_completion(tmp_path, monkeypatch):
+    monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_CREDENTIALS", json.dumps({VERIFIER_ID: VERIFIER_SECRET}))
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
     process_id = "proc_prod_loop"
     artifact_bundle = f"artifact_release_bundle:{process_id}"
@@ -203,7 +256,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         release_state,
         capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
     )
-    release_state = _with_artifact_receipts(release_state, artifact_bundle)
+    release_state = _with_artifact_receipts(release_state, harness.release_store, artifact_bundle)
     harness.release_store.save(release_state, actor="builder", provenance={"phase": "build_verified"})
 
     loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
@@ -275,7 +328,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         release_state,
         capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="canary_verified"),
     )
-    release_state = _with_artifact_receipts(release_state, artifact_smoke)
+    release_state = _with_artifact_receipts(release_state, harness.release_store, artifact_smoke)
     harness.release_store.save(release_state, actor="verifier", provenance={"phase": "canary_verified"})
 
     awaiting_production = reconcile_production_build_loop(
@@ -371,7 +424,7 @@ def test_production_loop_never_auto_chains_past_independent_recipient_approval(t
         release_state,
         capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
     )
-    release_state = _with_artifact_receipts(release_state, artifact_bundle, artifact_smoke)
+    release_state = _with_artifact_receipts(release_state, harness.release_store, artifact_bundle, artifact_smoke)
     harness.release_store.save(release_state, actor="builder", provenance={"phase": "build_verified"})
 
     loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
@@ -809,7 +862,8 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
     assert any(action["action"] == "checkpoint_from_journal" for action in result["actions_taken"])
 
 
-def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(tmp_path):
+def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(tmp_path, monkeypatch):
+    monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_CREDENTIALS", json.dumps({VERIFIER_ID: VERIFIER_SECRET}))
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
     process_id = "proc_release_handoff_loop"
     seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
@@ -830,6 +884,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     )
     release_state = _with_artifact_receipts(
         release_state,
+        harness.release_store,
         f"artifact_release_bundle:{process_id}",
         f"artifact_smoke_report:{process_id}",
     )
@@ -890,29 +945,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     assert any(message.to_agent == "release-manager" and message.delivery_status == "queued" for message in messages)
     assert any(lease.scope == "release:promote" and lease.agent_id == "release-manager" for lease in leases)
 
-    received = harness.mailbox.receive(
-        to_agent="release-manager",
-        process_id=process_id,
-        expected_revision_id=shared_state.revision_id,
-        reject_stale_revision=True,
-    )
-    assert len(received) == 1
-    acknowledged = harness.mailbox.acknowledge(
-        received[0].message_id,
-        actor="release-manager",
-        result_receipt={
-            "candidate_ref": pending_release.candidate_ref,
-            "release_id": pending_release.release_id,
-            "revision_id": pending_release.revision_id,
-            "result": "approved",
-            "evidence_receipts": ["evidence:production-verification"],
-        },
-    )
-    harness.release_store.save(
-        record_release_handoff(pending_release, acknowledged, stage="production", notes="verified by recipient"),
-        actor="release-manager",
-        provenance={"evidence": "recipient_verification"},
-    )
+    _approve_pending_release_handoff(harness, process_id, "production")
 
     completed = reconcile_production_build_loop(
         contract,

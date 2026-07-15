@@ -18,6 +18,7 @@ async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = fa
     config: {
       enabled: true,
       requireRouting,
+      sessionIdentityHmacSecret: 'session-identity-cache-persistence-test-secret',
       baseUrl: 'http://127.0.0.1:18888',
       routeCacheHmacSecret: 'deployment-held-test-secret',
       oracleSessionDir: stateDir,

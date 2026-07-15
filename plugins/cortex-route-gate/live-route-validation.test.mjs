@@ -22,7 +22,7 @@ function cachedPlan() {
   return { ...cache, tag: crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson(cache)).digest('hex') };
 }
 
-async function invoke({ requireRouting, cache, response, config = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this' }) {
+async function invoke({ requireRouting, cache, response, config = {}, context = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this' }) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-live-route-'));
   if (cache) fs.writeFileSync(path.join(stateDir, 'last-good-plan.json'), JSON.stringify(cache));
   const handlers = new Map();
@@ -39,7 +39,7 @@ async function invoke({ requireRouting, cache, response, config = {}, inspectReq
   try {
     const result = await handlers.get('before_prompt_build')(
       { prompt, messages: [{ role: 'user', content: prompt }] },
-      { sessionKey },
+      { sessionKey, ...context },
     );
     return { context: String(result?.appendSystemContext || ''), saved: fs.existsSync(path.join(stateDir, 'last-good-plan.json')) ? JSON.parse(fs.readFileSync(path.join(stateDir, 'last-good-plan.json'), 'utf8')) : null };
   } finally {
@@ -116,6 +116,67 @@ test('routing forwards distinct bounded HMAC identities without exposing raw ses
     assert.doesNotMatch(identities.at(-1), new RegExp(sessionKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   assert.notEqual(identities[0], identities[1]);
+});
+
+test('routing binds the opaque session to a complete signed trusted principal', async () => {
+  let headers;
+  const sessionKey = 'agent:trusted:tenant-a:user-a';
+  await invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    sessionKey,
+    context: {
+      agentId: 'agent-a',
+      requesterSenderId: 'user-a',
+      messageChannel: 'channel-a',
+    },
+    config: {
+      tenantId: 'tenant-a',
+      workspaceId: 'workspace-a',
+      scopeCredentialId: 'route-credential',
+      scopeHmacSecret: 'route-scope-secret',
+      sessionIdentityHmacSecret: 'shared-session-secret',
+    },
+    inspectRequest(_url, init) { headers = new Headers(init.headers); },
+  });
+
+  const sessionId = `openclaw-${crypto.createHmac('sha256', 'shared-session-secret').update(sessionKey).digest('hex')}`;
+  const canonical = [
+    'cortex.memory.principal.v2',
+    'route-credential',
+    'tenant-a',
+    'workspace-a',
+    'agent-a',
+    'user-a',
+    'channel-a',
+    sessionId,
+  ].join('\n');
+  assert.deepEqual(
+    Object.fromEntries([
+      'x-session-id',
+      'x-cortex-tenant-id',
+      'x-cortex-workspace-id',
+      'x-cortex-agent-id',
+      'x-cortex-user-id',
+      'x-cortex-channel-id',
+      'x-cortex-session-id',
+      'x-cortex-scope-credential-id',
+    ].map((name) => [name, headers.get(name)])),
+    {
+      'x-session-id': sessionId,
+      'x-cortex-tenant-id': 'tenant-a',
+      'x-cortex-workspace-id': 'workspace-a',
+      'x-cortex-agent-id': 'agent-a',
+      'x-cortex-user-id': 'user-a',
+      'x-cortex-channel-id': 'channel-a',
+      'x-cortex-session-id': sessionId,
+      'x-cortex-scope-credential-id': 'route-credential',
+    },
+  );
+  assert.equal(
+    headers.get('x-cortex-scope-signature'),
+    crypto.createHmac('sha256', 'route-scope-secret').update(canonical).digest('hex'),
+  );
 });
 
 test('required routing fails closed without trusted session identity', async () => {

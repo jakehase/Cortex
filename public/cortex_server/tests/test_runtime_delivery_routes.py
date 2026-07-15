@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
+import pytest
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
-from cortex_server.runtime.release_workflow import record_release_artifact_receipt, record_release_handoff
+from cortex_server.runtime.release_workflow import release_artifact_attestation_signature
 
 
 def _install_fake_diplomat(monkeypatch):
@@ -54,6 +56,49 @@ def _workflow() -> dict:
     }
 
 
+def _signed_artifact_request(
+    state,
+    *,
+    artifact_id: str,
+    payload: dict,
+    artifact_kind: str,
+    target_stage: str | None = None,
+    claims: dict | None = None,
+) -> orchestrator.RuntimeDeliveryArtifactIngestRequest:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    content_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+    created_at = "2026-07-15T12:00:00.000Z"
+    unsigned = {
+        "artifact_id": artifact_id,
+        "artifact_ref": content_hash,
+        "content_hash": content_hash,
+        "artifact_kind": artifact_kind,
+        "target_stage": target_stage,
+        "candidate_ref": state.candidate_ref,
+        "release_id": state.release_id,
+        "revision_id": state.revision_id,
+        "producer": "runtime-build-worker" if artifact_kind != "canary_evidence" else "canary-runner",
+        "verifier": "runtime-independent-verifier",
+        "validation_outcome": "passed",
+        "claims": dict(claims or {}),
+        "created_at": created_at,
+    }
+    return orchestrator.RuntimeDeliveryArtifactIngestRequest(
+        artifact_id=artifact_id,
+        payload=payload,
+        artifact_kind=artifact_kind,
+        producer=unsigned["producer"],
+        verifier=unsigned["verifier"],
+        attestation_signature=release_artifact_attestation_signature(
+            unsigned,
+            secret="runtime-verifier-secret",
+        ),
+        target_stage=target_stage,
+        claims=dict(claims or {}),
+        created_at=created_at,
+    )
+
+
 
 def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monkeypatch):
     db_path = tmp_path / "runtime.db"
@@ -62,6 +107,10 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({"runtime-independent-verifier": "runtime-verifier-secret"}),
+    )
     orchestrator.workflows.clear()
 
     process = scheduler.create_process_from_workflow(
@@ -124,24 +173,53 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
         reject_stale_revision=True,
     )
     release_state = stores["release_store"].load(process["process_id"])
-    for artifact_id in (
-        f"artifact_release_bundle:{process['process_id']}",
-        f"artifact_smoke_report:{process['process_id']}",
+    artifact_hashes = []
+    for artifact_id, artifact_kind in (
+        (f"artifact_release_bundle:{process['process_id']}", "release_bundle"),
+        (f"artifact_smoke_report:{process['process_id']}", "smoke_report"),
     ):
-        release_state = record_release_artifact_receipt(
-            release_state,
-            {
-                "artifact_id": artifact_id,
-                "content_hash": f"sha256:{hashlib.sha256(artifact_id.encode()).hexdigest()}",
-                "candidate_ref": release_state.candidate_ref,
-                "release_id": release_state.release_id,
-                "revision_id": release_state.revision_id,
-                "producer": "runtime-delivery-test",
-                "validation_outcome": "passed",
-            },
+        ingested = asyncio.run(
+            orchestrator.ingest_runtime_delivery_artifact(
+                process["process_id"],
+                _signed_artifact_request(
+                    release_state,
+                    artifact_id=artifact_id,
+                    payload={"artifact_id": artifact_id, "result": "passed"},
+                    artifact_kind=artifact_kind,
+                ),
+            )
         )
-    stores["release_store"].save(release_state, actor="runtime-delivery-test")
-    acknowledged = stores["mailbox"].acknowledge(
+        artifact_hashes.append(ingested["receipt"]["content_hash"])
+    evidence_id = "evidence:runtime-production-verification"
+    evidence_claims = {
+        "deployment_id": "deployment:runtime-production",
+        "cohort_id": "canary-10-percent",
+        "traffic_volume": 2500,
+        "observation_window_seconds": 1200,
+        "artifact_hashes": artifact_hashes,
+        "metrics": {"availability": 0.9995, "error_rate": 0.0005},
+        "thresholds": {
+            "minimum_traffic": 1000,
+            "minimum_observation_seconds": 900,
+            "minimum_availability": 0.99,
+            "maximum_error_rate": 0.01,
+            "rollback_error_rate": 0.02,
+        },
+    }
+    asyncio.run(
+        orchestrator.ingest_runtime_delivery_artifact(
+            process["process_id"],
+            _signed_artifact_request(
+                release_state,
+                artifact_id=evidence_id,
+                payload=evidence_claims,
+                artifact_kind="canary_evidence",
+                target_stage="production",
+                claims=evidence_claims,
+            ),
+        )
+    )
+    stores["mailbox"].acknowledge(
         received[0].message_id,
         actor=received[0].to_agent,
         result_receipt={
@@ -149,13 +227,8 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
             "release_id": release_state.release_id,
             "revision_id": release_state.revision_id,
             "result": "approved",
-            "evidence_receipts": ["evidence:runtime-production-verification"],
+            "evidence_receipts": [evidence_id],
         },
-    )
-    stores["release_store"].save(
-        record_release_handoff(release_state, acknowledged, stage="production", notes="recipient verified"),
-        actor="release-manager",
-        provenance={"evidence": "recipient_verification"},
     )
     reconciled = asyncio.run(
         orchestrator.reconcile_runtime_delivery(
@@ -183,26 +256,53 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert any(message.to_agent == "release-manager" and message.delivery_status == "acked" for message in messages)
     assert any(fencepost["stage"] == "production" for fencepost in reconciled["delivery"]["release_state"]["rollback_fenceposts"])
 
-    rolled_back = asyncio.run(
-        orchestrator.rollback_runtime_delivery(
-            process["process_id"],
-            orchestrator.RuntimeDeliveryRollbackRequest(stage="build_verified", actor="controller", reason="post-push regression"),
-        )
-    )
+    original_replace_workflow = orchestrator.replace_process_workflow
+    failures = {"remaining": 1}
 
-    assert rolled_back["success"] is True
-    assert rolled_back["state"]["current_stage"] == "build_verified"
-    assert rolled_back["state"]["metadata"]["rollback_applied"] is True
+    def fail_runtime_projection_once(*args, **kwargs):
+        if kwargs.get("event_kind") == "runtime_delivery_rollback_applied" and failures["remaining"]:
+            failures["remaining"] -= 1
+            raise OSError("runtime process projection unavailable")
+        return original_replace_workflow(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "replace_process_workflow", fail_runtime_projection_once)
+    with pytest.raises(OSError, match="runtime process projection unavailable"):
+        asyncio.run(
+            orchestrator.rollback_runtime_delivery(
+                process["process_id"],
+                orchestrator.RuntimeDeliveryRollbackRequest(actor="controller", reason="post-push regression"),
+            )
+        )
+    pending_intent = stores["release_store"].load_rollback_intent(process["process_id"])
+    assert pending_intent["status"] == "recovery_required"
+    assert pending_intent["phase"] == "loop_projection_committed"
+
+    monkeypatch.setattr(orchestrator, "replace_process_workflow", original_replace_workflow)
+    assert orchestrator._recover_runtime_delivery_rollbacks(stores=stores) == [process["process_id"]]
+    rolled_back = asyncio.run(orchestrator.get_runtime_delivery_status(process["process_id"]))
+    committed_intent = stores["release_store"].load_rollback_intent(process["process_id"])
+    rollback_reports = [row for row in stores["loop_store"].reports(process["process_id"]) if row.kind == "rollback"]
+    rollback_progress_events = [
+        row for row in scheduler.process_events(process["process_id"], limit=1000)
+        if row.get("kind") == "runtime_delivery_rollback_applied.progress"
+        and (row.get("payload") or {}).get("rollback_transaction_id") == committed_intent["transaction_id"]
+    ]
+
+    assert committed_intent["status"] == "committed"
+    assert committed_intent["completed_projections"] == ["production_loop", "runtime_process"]
+    assert len(rollback_reports) == 1
+    assert len(rollback_progress_events) == 1
+    assert rolled_back["release_state"]["current_stage"] == "build_verified"
+    assert rolled_back["release_state"]["metadata"]["rollback_applied"] is True
     assert rolled_back["process"]["status"] == "ready"
     assert rolled_back["process"]["nodes"]["build"]["status"] == "ready"
-    assert rolled_back["delivery"]["shared_state"]["revision_id"].endswith(".rollback")
-    assert rolled_back["delivery"]["loop_state"]["status"] == "active"
-    assert rolled_back["delivery"]["loop_state"]["current_stage"] == "build_verified"
-    assert rolled_back["delivery"]["latest_report"]["kind"] == "rollback"
-    assert rolled_back["delivery"]["latest_report"]["metadata"]["rollback_reason"] == "post-push regression"
+    assert rolled_back["shared_state"]["revision_id"].endswith(".rollback")
+    assert rolled_back["loop_state"]["status"] == "active"
+    assert rolled_back["loop_state"]["current_stage"] == "build_verified"
+    assert rolled_back["latest_report"]["kind"] == "rollback"
+    assert rolled_back["latest_report"]["metadata"]["rollback_reason"] == "post-push regression"
     assert rolled_back["process"]["workflow"]["metadata"]["runtime_delivery"]["release_stage"] == "build_verified"
-    assert rolled_back["loop_checkpoint"]["report"]["kind"] == "rollback"
-    assert rolled_back["rollback_event"]["kind"] == "release_rolled_back"
+    assert rolled_back["process"]["workflow"]["metadata"]["last_runtime_delivery_rollback_transaction_id"] == committed_intent["transaction_id"]
 
 
 def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persists_ownership(tmp_path, monkeypatch):

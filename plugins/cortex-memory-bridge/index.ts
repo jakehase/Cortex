@@ -45,6 +45,13 @@ type BridgeConfig = {
   sessionIdentityHmacSecret?: string;
 };
 
+type TrustedPrincipalContext = {
+  sessionKey: string;
+  userId: string;
+  channelId: string;
+  agentId: string;
+};
+
 type MemoryCandidate = {
   path: string;
   startLine: number;
@@ -771,9 +778,26 @@ function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve,
 function cortexWriteHeaders(cfg: Pick<BridgeConfig, 'writeToken' | 'writeTokenHeader'>): Record<string, string> {
   return cfg.writeToken ? { [cfg.writeTokenHeader || 'x-cortex-write-token']: cfg.writeToken } : {};
 }
+function captureTrustedPrincipalContext(ctx: any): TrustedPrincipalContext {
+  return Object.freeze({
+    sessionKey: String(ctx?.sessionKey || ctx?.sessionId || '').trim(),
+    userId: String(ctx?.userId || ctx?.requesterSenderId || '').trim(),
+    channelId: String(ctx?.channelId || ctx?.messageChannel || '').trim(),
+    agentId: String(ctx?.agentId || '').trim(),
+  });
+}
+function requireTrustedPrincipalContext(ctx: TrustedPrincipalContext): TrustedPrincipalContext {
+  const missing = (Object.entries(ctx) as Array<[keyof TrustedPrincipalContext, string]>)
+    .filter(([, value]) => !value)
+    .map(([field]) => field);
+  if (missing.length) {
+    throw new Error(`memory_search requires trusted invocation context: missing ${missing.join(', ')}`);
+  }
+  return ctx;
+}
 function scopedIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string> {
   const rawSession = String(ctx?.sessionKey || ctx?.sessionId || cfg.sessionId || '').trim();
-  const sessionSecret = String(cfg.sessionIdentityHmacSecret || '').trim();
+  const sessionSecret = String(cfg.sessionIdentityHmacSecret || '');
   if (!sessionSecret) throw new Error('sessionIdentityHmacSecret is required for canonical Cortex session identity');
   const sessionDigest = createHmac('sha256', sessionSecret).update(rawSession, 'utf8').digest('hex');
   const scope = {
@@ -1068,6 +1092,9 @@ const plugin = {
   kind: 'memory',
   register(api: OpenClawPluginApi) {
     const initialConfig = resolveConfig(api.pluginConfig);
+    if (!String(initialConfig.sessionIdentityHmacSecret || '').trim()) {
+      throw new Error('cortex-memory-bridge requires an explicitly provisioned sessionIdentityHmacSecret shared with cortex-route-gate for memory_search and default-on Codec continuity');
+    }
     const recentOutputMaxChars = initialConfig.recentOutputMaxChars;
     const spool = initialConfig.enabledWriteThrough || initialConfig.enabledCodecContinuity
       ? new DurableLifecycleSpool(initialConfig.stateDir, initialConfig.lifecycleSpoolMaxRecords)
@@ -1097,7 +1124,7 @@ const plugin = {
       };
     };
     const drainPending = () => {
-      while (pending.length > 0 && inFlight.size < resolveConfig(api.pluginConfig).lifecycleMaxInFlight) {
+      while (pending.length > 0 && inFlight.size < initialConfig.lifecycleMaxInFlight) {
         const job = pending.shift()!;
         queued.delete(job.key);
         const active = job.start();
@@ -1182,7 +1209,7 @@ const plugin = {
       return active;
     };
     refillSpool = () => {
-      const cfg = resolveConfig(api.pluginConfig);
+      const cfg = initialConfig;
       if (!spool || (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity)) return;
       const schedulingLimit = cfg.lifecycleMaxInFlight + cfg.lifecycleMaxPending;
       for (const record of spool.entries()) {
@@ -1197,12 +1224,13 @@ const plugin = {
     queueMicrotask(refillSpool);
 
     api.registerMemoryRuntime({
-      async getMemorySearchManager(params: { agentId: string }) {
+      async getMemorySearchManager(params: { agentId?: string; sessionKey?: string; sessionId?: string; userId?: string; requesterSenderId?: string; channelId?: string; messageChannel?: string }) {
         try {
           const mod = await import('./manager.mjs');
           const manager = await mod.CortexMemorySearchManager.create({
-            cfg: (api.pluginConfig ?? {}) as Record<string, unknown>,
-            agentId: params?.agentId ?? 'main',
+            cfg: initialConfig,
+            agentId: params?.agentId,
+            invocationContext: captureTrustedPrincipalContext(params),
           });
           return { manager };
         } catch (error) {
@@ -1218,10 +1246,14 @@ const plugin = {
       async closeAllMemorySearchManagers() {},
     });
 
-    api.registerTool(() => ({
-      label: 'Memory Search', name: 'memory_search', description: 'Search Cortex-backed memory over HTTP.', parameters: SearchSchema,
-      execute: async (_toolCallId, params) => {
-        const cfg = resolveConfig(api.pluginConfig);
+    api.registerTool((toolContext: any = {}) => {
+      // Tool arguments are model-controlled; capture principal identity only from
+      // OpenClaw's trusted factory context and freeze it before execution.
+      const invocationContext = captureTrustedPrincipalContext(toolContext);
+      return {
+        label: 'Memory Search', name: 'memory_search', description: 'Search Cortex-backed memory over HTTP.', parameters: SearchSchema,
+        execute: async (_toolCallId, params) => {
+        const cfg = initialConfig;
         const query = String((params as { query: string }).query ?? '');
         const requestedMax = Number((params as { maxResults?: number }).maxResults ?? 5);
         const classification = classifyQuery(query);
@@ -1232,7 +1264,7 @@ const plugin = {
             ? Math.max(requestedMax, Math.max(cfg.hardQueryCandidateCount, 20))
             : Math.max(requestedMax, 8);
         try {
-          const scope = scopedIdentity(cfg);
+          const scope = scopedIdentity(cfg, requireTrustedPrincipalContext(invocationContext));
           const headers = scopedHeaders(cfg, scope);
           const response = await postJson(cfg.baseUrl, cfg.searchPath, {
             query,
@@ -1285,7 +1317,8 @@ const plugin = {
           return JSON.stringify({ results: [], disabled: true, error: error instanceof Error ? error.message : String(error) });
         }
       },
-    }), { names: ['memory_search'] });
+      };
+    }, { names: ['memory_search'] });
 
     api.registerTool(() => ({
       label: 'Memory Get', name: 'memory_get', description: 'Stub: Cortex does not currently expose OpenClaw-compatible file snippet reads.', parameters: GetSchema,
@@ -1302,7 +1335,7 @@ const plugin = {
     });
 
     api.on('subagent_ended', async (event: any, ctx: any) => {
-      const cfg = resolveConfig(api.pluginConfig);
+      const cfg = initialConfig;
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
@@ -1313,7 +1346,7 @@ const plugin = {
     });
 
     api.on('agent_end', async (event: any, ctx: any) => {
-      const cfg = resolveConfig(api.pluginConfig);
+      const cfg = initialConfig;
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {

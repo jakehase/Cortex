@@ -13,6 +13,7 @@ function setupRouteGate() {
     config: {
       enabled: true,
       requireRouting: true,
+      sessionIdentityHmacSecret: 'session-identity-response-cancellation-test-secret',
       baseUrl: 'http://127.0.0.1:18888',
       maxResponseBytes: 1_024,
       stateDir,

@@ -15,12 +15,14 @@ from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.release_workflow import (
+    ReleaseArtifactReceipt,
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
     advance_release_workflow,
     capture_release_rollback_fencepost,
     compile_release_handoff,
     evaluate_release_promotion_gate,
+    record_release_artifact_receipt,
     record_release_fencepost,
     record_release_handoff,
     repair_release_workflow,
@@ -1667,6 +1669,68 @@ def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> Production
     )
 
 
+def ingest_production_release_artifact(
+    *,
+    release_store: ReleaseWorkflowStore,
+    process_id: str,
+    artifact_id: str,
+    payload: Any,
+    artifact_kind: str,
+    producer: str,
+    verifier: str,
+    attestation_signature: str,
+    validation_outcome: str = "passed",
+    target_stage: Optional[str] = None,
+    claims: Optional[Dict[str, Any]] = None,
+    created_at: Optional[str] = None,
+) -> JsonDict:
+    """Ingest an externally verified output without trusting its claimed hash."""
+
+    artifact_store = release_store.artifact_store()
+    artifact_ref, content_hash = artifact_store.put(payload)
+    with release_store.rollback_transaction(process_id):
+        state = release_store.load(process_id)
+        if state is None:
+            raise KeyError(f"release workflow not found: {process_id}")
+        receipt = ReleaseArtifactReceipt(
+            artifact_id=artifact_id,
+            artifact_ref=artifact_ref,
+            content_hash=content_hash,
+            artifact_kind=artifact_kind,
+            target_stage=target_stage,
+            candidate_ref=state.candidate_ref,
+            release_id=state.release_id,
+            revision_id=state.revision_id,
+            producer=producer,
+            verifier=verifier,
+            validation_outcome=validation_outcome,
+            claims=dict(claims or {}),
+            created_at=str(created_at or _now_iso()),
+            attestation_signature=attestation_signature,
+        )
+        updated = record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+        )
+        persisted = release_store.save(
+            updated,
+            actor=verifier,
+            provenance={
+                "scenario": "production_artifact_ingestion",
+                "artifact_id": artifact_id,
+                "content_hash": content_hash,
+                "verifier": verifier,
+            },
+        )
+    return {
+        "state": persisted,
+        "receipt": receipt,
+        "artifact_ref": artifact_ref,
+        "content_hash": content_hash,
+    }
+
+
 
 def _next_stage(contract: ProductionBuildContract, current_stage: Optional[str]) -> Optional[str]:
     plan = _stage_plan(contract)
@@ -1813,13 +1877,44 @@ def advance_production_release_loop(
     last_gate: Optional[JsonDict] = None
     stage_advances = 0
     stage_advance_limit = max(1, int((budget.max_stage_advances_per_pass if budget is not None else 1) or 1))
+    artifact_store = release_store.artifact_store()
 
     for _ in range(len(_stage_plan(contract)) + 1):
+        captured_current_fencepost = False
         next_stage = _next_stage(contract, release_state.current_stage)
         if not next_stage:
             break
         if stage_advances >= stage_advance_limit:
             break
+        if (
+            release_state.current_stage != "draft"
+            and not any(row.stage == release_state.current_stage for row in release_state.rollback_fenceposts)
+        ):
+            prior_fencepost = capture_release_rollback_fencepost(
+                snapshot=snapshot,
+                shared_state=shared_state,
+                stage=release_state.current_stage,
+                metadata={"captured_by": "production_build_loop", "pre_promotion": True},
+            )
+            release_state = release_store.save(
+                record_release_fencepost(release_state, prior_fencepost),
+                actor=controller_id,
+                provenance={
+                    "scenario": "production_build_loop",
+                    "action": "capture_pre_promotion_fencepost",
+                    "stage": release_state.current_stage,
+                    "iteration": loop_state.iteration_count + 1,
+                },
+            )
+            actions_taken.append(
+                {
+                    "action": "capture_release_fencepost",
+                    "stage": release_state.current_stage,
+                    "fencepost_id": prior_fencepost.fencepost_id,
+                    "timing": "pre_promotion",
+                }
+            )
+            captured_current_fencepost = True
         gate_spec = _stage_gate_for(contract, next_stage)
         handoff_dispatch = _maybe_dispatch_release_handoff(
             release_state,
@@ -1855,6 +1950,7 @@ def advance_production_release_loop(
             allowed_active_agents=allowed_active_agents,
             allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
             require_dependability=bool(gate_spec.require_dependability),
+            artifact_store=artifact_store,
         )
         last_gate = gate
         if not gate.get("safe_push"):
@@ -1873,6 +1969,7 @@ def advance_production_release_loop(
                 allowed_active_agents=allowed_active_agents,
                 allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
                 require_dependability=bool(gate_spec.require_dependability),
+                artifact_store=artifact_store,
             )
             release_state = release_store.save(
                 repaired["state"],
@@ -1890,6 +1987,32 @@ def advance_production_release_loop(
             )
             if not bool((last_gate or {}).get("safe_push")):
                 break
+
+        if release_state.current_stage != "draft" and not captured_current_fencepost:
+            pre_promotion_fencepost = capture_release_rollback_fencepost(
+                snapshot=snapshot,
+                shared_state=shared_state,
+                stage=release_state.current_stage,
+                metadata={"captured_by": "production_build_loop", "pre_promotion": True},
+            )
+            release_state = release_store.save(
+                record_release_fencepost(release_state, pre_promotion_fencepost),
+                actor=controller_id,
+                provenance={
+                    "scenario": "production_build_loop",
+                    "action": "refresh_pre_promotion_fencepost",
+                    "stage": release_state.current_stage,
+                    "iteration": loop_state.iteration_count + 1,
+                },
+            )
+            actions_taken.append(
+                {
+                    "action": "capture_release_fencepost",
+                    "stage": release_state.current_stage,
+                    "fencepost_id": pre_promotion_fencepost.fencepost_id,
+                    "timing": "pre_promotion",
+                }
+            )
 
         promoted = advance_release_workflow(
             release_state,
@@ -2526,6 +2649,7 @@ __all__ = [
     "advance_production_release_loop",
     "detect_true_blockers",
     "evaluate_production_completion",
+    "ingest_production_release_artifact",
     "reconcile_production_build_loop",
     "recover_production_worker",
     "repair_production_dependability",

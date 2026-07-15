@@ -1,3 +1,5 @@
+import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -554,7 +556,8 @@ def test_nexus_codec_evaluate_records_policy_learning_and_policy_endpoint(monkey
     assert body2["codec_policy"]["totals"]["evaluations"] >= 1
 
 
-def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
+@pytest.mark.asyncio
+async def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -563,23 +566,21 @@ def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
-
-    r = client.post(
-        "/nexus/outcome/feedback",
-        json={
-            "query": "Plan the architecture tradeoff for this change.",
-            "policy_label": "codec",
-            "user_correction": False,
-            "recovery_needed": False,
-            "validator_pass": True,
-        },
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["success"] is True
-    assert body["codec_policy"]["recorded"] is True
-    assert body["codec_policy"]["variant"] == "referents_plus_codec"
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post(
+            "/nexus/outcome/feedback",
+            json={
+                "query": "Plan the architecture tradeoff for this change.",
+                "policy_label": "codec",
+                "user_correction": False,
+                "recovery_needed": False,
+                "validator_pass": True,
+            },
+        )
+    assert r.status_code == 422
+    assert state["totals"]["evaluations"] == 0
+    assert state["last_observation"] is None
 
 
 def test_nexus_codec_outcome_endpoint_updates_codec_policy(monkeypatch):

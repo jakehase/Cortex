@@ -1,35 +1,63 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import register from './index.ts';
 
 const manifest = JSON.parse(await readFile(new URL('./openclaw.plugin.json', import.meta.url), 'utf8'));
 const runtimeSource = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
 const schema = manifest.configSchema;
 
 // OpenClaw config schemas use this JSON Schema subset for plugin configuration.
-function validateConfig(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  if (schema.additionalProperties === false) {
-    if (Object.keys(value).some((key) => !(key in schema.properties))) return false;
+function validateConfig(value, candidateSchema = schema) {
+  if (candidateSchema.const !== undefined && value !== candidateSchema.const) return false;
+  if (candidateSchema.anyOf && !candidateSchema.anyOf.some((option) => validateConfig(value, option))) return false;
+  if (candidateSchema.type === 'object' || candidateSchema.properties || candidateSchema.required) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    if (candidateSchema.required?.some((key) => !(key in value))) return false;
   }
-  return Object.entries(value).every(([key, candidate]) => {
-    const property = schema.properties[key];
+  if (candidateSchema.additionalProperties === false) {
+    if (Object.keys(value).some((key) => !(key in candidateSchema.properties))) return false;
+  }
+  if (candidateSchema.properties && !Object.entries(value).every(([key, candidate]) => {
+    const property = candidateSchema.properties[key];
+    if (!property) return true;
     if (property.type === 'number' && (typeof candidate !== 'number' || !Number.isFinite(candidate))) return false;
     if (property.type === 'string' && typeof candidate !== 'string') return false;
     if (property.type === 'boolean' && typeof candidate !== 'boolean') return false;
+    if (property.const !== undefined && candidate !== property.const) return false;
     if (property.minimum !== undefined && candidate < property.minimum) return false;
     if (property.maximum !== undefined && candidate > property.maximum) return false;
     if (property.minLength !== undefined && candidate.length < property.minLength) return false;
+    if (property.pattern !== undefined && !new RegExp(property.pattern).test(candidate)) return false;
     return true;
-  });
+  })) return false;
+  return true;
 }
 
-test('existing route-gate configuration remains valid', () => {
-  assert.equal(validateConfig({}), true);
+const SHARED_SESSION_SECRET = 'explicitly-provisioned-shared-test-secret';
+
+test('enabled route-gate configuration requires the explicitly provisioned shared secret', () => {
+  assert.equal(validateConfig({}), false);
+  assert.equal(validateConfig({ enabled: true }), false);
+  assert.equal(validateConfig({ enabled: false }), true);
+  assert.equal(validateConfig({ enabled: true, sessionIdentityHmacSecret: '' }), false);
+  assert.equal(validateConfig({ enabled: true, sessionIdentityHmacSecret: '   ' }), false);
+  assert.equal(validateConfig({ enabled: true, sessionIdentityHmacSecret: SHARED_SESSION_SECRET }), true);
+  assert.throws(() => registerHarness({ enabled: true }), /explicitly provisioned keyed session identity secret/);
+  assert.doesNotThrow(() => registerHarness({ enabled: false }));
+});
+
+function registerHarness(config) {
+  const api = { config, logger: { info() {}, warn() {} }, on() {} };
+  return register(api);
+}
+
+test('existing provisioned route-gate configuration remains valid', () => {
   assert.equal(validateConfig({
     baseUrl: 'http://127.0.0.1:18888',
     enabled: true,
     requireRouting: true,
+    sessionIdentityHmacSecret: SHARED_SESSION_SECRET,
     writeToken: 'secret',
     writeTokenHeader: 'x-cortex-write-token',
     timeoutMs: 8000,
@@ -46,8 +74,8 @@ test('existing route-gate configuration remains valid', () => {
 });
 
 test('write authorization configuration is exposed and the token is sensitive', () => {
-  assert.equal(validateConfig({ writeToken: 'secret', writeTokenHeader: 'x-custom-token' }), true);
-  assert.equal(validateConfig({ writeToken: '' }), false);
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, writeToken: 'secret', writeTokenHeader: 'x-custom-token' }), true);
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, writeToken: '' }), false);
   assert.equal(manifest.uiHints.writeToken.sensitive, true);
 });
 
@@ -58,29 +86,30 @@ for (const [name, minimum, defaultValue, maximum] of [
   test(`${name} accepts its minimum, runtime default, and maximum`, () => {
     assert.match(runtimeSource, new RegExp(`cfg\\.${name}, ${defaultValue.toLocaleString('en-US').replaceAll(',', '_')}`));
     for (const value of [minimum, defaultValue, maximum]) {
-      assert.equal(validateConfig({ [name]: value }), true, `${name}=${value}`);
+      assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, [name]: value }), true, `${name}=${value}`);
     }
   });
 
   test(`${name} rejects unsafe bounds and wrong types`, () => {
     for (const value of [0, -1, maximum + 1, String(defaultValue), null, true]) {
-      assert.equal(validateConfig({ [name]: value }), false, `${name}=${String(value)}`);
+      assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, [name]: value }), false, `${name}=${String(value)}`);
     }
   });
 }
 
 test('route-gate schema continues to reject unknown configuration', () => {
   assert.equal(schema.additionalProperties, false);
-  assert.equal(validateConfig({ maxCachedPlanAgeMS: 300_000 }), false);
-  assert.equal(validateConfig({ maxResponseByte: 1_048_576 }), false);
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, maxCachedPlanAgeMS: 300_000 }), false);
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, maxResponseByte: 1_048_576 }), false);
 });
 
 test('oversized Oracle session archival is declared and explicitly opt-in', () => {
   assert.equal(validateConfig({
     oracleSessionQuarantineEnabled: true,
+    sessionIdentityHmacSecret: SHARED_SESSION_SECRET,
     oracleSessionResetBytes: 500_000,
     oracleSessionDir: '/var/lib/openclaw/sessions',
   }), true);
-  assert.equal(validateConfig({ oracleSessionResetBytes: 1023 }), false);
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, oracleSessionResetBytes: 1023 }), false);
   assert.equal(manifest.uiHints.oracleSessionQuarantineEnabled.advanced, true);
 });

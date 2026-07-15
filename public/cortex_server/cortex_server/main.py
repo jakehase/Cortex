@@ -3,17 +3,21 @@ The Cortex - Local Knowledge Graph and Tool Server
 Main entry point and FastAPI application factory.
 """
 
-import logging
-logger = logging.getLogger(__name__)
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.utils import get_openapi
-
 import importlib
+import hashlib
+import hmac
+import json
+import logging
 import math
 import os
 from pathlib import Path
+import re
+from typing import Any, Dict, Mapping, Optional, Tuple
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 from cortex_server.middleware.error_handler import register_exception_handlers, RequestIDMiddleware
 from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
@@ -27,6 +31,9 @@ import subprocess
 from dataclasses import dataclass
 import threading
 import weakref
+
+
+logger = logging.getLogger(__name__)
 
 DANGEROUS_ROUTERS = {
     "lab_fixed",
@@ -61,6 +68,43 @@ class WebSocketSecurityConfig:
 class ReadinessConfig:
     required_paths: frozenset[str]
     required_routers: frozenset[str]
+
+
+@dataclass(frozen=True)
+class ReadScopeCredential:
+    """A principal credential captured when an application is constructed."""
+
+    credential_id: str
+    secret: str
+    allowed_scopes: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReadAuthorizationConfig:
+    """Immutable read-side security policy for one application instance."""
+
+    credentials: Tuple[ReadScopeCredential, ...]
+    admin_token: str
+    codec_admin_token: str
+    configuration_error: Optional[str] = None
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.credentials or self.admin_token or self.codec_admin_token)
+
+
+@dataclass(frozen=True)
+class ReadPrincipal:
+    """Authenticated identity used to authorize sensitive read surfaces."""
+
+    role: str
+    credential_id: str = ""
+    tenant_id: str = ""
+    workspace_id: str = ""
+    agent_id: str = ""
+    user_id: str = ""
+    channel_id: str = ""
+    session_id: str = ""
 
 
 class SharedServiceStartupError(RuntimeError):
@@ -266,6 +310,384 @@ def _route_paths(routes) -> set[str]:
     }
 
 
+_READ_SCOPE_FIELDS = (
+    "tenant_id",
+    "workspace_id",
+    "agent_id",
+    "user_id",
+    "channel_id",
+    "session_id",
+)
+_READ_SCOPE_HEADERS = {
+    field: f"x-cortex-{field.replace('_', '-')}" for field in _READ_SCOPE_FIELDS
+}
+_RUNTIME_RESOURCE_PATH = re.compile(
+    r"^/orchestrator/runtime/(?:process|delivery|roadmap|trace|lineage|policy-explain|policy-history|self-review|postmortem)/([^/]+)$"
+)
+_RUNTIME_TRACEABILITY_PATH = re.compile(
+    r"^/orchestrator/runtime/processes/([^/]+)/traceability$"
+)
+_PUBLIC_KERNEL_EMBEDDING_PATHS = frozenset(
+    {
+        "/nexus/context",
+        "/nexus/status",
+        "/oracle/status",
+        "/meta_conductor/status",
+    }
+)
+_OPERATIONAL_REDACTED_KEYS = frozenset(
+    {
+        "active_goals",
+        "active_projects",
+        "actor_session_key",
+        "chat_id",
+        "compiled_prompt",
+        "conversation_id",
+        "cold_context",
+        "controller_session_id",
+        "durable_facts",
+        "failure_patterns",
+        "hot_turns",
+        "learned_memory",
+        "lessons",
+        "memory_facts",
+        "open_loops",
+        "preferences",
+        "process_session_key",
+        "prompt",
+        "prompt_preview",
+        "raw_prompt",
+        "session_id",
+        "session_ids",
+        "session_key",
+        "session_keys",
+        "warm_notes",
+    }
+)
+
+
+def _parse_read_scope_credentials(raw: str) -> Tuple[ReadScopeCredential, ...]:
+    """Validate and freeze the existing principal-scope credential registry."""
+    from cortex_server.modules.memory_scope import (
+        MemoryScopeAuthError,
+        canonical_memory_scope_message,
+        normalize_memory_scope_policy,
+    )
+
+    if not str(raw or "").strip():
+        return ()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("CORTEX_MEMORY_SCOPE_CREDENTIALS must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("CORTEX_MEMORY_SCOPE_CREDENTIALS must be a credential object")
+
+    credentials = []
+    for raw_id, value in sorted(parsed.items(), key=lambda row: str(row[0])):
+        credential_id = str(raw_id or "").strip()
+        secret = str((value or {}).get("secret") or "").strip() if isinstance(value, dict) else ""
+        allowed = value.get("allowed_scopes") if isinstance(value, dict) else None
+        if not secret or not isinstance(allowed, list) or not allowed:
+            raise ValueError(f"principal scope credential {credential_id!r} is invalid")
+        normalized_scopes = []
+        try:
+            for scope in allowed:
+                if not isinstance(scope, Mapping):
+                    raise ValueError(f"principal scope credential {credential_id!r} has an invalid allowed scope")
+                normalized = normalize_memory_scope_policy(scope, credential_id)
+                session_policy = normalized["session_id"]
+                validation_scope = {
+                    **{field: normalized[field] for field in _READ_SCOPE_FIELDS[:-1]},
+                    "session_id": (
+                        f"{session_policy['prefix']}x"
+                        if isinstance(session_policy, Mapping)
+                        else session_policy
+                    ),
+                }
+                # This validates the credential id with the same bounded opaque
+                # identifier rules used by the memory boundary.
+                canonical_memory_scope_message(credential_id, validation_scope)
+                normalized_scopes.append(
+                    json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+                )
+        except MemoryScopeAuthError as exc:
+            raise ValueError(str(exc)) from exc
+        credentials.append(
+            ReadScopeCredential(
+                credential_id=credential_id,
+                secret=secret,
+                allowed_scopes=tuple(normalized_scopes),
+            )
+        )
+    return tuple(credentials)
+
+
+def _read_surface_policy(path: str) -> Optional[str]:
+    """Classify sensitive GET paths without relying on router import order.
+
+    Policies ending in ``_redacted`` are transformed to remove prompt,
+    session, and learned-memory material before the response leaves Cortex.
+    """
+    normalized = str(path or "/").rstrip("/") or "/"
+    if normalized == "/nexus/codec" or normalized.startswith("/nexus/codec/"):
+        # This control plane already has its own fail-closed administrator
+        # boundary in WriteAuthorizationMiddleware.
+        return None
+    if normalized in _PUBLIC_KERNEL_EMBEDDING_PATHS:
+        return "public_redacted"
+    if re.search(r"/kernel/(?:status|telemetry)$", normalized):
+        return "authenticated_redacted"
+    if normalized == "/orchestrator/runtime/processes":
+        return "runtime_collection"
+    if normalized in {
+        "/orchestrator/runtime/sessions",
+        "/orchestrator/runtime/watchers",
+    }:
+        return "runtime_collection"
+    if _RUNTIME_RESOURCE_PATH.fullmatch(normalized) or _RUNTIME_TRACEABILITY_PATH.fullmatch(normalized):
+        return "runtime_resource"
+    if normalized == "/orchestrator/runtime/status":
+        return "authenticated_redacted"
+    if normalized.startswith("/orchestrator/runtime/"):
+        # Aggregate analytics, incident, maintenance, delivery-DLQ, and belief
+        # reads cannot be safely attributed to one owner, so they are admin-only.
+        return "admin_redacted"
+    if normalized in {
+        "/orchestrator/workflows",
+    } or normalized.startswith(("/orchestrator/workflow/", "/orchestrator/execution/")):
+        return "admin_redacted"
+    if normalized.startswith("/mission_control/"):
+        if re.fullmatch(r"/mission_control/objectives/[^/]+(?:/activity|/lineage)?", normalized):
+            return "mission_control_resource"
+        if normalized not in {"/mission_control/status", "/mission_control/capabilities"}:
+            return "admin_redacted"
+        return "authenticated_redacted"
+
+    segments = [segment.lower() for segment in normalized.split("/") if segment]
+    if any(segment in {"telemetry", "diagnostic", "diagnostics"} for segment in segments):
+        return "authenticated_redacted"
+    if any(
+        segment in {"history", "activation_history", "traces", "ledger", "log", "lineage", "policy"}
+        or segment.endswith("_history")
+        for segment in segments
+    ):
+        return "admin_redacted"
+    return None
+
+
+def _read_scope_values(headers) -> Optional[Dict[str, str]]:
+    values = {
+        field: str(headers.get(header_name, "") or "").strip()
+        for field, header_name in _READ_SCOPE_HEADERS.items()
+    }
+    if not any(values.values()):
+        return None
+    if not all(values.values()):
+        return {}
+    return values
+
+
+def _authenticate_sensitive_read(request, config: ReadAuthorizationConfig) -> Tuple[Optional[ReadPrincipal], Optional[str]]:
+    """Authenticate an admin token or a fully signed Cortex principal scope."""
+    from cortex_server.middleware.write_authorization import token_matches
+    from cortex_server.modules.memory_scope import (
+        canonical_memory_scope_message,
+        memory_scope_policy_matches,
+        normalize_principal_scope,
+    )
+
+    if token_matches(request.headers.get("x-cortex-admin-token", ""), config.admin_token):
+        return ReadPrincipal(role="admin", credential_id="cortex-admin"), None
+    if token_matches(request.headers.get("x-cortex-codec-admin-token", ""), config.codec_admin_token):
+        return ReadPrincipal(role="admin", credential_id="codec-admin"), None
+
+    if config.configuration_error:
+        return None, "sensitive read authorization is misconfigured"
+    if not config.configured:
+        return None, "sensitive read authorization is not configured"
+
+    scope = _read_scope_values(request.headers)
+    credential_id = str(request.headers.get("x-cortex-scope-credential-id", "") or "").strip()
+    signature = str(request.headers.get("x-cortex-scope-signature", "") or "").strip()
+    if scope is None and not credential_id and not signature:
+        return None, "sensitive read authorization required"
+    if not scope or not credential_id or not signature:
+        return None, "full signed principal scope is required"
+
+    credential = next(
+        (row for row in config.credentials if row.credential_id == credential_id),
+        None,
+    )
+    if credential is None:
+        return None, "sensitive read authorization required"
+    try:
+        normalized_scope = normalize_principal_scope(scope)
+        allowed = any(
+            memory_scope_policy_matches(
+                normalized_scope,
+                json.loads(policy),
+                credential.credential_id,
+            )
+            for policy in credential.allowed_scopes
+        )
+    except (ValueError, json.JSONDecodeError):
+        return None, "invalid principal scope"
+    if not allowed:
+        return None, "principal is not authorized for the requested scope"
+    try:
+        message = canonical_memory_scope_message(credential_id, normalized_scope)
+    except ValueError:
+        return None, "invalid principal scope"
+    expected = hmac.new(
+        credential.secret.encode("utf-8"),
+        message,
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None, "sensitive read authorization required"
+    return ReadPrincipal(role="principal", credential_id=credential_id, **normalized_scope), None
+
+
+def _runtime_process_for_read_authorization(process_id: str) -> Optional[Dict[str, Any]]:
+    """Resolve a runtime resource at the authorization boundary."""
+    from cortex_server.modules.reasoning_scheduler import load_state
+
+    process = (load_state().get("processes") or {}).get(str(process_id or ""))
+    return dict(process) if isinstance(process, dict) else None
+
+
+def _resource_identity_values(process: Mapping[str, Any]) -> Tuple[set[str], set[str]]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), Mapping) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), Mapping) else {}
+    scopes = [process, metadata]
+    for container in (process, metadata):
+        for key in ("principal", "principal_scope", "scope"):
+            value = container.get(key) if isinstance(container, Mapping) else None
+            if isinstance(value, Mapping):
+                scopes.append(value)
+
+    tenants = {
+        str(scope.get("tenant_id") or "").strip()
+        for scope in scopes
+        if str(scope.get("tenant_id") or "").strip()
+    }
+    owners = {
+        str(scope.get(key) or "").strip()
+        for scope in scopes
+        for key in ("owner", "user_id", "agent_id")
+        if str(scope.get(key) or "").strip()
+    }
+    return tenants, owners
+
+
+def _principal_can_read_process(principal: ReadPrincipal, process: Optional[Mapping[str, Any]]) -> bool:
+    if principal.role == "admin":
+        return True
+    if not isinstance(process, Mapping):
+        return False
+    tenants, owners = _resource_identity_values(process)
+    return bool(
+        (principal.tenant_id and principal.tenant_id in tenants)
+        or ({principal.user_id, principal.agent_id} - {""}) & owners
+    )
+
+
+def _runtime_resource_id(path: str, query_params) -> Optional[str]:
+    normalized = str(path or "/").rstrip("/") or "/"
+    match = _RUNTIME_RESOURCE_PATH.fullmatch(normalized) or _RUNTIME_TRACEABILITY_PATH.fullmatch(normalized)
+    if match:
+        return match.group(1)
+    if normalized in {"/orchestrator/runtime/sessions", "/orchestrator/runtime/watchers"}:
+        return str(query_params.get("process_id") or "").strip() or None
+    return None
+
+
+def _redacted_value(value: Any) -> Any:
+    if isinstance(value, list):
+        return []
+    if isinstance(value, Mapping):
+        return {}
+    return "[REDACTED]"
+
+
+def _redact_operational_payload(value: Any) -> Any:
+    """Recursively remove raw user/session/memory material from telemetry."""
+    if isinstance(value, list):
+        return [_redact_operational_payload(item) for item in value]
+    if not isinstance(value, Mapping):
+        return value
+    redacted = {}
+    for key, item in value.items():
+        normalized = str(key).strip().lower().replace("-", "_")
+        sensitive = (
+            normalized in _OPERATIONAL_REDACTED_KEYS
+            or "prompt" in normalized
+            or ("session" in normalized and (normalized.endswith("_id") or normalized.endswith("_key") or normalized.endswith("_ids") or normalized.endswith("_keys")))
+        )
+        redacted[key] = _redacted_value(item) if sensitive else _redact_operational_payload(item)
+    return redacted
+
+
+def _filter_runtime_collection(payload: Any, principal: ReadPrincipal) -> Any:
+    if principal.role == "admin" or not isinstance(payload, dict):
+        return payload
+    collection_key = next(
+        (key for key in ("processes", "sessions", "watchers") if isinstance(payload.get(key), list)),
+        None,
+    )
+    if collection_key is None:
+        return payload
+
+    authorized = []
+    for row in payload[collection_key]:
+        if not isinstance(row, Mapping):
+            continue
+        process_id = str(row.get("process_id") or "").strip()
+        process = row if collection_key == "processes" else _runtime_process_for_read_authorization(process_id)
+        if process_id and _principal_can_read_process(principal, process):
+            authorized.append(row)
+    filtered = dict(payload)
+    filtered[collection_key] = authorized
+    for count_key in ("total", "count", f"{collection_key[:-1]}_count"):
+        if count_key in filtered:
+            filtered[count_key] = len(authorized)
+    return filtered
+
+
+async def _transform_sensitive_json_response(response, *, principal: Optional[ReadPrincipal], policy: str):
+    """Transform only JSON reads while preserving status, headers, and background work."""
+    from starlette.responses import Response
+
+    content_type = str(response.headers.get("content-type") or "").lower()
+    if "application/json" not in content_type:
+        return response
+    body = b"".join([chunk async for chunk in response.body_iterator])
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            background=response.background,
+        )
+
+    if policy == "runtime_collection" and principal is not None:
+        payload = _filter_runtime_collection(payload, principal)
+    if policy.endswith("_redacted"):
+        payload = _redact_operational_payload(payload)
+    transformed = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    return Response(
+        content=transformed,
+        status_code=response.status_code,
+        headers=headers,
+        background=response.background,
+    )
+
+
 def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
     """Dynamically discover and mount routers from cortex_server.routers."""
     routers_dir = Path(__file__).parent / "routers"
@@ -315,6 +737,20 @@ def create_app() -> FastAPI:
     safe_mode = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
     admin_token = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
     codec_admin_token = os.getenv("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
+    read_configuration_error = None
+    try:
+        read_credentials = _parse_read_scope_credentials(
+            os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "")
+        )
+    except ValueError as exc:
+        read_credentials = ()
+        read_configuration_error = str(exc)
+    read_authorization = ReadAuthorizationConfig(
+        credentials=read_credentials,
+        admin_token=admin_token,
+        codec_admin_token=codec_admin_token,
+        configuration_error=read_configuration_error,
+    )
     readiness_config = ReadinessConfig(
         required_paths=frozenset(
             value.strip()
@@ -548,6 +984,7 @@ def create_app() -> FastAPI:
     )
     app.state.websocket_security = websocket_security
     app.state.readiness_config = readiness_config
+    app.state.read_authorization = read_authorization
     app.state.lifecycle_checks = _not_started_lifecycle_checks()
     app.state.parser_service = ParserService(workspace_roots=parser_workspace_roots)
 
@@ -570,7 +1007,78 @@ def create_app() -> FastAPI:
                 if not admin_token or request.headers.get("x-cortex-admin-token", "") != admin_token:
                     from fastapi.responses import JSONResponse
                     return JSONResponse(status_code=403, content={"success": False, "error": "admin token required"})
-        return await call_next(request)
+        if request.method.upper() not in {"GET", "HEAD"}:
+            return await call_next(request)
+        policy = _read_surface_policy(request.url.path)
+        if policy is None:
+            return await call_next(request)
+
+        principal = None
+        if policy != "public_redacted":
+            principal, error = _authenticate_sensitive_read(request, read_authorization)
+            if principal is None:
+                from fastapi.responses import JSONResponse
+
+                unavailable = "not configured" in str(error) or "misconfigured" in str(error)
+                return JSONResponse(
+                    status_code=503 if unavailable else 403,
+                    content={"success": False, "error": error},
+                )
+            if policy.startswith("admin_") and principal.role != "admin":
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=403,
+                    content={"success": False, "error": "administrator read authorization required"},
+                )
+
+            resource_id = _runtime_resource_id(request.url.path, request.query_params)
+            if policy in {"runtime_resource", "mission_control_resource"}:
+                if policy == "mission_control_resource":
+                    resource_id = str(request.url.path.split("/objectives/", 1)[1].split("/", 1)[0]).strip()
+                process = _runtime_process_for_read_authorization(resource_id or "")
+                if process is not None and not _principal_can_read_process(principal, process):
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=403,
+                        content={"success": False, "error": "principal is not authorized for this resource"},
+                    )
+                if process is None and principal.role != "admin":
+                    # Do not let a signed principal use an unowned or unknown
+                    # resource id to reach secondary stores keyed by that id.
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=404,
+                        content={"success": False, "error": "resource not found"},
+                    )
+            elif policy == "runtime_collection" and resource_id:
+                process = _runtime_process_for_read_authorization(resource_id)
+                if process is None:
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=404,
+                        content={"success": False, "error": "resource not found"},
+                    )
+                if not _principal_can_read_process(principal, process):
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=403,
+                        content={"success": False, "error": "principal is not authorized for this resource"},
+                    )
+            request.state.cortex_read_principal = principal
+
+        response = await call_next(request)
+        if request.method.upper() == "HEAD" or response.status_code == 204:
+            return response
+        return await _transform_sensitive_json_response(
+            response,
+            principal=principal,
+            policy=policy,
+        )
 
     # CORS middleware (tightened default; configurable via env)
     app.add_middleware(
@@ -627,6 +1135,15 @@ def create_app() -> FastAPI:
                 "ok": write_auth_mode == "token_or_loopback" or (write_auth_mode == "token_required" and bool(write_token)),
                 "mode": write_auth_mode,
                 "tokenConfigured": bool(write_token),
+            },
+            "readAuthorization": {
+                "ok": read_authorization.configured and not read_authorization.configuration_error,
+                "required": False,
+                "degraded": not (read_authorization.configured and not read_authorization.configuration_error),
+                "mode": "signed_principal_or_admin",
+                "principalCredentialsConfigured": bool(read_authorization.credentials),
+                "adminTokenConfigured": bool(read_authorization.admin_token or read_authorization.codec_admin_token),
+                "error": read_authorization.configuration_error,
             },
             "routerImports": {
                 "ok": not any(row["router"] in required_routers for row in router_load_report["failed"]),
@@ -691,6 +1208,8 @@ def create_app() -> FastAPI:
                 "writeAuthorizationMode": write_auth_mode,
                 "writeTokenConfigured": bool(write_token),
                 "writeTokenHeader": write_token_header,
+                "sensitiveReadAuthorizationMode": "signed_principal_or_admin",
+                "sensitiveReadAuthorizationConfigured": read_authorization.configured and not read_authorization.configuration_error,
             },
             "capabilityCount": len(capabilities),
             "writeCapabilityCount": sum(1 for row in capabilities if row["write"]),
@@ -718,6 +1237,8 @@ def create_app() -> FastAPI:
             "security": {
                 "writeAuthorizationMode": write_auth_mode,
                 "writeTokenConfigured": bool(write_token),
+                "sensitiveReadAuthorizationMode": "signed_principal_or_admin",
+                "sensitiveReadAuthorizationConfigured": read_authorization.configured and not read_authorization.configuration_error,
                 "networkBind": os.getenv("CORTEX_HOST", "127.0.0.1"),
             },
             "readiness": readiness["ready"],
@@ -757,12 +1278,43 @@ def create_app() -> FastAPI:
             "name": write_token_header,
             "description": "Required for non-loopback mutating requests and browser requests from untrusted origins in token_or_loopback mode.",
         }
-        for path_item in schema.get("paths", {}).values():
+        security_schemes["CortexAdminToken"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-cortex-admin-token",
+            "description": "Administrator credential for cross-resource operational reads.",
+        }
+        security_schemes["CortexCodecAdminToken"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-cortex-codec-admin-token",
+            "description": "Codec administrator credential, also accepted for privileged operational reads.",
+        }
+        security_schemes["CortexPrincipalSignature"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-cortex-scope-signature",
+            "description": "HMAC signature over the complete Cortex tenant/workspace/agent/user/channel/session principal scope.",
+        }
+        for path, path_item in schema.get("paths", {}).items():
             for method in ("post", "put", "patch", "delete"):
                 operation = path_item.get(method)
                 if operation:
                     operation["security"] = [{"CortexWriteToken": []}]
                     operation["x-cortex-write-authorization-mode"] = write_auth_mode
+            read_policy = _read_surface_policy(path)
+            operation = path_item.get("get")
+            if operation and read_policy not in {None, "public_redacted"}:
+                admin_security = [
+                    {"CortexAdminToken": []},
+                    {"CortexCodecAdminToken": []},
+                ]
+                operation["security"] = admin_security
+                if not read_policy.startswith("admin_"):
+                    operation["security"].append({"CortexPrincipalSignature": []})
+                operation["x-cortex-read-authorization-mode"] = "signed_principal_or_admin"
+                if read_policy.startswith("admin_"):
+                    operation["x-cortex-read-admin-required"] = True
         app.openapi_schema = schema
         return schema
 

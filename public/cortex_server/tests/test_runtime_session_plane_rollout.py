@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cortex_server.modules.reasoning_scheduler as scheduler
+import cortex_server.modules.reasoning_beliefs as reasoning_beliefs
 import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.modules.reasoning_planner import ReasoningPlanGraph
 
@@ -38,6 +39,8 @@ def test_schedule_runtime_bootstraps_session_plane_and_status_surfaces(tmp_path,
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(reasoning_beliefs, "DEFAULT_DB_PATH", tmp_path / "reasoning_beliefs.db")
+    monkeypatch.setattr(reasoning_beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
     orchestrator.workflows.clear()
 
     graph = _graph()

@@ -29,6 +29,7 @@ function createHarness(config = {}) {
     config: {
       enabled: true,
       requireRouting: false,
+      sessionIdentityHmacSecret: 'session-identity-creativity-test-secret',
       baseUrl: 'http://127.0.0.1:18888',
       timeoutMs: 250,
       maxLevels: 10,
