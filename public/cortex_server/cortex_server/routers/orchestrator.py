@@ -4367,7 +4367,17 @@ async def get_runtime_delivery_status(process_id: str):
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
     stores = _runtime_delivery_stores()
-    return _runtime_delivery_status_payload(process_id, process=process, stores=stores)
+    delivery = _runtime_delivery_status_payload(process_id, process=process, stores=stores)
+    # Keep the detailed top-level status contract used by runtime controllers,
+    # while also exposing the same reconciliation envelope used by public
+    # release-handoff consumers.  An acknowledgement can advance the release
+    # without another mutating reconcile request, so consumers must be able to
+    # observe both the loop state and durable delivery projection via GET.
+    return {
+        **delivery,
+        "state": delivery.get("loop_state"),
+        "delivery": delivery,
+    }
 
 
 @router.post("/runtime/delivery/reconcile/{process_id}")

@@ -155,7 +155,16 @@ class BenchmarkHarness:
             return {"lane": "semantic_guardrail_factual", "response": "Austin."}
         return None
 
-    def _fake_best_effort_answer(self, prompt: str, system: Optional[str] = None, priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[JsonDict] = None):
+    def _fake_best_effort_answer(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        priority: Optional[str] = None,
+        depth_mode: Optional[str] = None,
+        routing_priors: Optional[JsonDict] = None,
+        adaptive_policies=None,
+        backend_policy_override: Optional[JsonDict] = None,
+    ):
         normalized = self._normalize(prompt)
         tail = normalized[-320:]
 

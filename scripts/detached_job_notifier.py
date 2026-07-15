@@ -175,7 +175,14 @@ def load_ledger(path: Path) -> dict[str, Any]:
 
 
 def process_terminal_state(args: argparse.Namespace, state: dict[str, Any]) -> str:
-    route = load_route(args.routing_file)
+    try:
+        route = load_route(args.routing_file)
+    except PermissionError:
+        # An explicit target is self-contained; an unreadable optional routing
+        # file must not prevent delivery through the safe built-in defaults.
+        if not args.target:
+            raise
+        route = {}
     channel = args.channel or route.get("channel") or "whatsapp"
     account = args.account or route.get("account") or "default"
     target = args.target or route.get("target")

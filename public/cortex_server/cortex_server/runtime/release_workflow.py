@@ -1828,7 +1828,10 @@ def apply_release_rollback_restore(
                     "source_stage": state.current_stage,
                     "source_revision_id": state.revision_id,
                     "target_revision_id": target_revision,
-                    "rollback_revision_id": f"rollback_{transaction_id}_{uuid4().hex[:12]}",
+                    # Preserve the established rollback revision type suffix
+                    # while retaining a server-assigned, transaction-unique
+                    # identifier that callers cannot choose or collide with.
+                    "rollback_revision_id": f"{transaction_id}_{uuid4().hex[:12]}.rollback",
                     "rollback_event_id": f"evt_{transaction_id}",
                     "rollback_snapshot_id": f"snap_{transaction_id}",
                     "reason": normalized_reason,

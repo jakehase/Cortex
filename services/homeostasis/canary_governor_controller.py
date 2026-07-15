@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -26,12 +27,51 @@ def _bucket(key: str) -> int:
     return int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % 100
 
 
-def _stage_decision(*, percent: int, shadow: Dict[str, Any], safety_regression_budget: int = 0) -> Dict[str, Any]:
-    disagreement_rate = float(shadow.get("disagreement_rate", 1.0) or 1.0)
-    average_estimated_uplift = float(shadow.get("average_estimated_uplift", -1.0) or -1.0)
-    safety_regression_count = int(shadow.get("safety_regression_count", 999) or 999)
+def _finite_number(value: Any) -> bool:
+    if type(value) not in {int, float}:
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
 
-    reasons: List[str] = []
+
+def _shadow_evidence_errors(shadow: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    case_count = shadow.get("case_count")
+    disagreement_rate = shadow.get("disagreement_rate")
+    average_estimated_uplift = shadow.get("average_estimated_uplift")
+    safety_regression_count = shadow.get("safety_regression_count")
+
+    if type(case_count) is not int or case_count <= 0:
+        errors.append("invalid_shadow_case_count")
+    if not _finite_number(disagreement_rate) or not 0.0 <= disagreement_rate <= 1.0:
+        errors.append("invalid_shadow_disagreement_rate")
+    if not _finite_number(average_estimated_uplift):
+        errors.append("invalid_shadow_uplift")
+    if (
+        type(safety_regression_count) is not int
+        or safety_regression_count < 0
+        or type(case_count) is not int
+        or safety_regression_count > case_count
+    ):
+        errors.append("invalid_shadow_safety_regression_count")
+    return errors
+
+
+def _stage_decision(*, percent: int, shadow: Dict[str, Any], safety_regression_budget: int = 0) -> Dict[str, Any]:
+    reasons = _shadow_evidence_errors(shadow)
+    if reasons:
+        return {
+            "rollout_percent": percent,
+            "status": "hold",
+            "reasons": reasons,
+            "rollout_allowed": False,
+        }
+
+    disagreement_rate = float(shadow["disagreement_rate"])
+    average_estimated_uplift = float(shadow["average_estimated_uplift"])
+    safety_regression_count = int(shadow["safety_regression_count"])
     rollout_allowed = True
     if safety_regression_count > safety_regression_budget:
         rollout_allowed = False
