@@ -146,8 +146,8 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
                 controller_id="controller",
                 controller_session_id="sess-canary-delivery",
                 now_iso=first_now.isoformat().replace("+00:00", "Z"),
-                initial_release_stage="build_verified",
-                promotion_stages=["build_verified", "production"],
+                initial_release_stage="draft",
+                promotion_stages=["build_verified", "canary_verified", "production"],
                 completion_criteria=[
                     {
                         "criterion_id": "release-stage",
@@ -177,13 +177,24 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
 
     assert roadmap["state"]["status"] == "active"
     assert delivery["state"]["status"] == "active"
+    stores = orchestrator._runtime_delivery_stores()
+    controller_lease_expiries = [
+        datetime.fromisoformat(row.expires_at.replace("Z", "+00:00"))
+        for row in stores["supervisor"].list(status="active")
+        if row.scope in {
+            f"roadmap_executor:{roadmap_process['process_id']}",
+            f"production_build_loop:{delivery_process['process_id']}",
+        }
+    ]
+    assert len(controller_lease_expiries) == 2
+    watchdog_now = max(controller_lease_expiries) + timedelta(seconds=1)
 
     tick = asyncio.run(
         orchestrator.tick_runtime(
             orchestrator.RuntimeTickRequest(
                 limit=10,
                 execute=False,
-                now_iso=(first_now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+                now_iso=watchdog_now.isoformat().replace("+00:00", "Z"),
             )
         )
     )

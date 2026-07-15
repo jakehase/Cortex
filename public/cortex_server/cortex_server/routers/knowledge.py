@@ -130,6 +130,11 @@ class PriorArtGateRequest(BaseModel):
     planned_paths: List[BoundedKnowledgeText] = Field(default_factory=list, max_items=100)
     proposed_action: str = Field("unspecified", max_length=64)
     n_results: int = Field(5, ge=1, le=20)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class ImpactRequest(BaseModel):
@@ -612,7 +617,13 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         }
 
 
-@router.post("/prior-art-gate")
+@router.post(
+    "/prior-art-gate",
+    openapi_extra={
+        "x-cortex-read-policy": "principal_semantic_read",
+        "x-cortex-principal-scope-required": True,
+    },
+)
 async def prior_art_gate(request: PriorArtGateRequest):
     """Pre-implementation recall gate for existing capabilities.
 
@@ -620,6 +631,15 @@ async def prior_art_gate(request: PriorArtGateRequest):
     durable memory plus the structural code graph and requires a reuse/extend/
     adapter decision when high-confidence prior art exists.
     """
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
+    )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+
     try:
         terms = extract_prior_art_terms(
             objective=request.objective,
@@ -637,6 +657,8 @@ async def prior_art_gate(request: PriorArtGateRequest):
                     query=str(query),
                     n_results=max(1, min(int(request.n_results or 5), 10)),
                     allow_fallback=True,
+                    tenant_id=tenant,
+                    workspace_id=workspace,
                 )
                 if result.get("available") is not True:
                     memory_query_failed = True

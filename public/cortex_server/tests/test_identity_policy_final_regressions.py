@@ -116,6 +116,10 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
     scope_b = _scope("tenant-shared", "agent-b", session_id)
     monkeypatch.setenv("CORTEX_ENV", "production")
     monkeypatch.setenv(
+        "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
+        "server-only-feedback-signing-key-for-continuity-test",
+    )
+    monkeypatch.setenv(
         "CORTEX_MEMORY_SCOPE_CREDENTIALS",
         json.dumps(
             {
@@ -208,14 +212,6 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
     monkeypatch.setattr(nexus, "_persist_checkpoint", lambda _checkpoint: None)
     monkeypatch.setattr(nexus, "_refresh_context", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(nexus, "observe_outcome", lambda *_args, **_kwargs: {"autotune_enabled": True})
-    monkeypatch.setattr(nexus._LATENCY_GOVERNOR, "observe", lambda _record: {"recorded": True})
-    monkeypatch.setattr(
-        nexus._LATENCY_GOVERNOR,
-        "speculative_prefetch",
-        lambda *_args, **_kwargs: {"enabled": False, "results": {}},
-    )
-    monkeypatch.setattr(nexus._BANDIT_SCHEDULER, "update", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(nexus._DELTA_CACHE, "update", lambda *_args, **_kwargs: None)
 
     def preserve_codec_context(session_key, query, _response="", **kwargs):
         return nexus._codec_context_packet(
@@ -327,7 +323,10 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
     monkeypatch.setenv("CORTEX_ENV", "production")
     monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", json.dumps(credentials))
     monkeypatch.setenv("NEXUS_OUTCOME_FEEDBACK_TOKEN", "feedback-control")
-    monkeypatch.setenv("NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY", "feedback-signing")
+    monkeypatch.setenv(
+        "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
+        "server-only-feedback-signing-key-for-receipt-test",
+    )
     monkeypatch.setenv("NEXUS_OUTCOME_FEEDBACK_RATE_LIMIT", "1")
     monkeypatch.setattr(nexus, "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH", tmp_path / "receipts.json")
 
@@ -436,21 +435,20 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
     with pytest.raises(HTTPException) as rate_limited:
         await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=second["receipt"]), request)
     assert rate_limited.value.status_code == 429
-    assert rate_limited.value.detail["reason"] == "tenant_rate_limit_exceeded"
+    assert rate_limited.value.detail["reason"] == "principal_rate_limit_exceeded"
 
 
-def test_outcome_tuner_cache_is_tenant_scoped(monkeypatch, tmp_path):
+def test_outcome_tuner_cache_is_principal_scoped(monkeypatch, tmp_path):
     monkeypatch.setenv("NEXUS_OUTCOME_ARTIFACT_DIR", str(tmp_path))
-    nexus._TENANT_OUTCOME_TUNERS.clear()
+    nexus._PRINCIPAL_OUTCOME_TUNERS.clear()
 
     tenant_a = nexus._outcome_tuner_for_scope({"tenant_id": "tenant-policy-a"})
     tenant_b = nexus._outcome_tuner_for_scope({"tenant_id": "tenant-policy-b"})
     local_tenant = nexus._outcome_tuner_for_scope({"tenant_id": "cortex-local"})
 
     assert tenant_a is not tenant_b
-    assert local_tenant is not nexus._OUTCOME_TUNER
     assert tenant_a.state_path != tenant_b.state_path
     assert tenant_a.artifact_dir.parent == tmp_path / "tenants"
     assert tenant_b.artifact_dir.parent == tmp_path / "tenants"
     assert local_tenant.artifact_dir.parent == tmp_path / "tenants"
-    nexus._TENANT_OUTCOME_TUNERS.clear()
+    nexus._PRINCIPAL_OUTCOME_TUNERS.clear()

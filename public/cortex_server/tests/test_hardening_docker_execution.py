@@ -10,8 +10,10 @@ from cortex_server.tools import docker_wrapper
 def test_production_container_healthcheck_uses_readiness_not_liveness():
     dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(encoding="utf-8")
 
-    assert "CMD curl -f http://localhost:8888/ready || exit 1" in dockerfile
-    assert "CMD curl -f http://localhost:8888/health || exit 1" not in dockerfile
+    assert "curl -fsS http://localhost:8888/ready >/dev/null" in dockerfile
+    assert "curl -fsS http://localhost:8888/orchestrator/runtime-delivery/readiness >/dev/null" in dockerfile
+    assert "http://localhost:8888/orchestrator/runtime/delivery/readiness" not in dockerfile
+    assert "http://localhost:8888/health" not in dockerfile
 
 
 def test_production_container_packages_adaptive_routing_services():
@@ -29,8 +31,24 @@ def test_compose_mounts_and_identifies_durable_memory_volume():
     assert "CORTEX_MEMORY_SCOPE_CREDENTIALS:" in compose
     assert "CORTEX_MEMORY_SCOPE_SECRET:" not in compose
     assert "CORTEX_CODEC_ADMIN_TOKEN:" in compose
+    assert "CORTEX_WRITE_AUTH_MODE: token_required" in compose
+    assert "CORTEX_WRITE_TOKEN:" in compose
     assert "CORTEX_AGENT_ACK_CREDENTIALS:" in compose
+    assert "CORTEX_RELEASE_VERIFIER_CREDENTIALS:" in compose
+    assert "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY:" in compose
     assert "cortex-memory-volume-init:" in compose
+
+
+def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "cortex-runtime-delivery:/opt/clawdbot/state/runtime_delivery:rw" in compose
+    assert "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery" in compose
+    assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:" in compose
+    assert "cortex-runtime-delivery-volume-init:" in compose
+    assert "marker=/runtime_delivery/.cortex-durable-runtime-delivery" in compose
+    assert "chmod 0700 /runtime_delivery" in compose
+    assert "cortex-runtime-delivery:" in compose
 
 
 class HangingStream:

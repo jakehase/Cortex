@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import multiprocessing
+
+import pytest
+from pydantic import ValidationError
 
 from cortex_server.runtime import RuntimeSoakHarness
 import cortex_server.runtime.production_build_loop as production_build_loop
@@ -10,6 +14,7 @@ from cortex_server.runtime.production_build_loop import (
     ProductionBuildContract,
     ProductionBuildLoopState,
     ProductionBuildLoopStore,
+    ProductionBuildLoopReport,
     ProductionCheckpointPolicy,
     ProductionCompletionCriterion,
     ProductionPassBudget,
@@ -24,6 +29,7 @@ from cortex_server.runtime.release_workflow import (
     record_release_handoff,
     record_release_artifact_receipt,
     create_release_artifact_receipt,
+    release_canary_policy,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState
 
@@ -82,20 +88,16 @@ def _approve_pending_release_handoff(harness, process_id, stage):
         if isinstance(row, dict) and row.get("artifact_kind") != "canary_evidence"
     ]
     evidence_id = f"evidence:{stage}"
+    policy = release_canary_policy(stage)
     claims = {
+        "policy_id": policy["policy_id"],
         "deployment_id": f"deployment:{process_id}:{stage}",
         "cohort_id": "canary-10-percent",
         "traffic_volume": 1000,
         "observation_window_seconds": 900,
         "artifact_hashes": artifact_hashes,
         "metrics": {"availability": 0.999, "error_rate": 0.001},
-        "thresholds": {
-            "minimum_traffic": 500,
-            "minimum_observation_seconds": 600,
-            "minimum_availability": 0.99,
-            "maximum_error_rate": 0.01,
-            "rollback_error_rate": 0.02,
-        },
+        "thresholds": policy["thresholds"],
     }
     evidence_receipt = create_release_artifact_receipt(
         state,
@@ -174,6 +176,21 @@ def test_empty_completion_contract_is_not_terminal_and_default_gates_require_evi
     assert f"artifact_release_bundle:{process_id}" in canary_gate.required_artifacts
     assert production_gate.required_handoff_count == 1
     assert f"artifact_smoke_report:{process_id}" in production_gate.required_artifacts
+
+
+def test_production_contract_rejects_plans_that_omit_mandatory_canary_predecessor():
+    with pytest.raises(ValidationError, match="omits mandatory stages: canary_verified"):
+        ProductionBuildContract(
+            process_id="proc_missing_canary_stage",
+            objective="Ship safely",
+            promotion_stages=["build_verified", "production"],
+        )
+    with pytest.raises(ValidationError, match="draft is an initialization stage"):
+        ProductionBuildContract(
+            process_id="proc_reordered_from_draft",
+            objective="Ship safely",
+            promotion_stages=["build_verified", "draft", "canary_verified", "production"],
+        )
 
 
 def _contract(
@@ -567,6 +584,12 @@ def test_production_loop_persists_live_follow_up_and_emits_watchdog_review_repor
     assert persisted.next_review_at is not None
     assert persisted.owed_follow_up["owed"] is True
     assert persisted.reporting_cadence["review_interval_seconds"] in {0, 60}
+    controller_lease = next(
+        row
+        for row in harness.supervisor.list(process_id=process_id, status="active")
+        if row.scope == f"{contract.controller_scope}:{process_id}"
+    )
+    controller_lease_expires_at = datetime.fromisoformat(controller_lease.expires_at.replace("Z", "+00:00"))
 
     second = reconcile_production_build_loop(
         contract,
@@ -579,7 +602,9 @@ def test_production_loop_persists_live_follow_up_and_emits_watchdog_review_repor
         release_store=harness.release_store,
         controller_id="runtime-watchdog",
         controller_session_id="sess-watchdog-prod-2",
-        now=first_now + timedelta(minutes=3),
+        # A watchdog may take over only after the active controller lease has
+        # expired; ownership hardening deliberately rejects an earlier pass.
+        now=controller_lease_expires_at + timedelta(seconds=1),
         watchdog_context={"decision": "report_status", "classification": "expected_wait", "source": "test"},
     )
 
@@ -901,7 +926,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
                 stage="production",
             )
         ],
-        promotion_stages=["build_verified", "production"],
+        promotion_stages=["build_verified", "canary_verified", "production"],
         stage_gates=[
             ProductionStageGate(
                 stage="production",
@@ -942,8 +967,30 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     assert any(action["action"] == "dispatch_release_handoff" for action in result["actions_taken"])
     assert not any(action["action"] == "ack_release_handoff" for action in result["actions_taken"])
     assert not any(fencepost.stage == "production" for fencepost in pending_release.rollback_fenceposts)
-    assert any(message.to_agent == "release-manager" and message.delivery_status == "queued" for message in messages)
-    assert any(lease.scope == "release:promote" and lease.agent_id == "release-manager" for lease in leases)
+    assert any(message.to_agent == "release-verifier" and message.delivery_status == "queued" for message in messages)
+    assert any(lease.scope == "release:canary_verified" and lease.agent_id == "release-verifier" for lease in leases)
+
+    _approve_pending_release_handoff(harness, process_id, "canary_verified")
+
+    awaiting_production = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-release",
+    )
+    canary_release = harness.release_store.load(process_id)
+    assert awaiting_production["state"]["status"] == "active"
+    assert canary_release.current_stage == "canary_verified"
+    assert any(
+        message.to_agent == "release-manager" and message.delivery_status == "queued"
+        for message in harness.mailbox.list(process_id=process_id)
+    )
 
     _approve_pending_release_handoff(harness, process_id, "production")
 
@@ -1036,3 +1083,309 @@ def test_production_loop_keeps_non_human_rule_blockers_live_when_recovery_is_sti
     assert result["state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
     assert result["state"]["conversation_ownership"]["owner"] == "cortex"
     assert result["state"]["conversation_ownership"]["session_key"] == "session:delivery:followthrough"
+
+
+def test_production_reconciliation_rejects_non_owner_before_state_mutation(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_non_owner_reconcile"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    release_state = harness.release_store.save(
+        ReleaseWorkflowState(
+            process_id=process_id,
+            candidate_ref="build:owned",
+            target_environment="production",
+            revision_id=seeded["shared_state"].revision_id,
+            current_stage="build_verified",
+        ),
+        actor="builder",
+    )
+    contract = _contract(
+        process_id,
+        promotion_stages=["build_verified", "canary_verified", "production"],
+    )
+    harness.supervisor.assign(
+        process_id=process_id,
+        scope=f"{contract.controller_scope}:{process_id}",
+        agent_id="owner-controller",
+        lease_seconds=contract.controller_lease_seconds,
+        metadata={"session_id": "owner-session", "contract_id": contract.contract_id},
+    )
+    loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    history_count = len(harness.release_store.history(process_id))
+
+    with pytest.raises(PermissionError, match="already owned"):
+        reconcile_production_build_loop(
+            contract,
+            loop_store=loop_store,
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            journal=harness.journal,
+            mailbox=harness.mailbox,
+            supervisor=harness.supervisor,
+            release_store=harness.release_store,
+            controller_id="other-controller",
+            controller_session_id="other-session",
+        )
+
+    persisted_release = harness.release_store.load(process_id)
+    assert persisted_release.persistence_revision == release_state.persistence_revision
+    assert len(harness.release_store.history(process_id)) == history_count
+    assert loop_store.load_contract(process_id) is None
+    assert loop_store.load_state(process_id) is None
+
+
+@pytest.mark.parametrize("failure_at", [1, 2, 3, 4])
+def test_loop_state_projection_survives_each_fsync_boundary(tmp_path, monkeypatch, failure_at):
+    process_id = f"proc_loop_fsync_{failure_at}"
+    store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    initial = ProductionBuildLoopState(
+        contract_id="contract-fsync",
+        process_id=process_id,
+        iteration_count=1,
+    )
+    store.save_state(initial)
+    desired = ProductionBuildLoopState(
+        contract_id="contract-fsync",
+        process_id=process_id,
+        iteration_count=2,
+    )
+    original_fsync = production_build_loop.os.fsync
+    calls = {"count": 0}
+
+    def fail_boundary(fd):
+        calls["count"] += 1
+        if calls["count"] == failure_at:
+            raise OSError(f"simulated crash boundary {failure_at}")
+        return original_fsync(fd)
+
+    monkeypatch.setattr(production_build_loop.os, "fsync", fail_boundary)
+    with pytest.raises(OSError, match="simulated crash boundary"):
+        store.save_state(desired)
+
+    recovered = ProductionBuildLoopStore(tmp_path / "loop_store").load_state(process_id)
+    assert recovered is not None
+    assert recovered.iteration_count in {1, 2}
+
+    monkeypatch.setattr(production_build_loop.os, "fsync", original_fsync)
+    store.save_state(desired)
+    assert ProductionBuildLoopStore(tmp_path / "loop_store").load_state(process_id).iteration_count == 2
+
+
+def test_loop_state_projection_preserves_previous_file_when_replace_does_not_commit(tmp_path, monkeypatch):
+    process_id = "proc_loop_replace_crash"
+    store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    store.save_state(
+        ProductionBuildLoopState(
+            contract_id="contract-replace",
+            process_id=process_id,
+            iteration_count=1,
+        )
+    )
+
+    def fail_replace(source, target):
+        raise OSError("simulated crash before replace")
+
+    monkeypatch.setattr(production_build_loop.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="before replace"):
+        store.save_state(
+            ProductionBuildLoopState(
+                contract_id="contract-replace",
+                process_id=process_id,
+                iteration_count=2,
+            )
+        )
+
+    assert ProductionBuildLoopStore(tmp_path / "loop_store").load_state(process_id).iteration_count == 1
+    assert list(store._state_target(process_id).parent.glob(f".{process_id}.json.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    ("boundary", "fsync_failure_at"),
+    [
+        ("state_file_fsync", 1),
+        ("state_replace", None),
+        ("state_directory_fsync", 2),
+        ("history_file_fsync", 3),
+        ("history_directory_fsync", 4),
+    ],
+)
+def test_loop_state_remains_recoverable_after_process_termination_at_write_boundaries(
+    tmp_path,
+    boundary,
+    fsync_failure_at,
+):
+    process_id = f"proc_loop_termination_{boundary}"
+    root = tmp_path / "loop_store"
+    store = ProductionBuildLoopStore(root)
+    store.save_state(
+        ProductionBuildLoopState(
+            contract_id="contract-termination",
+            process_id=process_id,
+            iteration_count=1,
+        )
+    )
+
+    def crash_during_save():
+        child_store = ProductionBuildLoopStore(root)
+        if fsync_failure_at is not None:
+            original_fsync = production_build_loop.os.fsync
+            calls = {"count": 0}
+
+            def terminate_on_fsync(fd):
+                calls["count"] += 1
+                if calls["count"] == fsync_failure_at:
+                    production_build_loop.os._exit(91)
+                return original_fsync(fd)
+
+            production_build_loop.os.fsync = terminate_on_fsync
+        else:
+            production_build_loop.os.replace = lambda source, target: production_build_loop.os._exit(91)
+        child_store.save_state(
+            ProductionBuildLoopState(
+                contract_id="contract-termination",
+                process_id=process_id,
+                iteration_count=2,
+            )
+        )
+
+    process = multiprocessing.get_context("fork").Process(target=crash_during_save)
+    process.start()
+    process.join(timeout=10)
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+        pytest.fail(f"child did not terminate at {boundary}")
+    assert process.exitcode == 91
+
+    recovered = ProductionBuildLoopStore(root).load_state(process_id)
+    assert recovered is not None
+    assert recovered.iteration_count in {1, 2}
+
+
+@pytest.mark.parametrize("fsync_failure_at", [1, 2])
+def test_loop_reports_remain_framed_after_process_termination_at_fsync_boundaries(
+    tmp_path,
+    fsync_failure_at,
+):
+    process_id = f"proc_report_termination_{fsync_failure_at}"
+    root = tmp_path / "loop_store"
+    store = ProductionBuildLoopStore(root)
+    first = ProductionBuildLoopReport(
+        report_id="report-initial",
+        loop_id="loop-report-termination",
+        contract_id="contract-report-termination",
+        process_id=process_id,
+        iteration=1,
+        kind="checkpoint",
+        status="active",
+        summary="initial report",
+    )
+    store.append_report(first)
+
+    def crash_during_append():
+        original_fsync = production_build_loop.os.fsync
+        calls = {"count": 0}
+
+        def terminate_on_fsync(fd):
+            calls["count"] += 1
+            if calls["count"] == fsync_failure_at:
+                production_build_loop.os._exit(92)
+            return original_fsync(fd)
+
+        production_build_loop.os.fsync = terminate_on_fsync
+        ProductionBuildLoopStore(root).append_report(
+            ProductionBuildLoopReport(
+                report_id="report-interrupted",
+                loop_id=first.loop_id,
+                contract_id=first.contract_id,
+                process_id=process_id,
+                iteration=2,
+                kind="rollback",
+                status="active",
+                summary="interrupted report",
+            )
+        )
+
+    process = multiprocessing.get_context("fork").Process(target=crash_during_append)
+    process.start()
+    process.join(timeout=10)
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+        pytest.fail("child did not terminate during report append")
+    assert process.exitcode == 92
+
+    recovered = ProductionBuildLoopStore(root)
+    report_ids = [row.report_id for row in recovered.reports(process_id)]
+    assert report_ids in [["report-initial"], ["report-initial", "report-interrupted"]]
+    recovered.append_report(
+        ProductionBuildLoopReport(
+            report_id="report-after-restart",
+            loop_id=first.loop_id,
+            contract_id=first.contract_id,
+            process_id=process_id,
+            iteration=3,
+            kind="rollback",
+            status="active",
+            summary="report after restart",
+        )
+    )
+    assert recovered.reports(process_id)[-1].report_id == "report-after-restart"
+
+
+def test_loop_projection_recovers_torn_state_and_report_tail(tmp_path):
+    process_id = "proc_loop_torn_projection"
+    store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    state = store.save_state(
+        ProductionBuildLoopState(
+            contract_id="contract-torn",
+            process_id=process_id,
+            iteration_count=7,
+        )
+    )
+    first_report = store.append_report(
+        ProductionBuildLoopReport(
+            report_id="report-before-crash",
+            loop_id=state.loop_id,
+            contract_id=state.contract_id,
+            process_id=process_id,
+            iteration=7,
+            kind="checkpoint",
+            status="active",
+            summary="checkpoint before crash",
+        )
+    )
+
+    store._state_target(process_id).write_bytes(b'{"iteration_count":')
+    with store._history_target(process_id).open("ab") as handle:
+        handle.write(b'{"state":')
+    with store._report_target(process_id).open("ab") as handle:
+        handle.write(b'{"report_id":"torn')
+
+    reopened = ProductionBuildLoopStore(tmp_path / "loop_store")
+    recovered_state = reopened.load_state(process_id)
+    recovered_reports = reopened.reports(process_id)
+    assert recovered_state.iteration_count == 7
+    assert [row.report_id for row in recovered_reports] == [first_report.report_id]
+
+    reopened.append_report(
+        ProductionBuildLoopReport(
+            report_id="report-after-recovery",
+            loop_id=state.loop_id,
+            contract_id=state.contract_id,
+            process_id=process_id,
+            iteration=8,
+            kind="rollback",
+            status="active",
+            summary="rollback projection recovered",
+        )
+    )
+    assert [row.report_id for row in reopened.reports(process_id)] == [
+        "report-before-crash",
+        "report-after-recovery",
+    ]

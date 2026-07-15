@@ -144,8 +144,8 @@ def test_mission_control_unifies_mixed_runtime_work_and_reports_live_state(tmp_p
                 delivery={
                     "dependability_profile": dict(MINIMAL_PROFILE),
                     "checkpoint_policy": dict(DELIVERY_REPORTING),
-                    "initial_release_stage": "build_verified",
-                    "promotion_stages": ["build_verified", "production"],
+                    "initial_release_stage": "draft",
+                    "promotion_stages": ["build_verified", "canary_verified", "production"],
                     "completion_criteria": [
                         {
                             "criterion_id": "release-stage",
@@ -212,7 +212,7 @@ def test_mission_control_unifies_mixed_runtime_work_and_reports_live_state(tmp_p
     assert roadmap_detail["objective"]["conversation_ownership"]["conversation_id"] == "chat:mission:roadmap"
     assert "dispatch_count" in roadmap_detail["objective"]["follow_up"]
     assert roadmap_detail["objective"]["session_plane"]["status"] in {"running", "scheduled", "active"}
-    assert delivery_detail["objective"]["delivery"]["release_stage"] == "build_verified"
+    assert delivery_detail["objective"]["delivery"]["release_stage"] == "draft"
     assert "dispatch_count" in delivery_detail["objective"]["follow_up"]
     assert maintenance_detail["objective"]["queue"]["status"] == "active"
     assert maintenance_detail["objective"]["queue"]["item_kind"] == "fix"
@@ -306,8 +306,8 @@ def test_mission_control_acknowledges_blockers_and_pauses_then_resumes_live_obje
                 delivery={
                     "dependability_profile": dict(MINIMAL_PROFILE),
                     "checkpoint_policy": dict(DELIVERY_REPORTING),
-                    "initial_release_stage": "build_verified",
-                    "promotion_stages": ["build_verified", "production"],
+                    "initial_release_stage": "draft",
+                    "promotion_stages": ["build_verified", "canary_verified", "production"],
                     "completion_criteria": [
                         {
                             "criterion_id": "release-stage",

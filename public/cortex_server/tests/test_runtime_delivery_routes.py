@@ -5,10 +5,22 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
-from cortex_server.runtime.release_workflow import release_artifact_attestation_signature
+from cortex_server.middleware.write_authorization import WriteAuthorizationMiddleware
+from cortex_server.runtime import AgentMessage, agent_acknowledgement_signature
+from cortex_server.runtime.production_build_loop import (
+    RUNTIME_DELIVERY_MOUNT_MARKER,
+    runtime_delivery_handoff_claim_signature,
+)
+from cortex_server.runtime.release_workflow import (
+    ReleaseArtifactReceipt,
+    release_artifact_attestation_signature,
+    release_canary_policy,
+)
 
 
 def _install_fake_diplomat(monkeypatch):
@@ -39,6 +51,20 @@ MINIMAL_PROFILE = {
     "watchdog": {"lease_seconds": 60, "heartbeat_grace_seconds": 60},
     "checkpoint": {"snapshot_every_events": 4, "must_checkpoint_on_handoff": True},
 }
+
+
+def _public_runtime_delivery_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(orchestrator.router, prefix="/orchestrator")
+    app.add_middleware(
+        WriteAuthorizationMiddleware,
+        mode="token_required",
+        token="runtime-delivery-write-token",
+        header_name="x-cortex-write-token",
+    )
+    client = TestClient(app)
+    client.headers["x-cortex-write-token"] = "runtime-delivery-write-token"
+    return client
 
 
 def _workflow() -> dict:
@@ -99,6 +125,339 @@ def _signed_artifact_request(
     )
 
 
+def test_runtime_delivery_ordinary_initialization_rejects_non_draft_stage():
+    with pytest.raises(ValueError, match="ordinary runtime release initialization is restricted to draft"):
+        orchestrator.RuntimeDeliveryReconcileRequest(initial_release_stage="production")
+
+
+def test_runtime_delivery_readiness_requires_credentials_and_durable_mount(tmp_path, monkeypatch):
+    delivery_root = tmp_path / "runtime-delivery"
+    delivery_root.mkdir()
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", "runtime-delivery-test-v1")
+    (delivery_root / RUNTIME_DELIVERY_MOUNT_MARKER).write_text(
+        "runtime-delivery-test-v1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CORTEX_RELEASE_VERIFIER_CREDENTIALS", raising=False)
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps({"release-verifier": "verifier-recipient-secret"}),
+    )
+    client = _public_runtime_delivery_client()
+
+    not_ready = client.get("/orchestrator/runtime-delivery/readiness")
+
+    assert not_ready.status_code == 503
+    assert not_ready.json()["checks"]["releaseVerifierCredentials"]["ok"] is False
+    assert not_ready.json()["checks"]["releaseRecipientCredentials"]["missingRecipients"] == [
+        "release-manager"
+    ]
+    assert not_ready.json()["checks"]["durableRuntimeDeliveryRoot"]["ok"] is True
+
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({"independent-release-verifier": "artifact-verifier-secret"}),
+    )
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps(
+            {
+                "release-verifier": "verifier-recipient-secret",
+                "release-manager": "manager-recipient-secret",
+            }
+        ),
+    )
+
+    ready = client.get("/orchestrator/runtime-delivery/readiness")
+
+    assert ready.status_code == 200
+    assert ready.json()["ready"] is True
+    assert ready.json()["checks"]["releaseVerifierCredentials"]["configuredVerifierCount"] == 1
+    assert ready.json()["checks"]["releaseRecipientCredentials"]["missingRecipients"] == []
+    assert not list(delivery_root.glob(".cortex-readiness-*"))
+
+
+def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reopen(
+    tmp_path,
+    monkeypatch,
+):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    verifier_recipient_secret = "runtime-release-verifier-secret"
+    manager_recipient_secret = "runtime-release-manager-secret"
+
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({"runtime-independent-verifier": "runtime-verifier-secret"}),
+    )
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps(
+            {
+                "release-verifier": verifier_recipient_secret,
+                "release-manager": manager_recipient_secret,
+            }
+        ),
+    )
+    orchestrator.workflows.clear()
+    client = _public_runtime_delivery_client()
+
+    process = scheduler.create_process_from_workflow(
+        _workflow(),
+        process_id="proc_public_runtime_delivery",
+        owner="cortex",
+        session_key="session:delivery:public",
+    )
+    scheduler_state = scheduler.load_state()
+    scheduler_state["processes"][process["process_id"]]["enabled"] = False
+    scheduler_state["processes"][process["process_id"]]["status"] = "waiting"
+    scheduler_state["processes"][process["process_id"]]["nodes"]["build"]["status"] = "waiting"
+    scheduler.save_state(scheduler_state)
+
+    unauthorized = client.post(
+        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
+        json={},
+        headers={"x-cortex-write-token": ""},
+    )
+    assert unauthorized.status_code == 403
+
+    initial = client.post(
+        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
+        json={
+            "controller_id": "controller",
+            "controller_session_id": "sess-runtime-delivery-public",
+            "initial_release_stage": "draft",
+            "promotion_stages": ["build_verified", "canary_verified", "production"],
+            "completion_criteria": [
+                {
+                    "criterion_id": "caller-release-stage",
+                    "summary": "Release must reach production",
+                    "kind": "release_stage",
+                    "stage": "production",
+                }
+            ],
+            "dependability_profile": dict(MINIMAL_PROFILE),
+        },
+    )
+    assert initial.status_code == 200, initial.text
+    initial_body = initial.json()
+    assert initial_body["delivery"]["release_state"]["current_stage"] == "draft"
+    mandatory_ids = {
+        row["criterion_id"]
+        for row in initial_body["contract"]["completion_criteria"]
+        if row.get("metadata", {}).get("server_mandated")
+    }
+    assert mandatory_ids == {
+        "release-target-stage",
+        "release-canary-stage",
+        "release-bundle",
+        "smoke-report",
+    }
+
+    release_state = orchestrator.ReleaseWorkflowState.model_validate(
+        initial_body["delivery"]["release_state"]
+    )
+    artifact_hashes = []
+    for artifact_id, artifact_kind in (
+        (f"artifact_release_bundle:{process['process_id']}", "release_bundle"),
+        (f"artifact_smoke_report:{process['process_id']}", "smoke_report"),
+    ):
+        artifact_request = _signed_artifact_request(
+            release_state,
+            artifact_id=artifact_id,
+            payload={"artifact_id": artifact_id, "result": "passed"},
+            artifact_kind=artifact_kind,
+        )
+        ingested = client.post(
+            f"/orchestrator/runtime/delivery/artifacts/{process['process_id']}",
+            json=artifact_request.model_dump(),
+        )
+        assert ingested.status_code == 200, ingested.text
+        artifact_hashes.append(ingested.json()["receipt"]["content_hash"])
+
+    evidence_ids = {
+        "canary_verified": "evidence:public-runtime-canary",
+        "production": "evidence:public-runtime-production",
+    }
+    for target_stage, evidence_id in evidence_ids.items():
+        policy = release_canary_policy(target_stage)
+        claims = {
+            "policy_id": policy["policy_id"],
+            "deployment_id": f"deployment:public-runtime:{target_stage}",
+            "cohort_id": "canary-10-percent",
+            "traffic_volume": 2500,
+            "observation_window_seconds": 1200,
+            "artifact_hashes": artifact_hashes,
+            "metrics": {"availability": 0.9995, "error_rate": 0.0005},
+            "thresholds": policy["thresholds"],
+        }
+        evidence_request = _signed_artifact_request(
+            release_state,
+            artifact_id=evidence_id,
+            payload=claims,
+            artifact_kind="canary_evidence",
+            target_stage=target_stage,
+            claims=claims,
+        )
+        ingested = client.post(
+            f"/orchestrator/runtime/delivery/artifacts/{process['process_id']}",
+            json=evidence_request.model_dump(),
+        )
+        assert ingested.status_code == 200, ingested.text
+
+    build = client.post(
+        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
+        json={
+            "controller_id": "controller",
+            "controller_session_id": "sess-runtime-delivery-public",
+        },
+    )
+    assert build.status_code == 200, build.text
+    assert build.json()["delivery"]["release_state"]["current_stage"] == "build_verified"
+
+    def claim_and_ack(
+        *,
+        recipient: str,
+        secret: str,
+        state_body: dict,
+        evidence_id: str,
+        request_id: str,
+        check_replay: bool = False,
+    ) -> None:
+        expected_revision_id = state_body["delivery"]["release_state"]["revision_id"]
+        requested_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+            "+00:00",
+            "Z",
+        )
+        claim = {
+            "recipient": recipient,
+            "process_id": process["process_id"],
+            "expected_revision_id": expected_revision_id,
+            "request_id": request_id,
+            "requested_at": requested_at,
+            "recipient_signature": runtime_delivery_handoff_claim_signature(
+                recipient=recipient,
+                process_id=process["process_id"],
+                expected_revision_id=expected_revision_id,
+                request_id=request_id,
+                requested_at=requested_at,
+                secret=secret,
+            ),
+        }
+        if check_replay:
+            forged = client.post(
+                "/orchestrator/runtime/delivery/handoffs/claim",
+                json={**claim, "recipient_signature": "forged"},
+            )
+            assert forged.status_code == 403
+        claimed = client.post("/orchestrator/runtime/delivery/handoffs/claim", json=claim)
+        assert claimed.status_code == 200, claimed.text
+        messages = [AgentMessage.model_validate(row) for row in claimed.json()["messages"]]
+        assert len(messages) == 1
+        assert messages[0].to_agent == recipient
+        if check_replay:
+            replayed = client.post("/orchestrator/runtime/delivery/handoffs/claim", json=claim)
+            assert replayed.status_code == 409
+
+        receipt = {
+            "candidate_ref": release_state.candidate_ref,
+            "release_id": release_state.release_id,
+            "revision_id": expected_revision_id,
+            "result": "approved",
+            "evidence_receipts": [evidence_id],
+        }
+        signature = agent_acknowledgement_signature(
+            messages[0],
+            actor=recipient,
+            result_receipt=receipt,
+            secret=secret,
+        )
+        acknowledge_path = (
+            f"/orchestrator/runtime/delivery/handoffs/{messages[0].message_id}/acknowledge"
+        )
+        if check_replay:
+            forged_ack = client.post(
+                acknowledge_path,
+                json={
+                    "recipient": recipient,
+                    "result_receipt": receipt,
+                    "recipient_signature": "forged",
+                },
+            )
+            assert forged_ack.status_code == 403
+        acknowledged = client.post(
+            acknowledge_path,
+            json={
+                "recipient": recipient,
+                "result_receipt": receipt,
+                "recipient_signature": signature,
+            },
+        )
+        assert acknowledged.status_code == 200, acknowledged.text
+
+    claim_and_ack(
+        recipient="release-verifier",
+        secret=verifier_recipient_secret,
+        state_body=build.json(),
+        evidence_id=evidence_ids["canary_verified"],
+        request_id="claim-public-runtime-canary",
+        check_replay=True,
+    )
+    canary = client.post(
+        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
+        json={
+            "controller_id": "controller",
+            "controller_session_id": "sess-runtime-delivery-public",
+        },
+    )
+    assert canary.status_code == 200, canary.text
+    assert canary.json()["delivery"]["release_state"]["current_stage"] == "canary_verified"
+
+    claim_and_ack(
+        recipient="release-manager",
+        secret=manager_recipient_secret,
+        state_body=canary.json(),
+        evidence_id=evidence_ids["production"],
+        request_id="claim-public-runtime-production",
+    )
+    production = client.post(
+        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
+        json={
+            "controller_id": "controller",
+            "controller_session_id": "sess-runtime-delivery-public",
+        },
+    )
+    assert production.status_code == 200, production.text
+    production_body = production.json()
+    assert production_body["state"]["status"] == "completed"
+    assert production_body["delivery"]["release_state"]["current_stage"] == "production"
+
+    reopened = orchestrator._runtime_delivery_stores()
+    reopened_release = reopened["release_store"].load(process["process_id"])
+    reopened_artifacts = reopened["release_store"].artifact_store()
+    reopened_receipts = [
+        ReleaseArtifactReceipt.model_validate(row)
+        for row in reopened_release.metadata.get("release_artifacts", [])
+    ]
+    assert {receipt.artifact_id for receipt in reopened_receipts} == {
+        f"artifact_release_bundle:{process['process_id']}",
+        f"artifact_smoke_report:{process['process_id']}",
+        *evidence_ids.values(),
+    }
+    assert all(reopened_artifacts.resolve(receipt.artifact_ref) for receipt in reopened_receipts)
+    assert any(row.stage == "production" for row in reopened_release.rollback_fenceposts)
+    assert len(list((delivery_root / "handoff_claim_receipts").glob("*.json"))) == 2
+    assert all(
+        message.ack_receipt.get("authentication") == "hmac-sha256"
+        for message in reopened["mailbox"].list(process_id=process["process_id"])
+        if message.delivery_status == "acked"
+    )
+
 
 def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monkeypatch):
     db_path = tmp_path / "runtime.db"
@@ -132,8 +491,8 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
             orchestrator.RuntimeDeliveryReconcileRequest(
                 controller_id="controller",
                 controller_session_id="sess-runtime-delivery",
-                initial_release_stage="build_verified",
-                promotion_stages=["build_verified", "production"],
+                initial_release_stage="draft",
+                promotion_stages=["build_verified", "canary_verified", "production"],
                 completion_criteria=[
                     {
                         "criterion_id": "release-stage",
@@ -166,12 +525,17 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
 
     stores = orchestrator._runtime_delivery_stores()
     assert reconciled["state"]["status"] == "active"
-    received = stores["mailbox"].receive(
-        to_agent="release-manager",
-        process_id=process["process_id"],
-        expected_revision_id=stores["shared_state_store"].load(process["process_id"]).revision_id,
-        reject_stale_revision=True,
-    )
+    assert stores["release_store"].load(process["process_id"]).current_stage == "draft"
+    mandatory_criterion_ids = {
+        row["criterion_id"] for row in reconciled["contract"]["completion_criteria"]
+        if row.get("metadata", {}).get("server_mandated")
+    }
+    assert mandatory_criterion_ids == {
+        "release-target-stage",
+        "release-canary-stage",
+        "release-bundle",
+        "smoke-report",
+    }
     release_state = stores["release_store"].load(process["process_id"])
     artifact_hashes = []
     for artifact_id, artifact_kind in (
@@ -190,46 +554,76 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
             )
         )
         artifact_hashes.append(ingested["receipt"]["content_hash"])
-    evidence_id = "evidence:runtime-production-verification"
-    evidence_claims = {
-        "deployment_id": "deployment:runtime-production",
-        "cohort_id": "canary-10-percent",
-        "traffic_volume": 2500,
-        "observation_window_seconds": 1200,
-        "artifact_hashes": artifact_hashes,
-        "metrics": {"availability": 0.9995, "error_rate": 0.0005},
-        "thresholds": {
-            "minimum_traffic": 1000,
-            "minimum_observation_seconds": 900,
-            "minimum_availability": 0.99,
-            "maximum_error_rate": 0.01,
-            "rollback_error_rate": 0.02,
-        },
-    }
-    asyncio.run(
-        orchestrator.ingest_runtime_delivery_artifact(
+
+    def approve_stage(stage: str, recipient: str, evidence_id: str) -> None:
+        active_release = stores["release_store"].load(process["process_id"])
+        policy = release_canary_policy(stage)
+        evidence_claims = {
+            "policy_id": policy["policy_id"],
+            "deployment_id": f"deployment:runtime:{stage}",
+            "cohort_id": "canary-10-percent",
+            "traffic_volume": 2500,
+            "observation_window_seconds": 1200,
+            "artifact_hashes": artifact_hashes,
+            "metrics": {"availability": 0.9995, "error_rate": 0.0005},
+            "thresholds": policy["thresholds"],
+        }
+        asyncio.run(
+            orchestrator.ingest_runtime_delivery_artifact(
+                process["process_id"],
+                _signed_artifact_request(
+                    active_release,
+                    artifact_id=evidence_id,
+                    payload=evidence_claims,
+                    artifact_kind="canary_evidence",
+                    target_stage=stage,
+                    claims=evidence_claims,
+                ),
+            )
+        )
+        received = stores["mailbox"].receive(
+            to_agent=recipient,
+            process_id=process["process_id"],
+            expected_revision_id=stores["shared_state_store"].load(process["process_id"]).revision_id,
+            reject_stale_revision=True,
+        )
+        assert len(received) == 1
+        stores["mailbox"].acknowledge(
+            received[0].message_id,
+            actor=received[0].to_agent,
+            result_receipt={
+                "candidate_ref": active_release.candidate_ref,
+                "release_id": active_release.release_id,
+                "revision_id": active_release.revision_id,
+                "result": "approved",
+                "evidence_receipts": [evidence_id],
+            },
+        )
+
+    reconciled = asyncio.run(
+        orchestrator.reconcile_runtime_delivery(
             process["process_id"],
-            _signed_artifact_request(
-                release_state,
-                artifact_id=evidence_id,
-                payload=evidence_claims,
-                artifact_kind="canary_evidence",
-                target_stage="production",
-                claims=evidence_claims,
+            orchestrator.RuntimeDeliveryReconcileRequest(
+                controller_id="controller",
+                controller_session_id="sess-runtime-delivery",
             ),
         )
     )
-    stores["mailbox"].acknowledge(
-        received[0].message_id,
-        actor=received[0].to_agent,
-        result_receipt={
-            "candidate_ref": release_state.candidate_ref,
-            "release_id": release_state.release_id,
-            "revision_id": release_state.revision_id,
-            "result": "approved",
-            "evidence_receipts": [evidence_id],
-        },
+    assert reconciled["delivery"]["release_state"]["current_stage"] == "build_verified"
+    approve_stage("canary_verified", "release-verifier", "evidence:runtime-canary-verification")
+
+    reconciled = asyncio.run(
+        orchestrator.reconcile_runtime_delivery(
+            process["process_id"],
+            orchestrator.RuntimeDeliveryReconcileRequest(
+                controller_id="controller",
+                controller_session_id="sess-runtime-delivery",
+            ),
+        )
     )
+    assert reconciled["delivery"]["release_state"]["current_stage"] == "canary_verified"
+    approve_stage("production", "release-manager", "evidence:runtime-production-verification")
+
     reconciled = asyncio.run(
         orchestrator.reconcile_runtime_delivery(
             process["process_id"],
@@ -253,6 +647,7 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["reporting_policy"]["report_every_iterations"] == 1
     assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["execution_discipline"]["latest_decisions"]["status"] == "completed"
     assert reconciled["process"]["workflow"]["metadata"]["delivery_continuation_mode"] == "stop"
+    assert any(message.to_agent == "release-verifier" and message.delivery_status == "acked" for message in messages)
     assert any(message.to_agent == "release-manager" and message.delivery_status == "acked" for message in messages)
     assert any(fencepost["stage"] == "production" for fencepost in reconciled["delivery"]["release_state"]["rollback_fenceposts"])
 
@@ -277,11 +672,33 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert pending_intent["status"] == "recovery_required"
     assert pending_intent["phase"] == "loop_projection_committed"
 
+    # Re-opening every store against the same mounted root simulates container
+    # replacement while the named runtime-delivery volume remains attached.
+    reopened_stores = orchestrator._runtime_delivery_stores()
+    reopened_release = reopened_stores["release_store"].load(process["process_id"])
+    reopened_intent = reopened_stores["release_store"].load_rollback_intent(process["process_id"])
+    reopened_artifact_store = reopened_stores["release_store"].artifact_store()
+    reopened_receipts = [
+        ReleaseArtifactReceipt.model_validate(row)
+        for row in reopened_release.metadata.get("release_artifacts", [])
+    ]
+    assert reopened_intent["transaction_id"] == pending_intent["transaction_id"]
+    assert {receipt.artifact_id for receipt in reopened_receipts} == {
+        f"artifact_release_bundle:{process['process_id']}",
+        f"artifact_smoke_report:{process['process_id']}",
+        "evidence:runtime-canary-verification",
+        "evidence:runtime-production-verification",
+    }
+    assert reopened_release.current_stage == "canary_verified"
+    assert any(fencepost.stage == "canary_verified" for fencepost in reopened_release.rollback_fenceposts)
+    assert not any(fencepost.stage == "production" for fencepost in reopened_release.rollback_fenceposts)
+    assert all(reopened_artifact_store.resolve(receipt.artifact_ref) for receipt in reopened_receipts)
+
     monkeypatch.setattr(orchestrator, "replace_process_workflow", original_replace_workflow)
-    assert orchestrator._recover_runtime_delivery_rollbacks(stores=stores) == [process["process_id"]]
+    assert orchestrator._recover_runtime_delivery_rollbacks(stores=reopened_stores) == [process["process_id"]]
     rolled_back = asyncio.run(orchestrator.get_runtime_delivery_status(process["process_id"]))
-    committed_intent = stores["release_store"].load_rollback_intent(process["process_id"])
-    rollback_reports = [row for row in stores["loop_store"].reports(process["process_id"]) if row.kind == "rollback"]
+    committed_intent = reopened_stores["release_store"].load_rollback_intent(process["process_id"])
+    rollback_reports = [row for row in reopened_stores["loop_store"].reports(process["process_id"]) if row.kind == "rollback"]
     rollback_progress_events = [
         row for row in scheduler.process_events(process["process_id"], limit=1000)
         if row.get("kind") == "runtime_delivery_rollback_applied.progress"
@@ -292,16 +709,16 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert committed_intent["completed_projections"] == ["production_loop", "runtime_process"]
     assert len(rollback_reports) == 1
     assert len(rollback_progress_events) == 1
-    assert rolled_back["release_state"]["current_stage"] == "build_verified"
+    assert rolled_back["release_state"]["current_stage"] == "canary_verified"
     assert rolled_back["release_state"]["metadata"]["rollback_applied"] is True
     assert rolled_back["process"]["status"] == "ready"
     assert rolled_back["process"]["nodes"]["build"]["status"] == "ready"
     assert rolled_back["shared_state"]["revision_id"].endswith(".rollback")
     assert rolled_back["loop_state"]["status"] == "active"
-    assert rolled_back["loop_state"]["current_stage"] == "build_verified"
+    assert rolled_back["loop_state"]["current_stage"] == "canary_verified"
     assert rolled_back["latest_report"]["kind"] == "rollback"
     assert rolled_back["latest_report"]["metadata"]["rollback_reason"] == "post-push regression"
-    assert rolled_back["process"]["workflow"]["metadata"]["runtime_delivery"]["release_stage"] == "build_verified"
+    assert rolled_back["process"]["workflow"]["metadata"]["runtime_delivery"]["release_stage"] == "canary_verified"
     assert rolled_back["process"]["workflow"]["metadata"]["last_runtime_delivery_rollback_transaction_id"] == committed_intent["transaction_id"]
 
 
@@ -336,8 +753,8 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
                 controller_id="controller",
                 controller_session_id="sess-runtime-delivery-watchdog",
                 now_iso=first_now.isoformat().replace("+00:00", "Z"),
-                initial_release_stage="build_verified",
-                promotion_stages=["build_verified", "production"],
+                initial_release_stage="draft",
+                promotion_stages=["build_verified", "canary_verified", "production"],
                 completion_criteria=[
                     {
                         "criterion_id": "release-stage",
@@ -367,18 +784,25 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
         )
     )
     assert reconciled["state"]["status"] == "active"
+    sent_before_tick = len(sent)
+    stores = orchestrator._runtime_delivery_stores()
+    controller_lease = next(
+        row
+        for row in stores["supervisor"].list(process_id=process["process_id"], status="active")
+        if row.scope == f"production_build_loop:{process['process_id']}"
+    )
+    watchdog_now = datetime.fromisoformat(controller_lease.expires_at.replace("Z", "+00:00")) + timedelta(seconds=1)
 
     tick = asyncio.run(
         orchestrator.tick_runtime(
             orchestrator.RuntimeTickRequest(
                 limit=10,
                 execute=False,
-                now_iso=(first_now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+                now_iso=watchdog_now.isoformat().replace("+00:00", "Z"),
             )
         )
     )
     status = asyncio.run(orchestrator.get_runtime_delivery_status(process["process_id"]))
-    stores = orchestrator._runtime_delivery_stores()
     follow_ups = stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")
 
     assert tick["watchdog"]["action_count"] >= 1
@@ -392,8 +816,8 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
     assert status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
     assert status["process"]["workflow"]["metadata"]["runtime_delivery"]["conversation_ownership"]["conversation_id"] == "chat:delivery-watchdog"
     assert status["process"]["workflow"]["metadata"]["delivery_follow_up_due_at"] is not None
-    assert len(sent) == 1
-    assert len(follow_ups) == 1
+    assert len(sent) == sent_before_tick + 1
+    assert len(follow_ups) == sent_before_tick + 1
     assert all(row.delivery_status == "sent" for row in follow_ups)
     assert any("runtime_delivery_route" in row["message"] for row in sent)
 
@@ -402,13 +826,13 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
             orchestrator.RuntimeTickRequest(
                 limit=10,
                 execute=False,
-                now_iso=(first_now + timedelta(minutes=3, seconds=15)).isoformat().replace("+00:00", "Z"),
+                now_iso=(watchdog_now + timedelta(seconds=15)).isoformat().replace("+00:00", "Z"),
             )
         )
     )
     assert second_tick["success"] is True
-    assert len(sent) == 1
-    assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")) == 1
+    assert len(sent) == sent_before_tick + 1
+    assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")) == sent_before_tick + 1
 
 
 

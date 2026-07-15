@@ -48,6 +48,118 @@ test('registration rejects an unprovisioned shared session secret before hooks o
   }
 });
 
+test('registration rejects missing, partial, and invalid production scope credentials before side effects', () => {
+  const cases = [
+    [{}, /requires scopeCredentialId and scopeHmacSecret/],
+    [{ scopeCredentialId: 'bridge-test' }, /scopeCredentialId and scopeHmacSecret together/],
+    [{ scopeHmacSecret: 'scope-test-secret' }, /scopeCredentialId and scopeHmacSecret together/],
+    [{ scopeCredentialId: 'bridge-test', scopeHmacSecret: '   ' }, /scopeCredentialId and scopeHmacSecret together/],
+    [{ scopeCredentialId: 'invalid credential', scopeHmacSecret: 'scope-test-secret' }, /bounded opaque identifier/],
+  ];
+  for (const [scopeConfig, expected] of cases) {
+    let registrations = 0;
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-invalid-scope-'));
+    try {
+      assert.throws(() => plugin.register({
+        pluginConfig: { stateDir, sessionIdentityHmacSecret: 'session-test-secret', ...scopeConfig },
+        logger: { info() {}, warn() {} },
+        on() { registrations += 1; },
+        registerMemoryRuntime() { registrations += 1; },
+        registerTool() { registrations += 1; },
+      }), expected);
+      assert.equal(registrations, 0);
+      assert.deepEqual(fs.readdirSync(stateDir), [], 'scope validation must precede lifecycle spool replay');
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('unsigned local development requires an explicit opt-in and the default local scope', () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-unsigned-local-'));
+  try {
+    assert.doesNotThrow(() => plugin.register({
+      pluginConfig: {
+        stateDir,
+        sessionIdentityHmacSecret: 'session-test-secret',
+        allowUnsignedLocalDevelopment: true,
+        enabledCodecContinuity: false,
+        enabledWriteThrough: false,
+      },
+      logger: { info() {}, warn() {} },
+      on() {},
+      registerMemoryRuntime() {},
+      registerTool() {},
+    }));
+    assert.throws(() => plugin.register({
+      pluginConfig: {
+        stateDir,
+        sessionIdentityHmacSecret: 'session-test-secret',
+        allowUnsignedLocalDevelopment: true,
+        tenantId: 'production',
+      },
+      logger: { info() {}, warn() {} },
+      on() {},
+      registerMemoryRuntime() {},
+      registerTool() {},
+    }), /restricted to the cortex-local\/default scope/);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('minimal production configuration signs memory_search and default-on agent_end continuity', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-minimal-production-'));
+  const handlers = new Map();
+  const requests = [];
+  let searchFactory;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    requests.push({
+      path: new URL(String(url)).pathname,
+      headers: new Headers(options?.headers),
+      body: JSON.parse(String(options?.body || '{}')),
+    });
+    return String(url).endsWith('/knowledge/search')
+      ? new Response('{"results":[],"search_mode":"semantic"}')
+      : new Response('{"success":true}');
+  };
+  try {
+    plugin.register({
+      pluginConfig: {
+        stateDir,
+        scopeCredentialId: 'bridge-production-default',
+        scopeHmacSecret: 'bridge-production-scope-secret',
+        sessionIdentityHmacSecret: 'bridge-production-session-secret',
+        retryCount: 0,
+      },
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool(factory, options) {
+        if (options?.names?.includes('memory_search')) searchFactory = factory;
+      },
+    });
+    const context = { sessionKey: 'production-session', userId: 'production-user', channelId: 'production-channel', agentId: 'main' };
+    await searchFactory(context).execute('production-search', { query: 'production memory' });
+    handlers.get('llm_output')({ content: 'production continuity output' }, context);
+    await handlers.get('agent_end')({}, context);
+
+    assert.deepEqual(requests.map(({ path: requestPath }) => requestPath), ['/knowledge/search', '/nexus/codec/events']);
+    for (const request of requests) {
+      assert.equal(request.headers.get('x-cortex-tenant-id'), 'cortex-local');
+      assert.equal(request.headers.get('x-cortex-workspace-id'), 'default');
+      assert.equal(request.headers.get('x-cortex-scope-credential-id'), 'bridge-production-default');
+      assert.match(request.headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
+      assert.equal(request.body.scope_credential_id, 'bridge-production-default');
+      assert.match(request.body.scope_signature, /^[0-9a-f]{64}$/);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('lifecycle writes and memory_search recall remain isolated across trusted invocation contexts', async () => {
   const handlers = new Map();
   let searchFactory;
@@ -325,7 +437,7 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
   let acceptCommit = false;
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
-    requests.push(JSON.parse(String(options?.body || '{}')));
+    requests.push({ headers: new Headers(options?.headers), body: JSON.parse(String(options?.body || '{}')) });
     return acceptCommit
       ? successfulCommitResponse()
       : new Response(JSON.stringify({ success: false, committed: false, durable_write: { status: 'write_failed' } }));
@@ -341,7 +453,9 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     });
     firstHandlers.get('llm_output')({ content: 'restart-safe durable lifecycle output' }, { sessionKey: 'restart-session' });
     await assert.rejects(() => firstHandlers.get('agent_end')({}, { sessionKey: 'restart-session' }), /output retained for retry/);
-    const firstKey = requests[0].metadata.idempotency_key;
+    const firstKey = requests[0].body.metadata.idempotency_key;
+    assert.equal(requests[0].headers.get('x-cortex-scope-credential-id'), 'bridge-test');
+    assert.match(requests[0].headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8')).length, 1);
 
     acceptCommit = true;
@@ -355,7 +469,9 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     await new Promise((resolve) => setTimeout(resolve, 25));
 
     assert.equal(requests.length, 2);
-    assert.equal(requests[1].metadata.idempotency_key, firstKey);
+    assert.equal(requests[1].body.metadata.idempotency_key, firstKey);
+    assert.equal(requests[1].headers.get('x-cortex-scope-credential-id'), 'bridge-test');
+    assert.match(requests[1].headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8')).length, 0);
   } finally {
     globalThis.fetch = originalFetch;

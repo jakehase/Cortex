@@ -583,7 +583,7 @@ async def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
     assert state["last_observation"] is None
 
 
-def test_nexus_codec_outcome_endpoint_updates_codec_policy(monkeypatch):
+def test_nexus_codec_outcome_endpoint_requires_server_observed_receipt(monkeypatch):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -604,11 +604,10 @@ def test_nexus_codec_outcome_endpoint_updates_codec_policy(monkeypatch):
             "validator_pass": True,
         },
     )
-    assert r.status_code == 200
+    assert r.status_code == 403
     body = r.json()
-    assert body["success"] is True
-    assert body["recorded"] is True
-    assert body["codec_policy"]["variant"] == "query_only"
+    assert body["detail"]["error"] == "server_observed_outcome_receipt_required"
+    assert state["totals"]["evaluations"] == 0
 
 
 def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(monkeypatch, tmp_path):
@@ -680,7 +679,10 @@ def test_nexus_codec_evaluate_advances_rollup_autotune(monkeypatch, tmp_path):
     body = r.json()
     assert body["codec"]["evaluation"]["rollup_autotune"]["recorded"] is True
     assert body["codec"]["evaluation"]["rollup_autotune"]["runs"] >= 3
-    assert codec_module._codec_rollup_policy()["autotune"]["runs"] >= 3
+    principal, _ = nexus._authenticated_nexus_principal(None)
+    policies = nexus._adaptive_policies_for_scope(principal.storage_metadata)
+    scoped_rollup = nexus._scoped_codec_rollup_call(policies, codec_module._codec_rollup_policy)
+    assert scoped_rollup["autotune"]["runs"] >= 3
 
 
 def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(monkeypatch, tmp_path):

@@ -8,13 +8,14 @@ NOTE: This is L26 Workflow Conductor, NOT L36 Meta-Conductor.
 """
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
 import fcntl
 import hashlib
+import hmac
 import json
 import asyncio
 import httpx
@@ -94,16 +95,20 @@ from cortex_server.runtime import (
     session_follow_up_allowed,
     session_plane_is_blocking,
     apply_release_rollback_restore,
-    capture_release_rollback_fencepost,
     detect_true_blockers,
     evaluate_production_completion,
     normalize_session_event,
-    record_release_fencepost,
     reconcile_production_build_loop,
     reconcile_roadmap_execution,
     resilient_delivery_attempt,
 )
-from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
+from cortex_server.runtime.production_build_loop import (
+    REQUIRED_RELEASE_HANDOFF_RECIPIENTS,
+    ingest_production_release_artifact,
+    probe_runtime_delivery_readiness,
+    runtime_delivery_handoff_claim_signature,
+    runtime_delivery_recipient_credentials,
+)
 
 router = APIRouter()
 
@@ -979,13 +984,20 @@ def _ensure_runtime_release_state(
         raise HTTPException(status_code=400, detail=f"runtime delivery state not initialized for {process_id}")
 
     contract_metadata = dict(contract.metadata or {})
-    initial_stage = str(
-        request.initial_release_stage
-        or contract_metadata.get("initial_release_stage")
-        or shared_state.world_state.get("release_stage")
-        or snapshot.world_state.get("release_stage")
-        or "draft"
-    ).strip() or "draft"
+    configured_initial_stages = [
+        str(value or "").strip()
+        for value in (
+            request.initial_release_stage,
+            contract_metadata.get("initial_release_stage"),
+        )
+        if str(value or "").strip()
+    ]
+    if any(stage != "draft" for stage in configured_initial_stages):
+        raise HTTPException(
+            status_code=400,
+            detail="ordinary runtime release initialization is restricted to draft",
+        )
+    initial_stage = "draft"
     candidate_ref = str(
         request.candidate_ref
         or contract_metadata.get("candidate_ref")
@@ -1000,17 +1012,40 @@ def _ensure_runtime_release_state(
         status="preparing",
         metadata={"bootstrapped_from_runtime_process": True},
     )
-    if initial_stage and initial_stage != "draft":
-        state = record_release_fencepost(
-            state,
-            capture_release_rollback_fencepost(
-                snapshot=snapshot,
-                shared_state=shared_state,
-                stage=initial_stage,
-                metadata={"bootstrapped_from_runtime_process": True},
-            ),
-        )
     return release_store.save(state, actor=request.controller_id, provenance={"source": "runtime_delivery_bootstrap_release"})
+
+
+def _mandatory_runtime_delivery_completion_criteria(process_id: str, target_environment: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            "criterion_id": "release-target-stage",
+            "summary": f"Release must reach {target_environment}",
+            "kind": "release_stage",
+            "stage": target_environment,
+            "metadata": {"comparison": "equals", "server_mandated": True},
+        },
+        {
+            "criterion_id": "release-canary-stage",
+            "summary": "Release must pass the independently verified canary stage",
+            "kind": "release_stage",
+            "stage": "canary_verified",
+            "metadata": {"comparison": "at_least", "server_mandated": True},
+        },
+        {
+            "criterion_id": "release-bundle",
+            "summary": "Revision-bound release bundle must exist",
+            "kind": "artifact_present",
+            "artifact_id": f"artifact_release_bundle:{process_id}",
+            "metadata": {"server_mandated": True},
+        },
+        {
+            "criterion_id": "smoke-report",
+            "summary": "Canary smoke report must exist",
+            "kind": "artifact_present",
+            "artifact_id": f"artifact_smoke_report:{process_id}",
+            "metadata": {"server_mandated": True},
+        },
+    ]
 
 
 
@@ -1053,29 +1088,14 @@ def _resolve_runtime_delivery_contract(
     if request.execution_budget is not None:
         payload["execution_budget"] = dict(request.execution_budget)
     payload.setdefault("dependability_profile", "24h")
-    if not payload.get("completion_criteria"):
-        target_environment = str(payload.get("target_environment") or "production").strip() or "production"
-        payload["completion_criteria"] = [
-            {
-                "criterion_id": "release-target-stage",
-                "summary": f"Release must reach {target_environment}",
-                "kind": "release_stage",
-                "stage": target_environment,
-                "metadata": {"comparison": "equals", "default_release_criterion": True},
-            },
-            {
-                "criterion_id": "release-bundle",
-                "summary": "Revision-bound release bundle must exist",
-                "kind": "artifact_present",
-                "artifact_id": f"artifact_release_bundle:{process_id}",
-            },
-            {
-                "criterion_id": "smoke-report",
-                "summary": "Canary smoke report must exist",
-                "kind": "artifact_present",
-                "artifact_id": f"artifact_smoke_report:{process_id}",
-            },
-        ]
+    target_environment = str(payload.get("target_environment") or "production").strip() or "production"
+    mandatory_criteria = _mandatory_runtime_delivery_completion_criteria(process_id, target_environment)
+    reserved_ids = {row["criterion_id"] for row in mandatory_criteria}
+    configured_criteria = list(payload.get("completion_criteria") or [])
+    payload["completion_criteria"] = [
+        row for row in configured_criteria
+        if not isinstance(row, dict) or str(row.get("criterion_id") or "").strip() not in reserved_ids
+    ] + mandatory_criteria
 
     merged_metadata = dict(payload.get("metadata") or {})
     merged_metadata.update(dict(request.metadata or {}))
@@ -2451,6 +2471,16 @@ class RuntimeDeliveryReconcileRequest(BaseModel):
     controller_session_id: Optional[str] = None
     now_iso: Optional[str] = None
 
+    @field_validator("initial_release_stage")
+    @classmethod
+    def _ordinary_initial_release_stage_is_draft(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stage = str(value or "").strip()
+        if stage != "draft":
+            raise ValueError("ordinary runtime release initialization is restricted to draft")
+        return stage
+
 
 class RuntimeDeliveryRollbackRequest(BaseModel):
     stage: Optional[str] = None
@@ -2471,6 +2501,21 @@ class RuntimeDeliveryArtifactIngestRequest(BaseModel):
     target_stage: Optional[str] = None
     claims: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
+
+
+class RuntimeDeliveryHandoffClaimRequest(BaseModel):
+    recipient: str
+    process_id: str
+    expected_revision_id: str
+    request_id: str
+    requested_at: str
+    recipient_signature: str
+
+
+class RuntimeDeliveryHandoffAcknowledgeRequest(BaseModel):
+    recipient: str
+    result_receipt: Dict[str, Any]
+    recipient_signature: str
 
 
 class RuntimeRoadmapReconcileRequest(BaseModel):
@@ -3173,20 +3218,32 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
             state = stores["loop_store"].load_state(process_id)
             decision = _runtime_delivery_watchdog_decision(process=process, contract=contract, state=state, now=now)
             if decision is not None:
-                reconciled = reconcile_production_build_loop(
-                    contract,
-                    loop_store=stores["loop_store"],
-                    snapshot_store=stores["snapshot_store"],
-                    shared_state_store=stores["shared_state_store"],
-                    journal=stores["journal"],
-                    mailbox=stores["mailbox"],
-                    supervisor=stores["supervisor"],
-                    release_store=stores["release_store"],
-                    controller_id="runtime-watchdog",
-                    controller_session_id=f"runtime-watchdog:{process_id}",
-                    now=now,
-                    watchdog_context={**decision, "source": "runtime_tick", "process_id": process_id},
-                )
+                try:
+                    reconciled = reconcile_production_build_loop(
+                        contract,
+                        loop_store=stores["loop_store"],
+                        snapshot_store=stores["snapshot_store"],
+                        shared_state_store=stores["shared_state_store"],
+                        journal=stores["journal"],
+                        mailbox=stores["mailbox"],
+                        supervisor=stores["supervisor"],
+                        release_store=stores["release_store"],
+                        controller_id="runtime-watchdog",
+                        controller_session_id=f"runtime-watchdog:{process_id}",
+                        now=now,
+                        watchdog_context={**decision, "source": "runtime_tick", "process_id": process_id},
+                    )
+                except PermissionError as exc:
+                    actions.append(
+                        {
+                            "kind": "delivery_owner_held",
+                            "process_id": process_id,
+                            "decision": decision,
+                            "status": state.status if state is not None else None,
+                            "detail": str(exc),
+                        }
+                    )
+                    continue
                 process = _sync_runtime_process_delivery_state(
                     process_id,
                     process=get_runtime_process(process_id) or process,
@@ -3613,6 +3670,49 @@ def _ack_runtime_delivery_dlq(*, stores: Dict[str, Any], entry_id: str, actor: s
         return record
 
 
+def _runtime_delivery_recipient_credentials_or_503() -> Dict[str, str]:
+    try:
+        credentials = runtime_delivery_recipient_credentials()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    missing = [recipient for recipient in REQUIRED_RELEASE_HANDOFF_RECIPIENTS if not credentials.get(recipient)]
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "reason": "release_recipient_credentials_not_ready",
+                "missing_recipients": missing,
+            },
+        )
+    return credentials
+
+
+def _runtime_delivery_handoff_claim_paths(
+    *,
+    stores: Dict[str, Any],
+    recipient: str,
+    request_id: str,
+) -> tuple[Path, Path]:
+    recipient_digest = hashlib.sha256(str(recipient).encode("utf-8")).hexdigest()
+    request_digest = hashlib.sha256(f"{recipient}:{request_id}".encode("utf-8")).hexdigest()
+    root = Path(stores["root"]) / "handoff_claim_receipts"
+    return root / f"{request_digest}.json", root / f"{recipient_digest}.lock"
+
+
+def _validate_runtime_delivery_handoff_claim_freshness(requested_at: str) -> None:
+    requested = _parse_optional_dt(requested_at)
+    if requested is None or requested.tzinfo is None:
+        raise HTTPException(status_code=422, detail="requested_at must be an ISO-8601 timestamp with a timezone")
+    try:
+        configured_skew = int(os.getenv("CORTEX_HANDOFF_CLAIM_MAX_SKEW_SECONDS", "300"))
+    except ValueError:
+        configured_skew = 300
+    max_skew_seconds = min(max(configured_skew, 30), 900)
+    observed_skew = abs((datetime.now().astimezone() - requested).total_seconds())
+    if observed_skew > max_skew_seconds:
+        raise HTTPException(status_code=403, detail="handoff claim timestamp is outside the allowed window")
+
+
 @router.get("/runtime/delivery/dlq")
 async def get_runtime_delivery_dlq(dependency: Optional[str] = None):
     stores = _runtime_delivery_stores()
@@ -3707,6 +3807,125 @@ async def get_runtime_process_view(process_id: str, events_limit: int = 25):
     return response
 
 
+@router.get("/runtime-delivery/readiness")
+async def get_runtime_delivery_readiness():
+    from fastapi.responses import JSONResponse
+
+    payload = probe_runtime_delivery_readiness(_runtime_delivery_root())
+    return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
+
+
+@router.post("/runtime/delivery/handoffs/claim")
+async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRequest):
+    recipient = str(request.recipient or "").strip()
+    process_id = str(request.process_id or "").strip()
+    expected_revision_id = str(request.expected_revision_id or "").strip()
+    request_id = str(request.request_id or "").strip()
+    requested_at = str(request.requested_at or "").strip()
+    if not all((recipient, process_id, expected_revision_id, request_id, requested_at, request.recipient_signature)):
+        raise HTTPException(status_code=422, detail="handoff claim fields must be non-empty")
+    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
+        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
+    credentials = _runtime_delivery_recipient_credentials_or_503()
+    expected_signature = runtime_delivery_handoff_claim_signature(
+        recipient=recipient,
+        process_id=process_id,
+        expected_revision_id=expected_revision_id,
+        request_id=request_id,
+        requested_at=requested_at,
+        secret=credentials[recipient],
+    )
+    if not hmac.compare_digest(str(request.recipient_signature or ""), expected_signature):
+        raise HTTPException(status_code=403, detail="authenticated recipient signature required")
+    _validate_runtime_delivery_handoff_claim_freshness(requested_at)
+
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+    stores = _runtime_delivery_stores()
+    release_state = stores["release_store"].load(process_id)
+    if release_state is None:
+        raise HTTPException(status_code=404, detail=f"Runtime delivery release state '{process_id}' not found")
+    if not hmac.compare_digest(str(release_state.revision_id or ""), expected_revision_id):
+        raise HTTPException(status_code=409, detail="handoff claim revision does not match the active release")
+
+    receipt_path, lock_path = _runtime_delivery_handoff_claim_paths(
+        stores=stores,
+        recipient=recipient,
+        request_id=request_id,
+    )
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        if receipt_path.exists():
+            raise HTTPException(status_code=409, detail="handoff claim request was already consumed")
+        received = stores["mailbox"].receive(
+            to_agent=recipient,
+            process_id=process_id,
+            include_inflight=True,
+            expected_revision_id=expected_revision_id,
+            reject_stale_revision=True,
+        )
+        release_handoffs = []
+        for message in received:
+            if (message.metadata or {}).get("target_stage"):
+                release_handoffs.append(message)
+            else:
+                stores["mailbox"].retry(message.message_id)
+        claimed_at = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+        response = {
+            "success": True,
+            "authentication": "hmac-sha256",
+            "recipient": recipient,
+            "process_id": process_id,
+            "expected_revision_id": expected_revision_id,
+            "request_id": request_id,
+            "claimed_at": claimed_at,
+            "messages": [model_dump_compat(message) for message in release_handoffs],
+        }
+        _write_runtime_event_receipt(
+            receipt_path,
+            {
+                "version": "cortex.runtime_delivery.handoff_claim_receipt.v1",
+                **response,
+            },
+        )
+    return response
+
+
+@router.post("/runtime/delivery/handoffs/{message_id}/acknowledge")
+async def acknowledge_runtime_delivery_handoff(
+    message_id: str,
+    request: RuntimeDeliveryHandoffAcknowledgeRequest,
+):
+    recipient = str(request.recipient or "").strip()
+    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
+        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
+    _runtime_delivery_recipient_credentials_or_503()
+    stores = _runtime_delivery_stores()
+    message = next((row for row in stores["mailbox"].list() if row.message_id == message_id), None)
+    if message is None or not (message.metadata or {}).get("target_stage"):
+        raise HTTPException(status_code=404, detail=f"Release handoff '{message_id}' not found")
+    if not hmac.compare_digest(recipient, message.to_agent):
+        raise HTTPException(status_code=403, detail="only the intended recipient may acknowledge a handoff")
+    try:
+        acknowledged = stores["mailbox"].acknowledge(
+            message_id,
+            actor=recipient,
+            result_receipt=request.result_receipt,
+            actor_signature=request.recipient_signature,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "process_id": acknowledged.process_id,
+        "message": model_dump_compat(acknowledged),
+    }
+
+
 @router.get("/runtime/delivery/{process_id}")
 async def get_runtime_delivery_status(process_id: str):
     process = get_runtime_process(process_id)
@@ -3732,19 +3951,22 @@ async def reconcile_runtime_delivery(process_id: str, request: Optional[RuntimeD
     contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=request)
     if request.initialize_release:
         _ensure_runtime_release_state(process_id, process=process, contract=contract, stores=stores, request=request)
-    reconciled = reconcile_production_build_loop(
-        contract,
-        loop_store=stores["loop_store"],
-        snapshot_store=stores["snapshot_store"],
-        shared_state_store=stores["shared_state_store"],
-        journal=stores["journal"],
-        mailbox=stores["mailbox"],
-        supervisor=stores["supervisor"],
-        release_store=stores["release_store"],
-        controller_id=request.controller_id,
-        controller_session_id=request.controller_session_id or f"runtime-delivery:{process_id}",
-        now=_parse_optional_dt(request.now_iso),
-    )
+    try:
+        reconciled = reconcile_production_build_loop(
+            contract,
+            loop_store=stores["loop_store"],
+            snapshot_store=stores["snapshot_store"],
+            shared_state_store=stores["shared_state_store"],
+            journal=stores["journal"],
+            mailbox=stores["mailbox"],
+            supervisor=stores["supervisor"],
+            release_store=stores["release_store"],
+            controller_id=request.controller_id,
+            controller_session_id=request.controller_session_id or f"runtime-delivery:{process_id}",
+            now=_parse_optional_dt(request.now_iso),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     process = _sync_runtime_process_delivery_state(
         process_id,
         process=process,

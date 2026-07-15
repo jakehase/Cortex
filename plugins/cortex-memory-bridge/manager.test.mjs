@@ -122,6 +122,39 @@ test('manager fails closed when non-default memory scope lacks authentication', 
   await assert.rejects(() => manager.search('unscoped search'), /scopeCredentialId and scopeHmacSecret/);
 });
 
+test('manager fails closed for the default local scope when unsigned development is not enabled', async () => {
+  const manager = await CortexMemorySearchManager.create(managerParams({
+    sessionIdentityHmacSecret: 'session-test-secret',
+    retryCount: 0,
+  }));
+  await assert.rejects(() => manager.search('default local search'), /scopeCredentialId and scopeHmacSecret/);
+});
+
+test('manager permits unsigned search only with the explicit local-development opt-in', async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (_url, options) => {
+    request = { headers: new Headers(options?.headers), body: JSON.parse(String(options?.body || '{}')) };
+    return new Response('{"results":[],"search_mode":"semantic"}');
+  };
+  try {
+    const manager = await CortexMemorySearchManager.create(managerParams({
+      sessionIdentityHmacSecret: 'session-test-secret',
+      allowUnsignedLocalDevelopment: true,
+      retryCount: 0,
+    }));
+    await manager.search('explicit unsigned local search');
+    assert.equal(request.headers.get('x-cortex-tenant-id'), 'cortex-local');
+    assert.equal(request.headers.get('x-cortex-workspace-id'), 'default');
+    assert.equal(request.headers.has('x-cortex-scope-credential-id'), false);
+    assert.equal(request.headers.has('x-cortex-scope-signature'), false);
+    assert.equal('scope_credential_id' in request.body, false);
+    assert.equal('scope_signature' in request.body, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('manager rejects unkeyed session identity fallback', async () => {
   const manager = await CortexMemorySearchManager.create(managerParams(
     { tenantId: 'cortex-local', workspaceId: 'default' },

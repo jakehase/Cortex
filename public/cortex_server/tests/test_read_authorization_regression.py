@@ -7,7 +7,7 @@ import pytest
 
 import cortex_server.main as main
 from cortex_server.modules import cortex_kernel_v2
-from cortex_server.modules.memory_scope import memory_scope_signature
+from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, memory_scope_signature
 import cortex_server.routers.orchestrator as orchestrator
 
 
@@ -52,6 +52,22 @@ def _principal_headers(scope: dict[str, str]) -> dict[str, str]:
         **{f"x-cortex-{key.replace('_', '-')}": value for key, value in scope.items()},
         "x-cortex-scope-credential-id": "readers",
         "x-cortex-scope-signature": signature,
+    }
+
+
+def _storage_workspace(scope: dict[str, str]) -> str:
+    return AuthenticatedMemoryPrincipal(
+        credential_id="readers",
+        **scope,
+    ).storage_workspace_id
+
+
+def _process_identity(scope: dict[str, str], *, owner: str) -> dict[str, str]:
+    return {
+        "tenant_id": scope["tenant_id"],
+        "storage_workspace_id": _storage_workspace(scope),
+        "owner": owner,
+        "user_id": owner,
     }
 
 
@@ -138,7 +154,7 @@ async def test_kernel_telemetry_requires_authentication_and_is_operationally_red
 
 
 @pytest.mark.asyncio
-async def test_runtime_reads_filter_collections_and_enforce_resource_owner_or_tenant(monkeypatch):
+async def test_runtime_reads_require_exact_tenant_workspace_and_owner(monkeypatch):
     app = _configured_app(monkeypatch)
     processes = {
         "proc_alice": {
@@ -146,21 +162,63 @@ async def test_runtime_reads_filter_collections_and_enforce_resource_owner_or_te
             "owner": "alice",
             "session_key": "alice-runtime-session",
             "status": "running",
-            "workflow": {"name": "alice work", "metadata": {"tenant_id": "tenant-a"}},
+            "workflow": {
+                "name": "alice work",
+                "metadata": _process_identity(ALICE_SCOPE, owner="alice"),
+            },
         },
         "proc_bob": {
             "process_id": "proc_bob",
             "owner": "bob",
             "session_key": "bob-runtime-session",
             "status": "running",
-            "workflow": {"name": "bob work", "metadata": {"tenant_id": "tenant-b"}},
+            "workflow": {
+                "name": "bob work",
+                "metadata": _process_identity(BOB_SCOPE, owner="bob"),
+            },
         },
-        "proc_tenant_a": {
-            "process_id": "proc_tenant_a",
-            "owner": "tenant-service",
-            "session_key": "tenant-service-session",
+        "proc_same_tenant_bob": {
+            "process_id": "proc_same_tenant_bob",
+            "owner": "bob",
+            "session_key": "same-tenant-bob-session",
             "status": "running",
-            "workflow": {"name": "tenant work", "metadata": {"tenant_id": "tenant-a"}},
+            "workflow": {
+                "name": "same tenant, different owner",
+                "metadata": _process_identity(ALICE_SCOPE, owner="bob"),
+            },
+        },
+        "proc_cross_tenant_alice": {
+            "process_id": "proc_cross_tenant_alice",
+            "owner": "alice",
+            "session_key": "cross-tenant-alice-session",
+            "status": "running",
+            "workflow": {
+                "name": "different tenant, colliding owner",
+                "metadata": _process_identity(BOB_SCOPE, owner="alice"),
+            },
+        },
+        "proc_other_workspace_alice": {
+            "process_id": "proc_other_workspace_alice",
+            "owner": "alice",
+            "session_key": "other-workspace-alice-session",
+            "status": "running",
+            "workflow": {
+                "name": "same tenant and owner, different storage workspace",
+                "metadata": {
+                    **_process_identity(ALICE_SCOPE, owner="alice"),
+                    "storage_workspace_id": "principal-other-workspace",
+                },
+            },
+        },
+        "proc_legacy_alice": {
+            "process_id": "proc_legacy_alice",
+            "owner": "alice",
+            "session_key": "legacy-alice-session",
+            "status": "running",
+            "workflow": {
+                "name": "legacy incomplete identity",
+                "metadata": {"tenant_id": ALICE_SCOPE["tenant_id"], "owner": "alice"},
+            },
         },
     }
 
@@ -198,7 +256,6 @@ async def test_runtime_reads_filter_collections_and_enforce_resource_owner_or_te
         assert alice_list.status_code == 200
         assert [row["process_id"] for row in alice_list.json()["processes"]] == [
             "proc_alice",
-            "proc_tenant_a",
         ]
 
         cross_owner = await client.get(
@@ -214,11 +271,17 @@ async def test_runtime_reads_filter_collections_and_enforce_resource_owner_or_te
         assert owner_lineage.status_code == 200
         assert owner_lineage.json()["classes"]["learned_memory"][0]["value"] == "owner-visible preference"
 
-        tenant_lineage = await client.get(
-            "/orchestrator/runtime/lineage/proc_tenant_a",
-            headers=_principal_headers(ALICE_SCOPE),
-        )
-        assert tenant_lineage.status_code == 200
+        for process_id in (
+            "proc_same_tenant_bob",
+            "proc_cross_tenant_alice",
+            "proc_other_workspace_alice",
+            "proc_legacy_alice",
+        ):
+            collision = await client.get(
+                f"/orchestrator/runtime/lineage/{process_id}",
+                headers=_principal_headers(ALICE_SCOPE),
+            )
+            assert collision.status_code == 403
 
         cross_policy_history = await client.get(
             "/orchestrator/runtime/policy-history/proc_bob",
@@ -231,6 +294,48 @@ async def test_runtime_reads_filter_collections_and_enforce_resource_owner_or_te
             headers={"x-cortex-admin-token": ADMIN_SECRET},
         )
         assert admin_lineage.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_read_route_inventory_is_explicit_and_guards_aliases_and_state(monkeypatch):
+    app = _configured_app(monkeypatch)
+    declared = {}
+    for route in main._effective_routes(app.routes):
+        methods = set(getattr(route, "methods", None) or ())
+        if not methods & {"GET", "HEAD"}:
+            continue
+        policy = getattr(route, "cortex_read_policy", None)
+        assert policy in main._READ_POLICIES, getattr(route, "path", None)
+        if hasattr(route, "openapi_extra"):
+            assert route.openapi_extra[main._READ_POLICY_METADATA_KEY] == policy
+        declared[getattr(route, "path")] = policy
+
+    assert declared["/conductor/runtime/processes"] == "runtime_collection"
+    assert declared["/conductor/runtime/process/{process_id}"] == "runtime_resource"
+    assert declared["/orchestrator/runtime-delivery/readiness"] == "public_redacted"
+    assert declared["/conductor/runtime-delivery/readiness"] == "public_redacted"
+    for path in (
+        "/nexus/autotune/status",
+        "/awareness/memory",
+        "/everyday_intel/decision/review",
+        "/everyday_intel/profile/snapshot",
+        "/homeassistant/states",
+    ):
+        assert declared[path] == "admin_redacted"
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        for path in (
+            "/conductor/runtime/processes",
+            "/conductor/runtime/process/unknown",
+            "/nexus/autotune/status",
+            "/awareness/memory",
+            "/everyday_intel/decision/review",
+            "/everyday_intel/profile/snapshot",
+            "/homeassistant/states",
+        ):
+            response = await client.get(path)
+            assert response.status_code == 403, path
 
 
 @pytest.mark.asyncio

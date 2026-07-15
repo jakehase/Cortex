@@ -6,7 +6,17 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["sessionIdentityHmacSecret"],
+    "anyOf": [
+      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret"] },
+      {
+        "required": ["sessionIdentityHmacSecret", "allowUnsignedLocalDevelopment"],
+        "properties": {
+          "allowUnsignedLocalDevelopment": { "const": true },
+          "tenantId": { "const": "cortex-local" },
+          "workspaceId": { "const": "default" }
+        }
+      }
+    ],
     "properties": {
       "baseUrl": { "type": "string" },
       "writeToken": { "type": "string", "minLength": 1 },
@@ -32,8 +42,9 @@
       "userId": { "type": "string", "minLength": 1 },
       "channelId": { "type": "string", "minLength": 1 },
       "sessionId": { "type": "string", "minLength": 1 },
-      "scopeCredentialId": { "type": "string", "minLength": 1 },
-      "scopeHmacSecret": { "type": "string", "minLength": 1 },
+      "scopeCredentialId": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$" },
+      "scopeHmacSecret": { "type": "string", "minLength": 1, "pattern": "\\S" },
+      "allowUnsignedLocalDevelopment": { "type": "boolean" },
       "sessionIdentityHmacSecret": { "type": "string", "minLength": 1, "pattern": "\\S" },
       "curatedBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "projectFactBoost": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -111,6 +122,11 @@
       "label": "Credential-specific scope HMAC secret",
       "sensitive": true,
       "advanced": true
+    },
+    "allowUnsignedLocalDevelopment": {
+      "label": "Allow unsigned local development",
+      "advanced": true,
+      "help": "Unsafe local-development escape hatch for only the default cortex-local/default scope. Defaults off; never enable in production."
     },
     "sessionIdentityHmacSecret": {
       "label": "Shared session identity HMAC secret",

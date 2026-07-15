@@ -16,6 +16,7 @@ os.environ["CORTEX_CHROMA_DIR"] = "/tmp/cortex-c05-hardening-chroma"
 os.environ["LIBRARIAN_FALLBACK_LOG_PATH"] = "/tmp/cortex-c05-hardening-chroma/fallback.jsonl"
 
 from cortex_server.knowledge.graph import Edge, EdgeType, Node, NodeType, SQLiteStorage
+from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, memory_scope_signature
 from cortex_server.modules.prior_art_gate import build_prior_art_gate
 from cortex_server.routers import knowledge, librarian
 from cortex_server.services.knowledge_service import KnowledgeService
@@ -229,6 +230,107 @@ async def test_prior_art_gate_rejects_degraded_search_without_a_successful_memor
     assert response["sourceCoverage"]["memoryAvailable"] is False
     assert response["sourceCoverage"]["structuralAvailable"] is True
     assert response["blocker"]["unavailablePlanes"] == ["memory"]
+
+
+@pytest.mark.asyncio
+async def test_prior_art_gate_scopes_semantic_recall_to_signed_principal(monkeypatch):
+    scope = {
+        "tenant_id": "tenant-prior-art",
+        "workspace_id": "workspace-prior-art",
+        "agent_id": "agent-prior-art",
+        "user_id": "user-prior-art",
+        "channel_id": "api",
+        "session_id": "session-prior-art",
+    }
+    credential_id = "prior-art-reader"
+    secret = "prior-art-secret"
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps(
+            {
+                credential_id: {
+                    "secret": secret,
+                    "allowed_scopes": [scope],
+                }
+            }
+        ),
+    )
+    calls = []
+
+    def scoped_search(**kwargs):
+        calls.append(kwargs)
+        return {"search_mode": "semantic", "results": [], "available": True}
+
+    class AvailableGraph:
+        def query(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(knowledge, "robust_search", scoped_search)
+    monkeypatch.setattr(knowledge.service, "graph", AvailableGraph())
+    response = await knowledge.prior_art_gate(
+        knowledge.PriorArtGateRequest(
+            objective="reuse an existing capability ledger",
+            tenant_id=scope["tenant_id"],
+            workspace_id=scope["workspace_id"],
+            scope=scope,
+            scope_credential_id=credential_id,
+            scope_signature=memory_scope_signature(
+                **scope,
+                credential_id=credential_id,
+                secret=secret,
+            ),
+        )
+    )
+
+    expected_workspace = AuthenticatedMemoryPrincipal(
+        credential_id=credential_id,
+        **scope,
+    ).storage_workspace_id
+    assert response["sourceCoverage"]["memoryAvailable"] is True
+    assert calls
+    assert {call["tenant_id"] for call in calls} == {scope["tenant_id"]}
+    assert {call["workspace_id"] for call in calls} == {expected_workspace}
+
+
+@pytest.mark.asyncio
+async def test_prior_art_gate_rejects_trusted_caller_without_principal_scope(monkeypatch):
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps(
+            {
+                "reader": {
+                    "secret": "secret",
+                    "allowed_scopes": [
+                        {
+                            "tenant_id": "tenant",
+                            "workspace_id": "workspace",
+                            "agent_id": "agent",
+                            "user_id": "user",
+                            "channel_id": "api",
+                            "session_id": "session",
+                        }
+                    ],
+                }
+            }
+        ),
+    )
+    called = False
+
+    def forbidden_search(**_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("semantic memory must not be queried before authentication")
+
+    monkeypatch.setattr(knowledge, "robust_search", forbidden_search)
+    with pytest.raises(HTTPException) as exc_info:
+        await knowledge.prior_art_gate(
+            knowledge.PriorArtGateRequest(objective="read legacy durable memory")
+        )
+
+    assert exc_info.value.status_code == 403
+    assert called is False
 
 
 def test_every_sqlite_connection_enforces_foreign_keys_and_rejects_dangling_edge(tmp_path):

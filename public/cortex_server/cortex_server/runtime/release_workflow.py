@@ -4,7 +4,9 @@ import fcntl
 import hashlib
 import hmac
 import json
+import math
 import os
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +26,69 @@ from cortex_server.runtime.shared_process_state import SharedProcessState, Share
 
 
 JsonDict = Dict[str, Any]
+
+
+RELEASE_STAGE_TOPOLOGY = ("draft", "build_verified", "canary_verified", "production")
+
+
+class ReleaseCanaryPolicy(BaseModel):
+    """Immutable server-owned observations required for a release promotion."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_id: str
+    target_stage: str
+    minimum_traffic: int
+    minimum_observation_seconds: int
+    minimum_availability: float
+    maximum_error_rate: float
+    rollback_error_rate: float
+
+
+_RELEASE_CANARY_POLICIES = (
+    ReleaseCanaryPolicy(
+        policy_id="cortex.release.canary-verified.v1",
+        target_stage="canary_verified",
+        minimum_traffic=1000,
+        minimum_observation_seconds=900,
+        minimum_availability=0.99,
+        maximum_error_rate=0.01,
+        rollback_error_rate=0.02,
+    ),
+    ReleaseCanaryPolicy(
+        policy_id="cortex.release.production.v1",
+        target_stage="production",
+        minimum_traffic=1000,
+        minimum_observation_seconds=900,
+        minimum_availability=0.99,
+        maximum_error_rate=0.01,
+        rollback_error_rate=0.02,
+    ),
+)
+
+
+def _release_canary_policy(target_stage: str) -> Optional[ReleaseCanaryPolicy]:
+    target = str(target_stage or "").strip()
+    return next((policy for policy in _RELEASE_CANARY_POLICIES if policy.target_stage == target), None)
+
+
+def release_canary_policy(target_stage: str) -> JsonDict:
+    """Return a copy of the immutable policy that evidence must echo exactly."""
+
+    policy = _release_canary_policy(target_stage)
+    if policy is None:
+        raise KeyError(f"release canary policy not configured for stage: {target_stage}")
+    return {
+        "policy_id": policy.policy_id,
+        "target_stage": policy.target_stage,
+        "thresholds": {
+            "minimum_traffic": policy.minimum_traffic,
+            "minimum_observation_seconds": policy.minimum_observation_seconds,
+            "minimum_availability": policy.minimum_availability,
+            "maximum_error_rate": policy.maximum_error_rate,
+            "rollback_error_rate": policy.rollback_error_rate,
+        },
+    }
 
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -302,6 +367,7 @@ class ReleaseWorkflowState(BaseModel):
     revision_id: str
     current_stage: str = "draft"
     status: str = "preparing"
+    persistence_revision: int = 0
     updated_at: str = Field(default_factory=_now_iso)
     workflow_id: Optional[str] = None
     promotion_history: List[Dict[str, Any]] = Field(default_factory=list)
@@ -338,6 +404,14 @@ class ReleaseWorkflowState(BaseModel):
         if any(not row for row in cleaned):
             raise ValueError("operator_holds must not contain empty values")
         return cleaned
+
+    @field_validator("persistence_revision")
+    @classmethod
+    def _validate_persistence_revision(cls, value: int) -> int:
+        revision = int(value or 0)
+        if revision < 0:
+            raise ValueError("persistence_revision must be non-negative")
+        return revision
 
 
 class ReleaseArtifactReceipt(BaseModel):
@@ -456,6 +530,47 @@ def verify_release_artifact_receipt(
             raise ValueError("canary evidence artifact must be canonical JSON") from exc
         if artifact_claims != receipt.claims or encoded != _artifact_payload_bytes(receipt.claims):
             raise ValueError("canary evidence claims do not match immutable artifact content")
+        policy = _release_canary_policy(str(receipt.target_stage or ""))
+        if policy is None:
+            raise ValueError(f"canary evidence target has no server release policy: {receipt.target_stage}")
+        if not _canary_evidence_echoes_policy(receipt.claims, policy=policy):
+            raise ValueError("canary evidence does not echo the immutable server release policy")
+        if receipt.validation_outcome == "passed" and not _canary_observations_satisfy_policy(
+            receipt.claims,
+            policy=policy,
+        ):
+            raise ValueError("passed canary evidence does not satisfy the immutable server release policy")
+
+
+def _canary_evidence_echoes_policy(claims: Dict[str, Any], *, policy: ReleaseCanaryPolicy) -> bool:
+    thresholds = claims.get("thresholds") if isinstance(claims.get("thresholds"), dict) else {}
+    expected = release_canary_policy(policy.target_stage)
+    return bool(
+        str(claims.get("policy_id") or "").strip() == policy.policy_id
+        and thresholds == expected["thresholds"]
+    )
+
+
+def _canary_observations_satisfy_policy(claims: Dict[str, Any], *, policy: ReleaseCanaryPolicy) -> bool:
+    metrics = claims.get("metrics") if isinstance(claims.get("metrics"), dict) else {}
+    try:
+        traffic_volume = int(claims.get("traffic_volume", 0) or 0)
+        observation_window = int(claims.get("observation_window_seconds", 0) or 0)
+        availability = float(metrics["availability"])
+        error_rate = float(metrics["error_rate"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    return bool(
+        math.isfinite(availability)
+        and math.isfinite(error_rate)
+        and traffic_volume >= policy.minimum_traffic
+        and observation_window >= policy.minimum_observation_seconds
+        and 0.0 <= availability <= 1.0
+        and 0.0 <= error_rate <= 1.0
+        and availability >= policy.minimum_availability
+        and error_rate <= policy.maximum_error_rate
+        and error_rate < policy.rollback_error_rate
+    )
 
 
 def _canary_evidence_satisfies_stage(
@@ -467,35 +582,16 @@ def _canary_evidence_satisfies_stage(
     if receipt.artifact_kind != "canary_evidence" or receipt.target_stage != target_stage:
         return False
     claims = dict(receipt.claims or {})
+    policy = _release_canary_policy(target_stage)
+    if policy is None or not _canary_evidence_echoes_policy(claims, policy=policy):
+        return False
     deployment_id = str(claims.get("deployment_id") or "").strip()
     cohort_id = str(claims.get("cohort_id") or "").strip()
     artifact_hashes = set(_dedupe_rows([str(row) for row in claims.get("artifact_hashes") or []]))
-    metrics = claims.get("metrics") if isinstance(claims.get("metrics"), dict) else {}
-    thresholds = claims.get("thresholds") if isinstance(claims.get("thresholds"), dict) else {}
-    try:
-        traffic_volume = int(claims.get("traffic_volume", 0) or 0)
-        observation_window = int(claims.get("observation_window_seconds", 0) or 0)
-        minimum_traffic = int(thresholds.get("minimum_traffic", 1) or 1)
-        minimum_observation = int(thresholds.get("minimum_observation_seconds", 1) or 1)
-        availability = float(metrics["availability"])
-        error_rate = float(metrics["error_rate"])
-        minimum_availability = float(thresholds["minimum_availability"])
-        maximum_error_rate = float(thresholds["maximum_error_rate"])
-        rollback_error_rate = float(thresholds["rollback_error_rate"])
-    except (KeyError, TypeError, ValueError):
-        return False
     return bool(
         deployment_id
         and cohort_id
-        and traffic_volume >= max(1, minimum_traffic)
-        and observation_window >= max(1, minimum_observation)
-        and 0.0 <= availability <= 1.0
-        and 0.0 <= error_rate <= 1.0
-        and 0.0 <= minimum_availability <= 1.0
-        and 0.0 <= maximum_error_rate < rollback_error_rate <= 1.0
-        and availability >= minimum_availability
-        and error_rate <= maximum_error_rate
-        and error_rate < rollback_error_rate
+        and _canary_observations_satisfy_policy(claims, policy=policy)
         and set(required_artifact_hashes).issubset(artifact_hashes)
     )
 
@@ -615,6 +711,8 @@ def _state_change_set(before: Optional[ReleaseWorkflowState], after: ReleaseWork
     current_safe_push = bool((after.safe_push_criteria or {}).get("safe_push")) if after.safe_push_criteria else None
     return {
         "created": before is None,
+        "persistence_revision_before": before.persistence_revision if before else 0,
+        "persistence_revision_after": after.persistence_revision,
         "from_revision_id": before.revision_id if before else None,
         "to_revision_id": after.revision_id,
         "previous_stage": before.current_stage if before else None,
@@ -637,6 +735,7 @@ def _state_change_set(before: Optional[ReleaseWorkflowState], after: ReleaseWork
 class ReleaseWorkflowStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self._transaction_local = threading.local()
 
     def _target(self, process_id: Optional[str] = None) -> Path:
         if self.path.suffix:
@@ -670,15 +769,44 @@ class ReleaseWorkflowStore:
         return ReleaseArtifactStore(root)
 
     @contextmanager
-    def rollback_transaction(self, process_id: str):
+    def release_transaction(self, process_id: str):
+        """Serialize every release mutation for one process across processes.
+
+        The transaction is re-entrant for callers such as reconciliation and
+        rollback that compose store operations under one larger transaction.
+        """
+
+        process = str(process_id or "").strip()
+        if not process:
+            raise ValueError("process_id required for release transaction")
+        depths = getattr(self._transaction_local, "depths", None)
+        if depths is None:
+            depths = {}
+            self._transaction_local.depths = depths
+        if int(depths.get(process, 0) or 0) > 0:
+            depths[process] += 1
+            try:
+                yield
+            finally:
+                depths[process] -= 1
+            return
+
         lock_target = self._rollback_lock_target(process_id)
         lock_target.parent.mkdir(parents=True, exist_ok=True)
         with lock_target.open("a+b") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            depths[process] = 1
             try:
                 yield
             finally:
+                depths.pop(process, None)
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @contextmanager
+    def rollback_transaction(self, process_id: str):
+        # Backwards-compatible name for the now shared release transaction.
+        with self.release_transaction(process_id):
+            yield
 
     def load_rollback_intent(self, process_id: str) -> Optional[Dict[str, Any]]:
         target = self._rollback_intent_target(process_id)
@@ -738,23 +866,54 @@ class ReleaseWorkflowStore:
         provenance: Optional[Dict[str, Any]] = None,
     ) -> ReleaseWorkflowState:
         record = state if isinstance(state, ReleaseWorkflowState) else _workflow_validate_compat(dict(state))
-        current = self.load(record.process_id)
-        target = self._target(record.process_id)
-        _atomic_write_json(target, _workflow_dump_compat(record))
-        self._append_history(
-            ReleaseWorkflowHistoryRecord(
-                process_id=record.process_id,
-                release_id=record.release_id,
-                revision_id=record.revision_id,
-                current_stage=record.current_stage,
-                status=record.status,
-                actor=str(actor or "").strip() or None,
-                provenance=dict(provenance or {}),
-                change_set=_state_change_set(current, record),
-                state=_workflow_dump_compat(record),
+        with self.release_transaction(record.process_id):
+            current = self.load(record.process_id)
+            expected_revision = int(record.persistence_revision or 0)
+            if current is None:
+                if expected_revision != 0:
+                    raise RuntimeError(
+                        f"release workflow persistence conflict for {record.process_id}: "
+                        f"expected new state at revision 0, received {expected_revision}"
+                    )
+                next_revision = 1
+            else:
+                if current.release_id != record.release_id:
+                    raise RuntimeError(
+                        f"release workflow identity conflict for {record.process_id}: "
+                        f"stored={current.release_id}, received={record.release_id}"
+                    )
+                if expected_revision != current.persistence_revision:
+                    raise RuntimeError(
+                        f"release workflow persistence conflict for {record.process_id}: "
+                        f"expected {expected_revision}, current {current.persistence_revision}"
+                    )
+                next_revision = current.persistence_revision + 1
+
+            persisted = _copy_state(record, persistence_revision=next_revision)
+            target = self._target(record.process_id)
+            _atomic_write_json(target, _workflow_dump_compat(persisted))
+            # Most callers retain the model they supplied. Once the atomic
+            # state replacement has committed, keep that model's fence in sync
+            # even if a later history append reports an I/O error.
+            if isinstance(state, ReleaseWorkflowState):
+                state.persistence_revision = next_revision
+            self._append_history(
+                ReleaseWorkflowHistoryRecord(
+                    process_id=persisted.process_id,
+                    release_id=persisted.release_id,
+                    revision_id=persisted.revision_id,
+                    current_stage=persisted.current_stage,
+                    status=persisted.status,
+                    actor=str(actor or "").strip() or None,
+                    provenance={
+                        **dict(provenance or {}),
+                        "persistence_revision": next_revision,
+                    },
+                    change_set=_state_change_set(current, persisted),
+                    state=_workflow_dump_compat(persisted),
+                )
             )
-        )
-        return record
+            return persisted
 
 
 
@@ -1289,6 +1448,15 @@ def rollback_release_workflow(
     if not state.rollback_fenceposts:
         raise KeyError(f"release workflow has no rollback fenceposts: {state.process_id}")
 
+    stage_ranks = {name: index for index, name in enumerate(RELEASE_STAGE_TOPOLOGY)}
+    current_rank = stage_ranks.get(state.current_stage)
+    if current_rank is None:
+        raise ValueError(f"release stage is outside the immutable rollback topology: {state.current_stage}")
+
+    def _strictly_prior(row: ReleaseRollbackFencepost) -> bool:
+        row_rank = stage_ranks.get(row.stage)
+        return row_rank is not None and row_rank < current_rank
+
     target: Optional[ReleaseRollbackFencepost] = None
     if fencepost_id:
         target_id = str(fencepost_id or "").strip()
@@ -1303,23 +1471,23 @@ def rollback_release_workflow(
                 target = row
                 break
     else:
-        preferred_prior_stage: Optional[str] = None
-        for entry in reversed(state.promotion_history):
-            if (
-                str(entry.get("action") or "") != "rollback"
-                and str(entry.get("to_stage") or "").strip() == state.current_stage
-            ):
-                preferred_prior_stage = str(entry.get("from_stage") or "").strip() or None
-                break
-        eligible = [row for row in state.rollback_fenceposts if row.stage != state.current_stage]
-        if preferred_prior_stage:
-            target = next((row for row in reversed(eligible) if row.stage == preferred_prior_stage), None)
-        if target is None and eligible:
-            target = eligible[-1]
+        eligible = [row for row in state.rollback_fenceposts if _strictly_prior(row)]
+        if eligible:
+            target = max(eligible, key=lambda row: (stage_ranks[row.stage], row.created_at))
 
     if target is None:
         selector = fencepost_id or stage or "prior_stage"
         raise KeyError(f"rollback fencepost not found for {state.process_id}: {selector}")
+    if not _strictly_prior(target):
+        raise ValueError(
+            f"rollback target must strictly precede {state.current_stage} in the immutable release topology: {target.stage}"
+        )
+
+    target_rank = stage_ranks[target.stage]
+    retained_fenceposts = [
+        row for row in state.rollback_fenceposts
+        if stage_ranks.get(row.stage, len(RELEASE_STAGE_TOPOLOGY)) <= target_rank
+    ]
 
     rollback_entry = {
         "ts": _now_iso(),
@@ -1335,6 +1503,7 @@ def rollback_release_workflow(
         status="rolled_back",
         revision_id=target.shared_state_revision_id,
         promotion_history=list(state.promotion_history) + [rollback_entry],
+        rollback_fenceposts=retained_fenceposts,
         safe_push_criteria={
             "safe_push": False,
             "rollback_target_stage": target.stage,
@@ -1571,6 +1740,19 @@ def apply_release_rollback_restore(
     transaction_store = release_store or ReleaseWorkflowStore(Path(snapshot_store.path).parent / "rollback_transactions")
     normalized_reason = str(reason or "rollback").strip() or "rollback"
     with transaction_store.rollback_transaction(state.process_id), shared_state_store.transaction(state.process_id):
+        if release_store is not None:
+            authoritative_state = release_store.load(state.process_id)
+            if authoritative_state is None:
+                raise KeyError(f"release workflow not found: {state.process_id}")
+            if authoritative_state.release_id != state.release_id:
+                raise RuntimeError(
+                    f"release workflow identity changed for {state.process_id}: "
+                    f"stored={authoritative_state.release_id}, requested={state.release_id}"
+                )
+            # The endpoint may have read state while a promotion owned the
+            # release transaction. Rebase rollback planning on the state that
+            # is authoritative after acquiring the same transaction fence.
+            state = authoritative_state
         intent = transaction_store.load_rollback_intent(state.process_id)
         resumable = bool(
             intent
@@ -1844,6 +2026,8 @@ def apply_release_rollback_restore(
 
 
 __all__ = [
+    "RELEASE_STAGE_TOPOLOGY",
+    "ReleaseCanaryPolicy",
     "ReleaseArtifactReceipt",
     "ReleaseArtifactStore",
     "ReleaseRollbackFencepost",
@@ -1860,6 +2044,7 @@ __all__ = [
     "record_release_fencepost",
     "record_release_artifact_receipt",
     "record_release_handoff",
+    "release_canary_policy",
     "release_artifact_attestation_signature",
     "repair_release_workflow",
     "rollback_release_workflow",

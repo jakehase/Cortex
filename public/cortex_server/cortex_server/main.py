@@ -101,10 +101,21 @@ class ReadPrincipal:
     credential_id: str = ""
     tenant_id: str = ""
     workspace_id: str = ""
+    storage_workspace_id: str = ""
     agent_id: str = ""
     user_id: str = ""
     channel_id: str = ""
     session_id: str = ""
+
+
+@dataclass(frozen=True)
+class ReadRoutePolicy:
+    """Security metadata and matcher captured for one concrete read route."""
+
+    path: str
+    methods: frozenset[str]
+    policy: str
+    path_regex: Any
 
 
 class SharedServiceStartupError(RuntimeError):
@@ -321,18 +332,66 @@ _READ_SCOPE_FIELDS = (
 _READ_SCOPE_HEADERS = {
     field: f"x-cortex-{field.replace('_', '-')}" for field in _READ_SCOPE_FIELDS
 }
+_RUNTIME_ROUTE_PREFIX = r"(?:orchestrator|conductor)"
 _RUNTIME_RESOURCE_PATH = re.compile(
-    r"^/orchestrator/runtime/(?:process|delivery|roadmap|trace|lineage|policy-explain|policy-history|self-review|postmortem)/([^/]+)$"
+    rf"^/{_RUNTIME_ROUTE_PREFIX}/runtime/(?:process|delivery|roadmap|trace|lineage|policy-explain|policy-history|self-review|postmortem)/([^/]+)$"
 )
 _RUNTIME_TRACEABILITY_PATH = re.compile(
-    r"^/orchestrator/runtime/processes/([^/]+)/traceability$"
+    rf"^/{_RUNTIME_ROUTE_PREFIX}/runtime/processes/([^/]+)/traceability$"
 )
-_PUBLIC_KERNEL_EMBEDDING_PATHS = frozenset(
+_RUNTIME_COLLECTION_PATHS = frozenset(
+    f"/{prefix}/runtime/{resource}"
+    for prefix in ("orchestrator", "conductor")
+    for resource in ("processes", "sessions", "watchers")
+)
+_RUNTIME_STATUS_PATHS = frozenset(
+    f"/{prefix}/runtime/status" for prefix in ("orchestrator", "conductor")
+)
+_PUBLIC_REDACTED_READ_PATHS = frozenset(
     {
         "/nexus/context",
         "/nexus/status",
         "/oracle/status",
         "/meta_conductor/status",
+        "/orchestrator/runtime-delivery/readiness",
+        "/conductor/runtime-delivery/readiness",
+    }
+)
+_PUBLIC_READ_PATHS = frozenset(
+    {
+        "/",
+        "/capabilities",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/health",
+        "/openapi.json",
+        "/ready",
+        "/redoc",
+    }
+)
+_AUTHENTICATED_REDACTED_READ_PATHS = frozenset(
+    {
+        "/meta_conductor/kernel/status",
+        "/meta_conductor/kernel/telemetry",
+        "/mission_control/capabilities",
+        "/mission_control/status",
+        "/nexus/kernel/status",
+        "/nexus/kernel/telemetry",
+        "/oracle/kernel/status",
+        "/oracle/kernel/telemetry",
+        *_RUNTIME_STATUS_PATHS,
+    }
+)
+_READ_POLICY_METADATA_KEY = "x-cortex-read-policy"
+_READ_POLICIES = frozenset(
+    {
+        "public",
+        "public_redacted",
+        "authenticated_redacted",
+        "admin_redacted",
+        "runtime_collection",
+        "runtime_resource",
+        "mission_control_resource",
     }
 )
 _OPERATIONAL_REDACTED_KEYS = frozenset(
@@ -423,57 +482,73 @@ def _parse_read_scope_credentials(raw: str) -> Tuple[ReadScopeCredential, ...]:
     return tuple(credentials)
 
 
-def _read_surface_policy(path: str) -> Optional[str]:
-    """Classify sensitive GET paths without relying on router import order.
+def _declared_read_policy(path: str) -> str:
+    """Return the policy to attach to a route during inventory construction.
 
-    Policies ending in ``_redacted`` are transformed to remove prompt,
-    session, and learned-memory material before the response leaves Cortex.
+    The small public/authenticated sets and resource-shaped routes are explicit.
+    Everything else is administrator-only, which makes newly loaded read routes
+    fail closed instead of inheriting access from their spelling.
     """
     normalized = str(path or "/").rstrip("/") or "/"
-    if normalized == "/nexus/codec" or normalized.startswith("/nexus/codec/"):
-        # This control plane already has its own fail-closed administrator
-        # boundary in WriteAuthorizationMiddleware.
-        return None
-    if normalized in _PUBLIC_KERNEL_EMBEDDING_PATHS:
+    if normalized in _PUBLIC_READ_PATHS:
+        return "public"
+    if normalized in _PUBLIC_REDACTED_READ_PATHS:
         return "public_redacted"
-    if re.search(r"/kernel/(?:status|telemetry)$", normalized):
+    if normalized in _AUTHENTICATED_REDACTED_READ_PATHS:
         return "authenticated_redacted"
-    if normalized == "/orchestrator/runtime/processes":
-        return "runtime_collection"
-    if normalized in {
-        "/orchestrator/runtime/sessions",
-        "/orchestrator/runtime/watchers",
-    }:
+    if normalized in _RUNTIME_COLLECTION_PATHS:
         return "runtime_collection"
     if _RUNTIME_RESOURCE_PATH.fullmatch(normalized) or _RUNTIME_TRACEABILITY_PATH.fullmatch(normalized):
         return "runtime_resource"
-    if normalized == "/orchestrator/runtime/status":
-        return "authenticated_redacted"
-    if normalized.startswith("/orchestrator/runtime/"):
-        # Aggregate analytics, incident, maintenance, delivery-DLQ, and belief
-        # reads cannot be safely attributed to one owner, so they are admin-only.
-        return "admin_redacted"
-    if normalized in {
-        "/orchestrator/workflows",
-    } or normalized.startswith(("/orchestrator/workflow/", "/orchestrator/execution/")):
-        return "admin_redacted"
-    if normalized.startswith("/mission_control/"):
-        if re.fullmatch(r"/mission_control/objectives/[^/]+(?:/activity|/lineage)?", normalized):
-            return "mission_control_resource"
-        if normalized not in {"/mission_control/status", "/mission_control/capabilities"}:
-            return "admin_redacted"
-        return "authenticated_redacted"
+    if re.fullmatch(r"/mission_control/objectives/[^/]+(?:/activity|/lineage)?", normalized):
+        return "mission_control_resource"
+    return "admin_redacted"
 
-    segments = [segment.lower() for segment in normalized.split("/") if segment]
-    if any(segment in {"telemetry", "diagnostic", "diagnostics"} for segment in segments):
-        return "authenticated_redacted"
-    if any(
-        segment in {"history", "activation_history", "traces", "ledger", "log", "lineage", "policy"}
-        or segment.endswith("_history")
-        for segment in segments
-    ):
-        return "admin_redacted"
-    return None
+
+def _attach_read_route_policies(app: FastAPI) -> Tuple[ReadRoutePolicy, ...]:
+    """Attach explicit metadata to every concrete GET/HEAD route."""
+    inventory = []
+    for route in _effective_routes(app.routes):
+        methods = frozenset(
+            str(method).upper() for method in (getattr(route, "methods", None) or ())
+        )
+        read_methods = methods & {"GET", "HEAD"}
+        path = str(getattr(route, "path", "") or "")
+        if not read_methods or not path:
+            continue
+        extra = dict(getattr(route, "openapi_extra", None) or {})
+        policy = str(extra.get(_READ_POLICY_METADATA_KEY) or _declared_read_policy(path))
+        if policy not in _READ_POLICIES:
+            raise RuntimeError(f"invalid read policy {policy!r} declared for {path}")
+        extra[_READ_POLICY_METADATA_KEY] = policy
+        if hasattr(route, "openapi_extra"):
+            route.openapi_extra = extra
+        setattr(route, "cortex_read_policy", policy)
+        path_regex = getattr(route, "path_regex", None)
+        if path_regex is None:
+            path_regex = re.compile(f"^{re.escape(path)}$")
+        inventory.append(
+            ReadRoutePolicy(
+                path=path,
+                methods=read_methods,
+                policy=policy,
+                path_regex=path_regex,
+            )
+        )
+    return tuple(inventory)
+
+
+def _read_surface_policy(
+    path: str,
+    method: str,
+    inventory: Tuple[ReadRoutePolicy, ...],
+) -> str:
+    """Resolve only pre-attached route metadata; unknown reads fail closed."""
+    normalized_method = str(method or "GET").upper()
+    for route_policy in inventory:
+        if normalized_method in route_policy.methods and route_policy.path_regex.fullmatch(path):
+            return route_policy.policy
+    return "admin_redacted"
 
 
 def _read_scope_values(headers) -> Optional[Dict[str, str]]:
@@ -492,6 +567,7 @@ def _authenticate_sensitive_read(request, config: ReadAuthorizationConfig) -> Tu
     """Authenticate an admin token or a fully signed Cortex principal scope."""
     from cortex_server.middleware.write_authorization import token_matches
     from cortex_server.modules.memory_scope import (
+        AuthenticatedMemoryPrincipal,
         canonical_memory_scope_message,
         memory_scope_policy_matches,
         normalize_principal_scope,
@@ -546,7 +622,16 @@ def _authenticate_sensitive_read(request, config: ReadAuthorizationConfig) -> Tu
     ).hexdigest()
     if not hmac.compare_digest(signature, expected):
         return None, "sensitive read authorization required"
-    return ReadPrincipal(role="principal", credential_id=credential_id, **normalized_scope), None
+    memory_principal = AuthenticatedMemoryPrincipal(
+        credential_id=credential_id,
+        **normalized_scope,
+    )
+    return ReadPrincipal(
+        role="principal",
+        credential_id=credential_id,
+        storage_workspace_id=memory_principal.storage_workspace_id,
+        **normalized_scope,
+    ), None
 
 
 def _runtime_process_for_read_authorization(process_id: str) -> Optional[Dict[str, Any]]:
@@ -557,7 +642,9 @@ def _runtime_process_for_read_authorization(process_id: str) -> Optional[Dict[st
     return dict(process) if isinstance(process, dict) else None
 
 
-def _resource_identity_values(process: Mapping[str, Any]) -> Tuple[set[str], set[str]]:
+def _resource_identity_values(
+    process: Mapping[str, Any],
+) -> Tuple[set[str], set[str], set[str], set[str], set[str]]:
     workflow = process.get("workflow") if isinstance(process.get("workflow"), Mapping) else {}
     metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), Mapping) else {}
     scopes = [process, metadata]
@@ -572,13 +659,27 @@ def _resource_identity_values(process: Mapping[str, Any]) -> Tuple[set[str], set
         for scope in scopes
         if str(scope.get("tenant_id") or "").strip()
     }
-    owners = {
-        str(scope.get(key) or "").strip()
+    storage_workspaces = {
+        str(scope.get("storage_workspace_id") or "").strip()
         for scope in scopes
-        for key in ("owner", "user_id", "agent_id")
-        if str(scope.get(key) or "").strip()
+        if str(scope.get("storage_workspace_id") or "").strip()
     }
-    return tenants, owners
+    owners = {
+        str(scope.get("owner") or "").strip()
+        for scope in scopes
+        if str(scope.get("owner") or "").strip()
+    }
+    users = {
+        str(scope.get("user_id") or "").strip()
+        for scope in scopes
+        if str(scope.get("user_id") or "").strip()
+    }
+    agents = {
+        str(scope.get("agent_id") or "").strip()
+        for scope in scopes
+        if str(scope.get("agent_id") or "").strip()
+    }
+    return tenants, storage_workspaces, owners, users, agents
 
 
 def _principal_can_read_process(principal: ReadPrincipal, process: Optional[Mapping[str, Any]]) -> bool:
@@ -586,11 +687,22 @@ def _principal_can_read_process(principal: ReadPrincipal, process: Optional[Mapp
         return True
     if not isinstance(process, Mapping):
         return False
-    tenants, owners = _resource_identity_values(process)
-    return bool(
-        (principal.tenant_id and principal.tenant_id in tenants)
-        or ({principal.user_id, principal.agent_id} - {""}) & owners
-    )
+    tenants, storage_workspaces, owners, users, agents = _resource_identity_values(process)
+    if tenants != {principal.tenant_id}:
+        return False
+    if storage_workspaces != {principal.storage_workspace_id}:
+        return False
+
+    # Ownership metadata must be complete enough to bind the resource to this
+    # exact principal. Conflicting or legacy-unowned resources are admin-only.
+    if users and users != {principal.user_id}:
+        return False
+    if agents and agents != {principal.agent_id}:
+        return False
+    principal_owners = {principal.user_id, principal.agent_id} - {""}
+    if owners and not owners.issubset(principal_owners):
+        return False
+    return bool(owners or users or agents)
 
 
 def _runtime_resource_id(path: str, query_params) -> Optional[str]:
@@ -598,7 +710,12 @@ def _runtime_resource_id(path: str, query_params) -> Optional[str]:
     match = _RUNTIME_RESOURCE_PATH.fullmatch(normalized) or _RUNTIME_TRACEABILITY_PATH.fullmatch(normalized)
     if match:
         return match.group(1)
-    if normalized in {"/orchestrator/runtime/sessions", "/orchestrator/runtime/watchers"}:
+    if normalized in {
+        "/orchestrator/runtime/sessions",
+        "/orchestrator/runtime/watchers",
+        "/conductor/runtime/sessions",
+        "/conductor/runtime/watchers",
+    }:
         return str(query_params.get("process_id") or "").strip() or None
     return None
 
@@ -1009,8 +1126,12 @@ def create_app() -> FastAPI:
                     return JSONResponse(status_code=403, content={"success": False, "error": "admin token required"})
         if request.method.upper() not in {"GET", "HEAD"}:
             return await call_next(request)
-        policy = _read_surface_policy(request.url.path)
-        if policy is None:
+        policy = _read_surface_policy(
+            request.url.path,
+            request.method,
+            getattr(app.state, "read_route_policies", ()),
+        )
+        if policy == "public":
             return await call_next(request)
 
         principal = None
@@ -1200,6 +1321,11 @@ def create_app() -> FastAPI:
                 "path": getattr(route, "path", ""),
                 "methods": methods,
                 "write": any(method in MUTATING_METHODS for method in methods),
+                "readPolicy": (
+                    getattr(route, "cortex_read_policy", None)
+                    if any(method in {"GET", "HEAD"} for method in methods)
+                    else None
+                ),
                 "name": getattr(route, "name", None),
             })
         return {
@@ -1261,6 +1387,10 @@ def create_app() -> FastAPI:
             },
         }
 
+    # Route loading is now complete. Capture immutable policy metadata once so
+    # request authorization never depends on path-name heuristics.
+    app.state.read_route_policies = _attach_read_route_policies(app)
+
     def custom_openapi():
         if app.openapi_schema:
             return app.openapi_schema
@@ -1302,9 +1432,13 @@ def create_app() -> FastAPI:
                 if operation:
                     operation["security"] = [{"CortexWriteToken": []}]
                     operation["x-cortex-write-authorization-mode"] = write_auth_mode
-            read_policy = _read_surface_policy(path)
             operation = path_item.get("get")
-            if operation and read_policy not in {None, "public_redacted"}:
+            read_policy = (
+                operation.get(_READ_POLICY_METADATA_KEY, "admin_redacted")
+                if operation
+                else None
+            )
+            if operation and read_policy not in {"public", "public_redacted"}:
                 admin_security = [
                     {"CortexAdminToken": []},
                     {"CortexCodecAdminToken": []},

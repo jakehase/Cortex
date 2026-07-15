@@ -42,6 +42,7 @@ type BridgeConfig = {
   sessionId?: string;
   scopeCredentialId?: string;
   scopeHmacSecret?: string;
+  allowUnsignedLocalDevelopment?: boolean;
   sessionIdentityHmacSecret?: string;
 };
 
@@ -346,6 +347,7 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     sessionId: typeof cfg.sessionId === 'string' && cfg.sessionId.trim() ? cfg.sessionId.trim() : 'global-session',
     scopeCredentialId: typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '',
     scopeHmacSecret: typeof cfg.scopeHmacSecret === 'string' ? cfg.scopeHmacSecret : '',
+    allowUnsignedLocalDevelopment: cfg.allowUnsignedLocalDevelopment === true,
     sessionIdentityHmacSecret: typeof cfg.sessionIdentityHmacSecret === 'string' ? cfg.sessionIdentityHmacSecret : '',
     stateDir: typeof cfg.stateDir === 'string' && cfg.stateDir.trim()
       ? cfg.stateDir.trim()
@@ -817,11 +819,11 @@ function memoryScopeFields(cfg: BridgeConfig, scope: Record<string, string>): Re
   const workspaceId = String(scope.workspace_id || '').trim();
   if (!tenantId || !workspaceId) throw new Error('tenantId and workspaceId are required for scoped Cortex memory access');
   const credentialId = String(cfg.scopeCredentialId || '').trim();
-  if (!secret || !credentialId) {
-    if (tenantId === 'cortex-local' && workspaceId === 'default') {
+  if (!secret.trim() || !credentialId) {
+    if (cfg.allowUnsignedLocalDevelopment === true && tenantId === 'cortex-local' && workspaceId === 'default') {
       return { tenant_id: tenantId, workspace_id: workspaceId };
     }
-    throw new Error('scopeCredentialId and scopeHmacSecret are required to authenticate non-default Cortex memory scope');
+    throw new Error('scopeCredentialId and scopeHmacSecret are required for Cortex memory access unless allowUnsignedLocalDevelopment is explicitly enabled for cortex-local/default');
   }
   const signature = createHmac('sha256', secret)
     .update(['cortex.memory.principal.v2', credentialId, tenantId, workspaceId, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n'), 'utf8')
@@ -1094,6 +1096,24 @@ const plugin = {
     const initialConfig = resolveConfig(api.pluginConfig);
     if (!String(initialConfig.sessionIdentityHmacSecret || '').trim()) {
       throw new Error('cortex-memory-bridge requires an explicitly provisioned sessionIdentityHmacSecret shared with cortex-route-gate for memory_search and default-on Codec continuity');
+    }
+    const scopeCredentialId = String(initialConfig.scopeCredentialId || '').trim();
+    const scopeHmacSecret = String(initialConfig.scopeHmacSecret || '');
+    const hasScopeCredentialId = scopeCredentialId.length > 0;
+    const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
+    if (hasScopeCredentialId !== hasScopeHmacSecret) {
+      throw new Error('cortex-memory-bridge requires scopeCredentialId and scopeHmacSecret together');
+    }
+    if (hasScopeCredentialId && !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/.test(scopeCredentialId)) {
+      throw new Error('cortex-memory-bridge scopeCredentialId must be a bounded opaque identifier');
+    }
+    if (!hasScopeCredentialId) {
+      if (initialConfig.allowUnsignedLocalDevelopment !== true) {
+        throw new Error('cortex-memory-bridge requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
+      }
+      if (initialConfig.tenantId !== 'cortex-local' || initialConfig.workspaceId !== 'default') {
+        throw new Error('cortex-memory-bridge allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
+      }
     }
     const recentOutputMaxChars = initialConfig.recentOutputMaxChars;
     const spool = initialConfig.enabledWriteThrough || initialConfig.enabledCodecContinuity

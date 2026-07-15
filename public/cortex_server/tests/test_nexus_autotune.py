@@ -61,19 +61,23 @@ async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch, tmp_path
         "l9_auto_activation_threshold": 0.48,
         "fastlane_escalation_threshold": 0.72,
     })
-    monkeypatch.setattr(nexus._OUTCOME_TUNER, "get_policy_hint", lambda **kwargs: {
-        "stage": "bounded_rollout",
-        "rollout_percent": 25,
-        "apply_recommendation": True,
-        "recommended_policy": "deliberate_council",
-        "baseline_policy": "fastlane_memory",
-    })
-    monkeypatch.setattr(nexus._OUTCOME_TUNER, "observe", lambda _record: {"decision": {"stage": "bounded_rollout"}})
-    monkeypatch.setattr(nexus, "_outcome_tuner_for_scope", lambda _scope: nexus._OUTCOME_TUNER)
+
+    class _Tuner:
+        def get_policy_hint(self, **_kwargs):
+            return {
+                "stage": "bounded_rollout",
+                "rollout_percent": 25,
+                "apply_recommendation": True,
+                "recommended_policy": "deliberate_council",
+                "baseline_policy": "fastlane_memory",
+            }
+
+        def observe(self, _record):
+            return {"decision": {"stage": "bounded_rollout"}}
+
+    tuner = _Tuner()
+    monkeypatch.setattr(nexus, "_outcome_tuner_for_scope", lambda _scope: tuner)
     monkeypatch.setattr(nexus, "observe_outcome", lambda *_args, **_kwargs: {"autotune_enabled": True})
-    monkeypatch.setattr(nexus._LATENCY_GOVERNOR, "observe", lambda _record: {"recorded": True})
-    monkeypatch.setattr(nexus._BANDIT_SCHEDULER, "update", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(nexus._DELTA_CACHE, "update", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(nexus, "_persist_checkpoint", lambda _checkpoint: None)
     monkeypatch.setattr(nexus, "_refresh_context", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

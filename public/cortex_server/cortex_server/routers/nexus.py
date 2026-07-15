@@ -8,6 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Mapping, Optional
 import base64
+from contextlib import asynccontextmanager
 import fcntl
 import os
 import json
@@ -34,13 +35,16 @@ from cortex_server.modules.level_optimizer import (
     should_early_exit,
     run_counterfactual_replay,
 )
+from cortex_server.modules import routing_autotune as _routing_autotune_module
 from cortex_server.modules.routing_autotune import get_policy_snapshot, observe_outcome
 from cortex_server.modules.execution_transaction import ExecutionTransaction, RetryPolicy
 from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
 from cortex_server.modules.outcome_tuner import OutcomeTuner
 from cortex_server.modules.world_grounding import gather_live_evidence
 from cortex_server.modules.route_health import ROUTE_HEALTH
+from cortex_server.modules import codec_policy as _codec_policy_module
 from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
+from cortex_server.modules import cortex_codec as _cortex_codec_module
 from cortex_server.modules.cortex_codec import apply_codec_outcome_feedback_for_session, get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, MemoryScopeAuthError, authenticate_memory_principal
@@ -51,7 +55,13 @@ from cortex_server.middleware.hud_middleware import track_level
 from services.routing.adaptive_router_policy import choose_route
 from services.routing.route_feature_pipeline import build_route_features
 
-router = APIRouter()
+@asynccontextmanager
+async def _nexus_lifespan(_app):
+    _validate_outcome_feedback_signing_configuration()
+    yield
+
+
+router = APIRouter(lifespan=_nexus_lifespan)
 
 # OpenRouter configuration for L5 Oracle semantic analysis
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -139,15 +149,12 @@ _CODEC_REPLAY_SCHEDULER_STATE: Dict[str, Any] = {
     "last_error": "",
 }
 
-_CONTEXT_LOCK = threading.Lock()
+_CONTEXT_LOCK = threading.RLock()
 _CONTEXT_TTL_SECONDS = 1800
 _RECENT_TURNS_MAX = 24
-_CONTEXT_STATE: Dict[str, Any] = {
-    "updated_at": "",
-    "recent_turns": deque(maxlen=_RECENT_TURNS_MAX),
-    "last_fix_plan": "",
-    "last_codeword": "",
-}
+_CONTEXT_STATE_VERSION = "nexus.referent.principal.v1"
+_CONTEXT_STATES: Dict[str, Dict[str, Any]] = {}
+_CONTEXT_QUARANTINE_CHECKED: set[str] = set()
 _REFERENT_STATE_PATH = Path(os.getenv("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
 _CHECKPOINT_STORE_PATH = Path(os.getenv("NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"))
 _CODEC_EVAL_HISTORY_PATH = Path(os.getenv("NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"))
@@ -156,14 +163,28 @@ _CODEC_LIVE_REEXEC_REPORTS_PATH = Path(os.getenv("NEXUS_CODEC_LIVE_REEXEC_REPORT
 _CODEC_CORPUS_EXPORTS_PATH = Path(os.getenv("NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"))
 _CODEC_ACTIVE_POLICY_PATH = Path(os.getenv("NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"))
 _CODEC_REPLAY_PLANS_PATH = Path(os.getenv("NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"))
-_BANDIT_STATE_PATH = Path(os.getenv("NEXUS_BANDIT_STATE_PATH", "/opt/clawdbot/state/nexus_bandit_state.json"))
-_DELTA_CACHE_STATE_PATH = Path(os.getenv("NEXUS_DELTA_CACHE_STATE_PATH", "/opt/clawdbot/state/nexus_semantic_delta_cache.json"))
-
-_BANDIT_SCHEDULER = ContextualBanditScheduler(state_path=_BANDIT_STATE_PATH)
 _TOKEN_PLANNER = TokenBudgetPlanner()
-_DELTA_CACHE = SemanticDeltaCache(state_path=_DELTA_CACHE_STATE_PATH)
-_LATENCY_GOVERNOR = LatencyBudgetGovernor()
-_OUTCOME_TUNER = OutcomeTuner()
+_INITIAL_ENVIRONMENT = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower()
+_DEFAULT_ADAPTIVE_STATE_ROOT = (
+    Path("/opt/clawdbot/state/nexus_principals")
+    if _INITIAL_ENVIRONMENT in {"production", "prod", "staging"}
+    else Path("/tmp") / f"cortex-nexus-principals-{os.getuid()}"
+)
+_ADAPTIVE_STATE_ROOT = Path(
+    os.getenv("NEXUS_ADAPTIVE_STATE_ROOT", str(_DEFAULT_ADAPTIVE_STATE_ROOT))
+)
+_ADAPTIVE_POLICY_LOCK = threading.RLock()
+_ADAPTIVE_POLICY_STATES: Dict[str, Any] = {}
+_ROUTING_AUTOTUNE_SCOPE_LOCK = threading.RLock()
+# Route every in-process module caller through the same re-entrant locks while
+# a principal-specific state path is installed. This prevents an Oracle or
+# governance read in another thread from observing the temporary namespace.
+_routing_autotune_module._LOCK = _ROUTING_AUTOTUNE_SCOPE_LOCK
+_CODEC_POLICY_SCOPE_LOCK = _codec_policy_module._LOCK
+_CODEC_ROLLUP_SCOPE_LOCK = threading.RLock()
+_cortex_codec_module._ROLLUP_AUTOTUNE_LOCK = _CODEC_ROLLUP_SCOPE_LOCK
+_ADAPTIVE_RATE_LOCK = threading.Lock()
+_ADAPTIVE_OBSERVATION_RATES: Dict[str, deque] = {}
 NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
 _ASSURANCE_KEY_TEXT = (
@@ -187,8 +208,9 @@ _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = Path(
     )
 )
 _OUTCOME_FEEDBACK_RECEIPT_LOCK = threading.Lock()
-_TENANT_OUTCOME_TUNER_LOCK = threading.RLock()
-_TENANT_OUTCOME_TUNERS: Dict[str, OutcomeTuner] = {}
+_OUTCOME_FEEDBACK_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
+_PRINCIPAL_OUTCOME_TUNER_LOCK = threading.RLock()
+_PRINCIPAL_OUTCOME_TUNERS: Dict[str, OutcomeTuner] = {}
 _ASSURANCE_RESERVED_METADATA = {
     "assurance",
     "assurance_receipt",
@@ -210,41 +232,124 @@ _ASSURANCE_RESERVED_METADATA = {
 }
 
 
-def _context_for_disk() -> Dict[str, Any]:
+def _new_context_state() -> Dict[str, Any]:
     return {
-        "updated_at": _CONTEXT_STATE.get("updated_at", ""),
-        "last_fix_plan": _CONTEXT_STATE.get("last_fix_plan", ""),
-        "last_codeword": _CONTEXT_STATE.get("last_codeword", ""),
-        "recent_turns": list(_CONTEXT_STATE.get("recent_turns", []))[-_RECENT_TURNS_MAX:],
+        "updated_at": "",
+        "recent_turns": deque(maxlen=_RECENT_TURNS_MAX),
+        "last_fix_plan": "",
+        "last_codeword": "",
     }
 
 
-def _load_context_state() -> None:
+def _referent_scope_digest(continuity_key: str) -> str:
+    return hashlib.sha256(str(continuity_key or "").encode("utf-8")).hexdigest()
+
+
+def _referent_state_path(continuity_key: str) -> Path:
+    root = _REFERENT_STATE_PATH.with_name(f"{_REFERENT_STATE_PATH.name}.principals")
+    return root / f"{_referent_scope_digest(continuity_key)}.json"
+
+
+def _quarantine_legacy_context_state() -> None:
+    """Never hydrate the unscoped v0 file; move it aside once when possible."""
+
+    legacy = _REFERENT_STATE_PATH
+    marker = str(legacy)
+    if marker in _CONTEXT_QUARANTINE_CHECKED:
+        return
+    _CONTEXT_QUARANTINE_CHECKED.add(marker)
     try:
-        if not _REFERENT_STATE_PATH.exists():
+        if not legacy.is_file():
             return
-        data = json.loads(_REFERENT_STATE_PATH.read_text())
-        if not isinstance(data, dict):
-            return
+        quarantine = legacy.with_name(f"{legacy.name}.legacy-unscoped.quarantine")
+        if quarantine.exists():
+            quarantine = legacy.with_name(
+                f"{legacy.name}.legacy-unscoped.{int(time.time())}.{secrets.token_hex(4)}.quarantine"
+            )
+        os.replace(legacy, quarantine)
+    except OSError:
+        # An unwritable legacy file remains ignored and can never enter a
+        # principal namespace.
+        return
+
+
+def _context_for_disk(continuity_key: str, state: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "version": _CONTEXT_STATE_VERSION,
+        "scope_key_hash": _referent_scope_digest(continuity_key),
+        "updated_at": str(state.get("updated_at", "") or ""),
+        "last_fix_plan": str(state.get("last_fix_plan", "") or ""),
+        "last_codeword": str(state.get("last_codeword", "") or ""),
+        "recent_turns": list(state.get("recent_turns", []))[-_RECENT_TURNS_MAX:],
+    }
+
+
+def _load_context_state(continuity_key: str) -> Dict[str, Any]:
+    state = _new_context_state()
+    if not continuity_key:
+        return state
+    try:
+        _quarantine_legacy_context_state()
+        state_path = _referent_state_path(continuity_key)
+        if not state_path.exists():
+            return state
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(data, dict)
+            or data.get("version") != _CONTEXT_STATE_VERSION
+            or not hmac.compare_digest(
+                str(data.get("scope_key_hash") or ""),
+                _referent_scope_digest(continuity_key),
+            )
+        ):
+            return state
         turns = data.get("recent_turns") if isinstance(data.get("recent_turns"), list) else []
-        with _CONTEXT_LOCK:
-            _CONTEXT_STATE["updated_at"] = str(data.get("updated_at", "") or "")
-            _CONTEXT_STATE["last_fix_plan"] = str(data.get("last_fix_plan", "") or "")
-            _CONTEXT_STATE["last_codeword"] = str(data.get("last_codeword", "") or "")
-            _CONTEXT_STATE["recent_turns"] = deque(turns[-_RECENT_TURNS_MAX:], maxlen=_RECENT_TURNS_MAX)
+        state["updated_at"] = str(data.get("updated_at", "") or "")
+        state["last_fix_plan"] = str(data.get("last_fix_plan", "") or "")
+        state["last_codeword"] = str(data.get("last_codeword", "") or "")
+        state["recent_turns"] = deque(turns[-_RECENT_TURNS_MAX:], maxlen=_RECENT_TURNS_MAX)
     except Exception:
-        pass
+        return _new_context_state()
+    return state
 
 
-def _persist_context_state() -> None:
+def _context_state_for_key(continuity_key: str) -> Optional[Dict[str, Any]]:
+    if not continuity_key:
+        return None
+    state = _CONTEXT_STATES.get(continuity_key)
+    if state is not None:
+        return state
+    while len(_CONTEXT_STATES) >= 512:
+        _CONTEXT_STATES.pop(next(iter(_CONTEXT_STATES)))
+    state = _load_context_state(continuity_key)
+    _CONTEXT_STATES[continuity_key] = state
+    return state
+
+
+def _persist_context_state(continuity_key: str, state: Mapping[str, Any]) -> None:
+    if not continuity_key:
+        return
+    temporary: Optional[Path] = None
     try:
-        _REFERENT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _REFERENT_STATE_PATH.write_text(json.dumps(_context_for_disk(), ensure_ascii=False))
+        state_path = _referent_state_path(continuity_key)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = state_path.with_name(
+            f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
+        )
+        temporary.write_text(
+            json.dumps(_context_for_disk(continuity_key, state), ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, state_path)
     except Exception:
         pass
-
-
-_load_context_state()
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 _REFERENT_PATTERNS = [
     r"\bthat one\b",
@@ -289,15 +394,122 @@ def _codec_session_key(request: Optional[Request]) -> str:
 
 
 def _principal_continuity_key(principal: AuthenticatedMemoryPrincipal, session_key: str) -> str:
-    canonical = "\0".join(
-        (
-            principal.credential_id,
-            principal.tenant_id,
-            principal.storage_workspace_id,
-            str(session_key or principal.session_id),
-        )
-    )
+    resolved_session = str(session_key or principal.session_id)
+    principal_key = principal.isolation_key("nexus-referent-continuity-v1")
+    if resolved_session == principal.session_id:
+        return principal_key
+    if principal.credential_id != "local-development":
+        raise ValueError("continuity session must match the authenticated principal")
+    # The compatibility development principal has a fixed synthetic scope;
+    # retain per-session continuity without treating transport input as a
+    # production identity claim.
+    canonical = f"{principal_key}\0{resolved_session}"
     return f"principal:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def _adaptive_scope_key(scope: Mapping[str, Any]) -> str:
+    fields = ("tenant_id", "workspace_id", "agent_id", "user_id", "channel_id", "session_id")
+    canonical = "\0".join(("nexus-adaptive-policy-v1", *(str(scope.get(field) or "") for field in fields)))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class _PrincipalAdaptivePolicies:
+    def __init__(self, scope_key: str, root: Path):
+        self.scope_key = scope_key
+        self.root = root / scope_key
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.root.is_symlink():
+            raise RuntimeError("principal adaptive state directory cannot be a symbolic link")
+        os.chmod(self.root, 0o700)
+        self.bandit = ContextualBanditScheduler(state_path=self.root / "bandit.json")
+        self.delta = SemanticDeltaCache(state_path=self.root / "semantic_delta.json")
+        self.latency = LatencyBudgetGovernor(artifact_dir=self.root / "latency")
+        self.routing_state_path = self.root / "routing_autotune.json"
+        self.codec_policy_state_path = self.root / "codec_policy.json"
+        self.codec_rollup_state_path = self.root / "codec_rollup_policy.json"
+
+
+def _adaptive_policies_for_scope(scope: Mapping[str, Any]) -> _PrincipalAdaptivePolicies:
+    scope_key = _adaptive_scope_key(scope)
+    cache_key = f"{_ADAPTIVE_STATE_ROOT}|{scope_key}"
+    with _ADAPTIVE_POLICY_LOCK:
+        state = _ADAPTIVE_POLICY_STATES.get(cache_key)
+        if state is not None:
+            return state
+        while len(_ADAPTIVE_POLICY_STATES) >= 512:
+            _ADAPTIVE_POLICY_STATES.pop(next(iter(_ADAPTIVE_POLICY_STATES)))
+        state = _PrincipalAdaptivePolicies(scope_key, _ADAPTIVE_STATE_ROOT)
+        _ADAPTIVE_POLICY_STATES[cache_key] = state
+        return state
+
+
+def _scoped_routing_policy_call(
+    policies: _PrincipalAdaptivePolicies,
+    operation,
+    *args,
+    **kwargs,
+):
+    with _ROUTING_AUTOTUNE_SCOPE_LOCK:
+        previous = _routing_autotune_module._STATE_PATH
+        _routing_autotune_module._STATE_PATH = policies.routing_state_path
+        try:
+            return operation(*args, **kwargs)
+        finally:
+            _routing_autotune_module._STATE_PATH = previous
+
+
+def _scoped_codec_policy_call(
+    policies: Optional[_PrincipalAdaptivePolicies],
+    operation,
+    *args,
+    **kwargs,
+):
+    if policies is None:
+        return operation(*args, **kwargs)
+    with _CODEC_POLICY_SCOPE_LOCK:
+        previous = _codec_policy_module._STATE_PATH
+        _codec_policy_module._STATE_PATH = policies.codec_policy_state_path
+        try:
+            return operation(*args, **kwargs)
+        finally:
+            _codec_policy_module._STATE_PATH = previous
+
+
+def _scoped_codec_rollup_call(
+    policies: _PrincipalAdaptivePolicies,
+    operation,
+    *args,
+    **kwargs,
+):
+    with _CODEC_ROLLUP_SCOPE_LOCK:
+        previous_path = _cortex_codec_module._ROLLUP_AUTOTUNE_STATE_PATH
+        previous_state = _cortex_codec_module._ROLLUP_AUTOTUNE_STATE
+        _cortex_codec_module._ROLLUP_AUTOTUNE_STATE_PATH = policies.codec_rollup_state_path
+        _cortex_codec_module._ROLLUP_AUTOTUNE_STATE = None
+        try:
+            return operation(*args, **kwargs)
+        finally:
+            _cortex_codec_module._ROLLUP_AUTOTUNE_STATE_PATH = previous_path
+            _cortex_codec_module._ROLLUP_AUTOTUNE_STATE = previous_state
+
+
+def _adaptive_observation_allowed(scope_key: str) -> bool:
+    try:
+        limit = max(1, min(int(os.getenv("NEXUS_ADAPTIVE_OBSERVATION_RATE_LIMIT", "120")), 5000))
+        window = max(1, min(int(os.getenv("NEXUS_ADAPTIVE_OBSERVATION_RATE_WINDOW_SECONDS", "60")), 3600))
+    except ValueError:
+        limit, window = 120, 60
+    now = int(time.time())
+    with _ADAPTIVE_RATE_LOCK:
+        while len(_ADAPTIVE_OBSERVATION_RATES) >= 1024 and scope_key not in _ADAPTIVE_OBSERVATION_RATES:
+            _ADAPTIVE_OBSERVATION_RATES.pop(next(iter(_ADAPTIVE_OBSERVATION_RATES)))
+        observations = _ADAPTIVE_OBSERVATION_RATES.setdefault(scope_key, deque(maxlen=limit))
+        while observations and int(observations[0]) <= now - window:
+            observations.popleft()
+        if len(observations) >= limit:
+            return False
+        observations.append(now)
+        return True
 
 
 def _codec_context_packet(
@@ -307,6 +519,7 @@ def _codec_context_packet(
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
     telemetry_session_key: Optional[str] = None,
+    adaptive_policies: Optional[_PrincipalAdaptivePolicies] = None,
 ) -> Dict[str, Any]:
     if not NEXUS_CODEC_ENABLED or not session_key:
         return {"enabled": bool(NEXUS_CODEC_ENABLED), "available": False, "packet": "", "summary": "", "durable": {}, "session_telemetry": {}}
@@ -324,7 +537,11 @@ def _codec_context_packet(
         "summary": packet.get("summary", ""),
         "max_chars": NEXUS_CODEC_MAX_CHARS,
         "durable": packet.get("durable", {}),
-        "session_telemetry": get_codec_session_telemetry(telemetry_session_key or session_key),
+        "session_telemetry": _scoped_codec_policy_call(
+            adaptive_policies,
+            get_codec_session_telemetry,
+            telemetry_session_key or session_key,
+        ),
     }
 
 
@@ -441,8 +658,14 @@ def _codec_variant_prompts(session_key: str, query: str) -> Dict[str, Any]:
 
 
 
-def _infer_codec_execution_variant(query: str, codec_context: Dict[str, Any], referent_info: Dict[str, Any]) -> str:
-    policy = get_codec_policy_for_query(query)
+def _infer_codec_execution_variant(
+    query: str,
+    codec_context: Dict[str, Any],
+    referent_info: Dict[str, Any],
+    *,
+    adaptive_policies: Optional[_PrincipalAdaptivePolicies] = None,
+) -> str:
+    policy = _scoped_codec_policy_call(adaptive_policies, get_codec_policy_for_query, query)
     codec_available = bool((codec_context or {}).get("available"))
     referents_available = bool((referent_info or {}).get("resolved")) or bool((referent_info or {}).get("referent_memory"))
     if codec_available and (bool(policy.get("should_inject", True)) or str(policy.get("action") or "") == "prefer_codec"):
@@ -523,16 +746,24 @@ def _observe_codec_execution_outcome(
     note: str = "",
     explicit_success: Optional[bool] = None,
     served_variant: Optional[str] = None,
+    adaptive_policies: Optional[_PrincipalAdaptivePolicies] = None,
 ) -> Dict[str, Any]:
     variant = (
         str(served_variant)
         if served_variant in {"query_only", "referents_only", "referents_plus_codec"}
-        else _infer_codec_execution_variant(query, codec_context or {}, referent_info or {})
+        else _infer_codec_execution_variant(
+            query,
+            codec_context or {},
+            referent_info or {},
+            adaptive_policies=adaptive_policies,
+        )
     )
     metrics = _execution_flow_metrics(execution_transaction or {}, validator_result or {}, fastlane)
     recovery_needed = bool(metrics.get("escalated")) or not bool(metrics.get("validator_pass")) or not bool(metrics.get("tx_completed")) or int(metrics.get("failed_steps", 0)) > 0 or int(metrics.get("rollback_count", 0)) > 0
     execution_success = bool(explicit_success) if explicit_success is not None else bool(metrics.get("tx_completed") and metrics.get("validator_pass") and not recovery_needed)
-    artifact = observe_codec_outcome(
+    artifact = _scoped_codec_policy_call(
+        adaptive_policies,
+        observe_codec_outcome,
         query=query,
         policy_label=variant,
         execution_success=execution_success,
@@ -823,7 +1054,14 @@ def _oracle_judge_codec_variants(query: str, variants: List[Dict[str, Any]], *, 
 
 
 
-def _codec_evaluation_view(session_key: str, *, eval_query: str = "", max_chars: int = 420, history_limit: int = 8) -> Dict[str, Any]:
+def _codec_evaluation_view(
+    session_key: str,
+    *,
+    eval_query: str = "",
+    max_chars: int = 420,
+    history_limit: int = 8,
+    adaptive_policies: Optional[_PrincipalAdaptivePolicies] = None,
+) -> Dict[str, Any]:
     resolved_query = (eval_query or "What should I remember from this conversation?").strip()
     debug = get_codec_debug_view(
         session_key,
@@ -849,7 +1087,7 @@ def _codec_evaluation_view(session_key: str, *, eval_query: str = "", max_chars:
         "error": variants_view.get("error"),
         "timeline": (debug.get("persisted_snapshots") or {}).get("recent", []),
         "judge": _heuristic_judge_codec_variants(resolved_query, variants),
-        "policy": get_codec_policy_for_query(resolved_query),
+        "policy": _scoped_codec_policy_call(adaptive_policies, get_codec_policy_for_query, resolved_query),
     }
     return debug
 
@@ -863,6 +1101,7 @@ def _update_codec_context(
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
     telemetry_session_key: Optional[str] = None,
+    adaptive_policies: Optional[_PrincipalAdaptivePolicies] = None,
 ) -> Dict[str, Any]:
     if not NEXUS_CODEC_ENABLED or not session_key:
         return {"enabled": bool(NEXUS_CODEC_ENABLED), "available": False, "packet": "", "summary": ""}
@@ -892,6 +1131,7 @@ def _update_codec_context(
         tenant_id=tenant_id,
         workspace_id=workspace_id,
         telemetry_session_key=telemetry_session_key,
+        adaptive_policies=adaptive_policies,
     )
 
 
@@ -940,35 +1180,45 @@ def _simple_intent_heuristics(query: str) -> Dict[str, Any]:
     }
 
 
-def _refresh_context(query: str, answer: Optional[str] = None) -> None:
+def _refresh_context(query: str, answer: Optional[str] = None, *, continuity_key: str = "") -> None:
+    if not continuity_key:
+        return
     codeword = _extract_codeword(query)
     with _CONTEXT_LOCK:
-        _CONTEXT_STATE["updated_at"] = _now_iso()
-        _CONTEXT_STATE["recent_turns"].append({"query": query, "answer": answer or "", "ts": _CONTEXT_STATE["updated_at"]})
+        state = _context_state_for_key(continuity_key)
+        if state is None:
+            return
+        state["updated_at"] = _now_iso()
+        state["recent_turns"].append({"query": query, "answer": answer or "", "ts": state["updated_at"]})
         if "fix plan" in (query or "").lower() or "flaky ci" in (query or "").lower():
-            _CONTEXT_STATE["last_fix_plan"] = query
+            state["last_fix_plan"] = query
         if codeword:
-            _CONTEXT_STATE["last_codeword"] = codeword
-    _persist_context_state()
+            state["last_codeword"] = codeword
+        _persist_context_state(continuity_key, state)
 
 
-def _resolve_referent_context(query: str) -> Dict[str, Any]:
+def _resolve_referent_context(query: str, *, continuity_key: str = "") -> Dict[str, Any]:
     if not _is_referent_query(query) and "codeword" not in (query or "").lower():
         return {"resolved": False}
+    if not continuity_key:
+        return {"resolved": False, "reason": "principal_context_required"}
 
     with _CONTEXT_LOCK:
-        age_ok = bool(_CONTEXT_STATE.get("updated_at"))
-        if not age_ok:
+        state = _context_state_for_key(continuity_key)
+        if state is None or not state.get("updated_at"):
             return {"resolved": False, "reason": "no_context"}
+        updated_at = _parse_iso_datetime(state.get("updated_at"))
+        if updated_at is None or (datetime.utcnow() - updated_at).total_seconds() > _CONTEXT_TTL_SECONDS:
+            return {"resolved": False, "reason": "context_expired"}
 
-        reference_text = _CONTEXT_STATE.get("last_fix_plan") or ""
-        codeword = _CONTEXT_STATE.get("last_codeword") or ""
+        reference_text = state.get("last_fix_plan") or ""
+        codeword = state.get("last_codeword") or ""
         return {
             "resolved": bool(reference_text or codeword),
             "reference_text": reference_text,
             "codeword": codeword,
             "method": "durable_referent_memory",
-            "storage": str(_REFERENT_STATE_PATH),
+            "storage": str(_referent_state_path(continuity_key)),
         }
 
 
@@ -3086,9 +3336,58 @@ def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[
     return payload
 
 
-def _outcome_feedback_signing_key() -> bytes:
+def _outcome_feedback_request_credentials() -> Dict[str, str]:
+    credentials = {
+        name: os.getenv(name, "").strip()
+        for name in (
+            "CORTEX_WRITE_TOKEN",
+            "CORTEX_ADMIN_TOKEN",
+            "CORTEX_CODEC_ADMIN_TOKEN",
+            "NEXUS_OUTCOME_FEEDBACK_TOKEN",
+        )
+        if os.getenv(name, "").strip()
+    }
+    raw_scopes = os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "").strip()
+    if raw_scopes:
+        try:
+            parsed = json.loads(raw_scopes)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("outcome feedback signing configuration cannot validate malformed scope credentials") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError("outcome feedback signing configuration requires valid scope credentials")
+        for credential_id, record in parsed.items():
+            if isinstance(record, dict) and str(record.get("secret") or "").strip():
+                credentials[f"CORTEX_MEMORY_SCOPE_CREDENTIALS:{credential_id}"] = str(record["secret"]).strip()
+    return credentials
+
+
+def _validate_outcome_feedback_signing_configuration() -> bytes:
     configured = os.getenv("NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY", "").strip()
-    return configured.encode("utf-8") if configured else _ASSURANCE_SIGNING_KEY
+    if not configured:
+        if _production_memory_scope_mode():
+            raise RuntimeError("production requires NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY")
+        return _OUTCOME_FEEDBACK_EPHEMERAL_SIGNING_KEY
+    reserved = _outcome_feedback_request_credentials()
+    assurance_configured = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY", "").strip()
+    if assurance_configured:
+        reserved["NEXUS_ASSURANCE_SIGNING_KEY"] = assurance_configured
+    reused = [
+        name
+        for name, credential in reserved.items()
+        if credential and hmac.compare_digest(configured, credential)
+    ]
+    if reused:
+        raise RuntimeError(
+            "outcome feedback signing key must be server-only and distinct from request credentials: "
+            + ", ".join(sorted(reused))
+        )
+    if _production_memory_scope_mode() and len(configured.encode("utf-8")) < 32:
+        raise RuntimeError("production outcome feedback signing key must contain at least 32 bytes")
+    return configured.encode("utf-8")
+
+
+def _outcome_feedback_signing_key() -> bytes:
+    return _validate_outcome_feedback_signing_configuration()
 
 
 def _encode_outcome_feedback_receipt(payload: Dict[str, Any]) -> str:
@@ -3193,13 +3492,12 @@ def _outcome_feedback_limits() -> tuple[int, int]:
 
 
 def _consume_outcome_feedback_receipt(payload: Mapping[str, Any]) -> None:
-    """Persist replay and tenant rate-limit state under an inter-process file lock."""
+    """Persist replay and principal rate-limit state under an inter-process file lock."""
 
     now = int(time.time())
     expires_at = int(payload.get("expires_at", 0) or 0)
     jti = str(payload.get("jti") or "")
-    tenant_id = str((payload.get("scope") or {}).get("tenant_id") or "")
-    tenant_key = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
+    principal_key = _adaptive_scope_key(payload.get("scope") or {})
     limit, window = _outcome_feedback_limits()
     state_path = _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH
     lock_path = state_path.with_suffix(state_path.suffix + ".lock")
@@ -3251,12 +3549,12 @@ def _consume_outcome_feedback_receipt(payload: Mapping[str, Any]) -> None:
                     rates = {key: values for key, values in rates.items() if values}
                     if jti in consumed:
                         raise ValueError("receipt_already_consumed")
-                    recent = list(rates.get(tenant_key) or [])
+                    recent = list(rates.get(principal_key) or [])
                     if len(recent) >= limit:
-                        raise ValueError("tenant_rate_limit_exceeded")
+                        raise ValueError("principal_rate_limit_exceeded")
                     consumed[jti] = expires_at
                     recent.append(now)
-                    rates[tenant_key] = recent[-limit:]
+                    rates[principal_key] = recent[-limit:]
                     new_state = {"version": 1, "consumed": consumed, "rates": rates}
                     temp_path = state_path.with_name(
                         f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
@@ -3281,17 +3579,17 @@ def _require_outcome_feedback_control(request: Optional[Request]) -> None:
 
 
 def _outcome_tuner_for_scope(scope: Mapping[str, Any]) -> OutcomeTuner:
-    tenant_id = str(scope.get("tenant_id") or "cortex-local")
-    tenant_key = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
-    with _TENANT_OUTCOME_TUNER_LOCK:
-        tuner = _TENANT_OUTCOME_TUNERS.get(tenant_key)
+    principal_key = _adaptive_scope_key(scope)
+    with _PRINCIPAL_OUTCOME_TUNER_LOCK:
+        tuner = _PRINCIPAL_OUTCOME_TUNERS.get(principal_key)
         if tuner is not None:
             return tuner
-        while len(_TENANT_OUTCOME_TUNERS) >= 256:
-            _TENANT_OUTCOME_TUNERS.pop(next(iter(_TENANT_OUTCOME_TUNERS)))
-        root = Path(os.getenv("NEXUS_OUTCOME_ARTIFACT_DIR", str(_OUTCOME_TUNER.artifact_dir)))
-        tuner = OutcomeTuner(artifact_dir=root / "tenants" / tenant_key)
-        _TENANT_OUTCOME_TUNERS[tenant_key] = tuner
+        while len(_PRINCIPAL_OUTCOME_TUNERS) >= 256:
+            _PRINCIPAL_OUTCOME_TUNERS.pop(next(iter(_PRINCIPAL_OUTCOME_TUNERS)))
+        root = Path(os.getenv("NEXUS_OUTCOME_ARTIFACT_DIR", str(_ADAPTIVE_STATE_ROOT / "outcomes")))
+        tuner = OutcomeTuner(artifact_dir=root / "tenants" / principal_key)
+        os.chmod(tuner.artifact_dir, 0o700)
+        _PRINCIPAL_OUTCOME_TUNERS[principal_key] = tuner
         return tuner
 
 
@@ -3536,7 +3834,14 @@ async def get_nexus_status():
             "enabled": bool(NEXUS_CODEC_ENABLED),
             "max_chars": NEXUS_CODEC_MAX_CHARS,
         },
-        "autotune": get_policy_snapshot(),
+        # Public status must not fall back to a process-global adaptive policy.
+        # Authenticated principals can inspect only their own policy state at
+        # the explicitly protected /nexus/autotune/status endpoint.
+        "autotune": {
+            "scope": "authenticated_principal",
+            "available": False,
+            "endpoint": "/nexus/autotune/status",
+        },
     }
 
 
@@ -3639,11 +3944,19 @@ async def get_nexus_codec_benchmark(request: Request, session_key: Optional[str]
 @router.get("/codec/policy")
 async def get_nexus_codec_policy(request: Request, query: Optional[str] = None, session_key: Optional[str] = None):
     resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    principal, _ = _authenticated_nexus_principal(request, session_hint=resolved_session_key)
+    policies = _adaptive_policies_for_scope(principal.storage_metadata)
+    telemetry_key = _principal_continuity_key(principal, resolved_session_key)
     return {
         "success": True,
         "level": 24,
         "name": "The Nexus",
-        "codec_policy": get_codec_policy_status(query=query, session_key=resolved_session_key or None),
+        "codec_policy": _scoped_codec_policy_call(
+            policies,
+            get_codec_policy_status,
+            query=query,
+            session_key=telemetry_key or None,
+        ),
         "capability_matrix": capability_matrix(),
     }
 
@@ -4162,22 +4475,15 @@ async def get_nexus_codec_corpus_replay_export(request: Request, session_key: Op
 
 
 @router.post("/codec/outcome")
-async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest):
-    validator_pass = bool(payload.validator_pass) if payload.validator_pass is not None else (not bool(payload.user_correction or payload.recovery_needed))
-    codec_out = observe_codec_outcome(
-        query=payload.query,
-        policy_label=payload.codec_variant or payload.policy_label,
-        execution_success=not bool(payload.recovery_needed),
-        user_correction=bool(payload.user_correction),
-        recovery_needed=bool(payload.recovery_needed),
-        validator_pass=validator_pass,
-        note=payload.note,
+async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest, request: Request = None):
+    _authenticated_nexus_principal(request)
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "server_observed_outcome_receipt_required",
+            "endpoint": "/nexus/outcome/feedback",
+        },
     )
-    return {
-        "success": True,
-        "recorded": bool(codec_out.get("recorded")),
-        "codec_policy": codec_out,
-    }
 
 
 @router.post("/codec/evaluate")
@@ -4194,12 +4500,18 @@ async def get_nexus_codec_evaluate(
     resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
+    principal, _ = _authenticated_nexus_principal(request, session_hint=resolved_session_key)
+    policies = _adaptive_policies_for_scope(principal.storage_metadata)
+    policy_session_key = _principal_continuity_key(principal, resolved_session_key)
+    if not _adaptive_observation_allowed(policies.scope_key):
+        raise HTTPException(status_code=429, detail="principal adaptive observation rate limit exceeded")
 
     view = _codec_evaluation_view(
         resolved_session_key,
         eval_query=eval_query or "",
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
+        adaptive_policies=policies,
     )
 
     evaluation = view.get("evaluation") if isinstance(view.get("evaluation"), dict) else {}
@@ -4278,31 +4590,49 @@ async def get_nexus_codec_evaluate(
                 judge_confidence = float((evaluation.get("oracle_judge") or {}).get("confidence"))
             except Exception:
                 judge_confidence = None
-        evaluation["policy_learning"] = observe_codec_evaluation(
+        evaluation["policy_learning"] = _scoped_codec_policy_call(
+            policies,
+            observe_codec_evaluation,
             query=str(evaluation.get("query") or ""),
             winner=winning_variant,
             judge_method=judge_method,
-            session_key=resolved_session_key,
+            session_key=policy_session_key,
             judge_confidence=judge_confidence,
         )
-        evaluation["policy"] = get_codec_policy_for_query(str(evaluation.get("query") or ""))
+        evaluation["policy"] = _scoped_codec_policy_call(
+            policies,
+            get_codec_policy_for_query,
+            str(evaluation.get("query") or ""),
+        )
     else:
         evaluation["policy_learning"] = {"recorded": False, "reason": "no_winner"}
-        evaluation["policy"] = get_codec_policy_for_query(str(evaluation.get("query") or ""))
+        evaluation["policy"] = _scoped_codec_policy_call(
+            policies,
+            get_codec_policy_for_query,
+            str(evaluation.get("query") or ""),
+        )
 
-    evaluation["autotune"] = observe_codec_eval_history(
+    evaluation["autotune"] = _scoped_codec_policy_call(
+        policies,
+        observe_codec_eval_history,
         query=str(evaluation.get("query") or ""),
         acceptance_gates=evaluation.get("acceptance_gates") if isinstance(evaluation.get("acceptance_gates"), dict) else {},
         winner=winning_variant,
-        session_key=resolved_session_key,
+        session_key=policy_session_key,
     )
-    evaluation["rollup_autotune"] = observe_codec_rollup_eval_history(
+    evaluation["rollup_autotune"] = _scoped_codec_rollup_call(
+        policies,
+        observe_codec_rollup_eval_history,
         acceptance_gates=evaluation.get("acceptance_gates") if isinstance(evaluation.get("acceptance_gates"), dict) else {},
         winner=winning_variant,
-        session_key=resolved_session_key,
+        session_key=policy_session_key,
         query=str(evaluation.get("query") or ""),
     )
-    evaluation["policy"] = get_codec_policy_for_query(str(evaluation.get("query") or ""))
+    evaluation["policy"] = _scoped_codec_policy_call(
+        policies,
+        get_codec_policy_for_query,
+        str(evaluation.get("query") or ""),
+    )
     heuristic_rows = _judge_scores_by_name(evaluation.get("judge") if isinstance(evaluation.get("judge"), dict) else {})
     eval_record = {
         "recorded_at": _now_iso(),
@@ -4372,19 +4702,23 @@ async def get_nexus_full():
 
 
 @router.get("/autotune/status")
-async def autotune_status():
+async def autotune_status(request: Request):
+    principal, _ = _authenticated_nexus_principal(request)
+    policies = _adaptive_policies_for_scope(principal.storage_metadata)
+    outcome_tuner = _outcome_tuner_for_scope(principal.storage_metadata)
     return {
         "success": True,
-        "policy": get_policy_snapshot(),
+        "policy": _scoped_routing_policy_call(policies, get_policy_snapshot),
         "outcome_tuner": {
-            "state_path": str(_OUTCOME_TUNER.state_path),
-            "report_path": str(_OUTCOME_TUNER.report_path),
-            "state": _OUTCOME_TUNER.state,
+            "state_path": str(outcome_tuner.state_path),
+            "report_path": str(outcome_tuner.report_path),
+            "state": outcome_tuner.state,
         },
         "latency_governor": {
-            "state_path": str(_LATENCY_GOVERNOR.state_path),
-            "report_path": str(_LATENCY_GOVERNOR.report_path),
+            "state_path": str(policies.latency.state_path),
+            "report_path": str(policies.latency.report_path),
         },
+        "scope": "authenticated_principal",
     }
 
 
@@ -4395,7 +4729,7 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
         receipt = _verify_outcome_feedback_receipt(payload.receipt, request)
         _consume_outcome_feedback_receipt(receipt)
     except ValueError as exc:
-        status_code = 429 if str(exc) == "tenant_rate_limit_exceeded" else 409 if str(exc) == "receipt_already_consumed" else 403
+        status_code = 429 if str(exc) == "principal_rate_limit_exceeded" else 409 if str(exc) == "receipt_already_consumed" else 403
         raise HTTPException(
             status_code=status_code,
             detail={"error": "valid_execution_outcome_receipt_required", "reason": str(exc)},
@@ -4420,7 +4754,7 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
         "storage_workspace_id": scope.get("storage_workspace_id"),
         "source": "signed_execution_receipt",
     }
-    with _TENANT_OUTCOME_TUNER_LOCK:
+    with _PRINCIPAL_OUTCOME_TUNER_LOCK:
         out = _outcome_tuner_for_scope(scope).observe(record)
     codec_state = apply_codec_outcome_feedback_for_session(
         str(scope.get("session_id") or ""),
@@ -4441,7 +4775,7 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
         "codec_policy": {
             "recorded": True,
             "variant": receipt["codec_variant"],
-            "scope": "authenticated_tenant_session",
+            "scope": "authenticated_principal_session",
             "state_revision": codec_state.get("state_revision"),
         },
     }
@@ -4481,6 +4815,7 @@ async def orchestrate_query(
     )
     continuity_session_key = _principal_continuity_key(principal, session_key)
     principal_scope = principal.storage_metadata
+    adaptive_policies = _adaptive_policies_for_scope(principal_scope)
     outcome_tuner = _outcome_tuner_for_scope(principal_scope)
     started = datetime.utcnow()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
@@ -4506,6 +4841,7 @@ async def orchestrate_query(
             tenant_id=principal.tenant_id,
             workspace_id=principal.storage_workspace_id,
             telemetry_session_key=continuity_session_key,
+            adaptive_policies=adaptive_policies,
         )
         if codec_probe:
             return {
@@ -4521,6 +4857,7 @@ async def orchestrate_query(
                 },
                 "truthBoundary": "Probe mode proves the live orchestration endpoint hydrated and exposed this session's Codec packet without invoking downstream semantic/provider calls."
             }
+        adaptive_observation_allowed = _adaptive_observation_allowed(adaptive_policies.scope_key)
         routing_markers = {
             "cortex_first": True,
             "brainstorm_triggered": False,
@@ -4561,7 +4898,7 @@ async def orchestrate_query(
         fastlane_cfg = _load_fastlane_config()
         cognitive_cfg = _load_cognitive_wave_config()
         optimizer_cfg = _load_level_optimizer_config()
-        autotune_policy = get_policy_snapshot()
+        autotune_policy = _scoped_routing_policy_call(adaptive_policies, get_policy_snapshot)
         fastlane_cfg["escalation_threshold"] = float(autotune_policy.get("fastlane_escalation_threshold", fastlane_cfg.get("escalation_threshold", 0.72)))
         kernel_contract = _kernel_contract_for_query(query)
         risk_flags = _detect_risk_flags(query, kernel_contract=kernel_contract)
@@ -4572,7 +4909,7 @@ async def orchestrate_query(
             kernel_contract=kernel_contract,
         )
         archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate, kernel_contract=kernel_contract)
-        with _TENANT_OUTCOME_TUNER_LOCK:
+        with _PRINCIPAL_OUTCOME_TUNER_LOCK:
             policy_hint = outcome_tuner.get_policy_hint(archetype=archetype, query=query)
         adaptive_route: Dict[str, Any] = {
             "enabled": bool(autotune_policy.get("autotune_enabled", True)),
@@ -4622,7 +4959,7 @@ async def orchestrate_query(
             notary_packets=1,
             enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
         )
-        latency_plan = _LATENCY_GOVERNOR.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg, kernel_contract=kernel_contract)
+        latency_plan = adaptive_policies.latency.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg, kernel_contract=kernel_contract)
         optimizer_telemetry["enabled"] = bool(optimizer_cfg.get("enabled", True))
         optimizer_telemetry["autotune_policy"] = autotune_policy
         optimizer_telemetry["policy_hint"] = policy_hint
@@ -4632,6 +4969,10 @@ async def orchestrate_query(
             "mode": world_grounding.get("mode", "not_required"),
             "evidence_count": int(world_grounding.get("evidence_count", 0)),
             "degraded": bool(world_grounding.get("degraded", False)),
+        }
+        optimizer_telemetry["adaptive_observation"] = {
+            "allowed": adaptive_observation_allowed,
+            "scope": "authenticated_principal",
         }
         if bool(world_grounding.get("required", False)):
             if bool(world_grounding.get("degraded", False)):
@@ -4643,7 +4984,7 @@ async def orchestrate_query(
             "latency_budget": lambda: {"ok": int(latency_plan.get("max_latency_ms", 0)) >= 500, "max_latency_ms": latency_plan.get("max_latency_ms")},
         })
 
-        referent_info = _resolve_referent_context(query)
+        referent_info = _resolve_referent_context(query, continuity_key=continuity_session_key)
         referent_query = _is_referent_query(query)
         if referent_query:
             routing_markers["referent_query"] = True
@@ -4655,18 +4996,23 @@ async def orchestrate_query(
             ])
             reasoning.append("Referent guard engaged to preserve semantic continuity.")
 
-        prefetch = _LATENCY_GOVERNOR.speculative_prefetch(
+        prefetch = adaptive_policies.latency.speculative_prefetch(
             query,
             enabled=bool(latency_plan.get("prefetch_enabled")),
             retrieve_fn=lambda: retrieve_top3(query, max_items=int(fastlane_cfg.get("max_retrieval_items", 3)), timeout_ms=min(int(fastlane_cfg.get("max_latency_ms", 2200)), 500)),
-            context_fn=lambda: _resolve_referent_context(query) if referent_query or archetype in {"tool_use", "ops_triage"} else {"resolved": False},
+            context_fn=lambda: _resolve_referent_context(query, continuity_key=continuity_session_key) if referent_query or archetype in {"tool_use", "ops_triage"} else {"resolved": False},
         )
         optimizer_telemetry["prefetch"] = prefetch
         prefetched_retrieval = prefetch.get("results", {}).get("retrieval") if isinstance(prefetch.get("results", {}).get("retrieval"), list) else []
         if isinstance(prefetch.get("results", {}).get("context"), dict) and prefetch.get("results", {}).get("context", {}).get("resolved"):
             referent_info = prefetch["results"]["context"]
 
-        served_codec_variant = _infer_codec_execution_variant(query, codec_context, referent_info)
+        served_codec_variant = _infer_codec_execution_variant(
+            query,
+            codec_context,
+            referent_info,
+            adaptive_policies=adaptive_policies,
+        )
         kernel_trace = cortex_kernel_v2.prepare_request(
             query,
             session_key=continuity_session_key or None,
@@ -4900,12 +5246,12 @@ async def orchestrate_query(
             reasoning.append("Fastlane bypassed because Kernel V2 selected the deep lane for this query.")
 
         if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("semantic_delta_enabled", True):
-            delta_info = _DELTA_CACHE.analyze(query)
+            delta_info = adaptive_policies.delta.analyze(query)
             optimizer_telemetry["delta"] = delta_info
 
         bandit_choice: Dict[str, Any] = {}
         if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("bandit_enabled", True):
-            context_bucket = _BANDIT_SCHEDULER.context_bucket(
+            context_bucket = adaptive_policies.bandit.context_bucket(
                 query=query,
                 risk_flags=risk_flags,
                 complexity_hard=bool(complexity_gate.get("hard", False)),
@@ -4925,7 +5271,7 @@ async def orchestrate_query(
                 reasoning.append(
                     f"Outcome tuner recommends {policy_hint.get('recommended_policy')} (evidence={policy_hint.get('evidence', {})})."
                 )
-            bandit_choice = _BANDIT_SCHEDULER.select_arm(context_bucket, query, candidates=candidate_arms)
+            bandit_choice = adaptive_policies.bandit.select_arm(context_bucket, query, candidates=candidate_arms)
             optimizer_telemetry["bandit"] = bandit_choice
             routing_markers["bandit_arm"] = bandit_choice.get("selected_arm")
             for lvl in bandit_choice.get("levels", []):
@@ -4980,7 +5326,7 @@ async def orchestrate_query(
 
             cached_items: List[Dict[str, Any]] = []
             if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("semantic_delta_enabled", True):
-                cached_items = _DELTA_CACHE.maybe_reuse_retrieval(query, min_similarity=float(optimizer_cfg.get("delta_reuse_similarity", 0.62)))
+                cached_items = adaptive_policies.delta.maybe_reuse_retrieval(query, min_similarity=float(optimizer_cfg.get("delta_reuse_similarity", 0.62)))
 
             def _retrieve_context():
                 return retrieve_top3(
@@ -5018,7 +5364,7 @@ async def orchestrate_query(
             conf = confidence_score(answer, checks)
             if not checks["grounded_retrieval"]:
                 conf = 0.0
-            latency_decision = _LATENCY_GOVERNOR.should_escalate(
+            latency_decision = adaptive_policies.latency.should_escalate(
                 confidence=conf,
                 elapsed_ms=int((datetime.utcnow() - started).total_seconds() * 1000),
                 risk_flags=risk_flags,
@@ -5105,9 +5451,9 @@ async def orchestrate_query(
             if semantic_result.get("reasoning"):
                 reasoning.append(f"L5 Oracle: {semantic_result['reasoning']}")
 
-        if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("semantic_delta_enabled", True):
+        if adaptive_observation_allowed and optimizer_cfg.get("enabled", True) and optimizer_cfg.get("semantic_delta_enabled", True):
             try:
-                _DELTA_CACHE.update(
+                adaptive_policies.delta.update(
                     query=query,
                     retrieval=(fastlane.get("retrieval") if isinstance(fastlane, dict) else []) or [],
                     semantic_digest={"method": semantic_result.get("method"), "confidence": semantic_result.get("confidence"), "intents": semantic_result.get("intents", [])},
@@ -5167,7 +5513,7 @@ async def orchestrate_query(
         cognitive_quality = _cognitive_quality(cognitive_trace, fastlane, risk_flags)
         cognitive_stage = _apply_cognitive_stage(cognitive_cfg, query, cognitive_quality)
 
-        if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("bandit_enabled", True) and optimizer_telemetry.get("bandit"):
+        if adaptive_observation_allowed and optimizer_cfg.get("enabled", True) and optimizer_cfg.get("bandit_enabled", True) and optimizer_telemetry.get("bandit"):
             try:
                 bandit_arm = str((optimizer_telemetry.get("bandit") or {}).get("selected_arm", "fastlane_minimal"))
                 bandit_context = str((optimizer_telemetry.get("bandit") or {}).get("context", "simple"))
@@ -5179,7 +5525,7 @@ async def orchestrate_query(
                 )
                 if bool(complexity_gate.get("hard", False)) and bandit_arm == "deliberate_council":
                     reward = min(1.0, reward + 0.08)
-                _BANDIT_SCHEDULER.update(bandit_context, bandit_arm, reward)
+                adaptive_policies.bandit.update(bandit_context, bandit_arm, reward)
                 optimizer_telemetry["bandit_update"] = {"context": bandit_context, "arm": bandit_arm, "reward": round(max(0.0, min(1.0, reward)), 4)}
             except Exception:
                 optimizer_telemetry["bandit_update"] = {"error": "update_failed"}
@@ -5207,7 +5553,11 @@ async def orchestrate_query(
             "status": "rollback_to_shadow" if cognitive_stage["rollback_triggered"] else ("shadow_observe_only" if cognitive_stage["effective_stage"] == "shadow" else "candidate_rollout"),
         }
 
-        _refresh_context(query, fastlane.get("answer") if isinstance(fastlane, dict) else None)
+        _refresh_context(
+            query,
+            fastlane.get("answer") if isinstance(fastlane, dict) else None,
+            continuity_key=continuity_session_key,
+        )
         codec_context = _update_codec_context(
             session_key,
             query,
@@ -5216,6 +5566,7 @@ async def orchestrate_query(
             tenant_id=principal.tenant_id,
             workspace_id=principal.storage_workspace_id,
             telemetry_session_key=continuity_session_key,
+            adaptive_policies=adaptive_policies,
         )
 
         if request is not None:
@@ -5262,22 +5613,25 @@ async def orchestrate_query(
             recommended_levels=recommended,
             quality_score=quality_score,
         )
-        autotune_policy = observe_outcome(
-            routing_method,
-            quality_score,
-            l9_used=bool(routing_markers.get("l9_triggered")),
-            complexity_score=float(complexity_gate.get("score", 0.0)),
-            intent_flags={
-                "architecture": archetype in {"planning", "complex_general"},
-                "coding": archetype == "coding",
-                "incident": archetype == "ops_triage",
-                "research": archetype == "citation_required",
-                "training": False,
-                "ethics": bool(risk_flags),
-            },
-        )
+        if adaptive_observation_allowed:
+            autotune_policy = _scoped_routing_policy_call(
+                adaptive_policies,
+                observe_outcome,
+                routing_method,
+                quality_score,
+                l9_used=bool(routing_markers.get("l9_triggered")),
+                complexity_score=float(complexity_gate.get("score", 0.0)),
+                intent_flags={
+                    "architecture": archetype in {"planning", "complex_general"},
+                    "coding": archetype == "coding",
+                    "incident": archetype == "ops_triage",
+                    "research": archetype == "citation_required",
+                    "training": False,
+                    "ethics": bool(risk_flags),
+                },
+            )
         observed_policy_label = str((bandit_choice or {}).get("selected_arm") or routing_method)
-        with _TENANT_OUTCOME_TUNER_LOCK:
+        with _PRINCIPAL_OUTCOME_TUNER_LOCK:
             outcome_artifact = outcome_tuner.observe({
                 "query": query,
                 "task_archetype": archetype,
@@ -5298,7 +5652,7 @@ async def orchestrate_query(
                 "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
                 "tenant_id": principal.tenant_id,
                 "storage_workspace_id": principal.storage_workspace_id,
-            })
+            }) if adaptive_observation_allowed else {"recorded": False, "reason": "principal_rate_limit"}
         codec_execution_artifact = _observe_codec_execution_outcome(
             query=query,
             session_key=continuity_session_key,
@@ -5309,15 +5663,20 @@ async def orchestrate_query(
             fastlane=fastlane,
             note=f"nexus_orchestrate:{routing_method}",
             served_variant=served_codec_variant,
-        )
-        latency_artifact = _LATENCY_GOVERNOR.observe({
+            adaptive_policies=adaptive_policies,
+        ) if adaptive_observation_allowed else {
+            "recorded": False,
+            "reason": "principal_rate_limit",
+            "execution_metrics": _execution_flow_metrics(execution_tx, validator_result, fastlane),
+        }
+        latency_artifact = adaptive_policies.latency.observe({
             "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
             "archetype": archetype,
             "latency_ms": elapsed_ms,
             "token_budget_used": token_plan.get("used") if isinstance(token_plan, dict) else 0,
             "escalated": bool(isinstance(fastlane, dict) and fastlane.get("escalated")),
             "prefetch_used": bool(prefetched_retrieval or referent_info.get("resolved")),
-        })
+        }) if adaptive_observation_allowed else {"recorded": False, "reason": "principal_rate_limit"}
         kernel_response_text = str(
             (fastlane.get("answer") if isinstance(fastlane, dict) and isinstance(fastlane.get("answer"), str) and fastlane.get("answer") else "")
             or semantic_result.get("reasoning")
@@ -5423,21 +5782,23 @@ async def orchestrate_query(
     except Exception as e:
         tx.rollback()
         failed_tx = tx.fail(e)
-        try:
-            _observe_codec_execution_outcome(
-                query=query,
-                session_key=locals().get("continuity_session_key", ""),
-                codec_context=locals().get("codec_context", {}) if isinstance(locals().get("codec_context", {}), dict) else {},
-                referent_info=locals().get("referent_info", {}) if isinstance(locals().get("referent_info", {}), dict) else {},
-                execution_transaction=failed_tx if isinstance(failed_tx, dict) else {"status": "failed"},
-                validator_result=locals().get("validator_result", {"pass": False}) if isinstance(locals().get("validator_result", {"pass": False}), dict) else {"pass": False},
-                fastlane=locals().get("fastlane") if isinstance(locals().get("fastlane"), dict) else None,
-                note=f"nexus_orchestrate_exception:{type(e).__name__}",
-                explicit_success=False,
-                served_variant=locals().get("served_codec_variant"),
-            )
-        except Exception:
-            pass
+        if locals().get("adaptive_observation_allowed", True):
+            try:
+                _observe_codec_execution_outcome(
+                    query=query,
+                    session_key=locals().get("continuity_session_key", ""),
+                    codec_context=locals().get("codec_context", {}) if isinstance(locals().get("codec_context", {}), dict) else {},
+                    referent_info=locals().get("referent_info", {}) if isinstance(locals().get("referent_info", {}), dict) else {},
+                    execution_transaction=failed_tx if isinstance(failed_tx, dict) else {"status": "failed"},
+                    validator_result=locals().get("validator_result", {"pass": False}) if isinstance(locals().get("validator_result", {"pass": False}), dict) else {"pass": False},
+                    fastlane=locals().get("fastlane") if isinstance(locals().get("fastlane"), dict) else None,
+                    note=f"nexus_orchestrate_exception:{type(e).__name__}",
+                    explicit_success=False,
+                    served_variant=locals().get("served_codec_variant"),
+                    adaptive_policies=locals().get("adaptive_policies"),
+                )
+            except Exception:
+                pass
         try:
             cortex_kernel_v2.finalize_request(
                 (locals().get("kernel_trace") or {}).get("request_id") if isinstance(locals().get("kernel_trace"), dict) else None,

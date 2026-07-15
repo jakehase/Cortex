@@ -35,15 +35,19 @@ function validateConfig(value, candidateSchema = schema) {
 }
 
 const SHARED_SESSION_SECRET = 'explicitly-provisioned-shared-test-secret';
+const PRODUCTION_SCOPE = { scopeCredentialId: 'route-schema-credential', scopeHmacSecret: 'route-schema-secret' };
+const productionConfig = (overrides = {}) => ({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, ...PRODUCTION_SCOPE, ...overrides });
 
-test('enabled route-gate configuration requires the explicitly provisioned shared secret', () => {
+test('enabled route-gate production configuration requires session and scope credentials', () => {
   assert.equal(validateConfig({}), false);
   assert.equal(validateConfig({ enabled: true }), false);
   assert.equal(validateConfig({ enabled: false }), true);
-  assert.equal(validateConfig({ enabled: true, sessionIdentityHmacSecret: '' }), false);
-  assert.equal(validateConfig({ enabled: true, sessionIdentityHmacSecret: '   ' }), false);
-  assert.equal(validateConfig({ enabled: true, sessionIdentityHmacSecret: SHARED_SESSION_SECRET }), true);
-  assert.throws(() => registerHarness({ enabled: true }), /explicitly provisioned keyed session identity secret/);
+  assert.equal(validateConfig({ enabled: true, ...PRODUCTION_SCOPE, sessionIdentityHmacSecret: '' }), false);
+  assert.equal(validateConfig({ enabled: true, ...PRODUCTION_SCOPE, sessionIdentityHmacSecret: '   ' }), false);
+  assert.equal(validateConfig({ enabled: true, sessionIdentityHmacSecret: SHARED_SESSION_SECRET }), false);
+  assert.equal(validateConfig(productionConfig({ enabled: true })), true);
+  assert.throws(() => registerHarness({ enabled: true, ...PRODUCTION_SCOPE }), /keyed session identity secret/);
+  assert.throws(() => registerHarness({ enabled: true, sessionIdentityHmacSecret: SHARED_SESSION_SECRET }), /requires scopeCredentialId and scopeHmacSecret/);
   assert.doesNotThrow(() => registerHarness({ enabled: false }));
 });
 
@@ -52,12 +56,38 @@ function registerHarness(config) {
   return register(api);
 }
 
+test('route-gate rejects partial credentials and restricts the explicit unsigned escape hatch', () => {
+  for (const config of [
+    { sessionIdentityHmacSecret: SHARED_SESSION_SECRET, scopeCredentialId: 'route-schema-credential' },
+    { sessionIdentityHmacSecret: SHARED_SESSION_SECRET, scopeHmacSecret: 'route-schema-secret' },
+    { sessionIdentityHmacSecret: SHARED_SESSION_SECRET, scopeCredentialId: 'route-schema-credential', scopeHmacSecret: '   ' },
+  ]) {
+    assert.equal(validateConfig(config), false);
+    assert.throws(() => registerHarness(config), /scopeCredentialId and scopeHmacSecret together/);
+  }
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: false }), false);
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true }), true);
+  assert.doesNotThrow(() => registerHarness({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true }));
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, tenantId: 'production' }), false);
+  assert.throws(
+    () => registerHarness({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, tenantId: 'production' }),
+    /restricted to the cortex-local\/default scope/,
+  );
+});
+
+test('route-gate validates scope credential identifiers during registration', () => {
+  const invalid = productionConfig({ scopeCredentialId: 'invalid credential' });
+  assert.equal(validateConfig(invalid), false);
+  assert.throws(() => registerHarness(invalid), /bounded opaque identifier/);
+});
+
 test('existing provisioned route-gate configuration remains valid', () => {
   assert.equal(validateConfig({
     baseUrl: 'http://127.0.0.1:18888',
     enabled: true,
     requireRouting: true,
     sessionIdentityHmacSecret: SHARED_SESSION_SECRET,
+    ...PRODUCTION_SCOPE,
     writeToken: 'secret',
     writeTokenHeader: 'x-cortex-write-token',
     timeoutMs: 8000,
@@ -74,8 +104,8 @@ test('existing provisioned route-gate configuration remains valid', () => {
 });
 
 test('write authorization configuration is exposed and the token is sensitive', () => {
-  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, writeToken: 'secret', writeTokenHeader: 'x-custom-token' }), true);
-  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, writeToken: '' }), false);
+  assert.equal(validateConfig(productionConfig({ writeToken: 'secret', writeTokenHeader: 'x-custom-token' })), true);
+  assert.equal(validateConfig(productionConfig({ writeToken: '' })), false);
   assert.equal(manifest.uiHints.writeToken.sensitive, true);
 });
 
@@ -86,30 +116,31 @@ for (const [name, minimum, defaultValue, maximum] of [
   test(`${name} accepts its minimum, runtime default, and maximum`, () => {
     assert.match(runtimeSource, new RegExp(`cfg\\.${name}, ${defaultValue.toLocaleString('en-US').replaceAll(',', '_')}`));
     for (const value of [minimum, defaultValue, maximum]) {
-      assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, [name]: value }), true, `${name}=${value}`);
+      assert.equal(validateConfig(productionConfig({ [name]: value })), true, `${name}=${value}`);
     }
   });
 
   test(`${name} rejects unsafe bounds and wrong types`, () => {
     for (const value of [0, -1, maximum + 1, String(defaultValue), null, true]) {
-      assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, [name]: value }), false, `${name}=${String(value)}`);
+      assert.equal(validateConfig(productionConfig({ [name]: value })), false, `${name}=${String(value)}`);
     }
   });
 }
 
 test('route-gate schema continues to reject unknown configuration', () => {
   assert.equal(schema.additionalProperties, false);
-  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, maxCachedPlanAgeMS: 300_000 }), false);
-  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, maxResponseByte: 1_048_576 }), false);
+  assert.equal(validateConfig(productionConfig({ maxCachedPlanAgeMS: 300_000 })), false);
+  assert.equal(validateConfig(productionConfig({ maxResponseByte: 1_048_576 })), false);
 });
 
 test('oversized Oracle session archival is declared and explicitly opt-in', () => {
   assert.equal(validateConfig({
     oracleSessionQuarantineEnabled: true,
     sessionIdentityHmacSecret: SHARED_SESSION_SECRET,
+    ...PRODUCTION_SCOPE,
     oracleSessionResetBytes: 500_000,
     oracleSessionDir: '/var/lib/openclaw/sessions',
   }), true);
-  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, oracleSessionResetBytes: 1023 }), false);
+  assert.equal(validateConfig(productionConfig({ oracleSessionResetBytes: 1023 })), false);
   assert.equal(manifest.uiHints.oracleSessionQuarantineEnabled.advanced, true);
 });

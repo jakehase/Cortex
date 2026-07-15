@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
@@ -15,6 +18,7 @@ from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.release_workflow import (
+    RELEASE_STAGE_TOPOLOGY,
     ReleaseArtifactReceipt,
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
@@ -34,6 +38,239 @@ JsonDict = Dict[str, Any]
 
 
 BUILTIN_BLOCKER_PREFIXES = ("BLOCKER:", "HUMAN:")
+REQUIRED_RELEASE_HANDOFF_RECIPIENTS = ("release-verifier", "release-manager")
+RUNTIME_DELIVERY_MOUNT_MARKER = ".cortex-durable-runtime-delivery"
+
+
+def _runtime_delivery_credential_map(environment_name: str) -> Dict[str, str]:
+    raw = os.getenv(environment_name, "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{environment_name} must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"{environment_name} must map identities to secrets")
+    credentials = {
+        str(identity or "").strip(): str(secret or "").strip()
+        for identity, secret in parsed.items()
+    }
+    if any(not identity or not secret for identity, secret in credentials.items()):
+        raise RuntimeError(f"{environment_name} contains an empty identity or secret")
+    return credentials
+
+
+def runtime_delivery_recipient_credentials() -> Dict[str, str]:
+    """Return recipient-only credentials used by the public handoff consumer API."""
+
+    return _runtime_delivery_credential_map("CORTEX_AGENT_ACK_CREDENTIALS")
+
+
+def runtime_delivery_handoff_claim_signature(
+    *,
+    recipient: str,
+    process_id: str,
+    expected_revision_id: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    """Sign one revision-bound handoff claim without transmitting its secret."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.handoff_claim.v1",
+        "recipient": str(recipient or "").strip(),
+        "process_id": str(process_id or "").strip(),
+        "expected_revision_id": str(expected_revision_id or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
+    """Fail closed unless release credentials and the durable delivery mount are usable."""
+
+    checks: Dict[str, Dict[str, Any]] = {}
+    try:
+        verifier_credentials = _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
+        checks["releaseVerifierCredentials"] = {
+            "ok": bool(verifier_credentials),
+            "configuredVerifierCount": len(verifier_credentials),
+            "error": None if verifier_credentials else "no release verifier credentials configured",
+        }
+    except RuntimeError as exc:
+        checks["releaseVerifierCredentials"] = {
+            "ok": False,
+            "configuredVerifierCount": 0,
+            "error": str(exc),
+        }
+
+    try:
+        recipient_credentials = runtime_delivery_recipient_credentials()
+        missing_recipients = [
+            recipient
+            for recipient in REQUIRED_RELEASE_HANDOFF_RECIPIENTS
+            if not recipient_credentials.get(recipient)
+        ]
+        checks["releaseRecipientCredentials"] = {
+            "ok": not missing_recipients,
+            "requiredRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
+            "missingRecipients": missing_recipients,
+            "error": None if not missing_recipients else "required release recipient credentials are missing",
+        }
+    except RuntimeError as exc:
+        checks["releaseRecipientCredentials"] = {
+            "ok": False,
+            "requiredRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
+            "missingRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
+            "error": str(exc),
+        }
+
+    delivery_root = Path(root)
+    mount_id = os.getenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", "").strip()
+    marker_path = delivery_root / RUNTIME_DELIVERY_MOUNT_MARKER
+    durable_error: Optional[str] = None
+    observed_mount_id: Optional[str] = None
+    try:
+        if not delivery_root.is_absolute():
+            raise RuntimeError("runtime delivery root must be an absolute path")
+        if not mount_id:
+            raise RuntimeError("CORTEX_RUNTIME_DELIVERY_MOUNT_ID is not configured")
+        observed_mount_id = marker_path.read_text(encoding="utf-8").strip()
+        if not hmac.compare_digest(observed_mount_id, mount_id):
+            raise RuntimeError("runtime delivery volume identity mismatch")
+        probe_path = delivery_root / f".cortex-readiness-{os.getpid()}-{uuid4().hex}"
+        try:
+            with probe_path.open("xb") as handle:
+                handle.write(b"runtime-delivery-ready\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            if probe_path.exists():
+                probe_path.unlink()
+        _fsync_directory(delivery_root)
+    except (OSError, RuntimeError) as exc:
+        durable_error = f"{type(exc).__name__}: {exc}"
+    checks["durableRuntimeDeliveryRoot"] = {
+        "ok": durable_error is None,
+        "path": str(delivery_root),
+        "markerPath": str(marker_path),
+        "configuredMountId": mount_id or None,
+        "observedMountId": observed_mount_id,
+        "error": durable_error,
+    }
+
+    ready = all(check["ok"] for check in checks.values())
+    return {
+        "status": "ready" if ready else "not_ready",
+        "ready": ready,
+        "service": "cortex-runtime-delivery",
+        "checks": checks,
+    }
+
+
+def _fsync_directory(path: Path) -> None:
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _read_recoverable_jsonl(path: Path) -> List[Dict[str, Any]]:
+    """Read committed JSONL records, ignoring only a torn final record."""
+
+    if not path.exists():
+        return []
+    encoded = path.read_bytes()
+    lines = encoded.splitlines(keepends=True)
+    rows: List[Dict[str, Any]] = []
+    for index, raw_line in enumerate(lines):
+        complete = raw_line.endswith(b"\n")
+        text = raw_line.strip()
+        if not text:
+            continue
+        try:
+            payload = json.loads(text.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            if index == len(lines) - 1 and not complete:
+                break
+            raise
+        if not isinstance(payload, dict):
+            raise ValueError(f"JSONL record in {path} must be an object")
+        if index == len(lines) - 1 and not complete:
+            # A complete-looking record without its frame delimiter may still
+            # be the prefix of a larger write, so it is not committed.
+            break
+        rows.append(payload)
+    return rows
+
+
+def _append_fsynced_jsonl(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        encoded = path.read_bytes()
+        if encoded and not encoded.endswith(b"\n"):
+            # Validate the committed prefix before discarding only the torn
+            # tail. A corrupt interior record remains a hard error.
+            _read_recoverable_jsonl(path)
+            committed_length = encoded.rfind(b"\n") + 1
+            with path.open("r+b") as handle:
+                handle.truncate(committed_length)
+                handle.flush()
+                os.fsync(handle.fileno())
+    row = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+    with path.open("ab") as handle:
+        handle.write(row)
+        handle.flush()
+        os.fsync(handle.fileno())
+    _fsync_directory(path.parent)
+
+
+def _configured_stage_plan(stages: Sequence[str], *, target_environment: str) -> List[str]:
+    cleaned = [str(stage or "").strip() for stage in (stages or [])]
+    if any(not stage for stage in cleaned):
+        raise ValueError("promotion_stages must not contain empty values")
+    if len(set(cleaned)) != len(cleaned):
+        raise ValueError("promotion_stages must not contain duplicate stages")
+    if "draft" in cleaned:
+        raise ValueError("draft is an initialization stage and cannot appear in promotion_stages")
+
+    target = str(target_environment or "").strip()
+    mandatory = list(RELEASE_STAGE_TOPOLOGY[1:-1]) + [target]
+    mandatory = [stage for index, stage in enumerate(mandatory) if stage and stage not in mandatory[:index]]
+    if not cleaned:
+        return mandatory
+
+    missing = [stage for stage in mandatory if stage not in cleaned]
+    if missing:
+        raise ValueError(f"promotion_stages omits mandatory stages: {', '.join(missing)}")
+    indexes = [cleaned.index(stage) for stage in mandatory]
+    if indexes != sorted(indexes) or cleaned[-1] != target:
+        raise ValueError("promotion_stages must preserve build_verified -> canary_verified -> target topology")
+    return cleaned
 
 
 class ProductionCompletionCriterion(BaseModel):
@@ -233,6 +470,11 @@ class ProductionBuildContract(BaseModel):
             raise ValueError("lease seconds must be positive")
         return number
 
+    @model_validator(mode="after")
+    def _validate_mandatory_stage_topology(self) -> "ProductionBuildContract":
+        _configured_stage_plan(self.promotion_stages, target_environment=self.target_environment)
+        return self
+
 
 class BuildLoopControllerOwner(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -364,8 +606,7 @@ class ProductionBuildLoopStore:
     def save_contract(self, contract: ProductionBuildContract | Dict[str, Any]) -> ProductionBuildContract:
         record = _contract_validate(contract if isinstance(contract, dict) else _contract_dump(contract))
         target = self._contract_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_contract_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        _atomic_write_json(target, _contract_dump(record))
         return record
 
     def load_contract(self, process_id: str) -> Optional[ProductionBuildContract]:
@@ -378,8 +619,7 @@ class ProductionBuildLoopStore:
         record = _state_validate(state if isinstance(state, dict) else _state_dump(state))
         target = self._state_target(record.process_id)
         current = self.load_state(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_state_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        _atomic_write_json(target, _state_dump(record))
         history_row = {
             "ts": _now_iso(),
             "loop_id": record.loop_id,
@@ -393,37 +633,38 @@ class ProductionBuildLoopStore:
             "state": _state_dump(record),
         }
         history_target = self._history_target(record.process_id)
-        history_target.parent.mkdir(parents=True, exist_ok=True)
-        with history_target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(history_row, sort_keys=True) + "\n")
+        _append_fsynced_jsonl(history_target, history_row)
         return record
 
     def load_state(self, process_id: str) -> Optional[ProductionBuildLoopState]:
         target = self._state_target(process_id)
         if not target.exists():
             return None
-        return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+        try:
+            return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError, ValueError):
+            # Pre-hardening direct writes could leave the projection truncated.
+            # Recover the newest committed snapshot from the fsynced history so
+            # durable rollback intent recovery can continue on startup.
+            for row in reversed(_read_recoverable_jsonl(self._history_target(process_id))):
+                state = row.get("state")
+                if not isinstance(state, dict):
+                    continue
+                try:
+                    return _state_validate(state)
+                except (ValidationError, ValueError, TypeError):
+                    continue
+            return None
 
     def append_report(self, report: ProductionBuildLoopReport | Dict[str, Any]) -> ProductionBuildLoopReport:
         record = _report_validate(report if isinstance(report, dict) else _report_dump(report))
         target = self._report_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_report_dump(record), sort_keys=True) + "\n")
+        _append_fsynced_jsonl(target, _report_dump(record))
         return record
 
     def reports(self, process_id: str) -> List[ProductionBuildLoopReport]:
         target = self._report_target(process_id)
-        if not target.exists():
-            return []
-        rows: List[ProductionBuildLoopReport] = []
-        with target.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                rows.append(_report_validate(json.loads(text)))
-        return rows
+        return [_report_validate(row) for row in _read_recoverable_jsonl(target)]
 
 
 
@@ -1035,12 +1276,10 @@ def _checkpoint_from_journal(
 
 
 def _stage_plan(contract: ProductionBuildContract) -> List[str]:
-    explicit = _dedupe_rows(list(contract.promotion_stages or []))
-    if explicit:
-        if contract.target_environment not in explicit:
-            return explicit + [contract.target_environment]
-        return explicit
-    return _dedupe_rows(["build_verified", "canary_verified", contract.target_environment])
+    return _configured_stage_plan(
+        contract.promotion_stages,
+        target_environment=contract.target_environment,
+    )
 
 
 
@@ -1609,10 +1848,16 @@ def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> Production
     plan = _stage_plan(contract)
     stage_index = plan.index(stage) if stage in plan else 0
     prior_stages = plan[:stage_index]
+    if stage == "canary_verified":
+        prior_stages = _dedupe_rows(["build_verified"] + prior_stages)
+    if stage == contract.target_environment:
+        prior_stages = _dedupe_rows(["build_verified", "canary_verified"] + prior_stages)
     release_bundle = f"artifact_release_bundle:{contract.process_id}"
     smoke_report = f"artifact_smoke_report:{contract.process_id}"
     is_target = stage == contract.target_environment
-    requires_independent_handoff = stage_index > 0
+    requires_independent_handoff = bool(
+        stage_index > 0 or stage in {"canary_verified", contract.target_environment}
+    )
     recipient = "release-manager" if is_target else "release-verifier"
     mandatory = ProductionStageGate(
         stage=stage,
@@ -1688,7 +1933,7 @@ def ingest_production_release_artifact(
 
     artifact_store = release_store.artifact_store()
     artifact_ref, content_hash = artifact_store.put(payload)
-    with release_store.rollback_transaction(process_id):
+    with release_store.release_transaction(process_id):
         state = release_store.load(process_id)
         if state is None:
             raise KeyError(f"release workflow not found: {process_id}")
@@ -2090,7 +2335,6 @@ def _reconcile_production_build_loop_pass(
     pass_index: int = 1,
     watchdog_context: Optional[Dict[str, Any]] = None,
 ) -> JsonDict:
-    loop_store.save_contract(contract)
     previous_state = loop_store.load_state(contract.process_id)
     state = previous_state or ProductionBuildLoopState(contract_id=contract.contract_id, process_id=contract.process_id)
     budget = contract.execution_budget
@@ -2105,6 +2349,12 @@ def _reconcile_production_build_loop_pass(
     )
     controller = ownership["owner"]
     ownership_actions = list(ownership.get("actions") or [])
+    if not bool(ownership.get("owned_by_current_session")):
+        raise PermissionError(
+            f"production build loop controller is already owned for {contract.process_id}: "
+            f"controller={controller.controller_id}, session={controller.session_id}"
+        )
+    loop_store.save_contract(contract)
 
     snapshot = snapshot_store.load(contract.process_id)
     shared_state = shared_state_store.load(contract.process_id)
@@ -2498,7 +2748,7 @@ def _reconcile_production_build_loop_pass(
     }
 
 
-def reconcile_production_build_loop(
+def _reconcile_production_build_loop_transaction(
     contract: ProductionBuildContract,
     *,
     loop_store: ProductionBuildLoopStore,
@@ -2635,6 +2885,46 @@ def reconcile_production_build_loop(
     return final_result
 
 
+def reconcile_production_build_loop(
+    contract: ProductionBuildContract,
+    *,
+    loop_store: ProductionBuildLoopStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    journal: ProcessJournal,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    release_store: ReleaseWorkflowStore,
+    controller_id: str,
+    controller_session_id: str,
+    now: Optional[datetime] = None,
+    watchdog_context: Optional[Dict[str, Any]] = None,
+) -> JsonDict:
+    # Promotion, artifact ingestion, and rollback all use this same process
+    # fence. It covers every chained pass and the final loop projection so a
+    # rollback cannot be followed by a stale promotion or loop-state save.
+    with release_store.release_transaction(contract.process_id):
+        intent = release_store.load_rollback_intent(contract.process_id)
+        if intent and intent.get("status") in {"in_progress", "recovery_required"}:
+            raise RuntimeError(
+                f"release rollback recovery required before reconciliation: {contract.process_id}"
+            )
+        return _reconcile_production_build_loop_transaction(
+            contract,
+            loop_store=loop_store,
+            snapshot_store=snapshot_store,
+            shared_state_store=shared_state_store,
+            journal=journal,
+            mailbox=mailbox,
+            supervisor=supervisor,
+            release_store=release_store,
+            controller_id=controller_id,
+            controller_session_id=controller_session_id,
+            now=now,
+            watchdog_context=watchdog_context,
+        )
+
+
 __all__ = [
     "BuildLoopControllerOwner",
     "ProductionBlockerRule",
@@ -2646,12 +2936,17 @@ __all__ = [
     "ProductionCompletionCriterion",
     "ProductionPassBudget",
     "ProductionStageGate",
+    "REQUIRED_RELEASE_HANDOFF_RECIPIENTS",
+    "RUNTIME_DELIVERY_MOUNT_MARKER",
     "advance_production_release_loop",
     "detect_true_blockers",
     "evaluate_production_completion",
     "ingest_production_release_artifact",
+    "probe_runtime_delivery_readiness",
     "reconcile_production_build_loop",
     "recover_production_worker",
     "repair_production_dependability",
+    "runtime_delivery_handoff_claim_signature",
+    "runtime_delivery_recipient_credentials",
     "ValidationError",
 ]

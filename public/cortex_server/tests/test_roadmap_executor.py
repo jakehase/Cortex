@@ -436,6 +436,7 @@ def test_roadmap_executor_persists_through_mixed_phases_until_true_completion(tm
             revision_id="rev_6",
             current_stage="production",
             status="promoted",
+            persistence_revision=release_state.persistence_revision,
             promotion_history=list(release_state.promotion_history),
             handoff_records=list(release_state.handoff_records),
             rollback_fenceposts=list(release_state.rollback_fenceposts),

@@ -17,13 +17,23 @@ services:
       - ./openclaw_state:/root/.openclaw:rw
       - ./geneticist_applied:/opt/clawdbot/geneticist_applied:rw
       - cortex-chroma:/app/cortex_server/chroma_db:rw
+      - cortex-runtime-delivery:/opt/clawdbot/state/runtime_delivery:rw
     environment:
       CORTEX_ENV: production
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
+      ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-cortex-runtime-delivery-v1}
+      CORTEX_WRITE_AUTH_MODE: token_required
+      CORTEX_WRITE_TOKEN: ${CORTEX_WRITE_TOKEN:?set the external production write token in .env}
       CORTEX_MEMORY_SCOPE_CREDENTIALS: ${CORTEX_MEMORY_SCOPE_CREDENTIALS:?set principal-scoped credentials in .env}
       CORTEX_CODEC_ADMIN_TOKEN: ${CORTEX_CODEC_ADMIN_TOKEN:?set CORTEX_CODEC_ADMIN_TOKEN in .env}
+      # Provision independent verifier IDs first, deploy, then retire old IDs after in-flight releases drain.
+      CORTEX_RELEASE_VERIFIER_CREDENTIALS: ${CORTEX_RELEASE_VERIFIER_CREDENTIALS:?set independent release verifier HMAC credentials in .env}
+      # Recipient workers send CORTEX_WRITE_TOKEN plus their bound HMAC. Rotate recipient secrets after draining their in-flight handoffs.
       CORTEX_AGENT_ACK_CREDENTIALS: ${CORTEX_AGENT_ACK_CREDENTIALS:?set recipient acknowledgement credentials in .env}
+      # This server-only signing key must never reuse a write, admin, feedback-control, or principal credential.
+      NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY: ${NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY:?set a distinct server-only feedback signing key in .env}
     env_file:
       - .env
     restart: unless-stopped
@@ -33,6 +43,8 @@ services:
       piper-tts:
         condition: service_started
       cortex-memory-volume-init:
+        condition: service_completed_successfully
+      cortex-runtime-delivery-volume-init:
         condition: service_completed_successfully
 
   cortex-memory-volume-init:
@@ -55,6 +67,29 @@ services:
         sync "$$marker"
     restart: "no"
 
+  cortex-runtime-delivery-volume-init:
+    image: alpine:3.20
+    container_name: cortex-runtime-delivery-volume-init
+    environment:
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-cortex-runtime-delivery-v1}
+    volumes:
+      - cortex-runtime-delivery:/runtime_delivery:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        marker=/runtime_delivery/.cortex-durable-runtime-delivery
+        if [ -e "$$marker" ] && [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
+          echo "Cortex runtime delivery volume identity mismatch" >&2
+          exit 1
+        fi
+        printf '%s\n' "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" > "$$marker"
+        chmod 0700 /runtime_delivery
+        chmod 0600 "$$marker"
+        sync "$$marker"
+    restart: "no"
+
   # Level 6: The Bard - Piper TTS (Open Source, No Auth Required)
   piper-tts:
     image: rhasspy/wyoming-piper:latest
@@ -74,3 +109,4 @@ networks:
 
 volumes:
   cortex-chroma:
+  cortex-runtime-delivery:

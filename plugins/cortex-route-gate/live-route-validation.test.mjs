@@ -27,7 +27,17 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
   if (cache) fs.writeFileSync(path.join(stateDir, 'last-good-plan.json'), JSON.stringify(cache));
   const handlers = new Map();
   register({
-    config: { enabled: true, requireRouting, baseUrl: 'http://127.0.0.1:18888', routeCacheHmacSecret: CACHE_SECRET, sessionIdentityHmacSecret: 'session-identity-default-test-secret', stateDir, ...config },
+    config: {
+      enabled: true,
+      requireRouting,
+      baseUrl: 'http://127.0.0.1:18888',
+      routeCacheHmacSecret: CACHE_SECRET,
+      sessionIdentityHmacSecret: 'session-identity-default-test-secret',
+      scopeCredentialId: 'route-default-test',
+      scopeHmacSecret: 'route-default-scope-secret',
+      stateDir,
+      ...config,
+    },
     logger: { info() {}, warn() {} },
     on(name, handler) { handlers.set(name, handler); },
   });
@@ -99,6 +109,19 @@ test('routing POST uses the configured sensitive write-token header', async () =
   assert.equal(new URL(request.url).search, '', 'the prompt must not enter the query string');
   assert.deepEqual(JSON.parse(String(request.init.body)), { query: 'Route this' });
   assert.match(new Headers(request.init.headers).get('x-session-id'), /^openclaw-[0-9a-f]{64}$/);
+});
+
+test('minimal production route configuration signs the default cortex-local scope', async () => {
+  let headers;
+  await invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    inspectRequest(_url, init) { headers = new Headers(init.headers); },
+  });
+  assert.equal(headers.get('x-cortex-tenant-id'), 'cortex-local');
+  assert.equal(headers.get('x-cortex-workspace-id'), 'default');
+  assert.equal(headers.get('x-cortex-scope-credential-id'), 'route-default-test');
+  assert.match(headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
 });
 
 test('routing forwards distinct bounded HMAC identities without exposing raw session keys', async () => {

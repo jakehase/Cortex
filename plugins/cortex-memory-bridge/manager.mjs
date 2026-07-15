@@ -12,6 +12,7 @@ function resolveConfig(cfg) {
     writeTokenHeader: writeTokenHeader.toLowerCase(),
     scopeHmacSecret: typeof pluginCfg.scopeHmacSecret === 'string' ? pluginCfg.scopeHmacSecret : '',
     scopeCredentialId: typeof pluginCfg.scopeCredentialId === 'string' ? pluginCfg.scopeCredentialId.trim() : '',
+    allowUnsignedLocalDevelopment: pluginCfg.allowUnsignedLocalDevelopment === true,
     sessionIdentityHmacSecret: typeof pluginCfg.sessionIdentityHmacSecret === 'string' ? pluginCfg.sessionIdentityHmacSecret : '',
     tenantId: typeof pluginCfg.tenantId === 'string' ? pluginCfg.tenantId.trim() : 'cortex-local',
     workspaceId: typeof pluginCfg.workspaceId === 'string' ? pluginCfg.workspaceId.trim() : 'default',
@@ -461,8 +462,8 @@ function scopedHeaders(rcfg, scope) {
   const tenantId = String(scope.tenant_id || '').trim();
   const workspaceId = String(scope.workspace_id || '').trim();
   const credentialId = String(rcfg.scopeCredentialId || '').trim();
-  if (!secret || !credentialId) {
-    if (tenantId === 'cortex-local' && workspaceId === 'default') {
+  if (!secret.trim() || !credentialId) {
+    if (rcfg.allowUnsignedLocalDevelopment === true && tenantId === 'cortex-local' && workspaceId === 'default') {
       return {
         ...headers,
         'x-cortex-tenant-id': tenantId,
@@ -473,7 +474,7 @@ function scopedHeaders(rcfg, scope) {
         'x-cortex-session-id': scope.session_id,
       };
     }
-    throw new Error('scopeCredentialId and scopeHmacSecret are required to authenticate non-default Cortex memory scope');
+    throw new Error('scopeCredentialId and scopeHmacSecret are required for Cortex memory access unless allowUnsignedLocalDevelopment is explicitly enabled for cortex-local/default');
   }
   const signature = createHmac('sha256', secret)
     .update(['cortex.memory.principal.v2', credentialId, tenantId, workspaceId, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n'), 'utf8')

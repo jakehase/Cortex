@@ -967,11 +967,23 @@ export default function register(api: any) {
   const defaultChannelId = typeof cfg.channelId === 'string' && cfg.channelId.trim() ? cfg.channelId.trim() : 'local-channel';
   const scopeCredentialId = typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '';
   const scopeHmacSecret = typeof cfg.scopeHmacSecret === 'string' ? String(cfg.scopeHmacSecret) : '';
-  if (Boolean(scopeCredentialId) !== Boolean(scopeHmacSecret)) {
+  const hasScopeCredentialId = scopeCredentialId.length > 0;
+  const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
+  const allowUnsignedLocalDevelopment = cfg.allowUnsignedLocalDevelopment === true;
+  const boundedOpaqueId = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
+  if (hasScopeCredentialId !== hasScopeHmacSecret) {
     throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret together');
   }
-  if ((!scopeCredentialId || !scopeHmacSecret) && (tenantId !== 'cortex-local' || workspaceId !== 'default')) {
-    throw new Error('cortex-route-gate requires scoped credentials for a non-default tenant or workspace');
+  if (hasScopeCredentialId && !boundedOpaqueId.test(scopeCredentialId)) {
+    throw new Error('cortex-route-gate scopeCredentialId must be a bounded opaque identifier');
+  }
+  if (!hasScopeCredentialId) {
+    if (!allowUnsignedLocalDevelopment) {
+      throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
+    }
+    if (tenantId !== 'cortex-local' || workspaceId !== 'default') {
+      throw new Error('cortex-route-gate allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
+    }
   }
   const maxCachedPlanAgeMs = asNumber(cfg.maxCachedPlanAgeMs, 300_000);
   // Capture once at construction so later mutation of the caller-owned config cannot change trust.
@@ -1010,7 +1022,6 @@ export default function register(api: any) {
       channel_id: String(ctx?.channelId || ctx?.messageChannel || defaultChannelId).trim(),
       session_id: sessionIdentity,
     };
-    const boundedOpaqueId = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
     if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {
       throw new Error('routing requires a complete bounded trusted Cortex principal');
     }

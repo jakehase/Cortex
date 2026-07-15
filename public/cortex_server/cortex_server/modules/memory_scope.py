@@ -223,6 +223,15 @@ class AuthenticatedMemoryPrincipal:
     def scope(self) -> Dict[str, str]:
         return {field: getattr(self, field) for field in PRINCIPAL_FIELDS}
 
+    def isolation_key(self, namespace: str) -> str:
+        """Return an opaque, credential-rotation-stable key for principal-local state."""
+
+        bounded_namespace = str(namespace or "").strip()
+        if not bounded_namespace or len(bounded_namespace) > 80:
+            raise ValueError("principal isolation namespace must be bounded and non-empty")
+        canonical = "\0".join((bounded_namespace, *(self.scope[field] for field in PRINCIPAL_FIELDS)))
+        return f"principal:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
     @property
     def storage_workspace_id(self) -> str:
         if self.credential_id == "local-development" and self.scope == local_principal_scope():

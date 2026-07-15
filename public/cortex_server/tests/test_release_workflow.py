@@ -20,7 +20,7 @@ from cortex_server.runtime import (
     normalize_session_event,
 )
 from cortex_server.runtime.session_registry import SessionRegistryStore
-from cortex_server.runtime.release_workflow import create_release_artifact_receipt
+from cortex_server.runtime.release_workflow import create_release_artifact_receipt, release_canary_policy
 from cortex_server.runtime.shared_process_state import SharedProcessState
 
 
@@ -29,20 +29,16 @@ VERIFIER_SECRET = "release-workflow-test-secret"
 
 
 def _record_canary_evidence(harness, state, *, evidence_id: str, target_stage: str):
+    policy = release_canary_policy(target_stage)
     claims = {
+        "policy_id": policy["policy_id"],
         "deployment_id": f"deployment:{state.process_id}:{target_stage}",
         "cohort_id": "canary-cohort",
-        "traffic_volume": 100,
-        "observation_window_seconds": 600,
+        "traffic_volume": 1000,
+        "observation_window_seconds": 900,
         "artifact_hashes": [],
         "metrics": {"availability": 1.0, "error_rate": 0.0},
-        "thresholds": {
-            "minimum_traffic": 10,
-            "minimum_observation_seconds": 300,
-            "minimum_availability": 0.99,
-            "maximum_error_rate": 0.01,
-            "rollback_error_rate": 0.02,
-        },
+        "thresholds": policy["thresholds"],
     }
     artifact_store = harness.release_store.artifact_store()
     receipt = create_release_artifact_receipt(
@@ -64,6 +60,75 @@ def _record_canary_evidence(harness, state, *, evidence_id: str, target_stage: s
         verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
     )
 
+
+def test_signed_canary_evidence_cannot_define_or_evade_server_thresholds(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    state = ReleaseWorkflowState(
+        process_id="proc_immutable_canary_policy",
+        candidate_ref="build:unsafe",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    artifact_store = harness.release_store.artifact_store()
+    policy = release_canary_policy("production")
+    weak_claims = {
+        "policy_id": policy["policy_id"],
+        "deployment_id": "deployment:unsafe",
+        "cohort_id": "one-request",
+        "traffic_volume": 1,
+        "observation_window_seconds": 1,
+        "artifact_hashes": [],
+        "metrics": {"availability": 0.0, "error_rate": 0.99},
+        "thresholds": {
+            "minimum_traffic": 1,
+            "minimum_observation_seconds": 1,
+            "minimum_availability": 0.0,
+            "maximum_error_rate": 0.99,
+            "rollback_error_rate": 1.0,
+        },
+    }
+    weak_receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="evidence:caller-policy",
+        payload=weak_claims,
+        artifact_kind="canary_evidence",
+        target_stage="production",
+        claims=weak_claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+
+    with pytest.raises(ValueError, match="does not echo the immutable server release policy"):
+        record_release_artifact_receipt(
+            state,
+            weak_receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+    unhealthy_claims = {**weak_claims, "thresholds": policy["thresholds"]}
+    unhealthy_receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="evidence:unhealthy",
+        payload=unhealthy_claims,
+        artifact_kind="canary_evidence",
+        target_stage="production",
+        claims=unhealthy_claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    with pytest.raises(ValueError, match="does not satisfy the immutable server release policy"):
+        record_release_artifact_receipt(
+            state,
+            unhealthy_receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
 
 
 def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
@@ -200,6 +265,97 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
     assert rolled["restore_state"]["lifecycle_state"] == "waiting"
     assert rolled["restore_state"]["shared_state_revision_id"] == "rev_1"
     assert rolled["restore_state"]["waiting_steps"] == ["build"]
+
+
+def test_repeated_rollback_never_selects_a_retained_forward_fencepost(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(
+        process_id="proc_strictly_prior_rollback",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id="proc_strictly_prior_rollback",
+        candidate_ref="build:rollback-topology",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    for stage in ("build_verified", "canary_verified", "production"):
+        state = record_release_fencepost(
+            state,
+            capture_release_rollback_fencepost(
+                snapshot=seeded["snapshot"],
+                shared_state=seeded["shared_state"],
+                stage=stage,
+            ),
+        )
+
+    first = rollback_release_workflow(state)
+    second = rollback_release_workflow(first["state"])
+
+    assert first["state"].current_stage == "canary_verified"
+    assert [row.stage for row in first["state"].rollback_fenceposts] == ["build_verified", "canary_verified"]
+    assert second["state"].current_stage == "build_verified"
+    assert [row.stage for row in second["state"].rollback_fenceposts] == ["build_verified"]
+    with pytest.raises(KeyError, match="prior_stage"):
+        rollback_release_workflow(second["state"])
+
+
+def test_stale_promotion_save_cannot_overwrite_completed_rollback(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_stale_promotion_after_rollback"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:stale-promotion",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=seeded["snapshot"],
+            shared_state=seeded["shared_state"],
+            stage="build_verified",
+        ),
+    )
+    state = harness.release_store.save(state, actor="release-manager")
+
+    # Model a promotion paused after computing its state but before save.
+    stale_promotion = advance_release_workflow(
+        state,
+        gate={"safe_push": True, "current_revision_id": state.revision_id},
+        next_stage="production",
+        actor="release-manager",
+    )["state"]
+
+    restored = apply_release_rollback_restore(
+        state,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+        actor="operator",
+        reason="canary regression",
+    )
+
+    with pytest.raises(RuntimeError, match="persistence conflict"):
+        harness.release_store.save(stale_promotion, actor="release-manager")
+
+    persisted = harness.release_store.load(process_id)
+    assert restored["state"].current_stage == "build_verified"
+    assert persisted.current_stage == "build_verified"
+    assert persisted.status == "rolled_back"
+    assert persisted.persistence_revision == state.persistence_revision + 1
 
 
 def test_release_gate_rejects_ack_from_obsolete_candidate_even_on_current_revision(tmp_path):
