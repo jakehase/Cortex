@@ -93,6 +93,7 @@ def build_validator_summary(
             "has_structure": bool(checks.get("has_structure", False)) if checks else None,
             "too_short": bool(checks.get("too_short", False)) if checks else None,
             "shallow_confidence_risk": bool(checks.get("shallow_confidence_risk", False)),
+            "validation_source": checks.get("validation_source") if checks else None,
         },
         "reason_codes": reasons,
         "transaction_complete": execution_transaction.get("status") == "completed",

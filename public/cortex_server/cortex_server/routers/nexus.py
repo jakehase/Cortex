@@ -3283,6 +3283,60 @@ def _server_commit_assurance(query: str, response: str) -> Dict[str, Any]:
     }
 
 
+def _complete_orchestration_checks(
+    *,
+    query: str,
+    checks: Optional[Dict[str, Any]],
+    fastlane: Optional[Dict[str, Any]],
+    semantic_result: Optional[Dict[str, Any]],
+    reasoning: Optional[List[str]],
+) -> Dict[str, Any]:
+    """Ensure every orchestration lane supplies response checks to assurance."""
+    if isinstance(checks, dict) and "missing_constraints_count" in checks:
+        completed = dict(checks)
+        completed.setdefault("validation_source", "fastlane_draft")
+        return completed
+
+    fastlane_answer = (fastlane or {}).get("answer")
+    semantic_reasoning = (semantic_result or {}).get("reasoning")
+    if isinstance(fastlane_answer, str) and fastlane_answer.strip():
+        response_text = fastlane_answer
+        validation_source = "fastlane_answer"
+    elif isinstance(semantic_reasoning, str) and semantic_reasoning.strip():
+        response_text = semantic_reasoning
+        validation_source = "semantic_reasoning"
+    else:
+        response_text = "\n".join(str(item) for item in (reasoning or []) if str(item).strip())
+        validation_source = "routing_reasoning"
+
+    completed = fast_verify(response_text, classify_qtype(query), query)
+    completed["validation_source"] = validation_source
+    return completed
+
+
+def _orchestration_validator_pass(
+    *,
+    checks: Dict[str, Any],
+    fastlane: Optional[Dict[str, Any]],
+    cognitive_quality_pass: bool,
+) -> bool:
+    """Apply complete response checks without making non-fastlane routes fail closed."""
+    if not isinstance(checks, dict) or "missing_constraints_count" not in checks:
+        return False
+
+    core_checks_pass = bool(
+        checks.get("required_fields_ok", False)
+        and not checks.get("contradiction_detected", False)
+        and not checks.get("overclaim_detected", False)
+        and int(checks.get("missing_constraints_count", 0)) == 0
+        and not checks.get("shallow_confidence_risk", False)
+    )
+    if isinstance(fastlane, dict):
+        return bool(not fastlane.get("escalated") and core_checks_pass)
+
+    return bool(cognitive_quality_pass and core_checks_pass)
+
+
 def _issue_assurance_receipt(interaction: "AssuranceReceiptRequest", request: Optional[Request]) -> Dict[str, Any]:
     assurance = _server_commit_assurance(interaction.query, interaction.response)
     if not bool((assurance.get("memory_decision") or {}).get("eligible")):
@@ -5577,8 +5631,19 @@ async def orchestrate_query(
 
         execution_tx = tx.finalize({"recommended_levels": recommended, "routing_method": routing_method}, verify=lambda payload: bool(payload.get("recommended_levels")) and bool(payload.get("routing_method")))
         elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
+        checks = _complete_orchestration_checks(
+            query=query,
+            checks=checks,
+            fastlane=fastlane,
+            semantic_result=semantic_result,
+            reasoning=reasoning,
+        )
         validator_result = {
-            "pass": bool(isinstance(fastlane, dict) and not fastlane.get("escalated") and not checks.get("overclaim_detected", False) and int(checks.get("missing_constraints_count", 0)) == 0) if checks else bool(cognitive_stage.get("quality_pass")),
+            "pass": _orchestration_validator_pass(
+                checks=checks,
+                fastlane=fastlane,
+                cognitive_quality_pass=bool(cognitive_stage.get("quality_pass")),
+            ),
             "checks": checks,
         }
         quality_score = min(1.0, max(0.0, (0.4 * float(cognitive_quality.get("confidence", 0.0))) + (0.3 * float(cognitive_quality.get("evidence", 0.0))) + (0.3 * (1.0 if validator_result["pass"] else 0.0))))

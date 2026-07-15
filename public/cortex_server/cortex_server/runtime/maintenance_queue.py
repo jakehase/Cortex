@@ -46,16 +46,17 @@ def _item_id() -> str:
     return f"maint_{uuid4().hex[:16]}"
 
 
+def _parse_iso_timestamp(value: Any) -> datetime:
+    parsed = datetime.fromisoformat(str(value or "").strip().replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _next_version(previous: str) -> str:
     candidate = _now_iso()
-    previous_at = datetime.fromisoformat(previous.replace("Z", "+00:00"))
-    candidate_at = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
-    # Timestamp validation historically accepted offset-less values. Interpret
-    # those legacy queue versions as UTC so they remain writable.
-    if previous_at.tzinfo is None:
-        previous_at = previous_at.replace(tzinfo=timezone.utc)
-    if candidate_at.tzinfo is None:
-        candidate_at = candidate_at.replace(tzinfo=timezone.utc)
+    previous_at = _parse_iso_timestamp(previous)
+    candidate_at = _parse_iso_timestamp(candidate)
     if candidate_at > previous_at:
         return candidate
     return (previous_at + timedelta(milliseconds=1)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -186,6 +187,7 @@ class MaintenanceQueueStore:
         self.max_state_bytes = max(1024, int(max_state_bytes))
         self._mutex = threading.RLock()
         self._lock_depth = 0
+        self._guarded_dispatches: set[tuple[str, str]] = set()
 
     @contextmanager
     def _lock(self):
@@ -212,6 +214,23 @@ class MaintenanceQueueStore:
             result = operation(state)
             self._write_state(state)
             return result
+
+    @contextmanager
+    def _dispatch_item_lock(self, item_id: str, *, blocking: bool):
+        digest = hashlib.sha256(str(item_id or "").encode("utf-8")).hexdigest()
+        lock_path = self.path.parent / f".{self.path.name}.dispatch.{digest}.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as handle:
+            flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+            try:
+                fcntl.flock(handle.fileno(), flags)
+            except BlockingIOError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _load_state(self) -> MaintenanceQueueState:
         with self._lock():
@@ -369,7 +388,7 @@ class MaintenanceQueueStore:
         if not normalized_owner:
             raise ValueError("maintenance dispatch owner must be non-empty")
         # Validate before taking the lock so malformed leases never mutate state.
-        datetime.fromisoformat(str(lease_expires_at or "").strip().replace("Z", "+00:00"))
+        _parse_iso_timestamp(lease_expires_at)
         claimed = None
         with self._lock():
             state = self._load_state()
@@ -426,9 +445,84 @@ class MaintenanceQueueStore:
                 released = True
         return released
 
+    def renew_dispatch(
+        self,
+        item_id: str,
+        *,
+        owner: str,
+        renewed_at: str,
+        lease_expires_at: str,
+    ) -> bool:
+        """Extend a live dispatch lease only while its owner remains fenced in."""
+        renewed_at_dt = _parse_iso_timestamp(renewed_at)
+        lease_expires_at_dt = _parse_iso_timestamp(lease_expires_at)
+        if lease_expires_at_dt <= renewed_at_dt:
+            raise ValueError("maintenance dispatch lease expiry must follow renewal time")
+
+        with self._lock():
+            state = self._load_state()
+            item = next((row for row in state.items if row.item_id == item_id), None)
+            metadata = dict(item.metadata or {}) if item is not None else {}
+            try:
+                current_expiry = _parse_iso_timestamp(metadata.get("maintenance_dispatch_lease_expires_at"))
+            except (TypeError, ValueError):
+                return False
+            if (
+                item is None
+                or item.status != "active"
+                or metadata.get("maintenance_dispatch_state") != "dispatching"
+                or metadata.get("maintenance_dispatch_owner") != owner
+                or (
+                    current_expiry <= renewed_at_dt
+                    and (item_id, owner) not in self._guarded_dispatches
+                )
+            ):
+                return False
+            metadata.update(
+                {
+                    "maintenance_dispatch_lease_renewed_at": renewed_at,
+                    "maintenance_dispatch_lease_expires_at": lease_expires_at,
+                }
+            )
+            item.metadata = metadata
+            state.updated_at = _next_version(state.updated_at)
+            self._write_state(state)
+            return True
+
+    @contextmanager
+    def dispatch_guard(self, item_id: str, *, owner: str, guarded_at: str):
+        """Hold a crash-released per-item fence throughout dispatch side effects."""
+        guarded_at_dt = _parse_iso_timestamp(guarded_at)
+        with self._dispatch_item_lock(item_id, blocking=True) as acquired:
+            if not acquired:
+                raise RuntimeError(f"maintenance dispatch guard unavailable for '{item_id}'")
+            with self._lock():
+                state = self._load_state()
+                item = next((row for row in state.items if row.item_id == item_id), None)
+                metadata = dict(item.metadata or {}) if item is not None else {}
+                try:
+                    lease_expires_at = _parse_iso_timestamp(metadata.get("maintenance_dispatch_lease_expires_at"))
+                except (TypeError, ValueError):
+                    raise RuntimeError(f"maintenance dispatch lease lost for '{item_id}'") from None
+                if (
+                    item is None
+                    or item.status != "active"
+                    or metadata.get("maintenance_dispatch_state") != "dispatching"
+                    or metadata.get("maintenance_dispatch_owner") != owner
+                    or lease_expires_at <= guarded_at_dt
+                ):
+                    raise RuntimeError(f"maintenance dispatch lease lost for '{item_id}'")
+                guard_key = (item_id, owner)
+                self._guarded_dispatches.add(guard_key)
+            try:
+                yield
+            finally:
+                with self._lock():
+                    self._guarded_dispatches.discard(guard_key)
+
     def recover_expired_dispatches(self, *, now: str) -> MaintenanceQueueState:
         """Requeue dispatches whose owner disappeared before durable confirmation."""
-        now_at = datetime.fromisoformat(str(now or "").strip().replace("Z", "+00:00"))
+        now_at = _parse_iso_timestamp(now)
         with self._lock():
             state = self._load_state()
             changed = False
@@ -437,9 +531,7 @@ class MaintenanceQueueStore:
                 if item.status != "active" or metadata.get("maintenance_dispatch_state") != "dispatching":
                     continue
                 try:
-                    expires_at = datetime.fromisoformat(
-                        str(metadata.get("maintenance_dispatch_lease_expires_at") or "").strip().replace("Z", "+00:00")
-                    )
+                    expires_at = _parse_iso_timestamp(metadata.get("maintenance_dispatch_lease_expires_at"))
                     expired = expires_at <= now_at
                 except (TypeError, ValueError):
                     # A malformed/missing recovery fence must fail closed rather
@@ -447,20 +539,23 @@ class MaintenanceQueueStore:
                     expired = True
                 if not expired:
                     continue
-                metadata.pop("maintenance_dispatch_owner", None)
-                metadata.pop("maintenance_dispatch_lease_expires_at", None)
-                metadata.update(
-                    {
-                        "maintenance_dispatch_state": "pending",
-                        "maintenance_dispatch_last_failure": "dispatch_lease_expired",
-                        "maintenance_dispatch_last_failure_at": now,
-                    }
-                )
-                item.status = "pending"
-                item.claimed_at = None
-                item.last_transition_at = now
-                item.metadata = metadata
-                changed = True
+                with self._dispatch_item_lock(item.item_id, blocking=False) as acquired:
+                    if not acquired:
+                        continue
+                    metadata.pop("maintenance_dispatch_owner", None)
+                    metadata.pop("maintenance_dispatch_lease_expires_at", None)
+                    metadata.update(
+                        {
+                            "maintenance_dispatch_state": "pending",
+                            "maintenance_dispatch_last_failure": "dispatch_lease_expired",
+                            "maintenance_dispatch_last_failure_at": now,
+                        }
+                    )
+                    item.status = "pending"
+                    item.claimed_at = None
+                    item.last_transition_at = now
+                    item.metadata = metadata
+                    changed = True
             if changed:
                 state.updated_at = _next_version(state.updated_at)
                 self._write_state(state)
@@ -469,15 +564,24 @@ class MaintenanceQueueStore:
     def finish_dispatch(self, item: MaintenanceQueueItem | JsonDict, *, owner: str, confirmed_at: str) -> tuple[bool, MaintenanceQueueState]:
         """Publish dispatch results only while the caller still owns the item lease."""
         record = item if isinstance(item, MaintenanceQueueItem) else _item_validate(item)
+        confirmed_at_dt = _parse_iso_timestamp(confirmed_at)
         with self._lock():
             state = self._load_state()
             current = next((row for row in state.items if row.item_id == record.item_id), None)
             metadata = dict(current.metadata or {}) if current is not None else {}
+            try:
+                lease_expires_at = _parse_iso_timestamp(metadata.get("maintenance_dispatch_lease_expires_at"))
+            except (TypeError, ValueError):
+                return False, state
             if (
                 current is None
                 or current.status != "active"
                 or metadata.get("maintenance_dispatch_state") != "dispatching"
                 or metadata.get("maintenance_dispatch_owner") != owner
+                or (
+                    lease_expires_at <= confirmed_at_dt
+                    and (record.item_id, owner) not in self._guarded_dispatches
+                )
             ):
                 return False, state
             completed_metadata = {**metadata, **dict(record.metadata or {})}

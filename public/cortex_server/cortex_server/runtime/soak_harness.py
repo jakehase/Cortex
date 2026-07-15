@@ -23,6 +23,7 @@ from cortex_server.runtime.release_workflow import (
     record_release_artifact_receipt,
     record_release_fencepost,
     record_release_handoff,
+    release_canary_policy,
     repair_release_workflow,
     rollback_release_workflow,
 )
@@ -1358,20 +1359,16 @@ class RuntimeSoakHarness:
                 artifact_hashes.append(receipt.content_hash)
 
             evidence_id = f"evidence:{process_id}:{target_stage}"
+            canary_policy = release_canary_policy(target_stage)
             claims = {
+                "policy_id": canary_policy["policy_id"],
                 "deployment_id": f"deployment:{process_id}:{target_stage}",
                 "cohort_id": "soak-canary-cohort",
                 "traffic_volume": 1000,
                 "observation_window_seconds": 900,
                 "artifact_hashes": artifact_hashes,
                 "metrics": {"availability": 0.999, "error_rate": 0.001},
-                "thresholds": {
-                    "minimum_traffic": 500,
-                    "minimum_observation_seconds": 600,
-                    "minimum_availability": 0.99,
-                    "maximum_error_rate": 0.01,
-                    "rollback_error_rate": 0.02,
-                },
+                "thresholds": canary_policy["thresholds"],
             }
             evidence = create_release_artifact_receipt(
                 active_state,

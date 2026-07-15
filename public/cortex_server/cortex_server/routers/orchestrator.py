@@ -2059,10 +2059,22 @@ def _maintenance_queue_contract_for_process(item: MaintenanceQueueItem, *, proce
     payload = dict(item.roadmap_contract or {})
     payload["process_id"] = process_id
     metadata = dict(payload.get("metadata") or {})
+    done_key = str(metadata.get("done_world_state_key") or f"maintenance_queue.{item.item_id}.done")
+    metadata["done_world_state_key"] = done_key
     metadata.setdefault("maintenance_queue", {})
     if isinstance(metadata.get("maintenance_queue"), dict):
         metadata["maintenance_queue"] = {**dict(metadata.get("maintenance_queue") or {}), "item_id": item.item_id, "queue_name": item.queue_name}
     payload["metadata"] = metadata
+    if not payload.get("success_criteria"):
+        payload["success_criteria"] = [
+            {
+                "criterion_id": "maintenance-done",
+                "summary": "Queue item must be marked done in shared world state",
+                "kind": "world_state",
+                "world_state_key": done_key,
+                "expected_value": True,
+            }
+        ]
     return _validate_roadmap_contract(payload)
 
 
@@ -2103,6 +2115,38 @@ def _maintenance_queue_process_id(item: MaintenanceQueueItem) -> str:
     return f"proc_maintenance_{suffix}"
 
 
+_MAINTENANCE_DISPATCH_LEASE_SECONDS = 300
+
+
+def _maintenance_dispatch_now() -> datetime:
+    """Return trusted server time for dispatch fencing, never request simulation time."""
+    return datetime.now().astimezone()
+
+
+def _maintenance_dispatch_iso(value: datetime) -> str:
+    return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _renew_maintenance_dispatch_or_raise(
+    queue_store: MaintenanceQueueStore,
+    *,
+    item_id: str,
+    owner: str,
+) -> str:
+    renewed_at = _maintenance_dispatch_now()
+    renewed_at_iso = _maintenance_dispatch_iso(renewed_at)
+    lease_expires_at = _maintenance_dispatch_iso(
+        renewed_at + timedelta(seconds=_MAINTENANCE_DISPATCH_LEASE_SECONDS)
+    )
+    if not queue_store.renew_dispatch(
+        item_id,
+        owner=owner,
+        renewed_at=renewed_at_iso,
+        lease_expires_at=lease_expires_at,
+    ):
+        raise RuntimeError(f"maintenance dispatch lease lost for '{item_id}'")
+    return renewed_at_iso
+
 
 def _runtime_maintenance_queue_sync(
     *,
@@ -2117,7 +2161,8 @@ def _runtime_maintenance_queue_sync(
     # initialization. Expired dispatch leases make those records runnable
     # again while preventing a concurrent synchronizer from stealing a live
     # claim.
-    queue_state = queue_store.recover_expired_dispatches(now=now_iso)
+    dispatch_now = _maintenance_dispatch_now()
+    queue_state = queue_store.recover_expired_dispatches(now=_maintenance_dispatch_iso(dispatch_now))
     items = list(queue_state.items)
     by_id = {item.item_id: item for item in items}
     actions: List[Dict[str, Any]] = []
@@ -2169,7 +2214,10 @@ def _runtime_maintenance_queue_sync(
         claim_budget = max(0, capacity - sum(1 for row in queue_state.items if row.status == "active"))
         for _ in range(claim_budget):
             dispatch_owner = f"maintenance-queue:{uuid4().hex}"
-            lease_expires_at = (current_time + timedelta(minutes=5)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            dispatch_started_at = _maintenance_dispatch_now()
+            lease_expires_at = _maintenance_dispatch_iso(
+                dispatch_started_at + timedelta(seconds=_MAINTENANCE_DISPATCH_LEASE_SECONDS)
+            )
             item, claimed_state = queue_store.begin_dispatch(
                 claimed_at=now_iso,
                 lease_expires_at=lease_expires_at,
@@ -2182,61 +2230,93 @@ def _runtime_maintenance_queue_sync(
             # The active transition above is the ownership fence. Only this
             # caller can cross it and perform non-idempotent dispatch work.
             try:
-                process = get_runtime_process(item.process_id) if item.process_id else None
-                if process is None:
-                    process = create_process_from_workflow(
-                        _maintenance_queue_workflow(item),
-                        process_id=item.process_id or _maintenance_queue_process_id(item),
-                        owner="cortex",
-                        session_key=str((item.source_message or {}).get("session_key") or "").strip() or None,
+                guarded_at = _renew_maintenance_dispatch_or_raise(
+                    queue_store, item_id=item.item_id, owner=dispatch_owner
+                )
+                with queue_store.dispatch_guard(
+                    item.item_id, owner=dispatch_owner, guarded_at=guarded_at
+                ):
+                    process = get_runtime_process(item.process_id) if item.process_id else None
+                    if process is None:
+                        _renew_maintenance_dispatch_or_raise(
+                            queue_store, item_id=item.item_id, owner=dispatch_owner
+                        )
+                        process = create_process_from_workflow(
+                            _maintenance_queue_workflow(item),
+                            process_id=item.process_id or _maintenance_queue_process_id(item),
+                            owner="cortex",
+                            session_key=str((item.source_message or {}).get("session_key") or "").strip() or None,
+                        )
+                    item.process_id = process.get("process_id")
+                    _renew_maintenance_dispatch_or_raise(
+                        queue_store, item_id=item.item_id, owner=dispatch_owner
                     )
-                item.process_id = process.get("process_id")
-                _ensure_runtime_session_plane_bootstrap(item.process_id, process=process, stores=stores)
-                _bootstrap_runtime_delivery_state(item.process_id, process=process, stores=stores)
-                contract = _maintenance_queue_contract_for_process(item, process_id=item.process_id)
-                reconciled = reconcile_roadmap_execution(
-                    contract,
-                    roadmap_store=stores["roadmap_store"],
-                    snapshot_store=stores["snapshot_store"],
-                    shared_state_store=stores["shared_state_store"],
-                    mailbox=stores["mailbox"],
-                    supervisor=stores["supervisor"],
-                    release_store=stores["release_store"],
-                    controller_id="maintenance-queue",
-                    controller_session_id=f"maintenance-queue:{item.item_id}",
-                    journal=stores["journal"],
-                    now=current_time,
-                )
-                process = _sync_runtime_process_roadmap_state(
-                    item.process_id,
-                    process=get_runtime_process(item.process_id) or process,
-                    stores=stores,
-                    event_kind="runtime_maintenance_queue_claimed",
-                    event_payload={"item_id": item.item_id, "queue_name": item.queue_name, "status": (reconciled.get("state") or {}).get("status")},
-                )
-                follow_up_bridge = _bridge_runtime_roadmap_follow_up(item.process_id, process=process, stores=stores, now=current_time)
-                process = follow_up_bridge.get("process") or process
-                latest_state_model = stores["roadmap_store"].load_state(item.process_id)
-                latest_reports = stores["roadmap_store"].reports(item.process_id)
-                latest_report_model = latest_reports[-1] if latest_reports else None
-                state_payload = model_dump_compat(latest_state_model) if latest_state_model is not None else ((reconciled.get("state") if isinstance(reconciled.get("state"), dict) else None) or {})
-                latest_report = model_dump_compat(latest_report_model) if latest_report_model is not None else (reconciled.get("report") if isinstance(reconciled.get("report"), dict) else None)
-                item.status = str(state_payload.get("status") or "active").strip() or "active"
-                item.claimed_at = item.claimed_at or now_iso
-                if item.status == "completed":
-                    item.completed_at = item.completed_at or now_iso
-                if item.status == "blocked":
-                    item.blocked_at = item.blocked_at or now_iso
-                item.last_transition_at = now_iso
-                item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report, stores=stores)
-                by_id[item.item_id] = item
-                _, queue_state = queue_store.finish_dispatch(item, owner=dispatch_owner, confirmed_at=now_iso)
+                    _ensure_runtime_session_plane_bootstrap(item.process_id, process=process, stores=stores)
+                    _renew_maintenance_dispatch_or_raise(
+                        queue_store, item_id=item.item_id, owner=dispatch_owner
+                    )
+                    _bootstrap_runtime_delivery_state(item.process_id, process=process, stores=stores)
+                    contract = _maintenance_queue_contract_for_process(item, process_id=item.process_id)
+                    _renew_maintenance_dispatch_or_raise(
+                        queue_store, item_id=item.item_id, owner=dispatch_owner
+                    )
+                    reconciled = reconcile_roadmap_execution(
+                        contract,
+                        roadmap_store=stores["roadmap_store"],
+                        snapshot_store=stores["snapshot_store"],
+                        shared_state_store=stores["shared_state_store"],
+                        mailbox=stores["mailbox"],
+                        supervisor=stores["supervisor"],
+                        release_store=stores["release_store"],
+                        controller_id="maintenance-queue",
+                        controller_session_id=f"maintenance-queue:{item.item_id}",
+                        journal=stores["journal"],
+                        now=current_time,
+                    )
+                    _renew_maintenance_dispatch_or_raise(
+                        queue_store, item_id=item.item_id, owner=dispatch_owner
+                    )
+                    process = _sync_runtime_process_roadmap_state(
+                        item.process_id,
+                        process=get_runtime_process(item.process_id) or process,
+                        stores=stores,
+                        event_kind="runtime_maintenance_queue_claimed",
+                        event_payload={"item_id": item.item_id, "queue_name": item.queue_name, "status": (reconciled.get("state") or {}).get("status")},
+                    )
+                    _renew_maintenance_dispatch_or_raise(
+                        queue_store, item_id=item.item_id, owner=dispatch_owner
+                    )
+                    follow_up_bridge = _bridge_runtime_roadmap_follow_up(item.process_id, process=process, stores=stores, now=current_time)
+                    process = follow_up_bridge.get("process") or process
+                    latest_state_model = stores["roadmap_store"].load_state(item.process_id)
+                    latest_reports = stores["roadmap_store"].reports(item.process_id)
+                    latest_report_model = latest_reports[-1] if latest_reports else None
+                    state_payload = model_dump_compat(latest_state_model) if latest_state_model is not None else ((reconciled.get("state") if isinstance(reconciled.get("state"), dict) else None) or {})
+                    latest_report = model_dump_compat(latest_report_model) if latest_report_model is not None else (reconciled.get("report") if isinstance(reconciled.get("report"), dict) else None)
+                    item.status = str(state_payload.get("status") or "active").strip() or "active"
+                    item.claimed_at = item.claimed_at or now_iso
+                    if item.status == "completed":
+                        item.completed_at = item.completed_at or now_iso
+                    if item.status == "blocked":
+                        item.blocked_at = item.blocked_at or now_iso
+                    item.last_transition_at = now_iso
+                    item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report, stores=stores)
+                    by_id[item.item_id] = item
+                    confirmed_at = _renew_maintenance_dispatch_or_raise(
+                        queue_store, item_id=item.item_id, owner=dispatch_owner
+                    )
+                    finished, queue_state = queue_store.finish_dispatch(
+                        item, owner=dispatch_owner, confirmed_at=confirmed_at
+                    )
+                    if not finished:
+                        raise RuntimeError(f"maintenance dispatch lease lost for '{item.item_id}'")
             except BaseException as exc:
                 try:
+                    released_at = _maintenance_dispatch_iso(_maintenance_dispatch_now())
                     queue_store.release_dispatch(
                         item.item_id,
                         owner=dispatch_owner,
-                        released_at=now_iso,
+                        released_at=released_at,
                         reason=f"{type(exc).__name__}:dispatch_failed",
                     )
                 except Exception:

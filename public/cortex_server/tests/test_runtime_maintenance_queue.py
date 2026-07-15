@@ -257,7 +257,7 @@ def test_maintenance_queue_sync_preserves_enqueue_during_claim_side_effects(tmp_
     assert next(row for row in state.items if row.item_id == injected.item_id).status == "pending"
 
 
-def test_maintenance_queue_sync_preserves_same_item_mutation_during_claim_side_effects(tmp_path, monkeypatch):
+def test_maintenance_queue_sync_fences_same_item_mutation_during_claim_side_effects(tmp_path, monkeypatch):
     db_path = tmp_path / "runtime.db"
     delivery_root = tmp_path / "delivery"
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
@@ -283,13 +283,13 @@ def test_maintenance_queue_sync_preserves_same_item_mutation_during_claim_side_e
         return original_create(*args, **kwargs)
 
     monkeypatch.setattr(orchestrator, "create_process_from_workflow", create_and_mutate)
-    result = orchestrator._runtime_maintenance_queue_sync(
-        stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
-    )
+    with pytest.raises(RuntimeError, match="maintenance dispatch lease lost"):
+        orchestrator._runtime_maintenance_queue_sync(
+            stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
+        )
 
     current = stores["maintenance_queue_store"].get(queued.item_id)
     assert current is not None
-    assert result["action_count"] == 1
     assert current.status == "blocked"
     assert current.blocked_at == "2026-03-01T00:00:01.000Z"
     assert current.metadata == {"concurrent": "preserve"}
@@ -397,6 +397,8 @@ def test_maintenance_expired_dispatch_lease_recovers_crash_without_stealing_live
         return original_create(*args, **kwargs)
 
     monkeypatch.setattr(orchestrator, "create_process_from_workflow", count_create)
+    dispatch_now = datetime(2026, 3, 1, 0, 4, 59, tzinfo=timezone.utc)
+    monkeypatch.setattr(orchestrator, "_maintenance_dispatch_now", lambda: dispatch_now)
     before_expiry = orchestrator._runtime_maintenance_queue_sync(
         stores=stores, now=datetime(2026, 3, 1, 0, 4, 59, tzinfo=timezone.utc), allow_claim=True
     )
@@ -406,6 +408,7 @@ def test_maintenance_expired_dispatch_lease_recovers_crash_without_stealing_live
     assert still_owned.metadata["maintenance_dispatch_owner"] == "crashed-worker"
     assert stores["roadmap_store"].load_state(claimed.process_id) is None
 
+    dispatch_now = datetime(2026, 3, 1, 0, 5, tzinfo=timezone.utc)
     after_expiry = orchestrator._runtime_maintenance_queue_sync(
         stores=stores, now=datetime(2026, 3, 1, 0, 5, tzinfo=timezone.utc), allow_claim=True
     )
@@ -416,6 +419,150 @@ def test_maintenance_expired_dispatch_lease_recovers_crash_without_stealing_live
     assert recovered.process_id == claimed.process_id
     assert recovered.metadata["maintenance_dispatch_state"] == "confirmed"
     assert stores["roadmap_store"].load_state(claimed.process_id) is not None
+
+
+def test_maintenance_dispatch_lease_ignores_future_simulation_time(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    queued = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="trusted lease clock", source_text="trusted lease clock", roadmap_contract={"objective": "trusted lease clock"})
+    )
+    dispatch_now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(orchestrator, "_maintenance_dispatch_now", lambda: dispatch_now)
+    original_create = orchestrator.create_process_from_workflow
+    concurrent_results = []
+
+    def create_during_future_tick(*args, **kwargs):
+        concurrent_results.append(
+            orchestrator._runtime_maintenance_queue_sync(
+                stores=stores,
+                now=datetime(2036, 3, 1, tzinfo=timezone.utc),
+                allow_claim=True,
+            )
+        )
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "create_process_from_workflow", create_during_future_tick)
+    result = orchestrator._runtime_maintenance_queue_sync(
+        stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
+    )
+
+    current = stores["maintenance_queue_store"].get(queued.item_id)
+    assert concurrent_results[0]["action_count"] == 0
+    assert result["action_count"] == 1
+    assert current is not None
+    assert current.metadata["maintenance_dispatch_state"] == "confirmed"
+
+
+def test_expired_maintenance_dispatch_owner_is_fenced_before_roadmap_mutation(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    queued = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="fenced dispatch", source_text="fenced dispatch", roadmap_contract={"objective": "fenced dispatch"})
+    )
+    dispatch_now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(orchestrator, "_maintenance_dispatch_now", lambda: dispatch_now)
+    original_renew = orchestrator._renew_maintenance_dispatch_or_raise
+    renewal_calls = 0
+
+    def renew_after_lease_loss(queue_store, *, item_id, owner):
+        nonlocal renewal_calls
+        renewed_at = original_renew(queue_store, item_id=item_id, owner=owner)
+        renewal_calls += 1
+        if renewal_calls != 1:
+            return renewed_at
+        expired_at = dispatch_now + timedelta(seconds=orchestrator._MAINTENANCE_DISPATCH_LEASE_SECONDS)
+        stores["maintenance_queue_store"].recover_expired_dispatches(
+            now=(expired_at + timedelta(milliseconds=1)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
+        replacement, _ = stores["maintenance_queue_store"].begin_dispatch(
+            claimed_at=(expired_at + timedelta(milliseconds=1)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            lease_expires_at=(expired_at + timedelta(minutes=5)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            owner="replacement-dispatcher",
+            process_id_for_item=orchestrator._maintenance_queue_process_id,
+        )
+        assert replacement is not None
+        return renewed_at
+
+    monkeypatch.setattr(orchestrator, "_renew_maintenance_dispatch_or_raise", renew_after_lease_loss)
+    with pytest.raises(RuntimeError, match="maintenance dispatch lease lost"):
+        orchestrator._runtime_maintenance_queue_sync(
+            stores=stores, now=dispatch_now, allow_claim=True
+        )
+
+    current = stores["maintenance_queue_store"].get(queued.item_id)
+    assert current is not None
+    assert current.metadata["maintenance_dispatch_owner"] == "replacement-dispatcher"
+    assert stores["roadmap_store"].load_state(current.process_id) is None
+
+
+def test_maintenance_dispatch_guard_skips_recovery_and_services_other_items(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+    stores = orchestrator._runtime_delivery_stores()
+    queued = stores["maintenance_queue_store"].enqueue(
+        MaintenanceQueueItem(objective="guard durable phase", source_text="guard durable phase", roadmap_contract={"objective": "guard durable phase"})
+    )
+    recovery_store = MaintenanceQueueStore(stores["maintenance_queue_store"].path)
+    original_reconcile = orchestrator.reconcile_roadmap_execution
+    recovery_attempts = []
+    unrelated = MaintenanceQueueItem(
+        objective="unrelated intake",
+        source_text="unrelated intake",
+        roadmap_contract={"objective": "unrelated intake"},
+    )
+    dispatch_now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(orchestrator, "_maintenance_dispatch_now", lambda: dispatch_now)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        def reconcile_while_recovery_waits(*args, **kwargs):
+            nonlocal dispatch_now
+            current = stores["maintenance_queue_store"].get(queued.item_id)
+            assert current is not None
+            expires_at = datetime.fromisoformat(
+                current.metadata["maintenance_dispatch_lease_expires_at"].replace("Z", "+00:00")
+            )
+            dispatch_now = expires_at + timedelta(milliseconds=1)
+            def recover_and_enqueue():
+                state = recovery_store.recover_expired_dispatches(
+                    now=dispatch_now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                )
+                recovery_store.enqueue(unrelated)
+                return state
+
+            future = pool.submit(recover_and_enqueue)
+            recovery_attempts.append(future)
+            recovered_state = future.result(timeout=5)
+            guarded = next(row for row in recovered_state.items if row.item_id == queued.item_id)
+            assert guarded.status == "active"
+            assert guarded.metadata["maintenance_dispatch_state"] == "dispatching"
+            return original_reconcile(*args, **kwargs)
+
+        monkeypatch.setattr(orchestrator, "reconcile_roadmap_execution", reconcile_while_recovery_waits)
+        result = orchestrator._runtime_maintenance_queue_sync(
+            stores=stores, now=datetime(2026, 3, 1, tzinfo=timezone.utc), allow_claim=True
+        )
+        recovery_attempts[0].result(timeout=5)
+
+    current = stores["maintenance_queue_store"].get(queued.item_id)
+    assert result["action_count"] == 1
+    assert current is not None
+    assert current.metadata["maintenance_dispatch_state"] == "confirmed"
+    assert stores["maintenance_queue_store"].get(unrelated.item_id) is not None
 
 
 
