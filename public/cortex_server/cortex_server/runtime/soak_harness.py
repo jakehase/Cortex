@@ -264,6 +264,7 @@ class RuntimeSoakHarness:
         self.snapshot_store.save(
             ProcessSnapshot(
                 process_id=process_id,
+                persistence_revision=snapshot.persistence_revision,
                 last_event_id=resumed.event_id,
                 event_count=4,
                 lifecycle_state="running",
@@ -714,6 +715,7 @@ class RuntimeSoakHarness:
         return self.snapshot_store.save(
             ProcessSnapshot(
                 process_id=process_id,
+                persistence_revision=previous.persistence_revision if previous else 0,
                 last_event_id=replayed.get("last_event_id"),
                 event_count=int(replayed.get("event_count", 0) or 0),
                 lifecycle_state=str(replayed.get("lifecycle_state") or "created"),

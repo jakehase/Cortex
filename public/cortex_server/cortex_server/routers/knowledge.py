@@ -88,6 +88,11 @@ class BoundedGraphNodeCreateRequest(GraphNodeCreateRequest):
     name: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
     uri: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
     language: Optional[str] = Field(default=None, max_length=MAX_GRAPH_LANGUAGE_LENGTH)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
     _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
 
@@ -98,6 +103,11 @@ class BoundedGraphEdgeCreateRequest(GraphEdgeCreateRequest):
     source_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
     target_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
     context: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
     _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
 
@@ -115,6 +125,11 @@ class KnowledgeSearchRequest(BaseModel):
 class BoundedGraphQueryRequest(GraphQueryRequest):
     query: str = Field(..., max_length=16_384)
     limit: int = Field(100, ge=1, le=100)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class StructuralSearchRequest(BaseModel):
@@ -122,6 +137,11 @@ class StructuralSearchRequest(BaseModel):
     node_type: Optional[str] = None
     limit: int = Field(25, ge=1, le=100)
     include_neighbors: bool = False
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class PriorArtGateRequest(BaseModel):
@@ -143,6 +163,21 @@ class ImpactRequest(BaseModel):
     edge_type: Optional[str] = None
     direction: str = "both"
     limit: int = Field(10, ge=1, le=50)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
+
+
+def _graph_principal(request):
+    return _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
+    )
 
 
 def _node_to_dict(node) -> Optional[Dict[str, Any]]:
@@ -675,7 +710,12 @@ async def prior_art_gate(request: PriorArtGateRequest):
         seen_nodes = set()
         for term in terms[:8]:
             try:
-                for node in service.graph.query(name_pattern=term, limit=max(1, min(int(request.n_results or 5), 10))):
+                for node in service.graph.query(
+                    name_pattern=term,
+                    limit=max(1, min(int(request.n_results or 5), 10)),
+                    tenant_id=tenant,
+                    storage_workspace_id=workspace,
+                ):
                     node_dict = _node_to_dict(node)
                     node_id = node_dict.get("id") if isinstance(node_dict, dict) else None
                     if node_id and node_id in seen_nodes:
@@ -714,8 +754,15 @@ async def prior_art_gate(request: PriorArtGateRequest):
 async def query_graph(request: BoundedGraphQueryRequest):
     """Query the knowledge graph."""
     try:
-        result = await service.query(request)
+        principal = _graph_principal(request)
+        result = await service.query(
+            request,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
         return {"success": True, "data": result, "error": None}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
@@ -738,6 +785,7 @@ async def structural_search(request: StructuralSearchRequest):
     functions, routes, and nearby dependency edges.
     """
     try:
+        principal = _graph_principal(request)
         node_type = None
         if request.node_type:
             try:
@@ -748,6 +796,8 @@ async def structural_search(request: StructuralSearchRequest):
             node_type=node_type,
             name_pattern=request.query or None,
             limit=request.limit,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
         )
         results = []
         for node in nodes:
@@ -755,7 +805,13 @@ async def structural_search(request: StructuralSearchRequest):
             if request.include_neighbors:
                 item["neighbors"] = [
                     _neighbor_to_dict(n)
-                    for n in service.graph.get_neighbors(node.id, direction="both", limit=25)
+                    for n in service.graph.get_neighbors(
+                        node.id,
+                        direction="both",
+                        limit=25,
+                        tenant_id=principal.tenant_id,
+                        storage_workspace_id=principal.storage_workspace_id,
+                    )
                 ]
             results.append(item)
         return {"success": True, "query": request.query, "results": results, "count": len(results)}
@@ -769,13 +825,23 @@ async def structural_search(request: StructuralSearchRequest):
 async def structural_impact(request: ImpactRequest):
     """Return dependency/call/import neighborhood for a node or symbol query."""
     try:
+        principal = _graph_principal(request)
         nodes = []
         if request.node_id:
-            node = service.graph.get_node(request.node_id)
+            node = service.graph.get_node(
+                request.node_id,
+                tenant_id=principal.tenant_id,
+                storage_workspace_id=principal.storage_workspace_id,
+            )
             if node:
                 nodes = [node]
         elif request.query:
-            nodes = service.graph.query(name_pattern=request.query, limit=request.limit)
+            nodes = service.graph.query(
+                name_pattern=request.query,
+                limit=request.limit,
+                tenant_id=principal.tenant_id,
+                storage_workspace_id=principal.storage_workspace_id,
+            )
         else:
             raise HTTPException(status_code=400, detail="node_id or query is required")
 
@@ -790,7 +856,14 @@ async def structural_impact(request: ImpactRequest):
         for node in nodes[: max(1, min(50, request.limit or 10))]:
             if request.direction not in {"out", "in", "both"}:
                 raise HTTPException(status_code=422, detail="invalid direction")
-            neighbors = service.graph.get_neighbors(node.id, edge_type=edge_type, direction=request.direction, limit=request.limit)
+            neighbors = service.graph.get_neighbors(
+                node.id,
+                edge_type=edge_type,
+                direction=request.direction,
+                limit=request.limit,
+                tenant_id=principal.tenant_id,
+                storage_workspace_id=principal.storage_workspace_id,
+            )
             impacts.append({
                 "node": _node_to_dict(node),
                 "neighbors": [_neighbor_to_dict(n) for n in neighbors[:100]],
@@ -807,8 +880,15 @@ async def structural_impact(request: ImpactRequest):
 async def create_node(request: BoundedGraphNodeCreateRequest):
     """Create a new node in the graph."""
     try:
-        result = await service.create_node(request)
+        principal = _graph_principal(request)
+        result = await service.create_node(
+            request,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
         return {"success": True, "data": result, "error": None}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
@@ -831,8 +911,15 @@ async def get_node(node_id: str):
 async def create_edge(request: BoundedGraphEdgeCreateRequest):
     """Create a new edge in the graph."""
     try:
-        result = await service.create_edge(request)
+        principal = _graph_principal(request)
+        result = await service.create_edge(
+            request,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
         return {"success": True, "data": result, "error": None}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 

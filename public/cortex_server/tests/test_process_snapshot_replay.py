@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from cortex_server.runtime import ProcessEvent, ProcessJournal
 from cortex_server.runtime.process_replay import replay_events, replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
@@ -32,6 +34,20 @@ def test_process_snapshot_store_round_trip(tmp_path: Path):
     assert loaded.runtime_policy["verification_mode"] == "strict"
     assert loaded.session_state["status"] == "running"
     assert loaded.world_state["status"] == "degraded"
+
+
+def test_process_snapshot_store_rejects_stale_read_modify_write(tmp_path: Path):
+    store = ProcessSnapshotStore(tmp_path / "snapshots")
+    committed = store.save(ProcessSnapshot(process_id="proc_cas", world_state={"version": 1}))
+    stale = committed.model_copy(deep=True)
+    committed.world_state = {"version": 2}
+    store.save(committed)
+    stale.world_state = {"version": "stale"}
+
+    with pytest.raises(RuntimeError, match="snapshot persistence conflict"):
+        store.save(stale)
+
+    assert store.load("proc_cas").world_state == {"version": 2}
 
 
 

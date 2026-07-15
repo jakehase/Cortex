@@ -154,6 +154,14 @@ def test_all_adaptive_policy_state_and_rate_limits_are_principal_local(monkeypat
     assert nexus._adaptive_observation_allowed(policies_a.scope_key) is False
     assert nexus._adaptive_observation_allowed(policies_b.scope_key) is True
 
+    # A credential holder cannot mint fresh adaptive budgets or disk roots by
+    # rotating through allowed session identifiers for the same actor.
+    scope_a_rotated_session = _principal("tenant-a", "agent-a", "another-session").storage_metadata
+    policies_a_rotated = nexus._adaptive_policies_for_scope(scope_a_rotated_session)
+    assert policies_a_rotated.scope_key == policies_a.scope_key
+    assert policies_a_rotated.root == policies_a.root
+    assert nexus._adaptive_observation_allowed(policies_a_rotated.scope_key) is False
+
 
 @pytest.mark.asyncio
 async def test_feedback_receipt_signing_is_server_only_and_startup_validated(monkeypatch):

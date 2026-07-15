@@ -35,7 +35,11 @@ function validateConfig(value, candidateSchema = schema) {
 }
 
 const SHARED_SESSION_SECRET = 'explicitly-provisioned-shared-test-secret';
-const PRODUCTION_SCOPE = { scopeCredentialId: 'route-schema-credential', scopeHmacSecret: 'route-schema-secret' };
+const PRODUCTION_SCOPE = {
+  scopeCredentialId: 'route-schema-credential',
+  scopeHmacSecret: 'route-schema-secret',
+  writeToken: 'route-schema-write-token',
+};
 const productionConfig = (overrides = {}) => ({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, ...PRODUCTION_SCOPE, ...overrides });
 
 test('enabled route-gate production configuration requires session and scope credentials', () => {
@@ -107,6 +111,12 @@ test('write authorization configuration is exposed and the token is sensitive', 
   assert.equal(validateConfig(productionConfig({ writeToken: 'secret', writeTokenHeader: 'x-custom-token' })), true);
   assert.equal(validateConfig(productionConfig({ writeToken: '' })), false);
   assert.equal(manifest.uiHints.writeToken.sensitive, true);
+  assert.throws(
+    () => registerHarness(productionConfig({ writeToken: '' })),
+    /requires writeToken outside explicit unsigned local development/,
+  );
+  assert.match(runtimeSource, /http:\/\/127\.0\.0\.1:8888/);
+  assert.equal(manifest.uiHints.baseUrl.placeholder, 'http://127.0.0.1:8888');
 });
 
 for (const [name, minimum, defaultValue, maximum] of [

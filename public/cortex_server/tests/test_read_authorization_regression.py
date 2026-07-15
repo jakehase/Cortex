@@ -11,8 +11,9 @@ from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, mem
 import cortex_server.routers.orchestrator as orchestrator
 
 
-SCOPE_SECRET = "read-scope-secret"
-ADMIN_SECRET = "read-admin-secret"
+SCOPE_SECRET = "read-scope-secret-00000000000000001"
+ADMIN_SECRET = "read-admin-secret-00000000000000001"
+WRITE_SECRET = "read-write-secret-00000000000000001"
 ALICE_SCOPE = {
     "tenant_id": "tenant-a",
     "workspace_id": "workspace-a",
@@ -68,14 +69,54 @@ def _process_identity(scope: dict[str, str], *, owner: str) -> dict[str, str]:
         "storage_workspace_id": _storage_workspace(scope),
         "owner": owner,
         "user_id": owner,
+        "agent_id": scope["agent_id"],
     }
 
 
 def _configured_app(monkeypatch):
     monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", _credential_registry())
     monkeypatch.setenv("CORTEX_ADMIN_TOKEN", ADMIN_SECRET)
-    monkeypatch.setenv("CORTEX_CODEC_ADMIN_TOKEN", "codec-admin-secret")
+    monkeypatch.setenv("CORTEX_CODEC_ADMIN_TOKEN", "codec-admin-secret-0000000000000001")
     monkeypatch.setenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "false")
+    return main.create_app()
+
+
+def _configured_production_app(monkeypatch):
+    from cortex_server.runtime import production_build_loop
+
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", WRITE_SECRET)
+    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", _credential_registry())
+    monkeypatch.setenv("CORTEX_ADMIN_TOKEN", ADMIN_SECRET)
+    monkeypatch.setenv("CORTEX_CODEC_ADMIN_TOKEN", "codec-admin-secret-0000000000000001")
+    monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "")
+    monkeypatch.setenv("CORTEX_REQUIRED_ROUTERS", "")
+    monkeypatch.setenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "false")
+    monkeypatch.setattr(production_build_loop, "validate_production_delivery_credentials", lambda: None)
+
+    def load_test_routes(app, *, safe_mode):
+        del safe_mode
+
+        @app.post("/orchestrator/runtime/cancel/{process_id}")
+        async def cancel(process_id: str):
+            return {"success": True, "process_id": process_id}
+
+        @app.post("/orchestrator/runtime/maintenance/intake")
+        async def global_maintenance():
+            return {"success": True}
+
+        @app.post("/nexus/codec/corpus-replay")
+        async def codec_control():
+            return {"success": True}
+
+        @app.post("/knowledge/nodes")
+        async def scoped_node(_payload: dict):
+            return {"success": True}
+
+        return {"loaded": [], "missing": [], "failed": []}
+
+    monkeypatch.setattr(main, "load_dynamic_routers", load_test_routes)
     return main.create_app()
 
 
@@ -294,6 +335,85 @@ async def test_runtime_reads_require_exact_tenant_workspace_and_owner(monkeypatc
             headers={"x-cortex-admin-token": ADMIN_SECRET},
         )
         assert admin_lineage.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_production_mutations_require_exact_principal_ownership_or_admin(monkeypatch):
+    processes = {
+        "proc_alice": {
+            "process_id": "proc_alice",
+            "owner": "alice",
+            "workflow": {"metadata": _process_identity(ALICE_SCOPE, owner="alice")},
+        },
+        "proc_bob": {
+            "process_id": "proc_bob",
+            "owner": "bob",
+            "workflow": {"metadata": _process_identity(BOB_SCOPE, owner="bob")},
+        },
+    }
+    monkeypatch.setattr(main, "_runtime_process_for_read_authorization", processes.get)
+    app = _configured_production_app(monkeypatch)
+    alice_headers = {**_principal_headers(ALICE_SCOPE), "x-cortex-write-token": WRITE_SECRET}
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        unauthenticated = await client.post(
+            "/orchestrator/runtime/cancel/proc_alice",
+            headers={"x-cortex-write-token": WRITE_SECRET},
+        )
+        assert unauthenticated.status_code == 403
+
+        cross_principal = await client.post(
+            "/orchestrator/runtime/cancel/proc_bob",
+            headers=alice_headers,
+        )
+        assert cross_principal.status_code == 403
+
+        owned = await client.post(
+            "/orchestrator/runtime/cancel/proc_alice",
+            headers=alice_headers,
+        )
+        assert owned.status_code == 200
+
+        conflicting_payload_scope = await client.post(
+            "/knowledge/nodes",
+            headers=alice_headers,
+            json={"scope": BOB_SCOPE},
+        )
+        assert conflicting_payload_scope.status_code == 403
+
+        global_as_principal = await client.post(
+            "/orchestrator/runtime/maintenance/intake",
+            headers=alice_headers,
+        )
+        assert global_as_principal.status_code == 403
+
+        global_as_admin = await client.post(
+            "/orchestrator/runtime/maintenance/intake",
+            headers={
+                "x-cortex-write-token": WRITE_SECRET,
+                "x-cortex-admin-token": ADMIN_SECRET,
+            },
+        )
+        assert global_as_admin.status_code == 200
+
+        codec_admin_cannot_mutate_globally = await client.post(
+            "/orchestrator/runtime/maintenance/intake",
+            headers={
+                "x-cortex-write-token": WRITE_SECRET,
+                "x-cortex-codec-admin-token": "codec-admin-secret-0000000000000001",
+            },
+        )
+        assert codec_admin_cannot_mutate_globally.status_code == 403
+
+        codec_admin_control = await client.post(
+            "/nexus/codec/corpus-replay",
+            headers={
+                "x-cortex-write-token": WRITE_SECRET,
+                "x-cortex-codec-admin-token": "codec-admin-secret-0000000000000001",
+            },
+        )
+        assert codec_admin_control.status_code == 200
 
 
 @pytest.mark.asyncio

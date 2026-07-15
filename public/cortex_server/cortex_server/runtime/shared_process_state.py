@@ -401,6 +401,14 @@ class SharedProcessStateStore:
                     "rollback_from_revision_id": current.revision_id,
                     "rollback_to_revision_id": target.revision_id,
                     "rollback_reason": str(reason or "rollback").strip() or "rollback",
+                    **(
+                        {
+                            "rollback_transaction_id": str((provenance or {}).get("rollback_transaction_id") or ""),
+                            "rollback_fencepost_id": str((provenance or {}).get("fencepost_id") or ""),
+                        }
+                        if (provenance or {}).get("rollback_transaction_id")
+                        else {}
+                    ),
                 },
             )
             return self.save(

@@ -53,6 +53,7 @@ async function contextForCache(cache, secret = CACHE_SECRET) {
       enabled: true,
       requireRouting: false,
       sessionIdentityHmacSecret: 'session-identity-route-cache-test-secret',
+      writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-cache-validation-test',
       scopeHmacSecret: 'route-cache-validation-scope-secret',
       baseUrl: 'http://127.0.0.1:18888',

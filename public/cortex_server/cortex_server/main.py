@@ -4,6 +4,7 @@ Main entry point and FastAPI application factory.
 """
 
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 import importlib
 import hashlib
 import hmac
@@ -347,6 +348,129 @@ _RUNTIME_COLLECTION_PATHS = frozenset(
 _RUNTIME_STATUS_PATHS = frozenset(
     f"/{prefix}/runtime/status" for prefix in ("orchestrator", "conductor")
 )
+_PRINCIPAL_MUTATION_PREFIXES = (
+    "/nexus/orchestrate",
+    "/nexus/codec/events",
+    "/nexus/outcome/feedback",
+    "/nexus/assurance/receipt",
+    "/nexus/commit",
+    "/nexus/index",
+    "/oracle/chat",
+    "/augmenter/chat",
+    "/knowledge/search",
+    "/knowledge/prior-art-gate",
+    "/knowledge/query",
+    "/knowledge/structural/",
+    "/knowledge/nodes",
+    "/knowledge/edges",
+    "/l22/",
+    "/librarian/",
+    "/orchestrator/runtime/plan",
+    "/conductor/runtime/plan",
+    "/orchestrator/runtime/session/",
+    "/conductor/runtime/session/",
+    "/orchestrator/runtime/watchers/register",
+    "/conductor/runtime/watchers/register",
+    "/orchestrator/runtime/memory/note",
+    "/conductor/runtime/memory/note",
+    "/orchestrator/runtime/tools/ingest",
+    "/conductor/runtime/tools/ingest",
+    "/orchestrator/runtime/delivery/reconcile/",
+    "/conductor/runtime/delivery/reconcile/",
+    "/orchestrator/runtime/delivery/rollback/",
+    "/conductor/runtime/delivery/rollback/",
+    "/orchestrator/runtime/roadmap/reconcile/",
+    "/conductor/runtime/roadmap/reconcile/",
+    "/orchestrator/runtime/policy-apply/",
+    "/conductor/runtime/policy-apply/",
+    "/orchestrator/runtime/policy-rollback/",
+    "/conductor/runtime/policy-rollback/",
+    "/orchestrator/runtime/homeostasis/",
+    "/conductor/runtime/homeostasis/",
+    "/orchestrator/runtime/wake/",
+    "/conductor/runtime/wake/",
+    "/orchestrator/runtime/cancel/",
+    "/conductor/runtime/cancel/",
+    "/orchestrator/runtime/pause/",
+    "/conductor/runtime/pause/",
+    "/orchestrator/runtime/resume/",
+    "/conductor/runtime/resume/",
+)
+_INDEPENDENT_RELEASE_AUTH_PREFIXES = (
+    "/orchestrator/runtime/delivery/handoffs/",
+    "/conductor/runtime/delivery/handoffs/",
+    "/orchestrator/runtime/delivery/artifacts/",
+    "/conductor/runtime/delivery/artifacts/",
+)
+_RUNTIME_MUTATION_RESOURCE_PATH = re.compile(
+    rf"^/{_RUNTIME_ROUTE_PREFIX}/runtime/(?:delivery/(?:reconcile|rollback)|roadmap/reconcile|policy-(?:apply|rollback)|homeostasis/(?:freeze|rollback|resume)|(?:wake|cancel|pause|resume))/([^/]+)(?:/[^/]+)?$"
+)
+
+
+def _production_environment() -> bool:
+    return os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower() in {
+        "production",
+        "prod",
+        "staging",
+    }
+
+
+def _principal_mutation_path_allowed(path: str) -> bool:
+    normalized = str(path or "")
+    return any(
+        normalized == prefix.rstrip("/") or normalized.startswith(prefix)
+        for prefix in _PRINCIPAL_MUTATION_PREFIXES
+    )
+
+
+async def _runtime_mutation_resource_id(request) -> Optional[str]:
+    match = _RUNTIME_MUTATION_RESOURCE_PATH.fullmatch(str(request.url.path or ""))
+    if match:
+        return match.group(1)
+    if "/runtime/" not in str(request.url.path or ""):
+        return None
+    try:
+        payload = await request.json()
+    except Exception:
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    return str(payload.get("process_id") or "").strip() or None
+
+
+async def _principal_mutation_payload_error(request, principal: ReadPrincipal) -> Optional[str]:
+    """Reject a second, conflicting identity embedded in a mutation body."""
+
+    content_type = str(request.headers.get("content-type") or "").lower()
+    if "json" not in content_type:
+        return None
+    try:
+        payload = await request.json()
+    except Exception:
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    expected = {
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.workspace_id,
+        "storage_workspace_id": principal.storage_workspace_id,
+        "agent_id": principal.agent_id,
+        "user_id": principal.user_id,
+        "channel_id": principal.channel_id,
+        "session_id": principal.session_id,
+    }
+    candidates = [payload]
+    if isinstance(payload.get("scope"), Mapping):
+        candidates.append(payload["scope"])
+    for candidate in candidates:
+        for field, expected_value in expected.items():
+            supplied = str(candidate.get(field) or "").strip()
+            if supplied and not hmac.compare_digest(supplied, expected_value):
+                return f"mutation payload {field} conflicts with authenticated principal"
+        owner = str(candidate.get("owner") or "").strip()
+        if owner and owner not in {principal.user_id, principal.agent_id}:
+            return "mutation payload owner conflicts with authenticated principal"
+    return None
 _PUBLIC_REDACTED_READ_PATHS = frozenset(
     {
         "/nexus/context",
@@ -695,14 +819,14 @@ def _principal_can_read_process(principal: ReadPrincipal, process: Optional[Mapp
 
     # Ownership metadata must be complete enough to bind the resource to this
     # exact principal. Conflicting or legacy-unowned resources are admin-only.
-    if users and users != {principal.user_id}:
+    if users != {principal.user_id}:
         return False
-    if agents and agents != {principal.agent_id}:
+    if agents != {principal.agent_id}:
         return False
     principal_owners = {principal.user_id, principal.agent_id} - {""}
-    if owners and not owners.issubset(principal_owners):
+    if not owners or not owners.issubset(principal_owners):
         return False
-    return bool(owners or users or agents)
+    return True
 
 
 def _runtime_resource_id(path: str, query_params) -> Optional[str]:
@@ -848,6 +972,7 @@ def create_app() -> FastAPI:
         for value in os.getenv("CORTEX_WORKSPACE_ROOTS", os.getcwd()).split(os.pathsep)
         if value
     )
+    production_environment = _production_environment()
     write_auth_mode = os.getenv("CORTEX_WRITE_AUTH_MODE", "token_or_loopback").strip().lower()
     write_token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
     write_token_header = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower()
@@ -860,14 +985,22 @@ def create_app() -> FastAPI:
             os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "")
         )
     except ValueError as exc:
+        if production_environment:
+            raise RuntimeError(f"invalid production principal credential registry: {exc}") from exc
         read_credentials = ()
         read_configuration_error = str(exc)
+    if production_environment and not read_credentials:
+        raise RuntimeError("production requires at least one valid principal scope credential")
     read_authorization = ReadAuthorizationConfig(
         credentials=read_credentials,
         admin_token=admin_token,
         codec_admin_token=codec_admin_token,
         configuration_error=read_configuration_error,
     )
+    if production_environment:
+        from cortex_server.runtime.production_build_loop import validate_production_delivery_credentials
+
+        validate_production_delivery_credentials()
     readiness_config = ReadinessConfig(
         required_paths=frozenset(
             value.strip()
@@ -919,6 +1052,7 @@ def create_app() -> FastAPI:
         # fail.  In particular, cancellation may arrive at any startup await.
         redis_worker = None
         redis_monitor = None
+        redis_executor = None
         acquired = []
         app.state.background_tasks = set()
         try:
@@ -942,8 +1076,20 @@ def create_app() -> FastAPI:
                 if check_redis_connection() is not True:
                     raise RuntimeError("Redis connectivity check did not confirm readiness")
 
+            redis_executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="cortex-redis"
+            )
+            async def run_redis_check(function):
+                # Poll the owned executor future so lifecycle shutdown does not
+                # depend on a cross-thread event-loop callback being delivered
+                # after cancellation has begun.
+                future = redis_executor.submit(function)
+                while not future.done():
+                    await asyncio.sleep(0.01)
+                return future.result()
+
             redis_worker = asyncio.create_task(
-                asyncio.to_thread(start_and_check_redis), name="cortex-redis-startup"
+                run_redis_check(start_and_check_redis), name="cortex-redis-startup"
             )
             redis_startup_pending = False
             try:
@@ -990,7 +1136,7 @@ def create_app() -> FastAPI:
                 while True:
                     await asyncio.sleep(redis_monitor_interval)
                     connectivity_check = asyncio.create_task(
-                        asyncio.to_thread(check_redis_connection),
+                        run_redis_check(check_redis_connection),
                         name="cortex-redis-connectivity-check",
                     )
                     try:
@@ -1081,6 +1227,8 @@ def create_app() -> FastAPI:
                 # strongly referenced and observe it before the lifespan disappears.
                 if redis_worker is not None:
                     await asyncio.gather(redis_worker, return_exceptions=True)
+                if redis_executor is not None:
+                    redis_executor.shutdown(wait=True, cancel_futures=True)
                 for name in reversed(acquired):
                     try:
                         await _shared_service_owners.release(
@@ -1111,6 +1259,7 @@ def create_app() -> FastAPI:
         token=write_token,
         header_name=write_token_header,
         allowed_origins=allowed_origins,
+        exempt_prefixes=_INDEPENDENT_RELEASE_AUTH_PREFIXES,
         sensitive_prefixes=("/nexus/codec",),
         sensitive_token=codec_admin_token,
         sensitive_exempt_paths=("/nexus/codec/events",),
@@ -1124,6 +1273,64 @@ def create_app() -> FastAPI:
                 if not admin_token or request.headers.get("x-cortex-admin-token", "") != admin_token:
                     from fastapi.responses import JSONResponse
                     return JSONResponse(status_code=403, content={"success": False, "error": "admin token required"})
+        if production_environment and request.method.upper() in MUTATING_METHODS:
+            path = str(request.url.path or "")
+            if any(path.startswith(prefix) for prefix in _INDEPENDENT_RELEASE_AUTH_PREFIXES):
+                # These endpoints verify independent verifier/recipient HMACs
+                # in their handlers in addition to the transport write token.
+                return await call_next(request)
+            principal, error = _authenticate_sensitive_read(request, read_authorization)
+            if principal is None:
+                from fastapi.responses import JSONResponse
+
+                unavailable = "not configured" in str(error) or "misconfigured" in str(error)
+                return JSONResponse(
+                    status_code=503 if unavailable else 403,
+                    content={"success": False, "error": error},
+                )
+            request.state.cortex_principal = principal
+            is_global_admin = (
+                principal.role == "admin"
+                and principal.credential_id == "cortex-admin"
+            )
+            is_codec_admin_for_codec = (
+                principal.role == "admin"
+                and principal.credential_id == "codec-admin"
+                and (path == "/nexus/codec" or path.startswith("/nexus/codec/"))
+            )
+            if not is_global_admin and not is_codec_admin_for_codec:
+                if principal.role != "principal":
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=403,
+                        content={"success": False, "error": "administrator authorization required for global mutation"},
+                    )
+                if not _principal_mutation_path_allowed(path):
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=403,
+                        content={"success": False, "error": "administrator authorization required for global mutation"},
+                    )
+                payload_error = await _principal_mutation_payload_error(request, principal)
+                if payload_error:
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=403,
+                        content={"success": False, "error": payload_error},
+                    )
+                process_id = await _runtime_mutation_resource_id(request)
+                if process_id:
+                    process = _runtime_process_for_read_authorization(process_id)
+                    if not _principal_can_read_process(principal, process):
+                        from fastapi.responses import JSONResponse
+
+                        return JSONResponse(
+                            status_code=403,
+                            content={"success": False, "error": "principal does not own the runtime resource"},
+                        )
         if request.method.upper() not in {"GET", "HEAD"}:
             return await call_next(request)
         policy = _read_surface_policy(
@@ -1259,7 +1466,7 @@ def create_app() -> FastAPI:
             },
             "readAuthorization": {
                 "ok": read_authorization.configured and not read_authorization.configuration_error,
-                "required": False,
+                "required": production_environment,
                 "degraded": not (read_authorization.configured and not read_authorization.configuration_error),
                 "mode": "signed_principal_or_admin",
                 "principalCredentialsConfigured": bool(read_authorization.credentials),

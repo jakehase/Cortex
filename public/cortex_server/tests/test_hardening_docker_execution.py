@@ -42,12 +42,17 @@ def test_compose_mounts_and_identifies_durable_memory_volume():
 def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "cortex-runtime-delivery:/opt/clawdbot/state/runtime_delivery:rw" in compose
+    assert "cortex-runtime-delivery:/opt/clawdbot/state:rw" in compose
     assert "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery" in compose
+    assert "REASONING_STORE_DB_PATH: /opt/clawdbot/state/reasoning_runtime.db" in compose
     assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:" in compose
     assert "cortex-runtime-delivery-volume-init:" in compose
-    assert "marker=/runtime_delivery/.cortex-durable-runtime-delivery" in compose
-    assert "chmod 0700 /runtime_delivery" in compose
+    assert "marker=/state/runtime_delivery/.cortex-durable-runtime-delivery" in compose
+    assert "chmod 0700 /state /state/runtime_delivery" in compose
+    assert "release-verifier:" in compose
+    assert "release-manager:" in compose
+    assert "CORTEX_RELEASE_VERIFIER_HEALTH_URL:" in compose
+    assert "CORTEX_RELEASE_MANAGER_HEALTH_URL:" in compose
     assert "cortex-runtime-delivery:" in compose
 
 

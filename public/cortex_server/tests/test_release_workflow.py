@@ -61,6 +61,54 @@ def _record_canary_evidence(harness, state, *, evidence_id: str, target_stage: s
     )
 
 
+def test_release_artifact_ids_are_immutable_within_revision_and_reusable_after_rollback(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    artifact_store = harness.release_store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_revisioned_artifacts",
+        candidate_ref="build:revisioned",
+        target_environment="production",
+        revision_id="rev_1",
+    )
+    first = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_release_bundle:proc_revisioned_artifacts",
+        payload={"revision": 1},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        first,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    state = state.model_copy(update={"revision_id": "rollback_server_revision"})
+    replacement = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_release_bundle:proc_revisioned_artifacts",
+        payload={"revision": 2},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        replacement,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+
+    receipts = state.metadata["release_artifacts"]
+    assert [row["revision_id"] for row in receipts] == ["rev_1", "rollback_server_revision"]
+    assert receipts[0]["content_hash"] != receipts[1]["content_hash"]
+
+
 def test_signed_canary_evidence_cannot_define_or_evade_server_thresholds(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     state = ReleaseWorkflowState(
@@ -711,7 +759,8 @@ def test_apply_release_rollback_restore_rehydrates_runtime_state_and_audit_trail
 
     assert restored["applied"] is True
     assert restored["state"].current_stage == "build_verified"
-    assert restored["state"].revision_id.endswith(".rollback")
+    assert restored["state"].revision_id.startswith("rollback_")
+    assert restored["state"].metadata["rollback_transaction_id"]
     assert latest_release.metadata["rollback_applied"] is True
     assert latest_snapshot.lifecycle_state == "waiting"
     assert latest_snapshot.metadata["rollback_fencepost_id"] == restored["fencepost"]["fencepost_id"]
@@ -807,7 +856,7 @@ def test_release_rollback_recovers_from_partial_commit_without_duplicate_event(t
 
     pending_intent = harness.release_store.load_rollback_intent(process_id)
     assert pending_intent["status"] == "recovery_required"
-    assert harness.shared_state_store.load(process_id).revision_id == "rev_1.rollback"
+    assert harness.shared_state_store.load(process_id).revision_id == pending_intent["rollback_revision_id"]
 
     recovered = apply_release_rollback_restore(
         state,

@@ -15,6 +15,7 @@ from cortex_server.runtime import AgentMessage, agent_acknowledgement_signature
 from cortex_server.runtime.production_build_loop import (
     RUNTIME_DELIVERY_MOUNT_MARKER,
     runtime_delivery_handoff_claim_signature,
+    runtime_delivery_handoff_discovery_signature,
 )
 from cortex_server.runtime.release_workflow import (
     ReleaseArtifactReceipt,
@@ -51,6 +52,9 @@ MINIMAL_PROFILE = {
     "watchdog": {"lease_seconds": 60, "heartbeat_grace_seconds": 60},
     "checkpoint": {"snapshot_every_events": 4, "must_checkpoint_on_handoff": True},
 }
+VERIFIER_SECRET = "runtime-verifier-secret-0000000000000001"
+VERIFIER_RECIPIENT_SECRET = "verifier-recipient-secret-000000000001"
+MANAGER_RECIPIENT_SECRET = "manager-recipient-secret-0000000000001"
 
 
 def _public_runtime_delivery_client() -> TestClient:
@@ -61,6 +65,7 @@ def _public_runtime_delivery_client() -> TestClient:
         mode="token_required",
         token="runtime-delivery-write-token",
         header_name="x-cortex-write-token",
+        exempt_prefixes=("/orchestrator/runtime/delivery/handoffs",),
     )
     client = TestClient(app)
     client.headers["x-cortex-write-token"] = "runtime-delivery-write-token"
@@ -117,7 +122,7 @@ def _signed_artifact_request(
         verifier=unsigned["verifier"],
         attestation_signature=release_artifact_attestation_signature(
             unsigned,
-            secret="runtime-verifier-secret",
+            secret=VERIFIER_SECRET,
         ),
         target_stage=target_stage,
         claims=dict(claims or {}),
@@ -142,7 +147,7 @@ def test_runtime_delivery_readiness_requires_credentials_and_durable_mount(tmp_p
     monkeypatch.delenv("CORTEX_RELEASE_VERIFIER_CREDENTIALS", raising=False)
     monkeypatch.setenv(
         "CORTEX_AGENT_ACK_CREDENTIALS",
-        json.dumps({"release-verifier": "verifier-recipient-secret"}),
+        json.dumps({"release-verifier": VERIFIER_RECIPIENT_SECRET}),
     )
     client = _public_runtime_delivery_client()
 
@@ -157,14 +162,14 @@ def test_runtime_delivery_readiness_requires_credentials_and_durable_mount(tmp_p
 
     monkeypatch.setenv(
         "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
-        json.dumps({"independent-release-verifier": "artifact-verifier-secret"}),
+        json.dumps({"independent-release-verifier": VERIFIER_SECRET}),
     )
     monkeypatch.setenv(
         "CORTEX_AGENT_ACK_CREDENTIALS",
         json.dumps(
             {
-                "release-verifier": "verifier-recipient-secret",
-                "release-manager": "manager-recipient-secret",
+                "release-verifier": VERIFIER_RECIPIENT_SECRET,
+                "release-manager": MANAGER_RECIPIENT_SECRET,
             }
         ),
     )
@@ -184,8 +189,8 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
 ):
     db_path = tmp_path / "runtime.db"
     delivery_root = tmp_path / "delivery"
-    verifier_recipient_secret = "runtime-release-verifier-secret"
-    manager_recipient_secret = "runtime-release-manager-secret"
+    verifier_recipient_secret = VERIFIER_RECIPIENT_SECRET
+    manager_recipient_secret = MANAGER_RECIPIENT_SECRET
 
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
@@ -193,7 +198,7 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
     monkeypatch.setenv("CORTEX_ENV", "production")
     monkeypatch.setenv(
         "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
-        json.dumps({"runtime-independent-verifier": "runtime-verifier-secret"}),
+        json.dumps({"runtime-independent-verifier": VERIFIER_SECRET}),
     )
     monkeypatch.setenv(
         "CORTEX_AGENT_ACK_CREDENTIALS",
@@ -328,40 +333,65 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
         evidence_id: str,
         request_id: str,
         check_replay: bool = False,
-    ) -> None:
+        discovery: bool = False,
+    ) -> dict:
         expected_revision_id = state_body["delivery"]["release_state"]["revision_id"]
         requested_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
             "+00:00",
             "Z",
         )
-        claim = {
-            "recipient": recipient,
-            "process_id": process["process_id"],
-            "expected_revision_id": expected_revision_id,
-            "request_id": request_id,
-            "requested_at": requested_at,
-            "recipient_signature": runtime_delivery_handoff_claim_signature(
-                recipient=recipient,
-                process_id=process["process_id"],
-                expected_revision_id=expected_revision_id,
-                request_id=request_id,
-                requested_at=requested_at,
-                secret=secret,
-            ),
-        }
+        if discovery:
+            claim_path = "/orchestrator/runtime/delivery/handoffs/claim-next"
+            claim = {
+                "recipient": recipient,
+                "request_id": request_id,
+                "requested_at": requested_at,
+                "recipient_signature": runtime_delivery_handoff_discovery_signature(
+                    recipient=recipient,
+                    request_id=request_id,
+                    requested_at=requested_at,
+                    secret=secret,
+                ),
+            }
+        else:
+            claim_path = "/orchestrator/runtime/delivery/handoffs/claim"
+            claim = {
+                "recipient": recipient,
+                "process_id": process["process_id"],
+                "expected_revision_id": expected_revision_id,
+                "request_id": request_id,
+                "requested_at": requested_at,
+                "recipient_signature": runtime_delivery_handoff_claim_signature(
+                    recipient=recipient,
+                    process_id=process["process_id"],
+                    expected_revision_id=expected_revision_id,
+                    request_id=request_id,
+                    requested_at=requested_at,
+                    secret=secret,
+                ),
+            }
         if check_replay:
             forged = client.post(
-                "/orchestrator/runtime/delivery/handoffs/claim",
+                claim_path,
                 json={**claim, "recipient_signature": "forged"},
+                headers={"x-cortex-write-token": ""},
             )
             assert forged.status_code == 403
-        claimed = client.post("/orchestrator/runtime/delivery/handoffs/claim", json=claim)
+        claimed = client.post(
+            claim_path,
+            json=claim,
+            headers={"x-cortex-write-token": ""},
+        )
         assert claimed.status_code == 200, claimed.text
         messages = [AgentMessage.model_validate(row) for row in claimed.json()["messages"]]
         assert len(messages) == 1
         assert messages[0].to_agent == recipient
         if check_replay:
-            replayed = client.post("/orchestrator/runtime/delivery/handoffs/claim", json=claim)
+            replayed = client.post(
+                claim_path,
+                json=claim,
+                headers={"x-cortex-write-token": ""},
+            )
             assert replayed.status_code == 409
 
         receipt = {
@@ -388,6 +418,7 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
                     "result_receipt": receipt,
                     "recipient_signature": "forged",
                 },
+                headers={"x-cortex-write-token": ""},
             )
             assert forged_ack.status_code == 403
         acknowledged = client.post(
@@ -397,10 +428,12 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
                 "result_receipt": receipt,
                 "recipient_signature": signature,
             },
+            headers={"x-cortex-write-token": ""},
         )
         assert acknowledged.status_code == 200, acknowledged.text
+        return acknowledged.json()
 
-    claim_and_ack(
+    verifier_ack = claim_and_ack(
         recipient="release-verifier",
         secret=verifier_recipient_secret,
         state_body=build.json(),
@@ -408,30 +441,21 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
         request_id="claim-public-runtime-canary",
         check_replay=True,
     )
-    canary = client.post(
-        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
-        json={
-            "controller_id": "controller",
-            "controller_session_id": "sess-runtime-delivery-public",
-        },
-    )
+    assert verifier_ack["release_progress"]["release_stage"] == "canary_verified"
+    canary = client.get(f"/orchestrator/runtime/delivery/{process['process_id']}")
     assert canary.status_code == 200, canary.text
     assert canary.json()["delivery"]["release_state"]["current_stage"] == "canary_verified"
 
-    claim_and_ack(
+    manager_ack = claim_and_ack(
         recipient="release-manager",
         secret=manager_recipient_secret,
         state_body=canary.json(),
         evidence_id=evidence_ids["production"],
         request_id="claim-public-runtime-production",
+        discovery=True,
     )
-    production = client.post(
-        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
-        json={
-            "controller_id": "controller",
-            "controller_session_id": "sess-runtime-delivery-public",
-        },
-    )
+    assert manager_ack["release_progress"]["release_stage"] == "production"
+    production = client.get(f"/orchestrator/runtime/delivery/{process['process_id']}")
     assert production.status_code == 200, production.text
     production_body = production.json()
     assert production_body["state"]["status"] == "completed"
@@ -468,7 +492,7 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setenv(
         "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
-        json.dumps({"runtime-independent-verifier": "runtime-verifier-secret"}),
+        json.dumps({"runtime-independent-verifier": VERIFIER_SECRET}),
     )
     orchestrator.workflows.clear()
 

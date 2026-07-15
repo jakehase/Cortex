@@ -4,7 +4,11 @@ import { readFile } from 'node:fs/promises';
 
 const memoryManifest = JSON.parse(await readFile(new URL('./openclaw.plugin.json', import.meta.url), 'utf8'));
 const routeManifest = JSON.parse(await readFile(new URL('../cortex-route-gate/openclaw.plugin.json', import.meta.url), 'utf8'));
-const PRODUCTION_SCOPE = { scopeCredentialId: 'schema-credential', scopeHmacSecret: 'schema-scope-secret' };
+const PRODUCTION_SCOPE = {
+  scopeCredentialId: 'schema-credential',
+  scopeHmacSecret: 'schema-scope-secret',
+  writeToken: 'schema-write-token',
+};
 const SHARED_SESSION_SECRET = ' shared bytes are preserved ';
 
 function validates(value, schema) {
@@ -66,5 +70,14 @@ test('shared secret and scope credential fields preserve secure schema constrain
     assert.equal(manifest.uiHints.sessionIdentityHmacSecret.sensitive, true);
     assert.match(manifest.uiHints.sessionIdentityHmacSecret.help, /exact same secret/);
     assert.match(manifest.uiHints.allowUnsignedLocalDevelopment.help, /Defaults off/);
+  }
+});
+
+test('production plugin schemas require a write token and advertise the Compose endpoint', () => {
+  for (const manifest of [memoryManifest, routeManifest]) {
+    const config = { sessionIdentityHmacSecret: SHARED_SESSION_SECRET, ...PRODUCTION_SCOPE };
+    assert.equal(validates(config, manifest.configSchema), true);
+    assert.equal(validates({ ...config, writeToken: '' }, manifest.configSchema), false);
+    assert.equal(manifest.uiHints.baseUrl.placeholder, 'http://127.0.0.1:8888');
   }
 });

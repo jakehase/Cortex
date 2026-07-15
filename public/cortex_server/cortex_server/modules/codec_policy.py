@@ -8,18 +8,17 @@ import re
 import threading
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, Optional
 
-
-_SESSION_TURN_LOCK = threading.Lock()
-_SESSION_LAST_TURN: Dict[str, Dict[str, Any]] = {}
-
 from cortex_server.modules.latency_budget_governor import classify_task_archetype
 
 
+_SESSION_TURN_LOCK = threading.Lock()
+_SESSION_LAST_TURN: Dict[str, Dict[str, Any]] = {}
+_SESSION_TURN_MAX = max(32, min(int(os.getenv("CODEC_SESSION_TURN_MAX", "1024")), 8192))
 _LOCK = threading.RLock()
 _TRANSACTION_LOCAL = threading.local()
 _STATE_PATH = Path(os.getenv("CODEC_POLICY_STATE_PATH", "/opt/clawdbot/state/cortex_codec_policy.json"))
@@ -786,6 +785,14 @@ def register_codec_session_turn(
     if not session_key or variant not in _VARIANTS or not (query or "").strip():
         return {"recorded": False, "reason": "invalid_session_turn"}
     with _SESSION_TURN_LOCK:
+        for key, row in list(_SESSION_LAST_TURN.items()):
+            age = _age_seconds(row.get("recorded_at"))
+            if age is not None and age > max(30, PASSIVE_TURN_MAX_AGE_SECONDS):
+                _SESSION_LAST_TURN.pop(key, None)
+        while len(_SESSION_LAST_TURN) >= _SESSION_TURN_MAX and session_key not in _SESSION_LAST_TURN:
+            _SESSION_LAST_TURN.pop(next(iter(_SESSION_LAST_TURN)))
+        if session_key in _SESSION_LAST_TURN:
+            _SESSION_LAST_TURN.pop(session_key, None)
         _SESSION_LAST_TURN[session_key] = {
             "query": query,
             "query_hash": hashlib.sha256((query or "").encode("utf-8")).hexdigest()[:16],

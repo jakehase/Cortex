@@ -188,7 +188,7 @@ type RunState = {
 };
 
 function normalizeBaseUrl(value: unknown): string {
-  const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:18888';
+  const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:8888';
   return text.endsWith('/') ? text.slice(0, -1) : text;
 }
 function normalizeWriteTokenHeader(value: unknown): string {
@@ -984,6 +984,9 @@ export default function register(api: any) {
     if (tenantId !== 'cortex-local' || workspaceId !== 'default') {
       throw new Error('cortex-route-gate allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
     }
+  }
+  if (!writeToken && !allowUnsignedLocalDevelopment) {
+    throw new Error('cortex-route-gate requires writeToken outside explicit unsigned local development');
   }
   const maxCachedPlanAgeMs = asNumber(cfg.maxCachedPlanAgeMs, 300_000);
   // Capture once at construction so later mutation of the caller-owned config cannot change trust.

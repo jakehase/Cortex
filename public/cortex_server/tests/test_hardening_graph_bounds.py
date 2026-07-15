@@ -135,8 +135,8 @@ async def test_graph_create_endpoints_reject_oversized_input_before_persistence(
 async def test_graph_create_endpoints_forward_compatible_bounded_requests(monkeypatch):
     observed = []
 
-    async def record_write(request):
-        observed.append(request)
+    async def record_write(request, *, tenant_id, storage_workspace_id):
+        observed.append((request, tenant_id, storage_workspace_id))
         return {"id": request.id}
 
     monkeypatch.setattr(knowledge.service, "create_node", record_write)
@@ -150,4 +150,7 @@ async def test_graph_create_endpoints_forward_compatible_bounded_requests(monkey
     assert await knowledge.create_edge(edge) == {
         "success": True, "data": {"id": "edge-id"}, "error": None,
     }
-    assert observed == [node, edge]
+    assert observed == [
+        (node, "cortex-local", "default"),
+        (edge, "cortex-local", "default"),
+    ]

@@ -81,6 +81,7 @@ class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
         header_name: str = "x-cortex-write-token",
         allowed_origins: Iterable[str] = (),
         exempt_paths: Iterable[str] = (),
+        exempt_prefixes: Iterable[str] = (),
         sensitive_prefixes: Iterable[str] = (),
         sensitive_token: str = "",
         sensitive_header_name: str = "x-cortex-codec-admin-token",
@@ -94,6 +95,11 @@ class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
             str(origin).strip() for origin in allowed_origins if str(origin).strip()
         )
         self.exempt_paths = frozenset(str(path) for path in exempt_paths)
+        self.exempt_prefixes = tuple(
+            str(prefix).rstrip("/")
+            for prefix in exempt_prefixes
+            if str(prefix).strip()
+        )
         self.sensitive_prefixes = tuple(str(value).rstrip("/") for value in sensitive_prefixes if str(value).strip())
         self.sensitive_token = str(sensitive_token or "").strip()
         self.sensitive_header_name = str(sensitive_header_name or "x-cortex-codec-admin-token").strip().lower()
@@ -116,6 +122,7 @@ class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
             self.mode == "disabled"
             or request.method.upper() not in MUTATING_METHODS
             or path in self.exempt_paths
+            or any(path == prefix or path.startswith(f"{prefix}/") for prefix in self.exempt_prefixes)
         ):
             return await call_next(request)
 

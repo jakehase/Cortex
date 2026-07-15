@@ -623,10 +623,16 @@ def record_release_artifact_receipt(
         artifact_store=artifact_store,
         verifier_credentials=verifier_credentials,
     )
+    receipt_identity = (record.release_id, record.revision_id, record.artifact_id)
     existing = next(
         (
             row for row in list((state.metadata or {}).get("release_artifacts") or [])
-            if isinstance(row, dict) and str(row.get("artifact_id") or "") == record.artifact_id
+            if isinstance(row, dict)
+            and (
+                str(row.get("release_id") or ""),
+                str(row.get("revision_id") or ""),
+                str(row.get("artifact_id") or ""),
+            ) == receipt_identity
         ),
         None,
     )
@@ -634,7 +640,14 @@ def record_release_artifact_receipt(
         raise ValueError(f"immutable release artifact receipt already exists: {record.artifact_id}")
     rows = [
         row for row in list((state.metadata or {}).get("release_artifacts") or [])
-        if isinstance(row, dict) and str(row.get("artifact_id") or "") != record.artifact_id
+        if not (
+            isinstance(row, dict)
+            and (
+                str(row.get("release_id") or ""),
+                str(row.get("revision_id") or ""),
+                str(row.get("artifact_id") or ""),
+            ) == receipt_identity
+        )
     ]
     rows.append(record.model_dump())
     return _copy_state(
@@ -1048,7 +1061,13 @@ def compile_release_handoff(
     artifacts = _dedupe_rows(
         list(relevant_artifact_ids or [])
         + (list(snapshot.artifact_refs) if snapshot else [])
-        + [str(row.get("artifact_id") or "") for row in (state.metadata.get("release_artifacts") or []) if isinstance(row, dict)]
+        + [
+            str(row.get("artifact_id") or "")
+            for row in (state.metadata.get("release_artifacts") or [])
+            if isinstance(row, dict)
+            and str(row.get("release_id") or "") == state.release_id
+            and str(row.get("revision_id") or "") == state.revision_id
+        ]
     )
     evidence_ids = _dedupe_rows(list(relevant_evidence_ids or []))
     gate_blockers = [str(row.get("summary") or row) for row in (gate or {}).get("blockers", []) if str(row.get("summary") if isinstance(row, dict) else row).strip()]
@@ -1392,6 +1411,24 @@ def advance_release_workflow(
     actor_id = str(actor or "").strip()
     if not actor_id:
         raise ValueError("actor must be non-empty")
+    try:
+        current_index = RELEASE_STAGE_TOPOLOGY.index(state.current_stage)
+    except ValueError as exc:
+        raise ValueError(f"release stage is outside the immutable topology: {state.current_stage}") from exc
+    if state.target_environment != RELEASE_STAGE_TOPOLOGY[-1]:
+        raise ValueError("release workflow target must be production")
+    expected_target = (
+        RELEASE_STAGE_TOPOLOGY[current_index + 1]
+        if current_index + 1 < len(RELEASE_STAGE_TOPOLOGY)
+        else None
+    )
+    if target != expected_target:
+        raise ValueError(
+            f"release transition must follow immutable topology: {state.current_stage} -> {expected_target}"
+        )
+    gate_target = str(gate.get("target_stage") or "").strip()
+    if gate_target and gate_target != target:
+        raise ValueError("promotion gate is not bound to the requested next stage")
 
     gated_state = _apply_gate_result(state, gate)
     if not bool(gate.get("safe_push")) or dry_run:
@@ -1739,7 +1776,16 @@ def apply_release_rollback_restore(
 ) -> JsonDict:
     transaction_store = release_store or ReleaseWorkflowStore(Path(snapshot_store.path).parent / "rollback_transactions")
     normalized_reason = str(reason or "rollback").strip() or "rollback"
-    with transaction_store.rollback_transaction(state.process_id), shared_state_store.transaction(state.process_id):
+    if str(new_revision_id or "").strip():
+        raise ValueError("rollback revision identifiers are assigned by the server")
+    # Keep the authoritative snapshot fenced for the complete rollback core.
+    # Session ingestion uses the same per-process transaction, so it can only
+    # apply session-only changes to the fully restored snapshot after commit.
+    with (
+        transaction_store.rollback_transaction(state.process_id),
+        shared_state_store.transaction(state.process_id),
+        snapshot_store.transaction(state.process_id),
+    ):
         if release_store is not None:
             authoritative_state = release_store.load(state.process_id)
             if authoritative_state is None:
@@ -1782,7 +1828,7 @@ def apply_release_rollback_restore(
                     "source_stage": state.current_stage,
                     "source_revision_id": state.revision_id,
                     "target_revision_id": target_revision,
-                    "rollback_revision_id": str(new_revision_id or f"{target_revision}.rollback").strip(),
+                    "rollback_revision_id": f"rollback_{transaction_id}_{uuid4().hex[:12]}",
                     "rollback_event_id": f"evt_{transaction_id}",
                     "rollback_snapshot_id": f"snap_{transaction_id}",
                     "reason": normalized_reason,
@@ -1814,7 +1860,14 @@ def apply_release_rollback_restore(
 
         try:
             current_shared = shared_state_store.load(state.process_id)
-            if current_shared is not None and current_shared.revision_id == rollback_revision_id:
+            current_provenance_matches = bool(
+                current_shared is not None
+                and current_shared.revision_id == rollback_revision_id
+                and str((current_shared.metadata or {}).get("rollback_transaction_id") or "") == transaction_id
+                and str((current_shared.metadata or {}).get("rollback_fencepost_id") or "")
+                == str(target_fencepost_id or "")
+            )
+            if current_provenance_matches:
                 restored_shared = current_shared
             else:
                 try:
@@ -1848,6 +1901,7 @@ def apply_release_rollback_restore(
                                 "rollback_to_revision_id": target_revision_id,
                                 "rollback_reason": normalized_reason,
                                 "rollback_transaction_id": transaction_id,
+                                "rollback_fencepost_id": str(target_fencepost_id or ""),
                             },
                         ),
                         expected_revision_id=current_shared.revision_id if current_shared else None,
@@ -1890,6 +1944,7 @@ def apply_release_rollback_restore(
                     ProcessSnapshot(
                         snapshot_id=str(intent["rollback_snapshot_id"]),
                         process_id=state.process_id,
+                        persistence_revision=current_snapshot.persistence_revision if current_snapshot else 0,
                         last_event_id=rollback_event.event_id if rollback_event else restore_state.get("last_event_id"),
                         event_count=max(
                             int(current_snapshot.event_count or 0) if current_snapshot else 0,
@@ -1903,7 +1958,7 @@ def apply_release_rollback_restore(
                         assigned_agents=dict(restore_state.get("assigned_agents") or {}),
                         runtime_policy=dict(restore_state.get("runtime_policy") or {}),
                         session_state=dict(restore_state.get("session_state") or {}),
-                        world_state={**dict(restore_state.get("world_state") or {}), **dict(restored_shared.world_state)},
+                        world_state=dict(restore_state.get("world_state") or restored_shared.world_state or {}),
                         belief_refs=_dedupe_rows([str(row) for row in (restore_state.get("belief_refs") or [])] + list(restored_shared.belief_refs)),
                         artifact_refs=[str(row) for row in (restore_state.get("artifact_refs") or []) if str(row).strip()],
                         metadata={

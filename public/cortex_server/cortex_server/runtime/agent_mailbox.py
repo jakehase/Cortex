@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import hashlib
 import hmac
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -177,17 +179,88 @@ class AgentMailbox:
     def __init__(self, path: str | Path):
         self.path = Path(path)
 
-    def _read_all(self) -> List[AgentMessage]:
-        if not self.path.exists():
-            return []
-        data = json.loads(self.path.read_text(encoding="utf-8"))
-        rows = data if isinstance(data, list) else []
-        return [_model_validate_compat(dict(row)) for row in rows if isinstance(row, dict)]
+    @property
+    def _lock_path(self) -> Path:
+        return self.path.with_name(f".{self.path.name}.lock")
 
-    def _write_all(self, rows: List[AgentMessage]) -> None:
+    @contextmanager
+    def _locked(self, *, exclusive: bool):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = [_model_dump_compat(row) for row in rows]
-        self.path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        with self._lock_path.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _atomic_replace(path: Path, payload: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _read_envelope_unlocked(self) -> tuple[int, List[AgentMessage]]:
+        if not self.path.exists():
+            return 0, []
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            revision, raw_rows = 0, data
+        elif isinstance(data, dict):
+            if data.get("version") != "cortex.agent_mailbox.v2":
+                raise ValueError("unsupported agent mailbox envelope")
+            revision = int(data.get("persistence_revision", 0) or 0)
+            raw_rows = data.get("messages")
+            if revision < 0 or not isinstance(raw_rows, list):
+                raise ValueError("invalid agent mailbox envelope")
+        else:
+            raise ValueError("agent mailbox must contain an envelope or legacy message list")
+        return revision, [
+            _model_validate_compat(dict(row))
+            for row in raw_rows
+            if isinstance(row, dict)
+        ]
+
+    def _read_all(self) -> List[AgentMessage]:
+        with self._locked(exclusive=False):
+            return self._read_envelope_unlocked()[1]
+
+    def _write_all_unlocked(
+        self,
+        rows: List[AgentMessage],
+        *,
+        expected_revision: int,
+    ) -> int:
+        observed_revision, _ = self._read_envelope_unlocked()
+        if observed_revision != expected_revision:
+            raise RuntimeError(
+                f"agent mailbox persistence conflict: expected {expected_revision}, observed {observed_revision}"
+            )
+        next_revision = observed_revision + 1
+        payload = {
+            "version": "cortex.agent_mailbox.v2",
+            "persistence_revision": next_revision,
+            "messages": [_model_dump_compat(row) for row in rows],
+        }
+        self._atomic_replace(
+            self.path,
+            (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"),
+        )
+        return next_revision
 
     def send(self, message: Optional[AgentMessage | Dict[str, Any]] = None, **kwargs: Any) -> AgentMessage:
         if isinstance(message, AgentMessage):
@@ -200,21 +273,22 @@ class AgentMailbox:
             record = _model_validate_compat(message)
         else:
             record = AgentMessage(**kwargs)
-        rows = self._read_all()
-        if record.dedupe_key:
-            for row in rows:
-                if (
-                    row.process_id == record.process_id
-                    and row.from_agent == record.from_agent
-                    and row.to_agent == record.to_agent
-                    and row.kind == record.kind
-                    and row.dedupe_key == record.dedupe_key
-                    and row.delivery_status != "dead_letter"
-                ):
-                    return row
-        rows.append(record)
-        self._write_all(rows)
-        return record
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope_unlocked()
+            if record.dedupe_key:
+                for row in rows:
+                    if (
+                        row.process_id == record.process_id
+                        and row.from_agent == record.from_agent
+                        and row.to_agent == record.to_agent
+                        and row.kind == record.kind
+                        and row.dedupe_key == record.dedupe_key
+                        and row.delivery_status != "dead_letter"
+                    ):
+                        return row
+            rows.append(record)
+            self._write_all_unlocked(rows, expected_revision=revision)
+            return record
 
     def list(
         self,
@@ -224,7 +298,8 @@ class AgentMailbox:
         from_agent: Optional[str] = None,
         delivery_statuses: Optional[Sequence[str]] = None,
     ) -> List[AgentMessage]:
-        rows = self._read_all()
+        with self._locked(exclusive=False):
+            rows = self._read_envelope_unlocked()[1]
         allowed = {str(x).strip() for x in (delivery_statuses or []) if str(x).strip()}
         filtered: List[AgentMessage] = []
         for row in rows:
@@ -248,50 +323,72 @@ class AgentMailbox:
         expected_revision_id: Optional[str] = None,
         reject_stale_revision: bool = False,
     ) -> List[AgentMessage]:
-        claimable_statuses = ["queued"] + (["inflight"] if include_inflight else [])
-        rows = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=claimable_statuses)
-        updated = self._read_all()
-        by_id = {row.message_id: row for row in updated}
-        now = _now_iso()
-        expected = str(expected_revision_id or "").strip() or None
-        for row in rows:
-            stored = by_id.get(row.message_id)
-            if not stored:
-                continue
-            observed = str(stored.revision_id or "").strip() or None
-            stale_revision = bool(expected and observed and observed != expected)
-            if stale_revision:
-                metadata = dict(stored.metadata or {})
-                metadata.update(
-                    {
+        claimable_statuses = {"queued"} | ({"inflight"} if include_inflight else set())
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope_unlocked()
+            now = _now_iso()
+            expected = str(expected_revision_id or "").strip() or None
+            accepted: List[AgentMessage] = []
+            changed = False
+            for stored in rows:
+                if process_id and stored.process_id != process_id:
+                    continue
+                if stored.to_agent != to_agent or stored.delivery_status not in claimable_statuses:
+                    continue
+                observed = str(stored.revision_id or "").strip() or None
+                stale_revision = bool(expected and observed and observed != expected)
+                if stale_revision:
+                    stored.metadata = {
+                        **dict(stored.metadata or {}),
                         "rejection_reason": "stale_revision",
                         "expected_revision_id": expected,
                         "observed_revision_id": observed,
                     }
-                )
-                stored.metadata = metadata
-                if reject_stale_revision and stored.delivery_status != "dead_letter":
-                    stored.delivery_status = "dead_letter"
-                    stored.dead_lettered_at = now
-                continue
-            if stored.delivery_status == "queued":
-                stored.delivery_status = "inflight"
-                stored.attempt_count += 1
-                stored.last_attempt_at = now
-        self._write_all(list(by_id.values()))
-        accepted = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=["inflight"])
-        if expected:
-            accepted = [row for row in accepted if not row.revision_id or str(row.revision_id).strip() == expected]
-        return accepted
+                    if reject_stale_revision and stored.delivery_status != "dead_letter":
+                        stored.delivery_status = "dead_letter"
+                        stored.dead_lettered_at = now
+                    changed = True
+                    continue
+                if stored.delivery_status == "queued":
+                    stored.delivery_status = "inflight"
+                    stored.attempt_count += 1
+                    stored.last_attempt_at = now
+                    changed = True
+                accepted.append(stored)
+            if changed:
+                self._write_all_unlocked(rows, expected_revision=revision)
+            return accepted
 
     def _mutate(self, message_id: str, mutate_fn) -> AgentMessage:
-        rows = self._read_all()
-        for row in rows:
-            if row.message_id == message_id:
-                mutate_fn(row)
-                self._write_all(rows)
-                return row
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope_unlocked()
+            for row in rows:
+                if row.message_id == message_id:
+                    mutate_fn(row)
+                    self._write_all_unlocked(rows, expected_revision=revision)
+                    return row
         raise KeyError(f"message not found: {message_id}")
+
+    def bind_claim_payload(
+        self,
+        message_id: str,
+        *,
+        payload: Dict[str, Any],
+        expected_revision_id: Optional[str] = None,
+    ) -> AgentMessage:
+        """Persist the exact payload a recipient will sign for acknowledgement."""
+
+        expected = str(expected_revision_id or "").strip() or None
+
+        def _bind(row: AgentMessage) -> None:
+            if row.delivery_status != "inflight":
+                raise ValueError("mailbox claim payload can only be bound while inflight")
+            observed = str(row.revision_id or "").strip() or None
+            if expected is not None and observed != expected:
+                raise ValueError("mailbox claim payload revision changed")
+            row.payload = dict(payload or {})
+
+        return self._mutate(message_id, _bind)
 
     def acknowledge(
         self,

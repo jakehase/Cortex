@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -38,6 +39,60 @@ def _graph() -> ReasoningPlanGraph:
             },
         ],
     )
+
+
+def test_runtime_plan_binds_authenticated_principal_server_side(monkeypatch):
+    captured = {}
+    graph = _graph()
+    graph.metadata.update(
+        {
+            "tenant_id": "forged-tenant",
+            "storage_workspace_id": "forged-workspace",
+            "user_id": "mallory",
+            "agent_id": "mallory-agent",
+            "owner": "mallory",
+            "principal": {"tenant_id": "forged-principal"},
+        }
+    )
+    request = orchestrator.RuntimePlanRequest(graph=graph)
+    principal = SimpleNamespace(
+        role="principal",
+        credential_id="readers",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        storage_workspace_id="principal-workspace-a",
+        agent_id="agent-alice",
+        user_id="alice",
+        channel_id="api",
+        session_id="alice-session",
+    )
+
+    monkeypatch.setattr(orchestrator, "_store_workflow_from_plan", lambda value: {"metadata": value.metadata})
+    monkeypatch.setattr(orchestrator, "_runtime_delivery_stores", lambda: {})
+
+    def schedule(value, **_kwargs):
+        captured["request"] = value
+        return {"success": True, "process": {}}
+
+    monkeypatch.setattr(orchestrator.runtime_service, "schedule_runtime_plan", schedule)
+    result = asyncio.run(
+        orchestrator.schedule_plan_runtime(
+            request,
+            SimpleNamespace(state=SimpleNamespace(cortex_principal=principal)),
+        )
+    )
+
+    assert result["success"] is True
+    metadata = captured["request"].graph.metadata
+    assert metadata["tenant_id"] == "tenant-a"
+    assert metadata["workspace_id"] == "workspace-a"
+    assert metadata["storage_workspace_id"] == "principal-workspace-a"
+    assert metadata["user_id"] == "alice"
+    assert metadata["agent_id"] == "agent-alice"
+    assert metadata["owner"] == "alice"
+    assert metadata["principal"]["tenant_id"] == "tenant-a"
+    assert captured["request"].options.owner == "alice"
+    assert captured["request"].options.session_key == "alice-session"
 
 
 

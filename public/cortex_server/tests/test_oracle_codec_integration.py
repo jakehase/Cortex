@@ -4,9 +4,42 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import cortex_server.routers.oracle as oracle
+import cortex_server.modules.codec_policy as codec_policy
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.modules.cortex_codec import update_codec_state_for_session
 from cortex_server.routers.oracle import _apply_codec_routing_priors, _best_effort_answer, _codec_prefix, _passive_followup_verifier, _record_oracle_turn
+
+
+def test_oracle_and_codec_session_registries_are_bounded(monkeypatch):
+    monkeypatch.setattr(oracle, "_ORACLE_SESSION_MAX", 3)
+    monkeypatch.setattr(codec_policy, "_SESSION_TURN_MAX", 3)
+    oracle._REFERENT_MEMORY.clear()
+    oracle._REFERENT_UPDATED.clear()
+    oracle._INTENT_MEMORY.clear()
+    oracle._INTENT_UPDATED.clear()
+    codec_policy._SESSION_LAST_TURN.clear()
+
+    for index in range(8):
+        session_key = f"principal-session-{index}"
+        oracle._remember_referents(session_key, f"remember token token-{index}")
+        oracle._update_intent_state(session_key, "build a production feature")
+        codec_policy.register_codec_session_turn(
+            session_key,
+            query="build a production feature",
+            response="done",
+            variant="query_only",
+            codec_applied=False,
+            referents_applied=False,
+        )
+
+    assert len(oracle._REFERENT_MEMORY) == 3
+    assert len(oracle._INTENT_MEMORY) == 3
+    assert len(codec_policy._SESSION_LAST_TURN) == 3
+    oracle._REFERENT_MEMORY.clear()
+    oracle._REFERENT_UPDATED.clear()
+    oracle._INTENT_MEMORY.clear()
+    oracle._INTENT_UPDATED.clear()
+    codec_policy._SESSION_LAST_TURN.clear()
 
 
 def test_oracle_codec_prefix_uses_shared_session_state(monkeypatch):

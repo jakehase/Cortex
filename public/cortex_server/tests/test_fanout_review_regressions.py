@@ -198,6 +198,28 @@ async def test_codec_control_plane_requires_admin_even_for_get():
     assert await middleware.dispatch(authorized_request, allowed) == "allowed"
 
 
+@pytest.mark.asyncio
+async def test_independent_handoff_hmac_routes_do_not_require_global_write_token():
+    middleware = WriteAuthorizationMiddleware(
+        lambda *_args, **_kwargs: None,
+        mode="token_required",
+        token="global-write-token",
+        exempt_prefixes=("/orchestrator/runtime/delivery/handoffs",),
+    )
+
+    async def allowed(_request):
+        return "recipient-hmac-handler"
+
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/orchestrator/runtime/delivery/handoffs/claim-next"),
+        method="POST",
+        headers={},
+        state=SimpleNamespace(),
+        client=SimpleNamespace(host="10.0.0.8"),
+    )
+    assert await middleware.dispatch(request, allowed) == "recipient-hmac-handler"
+
+
 def test_codec_execution_and_evaluation_routes_are_post_only():
     methods = {route.path: set(route.methods or ()) for route in nexus.router.routes}
     for path in (
@@ -444,14 +466,15 @@ def test_release_ack_requires_intended_recipient_and_bound_evidence(monkeypatch,
         "evidence_receipts": ["evidence:recipient-verification"],
     }
     monkeypatch.setenv("CORTEX_ENV", "production")
-    monkeypatch.setenv("CORTEX_AGENT_ACK_CREDENTIALS", json.dumps({"release-manager": "recipient-secret"}))
+    recipient_secret = "recipient-secret-00000000000000000001"
+    monkeypatch.setenv("CORTEX_AGENT_ACK_CREDENTIALS", json.dumps({"release-manager": recipient_secret}))
     with pytest.raises(PermissionError, match="authenticated recipient signature"):
         mailbox.acknowledge(message.message_id, actor="release-manager", result_receipt=receipt)
     signature = agent_acknowledgement_signature(
         message,
         actor="release-manager",
         result_receipt=receipt,
-        secret="recipient-secret",
+        secret=recipient_secret,
     )
     acknowledged = mailbox.acknowledge(
         message.message_id,

@@ -3,7 +3,7 @@ from cortex_server.middleware.hud_middleware import track_level
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional, Tuple, Any, Dict, List
-import requests, httpx, os, re, json, subprocess, threading, hashlib, random, time, concurrent.futures, ast, operator
+import requests, httpx, os, re, json, subprocess, threading, hashlib, hmac, random, time, concurrent.futures, ast, operator
 from collections import deque
 from datetime import datetime, timezone
 
@@ -107,8 +107,14 @@ def _bridge_cb_record_failure() -> None:
 
 # Lightweight referent continuity cache (session-scoped best effort).
 _REFERENT_MEMORY: Dict[str, Dict[str, str]] = {}
+_REFERENT_UPDATED: Dict[str, float] = {}
 _REFERENT_LOCK = threading.Lock()
 _REFERENT_MAX_KEYS = 32
+_ORACLE_SESSION_MAX = max(32, min(int(os.getenv("ORACLE_SESSION_STATE_MAX", "512")), 4096))
+_ORACLE_SESSION_TTL_SECONDS = max(
+    60,
+    min(int(os.getenv("ORACLE_SESSION_STATE_TTL_SECONDS", "3600")), 86400),
+)
 ORACLE_CODEC_ENABLED = os.getenv("ORACLE_CODEC_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
 ORACLE_CODEC_MAX_CHARS = max(120, min(int(os.getenv("ORACLE_CODEC_MAX_CHARS", "520")), 2400))
 
@@ -119,6 +125,40 @@ def _session_key(http_request: Request) -> str:
     host = (http_request.client.host if http_request and http_request.client else "anon") or "anon"
     ua = (http_request.headers.get("user-agent") or "ua")[:80]
     return f"{host}|{ua}"
+
+
+def _oracle_continuity_key(principal, transport_session: str) -> str:
+    principal_key = principal.isolation_key("oracle-continuity-v1")
+    resolved = str(transport_session or principal.session_id).strip()
+    if resolved == principal.session_id:
+        return principal_key
+    if principal.credential_id != "local-development":
+        raise HTTPException(status_code=403, detail="transport session must match the authenticated principal session")
+    return f"principal:{hashlib.sha256(f'{principal_key}\0{resolved}'.encode('utf-8')).hexdigest()}"
+
+
+def _forwarded_principal_headers(http_request: Request, *, augmenter_bypass: bool = False) -> Dict[str, str]:
+    names = {
+        "x-cortex-tenant-id",
+        "x-cortex-workspace-id",
+        "x-cortex-agent-id",
+        "x-cortex-user-id",
+        "x-cortex-channel-id",
+        "x-cortex-session-id",
+        "x-cortex-scope-credential-id",
+        "x-cortex-scope-signature",
+        "x-session-id",
+        "x-chat-id",
+        os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower(),
+    }
+    headers = {
+        name: str(http_request.headers.get(name) or "")
+        for name in names
+        if str(http_request.headers.get(name) or "").strip()
+    }
+    if augmenter_bypass:
+        headers["x-augmenter-bypass"] = "1"
+    return headers
 
 def _extract_memory_slots(text: str) -> Dict[str, str]:
     slots: Dict[str, str] = {}
@@ -165,6 +205,19 @@ def _remember_referents(session_key: str, text: str) -> None:
         return
 
     with _REFERENT_LOCK:
+        now = time.time()
+        for key, updated_at in list(_REFERENT_UPDATED.items()):
+            if now - updated_at > _ORACLE_SESSION_TTL_SECONDS:
+                _REFERENT_UPDATED.pop(key, None)
+                _REFERENT_MEMORY.pop(key, None)
+        while len(_REFERENT_MEMORY) >= _ORACLE_SESSION_MAX and session_key not in _REFERENT_MEMORY:
+            oldest = (
+                min(_REFERENT_UPDATED, key=_REFERENT_UPDATED.get)
+                if _REFERENT_UPDATED
+                else next(iter(_REFERENT_MEMORY))
+            )
+            _REFERENT_UPDATED.pop(oldest, None)
+            _REFERENT_MEMORY.pop(oldest, None)
         bucket = _REFERENT_MEMORY.get(session_key) or {}
         for k, v in slots.items():
             bucket[k] = v
@@ -172,6 +225,7 @@ def _remember_referents(session_key: str, text: str) -> None:
             keep = list(bucket.items())[-_REFERENT_MAX_KEYS:]
             bucket = {k: v for k, v in keep}
         _REFERENT_MEMORY[session_key] = bucket
+        _REFERENT_UPDATED[session_key] = now
 
 def _continuity_prefix(session_key: str, prompt: str) -> str:
     """Evidence-minimized recall planner.
@@ -184,6 +238,11 @@ def _continuity_prefix(session_key: str, prompt: str) -> str:
         return ""
 
     with _REFERENT_LOCK:
+        updated_at = _REFERENT_UPDATED.get(session_key)
+        if updated_at is not None and time.time() - updated_at > _ORACLE_SESSION_TTL_SECONDS:
+            _REFERENT_UPDATED.pop(session_key, None)
+            _REFERENT_MEMORY.pop(session_key, None)
+            return ""
         bucket = dict(_REFERENT_MEMORY.get(session_key) or {})
     if not bucket:
         return ""
@@ -215,23 +274,70 @@ def _get_session_memory(session_key: str) -> Dict[str, str]:
     if not session_key:
         return {}
     with _REFERENT_LOCK:
+        updated_at = _REFERENT_UPDATED.get(session_key)
+        if updated_at is not None and time.time() - updated_at > _ORACLE_SESSION_TTL_SECONDS:
+            _REFERENT_UPDATED.pop(session_key, None)
+            _REFERENT_MEMORY.pop(session_key, None)
+            return {}
         return dict(_REFERENT_MEMORY.get(session_key) or {})
 
 
-def _codec_packet_with_query(session_key: str, prompt: str, *, max_chars: int) -> Dict[str, Any]:
+def _scoped_policy_call(adaptive_policies, operation, *args, **kwargs):
+    if adaptive_policies is None:
+        environment = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower()
+        if environment in {"production", "prod", "staging"}:
+            raise RuntimeError("Oracle adaptive policy access requires an authenticated principal scope")
+        from cortex_server.routers.nexus import _adaptive_policies_for_scope
+
+        adaptive_policies = _adaptive_policies_for_scope(
+            {
+                "tenant_id": "cortex-local",
+                "workspace_id": "default",
+                "agent_id": "main",
+                "user_id": "local-user",
+                "channel_id": "local-channel",
+                "session_id": "global-session",
+            }
+        )
+    from cortex_server.routers.nexus import _scoped_codec_policy_call
+
+    return _scoped_codec_policy_call(adaptive_policies, operation, *args, **kwargs)
+
+
+def _codec_packet_with_query(
+    session_key: str,
+    prompt: str,
+    *,
+    max_chars: int,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     try:
-        return get_codec_packet_for_session(session_key, max_chars=max_chars, query=prompt)
+        return get_codec_packet_for_session(
+            session_key,
+            max_chars=max_chars,
+            query=prompt,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
     except TypeError:
         return get_codec_packet_for_session(session_key, max_chars=max_chars)
 
 
-def _codec_prefix(session_key: str, prompt: str) -> str:
+def _codec_prefix(
+    session_key: str,
+    prompt: str,
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    adaptive_policies=None,
+) -> str:
     if not ORACLE_CODEC_ENABLED or not session_key or not (prompt or "").strip():
         return ""
     if _is_ultra_basic_prompt(prompt) or _is_strict_contract_prompt(prompt):
         return ""
 
-    policy = get_codec_policy_for_query(prompt)
+    policy = _scoped_policy_call(adaptive_policies, get_codec_policy_for_query, prompt)
     if policy.get("should_inject") is False:
         return ""
     if str(policy.get("action") or "") == "skip_codec" and float(policy.get("confidence", 0.0) or 0.0) >= 0.55:
@@ -245,7 +351,13 @@ def _codec_prefix(session_key: str, prompt: str) -> str:
     except Exception:
         max_chars = ORACLE_CODEC_MAX_CHARS
 
-    packet = _codec_packet_with_query(session_key, prompt, max_chars=max_chars)
+    packet = _codec_packet_with_query(
+        session_key,
+        prompt,
+        max_chars=max_chars,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if not packet.get("available"):
         return ""
 
@@ -255,7 +367,16 @@ def _codec_prefix(session_key: str, prompt: str) -> str:
     )
 
 
-def _update_codec_turn(session_key: str, prompt: str, response: Optional[str] = None, *, priority: str = "", lane: str = "") -> Dict[str, Any]:
+def _update_codec_turn(
+    session_key: str,
+    prompt: str,
+    response: Optional[str] = None,
+    *,
+    priority: str = "",
+    lane: str = "",
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     if not ORACLE_CODEC_ENABLED or not session_key:
         return {}
 
@@ -273,10 +394,27 @@ def _update_codec_turn(session_key: str, prompt: str, response: Optional[str] = 
             "metadata": {"source": "oracle.chat", "priority": priority, "lane": lane or "response"},
         })
     if not events:
-        return _codec_packet_with_query(session_key, prompt, max_chars=ORACLE_CODEC_MAX_CHARS)
+        return _codec_packet_with_query(
+            session_key,
+            prompt,
+            max_chars=ORACLE_CODEC_MAX_CHARS,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
 
-    state = update_codec_state_for_session(session_key, events)
-    packet = _codec_packet_with_query(session_key, prompt, max_chars=ORACLE_CODEC_MAX_CHARS)
+    state = update_codec_state_for_session(
+        session_key,
+        events,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
+    packet = _codec_packet_with_query(
+        session_key,
+        prompt,
+        max_chars=ORACLE_CODEC_MAX_CHARS,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     packet["state"] = state
     return packet
 
@@ -328,13 +466,21 @@ def _oracle_execution_metrics(*, lane: str, used_backend: str = "", fallback_rea
 
 
 
-def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], *, priority: str = "", lane: str = "", codec_applied: bool = False, referents_applied: bool = False, used_backend: str = "", fallback_reason: Optional[str] = None, contract_ok: Optional[bool] = None, kernel_trace: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], *, priority: str = "", lane: str = "", codec_applied: bool = False, referents_applied: bool = False, used_backend: str = "", fallback_reason: Optional[str] = None, contract_ok: Optional[bool] = None, kernel_trace: Optional[Dict[str, Any]] = None, tenant_id: Optional[str] = None, workspace_id: Optional[str] = None, adaptive_policies=None, observation_allowed: bool = True) -> Dict[str, Any]:
     if (response or "").strip():
         _remember_referents(session_key, response or "")
-    packet = _update_codec_turn(session_key, prompt, response, priority=priority, lane=lane)
+    packet = _update_codec_turn(
+        session_key,
+        prompt,
+        response,
+        priority=priority,
+        lane=lane,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     durable = packet.get("durable") if isinstance(packet.get("durable"), dict) else {}
     variant = infer_served_variant(codec_applied=bool(codec_applied), referents_applied=bool(referents_applied))
-    registration = register_codec_session_turn(
+    registration = _scoped_policy_call(adaptive_policies, register_codec_session_turn,
         session_key,
         query=prompt,
         response=response or "",
@@ -350,7 +496,7 @@ def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], 
         contract_ok=contract_ok,
         response=response or "",
     )
-    execution_artifact = observe_codec_outcome(
+    execution_artifact = _scoped_policy_call(adaptive_policies, observe_codec_outcome,
         query=prompt,
         policy_label=variant,
         execution_success=bool(execution_metrics.get("execution_success")),
@@ -362,7 +508,7 @@ def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], 
         outcome_confidence=float(execution_metrics.get("confidence", 1.0) or 1.0),
         source="oracle_execution_flow",
         step_attribution=execution_metrics.get("step_attribution") if isinstance(execution_metrics.get("step_attribution"), dict) else None,
-    )
+    ) if observation_allowed else {"recorded": False, "reason": "principal_rate_limit_exceeded"}
     execution_artifact["execution_metrics"] = execution_metrics
     execution_artifact["source"] = "oracle_execution_flow"
     kernel_result = cortex_kernel_v2.finalize_request(
@@ -709,6 +855,7 @@ _FORECAST_LOCK = threading.Lock()
 _FORECAST_PATH = os.getenv("ORACLE_FORECAST_PATH", "/app/logs/oracle_forecast_ledger.jsonl")
 
 _INTENT_MEMORY: Dict[str, Dict[str, Any]] = {}
+_INTENT_UPDATED: Dict[str, float] = {}
 _INTENT_LOCK = threading.Lock()
 
 _INTENT_KEYWORDS = {
@@ -754,6 +901,19 @@ def _update_intent_state(session_key: str, prompt: str) -> Dict[str, Any]:
     now_ts = datetime.now(timezone.utc).isoformat()
 
     with _INTENT_LOCK:
+        now = time.time()
+        for key, updated_at in list(_INTENT_UPDATED.items()):
+            if now - updated_at > _ORACLE_SESSION_TTL_SECONDS:
+                _INTENT_UPDATED.pop(key, None)
+                _INTENT_MEMORY.pop(key, None)
+        while len(_INTENT_MEMORY) >= _ORACLE_SESSION_MAX and session_key not in _INTENT_MEMORY:
+            oldest = (
+                min(_INTENT_UPDATED, key=_INTENT_UPDATED.get)
+                if _INTENT_UPDATED
+                else next(iter(_INTENT_MEMORY))
+            )
+            _INTENT_UPDATED.pop(oldest, None)
+            _INTENT_MEMORY.pop(oldest, None)
         prev = _INTENT_MEMORY.get(session_key, {}) if session_key else {}
         prev_kind = prev.get("kind") if isinstance(prev, dict) else None
         drift = bool(prev_kind and prev_kind != kind)
@@ -765,6 +925,7 @@ def _update_intent_state(session_key: str, prompt: str) -> Dict[str, Any]:
                 "updated_at": now_ts,
                 "drift_count": int(prev.get("drift_count", 0)) + (1 if drift else 0),
             }
+            _INTENT_UPDATED[session_key] = now
 
     return {
         "current": kind,
@@ -814,8 +975,9 @@ def _apply_codec_routing_priors(
     use_bridge: bool,
     quality_mode: Dict[str, Any],
     strict_contract: bool,
+    adaptive_policies=None,
 ) -> Dict[str, Any]:
-    priors = get_codec_routing_priors(query)
+    priors = _scoped_policy_call(adaptive_policies, get_codec_routing_priors, query)
     adjusted = dict(quality_mode or {})
     force_orchestrate = False
     effective_use_bridge = bool(use_bridge)
@@ -2293,7 +2455,6 @@ def call_openclaw_local(prompt: str, system: Optional[str] = None) -> str:
                 # jittered backoff
                 time_s = min(2.5, 0.25 * (2 ** (attempt - 1))) + random.random() * 0.1
                 try:
-                    import time
                     time.sleep(time_s)
                 except Exception:
                     pass
@@ -2351,7 +2512,7 @@ def _hedge_delay_for_prompt(prompt: str) -> float:
     return max(0.05, ORACLE_HEDGE_DELAY_S)
 
 
-def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[Dict[str, Any]] = None) -> Tuple[str, str, str]:
+def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[Dict[str, Any]] = None, adaptive_policies=None, backend_policy_override: Optional[Dict[str, Any]] = None) -> Tuple[str, str, str]:
     """Return (text, model_label, fallback_reason)."""
     # Frontend fast-path: keep UX stable and low-latency during backend turbulence.
     if _is_frontend_prompt((prompt or "") + "\n" + (system or "")):
@@ -2362,16 +2523,18 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
         return _deterministic_frontend_fallback(prompt), "deterministic-frontend-fallback", "frontend_direct_fastpath"
 
     priors = routing_priors if isinstance(routing_priors, dict) else {}
-    backend_policy = get_codec_backend_policy(
-        prompt,
-        runtime_state={
-            "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
-            "bridge_available": bool(BRIDGE_URL),
-            "bridge_cb_allows": bool(_bridge_cb_allows()),
-            "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
-        },
-        priors_override=priors,
-    )
+    backend_policy = dict(backend_policy_override or {})
+    if not backend_policy:
+        backend_policy = _scoped_policy_call(adaptive_policies, get_codec_backend_policy,
+            prompt,
+            runtime_state={
+                "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
+                "bridge_available": bool(BRIDGE_URL),
+                "bridge_cb_allows": bool(_bridge_cb_allows()),
+                "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
+            },
+            priors_override=priors,
+        )
     prefer_bridge_first = bool(backend_policy.get("prefer_bridge_first"))
     prefer_openclaw_primary = bool(backend_policy.get("prefer_openclaw_primary"))
 
@@ -2533,12 +2696,45 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         raise HTTPException(status_code=400, detail='Prompt cannot be empty')
 
     prompt = raw_prompt
-    session_key = _session_key(http_request)
+    from cortex_server.routers.nexus import (
+        _adaptive_observation_allowed,
+        _adaptive_policies_for_scope,
+        _authenticated_nexus_principal,
+    )
+
+    session_header = str(http_request.headers.get("x-session-id") or "").strip()
+    chat_header = str(http_request.headers.get("x-chat-id") or "").strip()
+    if session_header and chat_header and not hmac.compare_digest(session_header, chat_header):
+        raise HTTPException(status_code=403, detail="transport session headers must identify the same authenticated session")
+    transport_session = session_header or chat_header
+    principal, resolved_session = _authenticated_nexus_principal(
+        http_request,
+        session_hint=transport_session,
+    )
+    session_key = _oracle_continuity_key(principal, resolved_session)
+    adaptive_policies = _adaptive_policies_for_scope(principal.storage_metadata)
+    observation_allowed = _adaptive_observation_allowed(adaptive_policies.scope_key)
+    oracle_scope_kwargs = {
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.storage_workspace_id,
+        "adaptive_policies": adaptive_policies,
+        "observation_allowed": observation_allowed,
+    }
     priority = (request.priority or '').lower().strip()
     requested_model = (request.model or '').strip().lower()
     final_only = (request.response_mode or 'default').lower() == 'final_only'
     kernel_trace: Optional[Dict[str, Any]] = None
-    passive_codec_feedback = await run_in_threadpool(observe_passive_codec_feedback, session_key, raw_prompt, _passive_followup_verifier)
+    passive_codec_feedback = (
+        _scoped_policy_call(
+            adaptive_policies,
+            observe_passive_codec_feedback,
+            session_key,
+            raw_prompt,
+            _passive_followup_verifier,
+        )
+        if observation_allowed
+        else {"recorded": False, "reason": "principal_rate_limit_exceeded"}
+    )
 
     # Explicit activation for all Oracle chat turns (required by hard send-time gate).
     track_level(http_request, 5, "Oracle", always_on=False)
@@ -2584,7 +2780,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
 
     _remember_referents(session_key, raw_prompt)
     continuity_prefix = _continuity_prefix(session_key, raw_prompt)
-    codec_prefix = _codec_prefix(session_key, raw_prompt)
+    codec_prefix = _codec_prefix(
+        session_key,
+        raw_prompt,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        adaptive_policies=adaptive_policies,
+    )
     referents_applied = bool(continuity_prefix)
     codec_applied = bool(codec_prefix)
     if continuity_prefix or codec_prefix:
@@ -2657,6 +2859,31 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 routing_trace={'path': 'forced_empty_test'},
             )
 
+    contract_basis = (raw_prompt + "\n\n" + (request_system or ''))
+    quality_mode = _quality_depth_controller(raw_prompt, priority=priority)
+    use_bridge = (priority == 'high') or ('codex' in requested_model) or (not _is_ultra_basic_prompt(raw_prompt))
+    codec_routing = _apply_codec_routing_priors(raw_prompt, use_bridge=use_bridge, quality_mode=quality_mode, strict_contract=strict_contract, adaptive_policies=adaptive_policies)
+    codec_step_priors = codec_routing.get("priors", {}) if isinstance(codec_routing.get("priors", {}), dict) else {}
+    codec_backend_policy = _scoped_policy_call(adaptive_policies, get_codec_backend_policy,
+        raw_prompt,
+        runtime_state={
+            "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
+            "bridge_available": bool(BRIDGE_URL),
+            "bridge_cb_allows": bool(_bridge_cb_allows()),
+            "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
+        },
+        priors_override=codec_step_priors,
+    )
+    quality_mode = codec_routing.get("quality_mode", quality_mode) if isinstance(codec_routing.get("quality_mode", quality_mode), dict) else quality_mode
+    depth_mode = quality_mode.get("mode", "medium")
+    use_bridge = bool(codec_routing.get("use_bridge", use_bridge))
+    force_orchestrate = bool(codec_routing.get("force_orchestrate", False))
+    if kernel_active and isinstance(kernel_trace, dict):
+        kernel_plan = dict(kernel_trace.get("plan") or {})
+        depth_mode = str(kernel_plan.get("depth_mode") or depth_mode)
+        use_bridge = bool(kernel_plan.get("use_bridge", use_bridge))
+        force_orchestrate = bool(kernel_plan.get("force_orchestrate", force_orchestrate))
+
     # Default entrypoint routing: Oracle can delegate to L38 Augmenter for
     # model-adaptive, latency-aware guardrails. This provides clear separation
     # and HUD visibility for "augmentation" decisions.
@@ -2675,6 +2902,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "priority": request.priority or "normal",
                             "latency_budget_ms": getattr(request, "latency_budget_ms", None),
                         },
+                        headers=_forwarded_principal_headers(http_request, augmenter_bypass=True),
                     )
                     r.raise_for_status()
                     data = r.json() if r.content else {}
@@ -2686,7 +2914,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     # Ensure HUD/_activated reflects that Augmenter was involved.
                     track_level(http_request, 38, "Augmenter", always_on=False)
                     # Return in Oracle's ChatResponse envelope for compatibility.
-                    codec_trace = _record_oracle_turn(session_key, raw_prompt, resp_text, priority=priority, lane="augmenter", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=_openclaw_model_label(), fallback_reason="augmenter_path", kernel_trace=kernel_trace)
+                    codec_trace = _record_oracle_turn(session_key, raw_prompt, resp_text, priority=priority, lane="augmenter", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=_openclaw_model_label(), fallback_reason="augmenter_path", kernel_trace=kernel_trace, **oracle_scope_kwargs)
                     return _mk_chat_response(
                         prompt=prompt,
                         session_key=session_key,
@@ -2712,31 +2940,6 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 # Fall through to normal Oracle routing if Augmenter fails.
                 pass
 
-    contract_basis = (raw_prompt + "\n\n" + (request_system or ''))
-    quality_mode = _quality_depth_controller(raw_prompt, priority=priority)
-    use_bridge = (priority == 'high') or ('codex' in requested_model) or (not _is_ultra_basic_prompt(raw_prompt))
-    codec_routing = _apply_codec_routing_priors(raw_prompt, use_bridge=use_bridge, quality_mode=quality_mode, strict_contract=strict_contract)
-    codec_step_priors = codec_routing.get("priors", {}) if isinstance(codec_routing.get("priors", {}), dict) else {}
-    codec_backend_policy = get_codec_backend_policy(
-        raw_prompt,
-        runtime_state={
-            "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
-            "bridge_available": bool(BRIDGE_URL),
-            "bridge_cb_allows": bool(_bridge_cb_allows()),
-            "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
-        },
-        priors_override=codec_step_priors,
-    )
-    quality_mode = codec_routing.get("quality_mode", quality_mode) if isinstance(codec_routing.get("quality_mode", quality_mode), dict) else quality_mode
-    depth_mode = quality_mode.get("mode", "medium")
-    use_bridge = bool(codec_routing.get("use_bridge", use_bridge))
-    force_orchestrate = bool(codec_routing.get("force_orchestrate", False))
-    if kernel_active and isinstance(kernel_trace, dict):
-        kernel_plan = dict(kernel_trace.get("plan") or {})
-        depth_mode = str(kernel_plan.get("depth_mode") or depth_mode)
-        use_bridge = bool(kernel_plan.get("use_bridge", use_bridge))
-        force_orchestrate = bool(kernel_plan.get("force_orchestrate", force_orchestrate))
-
     if (not use_bridge) and _is_code_change_prompt(raw_prompt):
         raise HTTPException(status_code=400, detail='tinyllama policy: code changes are disabled.')
 
@@ -2751,7 +2954,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "contract_ok": True,
                 "fallback_reason": "micro_fastpath",
             })
-            codec_trace = _record_oracle_turn(session_key, raw_prompt, micro, priority=priority, lane="strict_contract_micro_fastpath", codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-fastpath", fallback_reason="micro_fastpath", contract_ok=True, kernel_trace=kernel_trace)
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, micro, priority=priority, lane="strict_contract_micro_fastpath", codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-fastpath", fallback_reason="micro_fastpath", contract_ok=True, kernel_trace=kernel_trace, **oracle_scope_kwargs)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2788,7 +2991,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "used_backend": "deterministic-semantic-guardrail",
             "fallback_reason": "semantic_guardrail_fastpath",
         })
-        codec_trace = _record_oracle_turn(session_key, raw_prompt, response_text, priority=priority, lane=lane, codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-semantic-guardrail", fallback_reason="semantic_guardrail_fastpath", kernel_trace=kernel_trace)
+        codec_trace = _record_oracle_turn(session_key, raw_prompt, response_text, priority=priority, lane=lane, codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-semantic-guardrail", fallback_reason="semantic_guardrail_fastpath", kernel_trace=kernel_trace, **oracle_scope_kwargs)
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
@@ -2820,7 +3023,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         if alive.enabled() and os.getenv("ORACLE_DISABLE_ALIVE", "true").lower() != "true":
             # Benchmark-safe strict contract lane: keep exact output shape and skip HUD.
             if strict_contract:
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
                 text = _enforce_contract_output(contract_basis, text)
                 # Verifier lane: if contract still not satisfied, attempt repair.
                 if not _verify_contract(contract_basis, text):
@@ -2843,7 +3046,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "contract_ok": contract_ok,
                     "fallback_reason": fallback_reason,
                 })
-                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="strict_contract", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace)
+                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="strict_contract", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace, **oracle_scope_kwargs)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
@@ -2870,7 +3073,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 )
 
             if not (force_orchestrate or _should_orchestrate(raw_prompt, priority=priority, strict_contract=strict_contract)):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
                 _ledger_append({
                     "lane": "gated_direct",
                     "alive": True,
@@ -2878,7 +3081,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "used_backend": model_label,
                     "fallback_reason": fallback_reason,
                 })
-                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="gated_direct", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace)
+                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="gated_direct", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace, **oracle_scope_kwargs)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
@@ -2916,7 +3119,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             fallback_reason = "alive_orchestration"
 
             if _looks_like_hud_only(text):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
 
             hide_sig = final_only or alive.should_hide_hud_signature(raw_prompt)
             if not hide_sig:
@@ -2936,7 +3139,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "fallback_reason": fallback_reason,
             })
 
-            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="alive_orchestrated", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace)
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="alive_orchestrated", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace, **oracle_scope_kwargs)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2964,7 +3167,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             )
 
         if use_bridge:
-            text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
+            text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
             if strict_contract:
                 text = _enforce_contract_output(contract_basis, text)
                 if not _verify_contract(contract_basis, text):
@@ -2988,7 +3191,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "contract_ok": contract_ok,
                 "fallback_reason": fallback_reason,
             })
-            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace)
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace, **oracle_scope_kwargs)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -3017,7 +3220,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
 
         # Non-bridge/basic path: still use unified best-effort router so tinyllama
         # only appears as true last-resort fallback (never first-choice).
-        text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
+        text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
         if strict_contract:
             text = _enforce_contract_output(contract_basis, text)
             if not _verify_contract(contract_basis, text):
@@ -3041,7 +3244,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "contract_ok": contract_ok,
             "fallback_reason": fallback_reason,
         })
-        codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="fallback_best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace)
+        codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="fallback_best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace, **oracle_scope_kwargs)
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
@@ -3082,21 +3285,22 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             )
         except Exception:
             pass
-        try:
-            observe_codec_outcome(
-                query=raw_prompt,
-                policy_label=variant,
-                execution_success=False,
-                user_correction=False,
-                recovery_needed=True,
-                validator_pass=False,
-                session_key=session_key or None,
-                note=f"oracle_exception:http_{getattr(e, 'status_code', 500)}",
-                outcome_confidence=0.72,
-                source="oracle_execution_flow",
-            )
-        except Exception:
-            pass
+        if observation_allowed:
+            try:
+                _scoped_policy_call(adaptive_policies, observe_codec_outcome,
+                    query=raw_prompt,
+                    policy_label=variant,
+                    execution_success=False,
+                    user_correction=False,
+                    recovery_needed=True,
+                    validator_pass=False,
+                    session_key=session_key or None,
+                    note=f"oracle_exception:http_{getattr(e, 'status_code', 500)}",
+                    outcome_confidence=0.72,
+                    source="oracle_execution_flow",
+                )
+            except Exception:
+                pass
         raise
     except Exception as e:
         variant = infer_served_variant(codec_applied=bool(locals().get("codec_applied", False)), referents_applied=bool(locals().get("referents_applied", False)))
@@ -3112,21 +3316,22 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             )
         except Exception:
             pass
-        try:
-            observe_codec_outcome(
-                query=raw_prompt,
-                policy_label=variant,
-                execution_success=False,
-                user_correction=False,
-                recovery_needed=True,
-                validator_pass=False,
-                session_key=session_key or None,
-                note=f"oracle_exception:{type(e).__name__}",
-                outcome_confidence=0.76,
-                source="oracle_execution_flow",
-            )
-        except Exception:
-            pass
+        if observation_allowed:
+            try:
+                _scoped_policy_call(adaptive_policies, observe_codec_outcome,
+                    query=raw_prompt,
+                    policy_label=variant,
+                    execution_success=False,
+                    user_correction=False,
+                    recovery_needed=True,
+                    validator_pass=False,
+                    session_key=session_key or None,
+                    note=f"oracle_exception:{type(e).__name__}",
+                    outcome_confidence=0.76,
+                    source="oracle_execution_flow",
+                )
+            except Exception:
+                pass
         raise
     finally:
         IS_BUSY = False

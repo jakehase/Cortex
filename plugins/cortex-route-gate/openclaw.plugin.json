@@ -7,7 +7,7 @@
     "type": "object",
     "additionalProperties": false,
     "anyOf": [
-      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret"] },
+      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"] },
       {
         "required": ["sessionIdentityHmacSecret", "allowUnsignedLocalDevelopment"],
         "properties": {
@@ -49,7 +49,7 @@
     }
   },
   "uiHints": {
-    "baseUrl": { "label": "Cortex Base URL", "placeholder": "http://127.0.0.1:18888" },
+    "baseUrl": { "label": "Cortex Base URL", "placeholder": "http://127.0.0.1:8888" },
     "enabled": { "label": "Enable route gate" },
     "requireRouting": { "label": "Require Cortex routing before answer generation" },
     "writeToken": { "label": "Cortex write token", "sensitive": true, "advanced": true },

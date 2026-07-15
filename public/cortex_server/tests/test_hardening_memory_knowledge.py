@@ -341,6 +341,24 @@ def test_every_sqlite_connection_enforces_foreign_keys_and_rejects_dangling_edge
     assert storage._get_conn().execute("PRAGMA foreign_keys").fetchone()[0] == 1
     with pytest.raises(sqlite3.IntegrityError):
         storage.insert_edge(_edge("dangling", "missing-a", "missing-b"))
+
+
+def test_structural_graph_scope_is_immutable_and_filters_legacy_rows(tmp_path):
+    storage = SQLiteStorage(str(tmp_path / "graph.db"))
+    tenant_a = _node("tenant-a")
+    tenant_a.tenant_id = "tenant-a"
+    tenant_a.storage_workspace_id = "workspace-a"
+    legacy = _node("legacy")
+    storage.insert_nodes([tenant_a, legacy])
+
+    assert [row.id for row in storage.query_nodes(tenant_id="tenant-a", storage_workspace_id="workspace-a")] == ["tenant-a"]
+    assert storage.query_nodes(tenant_id="tenant-b", storage_workspace_id="workspace-b") == []
+
+    stolen = _node("tenant-a")
+    stolen.tenant_id = "tenant-b"
+    stolen.storage_workspace_id = "workspace-b"
+    with pytest.raises(PermissionError, match="owned by another scope"):
+        storage.insert_node(stolen)
     assert storage.get_edge("dangling") is None
 
 
@@ -466,8 +484,8 @@ def test_router_models_accept_string_fields_at_size_limit(model, kwargs):
 async def test_legacy_query_preserves_bounded_defaults_and_forwards_valid_requests(monkeypatch):
     observed = []
 
-    async def fake_query(request):
-        observed.append(request)
+    async def fake_query(request, *, tenant_id, storage_workspace_id):
+        observed.append((request, tenant_id, storage_workspace_id))
         return {"nodes": [], "count": 0}
 
     monkeypatch.setattr(knowledge.service, "query", fake_query)
@@ -475,7 +493,7 @@ async def test_legacy_query_preserves_bounded_defaults_and_forwards_valid_reques
     response = await knowledge.query_graph(request)
 
     assert request.limit == 100
-    assert observed == [request]
+    assert observed == [(request, "cortex-local", "default")]
     assert response == {"success": True, "data": {"nodes": [], "count": 0}, "error": None}
 
 

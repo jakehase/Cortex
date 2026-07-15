@@ -73,3 +73,25 @@ def test_process_journal_append_many_and_kind_filter(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0].kind == "step_started"
     assert rows[0].payload["node_id"] == "step1"
+
+
+def test_process_journal_ignores_and_repairs_an_unframed_torn_tail(tmp_path: Path):
+    journal = ProcessJournal(tmp_path / "runtime" / "processes.jsonl")
+    first = journal.append(process_id="proc_123", kind="process_created")
+    with journal.path.open("ab") as handle:
+        handle.write(b'{"event_id":"torn"')
+
+    assert [row.event_id for row in journal.load()] == [first.event_id]
+    second = journal.append(process_id="proc_123", kind="process_started")
+
+    assert [row.event_id for row in journal.load()] == [first.event_id, second.event_id]
+    assert journal.path.read_bytes().endswith(b"\n")
+
+
+def test_process_journal_rejects_corrupt_committed_frames(tmp_path: Path):
+    journal = ProcessJournal(tmp_path / "runtime" / "processes.jsonl")
+    journal.path.parent.mkdir(parents=True)
+    journal.path.write_bytes(b'{"committed":broken}\n')
+
+    with pytest.raises(ValueError, match="corrupt committed process journal record"):
+        journal.load()

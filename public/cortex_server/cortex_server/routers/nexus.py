@@ -22,6 +22,7 @@ import time
 from collections import deque
 from datetime import datetime
 import requests
+import shutil
 from pathlib import Path
 
 from cortex_server.modules.qa_fastlane import classify_qtype, build_template, confidence_score, should_escalate
@@ -187,11 +188,7 @@ _ADAPTIVE_RATE_LOCK = threading.Lock()
 _ADAPTIVE_OBSERVATION_RATES: Dict[str, deque] = {}
 NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
-_ASSURANCE_KEY_TEXT = (
-    os.getenv("NEXUS_ASSURANCE_SIGNING_KEY", "").strip()
-    or os.getenv("CORTEX_WRITE_TOKEN", "").strip()
-)
-_ASSURANCE_SIGNING_KEY = _ASSURANCE_KEY_TEXT.encode("utf-8") if _ASSURANCE_KEY_TEXT else secrets.token_bytes(32)
+_ASSURANCE_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
 _ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
 _ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
 _ASSURANCE_RECEIPT_LOCK = threading.Lock()
@@ -408,19 +405,58 @@ def _principal_continuity_key(principal: AuthenticatedMemoryPrincipal, session_k
 
 
 def _adaptive_scope_key(scope: Mapping[str, Any]) -> str:
-    fields = ("tenant_id", "workspace_id", "agent_id", "user_id", "channel_id", "session_id")
+    # Adaptive learning and its abuse budget belong to a stable authenticated
+    # actor, not a caller-mintable transport session or channel.
+    fields = ("scope_credential_id", "tenant_id", "workspace_id", "agent_id", "user_id")
     canonical = "\0".join(("nexus-adaptive-policy-v1", *(str(scope.get(field) or "") for field in fields)))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _prepare_adaptive_state_directory(root: Path, scope_key: str) -> None:
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    try:
+        maximum = max(16, min(int(os.getenv("NEXUS_ADAPTIVE_MAX_ACTORS", "512")), 4096))
+        ttl_seconds = max(
+            3600,
+            min(int(os.getenv("NEXUS_ADAPTIVE_ACTOR_TTL_SECONDS", str(30 * 86400))), 365 * 86400),
+        )
+    except ValueError:
+        maximum, ttl_seconds = 512, 30 * 86400
+    lock_path = root / ".adaptive-actors.lock"
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        now = time.time()
+        candidates = [
+            path
+            for path in root.iterdir()
+            if path.is_dir() and not path.is_symlink() and path.name != scope_key
+        ]
+        for path in list(candidates):
+            try:
+                if now - path.stat().st_mtime > ttl_seconds:
+                    shutil.rmtree(path)
+                    candidates.remove(path)
+            except FileNotFoundError:
+                candidates.remove(path)
+        requested_exists = (root / scope_key).is_dir()
+        keep_other = maximum - (1 if requested_exists else 1)
+        if len(candidates) > keep_other:
+            for path in sorted(candidates, key=lambda item: item.stat().st_mtime)[: len(candidates) - keep_other]:
+                shutil.rmtree(path, ignore_errors=False)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 class _PrincipalAdaptivePolicies:
     def __init__(self, scope_key: str, root: Path):
         self.scope_key = scope_key
+        _prepare_adaptive_state_directory(root, scope_key)
         self.root = root / scope_key
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.root.is_symlink():
             raise RuntimeError("principal adaptive state directory cannot be a symbolic link")
         os.chmod(self.root, 0o700)
+        os.utime(self.root, None)
         self.bandit = ContextualBanditScheduler(state_path=self.root / "bandit.json")
         self.delta = SemanticDeltaCache(state_path=self.root / "semantic_delta.json")
         self.latency = LatencyBudgetGovernor(artifact_dir=self.root / "latency")
@@ -435,6 +471,10 @@ def _adaptive_policies_for_scope(scope: Mapping[str, Any]) -> _PrincipalAdaptive
     with _ADAPTIVE_POLICY_LOCK:
         state = _ADAPTIVE_POLICY_STATES.get(cache_key)
         if state is not None:
+            try:
+                os.utime(state.root, None)
+            except OSError:
+                pass
             return state
         while len(_ADAPTIVE_POLICY_STATES) >= 512:
             _ADAPTIVE_POLICY_STATES.pop(next(iter(_ADAPTIVE_POLICY_STATES)))
@@ -3215,9 +3255,30 @@ def _b64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4)))
 
 
+def _assurance_signing_key() -> bytes:
+    configured = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY", "").strip()
+    if not configured:
+        if _production_memory_scope_mode():
+            raise RuntimeError("production requires NEXUS_ASSURANCE_SIGNING_KEY")
+        return _ASSURANCE_EPHEMERAL_SIGNING_KEY
+    if _production_memory_scope_mode() and len(configured.encode("utf-8")) < 32:
+        raise RuntimeError("production assurance signing key must contain at least 32 bytes")
+    reused = [
+        name
+        for name, secret in _outcome_feedback_request_credentials().items()
+        if secret and hmac.compare_digest(configured, secret)
+    ]
+    if reused:
+        raise RuntimeError(
+            "assurance signing key must be server-only and distinct from request credentials: "
+            + ", ".join(sorted(reused))
+        )
+    return configured.encode("utf-8")
+
+
 def _encode_assurance_receipt(payload: Dict[str, Any]) -> str:
     body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    signature = hmac.new(_ASSURANCE_SIGNING_KEY, body, hashlib.sha256).digest()
+    signature = hmac.new(_assurance_signing_key(), body, hashlib.sha256).digest()
     return f"{_b64url_encode(body)}.{_b64url_encode(signature)}"
 
 
@@ -3226,7 +3287,7 @@ def _decode_assurance_receipt(receipt: str) -> Dict[str, Any]:
         body_part, signature_part = str(receipt or "").split(".", 1)
         body = _b64url_decode(body_part)
         supplied = _b64url_decode(signature_part)
-        expected = hmac.new(_ASSURANCE_SIGNING_KEY, body, hashlib.sha256).digest()
+        expected = hmac.new(_assurance_signing_key(), body, hashlib.sha256).digest()
         if not hmac.compare_digest(supplied, expected):
             raise ValueError("signature_mismatch")
         payload = json.loads(body.decode("utf-8"))

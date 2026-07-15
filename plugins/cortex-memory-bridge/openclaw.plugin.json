@@ -7,7 +7,7 @@
     "type": "object",
     "additionalProperties": false,
     "anyOf": [
-      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret"] },
+      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"] },
       {
         "required": ["sessionIdentityHmacSecret", "allowUnsignedLocalDevelopment"],
         "properties": {
@@ -64,7 +64,7 @@
   "uiHints": {
     "baseUrl": {
       "label": "Cortex Base URL",
-      "placeholder": "http://127.0.0.1:18888"
+      "placeholder": "http://127.0.0.1:8888"
     },
     "writeToken": {
       "label": "Cortex write token",

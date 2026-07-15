@@ -314,7 +314,7 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
   const writeTokenHeader = cfg.writeTokenHeader ?? 'x-cortex-write-token';
   if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(writeTokenHeader)) throw new Error('invalid Cortex write-token header name');
   return {
-    baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
+    baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:8888').replace(/\/$/, ''),
     searchPath: cfg.searchPath ?? '/knowledge/search',
     storePath: cfg.storePath ?? '/nexus/commit',
     assurancePath: cfg.assurancePath ?? '/nexus/assurance/receipt',
@@ -1114,6 +1114,9 @@ const plugin = {
       if (initialConfig.tenantId !== 'cortex-local' || initialConfig.workspaceId !== 'default') {
         throw new Error('cortex-memory-bridge allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
       }
+    }
+    if (!String(initialConfig.writeToken || '').trim() && initialConfig.allowUnsignedLocalDevelopment !== true) {
+      throw new Error('cortex-memory-bridge requires writeToken outside explicit unsigned local development');
     }
     const recentOutputMaxChars = initialConfig.recentOutputMaxChars;
     const spool = initialConfig.enabledWriteThrough || initialConfig.enabledCodecContinuity

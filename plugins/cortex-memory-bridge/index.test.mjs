@@ -14,6 +14,7 @@ const lifecycleConfig = (overrides = {}) => ({
   scopeCredentialId: 'bridge-test',
   scopeHmacSecret: 'scope-test-secret',
   sessionIdentityHmacSecret: 'session-test-secret',
+  writeToken: 'memory-bridge-production-write-token',
   enabledCodecContinuity: false,
   ...overrides,
 });
@@ -131,6 +132,7 @@ test('minimal production configuration signs memory_search and default-on agent_
         scopeCredentialId: 'bridge-production-default',
         scopeHmacSecret: 'bridge-production-scope-secret',
         sessionIdentityHmacSecret: 'bridge-production-session-secret',
+        writeToken: 'memory-bridge-production-write-token',
         retryCount: 0,
       },
       logger: { info() {}, warn() {} },
@@ -350,6 +352,7 @@ test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec co
         scopeCredentialId: 'bridge-default',
         scopeHmacSecret: 'scope-default-secret',
         sessionIdentityHmacSecret: 'session-default-secret',
+        writeToken: 'memory-bridge-production-write-token',
         minDurabilityScore: 0,
         retryCount: 0,
         enabledWriteThrough: true,

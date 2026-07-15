@@ -56,6 +56,100 @@ VERIFIER_ID = "independent-release-verifier"
 VERIFIER_SECRET = "test-release-verifier-secret"
 
 
+def _configure_production_credentials(monkeypatch):
+    values = {
+        "CORTEX_WRITE_TOKEN": "write-token-000000000000000000000001",
+        "CORTEX_ADMIN_TOKEN": "admin-token-000000000000000000000001",
+        "CORTEX_CODEC_ADMIN_TOKEN": "codec-token-000000000000000000000001",
+        "NEXUS_ASSURANCE_SIGNING_KEY": "assurance-key-000000000000000000001",
+        "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY": "outcome-key-00000000000000000000001",
+    }
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps({"reader": {"secret": "principal-key-0000000000000000000001"}}),
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({"independent-release-verifier": "verifier-key-0000000000000000000001"}),
+    )
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps(
+            {
+                "release-verifier": "verifier-recipient-000000000000000001",
+                "release-manager": "manager-recipient-0000000000000000001",
+            }
+        ),
+    )
+    return values
+
+
+def test_production_credentials_are_strong_and_pairwise_independent(monkeypatch):
+    values = _configure_production_credentials(monkeypatch)
+    result = production_build_loop.validate_production_delivery_credentials()
+    assert result["ok"] is True
+    assert result["weakCredentials"] == []
+    assert result["reusedCredentialGroups"] == []
+
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", "verifier-key-0000000000000000000001")
+    with pytest.raises(RuntimeError, match="strong and pairwise distinct"):
+        production_build_loop.validate_production_delivery_credentials()
+
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", values["CORTEX_WRITE_TOKEN"])
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({"independent-release-verifier": "short"}),
+    )
+    with pytest.raises(RuntimeError, match="at least 32 bytes"):
+        production_build_loop.validate_production_delivery_credentials()
+
+
+def test_production_readiness_requires_live_consumers_and_matching_reasoning_state(tmp_path, monkeypatch):
+    _configure_production_credentials(monkeypatch)
+    delivery_root = tmp_path / "runtime_delivery"
+    delivery_root.mkdir()
+    mount_id = "runtime-delivery-test-v1"
+    (delivery_root / production_build_loop.RUNTIME_DELIVERY_MOUNT_MARKER).write_text(
+        mount_id,
+        encoding="utf-8",
+    )
+    reasoning_path = tmp_path / "state" / "reasoning_runtime.db"
+    reasoning_path.parent.mkdir()
+    monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", mount_id)
+    monkeypatch.setenv("REASONING_STORE_DB_PATH", str(reasoning_path))
+    monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_HEALTH_URL", "http://release-verifier:8091/health")
+    monkeypatch.setenv("CORTEX_RELEASE_MANAGER_HEALTH_URL", "http://release-manager:8092/health")
+
+    class HealthyResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(production_build_loop, "urlopen", lambda *_args, **_kwargs: HealthyResponse())
+
+    healthy = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    assert healthy["ready"] is True
+    assert healthy["checks"]["releaseConsumers"]["ok"] is True
+    assert healthy["checks"]["durableReasoningStore"]["quickCheck"] == "ok"
+
+    release_root = delivery_root / "release_workflow"
+    release_root.mkdir()
+    (release_root / "proc_missing.json").write_text(
+        json.dumps({"process_id": "proc_missing"}),
+        encoding="utf-8",
+    )
+    inconsistent = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    assert inconsistent["ready"] is False
+    assert inconsistent["checks"]["durableReasoningStore"]["missingProcessIds"] == ["proc_missing"]
+
+
 def _with_artifact_receipts(state, release_store, *artifact_ids):
     artifact_store = release_store.artifact_store()
     for artifact_id in artifact_ids:
@@ -179,7 +273,7 @@ def test_empty_completion_contract_is_not_terminal_and_default_gates_require_evi
 
 
 def test_production_contract_rejects_plans_that_omit_mandatory_canary_predecessor():
-    with pytest.raises(ValidationError, match="omits mandatory stages: canary_verified"):
+    with pytest.raises(ValidationError, match="must exactly match build_verified -> canary_verified -> production"):
         ProductionBuildContract(
             process_id="proc_missing_canary_stage",
             objective="Ship safely",
@@ -936,6 +1030,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
                     "handoff": {
                         "from_agent": "controller",
                         "to_agent": "release-manager",
+                        "dedupe_key": "configured-release-handoff",
                         "scope": "release:promote",
                         "objective": "Promote the verified release to production",
                         "expected_output": "Ack that production promotion is safe",
@@ -968,6 +1063,10 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     assert not any(action["action"] == "ack_release_handoff" for action in result["actions_taken"])
     assert not any(fencepost.stage == "production" for fencepost in pending_release.rollback_fenceposts)
     assert any(message.to_agent == "release-verifier" and message.delivery_status == "queued" for message in messages)
+    verifier_message = next(message for message in messages if message.to_agent == "release-verifier")
+    assert verifier_message.dedupe_key != "configured-release-handoff"
+    assert process_id in verifier_message.dedupe_key
+    assert shared_state.revision_id in verifier_message.dedupe_key
     assert any(lease.scope == "release:canary_verified" and lease.agent_id == "release-verifier" for lease in leases)
 
     _approve_pending_release_handoff(harness, process_id, "canary_verified")
@@ -991,6 +1090,13 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
         message.to_agent == "release-manager" and message.delivery_status == "queued"
         for message in harness.mailbox.list(process_id=process_id)
     )
+    manager_message = next(
+        message
+        for message in harness.mailbox.list(process_id=process_id)
+        if message.to_agent == "release-manager" and message.delivery_status == "queued"
+    )
+    assert manager_message.dedupe_key != "configured-release-handoff"
+    assert shared_state.revision_id in manager_message.dedupe_key
 
     _approve_pending_release_handoff(harness, process_id, "production")
 

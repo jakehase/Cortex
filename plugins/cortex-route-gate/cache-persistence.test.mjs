@@ -19,6 +19,7 @@ async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = fa
       enabled: true,
       requireRouting,
       sessionIdentityHmacSecret: 'session-identity-cache-persistence-test-secret',
+      writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-cache-persistence-test',
       scopeHmacSecret: 'route-cache-persistence-scope-secret',
       baseUrl: 'http://127.0.0.1:18888',

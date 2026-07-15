@@ -210,6 +210,11 @@ class ParserService:
     async def _commit_graph_batch(self, nodes, edges, deadline, max_records=None):
         if time.monotonic() >= deadline:
             raise asyncio.TimeoutError
+        # Empty parser output has nothing to persist. Avoid creating a default
+        # executor solely for a no-op, which can otherwise delay event-loop
+        # shutdown while the executor teardown races its completion callback.
+        if not nodes and not edges:
+            return {"nodes": 0, "edges": 0}
         slots = getattr(self, "_worker_slots", None)
         if slots is None:
             slots = self._worker_slots = threading.BoundedSemaphore(self.MAX_WORKERS)

@@ -17,23 +17,30 @@ services:
       - ./openclaw_state:/root/.openclaw:rw
       - ./geneticist_applied:/opt/clawdbot/geneticist_applied:rw
       - cortex-chroma:/app/cortex_server/chroma_db:rw
-      - cortex-runtime-delivery:/opt/clawdbot/state/runtime_delivery:rw
+      # Mount the containing state directory so SQLite, WAL/SHM, rollback
+      # intents, snapshots, mailbox, and artifact evidence survive together.
+      - cortex-runtime-delivery:/opt/clawdbot/state:rw
     environment:
       CORTEX_ENV: production
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
       ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery
+      REASONING_STORE_DB_PATH: /opt/clawdbot/state/reasoning_runtime.db
       CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-cortex-runtime-delivery-v1}
       CORTEX_WRITE_AUTH_MODE: token_required
       CORTEX_WRITE_TOKEN: ${CORTEX_WRITE_TOKEN:?set the external production write token in .env}
+      CORTEX_ADMIN_TOKEN: ${CORTEX_ADMIN_TOKEN:?set an independent production administrator token in .env}
       CORTEX_MEMORY_SCOPE_CREDENTIALS: ${CORTEX_MEMORY_SCOPE_CREDENTIALS:?set principal-scoped credentials in .env}
       CORTEX_CODEC_ADMIN_TOKEN: ${CORTEX_CODEC_ADMIN_TOKEN:?set CORTEX_CODEC_ADMIN_TOKEN in .env}
       # Provision independent verifier IDs first, deploy, then retire old IDs after in-flight releases drain.
       CORTEX_RELEASE_VERIFIER_CREDENTIALS: ${CORTEX_RELEASE_VERIFIER_CREDENTIALS:?set independent release verifier HMAC credentials in .env}
-      # Recipient workers send CORTEX_WRITE_TOKEN plus their bound HMAC. Rotate recipient secrets after draining their in-flight handoffs.
-      CORTEX_AGENT_ACK_CREDENTIALS: ${CORTEX_AGENT_ACK_CREDENTIALS:?set recipient acknowledgement credentials in .env}
+      # Recipient workers use only their bound least-privilege HMAC. Rotate secrets after draining in-flight handoffs.
+      CORTEX_AGENT_ACK_CREDENTIALS: '{"release-verifier":"${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set a distinct release-verifier recipient secret in .env}","release-manager":"${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET:?set a distinct release-manager recipient secret in .env}"}'
       # This server-only signing key must never reuse a write, admin, feedback-control, or principal credential.
       NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY: ${NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY:?set a distinct server-only feedback signing key in .env}
+      NEXUS_ASSURANCE_SIGNING_KEY: ${NEXUS_ASSURANCE_SIGNING_KEY:?set a distinct server-only assurance signing key in .env}
+      CORTEX_RELEASE_VERIFIER_HEALTH_URL: http://release-verifier:8891/ready
+      CORTEX_RELEASE_MANAGER_HEALTH_URL: http://release-manager:8892/ready
     env_file:
       - .env
     restart: unless-stopped
@@ -46,6 +53,10 @@ services:
         condition: service_completed_successfully
       cortex-runtime-delivery-volume-init:
         condition: service_completed_successfully
+      release-verifier:
+        condition: service_healthy
+      release-manager:
+        condition: service_healthy
 
   cortex-memory-volume-init:
     image: alpine:3.20
@@ -73,22 +84,61 @@ services:
     environment:
       CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-cortex-runtime-delivery-v1}
     volumes:
-      - cortex-runtime-delivery:/runtime_delivery:rw
+      - cortex-runtime-delivery:/state:rw
     command:
       - /bin/sh
       - -ec
       - |
         umask 077
-        marker=/runtime_delivery/.cortex-durable-runtime-delivery
+        mkdir -p /state/runtime_delivery
+        marker=/state/runtime_delivery/.cortex-durable-runtime-delivery
         if [ -e "$$marker" ] && [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
           echo "Cortex runtime delivery volume identity mismatch" >&2
           exit 1
         fi
         printf '%s\n' "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" > "$$marker"
-        chmod 0700 /runtime_delivery
+        chmod 0700 /state /state/runtime_delivery
         chmod 0600 "$$marker"
         sync "$$marker"
     restart: "no"
+
+  release-verifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      CORTEX_BASE_URL: http://cortex-brain:8888
+      CORTEX_HANDOFF_RECIPIENT: release-verifier
+      CORTEX_HANDOFF_RECIPIENT_SECRET: ${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set a distinct release-verifier recipient secret in .env}
+      CORTEX_HANDOFF_HEALTH_PORT: 8891
+    command: python -m cortex_server.runtime.handoff_consumer
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8891/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+    networks:
+      - cortex-network
+
+  release-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      CORTEX_BASE_URL: http://cortex-brain:8888
+      CORTEX_HANDOFF_RECIPIENT: release-manager
+      CORTEX_HANDOFF_RECIPIENT_SECRET: ${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET:?set a distinct release-manager recipient secret in .env}
+      CORTEX_HANDOFF_HEALTH_PORT: 8892
+    command: python -m cortex_server.runtime.handoff_consumer
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8892/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+    networks:
+      - cortex-network
 
   # Level 6: The Bard - Piper TTS (Open Source, No Auth Required)
   piper-tts:

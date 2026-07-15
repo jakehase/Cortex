@@ -346,17 +346,35 @@ def _repair_prompt(kind: str, original_prompt: str, failure: str, model_answer: 
     return original_prompt
 
 
-async def _call_oracle(prompt: str, response_mode: str, priority: str, timeout_s: float) -> str:
+async def _call_oracle(
+    prompt: str,
+    response_mode: str,
+    priority: str,
+    timeout_s: float,
+    *,
+    headers: Optional[Dict[str, str]] = None,
+) -> str:
     url = "http://127.0.0.1:8888/oracle/chat"
     payload = {"prompt": prompt, "response_mode": response_mode, "priority": priority}
     async with httpx.AsyncClient(timeout=timeout_s) as client:
-        r = await client.post(url, json=payload, headers={"x-augmenter-bypass": "1"})
+        r = await client.post(
+            url,
+            json=payload,
+            headers={**dict(headers or {}), "x-augmenter-bypass": "1"},
+        )
         r.raise_for_status()
         data = r.json()
         return str(data.get("response") or "")
 
 
-async def _call_oracle_with_retry(prompt: str, response_mode: str, priority: str, timeout_s: float) -> Tuple[str, list[str]]:
+async def _call_oracle_with_retry(
+    prompt: str,
+    response_mode: str,
+    priority: str,
+    timeout_s: float,
+    *,
+    headers: Optional[Dict[str, str]] = None,
+) -> Tuple[str, list[str]]:
     notes: list[str] = []
     attempts = [timeout_s, max(8.0, timeout_s - 4.0)]
     last_err = None
@@ -364,7 +382,13 @@ async def _call_oracle_with_retry(prompt: str, response_mode: str, priority: str
         try:
             if idx > 1:
                 notes.append(f"oracle_retry_attempt:{idx}")
-            return await _call_oracle(prompt, response_mode=response_mode, priority=priority, timeout_s=t), notes
+            return await _call_oracle(
+                prompt,
+                response_mode=response_mode,
+                priority=priority,
+                timeout_s=t,
+                headers=headers,
+            ), notes
         except Exception as e:
             last_err = e
             notes.append(f"oracle_attempt_failed:{idx}:{type(e).__name__}")
@@ -382,6 +406,36 @@ async def _oracle_ready() -> bool:
 
 @router.post("/chat")
 async def chat(payload: AugmenterChatRequest, http_request: Request):
+    from cortex_server.routers.nexus import _authenticated_nexus_principal
+
+    transport_session = str(
+        http_request.headers.get("x-session-id")
+        or http_request.headers.get("x-chat-id")
+        or ""
+    ).strip()
+    principal, _ = _authenticated_nexus_principal(
+        http_request,
+        session_hint=transport_session,
+    )
+    forwarded_names = {
+        "x-cortex-tenant-id",
+        "x-cortex-workspace-id",
+        "x-cortex-agent-id",
+        "x-cortex-user-id",
+        "x-cortex-channel-id",
+        "x-cortex-session-id",
+        "x-cortex-scope-credential-id",
+        "x-cortex-scope-signature",
+        "x-session-id",
+        "x-chat-id",
+        os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower(),
+    }
+    oracle_headers = {
+        name: str(http_request.headers.get(name) or "")
+        for name in forwarded_names
+        if str(http_request.headers.get(name) or "").strip()
+    }
+    oracle_headers["x-session-id"] = principal.session_id
     prompt = payload.prompt
     response_mode = payload.response_mode
     priority = payload.priority
@@ -500,7 +554,7 @@ async def chat(payload: AugmenterChatRequest, http_request: Request):
             track_attempt(http_request, 5, "Oracle", status="attempted")
         except Exception:
             pass
-        answer, retry_notes = await _call_oracle_with_retry(final_prompt, response_mode=response_mode, priority=priority, timeout_s=18.0)
+        answer, retry_notes = await _call_oracle_with_retry(final_prompt, response_mode=response_mode, priority=priority, timeout_s=18.0, headers=oracle_headers)
         notes.extend(retry_notes)
         try:
             from cortex_server.middleware.hud_middleware import track_attempt
@@ -584,7 +638,7 @@ async def chat(payload: AugmenterChatRequest, http_request: Request):
     else:
         repair_prompt = _repair_prompt(kind, prompt, why, answer)
     try:
-        repaired, retry_notes = await _call_oracle_with_retry(repair_prompt, response_mode="final_only", priority=priority, timeout_s=12.0)
+        repaired, retry_notes = await _call_oracle_with_retry(repair_prompt, response_mode="final_only", priority=priority, timeout_s=12.0, headers=oracle_headers)
         notes.extend(retry_notes)
         repaired = _ensure_citations(repaired, required_citations)
         ok2, why2 = _validate(kind, repaired)

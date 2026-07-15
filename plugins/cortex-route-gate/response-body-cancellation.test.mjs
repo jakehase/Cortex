@@ -14,6 +14,7 @@ function setupRouteGate() {
       enabled: true,
       requireRouting: true,
       sessionIdentityHmacSecret: 'session-identity-response-cancellation-test-secret',
+      writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-response-cancellation-test',
       scopeHmacSecret: 'route-response-cancellation-scope-secret',
       baseUrl: 'http://127.0.0.1:18888',

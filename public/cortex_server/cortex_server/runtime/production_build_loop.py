@@ -4,9 +4,12 @@ import hashlib
 import hmac
 import json
 import os
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -40,6 +43,73 @@ JsonDict = Dict[str, Any]
 BUILTIN_BLOCKER_PREFIXES = ("BLOCKER:", "HUMAN:")
 REQUIRED_RELEASE_HANDOFF_RECIPIENTS = ("release-verifier", "release-manager")
 RUNTIME_DELIVERY_MOUNT_MARKER = ".cortex-durable-runtime-delivery"
+MIN_PRODUCTION_SECRET_BYTES = 32
+
+
+def _production_environment() -> bool:
+    return os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower() in {
+        "production",
+        "prod",
+        "staging",
+    }
+
+
+def _production_request_credentials() -> Dict[str, str]:
+    credentials = {
+        name: os.getenv(name, "").strip()
+        for name in (
+            "CORTEX_WRITE_TOKEN",
+            "CORTEX_ADMIN_TOKEN",
+            "CORTEX_CODEC_ADMIN_TOKEN",
+            "NEXUS_ASSURANCE_SIGNING_KEY",
+            "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
+            "NEXUS_OUTCOME_FEEDBACK_TOKEN",
+        )
+        if os.getenv(name, "").strip()
+    }
+    raw = os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("CORTEX_MEMORY_SCOPE_CREDENTIALS must be valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError("CORTEX_MEMORY_SCOPE_CREDENTIALS must be a credential object")
+        for credential_id, record in parsed.items():
+            secret = str((record or {}).get("secret") or "").strip() if isinstance(record, dict) else ""
+            if secret:
+                credentials[f"CORTEX_MEMORY_SCOPE_CREDENTIALS:{credential_id}"] = secret
+    return credentials
+
+
+def _credential_separation_check(
+    verifier_credentials: Dict[str, str],
+    recipient_credentials: Dict[str, str],
+) -> Dict[str, Any]:
+    all_credentials = {
+        **{f"release-verifier:{identity}": secret for identity, secret in verifier_credentials.items()},
+        **{f"release-recipient:{identity}": secret for identity, secret in recipient_credentials.items()},
+        **_production_request_credentials(),
+    }
+    weak = sorted(
+        name for name, secret in all_credentials.items()
+        if len(secret.encode("utf-8")) < MIN_PRODUCTION_SECRET_BYTES
+    )
+    by_secret: Dict[str, List[str]] = {}
+    for name, secret in all_credentials.items():
+        by_secret.setdefault(secret, []).append(name)
+    reused = sorted(
+        sorted(names)
+        for names in by_secret.values()
+        if len(names) > 1
+    )
+    return {
+        "ok": not weak and not reused,
+        "minimumSecretBytes": MIN_PRODUCTION_SECRET_BYTES,
+        "weakCredentials": weak,
+        "reusedCredentialGroups": reused,
+        "error": None if not weak and not reused else "production credentials must be strong and pairwise distinct",
+    }
 
 
 def _runtime_delivery_credential_map(environment_name: str) -> Dict[str, str]:
@@ -58,6 +128,18 @@ def _runtime_delivery_credential_map(environment_name: str) -> Dict[str, str]:
     }
     if any(not identity or not secret for identity, secret in credentials.items()):
         raise RuntimeError(f"{environment_name} contains an empty identity or secret")
+    if _production_environment():
+        weak = [
+            identity for identity, secret in credentials.items()
+            if len(secret.encode("utf-8")) < MIN_PRODUCTION_SECRET_BYTES
+        ]
+        if weak:
+            raise RuntimeError(
+                f"{environment_name} secrets must contain at least {MIN_PRODUCTION_SECRET_BYTES} bytes: "
+                + ", ".join(sorted(weak))
+            )
+        if len(set(credentials.values())) != len(credentials):
+            raise RuntimeError(f"{environment_name} identities must use distinct secrets")
     return credentials
 
 
@@ -65,6 +147,32 @@ def runtime_delivery_recipient_credentials() -> Dict[str, str]:
     """Return recipient-only credentials used by the public handoff consumer API."""
 
     return _runtime_delivery_credential_map("CORTEX_AGENT_ACK_CREDENTIALS")
+
+
+def validate_production_delivery_credentials() -> Dict[str, Any]:
+    """Validate all independent production signing authorities before serving."""
+
+    verifier_credentials = _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
+    recipient_credentials = runtime_delivery_recipient_credentials()
+    if not verifier_credentials:
+        raise RuntimeError("production requires release verifier credentials")
+    required_server_credentials = (
+        "CORTEX_WRITE_TOKEN",
+        "CORTEX_ADMIN_TOKEN",
+        "CORTEX_CODEC_ADMIN_TOKEN",
+        "NEXUS_ASSURANCE_SIGNING_KEY",
+        "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
+    )
+    missing_server = [name for name in required_server_credentials if not os.getenv(name, "").strip()]
+    if missing_server:
+        raise RuntimeError("production requires independent server credentials: " + ", ".join(missing_server))
+    missing = [name for name in REQUIRED_RELEASE_HANDOFF_RECIPIENTS if not recipient_credentials.get(name)]
+    if missing:
+        raise RuntimeError("production requires release recipient credentials: " + ", ".join(missing))
+    separation = _credential_separation_check(verifier_credentials, recipient_credentials)
+    if not separation["ok"]:
+        raise RuntimeError(str(separation["error"]))
+    return separation
 
 
 def runtime_delivery_handoff_claim_signature(
@@ -93,10 +201,64 @@ def runtime_delivery_handoff_claim_signature(
     return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
 
 
+def runtime_delivery_handoff_discovery_signature(
+    *,
+    recipient: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    """Sign a recipient-scoped claim-next request without controller state."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.handoff_discovery.v1",
+        "recipient": str(recipient or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def runtime_delivery_artifact_fetch_signature(
+    *,
+    recipient: str,
+    process_id: str,
+    release_id: str,
+    revision_id: str,
+    artifact_ref: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    """Bind an artifact read to one authenticated release consumer and revision."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.artifact_fetch.v1",
+        "recipient": str(recipient or "").strip(),
+        "process_id": str(process_id or "").strip(),
+        "release_id": str(release_id or "").strip(),
+        "revision_id": str(revision_id or "").strip(),
+        "artifact_ref": str(artifact_ref or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
 def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
     """Fail closed unless release credentials and the durable delivery mount are usable."""
 
     checks: Dict[str, Dict[str, Any]] = {}
+    verifier_credentials: Dict[str, str] = {}
+    recipient_credentials: Dict[str, str] = {}
     try:
         verifier_credentials = _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
         checks["releaseVerifierCredentials"] = {
@@ -124,12 +286,50 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
             "missingRecipients": missing_recipients,
             "error": None if not missing_recipients else "required release recipient credentials are missing",
         }
+
     except RuntimeError as exc:
         checks["releaseRecipientCredentials"] = {
             "ok": False,
             "requiredRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
             "missingRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
             "error": str(exc),
+        }
+
+    if _production_environment():
+        try:
+            checks["credentialSeparation"] = _credential_separation_check(
+                verifier_credentials,
+                recipient_credentials,
+            )
+        except RuntimeError as exc:
+            checks["credentialSeparation"] = {
+                "ok": False,
+                "minimumSecretBytes": MIN_PRODUCTION_SECRET_BYTES,
+                "weakCredentials": [],
+                "reusedCredentialGroups": [],
+                "error": str(exc),
+            }
+
+        consumer_health: Dict[str, Dict[str, Any]] = {}
+        for recipient, variable in (
+            ("release-verifier", "CORTEX_RELEASE_VERIFIER_HEALTH_URL"),
+            ("release-manager", "CORTEX_RELEASE_MANAGER_HEALTH_URL"),
+        ):
+            url = os.getenv(variable, "").strip()
+            error: Optional[str] = None
+            if not url:
+                error = f"{variable} is not configured"
+            else:
+                try:
+                    with urlopen(url, timeout=2.0) as response:
+                        if int(getattr(response, "status", 0) or 0) != 200:
+                            raise RuntimeError(f"consumer health returned HTTP {getattr(response, 'status', 0)}")
+                except (HTTPError, URLError, OSError, RuntimeError, TimeoutError) as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+            consumer_health[recipient] = {"ok": error is None, "url": url or None, "error": error}
+        checks["releaseConsumers"] = {
+            "ok": all(row["ok"] for row in consumer_health.values()),
+            "consumers": consumer_health,
         }
 
     delivery_root = Path(root)
@@ -165,6 +365,61 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         "observedMountId": observed_mount_id,
         "error": durable_error,
     }
+
+    if _production_environment():
+        reasoning_path = Path(
+            os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db")
+        )
+        reasoning_error: Optional[str] = None
+        quick_check: Optional[str] = None
+        missing_process_ids: List[str] = []
+        try:
+            if not reasoning_path.is_absolute():
+                raise RuntimeError("reasoning store path must be absolute")
+            persisted_release_ids = set()
+            release_root = delivery_root / "release_workflow"
+            for state_path in [*release_root.glob("*.json"), *release_root.glob(".*.rollback-intent.json")]:
+                payload = json.loads(state_path.read_text(encoding="utf-8"))
+                process_id = str(payload.get("process_id") or "").strip() if isinstance(payload, dict) else ""
+                if process_id:
+                    persisted_release_ids.add(process_id)
+            if not reasoning_path.exists() and persisted_release_ids:
+                raise RuntimeError(
+                    "reasoning store database is missing while persisted release state exists"
+                )
+            if not reasoning_path.exists():
+                # A pristine durable volume has no process rows to recover. Build
+                # the canonical schema in-place so first-boot readiness can pass.
+                from cortex_server.modules.reasoning_store import list_docs
+
+                list_docs("reasoning_processes", db_path=reasoning_path)
+            with sqlite3.connect(f"file:{reasoning_path}?mode=ro", uri=True, timeout=2.0) as connection:
+                row = connection.execute("PRAGMA quick_check").fetchone()
+                process_rows = connection.execute(
+                    "SELECT doc_id FROM reasoning_documents WHERE namespace = ?",
+                    ("reasoning_processes",),
+                ).fetchall()
+            quick_check = str(row[0] if row else "")
+            if quick_check != "ok":
+                raise RuntimeError(f"reasoning store quick_check failed: {quick_check}")
+            process_ids = {str(row[0]) for row in process_rows}
+            missing_process_ids = sorted(persisted_release_ids - process_ids)
+            if missing_process_ids:
+                raise RuntimeError(
+                    "persisted release state references missing runtime processes: "
+                    + ", ".join(missing_process_ids)
+                )
+        except (OSError, RuntimeError, sqlite3.Error) as exc:
+            reasoning_error = f"{type(exc).__name__}: {exc}"
+        except (json.JSONDecodeError, ValueError) as exc:
+            reasoning_error = f"{type(exc).__name__}: invalid persisted release state: {exc}"
+        checks["durableReasoningStore"] = {
+            "ok": reasoning_error is None,
+            "path": str(reasoning_path),
+            "quickCheck": quick_check,
+            "missingProcessIds": missing_process_ids,
+            "error": reasoning_error,
+        }
 
     ready = all(check["ok"] for check in checks.values())
     return {
@@ -259,18 +514,14 @@ def _configured_stage_plan(stages: Sequence[str], *, target_environment: str) ->
         raise ValueError("draft is an initialization stage and cannot appear in promotion_stages")
 
     target = str(target_environment or "").strip()
-    mandatory = list(RELEASE_STAGE_TOPOLOGY[1:-1]) + [target]
-    mandatory = [stage for index, stage in enumerate(mandatory) if stage and stage not in mandatory[:index]]
-    if not cleaned:
-        return mandatory
-
-    missing = [stage for stage in mandatory if stage not in cleaned]
-    if missing:
-        raise ValueError(f"promotion_stages omits mandatory stages: {', '.join(missing)}")
-    indexes = [cleaned.index(stage) for stage in mandatory]
-    if indexes != sorted(indexes) or cleaned[-1] != target:
-        raise ValueError("promotion_stages must preserve build_verified -> canary_verified -> target topology")
-    return cleaned
+    if target != RELEASE_STAGE_TOPOLOGY[-1]:
+        raise ValueError("ordinary production contracts must target production")
+    mandatory = list(RELEASE_STAGE_TOPOLOGY[1:])
+    if cleaned and cleaned != mandatory:
+        raise ValueError(
+            "promotion_stages must exactly match build_verified -> canary_verified -> production"
+        )
+    return mandatory
 
 
 class ProductionCompletionCriterion(BaseModel):
@@ -1247,6 +1498,7 @@ def _checkpoint_from_journal(
     return snapshot_store.save(
         ProcessSnapshot(
             process_id=process_id,
+            persistence_revision=previous.persistence_revision if previous else 0,
             last_event_id=replayed.get("last_event_id"),
             event_count=int(replayed.get("event_count", 0) or 0),
             lifecycle_state=str(replayed.get("lifecycle_state") or "created"),
@@ -1293,8 +1545,14 @@ def _release_artifact_ids(snapshot: ProcessSnapshot, release_state: Optional[Rel
         str(row.get("artifact_id") or "")
         for row in ((release_state.metadata or {}).get("release_artifacts") or [])
         if isinstance(row, dict)
+        and str(row.get("release_id") or "") == release_state.release_id
+        and str(row.get("candidate_ref") or "") == release_state.candidate_ref
+        and str(row.get("revision_id") or "") == release_state.revision_id
+        and str(row.get("validation_outcome") or "") == "passed"
     ] if release_state else []
-    return _dedupe_rows(list(snapshot.artifact_refs) + release_artifacts)
+    # Snapshot artifact references are operational outputs, not signed release
+    # receipts. They cannot satisfy production release criteria by themselves.
+    return _dedupe_rows(release_artifacts)
 
 
 
@@ -2024,10 +2282,16 @@ def _maybe_dispatch_release_handoff(
     scope = str(handoff_config.get("scope") or f"release:{release_state.current_stage or 'draft'}:{next_stage}").strip()
     objective = str(handoff_config.get("objective") or f"Promote release candidate from {release_state.current_stage} to {next_stage}").strip()
     expected_output = str(handoff_config.get("expected_output") or f"Return an ack and readiness evidence for {next_stage}").strip()
-    dedupe_key = str(
-        handoff_config.get("dedupe_key")
-        or f"release-stage:{release_state.process_id}:{release_state.release_id}:{release_state.current_stage}:{next_stage}:{shared_state.revision_id}"
-    ).strip()
+    configured_dedupe = str(handoff_config.get("dedupe_key") or "").strip()
+    server_dedupe = (
+        f"release-stage:{release_state.process_id}:{release_state.release_id}:"
+        f"{release_state.current_stage}:{next_stage}:{shared_state.revision_id}"
+    )
+    dedupe_key = (
+        f"{server_dedupe}:namespace:{hashlib.sha256(configured_dedupe.encode('utf-8')).hexdigest()[:16]}"
+        if configured_dedupe
+        else server_dedupe
+    )
     lease_seconds = max(1, int(handoff_config.get("lease_seconds", 300) or 300))
 
     actions_taken: List[JsonDict] = []
@@ -2085,6 +2349,21 @@ def _maybe_dispatch_release_handoff(
             "expected_output": handoff.expected_output,
             "open_questions": list(handoff.open_questions or []),
             "assumptions": list(handoff.assumptions or []),
+            "relevant_artifacts": [
+                row.model_dump() if hasattr(row, "model_dump") else row.dict()
+                for row in handoff.relevant_artifacts
+            ],
+            "relevant_evidence": [
+                row.model_dump() if hasattr(row, "model_dump") else row.dict()
+                for row in handoff.relevant_evidence
+            ],
+            "artifact_receipts": [
+                dict(row)
+                for row in (release_state.metadata.get("release_artifacts") or [])
+                if isinstance(row, dict)
+                and str(row.get("release_id") or "") == release_state.release_id
+                and str(row.get("revision_id") or "") == release_state.revision_id
+            ],
         },
         metadata={
             "release_id": release_state.release_id,
@@ -2947,6 +3226,9 @@ __all__ = [
     "recover_production_worker",
     "repair_production_dependability",
     "runtime_delivery_handoff_claim_signature",
+    "runtime_delivery_handoff_discovery_signature",
+    "runtime_delivery_artifact_fetch_signature",
     "runtime_delivery_recipient_credentials",
+    "validate_production_delivery_credentials",
     "ValidationError",
 ]

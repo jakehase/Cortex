@@ -7,8 +7,8 @@ them sequentially via async HTTP, and storing results for replay.
 NOTE: This is L26 Workflow Conductor, NOT L36 Meta-Conductor.
 """
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import json
 import asyncio
+import base64
 import httpx
 from uuid import uuid4
 
@@ -106,9 +107,12 @@ from cortex_server.runtime.production_build_loop import (
     REQUIRED_RELEASE_HANDOFF_RECIPIENTS,
     ingest_production_release_artifact,
     probe_runtime_delivery_readiness,
+    runtime_delivery_artifact_fetch_signature,
     runtime_delivery_handoff_claim_signature,
+    runtime_delivery_handoff_discovery_signature,
     runtime_delivery_recipient_credentials,
 )
+from cortex_server.runtime.release_workflow import RELEASE_STAGE_TOPOLOGY
 
 router = APIRouter()
 
@@ -319,7 +323,7 @@ def _clear_runtime_event_pending(*, stores: Dict[str, Any], process_id: str, eve
             _unlink_fsynced(pending_path)
 
 
-def _record_runtime_session_event(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
+def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
     process = get_runtime_process(process_id)
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
@@ -468,6 +472,21 @@ def _record_runtime_session_event(*, process_id: str, event: Any, stores: Dict[s
         "follow_up_dispatch": follow_up,
         "idempotent": receipt_existed,
     }
+
+
+def _record_runtime_session_event(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
+    """Commit every session projection under the same rollback lock order."""
+
+    with (
+        stores["release_store"].release_transaction(process_id),
+        stores["shared_state_store"].transaction(process_id),
+        stores["snapshot_store"].transaction(process_id),
+    ):
+        return _record_runtime_session_event_locked(
+            process_id=process_id,
+            event=event,
+            stores=stores,
+        )
 
 
 def _runtime_workspace_targets_from_process(process: Dict[str, Any]) -> List[str]:
@@ -651,7 +670,7 @@ def _snapshot_session_state(*, process: Dict[str, Any], stores: Dict[str, Any], 
     return dict(derived or {"authority": "derived", "authority_source": "process", "status": str(process.get("status") or "scheduled"), "session_id": process_id, "session_name": ((process.get("workflow") or {}).get("name") if isinstance(process.get("workflow"), dict) else None) or process_id, "tool": "cortex-runtime", "retry_count": 0, "watcher_count": len(watcher_rows), "session_count": len(session_rows), "open_questions": [], "watcher_ids": [], "sessions": session_rows, "watchers": watcher_rows})
 
 
-def _upsert_runtime_snapshot_session_state(
+def _upsert_runtime_snapshot_session_state_locked(
     *,
     process_id: str,
     stores: Dict[str, Any],
@@ -714,6 +733,25 @@ def _upsert_runtime_snapshot_session_state(
     }
     snapshot.world_state = {**dict(snapshot.world_state or {}), "session_status": session_state.get("status"), "session_retry_count": session_state.get("retry_count")}
     return snapshot_store.save(snapshot)
+
+
+def _upsert_runtime_snapshot_session_state(
+    *,
+    process_id: str,
+    stores: Dict[str, Any],
+    process: Optional[Dict[str, Any]] = None,
+    event_id: Optional[str] = None,
+) -> Optional[ProcessSnapshot]:
+    """Merge session projections behind the same per-process snapshot fence as rollback."""
+
+    snapshot_store = stores["snapshot_store"]
+    with snapshot_store.transaction(process_id):
+        return _upsert_runtime_snapshot_session_state_locked(
+            process_id=process_id,
+            stores=stores,
+            process=process,
+            event_id=event_id,
+        )
 
 
 def _runtime_session_follow_up_context(process: Dict[str, Any]) -> Dict[str, Any]:
@@ -2563,11 +2601,12 @@ class RuntimeDeliveryReconcileRequest(BaseModel):
 
 
 class RuntimeDeliveryRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     stage: Optional[str] = None
     fencepost_id: Optional[str] = None
     reason: str = "operator_requested"
     actor: str = "cortex"
-    new_revision_id: Optional[str] = None
 
 
 class RuntimeDeliveryArtifactIngestRequest(BaseModel):
@@ -2587,6 +2626,24 @@ class RuntimeDeliveryHandoffClaimRequest(BaseModel):
     recipient: str
     process_id: str
     expected_revision_id: str
+    request_id: str
+    requested_at: str
+    recipient_signature: str
+
+
+class RuntimeDeliveryHandoffClaimNextRequest(BaseModel):
+    recipient: str
+    request_id: str
+    requested_at: str
+    recipient_signature: str
+
+
+class RuntimeDeliveryArtifactFetchRequest(BaseModel):
+    recipient: str
+    process_id: str
+    release_id: str
+    revision_id: str
+    artifact_ref: str
     request_id: str
     requested_at: str
     recipient_signature: str
@@ -3443,8 +3500,28 @@ async def create_and_run_plan(graph: ReasoningPlanGraph):
 
 
 @router.post("/runtime/plan")
-async def schedule_plan_runtime(request: RuntimePlanRequest):
+async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Request = None):
     """Store a plan graph as a managed reasoning process without executing it yet."""
+    principal = getattr(getattr(http_request, "state", None), "cortex_principal", None)
+    if principal is not None and getattr(principal, "role", "") == "principal":
+        principal_metadata = {
+            "tenant_id": principal.tenant_id,
+            "workspace_id": principal.workspace_id,
+            "storage_workspace_id": principal.storage_workspace_id,
+            "agent_id": principal.agent_id,
+            "user_id": principal.user_id,
+            "channel_id": principal.channel_id,
+            "session_id": principal.session_id,
+            "scope_credential_id": principal.credential_id,
+            "owner": principal.user_id,
+        }
+        request.graph.metadata = {
+            **dict(request.graph.metadata or {}),
+            **principal_metadata,
+            "principal": dict(principal_metadata),
+        }
+        request.options.owner = principal.user_id
+        request.options.session_key = principal.session_id
     workflow = _store_workflow_from_plan(request.graph)
     try:
         scheduled = runtime_service.schedule_runtime_plan(
@@ -3895,6 +3972,103 @@ async def get_runtime_delivery_readiness():
     return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
 
 
+def _reconcile_acknowledged_release_handoff(message, *, stores: Dict[str, Any]) -> Dict[str, Any]:
+    """Advance durable release state after an authenticated external ack."""
+
+    release_state = stores["release_store"].load(message.process_id)
+    target_stage = str((message.metadata or {}).get("target_stage") or "").strip()
+    release_id = str((message.metadata or {}).get("release_id") or "").strip()
+    if (
+        release_state is None
+        or message.delivery_status != "acked"
+        or not target_stage
+        or release_id != release_state.release_id
+        or str(message.revision_id or "") != release_state.revision_id
+        or target_stage not in RELEASE_STAGE_TOPOLOGY
+        or release_state.current_stage not in RELEASE_STAGE_TOPOLOGY
+        or RELEASE_STAGE_TOPOLOGY.index(release_state.current_stage)
+        >= RELEASE_STAGE_TOPOLOGY.index(target_stage)
+    ):
+        return {"reconciled": False, "reason": "handoff_already_applied_or_not_current"}
+    process = get_runtime_process(message.process_id)
+    if not process:
+        raise RuntimeError(f"runtime process is missing for acknowledged release {message.process_id}")
+    contract = _resolve_runtime_delivery_contract(
+        message.process_id,
+        process=process,
+        stores=stores,
+        request=RuntimeDeliveryReconcileRequest(
+            bootstrap_runtime_state=False,
+            initialize_release=False,
+        ),
+    )
+    loop_state = stores["loop_store"].load_state(message.process_id)
+    controller_id = (
+        loop_state.controller.controller_id
+        if loop_state is not None and loop_state.controller is not None
+        else "cortex"
+    )
+    controller_session_id = (
+        loop_state.controller.session_id
+        if loop_state is not None and loop_state.controller is not None
+        else f"runtime-delivery:{message.process_id}"
+    )
+    passes = []
+    for _ in range(2):
+        reconciled = reconcile_production_build_loop(
+            contract,
+            loop_store=stores["loop_store"],
+            snapshot_store=stores["snapshot_store"],
+            shared_state_store=stores["shared_state_store"],
+            journal=stores["journal"],
+            mailbox=stores["mailbox"],
+            supervisor=stores["supervisor"],
+            release_store=stores["release_store"],
+            controller_id=controller_id,
+            controller_session_id=controller_session_id,
+        )
+        passes.append(reconciled)
+        if not list(reconciled.get("stage_changes") or []):
+            break
+    current_process = _sync_runtime_process_delivery_state(
+        message.process_id,
+        process=get_runtime_process(message.process_id) or process,
+        stores=stores,
+        event_kind="runtime_delivery_handoff_reconciled",
+        event_payload={
+            "message_id": message.message_id,
+            "recipient": message.to_agent,
+            "target_stage": target_stage,
+        },
+    )
+    follow_up = _bridge_runtime_delivery_follow_up(
+        message.process_id,
+        process=current_process,
+        stores=stores,
+        now=None,
+    )
+    current_release = stores["release_store"].load(message.process_id)
+    return {
+        "reconciled": True,
+        "process_id": message.process_id,
+        "release_stage": current_release.current_stage if current_release is not None else None,
+        "pass_count": len(passes),
+        "follow_up_dispatch": follow_up.get("dispatch"),
+    }
+
+
+def _recover_acknowledged_release_handoffs(recipient: str, *, stores: Dict[str, Any]) -> List[Dict[str, Any]]:
+    recovered = []
+    for message in stores["mailbox"].list(
+        to_agent=recipient,
+        delivery_statuses=["acked"],
+    ):
+        result = _reconcile_acknowledged_release_handoff(message, stores=stores)
+        if result.get("reconciled"):
+            recovered.append(result)
+    return recovered
+
+
 @router.post("/runtime/delivery/handoffs/claim")
 async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRequest):
     recipient = str(request.recipient or "").strip()
@@ -3949,6 +4123,21 @@ async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRe
         release_handoffs = []
         for message in received:
             if (message.metadata or {}).get("target_stage"):
+                bound_payload = {
+                    **dict(message.payload or {}),
+                    "artifact_receipts": [
+                        dict(row)
+                        for row in (release_state.metadata.get("release_artifacts") or [])
+                        if isinstance(row, dict)
+                        and str(row.get("release_id") or "") == release_state.release_id
+                        and str(row.get("revision_id") or "") == release_state.revision_id
+                    ],
+                }
+                message = stores["mailbox"].bind_claim_payload(
+                    message.message_id,
+                    payload=bound_payload,
+                    expected_revision_id=expected_revision_id,
+                )
                 release_handoffs.append(message)
             else:
                 stores["mailbox"].retry(message.message_id)
@@ -3971,6 +4160,159 @@ async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRe
             },
         )
     return response
+
+
+@router.post("/runtime/delivery/handoffs/claim-next")
+async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffClaimNextRequest):
+    """Discover and claim release work using recipient credentials alone."""
+
+    recipient = str(request.recipient or "").strip()
+    request_id = str(request.request_id or "").strip()
+    requested_at = str(request.requested_at or "").strip()
+    if not all((recipient, request_id, requested_at, request.recipient_signature)):
+        raise HTTPException(status_code=422, detail="handoff discovery fields must be non-empty")
+    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
+        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
+    credentials = _runtime_delivery_recipient_credentials_or_503()
+    expected_signature = runtime_delivery_handoff_discovery_signature(
+        recipient=recipient,
+        request_id=request_id,
+        requested_at=requested_at,
+        secret=credentials[recipient],
+    )
+    if not hmac.compare_digest(str(request.recipient_signature or ""), expected_signature):
+        raise HTTPException(status_code=403, detail="authenticated recipient signature required")
+    _validate_runtime_delivery_handoff_claim_freshness(requested_at)
+
+    stores = _runtime_delivery_stores()
+    recovered_progress = _recover_acknowledged_release_handoffs(
+        recipient,
+        stores=stores,
+    )
+    receipt_path, lock_path = _runtime_delivery_handoff_claim_paths(
+        stores=stores,
+        recipient=recipient,
+        request_id=request_id,
+    )
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        if receipt_path.exists():
+            raise HTTPException(status_code=409, detail="handoff discovery request was already consumed")
+        # In-flight messages remain discoverable after a consumer restart or
+        # when evidence arrived after initial dispatch. Acknowledgement is the
+        # durable terminal fence and is itself idempotence-checked.
+        received = stores["mailbox"].receive(to_agent=recipient, include_inflight=True)
+        release_handoffs = []
+        for message in received:
+            metadata = dict(message.metadata or {})
+            if not metadata.get("target_stage"):
+                stores["mailbox"].retry(message.message_id)
+                continue
+            state = stores["release_store"].load(message.process_id)
+            if (
+                state is None
+                or not hmac.compare_digest(str(state.release_id), str(metadata.get("release_id") or ""))
+                or not hmac.compare_digest(str(state.revision_id), str(message.revision_id or ""))
+            ):
+                stores["mailbox"].dead_letter(message.message_id)
+                continue
+            bound_payload = {
+                **dict(message.payload or {}),
+                "artifact_receipts": [
+                    dict(row)
+                    for row in (state.metadata.get("release_artifacts") or [])
+                    if isinstance(row, dict)
+                    and str(row.get("release_id") or "") == state.release_id
+                    and str(row.get("revision_id") or "") == state.revision_id
+                ],
+            }
+            message = stores["mailbox"].bind_claim_payload(
+                message.message_id,
+                payload=bound_payload,
+                expected_revision_id=state.revision_id,
+            )
+            release_handoffs.append(message)
+        claimed_at = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+        response = {
+            "success": True,
+            "authentication": "hmac-sha256",
+            "recipient": recipient,
+            "request_id": request_id,
+            "claimed_at": claimed_at,
+            "recovered_release_progress": recovered_progress,
+            "messages": [model_dump_compat(message) for message in release_handoffs],
+        }
+        _write_runtime_event_receipt(
+            receipt_path,
+            {"version": "cortex.runtime_delivery.handoff_discovery_receipt.v1", **response},
+        )
+    return response
+
+
+@router.post("/runtime/delivery/handoffs/artifacts/resolve")
+async def resolve_runtime_delivery_handoff_artifact(request: RuntimeDeliveryArtifactFetchRequest):
+    recipient = str(request.recipient or "").strip()
+    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
+        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
+    credentials = _runtime_delivery_recipient_credentials_or_503()
+    expected_signature = runtime_delivery_artifact_fetch_signature(
+        recipient=recipient,
+        process_id=request.process_id,
+        release_id=request.release_id,
+        revision_id=request.revision_id,
+        artifact_ref=request.artifact_ref,
+        request_id=request.request_id,
+        requested_at=request.requested_at,
+        secret=credentials[recipient],
+    )
+    if not hmac.compare_digest(str(request.recipient_signature or ""), expected_signature):
+        raise HTTPException(status_code=403, detail="authenticated recipient signature required")
+    _validate_runtime_delivery_handoff_claim_freshness(request.requested_at)
+
+    stores = _runtime_delivery_stores()
+    state = stores["release_store"].load(request.process_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="release workflow not found")
+    if not (
+        hmac.compare_digest(str(state.release_id), str(request.release_id or ""))
+        and hmac.compare_digest(str(state.revision_id), str(request.revision_id or ""))
+    ):
+        raise HTTPException(status_code=409, detail="artifact request does not match the active release revision")
+    receipt = next(
+        (
+            dict(row)
+            for row in (state.metadata.get("release_artifacts") or [])
+            if isinstance(row, dict)
+            and str(row.get("release_id") or "") == state.release_id
+            and str(row.get("revision_id") or "") == state.revision_id
+            and hmac.compare_digest(str(row.get("artifact_ref") or ""), str(request.artifact_ref or ""))
+        ),
+        None,
+    )
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="release artifact receipt not found")
+    authorized_handoff = any(
+        message.to_agent == recipient
+        and str((message.metadata or {}).get("release_id") or "") == state.release_id
+        and str(message.revision_id or "") == state.revision_id
+        and bool((message.metadata or {}).get("target_stage"))
+        for message in stores["mailbox"].list(process_id=request.process_id, to_agent=recipient)
+    )
+    if not authorized_handoff:
+        raise HTTPException(status_code=403, detail="recipient has no release handoff for this revision")
+    try:
+        encoded = stores["release_store"].artifact_store().resolve(request.artifact_ref)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "artifact_ref": request.artifact_ref,
+        "content_hash": receipt.get("content_hash"),
+        "encoding": "base64",
+        "payload": base64.b64encode(encoded).decode("ascii"),
+        "receipt": receipt,
+    }
 
 
 @router.post("/runtime/delivery/handoffs/{message_id}/acknowledge")
@@ -3999,10 +4341,23 @@ async def acknowledge_runtime_delivery_handoff(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        release_progress = _reconcile_acknowledged_release_handoff(
+            acknowledged,
+            stores=stores,
+        )
+    except (KeyError, PermissionError, RuntimeError, ValueError) as exc:
+        # The acknowledgement is already durable. Claim-next retries this
+        # reconciliation until release state records the external progress.
+        raise HTTPException(
+            status_code=503,
+            detail=f"handoff acknowledged; durable release reconciliation pending: {exc}",
+        ) from exc
     return {
         "success": True,
         "process_id": acknowledged.process_id,
         "message": model_dump_compat(acknowledged),
+        "release_progress": release_progress,
     }
 
 
@@ -4145,7 +4500,6 @@ async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDe
         fencepost_id=request.fencepost_id,
         actor=request.actor,
         reason=request.reason,
-        new_revision_id=request.new_revision_id,
         required_projections=["production_loop", "runtime_process"],
         projection_callback=_project_rollback,
     )
