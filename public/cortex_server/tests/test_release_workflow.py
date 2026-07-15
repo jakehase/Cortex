@@ -60,7 +60,17 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         payload={"objective": handoff.objective},
     )
     harness.mailbox.receive(to_agent="verifier", process_id="proc_release_history", expected_revision_id="rev_1", reject_stale_revision=True)
-    acked = harness.mailbox.acknowledge(message.message_id)
+    acked = harness.mailbox.acknowledge(
+        message.message_id,
+        actor="verifier",
+        result_receipt={
+            "candidate_ref": state.candidate_ref,
+            "release_id": state.release_id,
+            "revision_id": state.revision_id,
+            "result": "approved",
+            "evidence_receipts": ["evidence:canary-verification"],
+        },
+    )
     state = record_release_handoff(state, acked, stage="canary_verified")
 
     fencepost = capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified")
@@ -146,7 +156,17 @@ def test_release_gate_rejects_ack_from_obsolete_candidate_even_on_current_revisi
         metadata={"release_id": state.release_id, "candidate_ref": "build:old", "target_stage": "production"},
     )
     harness.mailbox.receive(to_agent="release-manager", process_id=state.process_id, expected_revision_id="rev_1")
-    acknowledged = harness.mailbox.acknowledge(message.message_id)
+    acknowledged = harness.mailbox.acknowledge(
+        message.message_id,
+        actor="release-manager",
+        result_receipt={
+            "candidate_ref": "build:old",
+            "release_id": state.release_id,
+            "revision_id": "rev_1",
+            "result": "approved",
+            "evidence_receipts": ["evidence:obsolete"],
+        },
+    )
     state = record_release_handoff(state, acknowledged, stage="production")
 
     gate = evaluate_release_promotion_gate(
@@ -197,7 +217,17 @@ def test_release_gate_ignores_stale_handoff_history_after_current_ack(tmp_path):
         )
         state = record_release_handoff(
             state,
-            harness.mailbox.acknowledge(message.message_id),
+            harness.mailbox.acknowledge(
+                message.message_id,
+                actor="release-manager",
+                result_receipt={
+                    "candidate_ref": candidate,
+                    "release_id": state.release_id,
+                    "revision_id": "rev_1",
+                    "result": "approved",
+                    "evidence_receipts": [f"evidence:{candidate}"],
+                },
+            ),
             stage="production",
         )
 
@@ -241,7 +271,7 @@ def test_release_repair_requeues_handoff_but_never_fabricates_missing_fenceposts
         payload={"objective": "verify build"},
     )
     harness.mailbox.receive(to_agent="verifier", process_id="proc_release_repair", expected_revision_id="rev_1", reject_stale_revision=True)
-    build_acked = harness.mailbox.acknowledge(build_message.message_id)
+    build_acked = harness.mailbox.acknowledge(build_message.message_id, actor="verifier")
     state = record_release_handoff(state, build_acked, stage="build_verified")
     state = record_release_fencepost(
         state,

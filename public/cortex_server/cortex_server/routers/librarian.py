@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Annotated, List, Optional, Dict, Any
 import asyncio
 import chromadb
-import hmac
 import uuid
 import os as _stdlib_os
 import stat
@@ -28,7 +27,12 @@ from pathlib import Path
 
 from cortex_server.modules.librarian_embedding import build_embedding_function
 from cortex_server.modules import runtime_pressure
-from cortex_server.modules.memory_scope import memory_scope_signature
+from cortex_server.modules.memory_scope import (
+    AuthenticatedMemoryPrincipal,
+    MemoryScopeAuthError,
+    PRINCIPAL_FIELDS,
+    authenticate_memory_principal,
+)
 
 
 class _OSFacade:
@@ -183,10 +187,10 @@ _EMBEDDING_HEALTH: Dict[str, Any] = {
 _COLLECTION_HEALTH_TIMEOUT_SECONDS = 1.0
 
 MAX_MEMORY_SCOPE_ID_LENGTH = 128
-_MEMORY_SCOPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_MEMORY_SCOPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
 DEFAULT_TENANT_ID = os.getenv("CORTEX_DEFAULT_TENANT_ID", "cortex-local").strip() or "cortex-local"
 DEFAULT_WORKSPACE_ID = os.getenv("CORTEX_DEFAULT_WORKSPACE_ID", "default").strip() or "default"
-MemoryScopeId = Annotated[str, Field(min_length=1, max_length=MAX_MEMORY_SCOPE_ID_LENGTH, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")]
+MemoryScopeId = Annotated[str, Field(min_length=1, max_length=MAX_MEMORY_SCOPE_ID_LENGTH, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$")]
 
 
 class FactSupersessionError(RuntimeError):
@@ -222,7 +226,7 @@ def _is_default_scope(tenant_id: str, workspace_id: str) -> bool:
 def _metadata_matches_scope(metadata: Optional[Dict[str, Any]], tenant_id: str, workspace_id: str) -> bool:
     metadata = metadata or {}
     stored_tenant = metadata.get("tenant_id")
-    stored_workspace = metadata.get("workspace_id")
+    stored_workspace = metadata.get("storage_workspace_id", metadata.get("workspace_id"))
     if stored_tenant is None and stored_workspace is None:
         return _is_default_scope(tenant_id, workspace_id)
     return str(stored_tenant) == tenant_id and str(stored_workspace) == workspace_id
@@ -243,12 +247,50 @@ def _scoped_call_kwargs(tenant_id: str, workspace_id: str) -> Dict[str, str]:
     return {"tenant_id": tenant_id, "workspace_id": workspace_id}
 
 
-def _memory_scope_signature(tenant_id: str, workspace_id: str, secret: str) -> str:
-    return memory_scope_signature(tenant_id, workspace_id, secret=secret)
-
-
 def _memory_scope_auth_ready() -> bool:
-    return bool(os.getenv("CORTEX_MEMORY_SCOPE_SECRET", "").strip()) or not _production_memory_mode()
+    return bool(os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "").strip()) or not _production_memory_mode()
+
+
+class MemoryPrincipalScope(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    tenant_id: MemoryScopeId
+    workspace_id: MemoryScopeId
+    agent_id: MemoryScopeId
+    user_id: MemoryScopeId
+    channel_id: MemoryScopeId
+    session_id: MemoryScopeId
+
+
+def _authenticated_memory_principal_scope(
+    tenant_id: Optional[str],
+    workspace_id: Optional[str],
+    scope_signature: Optional[str],
+    *,
+    scope: Optional[MemoryPrincipalScope | Dict[str, Any]] = None,
+    scope_credential_id: Optional[str] = None,
+) -> AuthenticatedMemoryPrincipal:
+    raw_scope: Optional[Dict[str, Any]]
+    if scope is None:
+        raw_scope = None
+    elif hasattr(scope, "model_dump"):
+        raw_scope = scope.model_dump()
+    elif hasattr(scope, "dict"):
+        raw_scope = scope.dict()
+    else:
+        raw_scope = dict(scope)
+    try:
+        return authenticate_memory_principal(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            scope=raw_scope,
+            credential_id=scope_credential_id,
+            signature=scope_signature,
+            production=_production_memory_mode(),
+        )
+    except MemoryScopeAuthError as exc:
+        status_code = 503 if "not configured" in str(exc) else 403
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 def _authenticated_memory_scope(
@@ -256,19 +298,12 @@ def _authenticated_memory_scope(
     workspace_id: Optional[str],
     scope_signature: Optional[str],
 ) -> tuple[str, str]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    secret = os.getenv("CORTEX_MEMORY_SCOPE_SECRET", "").strip()
-    if not secret:
-        if _production_memory_mode() or not _is_default_scope(tenant, workspace):
-            raise HTTPException(
-                status_code=503,
-                detail="authenticated memory scope is not configured",
-            )
-        return tenant, workspace
-    expected = _memory_scope_signature(tenant, workspace, secret)
-    if not hmac.compare_digest(str(scope_signature or ""), expected):
-        raise HTTPException(status_code=403, detail="invalid authenticated memory scope")
-    return tenant, workspace
+    principal = _authenticated_memory_principal_scope(
+        tenant_id,
+        workspace_id,
+        scope_signature,
+    )
+    return principal.tenant_id, principal.storage_workspace_id
 
 
 def _fact_supersession_lock_path() -> Path:
@@ -475,6 +510,8 @@ class EmbedRequest(BaseModel):
     metadata: Optional[dict] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
     _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
@@ -491,6 +528,8 @@ class SearchRequest(BaseModel):
     allow_fallback: bool = True
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
@@ -517,6 +556,8 @@ class NovelEmbedRequest(BaseModel):
     min_novelty: float = 0.0
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
     _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
@@ -539,6 +580,8 @@ class NovelSearchRequest(BaseModel):
     allow_fallback: bool = True
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
@@ -567,6 +610,8 @@ class RecallRequest(BaseModel):
     n_results: int = Field(5, ge=1, le=100)
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
@@ -584,6 +629,8 @@ class SupersedeRequest(BaseModel):
     reason: str = "explicit_correction"
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
@@ -762,13 +809,20 @@ def _normalize_memory_metadata(
     tenant, workspace = _memory_scope(tenant_id, workspace_id)
     normalized = dict(metadata or {})
     supplied_tenant = normalized.get("tenant_id")
-    supplied_workspace = normalized.get("workspace_id")
     if supplied_tenant is not None and str(supplied_tenant) != tenant:
         raise ValueError("metadata tenant_id does not match the authenticated memory scope")
-    if supplied_workspace is not None and str(supplied_workspace) != workspace:
-        raise ValueError("metadata workspace_id does not match the authenticated memory scope")
+    supplied_storage_workspace = normalized.get("storage_workspace_id")
+    if supplied_storage_workspace is not None and str(supplied_storage_workspace) != workspace:
+        raise ValueError("metadata storage scope does not match the authenticated memory principal")
+    principal_identity_present = any(
+        field in normalized for field in ("agent_id", "user_id", "channel_id", "session_id")
+    )
+    principal_fields_present = [field for field in PRINCIPAL_FIELDS if field in normalized]
+    if principal_identity_present and len(principal_fields_present) != len(PRINCIPAL_FIELDS):
+        raise ValueError("memory principal metadata must contain every principal dimension")
     normalized["tenant_id"] = tenant
-    normalized["workspace_id"] = workspace
+    normalized.setdefault("workspace_id", workspace)
+    normalized["storage_workspace_id"] = workspace
     normalized["memory_scope_key"] = _scope_key(tenant, workspace)
     fact_key = str(normalized.get("fact_key") or "").strip()
     if fact_key:
@@ -1380,6 +1434,54 @@ async def _collection_available() -> bool:
         return False
 
 
+def probe_memory_backend_readiness() -> Dict[str, Any]:
+    """Actively verify the durable path and authoritative Chroma collection."""
+
+    probe_id = f"readiness-{uuid.uuid4().hex}"
+    probe_collection = None
+    try:
+        _validate_chroma_storage(CHROMA_DIR)
+        count = int(collection.count())
+        if count < 0:
+            raise RuntimeError("memory collection returned an invalid count")
+        probe_collection = client.get_or_create_collection(
+            name="cortex-durability-readiness",
+            embedding_function=None,
+        )
+        probe_collection.upsert(
+            ids=[probe_id],
+            embeddings=[[0.0]],
+            documents=["Cortex memory durability readiness probe"],
+            metadatas=[{"probe": True}],
+        )
+        written = probe_collection.get(ids=[probe_id])
+        if probe_id not in list(written.get("ids") or []):
+            raise RuntimeError("memory readiness probe was not readable after write")
+        probe_collection.delete(ids=[probe_id])
+        probe_collection = None
+        return {
+            "ok": True,
+            "status": "healthy",
+            "backend": "chroma_persistent",
+            "count": count,
+            "path": CHROMA_DIR,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": "degraded",
+            "backend": "chroma_persistent",
+            "error": f"{type(exc).__name__}: {exc}",
+            "path": CHROMA_DIR,
+        }
+    finally:
+        if probe_collection is not None:
+            try:
+                probe_collection.delete(ids=[probe_id])
+            except Exception:
+                pass
+
+
 def _configured_local_file_memory_roots(
     *,
     tenant_id: Optional[str] = None,
@@ -1764,7 +1866,8 @@ def _persist_fallback_memory(
 ) -> None:
     supplied_metadata = dict(metadata or {})
     tenant, workspace = _memory_scope(
-        supplied_metadata.get("tenant_id"), supplied_metadata.get("workspace_id")
+        supplied_metadata.get("tenant_id"),
+        supplied_metadata.get("storage_workspace_id", supplied_metadata.get("workspace_id")),
     )
     normalized_metadata = _normalize_memory_metadata(
         supplied_metadata, tenant_id=tenant, workspace_id=workspace
@@ -2815,12 +2918,17 @@ async def embed_memory(request: EmbedRequest):
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     memory_id = str(uuid.uuid4())
     metadata = _normalize_memory_metadata(
-        request.metadata,
+        {**dict(request.metadata or {}), **principal.storage_metadata},
         tenant_id=tenant,
         workspace_id=workspace,
     )
@@ -2851,12 +2959,17 @@ async def embed_memory(request: EmbedRequest):
 @router.post("/embed_novel", response_model=NovelEmbedResponse)
 async def embed_memory_novel(request: NovelEmbedRequest):
     """Store text with novelty metadata for L7/L22 orchestration."""
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     result = index_with_novelty(
         text=request.text,
-        metadata=request.metadata,
+        metadata={**dict(request.metadata or {}), **principal.storage_metadata},
         novelty_tags=request.novelty_tags,
         source_scope="l7",
         compare_window=request.compare_window,
@@ -2889,9 +3002,14 @@ async def search_memory(request: SearchRequest):
 
     Falls back to lexical recall when semantic embedding/query is unavailable.
     """
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     result = robust_search(
         request.query,
         n_results=request.n_results,
@@ -2912,9 +3030,14 @@ async def search_memory(request: SearchRequest):
 @router.post("/search_novel", response_model=NovelSearchResponse)
 async def search_memory_novel(request: NovelSearchRequest):
     """Search memory and rerank by semantic relevance + novelty."""
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     ranked = search_with_novelty(
         query=request.query,
         n_results=request.n_results,
@@ -2941,9 +3064,14 @@ async def search_memory_novel(request: NovelSearchRequest):
 @router.post("/recall", response_model=RecallResponse)
 async def recall_memory(request: RecallRequest):
     """Trustable recall path: semantic first, lexical fallback guaranteed."""
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     result = robust_search(
         request.query,
         n_results=request.n_results,
@@ -2964,9 +3092,14 @@ async def recall_memory(request: RecallRequest):
 @router.post("/supersede")
 async def supersede_memory(request: SupersedeRequest):
     """Mark semantic records as historical without deleting their audit trail."""
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     return {"success": True, **supersede_memory_records(
         request.memory_ids,
         superseded_by=request.superseded_by,

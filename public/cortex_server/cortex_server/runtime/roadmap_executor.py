@@ -2133,7 +2133,7 @@ def _dispatch_ready_tasks(
         accepted_ids = {row.message_id for row in accepted}
         message_status = handoff.delivery_status
         if handoff.message_id in accepted_ids:
-            acked = mailbox.acknowledge(handoff.message_id)
+            acked = mailbox.acknowledge(handoff.message_id, actor=agent_id)
             message_status = acked.delivery_status
             actions_taken.append({"action": "ack_task_handoff", "message_id": acked.message_id, "task_id": task.task_id, "agent_id": agent_id})
         task_state.assigned_agent_id = agent_id

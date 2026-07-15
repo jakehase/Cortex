@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
+from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage, release_ack_authentication_required
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
@@ -93,6 +93,26 @@ def _parse_ts(value: Optional[str]) -> Optional[datetime]:
     if not text:
         return None
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def _is_bound_release_approval(message: AgentMessage, state: "ReleaseWorkflowState") -> bool:
+    if message.delivery_status != "acked" or message.acked_by != message.to_agent:
+        return False
+    ack = message.ack_receipt or {}
+    result = ack.get("result_receipt") if isinstance(ack, dict) else None
+    if not isinstance(result, dict) or result.get("result") != "approved":
+        return False
+    if release_ack_authentication_required() and ack.get("authentication") != "hmac-sha256":
+        return False
+    evidence = result.get("evidence_receipts")
+    return bool(
+        ack.get("actor") == message.to_agent
+        and result.get("candidate_ref") == state.candidate_ref
+        and result.get("release_id") == state.release_id
+        and result.get("revision_id") == state.revision_id
+        and isinstance(evidence, list)
+        and evidence
+    )
 
 
 class ReleaseRollbackFencepost(BaseModel):
@@ -185,6 +205,64 @@ class ReleaseWorkflowState(BaseModel):
         if any(not row for row in cleaned):
             raise ValueError("operator_holds must not contain empty values")
         return cleaned
+
+
+class ReleaseArtifactReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str
+    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    candidate_ref: str
+    release_id: str
+    revision_id: str
+    producer: str
+    validation_outcome: str
+    created_at: str = Field(default_factory=_now_iso)
+
+    @field_validator("artifact_id", "candidate_ref", "release_id", "revision_id", "producer")
+    @classmethod
+    def _receipt_non_empty(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("artifact receipt fields must be non-empty")
+        return text
+
+    @field_validator("validation_outcome")
+    @classmethod
+    def _receipt_outcome(cls, value: str) -> str:
+        outcome = str(value or "").strip().lower()
+        if outcome not in {"passed", "failed"}:
+            raise ValueError("validation_outcome must be passed or failed")
+        return outcome
+
+    @field_validator("created_at")
+    @classmethod
+    def _receipt_timestamp(cls, value: str) -> str:
+        _parse_ts(value)
+        return value
+
+
+def record_release_artifact_receipt(
+    state: ReleaseWorkflowState,
+    receipt: ReleaseArtifactReceipt | Dict[str, Any],
+) -> ReleaseWorkflowState:
+    record = receipt if isinstance(receipt, ReleaseArtifactReceipt) else ReleaseArtifactReceipt.model_validate(receipt)
+    if (
+        record.candidate_ref != state.candidate_ref
+        or record.release_id != state.release_id
+        or record.revision_id != state.revision_id
+    ):
+        raise ValueError("artifact receipt is not bound to the active release candidate and revision")
+    rows = [
+        row for row in list((state.metadata or {}).get("release_artifacts") or [])
+        if isinstance(row, dict) and str(row.get("artifact_id") or "") != record.artifact_id
+    ]
+    rows.append(record.model_dump())
+    return _copy_state(
+        state,
+        metadata={**dict(state.metadata), "release_artifacts": rows},
+        updated_at=_now_iso(),
+    )
 
 
 class ReleaseWorkflowHistoryRecord(BaseModel):
@@ -598,7 +676,7 @@ def evaluate_release_promotion_gate(
         for row in (mailbox_messages or [])
         if row.process_id == state.process_id and row.message_id in tracked_message_ids
     ]
-    acked_messages = [row for row in relevant_messages if row.delivery_status == "acked"]
+    acked_messages = [row for row in relevant_messages if _is_bound_release_approval(row, state)]
     dead_letter_messages = [row for row in relevant_messages if row.delivery_status == "dead_letter"]
     stale_handoff_records = [
         row
@@ -616,8 +694,28 @@ def evaluate_release_promotion_gate(
     present_fenceposts = {row.stage: row for row in state.rollback_fenceposts}
     missing_fenceposts = [stage for stage in required_fenceposts if stage not in present_fenceposts]
 
-    release_artifacts = [str(row.get("artifact_id") or "") for row in (state.metadata.get("release_artifacts") or []) if isinstance(row, dict)]
-    present_artifacts = set(_dedupe_rows(list(snapshot.artifact_refs) + release_artifacts))
+    valid_artifact_receipts: List[ReleaseArtifactReceipt] = []
+    invalid_artifact_receipts: List[str] = []
+    for raw_receipt in state.metadata.get("release_artifacts") or []:
+        try:
+            receipt = ReleaseArtifactReceipt.model_validate(raw_receipt)
+        except Exception:
+            invalid_artifact_receipts.append(
+                str((raw_receipt or {}).get("artifact_id") or "invalid_receipt")
+                if isinstance(raw_receipt, dict)
+                else "invalid_receipt"
+            )
+            continue
+        if (
+            receipt.candidate_ref != state.candidate_ref
+            or receipt.release_id != state.release_id
+            or receipt.revision_id != shared_state.revision_id
+            or receipt.validation_outcome != "passed"
+        ):
+            invalid_artifact_receipts.append(receipt.artifact_id)
+            continue
+        valid_artifact_receipts.append(receipt)
+    present_artifacts = {receipt.artifact_id for receipt in valid_artifact_receipts}
     missing_artifacts = [artifact_id for artifact_id in required_artifact_ids if artifact_id not in present_artifacts]
 
     dependability_success = bool((dependability_report or {}).get("success")) if require_dependability else True
@@ -704,8 +802,9 @@ def evaluate_release_promotion_gate(
         blockers.append(
             {
                 "check": "artifacts_ready",
-                "summary": f"missing release artifacts: {', '.join(missing_artifacts)}",
+                "summary": f"missing current candidate-bound artifact receipts: {', '.join(missing_artifacts)}",
                 "missing_artifacts": missing_artifacts,
+                "invalid_receipt_ids": invalid_artifact_receipts,
             }
         )
     if not checks["operator_holds_clear"]:
@@ -742,6 +841,8 @@ def evaluate_release_promotion_gate(
         },
         "missing_fenceposts": missing_fenceposts,
         "missing_artifacts": missing_artifacts,
+        "valid_artifact_receipt_ids": sorted(present_artifacts),
+        "invalid_artifact_receipt_ids": invalid_artifact_receipts,
         "dead_letter_ids": [row.message_id for row in dead_letter_messages],
         "acked_handoff_ids": [row.message_id for row in acked_messages],
         "stale_handoff_records": [dict(row) for row in stale_handoff_records],
@@ -1098,7 +1199,7 @@ def apply_release_rollback_restore(
 ) -> JsonDict:
     transaction_store = release_store or ReleaseWorkflowStore(Path(snapshot_store.path).parent / "rollback_transactions")
     normalized_reason = str(reason or "rollback").strip() or "rollback"
-    with transaction_store.rollback_transaction(state.process_id):
+    with transaction_store.rollback_transaction(state.process_id), shared_state_store.transaction(state.process_id):
         intent = transaction_store.load_rollback_intent(state.process_id)
         resumable = bool(
             intent
@@ -1320,6 +1421,7 @@ def apply_release_rollback_restore(
 
 
 __all__ = [
+    "ReleaseArtifactReceipt",
     "ReleaseRollbackFencepost",
     "ReleaseWorkflowHistoryRecord",
     "ReleaseWorkflowState",
@@ -1331,6 +1433,7 @@ __all__ = [
     "compile_release_repair_plan",
     "evaluate_release_promotion_gate",
     "record_release_fencepost",
+    "record_release_artifact_receipt",
     "record_release_handoff",
     "repair_release_workflow",
     "rollback_release_workflow",

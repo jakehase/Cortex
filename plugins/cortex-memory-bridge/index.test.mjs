@@ -10,7 +10,9 @@ const lifecycleConfig = (overrides = {}) => ({
   stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-test-')),
   tenantId: 'tenant-test',
   workspaceId: 'workspace-test',
+  scopeCredentialId: 'bridge-test',
   scopeHmacSecret: 'scope-test-secret',
+  sessionIdentityHmacSecret: 'session-test-secret',
   enabledCodecContinuity: false,
   ...overrides,
 });
@@ -65,7 +67,9 @@ test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec co
         stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-default-test-')),
         tenantId: 'tenant-default',
         workspaceId: 'workspace-default',
+        scopeCredentialId: 'bridge-default',
         scopeHmacSecret: 'scope-default-secret',
+        sessionIdentityHmacSecret: 'session-default-secret',
         minDurabilityScore: 0,
         retryCount: 0,
         enabledWriteThrough: true,
@@ -92,12 +96,16 @@ test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec co
       tenant_id: 'tenant-default',
       workspace_id: 'workspace-default',
       channel_id: 'test-channel',
-      session_id: 'default-session',
+      agent_id: 'main',
+      user_id: 'local-user',
+      session_id: `openclaw-${(await import('node:crypto')).createHmac('sha256', 'session-default-secret').update('default-session').digest('hex')}`,
     });
     assert.equal(commit.body.assurance_receipt, 'test-assurance-receipt');
     assert.match(commit.headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
     assert.equal(requests[2].body.tenant_id, 'tenant-default');
     assert.equal(requests[2].body.workspace_id, 'workspace-default');
+    assert.equal(requests[2].body.scope_credential_id, 'bridge-default');
+    assert.equal(requests[2].body.session_key, commit.body.metadata.scope.session_id);
     assert.match(requests[2].body.scope_signature, /^[0-9a-f]{64}$/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -186,7 +194,7 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
   }
 });
 
-test('explicitly disabling every persistence mode preserves lifecycle compatibility', async () => {
+test('explicitly disabling every persistence mode fails acknowledgement and retains output', async () => {
   const handlers = new Map();
   plugin.register({
     pluginConfig: lifecycleConfig({ enabledWriteThrough: false, enabledCodecContinuity: false }),
@@ -196,7 +204,10 @@ test('explicitly disabling every persistence mode preserves lifecycle compatibil
     registerTool() {},
   });
   handlers.get('llm_output')({ content: 'output cannot be called persisted while every writer is disabled' }, { sessionKey: 'disabled-session' });
-  await handlers.get('agent_end')({}, { sessionKey: 'disabled-session' });
+  await assert.rejects(
+    () => handlers.get('agent_end')({}, { sessionKey: 'disabled-session' }),
+    /output retained for retry/,
+  );
 });
 
 test('lifecycle keys hash exact length-delimited session and payload bytes', () => {

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+import hashlib
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
-from cortex_server.runtime.release_workflow import record_release_handoff
+from cortex_server.runtime.release_workflow import record_release_artifact_receipt, record_release_handoff
 
 
 def _install_fake_diplomat(monkeypatch):
@@ -69,6 +70,12 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
         owner="cortex",
         session_key="session:delivery",
     )
+    scheduler_state = scheduler.load_state()
+    scheduler_state["processes"][process["process_id"]]["enabled"] = False
+    scheduler_state["processes"][process["process_id"]]["status"] = "waiting"
+    scheduler_state["processes"][process["process_id"]]["nodes"]["build"]["status"] = "waiting"
+    scheduler.save_state(scheduler_state)
+    process = scheduler.get_process(process["process_id"])
 
     reconciled = asyncio.run(
         orchestrator.reconcile_runtime_delivery(
@@ -116,8 +123,35 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
         expected_revision_id=stores["shared_state_store"].load(process["process_id"]).revision_id,
         reject_stale_revision=True,
     )
-    acknowledged = stores["mailbox"].acknowledge(received[0].message_id)
     release_state = stores["release_store"].load(process["process_id"])
+    for artifact_id in (
+        f"artifact_release_bundle:{process['process_id']}",
+        f"artifact_smoke_report:{process['process_id']}",
+    ):
+        release_state = record_release_artifact_receipt(
+            release_state,
+            {
+                "artifact_id": artifact_id,
+                "content_hash": f"sha256:{hashlib.sha256(artifact_id.encode()).hexdigest()}",
+                "candidate_ref": release_state.candidate_ref,
+                "release_id": release_state.release_id,
+                "revision_id": release_state.revision_id,
+                "producer": "runtime-delivery-test",
+                "validation_outcome": "passed",
+            },
+        )
+    stores["release_store"].save(release_state, actor="runtime-delivery-test")
+    acknowledged = stores["mailbox"].acknowledge(
+        received[0].message_id,
+        actor=received[0].to_agent,
+        result_receipt={
+            "candidate_ref": release_state.candidate_ref,
+            "release_id": release_state.release_id,
+            "revision_id": release_state.revision_id,
+            "result": "approved",
+            "evidence_receipts": ["evidence:runtime-production-verification"],
+        },
+    )
     stores["release_store"].save(
         record_release_handoff(release_state, acknowledged, stage="production", notes="recipient verified"),
         actor="release-manager",
@@ -159,8 +193,8 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert rolled_back["success"] is True
     assert rolled_back["state"]["current_stage"] == "build_verified"
     assert rolled_back["state"]["metadata"]["rollback_applied"] is True
-    assert rolled_back["process"]["status"] == "running"
-    assert rolled_back["process"]["nodes"]["build"]["status"] == "running"
+    assert rolled_back["process"]["status"] == "ready"
+    assert rolled_back["process"]["nodes"]["build"]["status"] == "ready"
     assert rolled_back["delivery"]["shared_state"]["revision_id"].endswith(".rollback")
     assert rolled_back["delivery"]["loop_state"]["status"] == "active"
     assert rolled_back["delivery"]["loop_state"]["current_stage"] == "build_verified"
@@ -220,11 +254,13 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
                         "require_dependability": False,
                     }
                 ],
-                checkpoint_policy={
-                    "report_every_iterations": 10,
-                    "live_review_seconds": 60,
-                    "proactive_report_seconds": 120,
-                    "blocker_followup_seconds": 60,
+                contract={
+                    "checkpoint_policy": {
+                        "report_every_iterations": 10,
+                        "live_review_seconds": 60,
+                        "proactive_report_seconds": 120,
+                        "blocker_followup_seconds": 60,
+                    }
                 },
                 dependability_profile=dict(MINIMAL_PROFILE),
             ),
@@ -256,8 +292,8 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
     assert status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
     assert status["process"]["workflow"]["metadata"]["runtime_delivery"]["conversation_ownership"]["conversation_id"] == "chat:delivery-watchdog"
     assert status["process"]["workflow"]["metadata"]["delivery_follow_up_due_at"] is not None
-    assert len(sent) == 2
-    assert len(follow_ups) == 2
+    assert len(sent) == 1
+    assert len(follow_ups) == 1
     assert all(row.delivery_status == "sent" for row in follow_ups)
     assert any("runtime_delivery_route" in row["message"] for row in sent)
 
@@ -271,8 +307,8 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
         )
     )
     assert second_tick["success"] is True
-    assert len(sent) == 2
-    assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")) == 2
+    assert len(sent) == 1
+    assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")) == 1
 
 
 

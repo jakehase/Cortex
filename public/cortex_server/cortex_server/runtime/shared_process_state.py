@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import fcntl
+import os
+import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -207,6 +211,8 @@ def _state_change_set(before: Optional[SharedProcessState], after: SharedProcess
 class SharedProcessStateStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self._thread_lock = threading.RLock()
+        self._transaction_state = threading.local()
 
     def _target(self, process_id: Optional[str] = None) -> Path:
         if self.path.suffix:
@@ -223,11 +229,57 @@ class SharedProcessStateStore:
             return self.path.with_name(self.path.name + f".{process_id}.history.jsonl")
         return self.path / "history" / f"{process_id}.jsonl"
 
+    def _lock_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.transaction.lock")
+
+    @contextmanager
+    def transaction(self, process_id: str):
+        """Serialize load/CAS/publish/history across threads and processes."""
+
+        with self._thread_lock:
+            active_processes = set(getattr(self._transaction_state, "active_processes", set()))
+            if process_id in active_processes:
+                yield
+                return
+            lock_target = self._lock_target(process_id)
+            lock_target.parent.mkdir(parents=True, exist_ok=True)
+            with lock_target.open("a+b") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                active_processes.add(process_id)
+                self._transaction_state.active_processes = active_processes
+                try:
+                    yield
+                finally:
+                    active_processes.remove(process_id)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _atomic_replace(path: Path, payload: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
     def _append_history(self, record: SharedStateRevisionRecord) -> None:
         target = self._history_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_revision_record_dump_compat(record), sort_keys=True) + "\n")
+        existing = target.read_bytes() if target.exists() else b""
+        row = (json.dumps(_revision_record_dump_compat(record), sort_keys=True) + "\n").encode("utf-8")
+        self._atomic_replace(target, existing + row)
 
     def history(self, process_id: str) -> List[SharedStateRevisionRecord]:
         target = self._history_target(process_id)
@@ -274,29 +326,32 @@ class SharedProcessStateStore:
         provenance: Optional[Dict[str, Any]] = None,
     ) -> SharedProcessState:
         record = state if isinstance(state, SharedProcessState) else _model_validate_compat(dict(state))
-        current = self.load(record.process_id)
-        conflict = self.detect_conflict(process_id=record.process_id, expected_revision_id=expected_revision_id)
-        if conflict["conflict"]:
-            raise SharedStateConflictError(
-                process_id=record.process_id,
-                expected_revision_id=conflict.get("expected_revision_id"),
-                observed_revision_id=conflict.get("observed_revision_id"),
-                message=conflict.get("operator_summary"),
+        with self.transaction(record.process_id):
+            current = self.load(record.process_id)
+            expected = str(expected_revision_id or "").strip() or None
+            observed = current.revision_id if current else None
+            if expected is not None and observed is not None and expected != observed:
+                raise SharedStateConflictError(
+                    process_id=record.process_id,
+                    expected_revision_id=expected,
+                    observed_revision_id=observed,
+                )
+            target = self._target(record.process_id)
+            self._atomic_replace(
+                target,
+                (json.dumps(_model_dump_compat(record), sort_keys=True, indent=2) + "\n").encode("utf-8"),
             )
-        target = self._target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_model_dump_compat(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        self._append_history(
-            SharedStateRevisionRecord(
-                process_id=record.process_id,
-                revision_id=record.revision_id,
-                parent_revision_id=current.revision_id if current else None,
-                actor=str(actor or "").strip() or None,
-                provenance=dict(provenance or {}),
-                change_set=_state_change_set(current, record),
-                state=_model_dump_compat(record),
+            self._append_history(
+                SharedStateRevisionRecord(
+                    process_id=record.process_id,
+                    revision_id=record.revision_id,
+                    parent_revision_id=current.revision_id if current else None,
+                    actor=str(actor or "").strip() or None,
+                    provenance=dict(provenance or {}),
+                    change_set=_state_change_set(current, record),
+                    state=_model_dump_compat(record),
+                )
             )
-        )
         return record
 
     def load_revision(self, process_id: str, revision_id: str) -> Optional[SharedProcessState]:
@@ -321,38 +376,39 @@ class SharedProcessStateStore:
         new_revision_id: Optional[str] = None,
         provenance: Optional[Dict[str, Any]] = None,
     ) -> SharedProcessState:
-        current = self.load(process_id)
-        if current is None:
-            raise KeyError(f"shared state not found: {process_id}")
-        target = self.load_revision(process_id, to_revision_id)
-        if target is None:
-            raise KeyError(f"shared state revision not found: {process_id}:{to_revision_id}")
-        rollback_revision_id = str(new_revision_id or f"{to_revision_id}_rollback").strip()
-        rolled = SharedProcessState(
-            process_id=target.process_id,
-            revision_id=rollback_revision_id,
-            goals=list(target.goals),
-            active_plan_node_ids=list(target.active_plan_node_ids),
-            open_decisions=list(target.open_decisions),
-            runtime_constraints=dict(target.runtime_constraints),
-            world_state=dict(target.world_state),
-            belief_refs=list(target.belief_refs),
-            open_questions=list(target.open_questions),
-            agent_ownership=dict(target.agent_ownership),
-            operator_overrides=dict(target.operator_overrides),
-            metadata={
-                **dict(target.metadata),
-                "rollback_from_revision_id": current.revision_id,
-                "rollback_to_revision_id": target.revision_id,
-                "rollback_reason": str(reason or "rollback").strip() or "rollback",
-            },
-        )
-        return self.save(
-            rolled,
-            expected_revision_id=current.revision_id,
-            actor=actor,
-            provenance={**dict(provenance or {}), "rollback": True, "to_revision_id": target.revision_id},
-        )
+        with self.transaction(process_id):
+            current = self.load(process_id)
+            if current is None:
+                raise KeyError(f"shared state not found: {process_id}")
+            target = self.load_revision(process_id, to_revision_id)
+            if target is None:
+                raise KeyError(f"shared state revision not found: {process_id}:{to_revision_id}")
+            rollback_revision_id = str(new_revision_id or f"{to_revision_id}_rollback").strip()
+            rolled = SharedProcessState(
+                process_id=target.process_id,
+                revision_id=rollback_revision_id,
+                goals=list(target.goals),
+                active_plan_node_ids=list(target.active_plan_node_ids),
+                open_decisions=list(target.open_decisions),
+                runtime_constraints=dict(target.runtime_constraints),
+                world_state=dict(target.world_state),
+                belief_refs=list(target.belief_refs),
+                open_questions=list(target.open_questions),
+                agent_ownership=dict(target.agent_ownership),
+                operator_overrides=dict(target.operator_overrides),
+                metadata={
+                    **dict(target.metadata),
+                    "rollback_from_revision_id": current.revision_id,
+                    "rollback_to_revision_id": target.revision_id,
+                    "rollback_reason": str(reason or "rollback").strip() or "rollback",
+                },
+            )
+            return self.save(
+                rolled,
+                expected_revision_id=current.revision_id,
+                actor=actor,
+                provenance={**dict(provenance or {}), "rollback": True, "to_revision_id": target.revision_id},
+            )
 
 
 __all__ = [

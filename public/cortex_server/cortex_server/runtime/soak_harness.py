@@ -856,7 +856,7 @@ class RuntimeSoakHarness:
                 reject_stale_revision=True,
             )
             if any(row.message_id == handoff.message_id for row in accepted):
-                self.mailbox.acknowledge(handoff.message_id)
+                self.mailbox.acknowledge(handoff.message_id, actor=agent_id)
 
             resumed = self.journal.append(
                 process_id=process_id,
@@ -1146,7 +1146,7 @@ class RuntimeSoakHarness:
                 )
                 for accepted_row in accepted:
                     if accepted_row.message_id == recovered.message_id:
-                        self.mailbox.acknowledge(accepted_row.message_id)
+                        self.mailbox.acknowledge(accepted_row.message_id, actor=recovered.to_agent)
                         acked_ids.append(accepted_row.message_id)
         if recovered_ids:
             actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "acked_ids": acked_ids})
@@ -1349,7 +1349,7 @@ class RuntimeSoakHarness:
             expected_revision_id=shared_state.revision_id,
             reject_stale_revision=True,
         )
-        verify_acked = self.mailbox.acknowledge(verify_message.message_id)
+        verify_acked = self.mailbox.acknowledge(verify_message.message_id, actor="verifier")
         release_state = record_release_handoff(release_state, verify_acked, stage="build_verified")
         self.supervisor.release(verifier_lease.lease_id)
 

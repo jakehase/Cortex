@@ -357,6 +357,37 @@ def get_event_health(seconds: int = 300) -> Dict[str, Any]:
     }
 
 
+def probe_event_ledger_durability() -> Dict[str, Any]:
+    """Perform an active fsynced write and report authoritative ledger readiness."""
+
+    with _durable_health_lock:
+        before = dict(_durable_totals)
+    _append_event(
+        {
+            "event_id": f"readiness-{uuid.uuid4().hex[:16]}",
+            "ts": _now_iso(),
+            "ts_unix": time.time(),
+            "method": "PROBE",
+            "path": "/ready",
+            "status_code": 200,
+            "latency_ms": 0,
+            "success": True,
+            "event_type": "durability_readiness_probe",
+        }
+    )
+    with _durable_health_lock:
+        after = dict(_durable_totals)
+        last_success_at = _last_durable_success_at
+    ok = after["writes_succeeded"] == before["writes_succeeded"] + 1
+    return {
+        "ok": ok,
+        "status": "healthy" if ok else "degraded",
+        "lastSuccessAt": last_success_at,
+        "writeFailures": after["write_failures"],
+        "recordsDropped": after["records_dropped"],
+    }
+
+
 class EventLedgerMiddleware(BaseHTTPMiddleware):
     """Write request/response metadata to a JSONL event ledger."""
 

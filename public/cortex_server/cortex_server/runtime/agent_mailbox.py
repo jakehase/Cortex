@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -17,6 +20,71 @@ def _now_iso() -> str:
 
 def _message_id() -> str:
     return f"msg_{uuid4().hex[:16]}"
+
+
+def _ack_credentials() -> Dict[str, str]:
+    raw = os.getenv("CORTEX_AGENT_ACK_CREDENTIALS", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("CORTEX_AGENT_ACK_CREDENTIALS must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("CORTEX_AGENT_ACK_CREDENTIALS must map agent IDs to secrets")
+    credentials = {
+        str(agent or "").strip(): str(secret or "").strip()
+        for agent, secret in parsed.items()
+    }
+    if any(not agent or not secret for agent, secret in credentials.items()):
+        raise RuntimeError("CORTEX_AGENT_ACK_CREDENTIALS contains an empty agent or secret")
+    return credentials
+
+
+def release_ack_authentication_required() -> bool:
+    return os.getenv("CORTEX_ENV", "development").strip().lower() == "production" or bool(
+        os.getenv("CORTEX_AGENT_ACK_CREDENTIALS", "").strip()
+    )
+
+
+def _acknowledgement_message(
+    message: "AgentMessage",
+    *,
+    actor: str,
+    result_receipt: Dict[str, Any],
+) -> bytes:
+    return json.dumps(
+        {
+            "version": "cortex.mailbox.ack.v1",
+            "message_id": message.message_id,
+            "process_id": message.process_id,
+            "to_agent": message.to_agent,
+            "actor": str(actor or "").strip(),
+            "revision_id": message.revision_id,
+            "payload": message.payload,
+            "metadata": message.metadata,
+            "result_receipt": dict(result_receipt or {}),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def agent_acknowledgement_signature(
+    message: "AgentMessage",
+    *,
+    actor: str,
+    result_receipt: Dict[str, Any],
+    secret: str,
+) -> str:
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    return hmac.new(
+        signing_secret.encode("utf-8"),
+        _acknowledgement_message(message, actor=actor, result_receipt=result_receipt),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 class AgentMessage(BaseModel):
@@ -37,6 +105,8 @@ class AgentMessage(BaseModel):
     attempt_count: int = 0
     last_attempt_at: Optional[str] = None
     acked_at: Optional[str] = None
+    acked_by: Optional[str] = None
+    ack_receipt: Optional[Dict[str, Any]] = None
     dead_lettered_at: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -223,9 +293,68 @@ class AgentMailbox:
                 return row
         raise KeyError(f"message not found: {message_id}")
 
-    def acknowledge(self, message_id: str) -> AgentMessage:
+    def acknowledge(
+        self,
+        message_id: str,
+        *,
+        actor: str,
+        result_receipt: Optional[Dict[str, Any]] = None,
+        actor_signature: Optional[str] = None,
+    ) -> AgentMessage:
         now = _now_iso()
-        return self._mutate(message_id, lambda row: (setattr(row, "delivery_status", "acked"), setattr(row, "acked_at", now)))
+        acknowledged_by = str(actor or "").strip()
+
+        def _acknowledge(row: AgentMessage):
+            if acknowledged_by != row.to_agent:
+                raise PermissionError("only the intended recipient may acknowledge a mailbox message")
+            if row.delivery_status != "inflight":
+                raise ValueError("mailbox message must be received before acknowledgement")
+            receipt = dict(result_receipt or {})
+            is_release_handoff = bool((row.metadata or {}).get("target_stage"))
+            if is_release_handoff:
+                expected = {
+                    "candidate_ref": str((row.metadata or {}).get("candidate_ref") or ""),
+                    "release_id": str((row.metadata or {}).get("release_id") or ""),
+                    "revision_id": str(row.revision_id or ""),
+                }
+                if any(str(receipt.get(key) or "") != value for key, value in expected.items()):
+                    raise ValueError("release acknowledgement receipt is not bound to the candidate and revision")
+                if str(receipt.get("result") or "") not in {"approved", "rejected"}:
+                    raise ValueError("release acknowledgement requires an immutable result")
+                evidence = receipt.get("evidence_receipts")
+                if not isinstance(evidence, list) or not evidence or any(not str(value or "").strip() for value in evidence):
+                    raise ValueError("release acknowledgement requires evidence receipts")
+            authentication = "development-actor-assertion"
+            if is_release_handoff and release_ack_authentication_required():
+                credentials = _ack_credentials()
+                secret = credentials.get(acknowledged_by, "")
+                expected_signature = agent_acknowledgement_signature(
+                    row,
+                    actor=acknowledged_by,
+                    result_receipt=receipt,
+                    secret=secret,
+                )
+                if not secret or not hmac.compare_digest(str(actor_signature or ""), expected_signature):
+                    raise PermissionError("release acknowledgement requires authenticated recipient signature")
+                authentication = "hmac-sha256"
+            canonical = _acknowledgement_message(
+                row,
+                actor=acknowledged_by,
+                result_receipt=receipt,
+            )
+            row.delivery_status = "acked"
+            row.acked_at = now
+            row.acked_by = acknowledged_by
+            row.ack_receipt = {
+                "version": "cortex.mailbox.ack.v1",
+                "actor": acknowledged_by,
+                "authentication": authentication,
+                "bound_message_hash": hashlib.sha256(canonical).hexdigest(),
+                "result_receipt": receipt,
+                "acked_at": now,
+            }
+
+        return self._mutate(message_id, _acknowledge)
 
     def retry(self, message_id: str) -> AgentMessage:
         return self._mutate(message_id, lambda row: (setattr(row, "delivery_status", "queued"), setattr(row, "dead_lettered_at", None)))

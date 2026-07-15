@@ -21,7 +21,9 @@ services:
       CORTEX_ENV: production
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
-      CORTEX_MEMORY_SCOPE_SECRET: ${CORTEX_MEMORY_SCOPE_SECRET:?set CORTEX_MEMORY_SCOPE_SECRET in .env}
+      CORTEX_MEMORY_SCOPE_CREDENTIALS: ${CORTEX_MEMORY_SCOPE_CREDENTIALS:?set principal-scoped credentials in .env}
+      CORTEX_CODEC_ADMIN_TOKEN: ${CORTEX_CODEC_ADMIN_TOKEN:?set CORTEX_CODEC_ADMIN_TOKEN in .env}
+      CORTEX_AGENT_ACK_CREDENTIALS: ${CORTEX_AGENT_ACK_CREDENTIALS:?set recipient acknowledgement credentials in .env}
     env_file:
       - .env
     restart: unless-stopped

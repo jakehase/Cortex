@@ -54,7 +54,7 @@ def test_agent_mailbox_send_receive_ack_retry_and_dead_letter(tmp_path: Path):
     assert inflight[0].delivery_status == "inflight"
     assert inflight[0].attempt_count == 1
 
-    acked = mailbox.acknowledge(sent.message_id)
+    acked = mailbox.acknowledge(sent.message_id, actor="researcher")
     assert acked.delivery_status == "acked"
     assert acked.acked_at is not None
 
@@ -70,7 +70,7 @@ def test_agent_mailbox_send_receive_ack_retry_and_dead_letter(tmp_path: Path):
 def test_agent_mailbox_missing_message_raises(tmp_path: Path):
     mailbox = AgentMailbox(tmp_path / "runtime" / "mailbox.json")
     with pytest.raises(KeyError):
-        mailbox.acknowledge("msg_missing")
+        mailbox.acknowledge("msg_missing", actor="researcher")
 
 
 

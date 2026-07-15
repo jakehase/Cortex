@@ -81,6 +81,10 @@ class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
         header_name: str = "x-cortex-write-token",
         allowed_origins: Iterable[str] = (),
         exempt_paths: Iterable[str] = (),
+        sensitive_prefixes: Iterable[str] = (),
+        sensitive_token: str = "",
+        sensitive_header_name: str = "x-cortex-codec-admin-token",
+        sensitive_exempt_paths: Iterable[str] = (),
     ):
         super().__init__(app)
         self.mode = authorization_mode(mode, strict=True)
@@ -90,12 +94,28 @@ class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
             str(origin).strip() for origin in allowed_origins if str(origin).strip()
         )
         self.exempt_paths = frozenset(str(path) for path in exempt_paths)
+        self.sensitive_prefixes = tuple(str(value).rstrip("/") for value in sensitive_prefixes if str(value).strip())
+        self.sensitive_token = str(sensitive_token or "").strip()
+        self.sensitive_header_name = str(sensitive_header_name or "x-cortex-codec-admin-token").strip().lower()
+        self.sensitive_exempt_paths = frozenset(str(path) for path in sensitive_exempt_paths)
 
     async def dispatch(self, request, call_next):
+        path = request.url.path
+        sensitive = any(path == prefix or path.startswith(f"{prefix}/") for prefix in self.sensitive_prefixes)
+        if sensitive and path not in self.sensitive_exempt_paths:
+            if not token_matches(request.headers.get(self.sensitive_header_name, ""), self.sensitive_token):
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "success": False,
+                        "error": "Codec control-plane authorization is not configured" if not self.sensitive_token else "Codec control-plane authorization required",
+                    },
+                )
+            request.state.cortex_sensitive_authorization = "codec_admin"
         if (
             self.mode == "disabled"
             or request.method.upper() not in MUTATING_METHODS
-            or request.url.path in self.exempt_paths
+            or path in self.exempt_paths
         ):
             return await call_next(request)
 

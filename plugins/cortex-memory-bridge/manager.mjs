@@ -11,11 +11,13 @@ function resolveConfig(cfg) {
     writeToken: typeof pluginCfg.writeToken === 'string' ? pluginCfg.writeToken : '',
     writeTokenHeader: writeTokenHeader.toLowerCase(),
     scopeHmacSecret: typeof pluginCfg.scopeHmacSecret === 'string' ? pluginCfg.scopeHmacSecret : '',
+    scopeCredentialId: typeof pluginCfg.scopeCredentialId === 'string' ? pluginCfg.scopeCredentialId.trim() : '',
+    sessionIdentityHmacSecret: typeof pluginCfg.sessionIdentityHmacSecret === 'string' ? pluginCfg.sessionIdentityHmacSecret : '',
     tenantId: typeof pluginCfg.tenantId === 'string' ? pluginCfg.tenantId.trim() : 'cortex-local',
     workspaceId: typeof pluginCfg.workspaceId === 'string' ? pluginCfg.workspaceId.trim() : 'default',
-    userId: typeof pluginCfg.userId === 'string' ? pluginCfg.userId.trim() : '',
-    channelId: typeof pluginCfg.channelId === 'string' ? pluginCfg.channelId.trim() : '',
-    sessionId: typeof pluginCfg.sessionId === 'string' ? pluginCfg.sessionId.trim() : '',
+    userId: typeof pluginCfg.userId === 'string' && pluginCfg.userId.trim() ? pluginCfg.userId.trim() : 'local-user',
+    channelId: typeof pluginCfg.channelId === 'string' && pluginCfg.channelId.trim() ? pluginCfg.channelId.trim() : 'local-channel',
+    sessionId: typeof pluginCfg.sessionId === 'string' && pluginCfg.sessionId.trim() ? pluginCfg.sessionId.trim() : 'global-session',
     timeoutMs: Number(pluginCfg.timeoutMs || 12000),
     retryCount: Number(pluginCfg.retryCount ?? 2),
     retryBackoffMs: Number(pluginCfg.retryBackoffMs ?? 350),
@@ -424,38 +426,55 @@ async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 2
 }
 
 function scopedIdentity(rcfg, agentId, opts = {}) {
+  const rawSession = String(opts.sessionKey || opts.sessionId || rcfg.sessionId || '').trim();
+  if (!rcfg.sessionIdentityHmacSecret) throw new Error('sessionIdentityHmacSecret is required for canonical Cortex session identity');
+  const sessionDigest = createHmac('sha256', rcfg.sessionIdentityHmacSecret).update(rawSession, 'utf8').digest('hex');
   const scope = {
     tenant_id: String(opts.tenantId || rcfg.tenantId || '').trim(),
     workspace_id: String(opts.workspaceId || rcfg.workspaceId || '').trim(),
     agent_id: String(opts.agentId || agentId || '').trim(),
     user_id: String(opts.userId || rcfg.userId || '').trim(),
     channel_id: String(opts.channelId || rcfg.channelId || '').trim(),
-    session_id: String(opts.sessionKey || opts.sessionId || rcfg.sessionId || '').trim(),
+    session_id: `openclaw-${sessionDigest}`,
   };
-  if (!scope.tenant_id || !scope.workspace_id || !scope.agent_id) {
-    throw new Error('tenantId, workspaceId, and agentId are required for scoped Cortex memory search');
+  if (Object.values(scope).some((value) => !value)) {
+    throw new Error('every Cortex principal scope dimension is required');
   }
-  return Object.fromEntries(Object.entries(scope).filter(([, value]) => value));
+  return scope;
 }
 
 function scopedHeaders(rcfg, scope) {
-  const secret = String(rcfg.scopeHmacSecret || rcfg.writeToken || '');
+  const secret = String(rcfg.scopeHmacSecret || '');
   const headers = rcfg.writeToken ? { [rcfg.writeTokenHeader]: rcfg.writeToken } : {};
   const tenantId = String(scope.tenant_id || '').trim();
   const workspaceId = String(scope.workspace_id || '').trim();
-  if (!secret) {
+  const credentialId = String(rcfg.scopeCredentialId || '').trim();
+  if (!secret || !credentialId) {
     if (tenantId === 'cortex-local' && workspaceId === 'default') {
-      return { ...headers, 'x-cortex-tenant-id': tenantId, 'x-cortex-workspace-id': workspaceId };
+      return {
+        ...headers,
+        'x-cortex-tenant-id': tenantId,
+        'x-cortex-workspace-id': workspaceId,
+        'x-cortex-agent-id': scope.agent_id,
+        'x-cortex-user-id': scope.user_id,
+        'x-cortex-channel-id': scope.channel_id,
+        'x-cortex-session-id': scope.session_id,
+      };
     }
-    throw new Error('scopeHmacSecret or writeToken is required to authenticate non-default Cortex memory scope');
+    throw new Error('scopeCredentialId and scopeHmacSecret are required to authenticate non-default Cortex memory scope');
   }
   const signature = createHmac('sha256', secret)
-    .update(`cortex.memory.scope.v1\n${tenantId}\n${workspaceId}`, 'utf8')
+    .update(['cortex.memory.principal.v2', credentialId, tenantId, workspaceId, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n'), 'utf8')
     .digest('hex');
   return {
     ...headers,
     'x-cortex-tenant-id': tenantId,
     'x-cortex-workspace-id': workspaceId,
+    'x-cortex-agent-id': scope.agent_id,
+    'x-cortex-user-id': scope.user_id,
+    'x-cortex-channel-id': scope.channel_id,
+    'x-cortex-session-id': scope.session_id,
+    'x-cortex-scope-credential-id': credentialId,
     'x-cortex-scope-signature': signature,
   };
 }
@@ -465,6 +484,7 @@ function memoryScopeFields(rcfg, scope) {
   return {
     tenant_id: headers['x-cortex-tenant-id'],
     workspace_id: headers['x-cortex-workspace-id'],
+    scope_credential_id: headers['x-cortex-scope-credential-id'],
     ...(headers['x-cortex-scope-signature'] ? { scope_signature: headers['x-cortex-scope-signature'] } : {}),
   };
 }

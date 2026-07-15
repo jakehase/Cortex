@@ -27,7 +27,7 @@ async function invoke({ requireRouting, cache, response, config = {}, inspectReq
   if (cache) fs.writeFileSync(path.join(stateDir, 'last-good-plan.json'), JSON.stringify(cache));
   const handlers = new Map();
   register({
-    config: { enabled: true, requireRouting, baseUrl: 'http://127.0.0.1:18888', routeCacheHmacSecret: CACHE_SECRET, stateDir, ...config },
+    config: { enabled: true, requireRouting, baseUrl: 'http://127.0.0.1:18888', routeCacheHmacSecret: CACHE_SECRET, sessionIdentityHmacSecret: 'session-identity-default-test-secret', stateDir, ...config },
     logger: { info() {}, warn() {} },
     on(name, handler) { handlers.set(name, handler); },
   });
@@ -124,6 +124,14 @@ test('required routing fails closed without trusted session identity', async () 
     response: { recommended_levels: [{ level: 24 }] },
     sessionKey: '',
   }), /non-empty trusted session identity/);
+});
+
+test('required routing rejects fallback to unrelated write or cache credentials', async () => {
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    config: { sessionIdentityHmacSecret: '', writeToken: 'must-not-sign-sessions' },
+  }), /keyed session identity secret/);
 });
 
 test('routing rejects prompts above the configured POST-body byte limit before fetch', async () => {

@@ -308,9 +308,8 @@ function shouldBypassRouteGate(sessionKey?: string): boolean {
 function opaqueSessionIdentity(sessionKey: string, secret: string | null): string {
   const key = String(sessionKey || '').trim();
   if (!key) throw new Error('routing requires a non-empty trusted session identity');
-  const digest = secret
-    ? crypto.createHmac('sha256', secret).update(key, 'utf8').digest('hex')
-    : crypto.createHash('sha256').update(key, 'utf8').digest('hex');
+  if (!secret) throw new Error('routing requires a keyed session identity secret');
+  const digest = crypto.createHmac('sha256', secret).update(key, 'utf8').digest('hex');
   return `openclaw-${digest}`;
 }
 function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, eligible = true): CreativityProfile {
@@ -961,7 +960,7 @@ export default function register(api: any) {
     : null;
   const sessionIdentityHmacSecret = typeof cfg.sessionIdentityHmacSecret === 'string' && cfg.sessionIdentityHmacSecret.length > 0
     ? String(cfg.sessionIdentityHmacSecret)
-    : (writeToken || routeCacheHmacSecret);
+    : null;
   const maxLevels = asNumber(cfg.maxLevels, 10);
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
   const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);

@@ -314,6 +314,7 @@ def create_app() -> FastAPI:
     write_token_header = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower()
     safe_mode = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
     admin_token = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
+    codec_admin_token = os.getenv("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
     readiness_config = ReadinessConfig(
         required_paths=frozenset(
             value.strip()
@@ -556,6 +557,9 @@ def create_app() -> FastAPI:
         token=write_token,
         header_name=write_token_header,
         allowed_origins=allowed_origins,
+        sensitive_prefixes=("/nexus/codec",),
+        sensitive_token=codec_admin_token,
+        sensitive_exempt_paths=("/nexus/codec/events",),
     )
 
     @app.middleware("http")
@@ -598,6 +602,18 @@ def create_app() -> FastAPI:
         missing_routers = sorted(required_routers - loaded_routers)
         graph_path = Path(__file__).resolve().parents[1] / "cortex_graph.db"
         graph_available = graph_path.is_file()
+        try:
+            from cortex_server.middleware.event_ledger_middleware import probe_event_ledger_durability
+
+            event_ledger_check = probe_event_ledger_durability()
+        except Exception as exc:
+            event_ledger_check = {"ok": False, "status": "degraded", "error": f"{type(exc).__name__}: {exc}"}
+        try:
+            from cortex_server.routers.librarian import probe_memory_backend_readiness
+
+            memory_backend_check = probe_memory_backend_readiness()
+        except Exception as exc:
+            memory_backend_check = {"ok": False, "status": "degraded", "error": f"{type(exc).__name__}: {exc}"}
         checks = {
             "requiredPaths": {"ok": not missing_paths, "missing": missing_paths},
             "requiredRouters": {"ok": not missing_routers, "missing": missing_routers},
@@ -616,6 +632,8 @@ def create_app() -> FastAPI:
                 "ok": not any(row["router"] in required_routers for row in router_load_report["failed"]),
                 "failed": [row for row in router_load_report["failed"] if row["router"] in required_routers],
             },
+            "eventLedgerDurability": event_ledger_check,
+            "memoryBackendDurability": memory_backend_check,
         }
         checks.update(getattr(app.state, "lifecycle_checks", {}))
         scheduler_check = checks.get("scheduler")
@@ -681,8 +699,11 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        return {
-            "status": "healthy",
+        from fastapi.responses import JSONResponse
+
+        readiness = readiness_payload()
+        payload = {
+            "status": "healthy" if readiness["ready"] else "degraded",
             "service": "cortex",
             "contract": {
                 "identity_phrase": "Cortex-first orchestration active",
@@ -691,15 +712,17 @@ def create_app() -> FastAPI:
             },
             "one_brain": {
                 "autonomy_control_plane": True,
-                "event_ledger": True,
+                "event_ledger": bool(readiness["checks"]["eventLedgerDurability"]["ok"]),
+                "memory_backend": bool(readiness["checks"]["memoryBackendDurability"]["ok"]),
             },
             "security": {
                 "writeAuthorizationMode": write_auth_mode,
                 "writeTokenConfigured": bool(write_token),
                 "networkBind": os.getenv("CORTEX_HOST", "127.0.0.1"),
             },
-            "readiness": readiness_payload()["ready"],
+            "readiness": readiness["ready"],
         }
+        return JSONResponse(status_code=200 if readiness["ready"] else 503, content=payload)
 
     @app.get("/")
     async def root():

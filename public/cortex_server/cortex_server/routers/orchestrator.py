@@ -864,12 +864,75 @@ def _bootstrap_runtime_delivery_state(process_id: str, *, process: Dict[str, Any
     if snapshot is None:
         latest_event = journal.latest(process_id=process_id)
         if latest_event is None:
-            latest_event = journal.append(
+            journal.append(
                 process_id=process_id,
-                kind="runtime_delivery_bootstrap",
+                kind="process_created",
                 revision_id=shared_state.revision_id,
                 actor="runtime_delivery_bootstrap",
                 payload={"workflow_name": workflow.get("name"), "process_status": process.get("status")},
+            )
+            for node_id, agent_id in assigned_agents.items():
+                journal.append(
+                    process_id=process_id,
+                    kind="agent_assigned",
+                    revision_id=shared_state.revision_id,
+                    actor="runtime_delivery_bootstrap",
+                    payload={"node_id": node_id, "agent_id": agent_id},
+                )
+            for node_id in active_steps:
+                journal.append(
+                    process_id=process_id,
+                    kind="step_started",
+                    revision_id=shared_state.revision_id,
+                    actor="runtime_delivery_bootstrap",
+                    payload={"node_id": node_id},
+                )
+            for node_id in waiting_steps:
+                journal.append(
+                    process_id=process_id,
+                    kind="process_waiting",
+                    revision_id=shared_state.revision_id,
+                    actor="runtime_delivery_bootstrap",
+                    payload={"node_id": node_id},
+                )
+            for node_id in completed_steps:
+                journal.append(
+                    process_id=process_id,
+                    kind="step_completed",
+                    revision_id=shared_state.revision_id,
+                    actor="runtime_delivery_bootstrap",
+                    payload={"node_id": node_id},
+                )
+            for node_id in failed_steps:
+                journal.append(
+                    process_id=process_id,
+                    kind="step_failed",
+                    revision_id=shared_state.revision_id,
+                    actor="runtime_delivery_bootstrap",
+                    payload={"node_id": node_id},
+                )
+            if lifecycle_state == "completed":
+                journal.append(
+                    process_id=process_id,
+                    kind="process_completed",
+                    revision_id=shared_state.revision_id,
+                    actor="runtime_delivery_bootstrap",
+                    payload={},
+                )
+            elif lifecycle_state == "failed":
+                journal.append(
+                    process_id=process_id,
+                    kind="process_failed",
+                    revision_id=shared_state.revision_id,
+                    actor="runtime_delivery_bootstrap",
+                    payload={},
+                )
+            latest_event = journal.append(
+                process_id=process_id,
+                kind="world_state_updated",
+                revision_id=shared_state.revision_id,
+                actor="runtime_delivery_bootstrap",
+                payload={"world_state": dict(shared_state.world_state)},
             )
         snapshot = snapshot_store.save(
             ProcessSnapshot(

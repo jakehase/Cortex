@@ -1,4 +1,6 @@
 import copy
+import fcntl
+import json
 import multiprocessing
 import os
 import sqlite3
@@ -73,49 +75,73 @@ class FakeCollection:
 
 
 class SharedFakeCollection:
-    """Process-shared Chroma fake whose individual calls are atomic."""
+    """File-backed process-shared Chroma fake with atomic individual calls."""
 
-    def __init__(self, manager):
-        self.rows = manager.dict()
-        self.lock = manager.RLock()
+    def __init__(self, path):
+        self.path = path
+        self.lock_path = path.with_suffix(".lock")
+        self.path.write_text("{}", encoding="utf-8")
+
+    def _locked_rows(self, mutate=None):
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.lock_path.open("a+b") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                rows = json.loads(self.path.read_text(encoding="utf-8"))
+                if mutate is not None:
+                    mutate(rows)
+                    self.path.write_text(json.dumps(rows, sort_keys=True), encoding="utf-8")
+                return rows
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    @property
+    def rows(self):
+        return self._locked_rows()
 
     def add(self, ids, documents, metadatas):
-        with self.lock:
+        def mutate(rows):
             for row_id, document, metadata in zip(ids, documents, metadatas):
-                self.rows[row_id] = {"document": document, "metadata": copy.deepcopy(metadata)}
+                rows[row_id] = {"document": document, "metadata": copy.deepcopy(metadata)}
+        self._locked_rows(mutate)
 
     def get(self, ids=None, where=None, include=None, **_kwargs):
-        with self.lock:
-            selected = list(self.rows.keys())
-            if ids is not None:
-                selected = [row_id for row_id in ids if row_id in self.rows]
-            if where:
-                selected = [
-                    row_id for row_id in selected
-                    if all(self.rows[row_id]["metadata"].get(key) == value for key, value in where.items())
-                ]
-            return {
-                "ids": selected,
-                "documents": [self.rows[row_id]["document"] for row_id in selected],
-                "metadatas": [copy.deepcopy(self.rows[row_id]["metadata"]) for row_id in selected],
-            }
+        rows = self._locked_rows()
+        selected = list(rows)
+        if ids is not None:
+            selected = [row_id for row_id in ids if row_id in rows]
+        if where:
+            selected = [
+                row_id for row_id in selected
+                if all(rows[row_id]["metadata"].get(key) == value for key, value in where.items())
+            ]
+        return {
+            "ids": selected,
+            "documents": [rows[row_id]["document"] for row_id in selected],
+            "metadatas": [copy.deepcopy(rows[row_id]["metadata"]) for row_id in selected],
+        }
 
     def update(self, ids, metadatas):
-        with self.lock:
+        def mutate(rows):
             for row_id, metadata in zip(ids, metadatas):
-                row = dict(self.rows[row_id])
+                row = dict(rows[row_id])
                 row["metadata"] = copy.deepcopy(metadata)
-                self.rows[row_id] = row
+                rows[row_id] = row
+        self._locked_rows(mutate)
 
     def delete(self, ids):
-        with self.lock:
+        def mutate(rows):
             for row_id in ids:
-                self.rows.pop(row_id, None)
+                rows.pop(row_id, None)
+        self._locked_rows(mutate)
 
 
-def _write_shared_fact(barrier, row_id):
-    barrier.wait()
-    librarian._add_memory_with_supersession(row_id, row_id, {"fact_key": "same"})
+def _write_shared_fact(start_fd, row_id):
+    os.read(start_fd, 1)
+    try:
+        librarian._add_memory_with_supersession(row_id, row_id, {"fact_key": "same"})
+    finally:
+        os.close(start_fd)
 
 
 @pytest.fixture(autouse=True)
@@ -531,23 +557,24 @@ def test_concurrent_same_fact_writes_leave_exactly_one_active_version(monkeypatc
 
 def test_multiprocess_same_fact_writes_leave_exactly_one_active_version(tmp_path, monkeypatch):
     context = multiprocessing.get_context("fork")
-    with context.Manager() as manager:
-        fake = SharedFakeCollection(manager)
-        monkeypatch.setattr(librarian, "collection", fake)
-        monkeypatch.setenv("CORTEX_FACT_SUPERSESSION_LOCK_PATH", str(tmp_path / "fact.lock"))
-        barrier = context.Barrier(3)
-        processes = [context.Process(target=_write_shared_fact, args=(barrier, row_id)) for row_id in ("one", "two")]
-        for process in processes:
-            process.start()
-        barrier.wait()
-        for process in processes:
-            process.join(timeout=5)
-        assert all(not process.is_alive() for process in processes)
-        assert [process.exitcode for process in processes] == [0, 0]
-        rows = list(fake.rows.values())
-        statuses = [row["metadata"]["memory_status"] for row in rows]
-        assert statuses.count("active") == 1
-        assert statuses.count("superseded") == 1
+    fake = SharedFakeCollection(tmp_path / "shared-collection.json")
+    monkeypatch.setattr(librarian, "collection", fake)
+    monkeypatch.setenv("CORTEX_FACT_SUPERSESSION_LOCK_PATH", str(tmp_path / "fact.lock"))
+    start_fd, release_fd = os.pipe()
+    processes = [context.Process(target=_write_shared_fact, args=(start_fd, row_id)) for row_id in ("one", "two")]
+    for process in processes:
+        process.start()
+    os.close(start_fd)
+    os.write(release_fd, b"xx")
+    os.close(release_fd)
+    for process in processes:
+        process.join(timeout=5)
+    assert all(not process.is_alive() for process in processes)
+    assert [process.exitcode for process in processes] == [0, 0]
+    rows = list(fake.rows.values())
+    statuses = [row["metadata"]["memory_status"] for row in rows]
+    assert statuses.count("active") == 1
+    assert statuses.count("superseded") == 1
 
 
 @pytest.mark.asyncio
@@ -566,9 +593,21 @@ async def test_memory_status_is_unavailable_when_persistence_backend_fails(monke
 
 @pytest.mark.asyncio
 async def test_knowledge_search_authenticates_and_forwards_memory_scope(monkeypatch):
+    from cortex_server.modules.memory_scope import memory_scope_signature
+
     secret = "knowledge-scope-secret"
-    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_SECRET", secret)
-    signature = librarian._memory_scope_signature("tenant-a", "workspace-a", secret)
+    scope = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "agent_id": "agent-a",
+        "user_id": "user-a",
+        "channel_id": "channel-a",
+        "session_id": "session-a",
+    }
+    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", json.dumps({
+        "bridge-a": {"secret": secret, "allowed_scopes": [scope]},
+    }))
+    signature = memory_scope_signature(**scope, credential_id="bridge-a", secret=secret)
     calls = []
 
     def scoped_search(**kwargs):
@@ -580,18 +619,22 @@ async def test_knowledge_search_authenticates_and_forwards_memory_scope(monkeypa
         query="scoped memory",
         tenant_id="tenant-a",
         workspace_id="workspace-a",
+        scope=scope,
+        scope_credential_id="bridge-a",
         scope_signature=signature,
     ))
 
     assert response["results"] == []
     assert calls[0]["tenant_id"] == "tenant-a"
-    assert calls[0]["workspace_id"] == "workspace-a"
+    assert calls[0]["workspace_id"].startswith("principal-")
 
     with pytest.raises(HTTPException) as invalid:
         await knowledge.search_knowledge(knowledge.KnowledgeSearchRequest(
             query="wrong scope",
             tenant_id="tenant-b",
             workspace_id="workspace-a",
+            scope=scope,
+            scope_credential_id="bridge-a",
             scope_signature=signature,
         ))
     assert invalid.value.status_code == 403
@@ -726,19 +769,35 @@ def test_nondefault_scope_does_not_scan_global_local_memory_roots(monkeypatch, t
 
 
 def test_external_memory_scope_requires_authenticated_signature(monkeypatch):
-    monkeypatch.delenv("CORTEX_MEMORY_SCOPE_SECRET", raising=False)
+    from cortex_server.modules.memory_scope import memory_scope_signature
+
+    monkeypatch.delenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", raising=False)
+    monkeypatch.setenv("CORTEX_ENV", "production")
     with pytest.raises(HTTPException) as unconfigured:
         librarian._authenticated_memory_scope("tenant-a", "workspace-a", None)
     assert unconfigured.value.status_code == 503
 
     secret = "test-memory-scope-secret"
-    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_SECRET", secret)
-    signature = librarian._memory_scope_signature("tenant-a", "workspace-a", secret)
-    assert librarian._authenticated_memory_scope(
-        "tenant-a", "workspace-a", signature
-    ) == ("tenant-a", "workspace-a")
+    scope = {
+        "tenant_id": "tenant-a", "workspace_id": "workspace-a",
+        "agent_id": "local-agent", "user_id": "local-user",
+        "channel_id": "local-channel", "session_id": "local-session",
+    }
+    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", json.dumps({
+        "tenant-a-bridge": {"secret": secret, "allowed_scopes": [scope]},
+    }))
+    signature = memory_scope_signature(**scope, credential_id="tenant-a-bridge", secret=secret)
+    principal = librarian._authenticated_memory_principal_scope(
+        "tenant-a", "workspace-a", signature,
+        scope=scope, scope_credential_id="tenant-a-bridge",
+    )
+    assert principal.tenant_id == "tenant-a"
+    assert principal.storage_workspace_id.startswith("principal-")
     with pytest.raises(HTTPException) as invalid:
-        librarian._authenticated_memory_scope("tenant-b", "workspace-a", signature)
+        librarian._authenticated_memory_principal_scope(
+            "tenant-b", "workspace-a", signature,
+            scope=scope, scope_credential_id="tenant-a-bridge",
+        )
     assert invalid.value.status_code == 403
 
 

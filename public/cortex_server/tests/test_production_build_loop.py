@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 
 from cortex_server.runtime import RuntimeSoakHarness
 import cortex_server.runtime.production_build_loop as production_build_loop
@@ -21,6 +22,7 @@ from cortex_server.runtime.release_workflow import (
     capture_release_rollback_fencepost,
     record_release_fencepost,
     record_release_handoff,
+    record_release_artifact_receipt,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState
 
@@ -41,6 +43,54 @@ MINIMAL_PROFILE = {
     "watchdog": {"lease_seconds": 60, "heartbeat_grace_seconds": 60},
     "checkpoint": {"snapshot_every_events": 4, "must_checkpoint_on_handoff": True},
 }
+
+
+def _with_artifact_receipts(state, *artifact_ids):
+    for artifact_id in artifact_ids:
+        state = record_release_artifact_receipt(
+            state,
+            {
+                "artifact_id": artifact_id,
+                "content_hash": f"sha256:{hashlib.sha256(artifact_id.encode()).hexdigest()}",
+                "candidate_ref": state.candidate_ref,
+                "release_id": state.release_id,
+                "revision_id": state.revision_id,
+                "producer": "test-verifier",
+                "validation_outcome": "passed",
+            },
+        )
+    return state
+
+
+def _approve_pending_release_handoff(harness, process_id, stage):
+    state = harness.release_store.load(process_id)
+    message = next(
+        row for row in harness.mailbox.list(process_id=process_id)
+        if row.delivery_status in {"queued", "inflight"}
+        and str((row.metadata or {}).get("target_stage") or "") == stage
+    )
+    harness.mailbox.receive(
+        to_agent=message.to_agent,
+        process_id=process_id,
+        include_inflight=True,
+        expected_revision_id=state.revision_id,
+        reject_stale_revision=True,
+    )
+    acknowledged = harness.mailbox.acknowledge(
+        message.message_id,
+        actor=message.to_agent,
+        result_receipt={
+            "candidate_ref": state.candidate_ref,
+            "release_id": state.release_id,
+            "revision_id": state.revision_id,
+            "result": "approved",
+            "evidence_receipts": [f"evidence:{stage}"],
+        },
+    )
+    harness.release_store.save(
+        record_release_handoff(state, acknowledged, stage=stage, notes="approved by recipient"),
+        actor=message.to_agent,
+    )
 
 
 def test_empty_completion_contract_is_not_terminal_and_default_gates_require_evidence(tmp_path):
@@ -153,6 +203,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         release_state,
         capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
     )
+    release_state = _with_artifact_receipts(release_state, artifact_bundle)
     harness.release_store.save(release_state, actor="builder", provenance={"phase": "build_verified"})
 
     loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
@@ -175,6 +226,20 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         ],
     )
 
+    awaiting_canary = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-1",
+    )
+    assert awaiting_canary["state"]["current_stage"] == "build_verified"
+    _approve_pending_release_handoff(harness, process_id, "canary_verified")
     first = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -210,8 +275,23 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         release_state,
         capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="canary_verified"),
     )
+    release_state = _with_artifact_receipts(release_state, artifact_smoke)
     harness.release_store.save(release_state, actor="verifier", provenance={"phase": "canary_verified"})
 
+    awaiting_production = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-1",
+    )
+    assert awaiting_production["state"]["current_stage"] == "canary_verified"
+    _approve_pending_release_handoff(harness, process_id, "production")
     second = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -235,7 +315,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
 
 
 
-def test_production_loop_auto_chains_across_stage_promotions_with_bounded_pass_budget(tmp_path):
+def test_production_loop_never_auto_chains_past_independent_recipient_approval(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
     process_id = "proc_prod_autochain"
     artifact_bundle = f"artifact_release_bundle:{process_id}"
@@ -291,6 +371,7 @@ def test_production_loop_auto_chains_across_stage_promotions_with_bounded_pass_b
         release_state,
         capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
     )
+    release_state = _with_artifact_receipts(release_state, artifact_bundle, artifact_smoke)
     harness.release_store.save(release_state, actor="builder", provenance={"phase": "build_verified"})
 
     loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
@@ -323,18 +404,18 @@ def test_production_loop_auto_chains_across_stage_promotions_with_bounded_pass_b
     persisted = loop_store.load_state(process_id)
     reports = loop_store.reports(process_id)
 
-    assert result["state"]["status"] == "completed"
-    assert result["state"]["current_stage"] == "production"
-    assert result["chained_passes"] >= 2
-    assert result["continuation"]["mode"] == "stop"
+    assert result["state"]["status"] == "active"
+    assert result["state"]["current_stage"] == "build_verified"
+    assert result["chained_passes"] == 1
+    assert result["continuation"]["mode"] == "await_external_progress"
+    assert result["next_action"]["kind"] == "await_release_approval"
     assert persisted is not None
     assert persisted.last_pass["budget"]["max_stage_advances_per_pass"] == 1
-    assert persisted.last_pass["validation_scope"] == "broad"
-    assert any(reason in persisted.last_pass["validation_reasons"] for reason in ["stage_promotion_checkpoint", "completion_checkpoint", "checkpoint:production"])
-    assert persisted.next_action["kind"] == "completed"
-    assert len(reports) >= 2
+    assert persisted.next_action["kind"] != "completed"
+    assert any(row.delivery_status == "queued" and row.to_agent == "release-verifier" for row in harness.mailbox.list(process_id=process_id))
+    assert reports
     assert all("validation=" in report.summary or report.kind != "checkpoint" for report in reports)
-    assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "completed"
+    assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "active"
 
 
 
@@ -718,7 +799,11 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
     assert result["state"]["status"] == "active"
     assert result["blockers"] == []
     assert result["dependability"]["before"]["success"] is False
-    assert result["dependability"]["after"]["success"] is True
+    assert result["dependability"]["after"]["success"] is False
+    assert any(
+        action.get("action") == "recover_dead_letters" and action.get("recipient_ack_required") is True
+        for action in result["dependability"]["actions_taken"]
+    )
     assert any(action["action"] == "recover_dead_letters" for action in result["actions_taken"])
     assert any(action["action"] == "resolve_stale_leases" for action in result["actions_taken"])
     assert any(action["action"] == "checkpoint_from_journal" for action in result["actions_taken"])
@@ -742,6 +827,11 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     release_state = record_release_fencepost(
         release_state,
         capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
+    )
+    release_state = _with_artifact_receipts(
+        release_state,
+        f"artifact_release_bundle:{process_id}",
+        f"artifact_smoke_report:{process_id}",
     )
     harness.release_store.save(release_state, actor="builder", provenance={"phase": "seed_release"})
 
@@ -807,7 +897,17 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
         reject_stale_revision=True,
     )
     assert len(received) == 1
-    acknowledged = harness.mailbox.acknowledge(received[0].message_id)
+    acknowledged = harness.mailbox.acknowledge(
+        received[0].message_id,
+        actor="release-manager",
+        result_receipt={
+            "candidate_ref": pending_release.candidate_ref,
+            "release_id": pending_release.release_id,
+            "revision_id": pending_release.revision_id,
+            "result": "approved",
+            "evidence_receipts": ["evidence:production-verification"],
+        },
+    )
     harness.release_store.save(
         record_release_handoff(pending_release, acknowledged, stage="production", notes="verified by recipient"),
         actor="release-manager",

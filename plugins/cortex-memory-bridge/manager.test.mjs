@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 
 import { CortexMemorySearchManager } from './manager.mjs';
 
 const scopedConfig = {
   tenantId: 'tenant-test',
   workspaceId: 'workspace-test',
+  scopeCredentialId: 'manager-test',
   scopeHmacSecret: 'scope-test-secret',
+  sessionIdentityHmacSecret: 'session-test-secret',
 };
 
 test('manager search attaches configured Cortex write authorization', async () => {
@@ -88,7 +91,8 @@ test('manager forwards signed tenant, workspace, and agent scope', async () => {
       workspace_id: 'workspace-test',
       agent_id: 'agent-a',
       user_id: 'user-a',
-      session_id: 'session-a',
+      channel_id: 'local-channel',
+      session_id: `openclaw-${createHmac('sha256', 'session-test-secret').update('session-a').digest('hex')}`,
     });
     assert.equal(request.body.tenant_id, 'tenant-test');
     assert.equal(request.body.workspace_id, 'workspace-test');
@@ -101,10 +105,18 @@ test('manager forwards signed tenant, workspace, and agent scope', async () => {
 
 test('manager fails closed when non-default memory scope lacks authentication', async () => {
   const manager = await CortexMemorySearchManager.create({
-    cfg: { tenantId: 'tenant-a', workspaceId: 'workspace-a' },
+    cfg: { tenantId: 'tenant-a', workspaceId: 'workspace-a', sessionIdentityHmacSecret: 'session-test-secret' },
     agentId: 'agent-a',
   });
-  await assert.rejects(() => manager.search('unscoped search'), /scopeHmacSecret or writeToken/);
+  await assert.rejects(() => manager.search('unscoped search'), /scopeCredentialId and scopeHmacSecret/);
+});
+
+test('manager rejects unkeyed session identity fallback', async () => {
+  const manager = await CortexMemorySearchManager.create({
+    cfg: { tenantId: 'cortex-local', workspaceId: 'default' },
+    agentId: 'agent-a',
+  });
+  await assert.rejects(() => manager.search('local search'), /sessionIdentityHmacSecret is required/);
 });
 
 for (const response of [

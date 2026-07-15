@@ -24,6 +24,7 @@ from cortex_server.routers.librarian import (
     CHROMA_DIR,
     DEFAULT_TENANT_ID,
     DEFAULT_WORKSPACE_ID,
+    MemoryPrincipalScope,
     MemoryScopeId,
     collection,
     index_with_novelty,
@@ -35,7 +36,7 @@ from cortex_server.routers.librarian import (
     MemoryTag,
     _validate_memory_metadata,
     _memory_scope,
-    _authenticated_memory_scope,
+    _authenticated_memory_principal_scope,
     _memory_scope_auth_ready,
 )
 
@@ -387,6 +388,8 @@ class L22StoreRequest(BaseModel):
     metadata: Optional[dict] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
     idempotency_key: Optional[str] = Field(None, min_length=1, max_length=256)
 
@@ -398,6 +401,8 @@ class L22SearchRequest(BaseModel):
     n_results: int = Field(5, ge=1, le=100)
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
@@ -411,6 +416,8 @@ class L22NovelStoreRequest(BaseModel):
     min_novelty: float = 0.0
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
     _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
@@ -424,6 +431,8 @@ class L22NovelSearchRequest(BaseModel):
     min_novelty: float = 0.0
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
@@ -463,14 +472,19 @@ async def l22_status():
 
 @router.post("/store")
 async def l22_store(request: L22StoreRequest):
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     return store_memory_record(
         content=request.content,
         memory_type=request.type,
         tags=request.tags,
-        metadata=request.metadata,
+        metadata={**dict(request.metadata or {}), **principal.storage_metadata},
         tenant_id=tenant,
         workspace_id=workspace,
         idempotency_key=request.idempotency_key,
@@ -482,10 +496,15 @@ async def l22_store_novel(request: L22NovelStoreRequest):
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
 
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
-    metadata = dict(request.metadata or {})
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    metadata = {**dict(request.metadata or {}), **principal.storage_metadata}
     metadata.setdefault("type", request.type or "memory")
     if request.tags:
         metadata.setdefault("tags", request.tags)
@@ -517,9 +536,14 @@ async def l22_store_novel(request: L22NovelStoreRequest):
 async def l22_search(request: L22SearchRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     result = robust_search(
         query=request.query,
         n_results=request.n_results,
@@ -538,9 +562,14 @@ async def l22_search(request: L22SearchRequest):
 
 @router.post("/search_novel")
 async def l22_search_novel(request: L22NovelSearchRequest):
-    tenant, workspace = _authenticated_memory_scope(
-        request.tenant_id, request.workspace_id, request.scope_signature
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
     )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     ranked = search_with_novelty(
         query=request.query,
         n_results=request.n_results,

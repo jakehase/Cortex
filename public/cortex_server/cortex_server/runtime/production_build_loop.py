@@ -792,6 +792,7 @@ def _production_next_action(
     next_stage: Optional[str],
     snapshot: Optional[ProcessSnapshot],
     budget_exhausted: bool,
+    release_gate: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     budget_payload = budget.model_dump() if hasattr(budget, "model_dump") else budget.dict()
     if bool(completion.get("all_required_satisfied")) and not blockers:
@@ -821,6 +822,16 @@ def _production_next_action(
             "budget": budget_payload,
         }
     if next_stage:
+        gate_checks = dict((release_gate or {}).get("checks") or {})
+        if release_gate is not None and not bool(release_gate.get("safe_push")) and not gate_checks.get("handoff_receipts_ok", True):
+            return {
+                "kind": "await_release_approval",
+                "status": "active",
+                "stage": next_stage,
+                "summary": f"Await independent recipient approval for {next_stage}",
+                "pass_index": pass_index,
+                "budget": budget_payload,
+            }
         return {
             "kind": "promote_stage",
             "status": "active",
@@ -1410,7 +1421,6 @@ def repair_production_dependability(
 
     dead_letters = mailbox.list(process_id=contract.process_id, delivery_statuses=["dead_letter"])
     recovered_ids: List[str] = []
-    acked_ids: List[str] = []
     for row in dead_letters:
         recovered = mailbox.recover_dead_letter(
             row.message_id,
@@ -1418,19 +1428,8 @@ def repair_production_dependability(
             recovery_reason="production_loop_revision_realign",
         )
         recovered_ids.append(recovered.message_id)
-        accepted = mailbox.receive(
-            to_agent=recovered.to_agent,
-            process_id=contract.process_id,
-            include_inflight=True,
-            expected_revision_id=current_revision_id,
-            reject_stale_revision=True,
-        )
-        for accepted_row in accepted:
-            if accepted_row.message_id == recovered.message_id:
-                mailbox.acknowledge(accepted_row.message_id)
-                acked_ids.append(accepted_row.message_id)
     if recovered_ids:
-        actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "acked_ids": acked_ids})
+        actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "recipient_ack_required": True})
 
     if any(check in before.get("failing_checks", []) for check in ["checkpoint_freshness_ok", "snapshot_event_gap_ok", "replay_matches_snapshot"]):
         checkpoint = _checkpoint_from_journal(
@@ -1561,7 +1560,7 @@ def recover_production_worker(
         reject_stale_revision=True,
     )
     if any(row.message_id == handoff.message_id for row in accepted):
-        mailbox.acknowledge(handoff.message_id)
+        mailbox.acknowledge(handoff.message_id, actor=agent_id)
     actions_taken.append({"action": "dispatch_resume_handoff", "message_id": handoff.message_id, "agent_id": agent_id})
 
     if snapshot.lifecycle_state in {"waiting", "blocked", "created", "rolled_back"}:
@@ -1605,9 +1604,6 @@ def recover_production_worker(
 
 
 def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> ProductionStageGate:
-    for gate in contract.stage_gates:
-        if gate.stage == stage:
-            return gate
     plan = _stage_plan(contract)
     stage_index = plan.index(stage) if stage in plan else 0
     prior_stages = plan[:stage_index]
@@ -1616,11 +1612,13 @@ def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> Production
     is_target = stage == contract.target_environment
     requires_independent_handoff = stage_index > 0
     recipient = "release-manager" if is_target else "release-verifier"
-    return ProductionStageGate(
+    mandatory = ProductionStageGate(
         stage=stage,
         required_fencepost_stages=prior_stages,
         required_artifacts=[release_bundle] + ([smoke_report] if is_target else []),
         required_handoff_count=1 if requires_independent_handoff else 0,
+        allowed_lifecycle_states=["waiting", "completed"] if requires_independent_handoff else ["waiting", "running", "completed"],
+        require_dependability=True,
         metadata={
             "default_evidence_gate": True,
             **(
@@ -1636,6 +1634,36 @@ def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> Production
                 else {}
             ),
         },
+    )
+    configured = next((gate for gate in contract.stage_gates if gate.stage == stage), None)
+    if configured is None:
+        return mandatory
+    mandatory_handoff = dict(mandatory.metadata.get("handoff") or {})
+    configured_handoff = dict(configured.metadata.get("handoff") or {})
+    metadata = {**dict(configured.metadata), **dict(mandatory.metadata)}
+    if mandatory_handoff:
+        metadata["handoff"] = {
+            **mandatory_handoff,
+            **configured_handoff,
+            "to_agent": mandatory_handoff["to_agent"],
+        }
+    allowed_lifecycle = [
+        value for value in mandatory.allowed_lifecycle_states
+        if value in set(configured.allowed_lifecycle_states)
+    ]
+    return ProductionStageGate(
+        stage=stage,
+        required_fencepost_stages=_dedupe_rows(
+            list(mandatory.required_fencepost_stages) + list(configured.required_fencepost_stages)
+        ),
+        required_artifacts=_dedupe_rows(
+            list(mandatory.required_artifacts) + list(configured.required_artifacts)
+        ),
+        required_handoff_count=max(mandatory.required_handoff_count, configured.required_handoff_count),
+        allowed_active_agents=_dedupe_rows(list(configured.allowed_active_agents)),
+        allowed_lifecycle_states=allowed_lifecycle or list(mandatory.allowed_lifecycle_states),
+        require_dependability=True,
+        metadata=metadata,
     )
 
 
@@ -1876,6 +1904,23 @@ def advance_production_release_loop(
             actor=controller_id,
             provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
         )
+        approved_recipients = {
+            str(row.get("to_agent") or "").strip()
+            for row in release_state.handoff_records
+            if str(row.get("stage") or "").strip() == next_stage
+            and str(row.get("delivery_status") or "").strip() == "acked"
+        }
+        handoff_scope = str(handoff_config.get("scope") or f"release:{next_stage}").strip()
+        for lease in supervisor.list(process_id=contract.process_id, status="active"):
+            if lease.agent_id in approved_recipients and lease.scope == handoff_scope:
+                supervisor.resolve(
+                    lease.lease_id,
+                    status="released",
+                    metadata={"resolution": "release_approval_recorded", "stage": next_stage},
+                )
+                actions_taken.append(
+                    {"action": "release_approval_scope", "lease_id": lease.lease_id, "stage": next_stage}
+                )
         release_fencepost = capture_release_rollback_fencepost(
             snapshot=snapshot,
             shared_state=shared_state,
@@ -1965,7 +2010,10 @@ def _reconcile_production_build_loop_pass(
     )
 
     worker_recovery = {"recovered": False, "actions_taken": []}
-    if not blockers_before_recovery and snapshot.lifecycle_state != "completed":
+    # A release workflow must remain quiescent while an independent recipient
+    # evaluates promotion evidence. Resuming a worker changes the lifecycle to
+    # running and would invalidate the mandatory release gate.
+    if not blockers_before_recovery and snapshot.lifecycle_state != "completed" and release_state is None:
         worker_recovery = recover_production_worker(
             contract,
             snapshot_store=snapshot_store,
@@ -2048,6 +2096,7 @@ def _reconcile_production_build_loop_pass(
         next_stage=release_progress.get("next_stage"),
         snapshot=snapshot,
         budget_exhausted=budget_exhausted,
+        release_gate=release_progress.get("last_gate"),
     )
     continuation = _production_continuation(status=status, blockers=blockers, next_action=next_action)
     pass_objective = str(next_action.get("summary") or next_action.get("kind") or contract.objective)

@@ -18,8 +18,9 @@ from cortex_server.services.knowledge_service import KnowledgeService
 from cortex_server.routers.librarian import (
     DEFAULT_TENANT_ID,
     DEFAULT_WORKSPACE_ID,
+    MemoryPrincipalScope,
     MemoryScopeId,
-    _authenticated_memory_scope,
+    _authenticated_memory_principal_scope,
     collection,
     robust_search,
 )
@@ -106,6 +107,8 @@ class KnowledgeSearchRequest(BaseModel):
     n_results: int = Field(5, ge=1, le=100)
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
@@ -572,11 +575,14 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        tenant, workspace = _authenticated_memory_scope(
+        principal = _authenticated_memory_principal_scope(
             request.tenant_id,
             request.workspace_id,
             request.scope_signature,
+            scope=request.scope,
+            scope_credential_id=request.scope_credential_id,
         )
+        tenant, workspace = principal.tenant_id, principal.storage_workspace_id
 
         result = robust_search(
             query=request.query,

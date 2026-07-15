@@ -40,7 +40,9 @@ type BridgeConfig = {
   userId?: string;
   channelId?: string;
   sessionId?: string;
+  scopeCredentialId?: string;
   scopeHmacSecret?: string;
+  sessionIdentityHmacSecret?: string;
 };
 
 type MemoryCandidate = {
@@ -313,7 +315,7 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     retryCount: cfg.retryCount ?? 2,
     retryBackoffMs: cfg.retryBackoffMs ?? 350,
     enabledWriteThrough: cfg.enabledWriteThrough ?? false,
-    enabledCodecContinuity: cfg.enabledCodecContinuity ?? false,
+    enabledCodecContinuity: cfg.enabledCodecContinuity ?? true,
     maxResponseBytes: cfg.maxResponseBytes ?? 1_048_576,
     lifecycleMaxInFlight: Number.isSafeInteger(cfg.lifecycleMaxInFlight) && Number(cfg.lifecycleMaxInFlight) > 0
       ? Math.min(4096, Number(cfg.lifecycleMaxInFlight))
@@ -331,11 +333,13 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     writeTokenHeader: writeTokenHeader.toLowerCase(),
     tenantId: typeof cfg.tenantId === 'string' ? cfg.tenantId.trim() : 'cortex-local',
     workspaceId: typeof cfg.workspaceId === 'string' ? cfg.workspaceId.trim() : 'default',
-    agentId: typeof cfg.agentId === 'string' ? cfg.agentId.trim() : '',
-    userId: typeof cfg.userId === 'string' ? cfg.userId.trim() : '',
-    channelId: typeof cfg.channelId === 'string' ? cfg.channelId.trim() : '',
-    sessionId: typeof cfg.sessionId === 'string' ? cfg.sessionId.trim() : '',
+    agentId: typeof cfg.agentId === 'string' && cfg.agentId.trim() ? cfg.agentId.trim() : 'main',
+    userId: typeof cfg.userId === 'string' && cfg.userId.trim() ? cfg.userId.trim() : 'local-user',
+    channelId: typeof cfg.channelId === 'string' && cfg.channelId.trim() ? cfg.channelId.trim() : 'local-channel',
+    sessionId: typeof cfg.sessionId === 'string' && cfg.sessionId.trim() ? cfg.sessionId.trim() : 'global-session',
+    scopeCredentialId: typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '',
     scopeHmacSecret: typeof cfg.scopeHmacSecret === 'string' ? cfg.scopeHmacSecret : '',
+    sessionIdentityHmacSecret: typeof cfg.sessionIdentityHmacSecret === 'string' ? cfg.sessionIdentityHmacSecret : '',
     stateDir: typeof cfg.stateDir === 'string' && cfg.stateDir.trim()
       ? cfg.stateDir.trim()
       : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-memory-bridge'),
@@ -768,32 +772,37 @@ function cortexWriteHeaders(cfg: Pick<BridgeConfig, 'writeToken' | 'writeTokenHe
   return cfg.writeToken ? { [cfg.writeTokenHeader || 'x-cortex-write-token']: cfg.writeToken } : {};
 }
 function scopedIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string> {
+  const rawSession = String(ctx?.sessionKey || ctx?.sessionId || cfg.sessionId || '').trim();
+  const sessionSecret = String(cfg.sessionIdentityHmacSecret || '').trim();
+  if (!sessionSecret) throw new Error('sessionIdentityHmacSecret is required for canonical Cortex session identity');
+  const sessionDigest = createHmac('sha256', sessionSecret).update(rawSession, 'utf8').digest('hex');
   const scope = {
     tenant_id: String(cfg.tenantId || '').trim(),
     workspace_id: String(cfg.workspaceId || '').trim(),
     agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
     user_id: String(ctx?.userId || cfg.userId || '').trim(),
     channel_id: String(ctx?.channelId || cfg.channelId || '').trim(),
-    session_id: String(ctx?.sessionKey || ctx?.sessionId || cfg.sessionId || '').trim(),
+    session_id: `openclaw-${sessionDigest}`,
   };
-  if (!scope.tenant_id || !scope.workspace_id) throw new Error('tenantId and workspaceId are required for scoped Cortex memory access');
-  return Object.fromEntries(Object.entries(scope).filter(([, value]) => value));
+  if (Object.values(scope).some((value) => !value)) throw new Error('every Cortex principal scope dimension is required');
+  return scope;
 }
 function memoryScopeFields(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
-  const secret = String(cfg.scopeHmacSecret || cfg.writeToken || '');
+  const secret = String(cfg.scopeHmacSecret || '');
   const tenantId = String(scope.tenant_id || '').trim();
   const workspaceId = String(scope.workspace_id || '').trim();
   if (!tenantId || !workspaceId) throw new Error('tenantId and workspaceId are required for scoped Cortex memory access');
-  if (!secret) {
+  const credentialId = String(cfg.scopeCredentialId || '').trim();
+  if (!secret || !credentialId) {
     if (tenantId === 'cortex-local' && workspaceId === 'default') {
       return { tenant_id: tenantId, workspace_id: workspaceId };
     }
-    throw new Error('scopeHmacSecret or writeToken is required to authenticate non-default Cortex memory scope');
+    throw new Error('scopeCredentialId and scopeHmacSecret are required to authenticate non-default Cortex memory scope');
   }
   const signature = createHmac('sha256', secret)
-    .update(`cortex.memory.scope.v1\n${tenantId}\n${workspaceId}`, 'utf8')
+    .update(['cortex.memory.principal.v2', credentialId, tenantId, workspaceId, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n'), 'utf8')
     .digest('hex');
-  return { tenant_id: tenantId, workspace_id: workspaceId, scope_signature: signature };
+  return { tenant_id: tenantId, workspace_id: workspaceId, scope_credential_id: credentialId, scope_signature: signature };
 }
 function scopedHeaders(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
   const memoryScope = memoryScopeFields(cfg, scope);
@@ -801,6 +810,11 @@ function scopedHeaders(cfg: BridgeConfig, scope: Record<string, string>): Record
     ...cortexWriteHeaders(cfg),
     'x-cortex-tenant-id': memoryScope.tenant_id,
     'x-cortex-workspace-id': memoryScope.workspace_id,
+    'x-cortex-agent-id': scope.agent_id,
+    'x-cortex-user-id': scope.user_id,
+    'x-cortex-channel-id': scope.channel_id,
+    'x-cortex-session-id': scope.session_id,
+    ...(memoryScope.scope_credential_id ? { 'x-cortex-scope-credential-id': memoryScope.scope_credential_id } : {}),
     ...(memoryScope.scope_signature ? { 'x-cortex-scope-signature': memoryScope.scope_signature } : {}),
   };
 }
@@ -964,13 +978,18 @@ function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: a
 
 async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
   if (cfg.enabledCodecContinuity === false) return 'disabled' as const;
-  const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
-  if (!sessionKey) return 'failed' as const;
+  if (!String(cfg.sessionIdentityHmacSecret || '').trim()) {
+    api.logger.warn?.('cortex-memory-bridge: Codec continuity requires sessionIdentityHmacSecret shared with cortex-route-gate');
+    return 'failed' as const;
+  }
+  const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
+  if (!rawSessionKey) return 'failed' as const;
   const text = [extractAssistantVisibleText(event?.messages), extractText(event?.result), String(fallbackText || '')]
     .filter(Boolean).join('\n').replace(/\s+/g, ' ').trim().slice(-2400);
   if (text.length < 20 || containsSecretLike(text)) return 'skipped' as const;
   try {
     const scope = scopedIdentity(cfg, ctx);
+    const sessionKey = scope.session_id;
     const response = await postJson(cfg.baseUrl, cfg.codecEventsPath, {
       idempotency_key: ctx?.idempotencyKey,
       session_key: sessionKey,
@@ -1087,7 +1106,10 @@ const plugin = {
       }
     };
     const persistLifecycle = (persistenceKey: string, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) => {
-      if (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity) return Promise.resolve(true);
+      if (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity) {
+        api.logger.warn?.('cortex-memory-bridge: lifecycle persistence is disabled; output remains unacknowledged');
+        return Promise.resolve(false);
+      }
       if (completed.has(persistenceKey)) {
         try { spool?.ack(persistenceKey); } catch (error) {
           api.logger.warn?.(`cortex-memory-bridge: failed to acknowledge completed lifecycle spool record: ${String(error)}`);

@@ -26,7 +26,10 @@ def test_compose_mounts_and_identifies_durable_memory_volume():
     assert "cortex-chroma:/app/cortex_server/chroma_db:rw" in compose
     assert "CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db" in compose
     assert "CORTEX_CHROMA_MOUNT_ID:" in compose
-    assert "CORTEX_MEMORY_SCOPE_SECRET:" in compose
+    assert "CORTEX_MEMORY_SCOPE_CREDENTIALS:" in compose
+    assert "CORTEX_MEMORY_SCOPE_SECRET:" not in compose
+    assert "CORTEX_CODEC_ADMIN_TOKEN:" in compose
+    assert "CORTEX_AGENT_ACK_CREDENTIALS:" in compose
     assert "cortex-memory-volume-init:" in compose
 
 

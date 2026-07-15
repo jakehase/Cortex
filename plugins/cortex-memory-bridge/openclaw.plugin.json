@@ -31,7 +31,9 @@
       "userId": { "type": "string", "minLength": 1 },
       "channelId": { "type": "string", "minLength": 1 },
       "sessionId": { "type": "string", "minLength": 1 },
+      "scopeCredentialId": { "type": "string", "minLength": 1 },
       "scopeHmacSecret": { "type": "string", "minLength": 1 },
+      "sessionIdentityHmacSecret": { "type": "string", "minLength": 1 },
       "curatedBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "projectFactBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "durableCandidatePenalty": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -98,10 +100,19 @@
     "enabledCodecContinuity": {
       "label": "Enable Codec continuity persistence",
       "advanced": true,
-      "help": "Opt in after configuring tenant/workspace scope and the Cortex write boundary."
+      "help": "Enabled by default. Configure principal-scoped credentials and the shared session identity secret before production use."
+    },
+    "scopeCredentialId": {
+      "label": "Memory scope credential ID",
+      "advanced": true
     },
     "scopeHmacSecret": {
-      "label": "Memory scope HMAC secret",
+      "label": "Credential-specific scope HMAC secret",
+      "sensitive": true,
+      "advanced": true
+    },
+    "sessionIdentityHmacSecret": {
+      "label": "Shared session identity HMAC secret",
       "sensitive": true,
       "advanced": true
     },
