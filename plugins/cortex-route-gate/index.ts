@@ -296,19 +296,22 @@ function tailIntentText(prompt: string): string {
   const tokens = normalizePrompt(prompt).split(' ').filter(Boolean);
   return tokens.slice(-48).join(' ').trim();
 }
-function isOracleExecutorPrompt(prompt: string): boolean {
-  const normalized = normalizePrompt(prompt);
-  return normalized.includes('host-side oracle executor for cortex')
-    || normalized.includes('return only the answer text that oracle should say');
-}
 function isInternalOracleSession(sessionKey: string): boolean {
   const key = String(sessionKey || '').trim().toLowerCase();
   return key.startsWith('oracle-prod-bridge-short-')
     || key.startsWith('oracle-prod-bridge-general-')
     || key.startsWith('oracle-gateway-');
 }
-function shouldBypassRouteGate(prompt: string, sessionKey?: string): boolean {
-  return isInternalOracleSession(String(sessionKey || '')) || isOracleExecutorPrompt(prompt);
+function shouldBypassRouteGate(sessionKey?: string): boolean {
+  return isInternalOracleSession(String(sessionKey || ''));
+}
+function opaqueSessionIdentity(sessionKey: string, secret: string | null): string {
+  const key = String(sessionKey || '').trim();
+  if (!key) throw new Error('routing requires a non-empty trusted session identity');
+  const digest = secret
+    ? crypto.createHmac('sha256', secret).update(key, 'utf8').digest('hex')
+    : crypto.createHash('sha256').update(key, 'utf8').digest('hex');
+  return `openclaw-${digest}`;
 }
 function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, eligible = true): CreativityProfile {
   const focus = intentText.trim();
@@ -947,6 +950,7 @@ export default function register(api: any) {
   const requireRouting = asBool(cfg.requireRouting, true);
   const timeoutMs = asNumber(cfg.timeoutMs, 8000);
   const maxResponseBytes = asNumber(cfg.maxResponseBytes, 1_048_576);
+  const maxRoutingPromptBytes = asNumber(cfg.maxRoutingPromptBytes, 262_144);
   const writeToken = typeof cfg.writeToken === 'string' && cfg.writeToken.length > 0 ? String(cfg.writeToken) : null;
   const writeTokenHeader = normalizeWriteTokenHeader(cfg.writeTokenHeader);
   const writeHeaders = writeToken ? { [writeTokenHeader]: writeToken } : {};
@@ -955,12 +959,16 @@ export default function register(api: any) {
   const routeCacheHmacSecret = typeof cfg.routeCacheHmacSecret === 'string' && cfg.routeCacheHmacSecret.length > 0
     ? String(cfg.routeCacheHmacSecret)
     : null;
+  const sessionIdentityHmacSecret = typeof cfg.sessionIdentityHmacSecret === 'string' && cfg.sessionIdentityHmacSecret.length > 0
+    ? String(cfg.sessionIdentityHmacSecret)
+    : (writeToken || routeCacheHmacSecret);
   const maxLevels = asNumber(cfg.maxLevels, 10);
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
   const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);
   const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
   const creativityAuditEnabled = asBool(cfg.creativityAuditEnabled, true);
   const creativityAuditOverlapThreshold = asNumber(cfg.creativityAuditOverlapThreshold, 0.34);
+  const oracleSessionQuarantineEnabled = asBool(cfg.oracleSessionQuarantineEnabled, false);
   const oracleSessionResetBytes = asNumber(cfg.oracleSessionResetBytes, 500_000);
   const oracleSessionDir = typeof cfg.oracleSessionDir === 'string' && cfg.oracleSessionDir.trim()
     ? cfg.oracleSessionDir.trim()
@@ -977,8 +985,8 @@ export default function register(api: any) {
   const runStateByKey = new Map<string, RunState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
 
-  function quarantineOversizedOracleSessions() {
-    if (!oracleSessionResetBytes || oracleSessionResetBytes < 1024) return;
+  function archiveOversizedOracleSessions() {
+    if (!oracleSessionQuarantineEnabled || !oracleSessionResetBytes || oracleSessionResetBytes < 1024) return;
     try {
       const entries = fs.readdirSync(oracleSessionDir, { withFileTypes: true });
       const quarantineDir = path.join(oracleSessionDir, 'quarantine');
@@ -990,16 +998,19 @@ export default function register(api: any) {
         const stat = fs.statSync(filePath);
         if (stat.size <= oracleSessionResetBytes) continue;
         fs.mkdirSync(quarantineDir, { recursive: true });
-        const targetPath = path.join(quarantineDir, `${sessionName}.${Date.now()}.jsonl`);
-        fs.renameSync(filePath, targetPath);
-        api.logger.warn?.(`cortex-route-gate: quarantined oversized oracle session ${entry.name} size=${stat.size}`);
+        const targetPath = path.join(quarantineDir, `${sessionName}.${Math.trunc(stat.mtimeMs)}.${stat.size}.jsonl`);
+        if (fs.existsSync(targetPath)) continue;
+        fs.copyFileSync(filePath, targetPath, fs.constants.COPYFILE_EXCL);
+        const targetFd = fs.openSync(targetPath, 'r');
+        try { fs.fsyncSync(targetFd); } finally { fs.closeSync(targetFd); }
+        api.logger.warn?.(`cortex-route-gate: archived oversized oracle session without moving the active file ${entry.name} size=${stat.size}`);
       }
     } catch (error) {
       api.logger.warn?.(`cortex-route-gate: failed to quarantine oversized oracle sessions: ${String(error)}`);
     }
   }
 
-  quarantineOversizedOracleSessions();
+  archiveOversizedOracleSessions();
 
   function loadPromptHistory(): PromptHistoryEntry[] {
     try {
@@ -1030,7 +1041,17 @@ export default function register(api: any) {
   async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
     let plan: RoutePlan | null = null;
     try {
-      const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs, maxResponseBytes, writeHeaders);
+      if (Buffer.byteLength(prompt, 'utf8') > maxRoutingPromptBytes) {
+        throw new Error(`routing prompt exceeds ${maxRoutingPromptBytes} bytes`);
+      }
+      const sessionIdentity = opaqueSessionIdentity(String(sessionKey || ''), sessionIdentityHmacSecret);
+      const data = await postJson(
+        `${baseUrl}/nexus/orchestrate`,
+        { query: prompt },
+        timeoutMs,
+        maxResponseBytes,
+        { ...writeHeaders, 'x-session-id': sessionIdentity },
+      );
       const recommended = liveRouteLevels(data);
       if (!recommended) throw new Error('invalid live route response schema');
       const rawPlan: RoutePlan = {
@@ -1133,7 +1154,7 @@ export default function register(api: any) {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
-    if (shouldBypassRouteGate(prompt, stateKey)) {
+    if (shouldBypassRouteGate(stateKey)) {
       if (stateKey) runStateByKey.delete(stateKey);
       api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${stateKey || 'unknown'}`);
       return;

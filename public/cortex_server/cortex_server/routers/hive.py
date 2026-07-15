@@ -10,6 +10,7 @@ import json
 
 from cortex_server.worker import app as celery_app
 from cortex_server.modules.hive_novelty import build_l3_novel_plan
+from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
 
 router = APIRouter()
 
@@ -130,7 +131,11 @@ async def get_swarm_plan(plan_id: str):
     """Retrieve a swarm plan from Librarian memory."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            search_payload = {"query": f"HIVE MASTER PLAN [{plan_id}]", "n_results": 1}
+            search_payload = {
+                "query": f"HIVE MASTER PLAN [{plan_id}]",
+                "n_results": 1,
+                **authenticated_memory_scope_fields(),
+            }
             resp = await client.post(LIBRARIAN_SEARCH, json=search_payload)
             results = resp.json().get("results", [])
             if results:

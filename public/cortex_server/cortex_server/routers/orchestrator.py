@@ -13,6 +13,8 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
+import fcntl
+import hashlib
 import json
 import asyncio
 import httpx
@@ -62,6 +64,7 @@ from cortex_server.modules.reasoning_scheduler import (
 from cortex_server.runtime import (
     AgentMailbox,
     AgentSupervisor,
+    CanonicalSessionEvent,
     DeliveryDeadLetterStore,
     MaintenanceQueueItem,
     MaintenanceQueueStore,
@@ -240,43 +243,224 @@ def _upsert_runtime_shared_state_from_session_event(process_id: str, event: Any,
     return shared_state_store.save(updated, expected_revision_id=current.revision_id, actor=str(event.tool or "runtime-session"), provenance={"source": "runtime_session_event", "event_kind": event.kind})
 
 
+def _runtime_event_receipt_paths(*, stores: Dict[str, Any], process_id: str, event_id: str) -> tuple[Path, Path, Path]:
+    event_digest = hashlib.sha256(f"{process_id}:{event_id}".encode("utf-8")).hexdigest()
+    process_digest = hashlib.sha256(str(process_id).encode("utf-8")).hexdigest()
+    root = Path(stores["root"]) / "session_event_inbox"
+    return root / f"{event_digest}.json", root / f"{process_digest}.lock", root / f"{process_digest}.pending.json"
+
+
+def _write_runtime_event_receipt(path: Path, receipt: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    encoded = (json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _unlink_fsynced(path: Path) -> None:
+    path.unlink()
+    directory_fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _canonical_event_identity(event: CanonicalSessionEvent) -> Dict[str, Any]:
+    return {
+        "event_id": event.event_id,
+        "process_id": event.process_id,
+        "raw_event": event.raw_event,
+        "kind": event.kind,
+        "tool": event.tool,
+        "session_id": event.session_id,
+        "session_name": event.session_name,
+        "summary": event.summary,
+        "status": event.status,
+        "payload": dict(event.payload or {}),
+    }
+
+
+def _file_tail_contains(path: Path, needle: str, *, max_bytes: int = 1_048_576) -> bool:
+    if not path.exists():
+        return False
+    with path.open("rb") as handle:
+        size = path.stat().st_size
+        handle.seek(max(0, size - max_bytes))
+        return needle.encode("utf-8") in handle.read(max_bytes)
+
+
+def _clear_runtime_event_pending(*, stores: Dict[str, Any], process_id: str, event_id: str) -> None:
+    _, lock_path, pending_path = _runtime_event_receipt_paths(stores=stores, process_id=process_id, event_id=event_id)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        pending = json.loads(pending_path.read_text(encoding="utf-8")) if pending_path.exists() else None
+        if isinstance(pending, dict) and str(pending.get("event_id") or "") == event_id:
+            _unlink_fsynced(pending_path)
+
+
 def _record_runtime_session_event(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
     process = get_runtime_process(process_id)
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
 
-    session_registry = stores["session_registry"]
-    journal = stores["journal"]
-    runtime_memory_store = stores["runtime_memory_store"]
-
-    session_registry.apply_event(event)
-    journal.append(
+    event.payload = {**dict(event.payload or {}), "canonical_event_id": event.event_id}
+    receipt_path, lock_path, pending_path = _runtime_event_receipt_paths(
+        stores=stores,
         process_id=process_id,
-        kind=event.kind,
-        actor=event.tool,
-        payload={
-            **dict(event.payload or {}),
-            "operator_summary": event.operator_summary,
-            "session_id": event.session_id,
-            "session_name": event.session_name,
-            "raw_event": event.raw_event,
-        },
+        event_id=event.event_id,
     )
-    record_runtime_event(process_id, event.kind, {**dict(event.payload or {}), "operator_summary": event.operator_summary})
-    shared_state = _upsert_runtime_shared_state_from_session_event(process_id, event, stores=stores)
-    memory_path = runtime_memory_store.write_session_event(event)
-    refreshed = get_runtime_process(process_id)
-    snapshot = _upsert_runtime_snapshot_session_state(process_id=process_id, stores=stores, process=refreshed or process)
-    follow_up = _enqueue_session_follow_up(process=refreshed or process, event=event, stores=stores)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        pending = json.loads(pending_path.read_text(encoding="utf-8")) if pending_path.exists() else None
+        if isinstance(pending, dict) and str(pending.get("event_id") or "") not in {"", event.event_id}:
+            raise RuntimeError(f"pending canonical session event must be recovered first: {pending.get('event_id')}")
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.exists() else None
+        receipt_existed = receipt is not None
+        if receipt is not None:
+            stored_event = CanonicalSessionEvent.model_validate(receipt["event"]) if hasattr(CanonicalSessionEvent, "model_validate") else CanonicalSessionEvent.parse_obj(receipt["event"])
+            if _canonical_event_identity(stored_event) != _canonical_event_identity(event):
+                raise ValueError(f"canonical event_id reuse with different payload: {event.event_id}")
+            event = stored_event
+        if pending is None:
+            _write_runtime_event_receipt(
+                pending_path,
+                {"event_id": event.event_id, "process_id": process_id, "created_at": datetime.utcnow().isoformat(timespec="milliseconds") + "Z"},
+            )
+        if receipt is None:
+            receipt = {
+                "version": "runtime-session-inbox.v1",
+                "event_id": event.event_id,
+                "process_id": process_id,
+                "status": "in_progress",
+                "event": model_dump_compat(event),
+                "projections": {},
+                "created_at": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+            }
+            _write_runtime_event_receipt(receipt_path, receipt)
+
+        projections = receipt.setdefault("projections", {})
+        session_registry = stores["session_registry"]
+        journal = stores["journal"]
+        runtime_memory_store = stores["runtime_memory_store"]
+
+        session = session_registry.get(process_id=process_id, session_id=str(event.session_id or process_id))
+        session_already_applied = bool(
+            session
+            and session.last_event_kind == event.kind
+            and session.last_event_at == event.ts
+        )
+        if not projections.get("session_registry") and not session_already_applied:
+            session = session_registry.apply_event(event)
+        else:
+            session = session or session_registry.get(process_id=process_id, session_id=str(event.session_id or process_id))
+        projections["session_registry"] = True
+        _write_runtime_event_receipt(receipt_path, receipt)
+
+        journal_events = journal.load(process_id=process_id)
+        journal_event = next(
+            (row for row in journal_events if str((row.payload or {}).get("canonical_event_id") or "") == event.event_id),
+            None,
+        )
+        if not projections.get("journal") and journal_event is None:
+            journal_event = journal.append(
+                process_id=process_id,
+                kind=event.kind,
+                actor=event.tool,
+                payload={
+                    **dict(event.payload or {}),
+                    "operator_summary": event.operator_summary,
+                    "session_id": event.session_id,
+                    "session_name": event.session_name,
+                    "raw_event": event.raw_event,
+                    "canonical_event_id": event.event_id,
+                },
+            )
+        projections["journal"] = True
+        _write_runtime_event_receipt(receipt_path, receipt)
+
+        scheduler_event_exists = any(
+            str((row.get("payload") or {}).get("canonical_event_id") or "") == event.event_id
+            for row in get_runtime_events(process_id, limit=1000)
+        )
+        if not projections.get("runtime_process") and not scheduler_event_exists:
+            record_runtime_event(
+                process_id,
+                event.kind,
+                {**dict(event.payload or {}), "operator_summary": event.operator_summary, "canonical_event_id": event.event_id},
+            )
+        projections["runtime_process"] = True
+        _write_runtime_event_receipt(receipt_path, receipt)
+
+        current_shared = stores["shared_state_store"].load(process_id)
+        shared_state = current_shared
+        if not projections.get("shared_state") and str(((current_shared.metadata if current_shared else {}) or {}).get("last_session_event_id") or "") != event.event_id:
+            shared_state = _upsert_runtime_shared_state_from_session_event(process_id, event, stores=stores)
+        projections["shared_state"] = True
+        _write_runtime_event_receipt(receipt_path, receipt)
+
+        memory_path = runtime_memory_store._session_path(process_id, str(event.session_id or process_id))
+        memory_contains_event = _file_tail_contains(memory_path, event.event_id)
+        if not projections.get("memory") and not memory_contains_event:
+            memory_path = runtime_memory_store.write_session_event(event)
+        projections["memory"] = True
+        _write_runtime_event_receipt(receipt_path, receipt)
+
+        refreshed = get_runtime_process(process_id)
+        current_snapshot = stores["snapshot_store"].load(process_id)
+        snapshot = current_snapshot
+        if not projections.get("snapshot") and str(((current_snapshot.metadata if current_snapshot else {}) or {}).get("last_session_event_id") or "") != event.event_id:
+            snapshot = _upsert_runtime_snapshot_session_state(
+                process_id=process_id,
+                stores=stores,
+                process=refreshed or process,
+                event_id=event.event_id,
+            )
+        projections["snapshot"] = True
+        _write_runtime_event_receipt(receipt_path, receipt)
+
+        follow_up_summary = str(event.summary or event.operator_summary).strip() or event.kind
+        follow_up_fingerprint = f"session:{process_id}:{event.session_id or process_id}:{event.kind}:{follow_up_summary}"
+        follow_up = stores["follow_up_store"].get_by_fingerprint(
+            process_id=process_id,
+            runtime_kind="session",
+            fingerprint=follow_up_fingerprint,
+        )
+        if follow_up is None:
+            follow_up = _enqueue_session_follow_up(process=refreshed or process, event=event, stores=stores)
+        projections["follow_up"] = True
+        receipt["status"] = "committed"
+        receipt["committed_at"] = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+        _write_runtime_event_receipt(receipt_path, receipt)
+        if pending_path.exists():
+            _unlink_fsynced(pending_path)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
     return {
         "success": True,
         "process": refreshed or process,
-        "session": (session_registry.get(process_id=process_id, session_id=str(event.session_id or process_id))),
+        "session": session,
         "shared_state": shared_state,
         "snapshot": snapshot,
         "memory_path": str(memory_path),
         "event": event,
         "follow_up_dispatch": follow_up,
+        "idempotent": receipt_existed,
     }
 
 
@@ -316,8 +500,39 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
         parent_process={"process_id": process_id, "workflow_name": workflow.get("name")},
         metadata={"bootstrapped": True},
     )
+    if session.status == "stale":
+        session = stores["session_registry"].heartbeat(
+            process_id=process_id,
+            session_id=session_id,
+            stale_after_seconds=session.stale_after_seconds,
+        )
+
+    def ensure_watcher(registration: WatchRegistration) -> Any:
+        existing = next(
+            (
+                row
+                for row in stores["watcher_store"].list(process_id=process_id)
+                if row.kind == registration.kind
+                and row.target == registration.target
+                and str(row.session_id or "") == str(registration.session_id or "")
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.enabled = True
+            existing.metadata = {**dict(existing.metadata or {}), **dict(registration.metadata or {})}
+            watcher = stores["watcher_store"].register(existing)
+        else:
+            watcher = stores["watcher_store"].register(registration)
+        stores["session_registry"].attach_watcher(
+            process_id=process_id,
+            session_id=session_id,
+            watcher_id=watcher.watch_id,
+        )
+        return watcher
+
     default_watchers: List[Dict[str, Any]] = []
-    heartbeat_watcher = stores["watcher_store"].register(
+    heartbeat_watcher = ensure_watcher(
         WatchRegistration(
             process_id=process_id,
             kind="session-heartbeat",
@@ -326,14 +541,13 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
             session_name=session_name,
             tool=tool,
             stale_after_seconds=session.stale_after_seconds,
-            metadata={"bootstrapped": True},
+            metadata={"bootstrapped": True, "canonical": True},
         )
     )
-    stores["session_registry"].attach_watcher(process_id=process_id, session_id=session_id, watcher_id=heartbeat_watcher.watch_id)
     default_watchers.append(model_dump_compat(heartbeat_watcher))
 
     for target in _runtime_workspace_targets_from_process(process):
-        watcher = stores["watcher_store"].register(
+        watcher = ensure_watcher(
             WatchRegistration(
                 process_id=process_id,
                 kind="workspace",
@@ -342,20 +556,29 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
                 session_name=session_name,
                 tool="workspace",
                 debounce_seconds=float(metadata.get("workspace_debounce_seconds") or 1.0),
-                metadata={"bootstrapped": True},
+                metadata={"bootstrapped": True, "canonical": True},
             )
         )
-        stores["session_registry"].attach_watcher(process_id=process_id, session_id=session_id, watcher_id=watcher.watch_id)
         default_watchers.append(model_dump_compat(watcher))
 
-    stores["runtime_memory_store"].write_process_note(
-        process_id=process_id,
-        title="Session plane bootstrapped",
-        note=f"bootstrapped session={session_id} tool={tool} watchers={len(default_watchers)}",
-        metadata={"session_id": session_id, "watcher_count": len(default_watchers)},
-    )
+    memory_marker = f"session-plane-bootstrap:{session_id}"
+    process_note_path = stores["runtime_memory_store"]._process_path(process_id)
+    existing_memory = process_note_path.read_text(encoding="utf-8", errors="ignore") if process_note_path.exists() else ""
+    if memory_marker not in existing_memory:
+        stores["runtime_memory_store"].write_process_note(
+            process_id=process_id,
+            title="Session plane bootstrapped",
+            note=f"{memory_marker} tool={tool} watchers={len(default_watchers)}",
+            metadata={"session_id": session_id, "watcher_count": len(default_watchers)},
+        )
 
-    event = normalize_session_event(
+    bootstrap_events = [
+        row
+        for row in stores["journal"].load(process_id=process_id, kinds=["session.started"])
+        if bool((row.payload or {}).get("bootstrapped"))
+        and str((row.payload or {}).get("session_id") or process_id) == session_id
+    ]
+    canonical_event = normalize_session_event(
         process_id,
         "session.started",
         tool=tool,
@@ -364,28 +587,37 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
         summary="runtime session plane bootstrapped",
         payload={"bootstrapped": True, "watcher_count": len(default_watchers)},
     )
-    recorded = _record_runtime_session_event(process_id=process_id, event=event, stores=stores)
+    canonical_event.event_id = f"sessevt_bootstrap_{hashlib.sha256(f'{process_id}:{session_id}'.encode('utf-8')).hexdigest()[:16]}"
+    receipt_path, _, _ = _runtime_event_receipt_paths(
+        stores=stores,
+        process_id=process_id,
+        event_id=canonical_event.event_id,
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.exists() else None
+    resume_canonical_event = isinstance(receipt, dict) and receipt.get("status") != "committed"
+    event = None
+    recorded: Dict[str, Any] = {}
+    if not bootstrap_events or resume_canonical_event:
+        event = canonical_event
+        recorded = _record_runtime_session_event(process_id=process_id, event=event, stores=stores)
+        session = recorded.get("session") or session
+    else:
+        _upsert_runtime_snapshot_session_state(process_id=process_id, stores=stores, process=process)
+        recorded = {
+            "session": stores["session_registry"].get(process_id=process_id, session_id=session_id),
+            "shared_state": stores["shared_state_store"].load(process_id),
+            "memory_path": None,
+        }
     return {
         "session": model_dump_compat(recorded.get("session")),
         "shared_state": model_dump_compat(recorded.get("shared_state")) if recorded.get("shared_state") is not None else None,
         "memory_path": recorded.get("memory_path"),
         "watchers": default_watchers,
-        "event": model_dump_compat(event),
+        "event": model_dump_compat(event) if event is not None else None,
     }
 
 
 def _ensure_runtime_session_plane_bootstrap(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
-    existing_sessions = [model_dump_compat(row) for row in stores["session_registry"].list(process_id=process_id)]
-    existing_watchers = [model_dump_compat(row) for row in stores["watcher_store"].list(process_id=process_id)]
-    if existing_sessions:
-        session = existing_sessions[0]
-        return {
-            "session": session,
-            "shared_state": model_dump_compat(stores["shared_state_store"].load(process_id)) if stores["shared_state_store"].load(process_id) is not None else None,
-            "memory_path": None,
-            "watchers": existing_watchers,
-            "event": None,
-        }
     return _bootstrap_runtime_session_plane(process_id, process=process, stores=stores)
 
 
@@ -413,7 +645,13 @@ def _snapshot_session_state(*, process: Dict[str, Any], stores: Dict[str, Any], 
     return dict(derived or {"authority": "derived", "authority_source": "process", "status": str(process.get("status") or "scheduled"), "session_id": process_id, "session_name": ((process.get("workflow") or {}).get("name") if isinstance(process.get("workflow"), dict) else None) or process_id, "tool": "cortex-runtime", "retry_count": 0, "watcher_count": len(watcher_rows), "session_count": len(session_rows), "open_questions": [], "watcher_ids": [], "sessions": session_rows, "watchers": watcher_rows})
 
 
-def _upsert_runtime_snapshot_session_state(*, process_id: str, stores: Dict[str, Any], process: Optional[Dict[str, Any]] = None) -> Optional[ProcessSnapshot]:
+def _upsert_runtime_snapshot_session_state(
+    *,
+    process_id: str,
+    stores: Dict[str, Any],
+    process: Optional[Dict[str, Any]] = None,
+    event_id: Optional[str] = None,
+) -> Optional[ProcessSnapshot]:
     snapshot_store = stores["snapshot_store"]
     snapshot = snapshot_store.load(process_id)
     current_process = process or get_runtime_process(process_id)
@@ -463,7 +701,11 @@ def _upsert_runtime_snapshot_session_state(*, process_id: str, stores: Dict[str,
             metadata={"bootstrapped_from_session_event": True},
         )
     snapshot.session_state = session_state
-    snapshot.metadata = {**dict(snapshot.metadata or {}), "session_plane": {"status": session_state.get("status"), "watcher_count": session_state.get("watcher_count"), "session_count": len(session_state.get("sessions") or [])}}
+    snapshot.metadata = {
+        **dict(snapshot.metadata or {}),
+        "session_plane": {"status": session_state.get("status"), "watcher_count": session_state.get("watcher_count"), "session_count": len(session_state.get("sessions") or [])},
+        **({"last_session_event_id": event_id} if event_id else {}),
+    }
     snapshot.world_state = {**dict(snapshot.world_state or {}), "session_status": session_state.get("status"), "session_retry_count": session_state.get("retry_count")}
     return snapshot_store.save(snapshot)
 
@@ -747,6 +989,29 @@ def _resolve_runtime_delivery_contract(
     if request.execution_budget is not None:
         payload["execution_budget"] = dict(request.execution_budget)
     payload.setdefault("dependability_profile", "24h")
+    if not payload.get("completion_criteria"):
+        target_environment = str(payload.get("target_environment") or "production").strip() or "production"
+        payload["completion_criteria"] = [
+            {
+                "criterion_id": "release-target-stage",
+                "summary": f"Release must reach {target_environment}",
+                "kind": "release_stage",
+                "stage": target_environment,
+                "metadata": {"comparison": "equals", "default_release_criterion": True},
+            },
+            {
+                "criterion_id": "release-bundle",
+                "summary": "Revision-bound release bundle must exist",
+                "kind": "artifact_present",
+                "artifact_id": f"artifact_release_bundle:{process_id}",
+            },
+            {
+                "criterion_id": "smoke-report",
+                "summary": "Canary smoke report must exist",
+                "kind": "artifact_present",
+                "artifact_id": f"artifact_smoke_report:{process_id}",
+            },
+        ]
 
     merged_metadata = dict(payload.get("metadata") or {})
     merged_metadata.update(dict(request.metadata or {}))
@@ -1845,6 +2110,7 @@ class RuntimeSessionRegisterRequest(BaseModel):
 class RuntimeSessionEventRequest(BaseModel):
     process_id: str
     event: str
+    event_id: Optional[str] = None
     session_id: Optional[str] = None
     session_name: Optional[str] = None
     tool: Optional[str] = None
@@ -1888,6 +2154,7 @@ class RuntimeToolIngestRequest(BaseModel):
     process_id: str
     tool: str
     event: str
+    event_id: Optional[str] = None
     session_id: Optional[str] = None
     session_name: Optional[str] = None
     payload: Dict[str, Any] = Field(default_factory=dict)
@@ -1904,6 +2171,11 @@ class RuntimePolicyRollbackRequest(BaseModel):
     dry_run: bool = False
     allow_confirmation_required: bool = False
     allow_intervening_revisions: bool = False
+
+
+class RuntimeDeliveryDlqActionRequest(BaseModel):
+    actor: str = "cortex"
+    reason: str = "operator_reviewed"
 
 
 class RuntimeHomeostasisControlRequest(BaseModel):
@@ -2904,6 +3176,11 @@ async def record_runtime_session_event(request: RuntimeSessionEventRequest):
         status=request.status,
         payload=request.payload,
     )
+    if request.event_id:
+        event_id = str(request.event_id).strip()
+        if not event_id:
+            raise HTTPException(status_code=422, detail="event_id must be non-empty when supplied")
+        event.event_id = event_id
     delivery = resilient_delivery_attempt(
         "runtime_session_event_ingest",
         lambda: _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores),
@@ -3042,6 +3319,11 @@ async def ingest_runtime_tool_event(request: RuntimeToolIngestRequest):
         session_name=request.session_name,
         payload=request.payload,
     )
+    if request.event_id:
+        event_id = str(request.event_id).strip()
+        if not event_id:
+            raise HTTPException(status_code=422, detail="event_id must be non-empty when supplied")
+        event.event_id = event_id
     delivery = resilient_delivery_attempt(
         "runtime_tool_event_ingest",
         lambda: _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores),
@@ -3065,10 +3347,93 @@ async def ingest_runtime_tool_event(request: RuntimeToolIngestRequest):
     }
 
 
+def _runtime_delivery_dlq_ack_path(stores: Dict[str, Any]) -> Path:
+    return Path(stores["root"]) / "delivery_dlq_acknowledgements.json"
+
+
+def _load_runtime_delivery_dlq_acks(stores: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    path = _runtime_delivery_dlq_ack_path(stores)
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {str(key): dict(value) for key, value in data.items() if isinstance(value, dict)} if isinstance(data, dict) else {}
+
+
+def _ack_runtime_delivery_dlq(*, stores: Dict[str, Any], entry_id: str, actor: str, reason: str, replayed: bool) -> Dict[str, Any]:
+    ack_path = _runtime_delivery_dlq_ack_path(stores)
+    lock_path = ack_path.with_suffix(ack_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        acknowledgements = _load_runtime_delivery_dlq_acks(stores)
+        record = acknowledgements.get(entry_id) or {
+            "entry_id": entry_id,
+            "acknowledged_at": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+            "actor": str(actor or "cortex").strip() or "cortex",
+            "reason": str(reason or "operator_reviewed").strip() or "operator_reviewed",
+            "replayed": bool(replayed),
+        }
+        acknowledgements[entry_id] = record
+        _write_runtime_event_receipt(ack_path, acknowledgements)
+        return record
+
+
 @router.get("/runtime/delivery/dlq")
 async def get_runtime_delivery_dlq(dependency: Optional[str] = None):
     stores = _runtime_delivery_stores()
-    return {"success": True, "entries": [model_dump_compat(row) for row in stores["delivery_dlq"].list(dependency=dependency)]}
+    acknowledgements = _load_runtime_delivery_dlq_acks(stores)
+    entries = [model_dump_compat(row) for row in stores["delivery_dlq"].list(dependency=dependency)]
+    return {
+        "success": True,
+        "entries": [row for row in entries if row["entry_id"] not in acknowledgements],
+        "acknowledged": [acknowledgements[row["entry_id"]] for row in entries if row["entry_id"] in acknowledgements],
+    }
+
+
+@router.post("/runtime/delivery/dlq/{entry_id}/replay")
+async def replay_runtime_delivery_dlq(entry_id: str, request: Optional[RuntimeDeliveryDlqActionRequest] = None):
+    request = request or RuntimeDeliveryDlqActionRequest(reason="operator_replay")
+    stores = _runtime_delivery_stores()
+    entry = next((row for row in stores["delivery_dlq"].list() if row.entry_id == entry_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Runtime delivery DLQ entry '{entry_id}' not found")
+    if entry.dependency not in {"runtime_session_event_ingest", "runtime_tool_event_ingest"}:
+        raise HTTPException(status_code=409, detail=f"DLQ dependency '{entry.dependency}' is not replayable by the session projection inbox")
+    event = CanonicalSessionEvent.model_validate(entry.payload) if hasattr(CanonicalSessionEvent, "model_validate") else CanonicalSessionEvent.parse_obj(entry.payload)
+    result = _record_runtime_session_event(process_id=event.process_id, event=event, stores=stores)
+    acknowledgement = _ack_runtime_delivery_dlq(
+        stores=stores,
+        entry_id=entry.entry_id,
+        actor=request.actor,
+        reason=request.reason,
+        replayed=True,
+    )
+    return {"success": True, "entry_id": entry.entry_id, "event": model_dump_compat(result["event"]), "acknowledgement": acknowledgement}
+
+
+@router.post("/runtime/delivery/dlq/{entry_id}/acknowledge")
+async def acknowledge_runtime_delivery_dlq(entry_id: str, request: Optional[RuntimeDeliveryDlqActionRequest] = None):
+    request = request or RuntimeDeliveryDlqActionRequest()
+    stores = _runtime_delivery_stores()
+    entry = next((row for row in stores["delivery_dlq"].list() if row.entry_id == entry_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Runtime delivery DLQ entry '{entry_id}' not found")
+    acknowledgement = _ack_runtime_delivery_dlq(
+        stores=stores,
+        entry_id=entry_id,
+        actor=request.actor,
+        reason=request.reason,
+        replayed=False,
+    )
+    canonical_event_id = str((entry.payload or {}).get("event_id") or "").strip()
+    canonical_process_id = str(entry.process_id or (entry.payload or {}).get("process_id") or "").strip()
+    if canonical_event_id and canonical_process_id:
+        _clear_runtime_event_pending(
+            stores=stores,
+            process_id=canonical_process_id,
+            event_id=canonical_event_id,
+        )
+    return {"success": True, "entry_id": entry_id, "acknowledgement": acknowledgement}
 
 
 async def explain_runtime_process(process_id: str):
@@ -3186,6 +3551,7 @@ async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDe
         shared_state_store=stores["shared_state_store"],
         release_store=stores["release_store"],
         journal=stores["journal"],
+        session_registry=stores["session_registry"],
         stage=request.stage,
         fencepost_id=request.fencepost_id,
         actor=request.actor,

@@ -26,8 +26,9 @@ def _client(monkeypatch):
 def test_nexus_orchestrate_surfaces_kernel_trace_and_runtime_scoped_status(monkeypatch):
     client = _client(monkeypatch)
 
-    response = client.get(
+    response = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "Plan the runtime compiler rollout and benchmark strategy."},
         headers={"x-session-id": "nexus-kernel-trace"},
     )

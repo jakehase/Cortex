@@ -12,6 +12,7 @@ import httpx
 import re
 
 from cortex_server.modules.route_health import ROUTE_HEALTH
+from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
 
 router = APIRouter()
 
@@ -112,7 +113,11 @@ async def _index_memory_best_effort(text: str, metadata: Dict[str, Any]) -> None
         async with httpx.AsyncClient(timeout=6.0) as client:
             await client.post(
                 "http://localhost:8888/librarian/embed",
-                json={"text": _clip(text, 1200), "metadata": metadata},
+                json={
+                    "text": _clip(text, 1200),
+                    "metadata": metadata,
+                    **authenticated_memory_scope_fields(),
+                },
             )
     except Exception:
         pass

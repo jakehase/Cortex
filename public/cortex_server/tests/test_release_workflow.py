@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
+
 from cortex_server.runtime import (
     ReleaseWorkflowState,
     RuntimeSoakHarness,
@@ -14,7 +16,9 @@ from cortex_server.runtime import (
     record_release_handoff,
     repair_release_workflow,
     rollback_release_workflow,
+    normalize_session_event,
 )
+from cortex_server.runtime.session_registry import SessionRegistryStore
 from cortex_server.runtime.shared_process_state import SharedProcessState
 
 
@@ -57,7 +61,7 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
     )
     harness.mailbox.receive(to_agent="verifier", process_id="proc_release_history", expected_revision_id="rev_1", reject_stale_revision=True)
     acked = harness.mailbox.acknowledge(message.message_id)
-    state = record_release_handoff(state, acked, stage="build_verified")
+    state = record_release_handoff(state, acked, stage="canary_verified")
 
     fencepost = capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified")
     state = record_release_fencepost(state, fencepost)
@@ -122,8 +126,99 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
     assert rolled["restore_state"]["waiting_steps"] == ["build"]
 
 
+def test_release_gate_rejects_ack_from_obsolete_candidate_even_on_current_revision(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(process_id="proc_stale_candidate", revision_id="rev_1", node_id="build", agent_id="builder")
+    state = ReleaseWorkflowState(
+        process_id="proc_stale_candidate",
+        candidate_ref="build:new",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    message = harness.mailbox.send(
+        process_id=state.process_id,
+        from_agent="verifier",
+        to_agent="release-manager",
+        kind="handoff",
+        revision_id="rev_1",
+        payload={"objective": "promote obsolete candidate"},
+        metadata={"release_id": state.release_id, "candidate_ref": "build:old", "target_stage": "production"},
+    )
+    harness.mailbox.receive(to_agent="release-manager", process_id=state.process_id, expected_revision_id="rev_1")
+    acknowledged = harness.mailbox.acknowledge(message.message_id)
+    state = record_release_handoff(state, acknowledged, stage="production")
 
-def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fenceposts(tmp_path):
+    gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        target_stage="production",
+        mailbox_messages=harness.mailbox.list(process_id=state.process_id),
+        dependability_report={"success": True},
+        required_handoff_count=1,
+    )
+
+    assert gate["safe_push"] is False
+    assert gate["checks"]["handoff_bindings_current"] is True
+    assert gate["checks"]["handoff_receipts_ok"] is False
+    assert gate["counts"]["stale_handoff_record_count"] == 1
+
+
+def test_release_gate_ignores_stale_handoff_history_after_current_ack(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(
+        process_id="proc_handoff_history",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id="proc_handoff_history",
+        candidate_ref="build:new",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    for candidate in ("build:old", "build:new"):
+        message = harness.mailbox.send(
+            process_id=state.process_id,
+            from_agent="verifier",
+            to_agent="release-manager",
+            kind="handoff",
+            revision_id="rev_1",
+            payload={"objective": "promote candidate"},
+            metadata={"release_id": state.release_id, "candidate_ref": candidate, "target_stage": "production"},
+        )
+        harness.mailbox.receive(
+            to_agent="release-manager",
+            process_id=state.process_id,
+            expected_revision_id="rev_1",
+        )
+        state = record_release_handoff(
+            state,
+            harness.mailbox.acknowledge(message.message_id),
+            stage="production",
+        )
+
+    gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        target_stage="production",
+        mailbox_messages=harness.mailbox.list(process_id=state.process_id),
+        dependability_report={"success": True},
+        required_handoff_count=1,
+    )
+
+    assert gate["safe_push"] is True
+    assert gate["checks"]["handoff_receipts_ok"] is True
+    assert gate["checks"]["handoff_bindings_current"] is True
+    assert gate["counts"]["stale_handoff_record_count"] == 1
+
+
+
+def test_release_repair_requeues_handoff_but_never_fabricates_missing_fenceposts(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     seeded = harness._seed_waiting_process(process_id="proc_release_repair", revision_id="rev_1", node_id="build", agent_id="builder")
     snapshot = seeded["snapshot"]
@@ -195,7 +290,7 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
         reject_stale_revision=True,
     )
     dead_letter = next(row for row in harness.mailbox.list(process_id="proc_release_repair") if row.message_id == stale_message.message_id)
-    state = record_release_handoff(state, dead_letter, stage="canary_verified")
+    state = record_release_handoff(state, dead_letter, stage="production")
 
     stale_lease = harness.supervisor.assign(process_id="proc_release_repair", scope="release_promote", agent_id="release-manager", lease_seconds=1)
     harness.supervisor.reclaim_stale(now=harness.clock_fn() + timedelta(seconds=10))
@@ -209,7 +304,7 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
         leases=harness.supervisor.list(process_id="proc_release_repair"),
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified", "canary_verified"],
-        required_handoff_count=2,
+        required_handoff_count=1,
     )
     repaired = repair_release_workflow(
         state,
@@ -220,7 +315,7 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
         gate=gate_before,
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified", "canary_verified"],
-        required_handoff_count=2,
+        required_handoff_count=1,
     )
 
     action_names = [row["action"] for row in repaired["actions_taken"]]
@@ -228,14 +323,19 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
 
     assert stale_lease.lease_id is not None
     assert gate_before["safe_push"] is False
-    assert repaired["success"] is True
-    assert repaired["gate_after"]["safe_push"] is True
+    assert gate_before["checks"]["handoff_bindings_current"] is True
+    assert repaired["success"] is False
+    assert repaired["gate_after"]["safe_push"] is False
+    assert repaired["gate_after"]["checks"]["handoff_bindings_current"] is True
+    assert repaired["gate_after"]["checks"]["handoff_receipts_ok"] is False
     assert repaired["state"].revision_id == "rev_2"
     assert "refresh_release_revision" in action_names
     assert "recover_handoff_messages" in action_names
     assert "resolve_stale_leases" in action_names
-    assert "capture_missing_fenceposts" in action_names
-    assert all(row.delivery_status == "acked" for row in final_messages)
+    assert "missing_historical_fenceposts" in action_names
+    assert "capture_missing_fenceposts" not in action_names
+    assert not any(row.stage == "canary_verified" for row in repaired["state"].rollback_fenceposts)
+    assert any(row.delivery_status == "queued" for row in final_messages)
 
 
 
@@ -357,3 +457,108 @@ def test_apply_release_rollback_restore_rehydrates_runtime_state_and_audit_trail
     assert latest_snapshot.metadata["rollback_fencepost_id"] == restored["fencepost"]["fencepost_id"]
     assert latest_shared.revision_id == restored["state"].revision_id
     assert latest_event.kind == "release_rolled_back"
+
+
+def test_release_rollback_restores_authoritative_session_state_and_registry(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_session_rollback"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    registry = SessionRegistryStore(tmp_path / "sessions.json")
+    registry.register(process_id=process_id, session_id="sess-1", session_name="release worker", tool="codex")
+    registry.apply_event(normalize_session_event(process_id, "blocked", session_id="sess-1", summary="awaiting canary"))
+    captured_session = registry.apply_event(normalize_session_event(process_id, "retry-needed", session_id="sess-1", summary="retry canary"))
+    seeded["snapshot"].session_state = {
+        "authority": "derived",
+        "status": captured_session.status,
+        "retry_count": captured_session.retry_count,
+        "open_questions": list(captured_session.open_questions),
+        "sessions": [captured_session.model_dump()],
+        "watchers": [],
+    }
+    harness.snapshot_store.save(seeded["snapshot"])
+
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:session-rollback",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(snapshot=seeded["snapshot"], shared_state=seeded["shared_state"], stage="build_verified"),
+    )
+    harness.release_store.save(state)
+
+    registry.apply_event(normalize_session_event(process_id, "retry-needed", session_id="sess-1", summary="retry canary"))
+    restored = apply_release_rollback_restore(
+        state,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        session_registry=registry,
+        stage="build_verified",
+    )
+
+    restored_session = registry.get(process_id=process_id, session_id="sess-1")
+    assert restored["snapshot"].session_state == seeded["snapshot"].session_state
+    assert restored_session.status == "retry-needed"
+    assert restored_session.retry_count == 1
+    assert restored_session.open_questions == ["awaiting canary"]
+
+
+def test_release_rollback_recovers_from_partial_commit_without_duplicate_event(tmp_path, monkeypatch):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_transaction_recovery"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:transaction-recovery",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(snapshot=seeded["snapshot"], shared_state=seeded["shared_state"], stage="build_verified"),
+    )
+    harness.release_store.save(state)
+
+    original_save = harness.snapshot_store.save
+    failures = {"remaining": 1}
+
+    def fail_once(snapshot):
+        if failures["remaining"]:
+            failures["remaining"] -= 1
+            raise OSError("snapshot disk unavailable")
+        return original_save(snapshot)
+
+    monkeypatch.setattr(harness.snapshot_store, "save", fail_once)
+    with pytest.raises(OSError, match="snapshot disk unavailable"):
+        apply_release_rollback_restore(
+            state,
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            release_store=harness.release_store,
+            journal=harness.journal,
+            stage="build_verified",
+        )
+
+    pending_intent = harness.release_store.load_rollback_intent(process_id)
+    assert pending_intent["status"] == "recovery_required"
+    assert harness.shared_state_store.load(process_id).revision_id == "rev_1.rollback"
+
+    recovered = apply_release_rollback_restore(
+        state,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+    )
+    rollback_events = harness.journal.load(process_id=process_id, kinds=["release_rolled_back"])
+
+    assert recovered["applied"] is True
+    assert recovered["rollback_transaction"]["status"] == "committed"
+    assert len(rollback_events) == 1

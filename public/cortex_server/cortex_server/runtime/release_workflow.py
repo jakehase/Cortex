@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import fcntl
+import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -14,10 +17,39 @@ from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffCo
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
+from cortex_server.runtime.session_registry import SessionRecord
 from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore
 
 
 JsonDict = Dict[str, Any]
+
+
+def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _append_fsynced_jsonl(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 
@@ -262,9 +294,42 @@ class ReleaseWorkflowStore:
 
     def _append_history(self, record: ReleaseWorkflowHistoryRecord) -> None:
         target = self._history_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_history_dump_compat(record), sort_keys=True) + "\n")
+        _append_fsynced_jsonl(target, _history_dump_compat(record))
+
+    def _rollback_intent_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.rollback-intent.json")
+
+    def _rollback_lock_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.rollback.lock")
+
+    @contextmanager
+    def rollback_transaction(self, process_id: str):
+        lock_target = self._rollback_lock_target(process_id)
+        lock_target.parent.mkdir(parents=True, exist_ok=True)
+        with lock_target.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def load_rollback_intent(self, process_id: str) -> Optional[Dict[str, Any]]:
+        target = self._rollback_intent_target(process_id)
+        if not target.exists():
+            return None
+        data = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"invalid rollback intent for {process_id}")
+        return data
+
+    def save_rollback_intent(self, process_id: str, intent: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(intent)
+        payload["process_id"] = process_id
+        payload["updated_at"] = _now_iso()
+        _atomic_write_json(self._rollback_intent_target(process_id), payload)
+        return payload
 
     def load(self, process_id: Optional[str] = None) -> Optional[ReleaseWorkflowState]:
         target = self._target(process_id)
@@ -295,8 +360,7 @@ class ReleaseWorkflowStore:
         record = state if isinstance(state, ReleaseWorkflowState) else _workflow_validate_compat(dict(state))
         current = self.load(record.process_id)
         target = self._target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_workflow_dump_compat(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        _atomic_write_json(target, _workflow_dump_compat(record))
         self._append_history(
             ReleaseWorkflowHistoryRecord(
                 process_id=record.process_id,
@@ -339,9 +403,15 @@ def capture_release_rollback_fencepost(
         "failed_steps": list(snapshot.failed_steps),
         "assigned_agents": dict(snapshot.assigned_agents),
         "runtime_policy": dict(snapshot.runtime_policy),
+        "session_state": dict(snapshot.session_state),
+        "goals": list(shared_state.goals),
+        "open_decisions": [row.model_dump() if hasattr(row, "model_dump") else row.dict() for row in shared_state.open_decisions],
         "runtime_constraints": dict(shared_state.runtime_constraints),
         "world_state": {**dict(snapshot.world_state), **dict(shared_state.world_state)},
         "belief_refs": _dedupe_rows(list(snapshot.belief_refs) + list(shared_state.belief_refs)),
+        "open_questions": list(shared_state.open_questions),
+        "agent_ownership": dict(shared_state.agent_ownership),
+        "operator_overrides": dict(shared_state.operator_overrides),
         "artifact_refs": _dedupe_rows(list(snapshot.artifact_refs)),
         "metadata": {
             **dict(snapshot.metadata),
@@ -386,14 +456,17 @@ def record_release_handoff(
 ) -> ReleaseWorkflowState:
     if message.process_id != state.process_id:
         raise ValueError("message process_id must match release workflow state")
+    message_metadata = dict(message.metadata or {})
     record = {
         "message_id": message.message_id,
         "handoff_id": message.handoff_id,
-        "stage": str(stage or state.current_stage).strip() or state.current_stage,
+        "stage": str(message_metadata.get("target_stage") or stage or state.current_stage).strip() or state.current_stage,
         "from_agent": message.from_agent,
         "to_agent": message.to_agent,
         "delivery_status": message.delivery_status,
         "revision_id": message.revision_id,
+        "release_id": str(message_metadata.get("release_id") or state.release_id).strip(),
+        "candidate_ref": str(message_metadata.get("candidate_ref") or state.candidate_ref).strip(),
         "created_at": message.created_at,
         "acked_at": message.acked_at,
         "dead_lettered_at": message.dead_lettered_at,
@@ -503,22 +576,34 @@ def evaluate_release_promotion_gate(
     allowed_lifecycle = _dedupe_rows(list(allowed_lifecycle_states or ["waiting", "completed"]))
     allowed_agents = set(_dedupe_rows(list(allowed_active_agents or [])))
 
+    target_records = [
+        row
+        for row in (state.handoff_records or [])
+        if str(row.get("stage") or "").strip() == target
+    ]
+    current_handoff_records = [
+        row
+        for row in target_records
+        if str(row.get("revision_id") or "").strip() == shared_state.revision_id
+        and str(row.get("release_id") or "").strip() == state.release_id
+        and str(row.get("candidate_ref") or "").strip() == state.candidate_ref
+    ]
     tracked_message_ids = {
         str(row.get("message_id") or "").strip()
-        for row in (state.handoff_records or [])
+        for row in current_handoff_records
         if str(row.get("message_id") or "").strip()
     }
     relevant_messages = [
         row
         for row in (mailbox_messages or [])
-        if row.process_id == state.process_id and (not tracked_message_ids or row.message_id in tracked_message_ids)
+        if row.process_id == state.process_id and row.message_id in tracked_message_ids
     ]
     acked_messages = [row for row in relevant_messages if row.delivery_status == "acked"]
     dead_letter_messages = [row for row in relevant_messages if row.delivery_status == "dead_letter"]
     stale_handoff_records = [
         row
-        for row in (state.handoff_records or [])
-        if row.get("revision_id") is not None and str(row.get("revision_id") or "").strip() != shared_state.revision_id
+        for row in target_records
+        if row not in current_handoff_records
     ]
 
     process_leases = [row for row in (leases or []) if row.process_id == state.process_id]
@@ -541,6 +626,10 @@ def evaluate_release_promotion_gate(
         "lifecycle_ready": snapshot.lifecycle_state in allowed_lifecycle,
         "dependability_ok": dependability_success,
         "handoff_receipts_ok": len(acked_messages) >= int(required_handoff_count or 0),
+        # Only current, fully bound handoffs enter tracked_message_ids and can
+        # satisfy handoff_receipts_ok. Historical stale records remain audit
+        # evidence but do not permanently poison a later valid promotion.
+        "handoff_bindings_current": True,
         "dead_letters_clear": len(dead_letter_messages) == 0,
         "lease_health_ok": len(stale_leases) == 0,
         "active_leases_safe": len(unexpected_active_leases) == 0,
@@ -643,7 +732,7 @@ def evaluate_release_promotion_gate(
         "allowed_lifecycle_states": allowed_lifecycle,
         "require_dependability": bool(require_dependability),
         "counts": {
-            "tracked_handoff_count": len(tracked_message_ids) or len(relevant_messages),
+            "tracked_handoff_count": len(tracked_message_ids),
             "acked_handoff_count": len(acked_messages),
             "dead_letter_count": len(dead_letter_messages),
             "active_lease_count": len(active_leases),
@@ -814,14 +903,14 @@ def compile_release_repair_plan(state: ReleaseWorkflowState, gate: JsonDict) -> 
 
     if not checks.get("revision_aligned", True):
         _add("revision_aligned", "refresh_release_revision", "align the release workflow revision with the shared process head")
-    if not checks.get("handoff_receipts_ok", True) or not checks.get("dead_letters_clear", True):
-        _add("handoff_receipts_ok", "recover_handoff_messages", "requeue stale or dead-letter handoffs, then acknowledge delivery on the current revision")
+    if not checks.get("handoff_receipts_ok", True) or not checks.get("dead_letters_clear", True) or not checks.get("handoff_bindings_current", True):
+        _add("handoff_receipts_ok", "recover_handoff_messages", "requeue stale or dead-letter handoffs for recipient verification on the current revision")
     if not checks.get("lease_health_ok", True):
         _add("lease_health_ok", "resolve_stale_leases", "reclaim stale leases and release them before promotion")
     if not checks.get("active_leases_safe", True):
         _add("active_leases_safe", "manual_scope_drain", "drain or explicitly allow active leases before promoting the release")
     if not checks.get("fenceposts_ready", True):
-        _add("fenceposts_ready", "capture_missing_fenceposts", "capture release rollback fenceposts before any safe push")
+        _add("fenceposts_ready", "restore_archived_fenceposts", "restore revision-matched fenceposts captured when each required stage was reached")
     if not checks.get("artifacts_ready", True):
         _add("artifacts_ready", "regenerate_release_artifacts", "regenerate missing build or smoke-test artifacts before promotion")
     if not checks.get("dependability_ok", True):
@@ -898,12 +987,11 @@ def repair_release_workflow(
     tracked_ids = {
         str(row.get("message_id") or "").strip()
         for row in updated_state.handoff_records
-        if str(row.get("message_id") or "").strip()
+        if str(row.get("message_id") or "").strip() and str(row.get("stage") or "").strip() == stage_target
     }
-    relevant_messages = [row for row in relevant_messages if not tracked_ids or row.message_id in tracked_ids]
+    relevant_messages = [row for row in relevant_messages if row.message_id in tracked_ids]
 
     recovered_ids: List[str] = []
-    acked_ids: List[str] = []
     for row in relevant_messages:
         if row.delivery_status == "dead_letter":
             recovered = mailbox.recover_dead_letter(
@@ -913,29 +1001,15 @@ def repair_release_workflow(
             )
             recovered_ids.append(recovered.message_id)
             row = recovered
-        if row.delivery_status in {"queued", "inflight"} and row.to_agent:
-            accepted = mailbox.receive(
-                to_agent=row.to_agent,
-                process_id=state.process_id,
-                include_inflight=True,
-                expected_revision_id=shared_state.revision_id,
-                reject_stale_revision=True,
-            )
-            accepted_ids = {accepted_row.message_id for accepted_row in accepted}
-            if row.message_id in accepted_ids:
-                acked = mailbox.acknowledge(row.message_id)
-                acked_ids.append(acked.message_id)
-                row = acked
         latest_messages = {msg.message_id: msg for msg in mailbox.list(process_id=state.process_id)}
         latest = latest_messages.get(row.message_id)
         if latest is not None:
-            updated_state = record_release_handoff(updated_state, latest)
-    if recovered_ids or acked_ids:
+            updated_state = record_release_handoff(updated_state, latest, stage=stage_target, notes="requeued for recipient verification")
+    if recovered_ids:
         actions_taken.append(
             {
                 "action": "recover_handoff_messages",
                 "recovered_ids": recovered_ids,
-                "acked_ids": acked_ids,
             }
         )
 
@@ -956,21 +1030,11 @@ def repair_release_workflow(
 
     missing_fenceposts = list(active_gate.get("missing_fenceposts") or [])
     if missing_fenceposts:
-        captured: List[str] = []
-        for stage_name in missing_fenceposts:
-            fencepost = capture_release_rollback_fencepost(
-                snapshot=snapshot,
-                shared_state=shared_state,
-                stage=stage_name,
-                metadata={"recovered_fencepost": True, "target_stage": stage_target},
-            )
-            updated_state = record_release_fencepost(updated_state, fencepost)
-            captured.append(fencepost.fencepost_id)
         actions_taken.append(
             {
-                "action": "capture_missing_fenceposts",
-                "fencepost_ids": captured,
+                "action": "missing_historical_fenceposts",
                 "stages": missing_fenceposts,
+                "blocking": True,
             }
         )
 
@@ -1005,6 +1069,19 @@ def repair_release_workflow(
 
 
 
+def _restore_release_session_registry(session_registry: Any, *, process_id: str, session_state: Dict[str, Any]) -> None:
+    if session_registry is None or "sessions" not in session_state:
+        return
+    restored_rows = []
+    for row in session_state.get("sessions") or []:
+        if not isinstance(row, dict) or str(row.get("process_id") or "").strip() != process_id:
+            continue
+        restored_rows.append(SessionRecord.model_validate(row) if hasattr(SessionRecord, "model_validate") else SessionRecord.parse_obj(row))
+    with session_registry._transaction():
+        retained = [row for row in session_registry._load_all() if row.process_id != process_id]
+        session_registry._write_all(retained + restored_rows)
+
+
 def apply_release_rollback_restore(
     state: ReleaseWorkflowState,
     *,
@@ -1012,160 +1089,234 @@ def apply_release_rollback_restore(
     shared_state_store: SharedProcessStateStore,
     release_store: Optional[ReleaseWorkflowStore] = None,
     journal: Optional[ProcessJournal] = None,
+    session_registry: Any = None,
     stage: Optional[str] = None,
     fencepost_id: Optional[str] = None,
     actor: Optional[str] = None,
     reason: str = "rollback",
     new_revision_id: Optional[str] = None,
 ) -> JsonDict:
-    rolled = rollback_release_workflow(state, stage=stage, fencepost_id=fencepost_id, reason=reason)
-    restore_state = dict(rolled.get("restore_state") or {})
-    target_fencepost = rolled.get("fencepost")
-    target_fencepost_id = (
-        target_fencepost.fencepost_id
-        if isinstance(target_fencepost, ReleaseRollbackFencepost)
-        else str(target_fencepost.get("fencepost_id") or "").strip()
-        if isinstance(target_fencepost, dict)
-        else None
-    )
-    target_fencepost_metadata = (
-        dict(target_fencepost.metadata)
-        if isinstance(target_fencepost, ReleaseRollbackFencepost)
-        else dict(target_fencepost.get("metadata") or {})
-        if isinstance(target_fencepost, dict)
-        else {}
-    )
-    target_revision_id = str(
-        restore_state.get("shared_state_revision_id")
-        or (target_fencepost.shared_state_revision_id if isinstance(target_fencepost, ReleaseRollbackFencepost) else "")
-    ).strip()
-    if not target_revision_id:
-        raise ValueError("rollback fencepost missing shared_state_revision_id")
-
-    current_shared = shared_state_store.load(state.process_id)
-    rollback_revision_id = str(new_revision_id or f"{target_revision_id}.rollback").strip()
-    provenance = {
-        "release_id": state.release_id,
-        "rollback": True,
-        "fencepost_id": target_fencepost_id,
-        "reason": str(reason or "rollback").strip() or "rollback",
-    }
-    try:
-        restored_shared = shared_state_store.rollback(
-            process_id=state.process_id,
-            to_revision_id=target_revision_id,
-            actor=actor,
-            reason=reason,
-            new_revision_id=rollback_revision_id,
-            provenance=provenance,
+    transaction_store = release_store or ReleaseWorkflowStore(Path(snapshot_store.path).parent / "rollback_transactions")
+    normalized_reason = str(reason or "rollback").strip() or "rollback"
+    with transaction_store.rollback_transaction(state.process_id):
+        intent = transaction_store.load_rollback_intent(state.process_id)
+        resumable = bool(
+            intent
+            and intent.get("status") in {"in_progress", "recovery_required"}
+            and intent.get("release_id") == state.release_id
         )
-    except KeyError:
-        fallback_world_state = dict(restore_state.get("world_state") or {})
-        fallback_runtime_constraints = dict(restore_state.get("runtime_constraints") or {})
-        fallback_beliefs = _dedupe_rows([str(row) for row in (restore_state.get("belief_refs") or [])])
-        restored_shared = shared_state_store.save(
-            SharedProcessState(
-                process_id=state.process_id,
-                revision_id=rollback_revision_id,
-                goals=list(current_shared.goals) if current_shared else [],
-                active_plan_node_ids=_dedupe_rows(
-                    [str(row) for row in (restore_state.get("active_steps") or [])]
-                    + [str(row) for row in (restore_state.get("waiting_steps") or [])]
-                ),
-                open_decisions=list(current_shared.open_decisions) if current_shared else [],
-                runtime_constraints=fallback_runtime_constraints or (dict(current_shared.runtime_constraints) if current_shared else {}),
-                world_state=fallback_world_state or (dict(current_shared.world_state) if current_shared else {}),
-                belief_refs=fallback_beliefs or (list(current_shared.belief_refs) if current_shared else []),
-                open_questions=list(current_shared.open_questions) if current_shared else [],
-                agent_ownership=dict(restore_state.get("assigned_agents") or (dict(current_shared.agent_ownership) if current_shared else {})),
-                operator_overrides=dict(current_shared.operator_overrides) if current_shared else {},
-                metadata={
-                    **(dict(current_shared.metadata) if current_shared else {}),
-                    "rollback_from_revision_id": current_shared.revision_id if current_shared else None,
-                    "rollback_to_revision_id": target_revision_id,
-                    "rollback_reason": str(reason or "rollback").strip() or "rollback",
+        if resumable:
+            rolled_state = _workflow_validate_compat(dict(intent["rolled_state"]))
+            target_fencepost = dict(intent["fencepost"])
+            restore_state = dict(intent["restore_state"])
+        else:
+            rolled = rollback_release_workflow(state, stage=stage, fencepost_id=fencepost_id, reason=normalized_reason)
+            rolled_state = rolled["state"]
+            target_fencepost = dict(rolled["fencepost"])
+            restore_state = dict(rolled.get("restore_state") or {})
+            transaction_id = f"rollback_{uuid4().hex[:16]}"
+            target_revision = str(restore_state.get("shared_state_revision_id") or target_fencepost.get("shared_state_revision_id") or "").strip()
+            if not target_revision:
+                raise ValueError("rollback fencepost missing shared_state_revision_id")
+            intent = transaction_store.save_rollback_intent(
+                state.process_id,
+                {
+                    "transaction_id": transaction_id,
+                    "status": "in_progress",
+                    "phase": "planned",
+                    "release_id": state.release_id,
+                    "source_stage": state.current_stage,
+                    "source_revision_id": state.revision_id,
+                    "target_revision_id": target_revision,
+                    "rollback_revision_id": str(new_revision_id or f"{target_revision}.rollback").strip(),
+                    "rollback_event_id": f"evt_{transaction_id}",
+                    "rollback_snapshot_id": f"snap_{transaction_id}",
+                    "reason": normalized_reason,
+                    "actor": str(actor or "").strip() or None,
+                    "rolled_state": _workflow_dump_compat(rolled_state),
+                    "fencepost": target_fencepost,
+                    "restore_state": restore_state,
                 },
-            ),
-            expected_revision_id=current_shared.revision_id if current_shared else None,
-            actor=actor,
-            provenance=provenance,
-        )
+            )
 
-    current_snapshot = snapshot_store.load(state.process_id)
-    latest_event = journal.latest(process_id=state.process_id) if journal else None
-    rollback_event = (
-        journal.append(
-            process_id=state.process_id,
-            kind="release_rolled_back",
-            revision_id=restored_shared.revision_id,
-            actor=str(actor or "").strip() or None,
-            causal_parent_ids=[latest_event.event_id] if latest_event else [],
-            payload={
-                "release_id": state.release_id,
-                "from_stage": state.current_stage,
-                "to_stage": rolled["state"].current_stage,
-                "fencepost_id": target_fencepost_id,
-                "reason": str(reason or "rollback").strip() or "rollback",
-            },
-        )
-        if journal
-        else None
-    )
-    restored_snapshot = snapshot_store.save(
-        ProcessSnapshot(
-            process_id=state.process_id,
-            last_event_id=rollback_event.event_id if rollback_event else restore_state.get("last_event_id"),
-            event_count=max(int(current_snapshot.event_count or 0) if current_snapshot else 0, int(target_fencepost_metadata.get("snapshot_event_count", 0) or 0))
-            + (1 if rollback_event else 0),
-            lifecycle_state=str(restore_state.get("lifecycle_state") or (current_snapshot.lifecycle_state if current_snapshot else "waiting") or "waiting"),
-            active_steps=[str(row) for row in (restore_state.get("active_steps") or []) if str(row).strip()],
-            waiting_steps=[str(row) for row in (restore_state.get("waiting_steps") or []) if str(row).strip()],
-            completed_steps=[str(row) for row in (restore_state.get("completed_steps") or []) if str(row).strip()],
-            failed_steps=[str(row) for row in (restore_state.get("failed_steps") or []) if str(row).strip()],
-            assigned_agents=dict(restore_state.get("assigned_agents") or {}),
-            runtime_policy=dict(restore_state.get("runtime_policy") or (dict(current_snapshot.runtime_policy) if current_snapshot else {})),
-            world_state={**dict(restore_state.get("world_state") or {}), **dict(restored_shared.world_state)},
-            belief_refs=_dedupe_rows([str(row) for row in (restore_state.get("belief_refs") or [])] + list(restored_shared.belief_refs)),
-            artifact_refs=[str(row) for row in (restore_state.get("artifact_refs") or []) if str(row).strip()],
-            metadata={
-                **(dict(current_snapshot.metadata) if current_snapshot else {}),
-                **dict(restore_state.get("metadata") or {}),
-                "rollback_applied": True,
-                "rollback_reason": str(reason or "rollback").strip() or "rollback",
-                "rollback_fencepost_id": target_fencepost_id,
-                "rollback_revision_id": restored_shared.revision_id,
-            },
-        )
-    )
-    applied_state = _copy_state(
-        rolled["state"],
-        revision_id=restored_shared.revision_id,
-        metadata={
-            **dict(rolled["state"].metadata or {}),
-            "rollback_applied": True,
-            "rollback_reason": str(reason or "rollback").strip() or "rollback",
-            "rollback_fencepost_id": target_fencepost_id,
-            "rollback_revision_id": restored_shared.revision_id,
-        },
-    )
-    if release_store is not None:
-        applied_state = release_store.save(
-            applied_state,
-            actor=actor,
-            provenance={**provenance, "applied": True, "restored_revision_id": restored_shared.revision_id},
-        )
-    return {
-        **rolled,
-        "state": applied_state,
-        "snapshot": restored_snapshot,
-        "shared_state": restored_shared,
-        "rollback_event": (rollback_event.model_dump() if hasattr(rollback_event, "model_dump") else rollback_event.dict()) if rollback_event is not None else None,
-        "applied": True,
-        "operator_summary": (
-            f"release rollback applied for {state.process_id}: {state.current_stage} -> {applied_state.current_stage} "
-            f"via {target_fencepost_id or 'unknown_fencepost'}"
-        ),
-    }
+        assert intent is not None
+        if resumable:
+            normalized_reason = str(intent.get("reason") or normalized_reason).strip() or normalized_reason
+            actor = str(intent.get("actor") or actor or "").strip() or None
+        transaction_id = str(intent["transaction_id"])
+        target_fencepost_id = str(target_fencepost.get("fencepost_id") or "").strip() or None
+        target_fencepost_metadata = dict(target_fencepost.get("metadata") or {})
+        target_revision_id = str(intent["target_revision_id"])
+        rollback_revision_id = str(intent["rollback_revision_id"])
+        provenance = {
+            "release_id": state.release_id,
+            "rollback": True,
+            "rollback_transaction_id": transaction_id,
+            "fencepost_id": target_fencepost_id,
+            "reason": normalized_reason,
+        }
+
+        try:
+            current_shared = shared_state_store.load(state.process_id)
+            if current_shared is not None and current_shared.revision_id == rollback_revision_id:
+                restored_shared = current_shared
+            else:
+                try:
+                    restored_shared = shared_state_store.rollback(
+                        process_id=state.process_id,
+                        to_revision_id=target_revision_id,
+                        actor=actor,
+                        reason=normalized_reason,
+                        new_revision_id=rollback_revision_id,
+                        provenance=provenance,
+                    )
+                except KeyError:
+                    restored_shared = shared_state_store.save(
+                        SharedProcessState(
+                            process_id=state.process_id,
+                            revision_id=rollback_revision_id,
+                            goals=[str(row) for row in (restore_state.get("goals") or [])],
+                            active_plan_node_ids=_dedupe_rows(
+                                [str(row) for row in (restore_state.get("active_steps") or [])]
+                                + [str(row) for row in (restore_state.get("waiting_steps") or [])]
+                            ),
+                            open_decisions=list(restore_state.get("open_decisions") or []),
+                            runtime_constraints=dict(restore_state.get("runtime_constraints") or {}),
+                            world_state=dict(restore_state.get("world_state") or {}),
+                            belief_refs=_dedupe_rows([str(row) for row in (restore_state.get("belief_refs") or [])]),
+                            open_questions=[str(row) for row in (restore_state.get("open_questions") or [])],
+                            agent_ownership=dict(restore_state.get("agent_ownership") or restore_state.get("assigned_agents") or {}),
+                            operator_overrides=dict(restore_state.get("operator_overrides") or {}),
+                            metadata={
+                                "rollback_from_revision_id": current_shared.revision_id if current_shared else None,
+                                "rollback_to_revision_id": target_revision_id,
+                                "rollback_reason": normalized_reason,
+                                "rollback_transaction_id": transaction_id,
+                            },
+                        ),
+                        expected_revision_id=current_shared.revision_id if current_shared else None,
+                        actor=actor,
+                        provenance=provenance,
+                    )
+            intent = transaction_store.save_rollback_intent(state.process_id, {**intent, "phase": "shared_state_committed", "status": "in_progress"})
+
+            rollback_event = None
+            if journal is not None:
+                existing_events = {row.event_id: row for row in journal.load(process_id=state.process_id)}
+                rollback_event = existing_events.get(str(intent["rollback_event_id"]))
+                if rollback_event is None:
+                    latest_event = journal.latest(process_id=state.process_id)
+                    rollback_event = journal.append(
+                        ProcessEvent(
+                            event_id=str(intent["rollback_event_id"]),
+                            process_id=state.process_id,
+                            kind="release_rolled_back",
+                            revision_id=restored_shared.revision_id,
+                            actor=str(actor or "").strip() or None,
+                            causal_parent_ids=[latest_event.event_id] if latest_event else [],
+                            payload={
+                                "release_id": state.release_id,
+                                "from_stage": str(intent.get("source_stage") or state.current_stage),
+                                "to_stage": rolled_state.current_stage,
+                                "fencepost_id": target_fencepost_id,
+                                "reason": normalized_reason,
+                                "rollback_transaction_id": transaction_id,
+                            },
+                        )
+                    )
+            intent = transaction_store.save_rollback_intent(state.process_id, {**intent, "phase": "journal_committed", "status": "in_progress"})
+
+            current_snapshot = snapshot_store.load(state.process_id)
+            if current_snapshot is not None and current_snapshot.metadata.get("rollback_transaction_id") == transaction_id:
+                restored_snapshot = current_snapshot
+            else:
+                restored_snapshot = snapshot_store.save(
+                    ProcessSnapshot(
+                        snapshot_id=str(intent["rollback_snapshot_id"]),
+                        process_id=state.process_id,
+                        last_event_id=rollback_event.event_id if rollback_event else restore_state.get("last_event_id"),
+                        event_count=max(
+                            int(current_snapshot.event_count or 0) if current_snapshot else 0,
+                            int(target_fencepost_metadata.get("snapshot_event_count", 0) or 0),
+                        ) + (1 if rollback_event else 0),
+                        lifecycle_state=str(restore_state.get("lifecycle_state") or "waiting"),
+                        active_steps=[str(row) for row in (restore_state.get("active_steps") or []) if str(row).strip()],
+                        waiting_steps=[str(row) for row in (restore_state.get("waiting_steps") or []) if str(row).strip()],
+                        completed_steps=[str(row) for row in (restore_state.get("completed_steps") or []) if str(row).strip()],
+                        failed_steps=[str(row) for row in (restore_state.get("failed_steps") or []) if str(row).strip()],
+                        assigned_agents=dict(restore_state.get("assigned_agents") or {}),
+                        runtime_policy=dict(restore_state.get("runtime_policy") or {}),
+                        session_state=dict(restore_state.get("session_state") or {}),
+                        world_state={**dict(restore_state.get("world_state") or {}), **dict(restored_shared.world_state)},
+                        belief_refs=_dedupe_rows([str(row) for row in (restore_state.get("belief_refs") or [])] + list(restored_shared.belief_refs)),
+                        artifact_refs=[str(row) for row in (restore_state.get("artifact_refs") or []) if str(row).strip()],
+                        metadata={
+                            **dict(restore_state.get("metadata") or {}),
+                            "rollback_applied": True,
+                            "rollback_reason": normalized_reason,
+                            "rollback_fencepost_id": target_fencepost_id,
+                            "rollback_revision_id": restored_shared.revision_id,
+                            "rollback_transaction_id": transaction_id,
+                        },
+                    )
+                )
+            intent = transaction_store.save_rollback_intent(state.process_id, {**intent, "phase": "snapshot_committed", "status": "in_progress"})
+
+            _restore_release_session_registry(
+                session_registry,
+                process_id=state.process_id,
+                session_state=dict(restore_state.get("session_state") or {}),
+            )
+            intent = transaction_store.save_rollback_intent(state.process_id, {**intent, "phase": "session_registry_committed", "status": "in_progress"})
+
+            applied_state = _copy_state(
+                rolled_state,
+                revision_id=restored_shared.revision_id,
+                metadata={
+                    **dict(rolled_state.metadata or {}),
+                    "rollback_applied": True,
+                    "rollback_reason": normalized_reason,
+                    "rollback_fencepost_id": target_fencepost_id,
+                    "rollback_revision_id": restored_shared.revision_id,
+                    "rollback_transaction_id": transaction_id,
+                },
+            )
+            if release_store is not None:
+                current_release = release_store.load(state.process_id)
+                if current_release is not None and current_release.metadata.get("rollback_transaction_id") == transaction_id:
+                    applied_state = current_release
+                else:
+                    applied_state = release_store.save(
+                        applied_state,
+                        actor=actor,
+                        provenance={**provenance, "applied": True, "restored_revision_id": restored_shared.revision_id},
+                    )
+            intent = transaction_store.save_rollback_intent(
+                state.process_id,
+                {**intent, "phase": "committed", "status": "committed", "applied_revision_id": restored_shared.revision_id},
+            )
+        except BaseException as exc:
+            transaction_store.save_rollback_intent(
+                state.process_id,
+                {**intent, "status": "recovery_required", "last_error": f"{type(exc).__name__}: {exc}"},
+            )
+            raise
+
+        return {
+            "rolled_back": True,
+            "state": applied_state,
+            "fencepost": target_fencepost,
+            "restore_state": restore_state,
+            "snapshot": restored_snapshot,
+            "shared_state": restored_shared,
+            "rollback_event": (rollback_event.model_dump() if hasattr(rollback_event, "model_dump") else rollback_event.dict()) if rollback_event is not None else None,
+            "rollback_transaction": intent,
+            "applied": True,
+            "operator_summary": (
+                f"release rollback applied for {state.process_id}: {state.current_stage} -> {applied_state.current_stage} "
+                f"via {target_fencepost_id or 'unknown_fencepost'}"
+            ),
+        }
 
 
 __all__ = [

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
+from cortex_server.runtime.release_workflow import record_release_handoff
 
 
 def _install_fake_diplomat(monkeypatch):
@@ -108,6 +109,29 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     )
 
     stores = orchestrator._runtime_delivery_stores()
+    assert reconciled["state"]["status"] == "active"
+    received = stores["mailbox"].receive(
+        to_agent="release-manager",
+        process_id=process["process_id"],
+        expected_revision_id=stores["shared_state_store"].load(process["process_id"]).revision_id,
+        reject_stale_revision=True,
+    )
+    acknowledged = stores["mailbox"].acknowledge(received[0].message_id)
+    release_state = stores["release_store"].load(process["process_id"])
+    stores["release_store"].save(
+        record_release_handoff(release_state, acknowledged, stage="production", notes="recipient verified"),
+        actor="release-manager",
+        provenance={"evidence": "recipient_verification"},
+    )
+    reconciled = asyncio.run(
+        orchestrator.reconcile_runtime_delivery(
+            process["process_id"],
+            orchestrator.RuntimeDeliveryReconcileRequest(
+                controller_id="controller",
+                controller_session_id="sess-runtime-delivery",
+            ),
+        )
+    )
     messages = stores["mailbox"].list(process_id=process["process_id"])
 
     assert reconciled["success"] is True

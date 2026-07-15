@@ -15,7 +15,14 @@ from cortex_server.models.requests import (
     GraphQueryResponse, GraphNodeResponse, GraphEdgeResponse
 )
 from cortex_server.services.knowledge_service import KnowledgeService
-from cortex_server.routers.librarian import collection, robust_search
+from cortex_server.routers.librarian import (
+    DEFAULT_TENANT_ID,
+    DEFAULT_WORKSPACE_ID,
+    MemoryScopeId,
+    _authenticated_memory_scope,
+    collection,
+    robust_search,
+)
 from cortex_server.knowledge.graph import NodeType, EdgeType
 from cortex_server.modules.prior_art_gate import build_prior_art_gate, extract_prior_art_terms
 
@@ -97,6 +104,9 @@ class BoundedGraphEdgeCreateRequest(GraphEdgeCreateRequest):
 class KnowledgeSearchRequest(BaseModel):
     query: str = Field(..., max_length=16_384)
     n_results: int = Field(5, ge=1, le=100)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class BoundedGraphQueryRequest(GraphQueryRequest):
@@ -562,16 +572,25 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+        tenant, workspace = _authenticated_memory_scope(
+            request.tenant_id,
+            request.workspace_id,
+            request.scope_signature,
+        )
+
         result = robust_search(
             query=request.query,
             n_results=request.n_results,
             allow_fallback=True,
+            tenant_id=tenant,
+            workspace_id=workspace,
         )
         return {
             "query": request.query,
             "results": result.get("results", []),
             "search_mode": result.get("search_mode", "semantic"),
             "degraded": bool(result.get("degraded", False)),
+            "available": bool(result.get("available", True)),
             "warning": result.get("warning"),
         }
     except HTTPException:
@@ -582,6 +601,7 @@ async def search_knowledge(request: KnowledgeSearchRequest):
             "results": [],
             "search_mode": "error",
             "degraded": True,
+            "available": False,
             "error": str(e),
         }
 

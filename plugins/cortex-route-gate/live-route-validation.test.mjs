@@ -22,7 +22,7 @@ function cachedPlan() {
   return { ...cache, tag: crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson(cache)).digest('hex') };
 }
 
-async function invoke({ requireRouting, cache, response, config = {}, inspectRequest }) {
+async function invoke({ requireRouting, cache, response, config = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this' }) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-live-route-'));
   if (cache) fs.writeFileSync(path.join(stateDir, 'last-good-plan.json'), JSON.stringify(cache));
   const handlers = new Map();
@@ -38,8 +38,8 @@ async function invoke({ requireRouting, cache, response, config = {}, inspectReq
   };
   try {
     const result = await handlers.get('before_prompt_build')(
-      { prompt: 'Route this', messages: [{ role: 'user', content: 'Route this' }] },
-      { sessionKey: `agent:main:test:${Math.random()}` },
+      { prompt, messages: [{ role: 'user', content: prompt }] },
+      { sessionKey },
     );
     return { context: String(result?.appendSystemContext || ''), saved: fs.existsSync(path.join(stateDir, 'last-good-plan.json')) ? JSON.parse(fs.readFileSync(path.join(stateDir, 'last-good-plan.json'), 'utf8')) : null };
   } finally {
@@ -95,6 +95,47 @@ test('routing POST uses the configured sensitive write-token header', async () =
   });
   assert.equal(request.init.method, 'POST');
   assert.equal(new Headers(request.init.headers).get('x-custom-cortex-token'), 'route-secret');
+  assert.equal(new URL(request.url).pathname, '/nexus/orchestrate');
+  assert.equal(new URL(request.url).search, '', 'the prompt must not enter the query string');
+  assert.deepEqual(JSON.parse(String(request.init.body)), { query: 'Route this' });
+  assert.match(new Headers(request.init.headers).get('x-session-id'), /^openclaw-[0-9a-f]{64}$/);
+});
+
+test('routing forwards distinct bounded HMAC identities without exposing raw session keys', async () => {
+  const identities = [];
+  for (const sessionKey of ['agent:main:tenant-a:user-a', 'agent:main:tenant-a:user-b']) {
+    await invoke({
+      requireRouting: true,
+      response: { recommended_levels: [{ level: 24 }] },
+      sessionKey,
+      config: { sessionIdentityHmacSecret: 'session-identity-test-secret' },
+      inspectRequest(_url, init) { identities.push(new Headers(init.headers).get('x-session-id')); },
+    });
+    const expected = crypto.createHmac('sha256', 'session-identity-test-secret').update(sessionKey).digest('hex');
+    assert.equal(identities.at(-1), `openclaw-${expected}`);
+    assert.doesNotMatch(identities.at(-1), new RegExp(sessionKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.notEqual(identities[0], identities[1]);
+});
+
+test('required routing fails closed without trusted session identity', async () => {
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    sessionKey: '',
+  }), /non-empty trusted session identity/);
+});
+
+test('routing rejects prompts above the configured POST-body byte limit before fetch', async () => {
+  let fetched = false;
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    prompt: 'x'.repeat(1025),
+    config: { maxRoutingPromptBytes: 1024 },
+    inspectRequest() { fetched = true; },
+  }), /routing prompt exceeds 1024 bytes/);
+  assert.equal(fetched, false);
 });
 
 test('routing fails closed on an invalid write-token header name', async () => {

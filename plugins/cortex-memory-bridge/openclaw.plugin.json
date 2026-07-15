@@ -12,6 +12,7 @@
       "writeTokenHeader": { "type": "string", "minLength": 1 },
       "searchPath": { "type": "string" },
       "storePath": { "type": "string" },
+      "assurancePath": { "type": "string" },
       "timeoutMs": { "type": "number", "minimum": 100, "maximum": 60000 },
       "retryCount": { "type": "number", "minimum": 0, "maximum": 5 },
       "retryBackoffMs": { "type": "number", "minimum": 50, "maximum": 5000 },
@@ -20,7 +21,17 @@
       "codecEventsPath": { "type": "string" },
       "maxResponseBytes": { "type": "number", "minimum": 1024, "maximum": 16777216 },
       "lifecycleMaxInFlight": { "type": "number", "minimum": 1, "maximum": 4096 },
+      "lifecycleMaxPending": { "type": "number", "minimum": 1, "maximum": 16384 },
+      "lifecycleSpoolMaxRecords": { "type": "number", "minimum": 1, "maximum": 65536 },
       "recentOutputMaxChars": { "type": "number", "minimum": 1, "maximum": 65536 },
+      "stateDir": { "type": "string", "minLength": 1 },
+      "tenantId": { "type": "string", "minLength": 1 },
+      "workspaceId": { "type": "string", "minLength": 1 },
+      "agentId": { "type": "string", "minLength": 1 },
+      "userId": { "type": "string", "minLength": 1 },
+      "channelId": { "type": "string", "minLength": 1 },
+      "sessionId": { "type": "string", "minLength": 1 },
+      "scopeHmacSecret": { "type": "string", "minLength": 1 },
       "curatedBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "projectFactBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "durableCandidatePenalty": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -56,8 +67,13 @@
       "placeholder": "/knowledge/search"
     },
     "storePath": {
-      "label": "Store Path",
-      "placeholder": "/l22/store"
+      "label": "Assurance Commit Path",
+      "placeholder": "/nexus/commit"
+    },
+    "assurancePath": {
+      "label": "Assurance Receipt Path",
+      "placeholder": "/nexus/assurance/receipt",
+      "advanced": true
     },
     "timeoutMs": {
       "label": "HTTP Timeout (ms)",
@@ -75,9 +91,19 @@
       "advanced": true
     },
     "enabledWriteThrough": {
-      "label": "Enable write-through capture",
+      "label": "Enable assurance-gated write-through",
       "advanced": true,
-      "help": "Off by default. When implemented, lifecycle hooks could POST captured memories to Cortex."
+      "help": "Opt in after configuring tenant/workspace scope and Nexus assurance. Candidates are committed only when the assurance gate confirms durable storage."
+    },
+    "enabledCodecContinuity": {
+      "label": "Enable Codec continuity persistence",
+      "advanced": true,
+      "help": "Opt in after configuring tenant/workspace scope and the Cortex write boundary."
+    },
+    "scopeHmacSecret": {
+      "label": "Memory scope HMAC secret",
+      "sensitive": true,
+      "advanced": true
     },
     "curatedBoost": {
       "label": "Curated Result Boost",

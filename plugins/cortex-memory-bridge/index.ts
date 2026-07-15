@@ -1,10 +1,13 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/memory-core';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 type BridgeConfig = {
   baseUrl?: string;
   searchPath?: string;
   storePath?: string;
+  assurancePath?: string;
   codecEventsPath?: string;
   timeoutMs?: number;
   retryCount?: number;
@@ -25,9 +28,19 @@ type BridgeConfig = {
   hardQueryCandidateCount?: number;
   maxResponseBytes?: number;
   lifecycleMaxInFlight?: number;
+  lifecycleMaxPending?: number;
+  lifecycleSpoolMaxRecords?: number;
   recentOutputMaxChars?: number;
+  stateDir?: string;
   writeToken?: string;
   writeTokenHeader?: string;
+  tenantId?: string;
+  workspaceId?: string;
+  agentId?: string;
+  userId?: string;
+  channelId?: string;
+  sessionId?: string;
+  scopeHmacSecret?: string;
 };
 
 type MemoryCandidate = {
@@ -68,6 +81,8 @@ type ReconcileResult = {
 const LIFECYCLE_DEDUP_MAX_ENTRIES = 4096;
 const LIFECYCLE_DEDUP_TTL_MS = 10 * 60 * 1000;
 const LIFECYCLE_MAX_IN_FLIGHT = 64;
+const LIFECYCLE_MAX_PENDING = 256;
+const LIFECYCLE_SPOOL_MAX_RECORDS = 4096;
 const RECENT_OUTPUT_MAX_ENTRIES = 1024;
 const RECENT_OUTPUT_TTL_MS = 10 * 60 * 1000;
 const RECENT_OUTPUT_MAX_CHARS = 4096;
@@ -187,6 +202,94 @@ class ExpiringLruSet {
   }
 }
 
+type LifecycleSpoolRecord = {
+  version: 1;
+  key: string;
+  createdAt: string;
+  event: { result: string; messages: Array<{ role: 'user'; content: string }> };
+  context: {
+    sessionKey: string;
+    sessionId: string;
+    channelId: string;
+    agentId: string;
+    userId: string;
+    idempotencyKey: string;
+  };
+  fallbackText: string;
+};
+
+function isLifecycleSpoolRecord(value: unknown): value is LifecycleSpoolRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, any>;
+  const event = record.event;
+  const context = record.context;
+  return record.version === 1
+    && typeof record.key === 'string' && record.key.length > 0 && record.key.length <= 2048
+    && typeof record.createdAt === 'string' && record.createdAt.length <= 64
+    && typeof record.fallbackText === 'string' && record.fallbackText.length <= 65_536
+    && event && typeof event === 'object' && typeof event.result === 'string' && event.result.length <= 65_536
+    && Array.isArray(event.messages) && event.messages.length <= 1
+    && event.messages.every((message: any) => message?.role === 'user' && typeof message.content === 'string' && message.content.length <= 2000)
+    && context && typeof context === 'object'
+    && ['sessionKey', 'sessionId', 'channelId', 'agentId', 'userId', 'idempotencyKey']
+      .every((field) => typeof context[field] === 'string' && context[field].length <= 2048);
+}
+
+class DurableLifecycleSpool {
+  private readonly filePath: string;
+  private readonly maxRecords: number;
+  private readonly records = new Map<string, LifecycleSpoolRecord>();
+
+  constructor(stateDir: string, maxRecords: number) {
+    this.filePath = path.join(stateDir, 'lifecycle-spool.json');
+    this.maxRecords = maxRecords;
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    try { fs.chmodSync(stateDir, 0o700); } catch {}
+    if (!fs.existsSync(this.filePath)) return;
+    const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
+    if (!Array.isArray(parsed) || parsed.length > maxRecords || !parsed.every(isLifecycleSpoolRecord)) {
+      throw new Error('invalid Cortex lifecycle spool; refusing to discard pending persistence records');
+    }
+    for (const record of parsed) this.records.set(record.key, record);
+  }
+
+  entries(): LifecycleSpoolRecord[] { return [...this.records.values()]; }
+
+  put(record: LifecycleSpoolRecord): void {
+    if (!this.records.has(record.key) && this.records.size >= this.maxRecords) {
+      throw new Error(`lifecycle spool exhausted at ${this.maxRecords} records`);
+    }
+    this.records.set(record.key, record);
+    this.flush();
+  }
+
+  ack(key: string): void {
+    if (!this.records.delete(key)) return;
+    this.flush();
+  }
+
+  private flush(): void {
+    const directory = path.dirname(this.filePath);
+    const temporary = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(temporary, 'wx', 0o600);
+      fs.writeFileSync(fd, JSON.stringify(this.entries()), 'utf8');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
+      fs.renameSync(temporary, this.filePath);
+      if (process.platform !== 'win32') {
+        const dirFd = fs.openSync(directory, 'r');
+        try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+      }
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+      try { fs.unlinkSync(temporary); } catch {}
+    }
+  }
+}
+
 const SearchSchema = {
   type: 'object', additionalProperties: false, required: ['query'],
   properties: { query: { type: 'string', minLength: 1 }, maxResults: { type: 'number', minimum: 1, maximum: 50 }, minScore: { type: 'number', minimum: 0, maximum: 1 } },
@@ -196,14 +299,15 @@ const GetSchema = {
   properties: { path: { type: 'string' }, from: { type: 'number' }, lines: { type: 'number' } },
 } as const;
 
-function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount' | 'maxResponseBytes' | 'lifecycleMaxInFlight' | 'recentOutputMaxChars'>> & BridgeConfig {
+function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount' | 'maxResponseBytes' | 'lifecycleMaxInFlight' | 'lifecycleMaxPending' | 'lifecycleSpoolMaxRecords' | 'recentOutputMaxChars' | 'stateDir'>> & BridgeConfig {
   const cfg = (pluginConfig ?? {}) as BridgeConfig;
   const writeTokenHeader = cfg.writeTokenHeader ?? 'x-cortex-write-token';
   if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(writeTokenHeader)) throw new Error('invalid Cortex write-token header name');
   return {
     baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
     searchPath: cfg.searchPath ?? '/knowledge/search',
-    storePath: cfg.storePath ?? '/l22/store',
+    storePath: cfg.storePath ?? '/nexus/commit',
+    assurancePath: cfg.assurancePath ?? '/nexus/assurance/receipt',
     codecEventsPath: cfg.codecEventsPath ?? '/nexus/codec/events',
     timeoutMs: cfg.timeoutMs ?? 12000,
     retryCount: cfg.retryCount ?? 2,
@@ -214,18 +318,34 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     lifecycleMaxInFlight: Number.isSafeInteger(cfg.lifecycleMaxInFlight) && Number(cfg.lifecycleMaxInFlight) > 0
       ? Math.min(4096, Number(cfg.lifecycleMaxInFlight))
       : LIFECYCLE_MAX_IN_FLIGHT,
+    lifecycleMaxPending: Number.isSafeInteger(cfg.lifecycleMaxPending) && Number(cfg.lifecycleMaxPending) > 0
+      ? Math.min(16_384, Number(cfg.lifecycleMaxPending))
+      : LIFECYCLE_MAX_PENDING,
+    lifecycleSpoolMaxRecords: Number.isSafeInteger(cfg.lifecycleSpoolMaxRecords) && Number(cfg.lifecycleSpoolMaxRecords) > 0
+      ? Math.min(65_536, Number(cfg.lifecycleSpoolMaxRecords))
+      : LIFECYCLE_SPOOL_MAX_RECORDS,
     recentOutputMaxChars: Number.isSafeInteger(cfg.recentOutputMaxChars) && Number(cfg.recentOutputMaxChars) > 0
       ? Math.min(65_536, Number(cfg.recentOutputMaxChars))
       : RECENT_OUTPUT_MAX_CHARS,
     writeToken: typeof cfg.writeToken === 'string' ? cfg.writeToken : '',
     writeTokenHeader: writeTokenHeader.toLowerCase(),
+    tenantId: typeof cfg.tenantId === 'string' ? cfg.tenantId.trim() : 'cortex-local',
+    workspaceId: typeof cfg.workspaceId === 'string' ? cfg.workspaceId.trim() : 'default',
+    agentId: typeof cfg.agentId === 'string' ? cfg.agentId.trim() : '',
+    userId: typeof cfg.userId === 'string' ? cfg.userId.trim() : '',
+    channelId: typeof cfg.channelId === 'string' ? cfg.channelId.trim() : '',
+    sessionId: typeof cfg.sessionId === 'string' ? cfg.sessionId.trim() : '',
+    scopeHmacSecret: typeof cfg.scopeHmacSecret === 'string' ? cfg.scopeHmacSecret : '',
+    stateDir: typeof cfg.stateDir === 'string' && cfg.stateDir.trim()
+      ? cfg.stateDir.trim()
+      : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-memory-bridge'),
     curatedBoost: cfg.curatedBoost ?? 0.24,
     projectFactBoost: cfg.projectFactBoost ?? 0.12,
     durableCandidatePenalty: cfg.durableCandidatePenalty ?? 0.14,
     noisyWhatsappPenalty: cfg.noisyWhatsappPenalty ?? 0.26,
     noisyPatternPenalty: cfg.noisyPatternPenalty ?? 0.2,
     minDurabilityScore: cfg.minDurabilityScore ?? 0.72,
-    writeTags: Array.isArray(cfg.writeTags) ? cfg.writeTags.map((x) => String(x)) : ['durable-memory', 'auto-curated'],
+    writeTags: Array.isArray(cfg.writeTags) ? cfg.writeTags.map((x) => String(x)) : ['durable-memory', 'assurance-candidate'],
     conflictPenalty: cfg.conflictPenalty ?? 0.18,
     recencyBoost: cfg.recencyBoost ?? 0.12,
     explicitBoost: cfg.explicitBoost ?? 0.14,
@@ -647,6 +767,51 @@ function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve,
 function cortexWriteHeaders(cfg: Pick<BridgeConfig, 'writeToken' | 'writeTokenHeader'>): Record<string, string> {
   return cfg.writeToken ? { [cfg.writeTokenHeader || 'x-cortex-write-token']: cfg.writeToken } : {};
 }
+function scopedIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string> {
+  const scope = {
+    tenant_id: String(cfg.tenantId || '').trim(),
+    workspace_id: String(cfg.workspaceId || '').trim(),
+    agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
+    user_id: String(ctx?.userId || cfg.userId || '').trim(),
+    channel_id: String(ctx?.channelId || cfg.channelId || '').trim(),
+    session_id: String(ctx?.sessionKey || ctx?.sessionId || cfg.sessionId || '').trim(),
+  };
+  if (!scope.tenant_id || !scope.workspace_id) throw new Error('tenantId and workspaceId are required for scoped Cortex memory access');
+  return Object.fromEntries(Object.entries(scope).filter(([, value]) => value));
+}
+function memoryScopeFields(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
+  const secret = String(cfg.scopeHmacSecret || cfg.writeToken || '');
+  const tenantId = String(scope.tenant_id || '').trim();
+  const workspaceId = String(scope.workspace_id || '').trim();
+  if (!tenantId || !workspaceId) throw new Error('tenantId and workspaceId are required for scoped Cortex memory access');
+  if (!secret) {
+    if (tenantId === 'cortex-local' && workspaceId === 'default') {
+      return { tenant_id: tenantId, workspace_id: workspaceId };
+    }
+    throw new Error('scopeHmacSecret or writeToken is required to authenticate non-default Cortex memory scope');
+  }
+  const signature = createHmac('sha256', secret)
+    .update(`cortex.memory.scope.v1\n${tenantId}\n${workspaceId}`, 'utf8')
+    .digest('hex');
+  return { tenant_id: tenantId, workspace_id: workspaceId, scope_signature: signature };
+}
+function scopedHeaders(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
+  const memoryScope = memoryScopeFields(cfg, scope);
+  return {
+    ...cortexWriteHeaders(cfg),
+    'x-cortex-tenant-id': memoryScope.tenant_id,
+    'x-cortex-workspace-id': memoryScope.workspace_id,
+    ...(memoryScope.scope_signature ? { 'x-cortex-scope-signature': memoryScope.scope_signature } : {}),
+  };
+}
+function searchResponseUnavailable(response: any): string | null {
+  if (!response || typeof response !== 'object') return 'invalid search response';
+  if (response.disabled === true || response.available === false) return String(response.error || response.warning || 'search backend unavailable');
+  if (typeof response.error === 'string' && response.error.trim()) return response.error.trim();
+  const mode = String(response.search_mode ?? response.mode ?? '').trim().toLowerCase();
+  if (['disabled', 'error', 'failed', 'none', 'unavailable'].includes(mode)) return String(response.warning || `search mode ${mode}`);
+  return null;
+}
 function retryableError(error: unknown): boolean {
   const msg = String((error as any)?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
@@ -716,6 +881,16 @@ function extractAssistantVisibleText(messages: unknown): string {
     .filter(Boolean)
     .join('\n');
 }
+function extractLatestUserText(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== 'object' || (message as Record<string, unknown>).role !== 'user') continue;
+    const text = extractText((message as Record<string, unknown>).content ?? message).replace(/\s+/g, ' ').trim();
+    if (text) return text;
+  }
+  return '';
+}
 function detectProjectSlug(text: string): string | null {
   const t = normalizeQuery(text);
   if (/\bmailchimp\b/.test(t)) return 'mailchimp';
@@ -757,57 +932,62 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
 function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: any, text: string, dur: ReturnType<typeof durabilityScore>) {
   const project = detectProjectSlug(text);
   const tags = Array.from(new Set([...(cfg.writeTags || []), ...dur.reasons, ...(project ? [project] : [])]));
-  let source = 'openclaw-agent-end';
+  let source = 'openclaw-lifecycle-candidate';
   let topic: string | undefined;
   if (dur.kind === 'project_state') {
-    source = 'curated-project-facts';
+    source = 'openclaw-project-state-candidate';
     topic = project ? `${project}-canonical-status` : 'canonical-project-status';
   } else if (dur.kind === 'preference') {
-    source = 'curated-preferences-priorities';
+    source = 'openclaw-preference-candidate';
     topic = 'preferences';
   } else if (dur.kind === 'decision') {
-    source = 'curated-anti-drift';
+    source = 'openclaw-decision-candidate';
     topic = project ? `${project}-durable-decision` : 'durable-decision';
   }
   return {
     channel: ctx?.channelId ?? 'unknown',
     sessionKey: ctx?.sessionKey ?? undefined,
     source,
-    quality: 'curated',
+    quality: 'candidate',
+    assurance_status: 'unvalidated',
     memory_kind: dur.kind,
     tags,
     project: project ?? undefined,
     topic,
     fact_key: topic ? `${project ?? 'global'}:${topic}` : undefined,
     memory_status: 'active',
-    authority_rank: source.startsWith('curated-') ? 65 : 30,
+    authority_rank: 30,
     memory_schema_version: 'cortex.memory.governance.v1',
     correction_memory: /\bcorrection\s*:|\bcorrected\b|\bcurrent canonical status\b/i.test(text),
   };
 }
 
 async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
-  if (cfg.enabledCodecContinuity === false) return true;
+  if (cfg.enabledCodecContinuity === false) return 'disabled' as const;
   const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
-  if (!sessionKey) return true;
+  if (!sessionKey) return 'failed' as const;
   const text = [extractAssistantVisibleText(event?.messages), extractText(event?.result), String(fallbackText || '')]
     .filter(Boolean).join('\n').replace(/\s+/g, ' ').trim().slice(-2400);
-  if (text.length < 20 || containsSecretLike(text)) return true;
+  if (text.length < 20 || containsSecretLike(text)) return 'skipped' as const;
   try {
-    await postJson(cfg.baseUrl, cfg.codecEventsPath, {
+    const scope = scopedIdentity(cfg, ctx);
+    const response = await postJson(cfg.baseUrl, cfg.codecEventsPath, {
       idempotency_key: ctx?.idempotencyKey,
       session_key: sessionKey,
-      events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown' } }],
+      events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown', scope } }],
       max_chars: 1200,
-    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
-    return true;
+      scope,
+      ...memoryScopeFields(cfg, scope),
+    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, scopedHeaders(cfg, scope));
+    if (response?.success !== true) throw new Error('Codec continuity endpoint did not confirm the write');
+    return 'succeeded' as const;
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed: ${String(error)}`);
-    return false;
+    return 'failed' as const;
   }
 }
 async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
-  if (!cfg.enabledWriteThrough) return true;
+  if (!cfg.enabledWriteThrough) return 'disabled' as const;
   const text = [
     extractAssistantVisibleText(event?.messages),
     extractText(event?.result),
@@ -815,60 +995,184 @@ async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof 
   ].filter(Boolean).join('\n').replace(/\s+/g, ' ').trim();
   if (!text) {
     api.logger.info?.('cortex-memory-bridge: write-through skipped (no extractable text)');
-    return true;
+    return 'skipped' as const;
   }
   const recent = text.slice(-2000);
   const dur = durabilityScore(recent);
   if (dur.score < cfg.minDurabilityScore) {
     api.logger.info?.(`cortex-memory-bridge: write-through skipped (score=${dur.score.toFixed(2)} < min=${cfg.minDurabilityScore.toFixed(2)} reasons=${dur.reasons.join(',') || 'none'})`);
-    return true;
+    return 'skipped' as const;
   }
   const senderScoped = buildWriteThroughMetadata(cfg, ctx, recent, dur);
   try {
-    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped, idempotency_key: ctx?.idempotencyKey }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
-    api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
-    return true;
+    const scope = scopedIdentity(cfg, ctx);
+    const userQuery = extractLatestUserText(event?.messages) || `Review OpenClaw ${dur.kind} memory candidate`;
+    const interaction = {
+      query: userQuery.slice(-2000),
+      response: recent,
+      levels_used: [7, 22],
+    };
+    const headers = scopedHeaders(cfg, scope);
+    const receiptResponse = await postJson(cfg.baseUrl, cfg.assurancePath || '/nexus/assurance/receipt', interaction,
+      cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+    if (receiptResponse?.success !== true || typeof receiptResponse?.receipt !== 'string' || !receiptResponse.receipt) {
+      throw new Error('canonical memory assurance endpoint did not issue a receipt');
+    }
+    const response = await postJson(cfg.baseUrl, cfg.storePath, {
+      ...interaction,
+      assurance_receipt: receiptResponse.receipt,
+      metadata: { ...senderScoped, scope, idempotency_key: ctx?.idempotencyKey },
+    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+    const committed = response?.success === true
+      && response?.committed === true
+      && response?.durable_write?.status === 'stored'
+      && response?.assurance?.memory_commit?.eligible === true;
+    if (committed) {
+      api.logger.info?.(`cortex-memory-bridge: assurance gate committed durable memory (${dur.kind}, score=${dur.score.toFixed(2)})`);
+      return 'succeeded' as const;
+    }
+    if (response?.committed === false && response?.durable_write?.status === 'skipped' && response?.assurance?.memory_commit?.eligible === false) {
+      api.logger.info?.(`cortex-memory-bridge: assurance gate rejected durable memory candidate (${dur.kind})`);
+      return 'skipped' as const;
+    }
+    throw new Error('canonical memory commit did not confirm a durable write');
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: write-through failed: ${String(error)}`);
-    return false;
+    return 'failed' as const;
   }
 }
 
 const plugin = {
   id: 'cortex-memory-bridge',
   name: 'Cortex Memory Bridge',
-  description: 'Bridge from OpenClaw memory_search into Cortex /knowledge/search with optional durable-memory write-through.',
+  description: 'Bridge from OpenClaw memory_search into Cortex with assurance-gated durable persistence and Codec continuity.',
   kind: 'memory',
   register(api: OpenClawPluginApi) {
-    const recentOutputMaxChars = resolveConfig(api.pluginConfig).recentOutputMaxChars;
+    const initialConfig = resolveConfig(api.pluginConfig);
+    const recentOutputMaxChars = initialConfig.recentOutputMaxChars;
+    const spool = initialConfig.enabledWriteThrough || initialConfig.enabledCodecContinuity
+      ? new DurableLifecycleSpool(initialConfig.stateDir, initialConfig.lifecycleSpoolMaxRecords)
+      : null;
     const recentOutputBySession = new ExpiringLruMap<string>(RECENT_OUTPUT_MAX_ENTRIES, RECENT_OUTPUT_TTL_MS);
     const completed = new ExpiringLruSet(LIFECYCLE_DEDUP_MAX_ENTRIES, LIFECYCLE_DEDUP_TTL_MS);
     const inFlight = new Map<string, Promise<boolean>>();
+    const queued = new Map<string, Promise<boolean>>();
+    const pending: Array<{ key: string; start: () => Promise<boolean>; resolve: (value: boolean) => void }> = [];
+    let refillSpool = () => {};
     const makePersistenceKey = (session: string, event: any, ctx: any, fallback?: string) => {
       const identity = lifecycleIdentity(event, ctx);
       const payload = identity ? `lifecycle:${identity}` : `content:${String(fallback || '').slice(-recentOutputMaxChars)}`;
       return lifecyclePersistenceKey(session, payload);
     };
+    const boundedLifecycleEvent = (event: any, cfg: ReturnType<typeof resolveConfig>) => {
+      const userText = extractLatestUserText(event?.messages).slice(-2000);
+      const assistantText = extractAssistantVisibleText(event?.messages);
+      const resultText = extractText(event?.result);
+      const boundedText = [assistantText, resultText]
+        .filter(Boolean)
+        .join('\n')
+        .slice(-cfg.recentOutputMaxChars);
+      return {
+        result: boundedText,
+        messages: userText ? [{ role: 'user' as const, content: userText }] : [],
+      };
+    };
+    const drainPending = () => {
+      while (pending.length > 0 && inFlight.size < resolveConfig(api.pluginConfig).lifecycleMaxInFlight) {
+        const job = pending.shift()!;
+        queued.delete(job.key);
+        const active = job.start();
+        inFlight.set(job.key, active);
+        void active.then(job.resolve);
+      }
+    };
     const persistLifecycle = (persistenceKey: string, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) => {
-      if (completed.has(persistenceKey)) return Promise.resolve(true);
+      if (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity) return Promise.resolve(true);
+      if (completed.has(persistenceKey)) {
+        try { spool?.ack(persistenceKey); } catch (error) {
+          api.logger.warn?.(`cortex-memory-bridge: failed to acknowledge completed lifecycle spool record: ${String(error)}`);
+          return Promise.resolve(false);
+        }
+        return Promise.resolve(true);
+      }
       const existing = inFlight.get(persistenceKey);
       if (existing) return existing;
-      if (inFlight.size >= cfg.lifecycleMaxInFlight) {
-        api.logger.warn?.(`cortex-memory-bridge: lifecycle persistence rejected at in-flight capacity ${cfg.lifecycleMaxInFlight}`);
+      const waiting = queued.get(persistenceKey);
+      if (waiting) return waiting;
+      const boundedEvent = boundedLifecycleEvent(event, cfg);
+      const boundedFallback = String(fallbackText || '').slice(-cfg.recentOutputMaxChars);
+      const boundedContext = {
+        sessionKey: String(ctx?.sessionKey || '').slice(0, 512),
+        sessionId: String(ctx?.sessionId || '').slice(0, 512),
+        channelId: String(ctx?.channelId || '').slice(0, 256),
+        agentId: String(ctx?.agentId || '').slice(0, 256),
+        userId: String(ctx?.userId || '').slice(0, 256),
+        idempotencyKey: persistenceKey,
+      };
+      const spoolRecord: LifecycleSpoolRecord = {
+        version: 1,
+        key: persistenceKey,
+        createdAt: new Date().toISOString(),
+        event: boundedEvent,
+        context: boundedContext,
+        fallbackText: boundedFallback,
+      };
+      try {
+        if (!spool) throw new Error('lifecycle spool is unavailable while persistence is enabled');
+        spool.put(spoolRecord);
+      } catch (error) {
+        api.logger.warn?.(`cortex-memory-bridge: failed to durably spool lifecycle output: ${String(error)}`);
         return Promise.resolve(false);
       }
-      const pending = (async () => {
-        const writeThroughSucceeded = await maybeWriteThrough(api, cfg, event, { ...ctx, idempotencyKey: persistenceKey }, fallbackText);
-        const codecSucceeded = await maybeWriteCodecContinuity(api, cfg, event, { ...ctx, idempotencyKey: persistenceKey }, fallbackText);
-        const succeeded = writeThroughSucceeded && codecSucceeded;
-        if (succeeded) completed.add(persistenceKey);
-        return succeeded;
+      const start = () => (async () => {
+        const writeThroughStatus = await maybeWriteThrough(api, cfg, boundedEvent, boundedContext, boundedFallback);
+        const codecStatus = await maybeWriteCodecContinuity(api, cfg, boundedEvent, boundedContext, boundedFallback);
+        const enabled = [writeThroughStatus, codecStatus].some((status) => status !== 'disabled');
+        const succeeded = enabled && ![writeThroughStatus, codecStatus].includes('failed');
+        if (!succeeded) return false;
+        try {
+          spool?.ack(persistenceKey);
+        } catch (error) {
+          api.logger.warn?.(`cortex-memory-bridge: durable write succeeded but spool acknowledgment failed: ${String(error)}`);
+          return false;
+        }
+        completed.add(persistenceKey);
+        queueMicrotask(refillSpool);
+        return true;
       })().finally(() => {
         inFlight.delete(persistenceKey);
+        drainPending();
       });
-      inFlight.set(persistenceKey, pending);
-      return pending;
+      if (inFlight.size >= cfg.lifecycleMaxInFlight) {
+        if (pending.length >= cfg.lifecycleMaxPending) {
+          api.logger.warn?.(`cortex-memory-bridge: lifecycle persistence queue exhausted at ${cfg.lifecycleMaxPending}; output retained for caller retry`);
+          return Promise.resolve(false);
+        }
+        let resolvePending!: (value: boolean) => void;
+        const waitingPromise = new Promise<boolean>((resolve) => { resolvePending = resolve; });
+        queued.set(persistenceKey, waitingPromise);
+        pending.push({ key: persistenceKey, start, resolve: resolvePending });
+        api.logger.warn?.(`cortex-memory-bridge: lifecycle persistence backpressured (${pending.length}/${cfg.lifecycleMaxPending} queued)`);
+        return waitingPromise;
+      }
+      const active = start();
+      inFlight.set(persistenceKey, active);
+      return active;
     };
+    refillSpool = () => {
+      const cfg = resolveConfig(api.pluginConfig);
+      if (!spool || (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity)) return;
+      const schedulingLimit = cfg.lifecycleMaxInFlight + cfg.lifecycleMaxPending;
+      for (const record of spool.entries()) {
+        if (inFlight.size + queued.size >= schedulingLimit) break;
+        if (inFlight.has(record.key) || queued.has(record.key) || completed.has(record.key)) continue;
+        const replay = persistLifecycle(record.key, cfg, record.event, record.context, record.fallbackText);
+        void replay.then((succeeded) => {
+          if (!succeeded) api.logger.warn?.(`cortex-memory-bridge: lifecycle spool replay remains pending key=${record.key.slice(0, 80)}`);
+        });
+      }
+    };
+    queueMicrotask(refillSpool);
 
     api.registerMemoryRuntime({
       async getMemorySearchManager(params: { agentId: string }) {
@@ -906,12 +1210,28 @@ const plugin = {
             ? Math.max(requestedMax, Math.max(cfg.hardQueryCandidateCount, 20))
             : Math.max(requestedMax, 8);
         try {
-          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
+          const scope = scopedIdentity(cfg);
+          const headers = scopedHeaders(cfg, scope);
+          const response = await postJson(cfg.baseUrl, cfg.searchPath, {
+            query,
+            n_results: fetchCount,
+            scope,
+            ...memoryScopeFields(cfg, scope),
+          }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+          const unavailable = searchResponseUnavailable(response);
+          if (unavailable) throw new Error(`Cortex memory search unavailable: ${unavailable}`);
           let rawItems = Array.isArray(response?.results) ? response.results : [];
           if (recentSummaryQuery && !rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) {
             const seen = new Set(rawItems.map((item: any) => String(item?.id ?? '')));
             for (const expandedQuery of [`recent status summary ${query}`.trim(), `question: ${query} answer:`.trim(), 'Cortex memory bridge repair completed']) {
-              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, cortexWriteHeaders(cfg));
+              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, {
+                query: expandedQuery,
+                n_results: fetchCount,
+                scope,
+                ...memoryScopeFields(cfg, scope),
+              }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+              const expandedUnavailable = searchResponseUnavailable(expanded);
+              if (expandedUnavailable) throw new Error(`Cortex memory search unavailable: ${expandedUnavailable}`);
               const extra = Array.isArray(expanded?.results) ? expanded.results : [];
               for (const item of extra) {
                 const id = String(item?.id ?? '');
@@ -978,8 +1298,12 @@ const plugin = {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
       const persistenceKey = makePersistenceKey(key, event, ctx, fallbackText || extractText(event?.result));
-      await persistLifecycle(persistenceKey, cfg, event, ctx, fallbackText);
-      if (key) recentOutputBySession.delete(key);
+      const persisted = await persistLifecycle(persistenceKey, cfg, event, ctx, fallbackText);
+      if (persisted) {
+        if (key) recentOutputBySession.delete(key);
+      } else {
+        throw new Error('Cortex lifecycle persistence failed; output retained for retry');
+      }
     });
   },
 };

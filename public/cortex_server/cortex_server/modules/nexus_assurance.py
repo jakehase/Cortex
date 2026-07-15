@@ -111,6 +111,7 @@ def build_memory_commit_decision(
     world_grounding = world_grounding or {}
     reasons: List[str] = []
     eligible = True
+    review_required = bool(set(risk_flags or []) & HIGH_RISK_FLAGS)
 
     if not (query or "").strip() or not (response or "").strip():
         eligible = False
@@ -124,7 +125,8 @@ def build_memory_commit_decision(
     if bool((validator_summary.get("checks") or {}).get("contradiction_detected")):
         eligible = False
         reasons.append("contradiction_detected")
-    if set(risk_flags or []) & HIGH_RISK_FLAGS:
+    if review_required:
+        eligible = False
         reasons.append("high_risk_requires_review")
     if bool(world_grounding.get("required", False)) and int(world_grounding.get("evidence_count", 0)) <= 0:
         eligible = False
@@ -142,7 +144,7 @@ def build_memory_commit_decision(
     return {
         "eligible": eligible,
         "reasons": reasons,
-        "review_required": bool(set(risk_flags or []) & HIGH_RISK_FLAGS),
+        "review_required": review_required,
         "write_status": write_status,
         "stored_id": stored_id,
     }

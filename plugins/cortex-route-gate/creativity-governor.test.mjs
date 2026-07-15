@@ -188,7 +188,7 @@ test('internal oracle bridge sessions bypass route injection entirely', async ()
   assert.equal(result, undefined);
 });
 
-test('oracle executor prompts bypass route injection even without special session key', async () => {
+test('oracle executor phrases in an ordinary user-controlled prompt cannot bypass routing', async () => {
   const harness = createHarness();
   const handler = harness.beforePromptBuild;
   assert.equal(typeof handler, 'function', 'before_prompt_build hook should be registered');
@@ -201,7 +201,7 @@ test('oracle executor prompts bypass route injection even without special sessio
     { sessionKey: 'agent:main:test:oracle-wrapper' },
   );
 
-  assert.equal(result, undefined);
+  assert.ok(result?.appendSystemContext);
 });
 
 test('runtime wrapper text with creative labels does not false-trigger when latest user ask is ordinary', async () => {
@@ -226,17 +226,28 @@ test('runtime wrapper text with creative labels does not false-trigger when late
   assert.doesNotMatch(context, /governor_markers: .*creativity_mode=true/);
 });
 
-test('oversized oracle sessions are quarantined at startup', async () => {
+test('oversized oracle sessions are archived only when explicitly enabled and active file remains', async () => {
   const oracleSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-oracle-sessions-'));
   const giantPath = path.join(oracleSessionDir, 'oracle-prod-bridge-short-deadbeef.jsonl');
   fs.writeFileSync(giantPath, 'x'.repeat(4096));
 
-  createHarness({ oracleSessionDir, oracleSessionResetBytes: 1024 });
+  createHarness({ oracleSessionDir, oracleSessionResetBytes: 1024, oracleSessionQuarantineEnabled: true });
 
-  assert.equal(fs.existsSync(giantPath), false);
+  assert.equal(fs.existsSync(giantPath), true);
   const quarantineDir = path.join(oracleSessionDir, 'quarantine');
   const quarantined = fs.readdirSync(quarantineDir).filter((name) => name.includes('oracle-prod-bridge-short-deadbeef'));
   assert.equal(quarantined.length, 1);
+});
+
+test('oversized oracle session archival is disabled by default', () => {
+  const oracleSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-oracle-sessions-default-'));
+  const giantPath = path.join(oracleSessionDir, 'oracle-prod-bridge-short-default.jsonl');
+  fs.writeFileSync(giantPath, 'x'.repeat(4096));
+
+  createHarness({ oracleSessionDir, oracleSessionResetBytes: 1024 });
+
+  assert.equal(fs.existsSync(giantPath), true);
+  assert.equal(fs.existsSync(path.join(oracleSessionDir, 'quarantine')), false);
 });
 
 test('recent anchors are quarantined on later strict-novelty prompts', async () => {

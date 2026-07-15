@@ -1,9 +1,33 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from cortex_server.tools import docker_wrapper
+
+
+def test_production_container_healthcheck_uses_readiness_not_liveness():
+    dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "CMD curl -f http://localhost:8888/ready || exit 1" in dockerfile
+    assert "CMD curl -f http://localhost:8888/health || exit 1" not in dockerfile
+
+
+def test_production_container_packages_adaptive_routing_services():
+    dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY cortex_server/services/ ./services/" in dockerfile
+
+
+def test_compose_mounts_and_identifies_durable_memory_volume():
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "cortex-chroma:/app/cortex_server/chroma_db:rw" in compose
+    assert "CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db" in compose
+    assert "CORTEX_CHROMA_MOUNT_ID:" in compose
+    assert "CORTEX_MEMORY_SCOPE_SECRET:" in compose
+    assert "cortex-memory-volume-init:" in compose
 
 
 class HangingStream:

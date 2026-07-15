@@ -1,7 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import plugin, { ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults } from './index.ts';
+
+const lifecycleConfig = (overrides = {}) => ({
+  stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-test-')),
+  tenantId: 'tenant-test',
+  workspaceId: 'workspace-test',
+  scopeHmacSecret: 'scope-test-secret',
+  enabledCodecContinuity: false,
+  ...overrides,
+});
+const successfulCommitResponse = () => new Response(JSON.stringify({
+  success: true,
+  receipt: 'test-assurance-receipt',
+  committed: true,
+  durable_write: { status: 'stored' },
+  assurance: { memory_commit: { eligible: true } },
+}));
 
 test('memory POSTs attach the configured write-token header', async () => {
   const handlers = new Map();
@@ -9,11 +28,11 @@ test('memory POSTs attach the configured write-token header', async () => {
   let headers;
   globalThis.fetch = async (_url, options) => {
     headers = new Headers(options?.headers);
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, writeToken: 'memory-secret', writeTokenHeader: 'x-memory-token' },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, writeToken: 'memory-secret', writeTokenHeader: 'x-memory-token' }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -25,6 +44,159 @@ test('memory POSTs attach the configured write-token header', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec continuity with scoped identity', async () => {
+  const handlers = new Map();
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    const request = { url: String(url), headers: new Headers(options?.headers), body: JSON.parse(String(options?.body || '{}')) };
+    requests.push(request);
+    return request.url.endsWith('/nexus/assurance/receipt')
+      ? new Response('{"success":true,"receipt":"test-assurance-receipt"}')
+      : request.url.endsWith('/nexus/commit')
+        ? successfulCommitResponse()
+        : new Response('{"success":true}');
+  };
+  try {
+    plugin.register({
+      pluginConfig: {
+        stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-default-test-')),
+        tenantId: 'tenant-default',
+        workspaceId: 'workspace-default',
+        scopeHmacSecret: 'scope-default-secret',
+        minDurabilityScore: 0,
+        retryCount: 0,
+        enabledWriteThrough: true,
+        enabledCodecContinuity: true,
+      },
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    handlers.get('llm_output')({ content: 'default mode durable lifecycle output' }, { sessionKey: 'default-session', channelId: 'test-channel' });
+    await handlers.get('agent_end')({
+      messages: [{ role: 'user', content: 'Remember the verified deployment decision.' }],
+    }, { sessionKey: 'default-session', channelId: 'test-channel' });
+
+    assert.deepEqual(requests.map(({ url }) => new URL(url).pathname), ['/nexus/assurance/receipt', '/nexus/commit', '/nexus/codec/events']);
+    const commit = requests[1];
+    assert.equal(commit.body.query, 'Remember the verified deployment decision.');
+    assert.match(commit.body.response, /default mode durable lifecycle output/);
+    assert.equal(commit.body.metadata.quality, 'candidate');
+    assert.equal(commit.body.metadata.assurance_status, 'unvalidated');
+    assert.equal('validator_result' in commit.body.metadata, false);
+    assert.deepEqual(commit.body.metadata.scope, {
+      tenant_id: 'tenant-default',
+      workspace_id: 'workspace-default',
+      channel_id: 'test-channel',
+      session_id: 'default-session',
+    });
+    assert.equal(commit.body.assurance_receipt, 'test-assurance-receipt');
+    assert.match(commit.headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
+    assert.equal(requests[2].body.tenant_id, 'tenant-default');
+    assert.equal(requests[2].body.workspace_id, 'workspace-default');
+    assert.match(requests[2].body.scope_signature, /^[0-9a-f]{64}$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('write-through requires canonical durable-write confirmation and retains output for retry', async () => {
+  const handlers = new Map();
+  let requests = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    requests += 1;
+    return new Response(JSON.stringify({
+      success: false,
+      committed: false,
+      durable_write: { status: 'write_failed' },
+      assurance: { memory_commit: { eligible: true } },
+    }));
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    handlers.get('llm_output')({ content: 'durable output awaiting a truthful commit acknowledgment' }, { sessionKey: 'truth-session' });
+
+    await assert.rejects(() => handlers.get('agent_end')({}, { sessionKey: 'truth-session' }), /output retained for retry/);
+    await assert.rejects(() => handlers.get('agent_end')({}, { sessionKey: 'truth-session' }), /output retained for retry/);
+    assert.equal(requests, 2, 'a false acknowledgment is not deduplicated as completed');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('failed lifecycle writes replay from the durable spool after plugin restart', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-restart-'));
+  const config = lifecycleConfig({
+    stateDir,
+    enabledWriteThrough: true,
+    minDurabilityScore: 0,
+    retryCount: 0,
+  });
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  let acceptCommit = false;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    requests.push(JSON.parse(String(options?.body || '{}')));
+    return acceptCommit
+      ? successfulCommitResponse()
+      : new Response(JSON.stringify({ success: false, committed: false, durable_write: { status: 'write_failed' } }));
+  };
+  try {
+    const firstHandlers = new Map();
+    plugin.register({
+      pluginConfig: config,
+      logger: { info() {}, warn() {} },
+      on(name, handler) { firstHandlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    firstHandlers.get('llm_output')({ content: 'restart-safe durable lifecycle output' }, { sessionKey: 'restart-session' });
+    await assert.rejects(() => firstHandlers.get('agent_end')({}, { sessionKey: 'restart-session' }), /output retained for retry/);
+    const firstKey = requests[0].metadata.idempotency_key;
+    assert.equal(JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8')).length, 1);
+
+    acceptCommit = true;
+    plugin.register({
+      pluginConfig: config,
+      logger: { info() {}, warn() {} },
+      on() {},
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].metadata.idempotency_key, firstKey);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8')).length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('explicitly disabling every persistence mode preserves lifecycle compatibility', async () => {
+  const handlers = new Map();
+  plugin.register({
+    pluginConfig: lifecycleConfig({ enabledWriteThrough: false, enabledCodecContinuity: false }),
+    logger: { info() {}, warn() {} },
+    on(name, handler) { handlers.set(name, handler); },
+    registerMemoryRuntime() {},
+    registerTool() {},
+  });
+  handlers.get('llm_output')({ content: 'output cannot be called persisted while every writer is disabled' }, { sessionKey: 'disabled-session' });
+  await handlers.get('agent_end')({}, { sessionKey: 'disabled-session' });
 });
 
 test('lifecycle keys hash exact length-delimited session and payload bytes', () => {
@@ -61,13 +233,14 @@ test('agent_end eagerly deletes recent output lifecycle state', async () => {
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
-    return { ok: true, headers: new Headers(), body: null, text: async () => '{}' };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -78,7 +251,7 @@ test('agent_end eagerly deletes recent output lifecycle state', async () => {
     await handlers.get('subagent_ended')({}, { sessionKey: 'session-ended' });
 
     assert.equal(requests.length, 1);
-    assert.match(requests[0].content, /durable first lifecycle output/);
+    assert.match(requests[0].response, /durable first lifecycle output/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -88,15 +261,16 @@ test('failed subagent persistence is retried by agent_end with the same idempote
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
     const body = JSON.parse(String(options?.body || '{}'));
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(body);
     if (requests.length === 1) throw new Error('transient write failure');
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -107,8 +281,8 @@ test('failed subagent persistence is retried by agent_end with the same idempote
     await handlers.get('agent_end')({}, { sessionKey: 'retry-session' });
 
     assert.equal(requests.length, 2);
-    assert.equal(requests[0].idempotency_key, requests[1].idempotency_key);
-    assert.match(requests[1].content, /durable lifecycle output/);
+    assert.equal(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
+    assert.match(requests[1].response, /durable lifecycle output/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -118,13 +292,14 @@ test('lifecycle writes distinguish bounded outputs that share a long suffix', as
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -137,7 +312,7 @@ test('lifecycle writes distinguish bounded outputs that share a long suffix', as
     await handlers.get('agent_end')({}, { sessionKey: 'same-session' });
 
     assert.equal(requests.length, 2);
-    assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key);
+    assert.notEqual(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -149,14 +324,15 @@ test('concurrent lifecycle hooks coalesce into one persistence write', async () 
   const originalFetch = globalThis.fetch;
   let release;
   const blocked = new Promise((resolve) => { release = resolve; });
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await blocked;
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -179,13 +355,14 @@ test('distinct lifecycle runs persist identical output in the same session', asy
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -199,7 +376,7 @@ test('distinct lifecycle runs persist identical output in the same session', asy
     await end({}, { sessionKey: 'repeat-session', runId: 'run-two' });
 
     assert.equal(requests.length, 2);
-    assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key);
+    assert.notEqual(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -211,14 +388,15 @@ test('concurrent hooks with the same lifecycle run coalesce despite differing ou
   const originalFetch = globalThis.fetch;
   let release;
   const blocked = new Promise((resolve) => { release = resolve; });
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await blocked;
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -249,14 +427,15 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
   const originalFetch = globalThis.fetch;
   let release;
   const blocked = new Promise((resolve) => { release = resolve; });
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await blocked;
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, recentOutputMaxChars: 64 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, recentOutputMaxChars: 64 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -272,9 +451,9 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(requests.length, 1, 'concurrent hooks coalesce on the truncated payload key');
-    assert.equal(requests[0].idempotency_key, lifecyclePersistenceKey('bounded-session', `content:${expected}`));
-    assert.match(requests[0].content, new RegExp(expected.slice(-20)));
-    assert.doesNotMatch(requests[0].content, /attacker-prefix/);
+    assert.equal(requests[0].metadata.idempotency_key, lifecyclePersistenceKey('bounded-session', `content:${expected}`));
+    assert.match(requests[0].response, new RegExp(expected.slice(-20)));
+    assert.doesNotMatch(requests[0].response, /attacker-prefix/);
     release();
     await Promise.all([first, second]);
   } finally {
@@ -282,20 +461,21 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
   }
 });
 
-test('lifecycle persistence enforces exact admission cap, coalesces, cleans up, and admits retry', async () => {
+test('lifecycle persistence applies bounded backpressure and drains queued output without loss', async () => {
   const handlers = new Map();
   const requests = [];
   const warnings = [];
   const releases = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await new Promise((resolve) => { releases.push(resolve); });
-    return { ok: true, headers: new Headers(), body: null };
+    return successfulCommitResponse();
   };
   try {
     plugin.register({
-      pluginConfig: { enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, lifecycleMaxInFlight: 2 },
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, lifecycleMaxInFlight: 2 }),
       logger: { info() {}, warn(message) { warnings.push(message); } },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -309,23 +489,18 @@ test('lifecycle persistence enforces exact admission cap, coalesces, cleans up, 
     const first = end({}, { sessionKey: 'one' });
     const coalesced = end({ result: 'slow payload one' }, { sessionKey: 'one' });
     const second = end({}, { sessionKey: 'two' });
-    const rejected = end({}, { sessionKey: 'three' });
+    const backpressured = end({}, { sessionKey: 'three' });
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(requests.length, 2, 'exactly the configured unique-work cap starts');
-    assert.equal(await rejected, undefined, 'hook handles deterministic admission rejection');
     assert.equal(warnings.length, 1);
     releases.shift()();
     await Promise.all([first, coalesced]);
-
-    output({ content: 'fresh retry payload' }, { sessionKey: 'three' });
-    const retry = end({}, { sessionKey: 'three' });
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(requests.length, 3, 'cleanup releases one admission slot');
-    assert.match(requests[2].content, /fresh retry payload/);
-    assert.doesNotMatch(requests[2].content, /overflow payload/);
+    assert.equal(requests.length, 3, 'cleanup drains one queued lifecycle write');
+    assert.match(requests[2].response, /overflow payload must not be retained/);
     releases.splice(0).forEach((release) => release());
-    await Promise.all([second, retry]);
+    await Promise.all([second, backpressured]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -351,7 +526,7 @@ test('parallel declared-size rejections do not await stalled body cancellation',
   };
   try {
     plugin.register({
-      pluginConfig: { maxResponseBytes: 64, retryCount: 0 },
+      pluginConfig: lifecycleConfig({ maxResponseBytes: 64, retryCount: 0 }),
       logger: { info() {}, warn() {} },
       on() {},
       registerMemoryRuntime() {},
@@ -385,16 +560,18 @@ test('canonical project-status summaries score as durable project state', () => 
   assert.match(dur.reasons.join(','), /named_project/);
 });
 
-test('write-through metadata marks canonical project state as curated project facts', () => {
+test('write-through metadata labels model output as an unvalidated assurance candidate', () => {
   const cfg = {
-    writeTags: ['durable-memory', 'auto-curated', 'cortex-upgrade'],
+    writeTags: ['durable-memory', 'assurance-candidate', 'cortex-upgrade'],
   };
   const ctx = { channelId: 'whatsapp', sessionKey: 'sess-mailchimp' };
   const text = `Mailchimp current canonical status: supervisorStatus: red, matrixStatus: partial, parityStatus: partial. Remaining surfaces: C_data_model_and_persistence_parity.`;
   const dur = durabilityScore(text);
   const metadata = buildWriteThroughMetadata(cfg, ctx, text, dur);
 
-  assert.equal(metadata.source, 'curated-project-facts');
+  assert.equal(metadata.source, 'openclaw-project-state-candidate');
+  assert.equal(metadata.quality, 'candidate');
+  assert.equal(metadata.assurance_status, 'unvalidated');
   assert.equal(metadata.project, 'mailchimp');
   assert.equal(metadata.topic, 'mailchimp-canonical-status');
   assert.ok(metadata.tags.includes('mailchimp'));

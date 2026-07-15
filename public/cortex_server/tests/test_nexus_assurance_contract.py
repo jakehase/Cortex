@@ -18,7 +18,7 @@ def _client(monkeypatch):
 
 def test_orchestrate_returns_assurance_contract(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "What is 2+2?"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "What is 2+2?"})
     assert r.status_code == 200
     body = r.json()
     assert "assurance" in body
@@ -31,7 +31,7 @@ def test_orchestrate_returns_assurance_contract(monkeypatch):
 def test_assurance_surfaces_missing_constraints(monkeypatch):
     client = _client(monkeypatch)
     q = "How do I install this under budget 100 with at least 3 steps?"
-    r = client.get("/nexus/orchestrate", params={"query": q})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": q})
     assert r.status_code == 200
     body = r.json()
     assert "missing_constraints" in body["assurance"]["reason_codes"]

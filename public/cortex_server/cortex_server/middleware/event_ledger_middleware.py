@@ -67,6 +67,28 @@ EVENT_LEDGER_TELEMETRY_DEADLINE_SECONDS = max(
 _recent_events: Deque[Dict[str, Any]] = deque(maxlen=EVENT_LEDGER_MAX_IN_MEMORY)
 _recent_events_lock = threading.Lock()
 _write_lock = threading.Lock()
+_durable_outcomes: Deque[Dict[str, Any]] = deque(maxlen=EVENT_LEDGER_MAX_IN_MEMORY)
+_durable_health_lock = threading.Lock()
+_durable_totals = {"writes_succeeded": 0, "write_failures": 0, "records_dropped": 0}
+_last_durable_success_at: str | None = None
+
+
+def _record_durable_outcome(outcome: str, *, error: str | None = None) -> None:
+    global _last_durable_success_at
+    key = {
+        "success": "writes_succeeded",
+        "failure": "write_failures",
+        "drop": "records_dropped",
+    }.get(outcome)
+    if key is None:
+        raise ValueError(f"unknown durable ledger outcome: {outcome}")
+    now_unix = time.time()
+    now_iso = _now_iso()
+    with _durable_health_lock:
+        _durable_totals[key] += 1
+        _durable_outcomes.append({"outcome": outcome, "ts_unix": now_unix, "ts": now_iso, "error": error})
+        if outcome == "success":
+            _last_durable_success_at = now_iso
 
 
 class _DurableWriteAdmission:
@@ -151,6 +173,8 @@ def _append_event(entry: Dict[str, Any]) -> None:
         # A single pathological record must not defeat the configured disk cap.
         # It remains available in the bounded in-memory window.
         if encoded_size > EVENT_LEDGER_MAX_BYTES:
+            _record_durable_outcome("drop", error="record_exceeds_max_bytes")
+            record_event_ledger_durable_write_drop()
             return
         with _write_lock:
             directory = os.path.dirname(EVENT_LEDGER_PATH)
@@ -165,9 +189,13 @@ def _append_event(entry: Dict[str, Any]) -> None:
                     _rotate_ledger()
                 with open(EVENT_LEDGER_PATH, "a", encoding="utf-8") as f:
                     f.write(line + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
             finally:
                 _release_process_lock(process_lock_fd)
+        _record_durable_outcome("success")
     except Exception as exc:
+        _record_durable_outcome("failure", error=f"{type(exc).__name__}: {exc}")
         try:
             logger.warning("event_ledger_append_failed: %s", exc)
         except Exception:
@@ -275,33 +303,57 @@ def get_event_health(seconds: int = 300) -> Dict[str, Any]:
     events = get_recent_events(seconds=seconds, limit=100000)
     total = len(events)
     if total == 0:
-        return {
+        event_health = {
             "window_seconds": int(seconds),
             "total": 0,
-            "success_rate": 1.0,
-            "error_rate": 0.0,
+            "success_rate": None,
+            "error_rate": None,
             "avg_latency_ms": 0,
             "p95_latency_ms": 0,
         }
+    else:
+        latencies = sorted(int(e.get("latency_ms", 0) or 0) for e in events)
+        errors = sum(1 for e in events if int(e.get("status_code", 0) or 0) >= 400)
 
-    latencies = sorted(int(e.get("latency_ms", 0) or 0) for e in events)
-    errors = sum(1 for e in events if int(e.get("status_code", 0) or 0) >= 400)
+        def _p95(vals: List[int]) -> int:
+            if not vals:
+                return 0
+            idx = max(0, min(len(vals) - 1, int(round(0.95 * (len(vals) - 1)))))
+            return int(vals[idx])
 
-    def _p95(vals: List[int]) -> int:
-        if not vals:
-            return 0
-        idx = max(0, min(len(vals) - 1, int(round(0.95 * (len(vals) - 1)))))
-        return int(vals[idx])
+        avg_latency = int(sum(latencies) / len(latencies)) if latencies else 0
+        event_health = {
+            "window_seconds": int(seconds),
+            "total": total,
+            "success_rate": round((total - errors) / total, 4),
+            "error_rate": round(errors / total, 4),
+            "avg_latency_ms": avg_latency,
+            "p95_latency_ms": _p95(latencies),
+        }
 
-    avg_latency = int(sum(latencies) / len(latencies)) if latencies else 0
-
+    cutoff = time.time() - max(1, int(seconds))
+    with _durable_health_lock:
+        outcomes = [row for row in _durable_outcomes if float(row.get("ts_unix", 0) or 0) >= cutoff]
+        totals = dict(_durable_totals)
+        last_success_at = _last_durable_success_at
+    writes_succeeded = sum(1 for row in outcomes if row.get("outcome") == "success")
+    write_failures = sum(1 for row in outcomes if row.get("outcome") == "failure")
+    records_dropped = sum(1 for row in outcomes if row.get("outcome") == "drop")
+    durable_samples = writes_succeeded + write_failures + records_dropped
+    durable_status = "unknown" if durable_samples == 0 else "healthy" if write_failures == 0 and records_dropped == 0 else "degraded"
     return {
-        "window_seconds": int(seconds),
-        "total": total,
-        "success_rate": round((total - errors) / total, 4),
-        "error_rate": round(errors / total, 4),
-        "avg_latency_ms": avg_latency,
-        "p95_latency_ms": _p95(latencies),
+        **event_health,
+        "status": durable_status,
+        "durable": {
+            "status": durable_status,
+            "sample_count": durable_samples,
+            "writes_succeeded": writes_succeeded,
+            "write_failures": write_failures,
+            "records_dropped": records_dropped,
+            "last_success_at": last_success_at,
+            "lifetime": totals,
+            "recent_errors": [str(row.get("error") or "") for row in outcomes if row.get("outcome") != "success"][-10:],
+        },
     }
 
 
@@ -364,6 +416,7 @@ class EventLedgerMiddleware(BaseHTTPMiddleware):
                 durable_write = _durable_write_admission.submit(entry)
                 if durable_write is None:
                     _retain_event(entry)
+                    _record_durable_outcome("drop", error="write_capacity_exhausted")
                     record_event_ledger_durable_write_drop()
                 elif EVENT_LEDGER_TELEMETRY_DEADLINE_SECONDS > 0:
                     try:
@@ -374,6 +427,7 @@ class EventLedgerMiddleware(BaseHTTPMiddleware):
                     except asyncio.TimeoutError:
                         pass
             except BaseException as exc:  # also protect against replaced/test writers
+                _record_durable_outcome("failure", error=f"{type(exc).__name__}: {exc}")
                 try:
                     logger.warning("event_ledger_append_failed: %s", exc)
                 except BaseException:

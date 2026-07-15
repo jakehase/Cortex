@@ -16,13 +16,42 @@ services:
       - ./outputs:/app/outputs:rw
       - ./openclaw_state:/root/.openclaw:rw
       - ./geneticist_applied:/opt/clawdbot/geneticist_applied:rw
+      - cortex-chroma:/app/cortex_server/chroma_db:rw
+    environment:
+      CORTEX_ENV: production
+      CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
+      CORTEX_MEMORY_SCOPE_SECRET: ${CORTEX_MEMORY_SCOPE_SECRET:?set CORTEX_MEMORY_SCOPE_SECRET in .env}
     env_file:
       - .env
     restart: unless-stopped
     networks:
       - cortex-network
     depends_on:
-      - piper-tts
+      piper-tts:
+        condition: service_started
+      cortex-memory-volume-init:
+        condition: service_completed_successfully
+
+  cortex-memory-volume-init:
+    image: alpine:3.20
+    container_name: cortex-memory-volume-init
+    environment:
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
+    volumes:
+      - cortex-chroma:/memory:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/memory/.cortex-durable-memory
+        if [ -e "$$marker" ] && [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
+          echo "Cortex memory volume identity mismatch" >&2
+          exit 1
+        fi
+        printf '%s\n' "$$CORTEX_CHROMA_MOUNT_ID" > "$$marker"
+        sync "$$marker"
+    restart: "no"
 
   # Level 6: The Bard - Piper TTS (Open Source, No Auth Required)
   piper-tts:
@@ -40,3 +69,6 @@ services:
 networks:
   cortex-network:
     driver: bridge
+
+volumes:
+  cortex-chroma:

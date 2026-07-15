@@ -36,7 +36,7 @@ def test_world_grounding_forces_live_path(monkeypatch):
     )
     client = _client(monkeypatch)
 
-    r = client.get("/nexus/orchestrate", params={"query": "What is the latest bitcoin price right now?"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "What is the latest bitcoin price right now?"})
     assert r.status_code == 200
     body = r.json()
     assert body["world_grounding"]["required"] is True
@@ -63,7 +63,7 @@ def test_world_grounding_not_required(monkeypatch):
     )
     client = _client(monkeypatch)
 
-    r = client.get("/nexus/orchestrate", params={"query": "Explain TCP in one paragraph"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Explain TCP in one paragraph"})
     assert r.status_code == 200
     body = r.json()
     assert body["world_grounding"]["required"] is False

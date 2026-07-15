@@ -1,3 +1,5 @@
+import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -213,3 +215,48 @@ def test_oracle_chat_failure_records_execution_outcome(monkeypatch):
     assert captured["recovery_needed"] is True
     assert captured["source"] == "oracle_execution_flow"
     assert str(captured["note"]).startswith("oracle_exception:")
+
+
+@pytest.mark.asyncio
+async def test_oracle_emergency_bypass_is_opt_in_when_environment_is_unset(monkeypatch):
+    monkeypatch.delenv("ORACLE_EMERGENCY_BYPASS", raising=False)
+    monkeypatch.setenv("ORACLE_ROUTE_TO_AUGMENTER", "false")
+    monkeypatch.setenv("ORACLE_KERNEL_V2_ENABLED", "true")
+    monkeypatch.setenv("ORACLE_KERNEL_V2_MODE", "active")
+    observed = {}
+
+    async def _run_inline(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(oracle, "run_in_threadpool", _run_inline)
+    monkeypatch.setattr(oracle, "observe_passive_codec_feedback", lambda *a, **k: {"observed": False})
+    monkeypatch.setattr(oracle, "get_alive_mode", lambda loader: type("Alive", (), {"enabled": lambda self: False})())
+    monkeypatch.setattr(oracle, "_strict_micro_fast_answer", lambda *a, **k: None)
+    monkeypatch.setattr(oracle, "_semantic_guardrail_response", lambda *a, **k: None)
+    monkeypatch.setattr(
+        oracle,
+        "_record_oracle_turn",
+        lambda *a, **k: {"kernel_v2": {"actual_lane": "best_effort"}},
+    )
+    monkeypatch.setattr(
+        oracle,
+        "_best_effort_answer",
+        lambda *args, **kwargs: observed.update({"called": True}) or ("normal path answer", "fake-model", "fake-backend"),
+    )
+
+    app = FastAPI()
+    app.add_middleware(HUDMiddleware)
+    app.include_router(oracle.router, prefix="/oracle")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/oracle/chat",
+            json={"prompt": "Plan the architecture tradeoff for this runtime rollout.", "priority": "normal"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert observed["called"] is True
+    assert body["model"] == "fake-model"
+    assert body["routing_trace"]["kernel_v2"]["result"]["actual_lane"] == "best_effort"
+    assert body["routing_trace"]["path"] != "emergency_static"

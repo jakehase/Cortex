@@ -112,7 +112,7 @@ class BenchmarkHarness:
     def _warmup(self) -> None:
         warmups = [
             ("POST", "/oracle/chat", None, None, {"prompt": "What is the capital of Texas?", "priority": "normal"}),
-            ("GET", "/nexus/orchestrate", {"query": "What is the capital of Texas?"}, {"x-session-id": "benchmark-warmup-nexus"}, None),
+            ("POST", "/nexus/orchestrate", None, {"x-session-id": "benchmark-warmup-nexus"}, {"query": "What is the capital of Texas?"}),
             ("POST", "/meta_conductor/orchestrate", None, None, {"query": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.", "target_levels": [33, 34]}),
         ]
         for method, path, params, headers, payload in warmups:

@@ -8,11 +8,13 @@ import json
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from cortex_server.modules.latency_budget_governor import classify_task_archetype
 from cortex_server.modules.evidence_lineage import build_codec_memory_facts
+from cortex_server.modules.memory_scope import default_tenant_id, default_workspace_id
 
 
 CODEC_VERSION = "cortex.codec.v1"
@@ -130,8 +132,12 @@ PROJECT_SINGLE_TOKEN_STOPWORDS = {
 }
 
 _SESSION_CODEC_STATE: Dict[str, Dict[str, Any]] = {}
-_SESSION_CODEC_LOCK = threading.Lock()
+_SESSION_CODEC_LOCK = threading.RLock()
 _SESSION_CODEC_PERSIST: Dict[str, Dict[str, Any]] = {}
+_SESSION_CODEC_ACCESS: Dict[str, float] = {}
+_SESSION_CODEC_UPDATE_LOCKS = tuple(threading.RLock() for _ in range(64))
+_SESSION_CODEC_EVICTIONS = {"ttl": 0, "capacity": 0}
+_CODEC_DURABLE_LOCK = threading.RLock()
 _ROLLUP_AUTOTUNE_LOCK = threading.Lock()
 _ROLLUP_AUTOTUNE_STATE_PATH = Path(os.getenv("CODEC_ROLLUP_POLICY_STATE_PATH", "/opt/clawdbot/state/cortex_codec_rollup_policy.json"))
 _ROLLUP_AUTOTUNE_STATE: Optional[Dict[str, Any]] = None
@@ -139,6 +145,10 @@ CODEC_DURABLE_ENABLED = True
 CODEC_RETENTION_MAX_SNAPSHOTS = int(os.getenv("CODEC_RETENTION_MAX_SNAPSHOTS", "4"))
 CODEC_RETENTION_MIN_PRIORITY = float(os.getenv("CODEC_RETENTION_MIN_PRIORITY", "2.4"))
 CODEC_RETENTION_MAX_PRIORITY_OVERFLOW = int(os.getenv("CODEC_RETENTION_MAX_PRIORITY_OVERFLOW", "2"))
+CODEC_SESSION_CACHE_MAX = max(1, int(os.getenv("CODEC_SESSION_CACHE_MAX", "512")))
+CODEC_SESSION_TTL_SECONDS = max(1, int(os.getenv("CODEC_SESSION_TTL_SECONDS", "3600")))
+CODEC_SESSION_KEY_MAX_CHARS = max(32, int(os.getenv("CODEC_SESSION_KEY_MAX_CHARS", "256")))
+CODEC_DURABLE_MAX_SESSIONS = max(1, int(os.getenv("CODEC_DURABLE_MAX_SESSIONS", "128")))
 
 UTILITY_BUCKET_WEIGHTS = {
     "preferences": 1.0,
@@ -190,6 +200,100 @@ REVISION_HINTS = (
     "change",
     "now",
 )
+
+
+def _canonical_codec_session_key(session_key: Any) -> str:
+    raw = str(session_key or "").strip()
+    if not raw:
+        return ""
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", raw):
+        return raw
+    if len(raw) <= CODEC_SESSION_KEY_MAX_CHARS and all(ord(char) >= 32 for char in raw):
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _scoped_codec_session_key(
+    session_key: Any,
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> str:
+    canonical = _canonical_codec_session_key(session_key)
+    if not canonical:
+        return ""
+    tenant = str(tenant_id or default_tenant_id()).strip()
+    workspace = str(workspace_id or default_workspace_id()).strip()
+    if tenant == default_tenant_id() and workspace == default_workspace_id():
+        return canonical
+    digest = hashlib.sha256(f"{tenant}\0{workspace}\0{canonical}".encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _codec_scope_kwargs(
+    tenant_id: Optional[str],
+    workspace_id: Optional[str],
+) -> Dict[str, str]:
+    """Preserve compatibility with legacy helpers for unscoped callers."""
+
+    if tenant_id is None and workspace_id is None:
+        return {}
+    return {
+        "tenant_id": str(tenant_id or default_tenant_id()),
+        "workspace_id": str(workspace_id or default_workspace_id()),
+    }
+
+
+def _codec_session_update_lock(session_key: str) -> threading.RLock:
+    digest = hashlib.sha256(session_key.encode("utf-8", errors="replace")).digest()
+    return _SESSION_CODEC_UPDATE_LOCKS[int.from_bytes(digest[:2], "big") % len(_SESSION_CODEC_UPDATE_LOCKS)]
+
+
+def _evict_codec_session_locked(session_key: str, reason: str) -> None:
+    _SESSION_CODEC_STATE.pop(session_key, None)
+    _SESSION_CODEC_PERSIST.pop(session_key, None)
+    _SESSION_CODEC_ACCESS.pop(session_key, None)
+    _SESSION_CODEC_EVICTIONS[reason] = int(_SESSION_CODEC_EVICTIONS.get(reason, 0) or 0) + 1
+
+
+def _prune_codec_session_cache_locked(*, now: Optional[float] = None, protected: str = "") -> None:
+    current = time.monotonic() if now is None else float(now)
+    ttl = max(1, int(CODEC_SESSION_TTL_SECONDS))
+    for key, accessed_at in list(_SESSION_CODEC_ACCESS.items()):
+        if key != protected and current - float(accessed_at) >= ttl:
+            _evict_codec_session_locked(key, "ttl")
+
+    capacity = max(1, int(CODEC_SESSION_CACHE_MAX))
+    cached_keys = set(_SESSION_CODEC_STATE).union(_SESSION_CODEC_PERSIST)
+    while len(cached_keys) > capacity:
+        candidates = [key for key in cached_keys if key != protected]
+        if not candidates:
+            break
+        oldest = min(candidates, key=lambda key: float(_SESSION_CODEC_ACCESS.get(key, 0.0)))
+        _evict_codec_session_locked(oldest, "capacity")
+        cached_keys.discard(oldest)
+
+
+def _touch_codec_session_locked(session_key: str) -> None:
+    if not session_key:
+        return
+    now = time.monotonic()
+    _SESSION_CODEC_ACCESS[session_key] = now
+    _prune_codec_session_cache_locked(now=now, protected=session_key)
+
+
+def _codec_cache_retention_snapshot() -> Dict[str, Any]:
+    with _SESSION_CODEC_LOCK:
+        _prune_codec_session_cache_locked()
+        return {
+            "active_sessions": len(set(_SESSION_CODEC_STATE).union(_SESSION_CODEC_PERSIST)),
+            "capacity": max(1, int(CODEC_SESSION_CACHE_MAX)),
+            "ttl_seconds": max(1, int(CODEC_SESSION_TTL_SECONDS)),
+            "session_key_max_chars": max(32, int(CODEC_SESSION_KEY_MAX_CHARS)),
+            "evictions": dict(_SESSION_CODEC_EVICTIONS),
+            "durable_max_sessions": max(1, int(CODEC_DURABLE_MAX_SESSIONS)),
+        }
 
 
 def _codec_retention_policy() -> Dict[str, Any]:
@@ -516,6 +620,7 @@ def _stable_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "version": payload.get("version", CODEC_VERSION),
         "schema_version": payload.get("schema_version", CODEC_SCHEMA_VERSION),
+        "state_revision": int(payload.get("state_revision", 0) or 0),
         "identity_state": payload.get("identity_state", {}),
         "project_state": payload.get("project_state", {}),
         "world_state": payload.get("world_state", {}),
@@ -1009,6 +1114,7 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     payload["version"] = CODEC_VERSION
     payload["schema_version"] = CODEC_SCHEMA_VERSION
+    payload["state_revision"] = max(0, int(payload.get("state_revision", 0) or 0))
     payload["identity_state"] = {
         "preferences": _normalize_text_list(identity_state.get("preferences", [])),
         "preference_revisions": _normalize_revision_log(identity_state.get("preference_revisions", [])),
@@ -1474,6 +1580,7 @@ def build_codec_state(
     state = {
         "version": CODEC_VERSION,
         "schema_version": CODEC_SCHEMA_VERSION,
+        "state_revision": max(0, int(previous_state.get("state_revision", 0) or 0)),
         "generated_at": generated_at,
         "source_event_count": len(events),
         "source_refs": _source_refs_from_events(events),
@@ -1719,14 +1826,25 @@ def compress_codec_for_prompt(state: Dict[str, Any], *, max_chars: int = 1200) -
     return "\n".join(truncated_sections).strip()
 
 
-def _fetch_codec_rows_from_l22(session_key: str, *, limit: int = 25) -> List[Dict[str, Any]]:
+def _fetch_codec_rows_from_l22(
+    session_key: str,
+    *,
+    limit: int = 25,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     if not session_key or not CODEC_DURABLE_ENABLED:
         return []
 
     try:
         from cortex_server.routers.l22 import list_structured_memory_records
 
-        records = list_structured_memory_records(memory_type="codec_state", lookup_key=session_key, limit=limit)
+        records = list_structured_memory_records(
+            memory_type="codec_state",
+            lookup_key=session_key,
+            limit=limit,
+            **_codec_scope_kwargs(tenant_id, workspace_id),
+        )
         return [{
             "id": record.get("id"),
             "document": record.get("content", ""),
@@ -1765,14 +1883,23 @@ def _fetch_codec_rows_from_l22(session_key: str, *, limit: int = 25) -> List[Dic
 
 
 
-def _fetch_global_codec_rows_from_l22(*, limit: int = 200) -> List[Dict[str, Any]]:
+def _fetch_global_codec_rows_from_l22(
+    *,
+    limit: int = 200,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     if not CODEC_DURABLE_ENABLED:
         return []
 
     try:
         from cortex_server.routers.l22 import list_structured_memory_records
 
-        records = list_structured_memory_records(memory_type="codec_state", limit=limit)
+        records = list_structured_memory_records(
+            memory_type="codec_state",
+            limit=limit,
+            **_codec_scope_kwargs(tenant_id, workspace_id),
+        )
         return [{
             "id": record.get("id"),
             "document": record.get("content", ""),
@@ -1974,11 +2101,22 @@ def _build_codec_rollup_from_rows(rows: List[Dict[str, Any]], *, session_key: st
 
 
 
-def _enrich_codec_state_with_rollups(session_key: str, state: Dict[str, Any], *, limit: int = 200, query: str = "") -> Dict[str, Any]:
+def _enrich_codec_state_with_rollups(
+    session_key: str,
+    state: Dict[str, Any],
+    *,
+    limit: int = 200,
+    query: str = "",
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     if not session_key or not isinstance(state, dict) or not state or not CODEC_DURABLE_ENABLED:
         return state
 
-    rows = _fetch_global_codec_rows_from_l22(limit=limit)
+    rows = _fetch_global_codec_rows_from_l22(
+        limit=limit,
+        **_codec_scope_kwargs(tenant_id, workspace_id),
+    )
     rollup_state = _build_codec_rollup_from_rows(rows, session_key=session_key, reference_at=str(state.get("generated_at") or ""))
     bucket_rollups = rollup_state.get("bucket_scores", {}) if isinstance(rollup_state.get("bucket_scores", {}), dict) else {}
     utility_state = state.get("utility_state", {}) if isinstance(state.get("utility_state", {}), dict) else {}
@@ -2033,8 +2171,18 @@ def _enrich_codec_state_with_rollups(session_key: str, state: Dict[str, Any], *,
 
 
 
-def _load_codec_state_from_l22(session_key: str) -> Dict[str, Any]:
-    candidates = _fetch_codec_rows_from_l22(session_key, limit=25)
+def _load_codec_state_from_l22(
+    session_key: str,
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    session_key = _canonical_codec_session_key(session_key)
+    candidates = _fetch_codec_rows_from_l22(
+        session_key,
+        limit=25,
+        **_codec_scope_kwargs(tenant_id, workspace_id),
+    )
     if not candidates:
         return {}
 
@@ -2057,26 +2205,57 @@ def _load_codec_state_from_l22(session_key: str) -> Dict[str, Any]:
             "loaded_from_l22": True,
             "generated_at": str(meta.get("codec_generated_at") or state.get("generated_at") or ""),
         }
+        _touch_codec_session_locked(session_key)
     return dict(state)
 
 
-def get_codec_state(session_key: str) -> Dict[str, Any]:
+def get_codec_state(
+    session_key: str,
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    session_key = _scoped_codec_session_key(
+        session_key,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if not session_key:
         return {}
-    with _SESSION_CODEC_LOCK:
-        current = _SESSION_CODEC_STATE.get(session_key)
-        if isinstance(current, dict):
-            migrated = _migrate_codec_state(current)
-            enriched = _enrich_codec_state_with_rollups(session_key, migrated)
-            _SESSION_CODEC_STATE[session_key] = enriched
-            return dict(enriched)
-    hydrated = _load_codec_state_from_l22(session_key)
-    if isinstance(hydrated, dict):
-        enriched = _enrich_codec_state_with_rollups(session_key, hydrated)
+    with _codec_session_update_lock(session_key):
         with _SESSION_CODEC_LOCK:
-            _SESSION_CODEC_STATE[session_key] = enriched
-        return dict(enriched)
-    return {}
+            _prune_codec_session_cache_locked(protected=session_key)
+            current = _SESSION_CODEC_STATE.get(session_key)
+            if isinstance(current, dict):
+                migrated = _migrate_codec_state(current)
+                _touch_codec_session_locked(session_key)
+            else:
+                migrated = None
+        if isinstance(migrated, dict):
+            enriched = _enrich_codec_state_with_rollups(
+                session_key,
+                migrated,
+                **_codec_scope_kwargs(tenant_id, workspace_id),
+            )
+            with _SESSION_CODEC_LOCK:
+                _SESSION_CODEC_STATE[session_key] = enriched
+                _touch_codec_session_locked(session_key)
+            return dict(enriched)
+        hydrated = _load_codec_state_from_l22(
+            session_key,
+            **_codec_scope_kwargs(tenant_id, workspace_id),
+        )
+        if hydrated:
+            enriched = _enrich_codec_state_with_rollups(
+                session_key,
+                hydrated,
+                **_codec_scope_kwargs(tenant_id, workspace_id),
+            )
+            with _SESSION_CODEC_LOCK:
+                _SESSION_CODEC_STATE[session_key] = enriched
+                _touch_codec_session_locked(session_key)
+            return dict(enriched)
+        return {}
 
 
 
@@ -2095,8 +2274,19 @@ def _codec_retention_priority_from_row(row: Dict[str, Any]) -> float:
 
 
 
-def _prune_codec_snapshots_in_l22(session_key: str, *, keep_fingerprint: str = "") -> Dict[str, Any]:
-    rows = _fetch_codec_rows_from_l22(session_key, limit=200)
+def _prune_codec_snapshots_in_l22(
+    session_key: str,
+    *,
+    keep_fingerprint: str = "",
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    session_key = _canonical_codec_session_key(session_key)
+    rows = _fetch_codec_rows_from_l22(
+        session_key,
+        limit=200,
+        **_codec_scope_kwargs(tenant_id, workspace_id),
+    )
     if not rows:
         return {"status": "noop", "deleted": 0, "kept": 0, "policy": _codec_retention_policy()}
 
@@ -2169,7 +2359,10 @@ def _prune_codec_snapshots_in_l22(session_key: str, *, keep_fingerprint: str = "
 
     try:
         from cortex_server.routers.l22 import delete_structured_memory_records
-        delete_structured_memory_records(delete_ids)
+        delete_structured_memory_records(
+            delete_ids,
+            **_codec_scope_kwargs(tenant_id, workspace_id),
+        )
     except ImportError:
         try:
             from cortex_server.routers.librarian import collection
@@ -2190,8 +2383,146 @@ def _prune_codec_snapshots_in_l22(session_key: str, *, keep_fingerprint: str = "
     }
 
 
+def _delete_codec_rows_from_l22(
+    ids: List[str],
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> int:
+    normalized = [str(row_id) for row_id in ids if str(row_id or "").strip()]
+    if not normalized:
+        return 0
+    deleted = 0
+    try:
+        from cortex_server.routers.l22 import delete_structured_memory_records
 
-def _persist_codec_state_to_l22(session_key: str, state: Dict[str, Any]) -> Dict[str, Any]:
+        for offset in range(0, len(normalized), 400):
+            deleted += int(delete_structured_memory_records(
+                normalized[offset: offset + 400],
+                **_codec_scope_kwargs(tenant_id, workspace_id),
+            ) or 0)
+        return deleted
+    except ImportError:
+        try:
+            from cortex_server.routers.librarian import collection
+
+            for offset in range(0, len(normalized), 400):
+                chunk = normalized[offset: offset + 400]
+                collection.delete(ids=chunk)
+                deleted += len(chunk)
+            return deleted
+        except Exception:
+            return 0
+    except Exception:
+        return 0
+
+
+def _prune_codec_sessions_in_l22(
+    *,
+    protected_session_key: str = "",
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Bound durable Codec sessions using newest-session LRU semantics.
+
+    L22 exposes a newest-first bounded listing. Repeatedly deleting overflow rows
+    makes older batches visible, so legacy stores also converge to the quota.
+    """
+
+    protected_session_key = _canonical_codec_session_key(protected_session_key)
+    per_session_limit = max(
+        1,
+        int(CODEC_RETENTION_MAX_SNAPSHOTS) + int(CODEC_RETENTION_MAX_PRIORITY_OVERFLOW),
+    )
+    configured_limit = max(1, int(CODEC_DURABLE_MAX_SESSIONS))
+    session_limit = min(configured_limit, max(1, 900 // per_session_limit))
+    kept_sessions = {protected_session_key} if protected_session_key else set()
+    deleted = 0
+    scanned = 0
+
+    while True:
+        rows = _fetch_global_codec_rows_from_l22(
+            limit=1000,
+            **_codec_scope_kwargs(tenant_id, workspace_id),
+        )
+        scanned += len(rows)
+        if not rows:
+            break
+
+        delete_ids: List[str] = []
+        visible_sessions: List[str] = []
+        for row in rows:
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            session_key = _canonical_codec_session_key(metadata.get("codec_session_key"))
+            if not session_key:
+                continue
+            if session_key not in visible_sessions:
+                visible_sessions.append(session_key)
+            if session_key in kept_sessions:
+                continue
+            if len(kept_sessions) < session_limit:
+                kept_sessions.add(session_key)
+                continue
+            if row.get("id"):
+                delete_ids.append(str(row["id"]))
+
+        if delete_ids:
+            removed = _delete_codec_rows_from_l22(
+                delete_ids,
+                **_codec_scope_kwargs(tenant_id, workspace_id),
+            )
+            deleted += removed
+            if removed <= 0:
+                return {
+                    "status": "delete_failed",
+                    "deleted": deleted,
+                    "scanned": scanned,
+                    "kept_sessions": len(kept_sessions),
+                    "session_limit": session_limit,
+                }
+            continue
+
+        if len(rows) < 1000:
+            break
+
+        # A legacy session may itself occupy the entire visible window. Apply
+        # the existing priority-aware per-session policy before fetching again.
+        pruned_in_batch = 0
+        for session_key in visible_sessions:
+            result = _prune_codec_snapshots_in_l22(
+                session_key,
+                **_codec_scope_kwargs(tenant_id, workspace_id),
+            )
+            pruned_in_batch += int(result.get("deleted", 0) or 0)
+        deleted += pruned_in_batch
+        if pruned_in_batch <= 0:
+            return {
+                "status": "quota_unreachable",
+                "deleted": deleted,
+                "scanned": scanned,
+                "kept_sessions": len(kept_sessions),
+                "session_limit": session_limit,
+            }
+
+    return {
+        "status": "pruned" if deleted else "noop",
+        "deleted": deleted,
+        "scanned": scanned,
+        "kept_sessions": len(kept_sessions),
+        "session_limit": session_limit,
+        "configured_session_limit": configured_limit,
+    }
+
+
+
+def _persist_codec_state_to_l22_locked(
+    session_key: str,
+    state: Dict[str, Any],
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    session_key = _canonical_codec_session_key(session_key)
     if not session_key or not CODEC_DURABLE_ENABLED or not isinstance(state, dict) or not state:
         return {"status": "skipped"}
 
@@ -2217,6 +2548,7 @@ def _persist_codec_state_to_l22(session_key: str, state: Dict[str, Any]) -> Dict
             "type": "codec_state",
             "codec_session_key": session_key,
             "codec_version": state.get("version", CODEC_VERSION),
+            "codec_state_revision": int(state.get("state_revision", 0) or 0),
             "codec_generated_at": state.get("generated_at", _now_iso()),
             "codec_summary": state.get("summary", ""),
             "codec_fingerprint": fingerprint,
@@ -2231,11 +2563,20 @@ def _persist_codec_state_to_l22(session_key: str, state: Dict[str, Any]) -> Dict
             memory_type="codec_state",
             tags=["cortex_codec", "codec_state", "durable_memory"],
             metadata=metadata,
+            **_codec_scope_kwargs(tenant_id, workspace_id),
         )
     except Exception as exc:
         return {"status": "write_failed", "error": str(exc), "fingerprint": fingerprint}
 
-    prune = _prune_codec_snapshots_in_l22(session_key, keep_fingerprint=fingerprint)
+    prune = _prune_codec_snapshots_in_l22(
+        session_key,
+        keep_fingerprint=fingerprint,
+        **_codec_scope_kwargs(tenant_id, workspace_id),
+    )
+    session_prune = _prune_codec_sessions_in_l22(
+        protected_session_key=session_key,
+        **_codec_scope_kwargs(tenant_id, workspace_id),
+    )
 
     with _SESSION_CODEC_LOCK:
         _SESSION_CODEC_PERSIST[session_key] = {
@@ -2244,7 +2585,9 @@ def _persist_codec_state_to_l22(session_key: str, state: Dict[str, Any]) -> Dict
             "loaded_from_l22": False,
             "generated_at": state.get("generated_at", ""),
             "retention": prune,
+            "session_retention": session_prune,
         }
+        _touch_codec_session_locked(session_key)
 
     return {
         "status": result.get("status", "stored"),
@@ -2252,7 +2595,24 @@ def _persist_codec_state_to_l22(session_key: str, state: Dict[str, Any]) -> Dict
         "fingerprint": fingerprint,
         "metadata": result.get("metadata", {}),
         "retention": prune,
+        "session_retention": session_prune,
     }
+
+
+def _persist_codec_state_to_l22(
+    session_key: str,
+    state: Dict[str, Any],
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    with _CODEC_DURABLE_LOCK:
+        return _persist_codec_state_to_l22_locked(
+            session_key,
+            state,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
 
 
 def update_codec_state_for_session(
@@ -2260,18 +2620,43 @@ def update_codec_state_for_session(
     events: List[Dict[str, Any]],
     *,
     max_items_per_bucket: int = 8,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    original_session_key = session_key
+    session_key = _scoped_codec_session_key(
+        original_session_key,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if not session_key:
         return build_codec_state(events, previous_state={}, max_items_per_bucket=max_items_per_bucket)
 
-    previous = get_codec_state(session_key)
-    updated = build_codec_state(events, previous_state=previous, max_items_per_bucket=max_items_per_bucket)
-    updated = _enrich_codec_state_with_rollups(session_key, updated)
-    with _SESSION_CODEC_LOCK:
-        _SESSION_CODEC_STATE[session_key] = updated
-    persist = _persist_codec_state_to_l22(session_key, updated)
-    updated["durable_write"] = persist
-    return dict(updated)
+    with _codec_session_update_lock(session_key):
+        previous = get_codec_state(
+            original_session_key,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        updated = build_codec_state(events, previous_state=previous, max_items_per_bucket=max_items_per_bucket)
+        updated["state_revision"] = int(previous.get("state_revision", 0) or 0) + 1
+        updated = _enrich_codec_state_with_rollups(
+            session_key,
+            updated,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        with _SESSION_CODEC_LOCK:
+            _SESSION_CODEC_STATE[session_key] = updated
+            _touch_codec_session_locked(session_key)
+        persist = _persist_codec_state_to_l22(
+            session_key,
+            updated,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        updated["durable_write"] = persist
+        return dict(updated)
 
 
 def apply_codec_outcome_feedback_for_session(
@@ -2279,24 +2664,72 @@ def apply_codec_outcome_feedback_for_session(
     outcome_event: Dict[str, Any],
     *,
     max_items_per_bucket: int = 8,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    original_session_key = session_key
+    session_key = _scoped_codec_session_key(
+        original_session_key,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if not session_key:
         return {}
 
-    previous = get_codec_state(session_key)
-    updated = apply_codec_outcome_feedback(previous, outcome_event, max_items_per_bucket=max_items_per_bucket)
-    updated = _enrich_codec_state_with_rollups(session_key, updated)
-    with _SESSION_CODEC_LOCK:
-        _SESSION_CODEC_STATE[session_key] = updated
-    persist = _persist_codec_state_to_l22(session_key, updated)
-    updated["durable_write"] = persist
-    return dict(updated)
+    with _codec_session_update_lock(session_key):
+        previous = get_codec_state(
+            original_session_key,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        updated = apply_codec_outcome_feedback(previous, outcome_event, max_items_per_bucket=max_items_per_bucket)
+        updated["state_revision"] = int(previous.get("state_revision", 0) or 0) + 1
+        updated = _enrich_codec_state_with_rollups(
+            session_key,
+            updated,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        with _SESSION_CODEC_LOCK:
+            _SESSION_CODEC_STATE[session_key] = updated
+            _touch_codec_session_locked(session_key)
+        persist = _persist_codec_state_to_l22(
+            session_key,
+            updated,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        updated["durable_write"] = persist
+        return dict(updated)
 
 
-def get_codec_packet_for_session(session_key: str, *, max_chars: int = 1200, query: str = "") -> Dict[str, Any]:
-    state = get_codec_state(session_key)
+def get_codec_packet_for_session(
+    session_key: str,
+    *,
+    max_chars: int = 1200,
+    query: str = "",
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    original_session_key = str(session_key or "")
+    session_key = _scoped_codec_session_key(
+        original_session_key,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
+    state = get_codec_state(
+        original_session_key,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if state and query:
-        state = _enrich_codec_state_with_rollups(session_key, json.loads(json.dumps(state)), query=query)
+        state = _enrich_codec_state_with_rollups(
+            session_key,
+            json.loads(json.dumps(state)),
+            query=query,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
     if state:
         state = json.loads(json.dumps(state))
         state["memory_facts"] = build_codec_memory_facts(session_key=session_key, codec_state=state)
@@ -2305,7 +2738,8 @@ def get_codec_packet_for_session(session_key: str, *, max_chars: int = 1200, que
         persist = dict(_SESSION_CODEC_PERSIST.get(session_key) or {}) if session_key else {}
     return {
         "available": bool(packet),
-        "session_key": session_key,
+        "session_key": original_session_key,
+        "storage_session_key": session_key,
         "packet": packet,
         "summary": state.get("summary", "") if isinstance(state, dict) else "",
         "state": state,
@@ -2316,6 +2750,7 @@ def get_codec_packet_for_session(session_key: str, *, max_chars: int = 1200, que
 
 
 def get_codec_debug_view(session_key: str, *, max_chars: int = 1200, history_limit: int = 8, query: str = "") -> Dict[str, Any]:
+    session_key = _canonical_codec_session_key(session_key)
     packet = get_codec_packet_for_session(session_key, max_chars=max_chars, query=query)
     state = packet.get("state") if isinstance(packet.get("state"), dict) else {}
     compression = state.get("compression") if isinstance(state.get("compression"), dict) else {}
@@ -2358,6 +2793,7 @@ def get_codec_debug_view(session_key: str, *, max_chars: int = 1200, history_lim
         "packet_chars": len(packet.get("packet", "")) if isinstance(packet.get("packet"), str) else 0,
         "state_fingerprint": _state_fingerprint(state) if state else "",
         "in_memory": bool(session_key and isinstance(_SESSION_CODEC_STATE.get(session_key), dict)),
+        "cache_retention": _codec_cache_retention_snapshot(),
         "loaded_from_l22": bool(durable.get("loaded_from_l22")),
         "source_event_count": int(state.get("source_event_count", 0) or 0) if state else 0,
         "compression": {

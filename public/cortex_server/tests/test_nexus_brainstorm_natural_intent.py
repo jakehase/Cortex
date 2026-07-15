@@ -19,7 +19,7 @@ def _client(monkeypatch):
 
 def test_natural_brainstorm_prompt_forces_chain(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Give me creative ideas for launching this product"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Give me creative ideas for launching this product"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] == "brainstorm_chain_forced"

@@ -12,6 +12,7 @@ from celery import Celery
 
 # Import native modules for direct execution
 from cortex_server.modules.ghost import Ghost
+from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
 from cortex_server.modules.ouroboros import Ouroboros
 
 
@@ -201,6 +202,7 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             "novelty_summary": novelty_summary,
         }
     }
+    librarian_payload.update(authenticated_memory_scope_fields())
 
     try:
         requests.post(LIBRARIAN_EMBED, json=librarian_payload, headers=_cortex_write_headers(), timeout=10)

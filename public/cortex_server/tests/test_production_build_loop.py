@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from cortex_server.runtime import RuntimeSoakHarness
+import cortex_server.runtime.production_build_loop as production_build_loop
 from cortex_server.runtime.production_build_loop import (
     BuildLoopControllerOwner,
     ProductionBuildContract,
@@ -13,11 +14,13 @@ from cortex_server.runtime.production_build_loop import (
     ProductionPassBudget,
     ProductionStageGate,
     reconcile_production_build_loop,
+    evaluate_production_completion,
 )
 from cortex_server.runtime.release_workflow import (
     ReleaseWorkflowState,
     capture_release_rollback_fencepost,
     record_release_fencepost,
+    record_release_handoff,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState
 
@@ -38,6 +41,37 @@ MINIMAL_PROFILE = {
     "watchdog": {"lease_seconds": 60, "heartbeat_grace_seconds": 60},
     "checkpoint": {"snapshot_every_events": 4, "must_checkpoint_on_handoff": True},
 }
+
+
+def test_empty_completion_contract_is_not_terminal_and_default_gates_require_evidence(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_empty_completion"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    contract = ProductionBuildContract(
+        process_id=process_id,
+        objective="Ship safely",
+        completion_criteria=[],
+        stage_gates=[],
+        dependability_profile=dict(MINIMAL_PROFILE),
+    )
+
+    completion = evaluate_production_completion(
+        contract,
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        dependability_report={"success": True},
+        release_state=None,
+    )
+    canary_gate = production_build_loop._stage_gate_for(contract, "canary_verified")
+    production_gate = production_build_loop._stage_gate_for(contract, "production")
+
+    assert completion["all_required_satisfied"] is False
+    assert completion["contract_valid"] is False
+    assert canary_gate.required_fencepost_stages == ["build_verified"]
+    assert canary_gate.required_handoff_count == 1
+    assert f"artifact_release_bundle:{process_id}" in canary_gate.required_artifacts
+    assert production_gate.required_handoff_count == 1
+    assert f"artifact_smoke_report:{process_id}" in production_gate.required_artifacts
 
 
 def _contract(
@@ -690,7 +724,7 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
     assert any(action["action"] == "checkpoint_from_journal" for action in result["actions_taken"])
 
 
-def test_production_loop_dispatches_release_handoff_and_captures_promotion_fencepost(tmp_path):
+def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
     process_id = "proc_release_handoff_loop"
     seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
@@ -754,19 +788,49 @@ def test_production_loop_dispatches_release_handoff_and_captures_promotion_fence
         controller_session_id="sess-release",
     )
 
-    final_release = harness.release_store.load(process_id)
+    pending_release = harness.release_store.load(process_id)
     messages = harness.mailbox.list(process_id=process_id)
     leases = harness.supervisor.list(process_id=process_id)
 
-    assert result["state"]["status"] == "completed"
-    assert final_release.current_stage == "production"
+    assert result["state"]["status"] == "active"
+    assert pending_release.current_stage == "build_verified"
     assert any(action["action"] == "dispatch_release_handoff" for action in result["actions_taken"])
-    assert any(action["action"] == "ack_release_handoff" for action in result["actions_taken"])
-    assert any(action["action"] == "capture_release_fencepost" and action["stage"] == "production" for action in result["actions_taken"])
-    assert any(record["stage"] == "production" and record["delivery_status"] == "acked" for record in final_release.handoff_records)
-    assert any(fencepost.stage == "production" for fencepost in final_release.rollback_fenceposts)
-    assert any(message.to_agent == "release-manager" and message.delivery_status == "acked" for message in messages)
+    assert not any(action["action"] == "ack_release_handoff" for action in result["actions_taken"])
+    assert not any(fencepost.stage == "production" for fencepost in pending_release.rollback_fenceposts)
+    assert any(message.to_agent == "release-manager" and message.delivery_status == "queued" for message in messages)
     assert any(lease.scope == "release:promote" and lease.agent_id == "release-manager" for lease in leases)
+
+    received = harness.mailbox.receive(
+        to_agent="release-manager",
+        process_id=process_id,
+        expected_revision_id=shared_state.revision_id,
+        reject_stale_revision=True,
+    )
+    assert len(received) == 1
+    acknowledged = harness.mailbox.acknowledge(received[0].message_id)
+    harness.release_store.save(
+        record_release_handoff(pending_release, acknowledged, stage="production", notes="verified by recipient"),
+        actor="release-manager",
+        provenance={"evidence": "recipient_verification"},
+    )
+
+    completed = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-release",
+    )
+    final_release = harness.release_store.load(process_id)
+
+    assert completed["state"]["status"] == "completed"
+    assert final_release.current_stage == "production"
+    assert any(fencepost.stage == "production" for fencepost in final_release.rollback_fenceposts)
 
 
 def test_production_loop_keeps_non_human_rule_blockers_live_when_recovery_is_still_possible(tmp_path):

@@ -307,11 +307,43 @@ def test_append_failure_is_non_disruptive_and_event_stays_in_bounded_memory(
     monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(tmp_path / "unwritable" / "events.jsonl"))
     monkeypatch.setattr(ledger.os, "makedirs", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
     ledger._recent_events.clear()
+    with ledger._durable_health_lock:
+        ledger._durable_outcomes.clear()
+        ledger._durable_totals.update({"writes_succeeded": 0, "write_failures": 0, "records_dropped": 0})
+        ledger._last_durable_success_at = None
     entry = {"event_id": "kept-in-memory", "ts_unix": time.time()}
 
+    no_samples = ledger.get_event_health(seconds=60)
+
     ledger._append_event(entry)
+    failed_health = ledger.get_event_health(seconds=60)
 
     assert list(ledger._recent_events)[-1] is entry
+    assert no_samples["status"] == "unknown"
+    assert no_samples["success_rate"] is None
+    assert failed_health["status"] == "degraded"
+    assert failed_health["durable"]["write_failures"] == 1
+    assert failed_health["durable"]["writes_succeeded"] == 0
+    assert failed_health["durable"]["last_success_at"] is None
+
+
+def test_successful_fsynced_ledger_write_reports_durable_health(monkeypatch, tmp_path):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(path))
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_MAX_BYTES", 10_000)
+    with ledger._durable_health_lock:
+        ledger._durable_outcomes.clear()
+        ledger._durable_totals.update({"writes_succeeded": 0, "write_failures": 0, "records_dropped": 0})
+        ledger._last_durable_success_at = None
+
+    ledger._append_event({"event_id": "durable", "ts_unix": time.time(), "status_code": 200})
+    health = ledger.get_event_health(seconds=60)
+
+    assert health["status"] == "healthy"
+    assert health["durable"]["writes_succeeded"] == 1
+    assert health["durable"]["write_failures"] == 0
+    assert health["durable"]["records_dropped"] == 0
+    assert health["durable"]["last_success_at"] is not None
 
 
 def test_concurrent_in_memory_reads_and_worker_appends_are_safe(monkeypatch, tmp_path):

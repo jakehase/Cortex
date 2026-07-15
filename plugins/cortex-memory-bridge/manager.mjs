@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto';
+
 function resolveConfig(cfg) {
   const rootEntry = cfg?.plugins?.entries?.['cortex-memory-bridge'];
   const pluginCfg = rootEntry?.config || (cfg && typeof cfg === 'object' ? cfg : {}) || {};
@@ -8,6 +10,12 @@ function resolveConfig(cfg) {
     searchPath: String(pluginCfg.searchPath || '/knowledge/search'),
     writeToken: typeof pluginCfg.writeToken === 'string' ? pluginCfg.writeToken : '',
     writeTokenHeader: writeTokenHeader.toLowerCase(),
+    scopeHmacSecret: typeof pluginCfg.scopeHmacSecret === 'string' ? pluginCfg.scopeHmacSecret : '',
+    tenantId: typeof pluginCfg.tenantId === 'string' ? pluginCfg.tenantId.trim() : 'cortex-local',
+    workspaceId: typeof pluginCfg.workspaceId === 'string' ? pluginCfg.workspaceId.trim() : 'default',
+    userId: typeof pluginCfg.userId === 'string' ? pluginCfg.userId.trim() : '',
+    channelId: typeof pluginCfg.channelId === 'string' ? pluginCfg.channelId.trim() : '',
+    sessionId: typeof pluginCfg.sessionId === 'string' ? pluginCfg.sessionId.trim() : '',
     timeoutMs: Number(pluginCfg.timeoutMs || 12000),
     retryCount: Number(pluginCfg.retryCount ?? 2),
     retryBackoffMs: Number(pluginCfg.retryBackoffMs ?? 350),
@@ -415,6 +423,61 @@ async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 2
   throw lastError || new Error('unknown cortex memory manager error');
 }
 
+function scopedIdentity(rcfg, agentId, opts = {}) {
+  const scope = {
+    tenant_id: String(opts.tenantId || rcfg.tenantId || '').trim(),
+    workspace_id: String(opts.workspaceId || rcfg.workspaceId || '').trim(),
+    agent_id: String(opts.agentId || agentId || '').trim(),
+    user_id: String(opts.userId || rcfg.userId || '').trim(),
+    channel_id: String(opts.channelId || rcfg.channelId || '').trim(),
+    session_id: String(opts.sessionKey || opts.sessionId || rcfg.sessionId || '').trim(),
+  };
+  if (!scope.tenant_id || !scope.workspace_id || !scope.agent_id) {
+    throw new Error('tenantId, workspaceId, and agentId are required for scoped Cortex memory search');
+  }
+  return Object.fromEntries(Object.entries(scope).filter(([, value]) => value));
+}
+
+function scopedHeaders(rcfg, scope) {
+  const secret = String(rcfg.scopeHmacSecret || rcfg.writeToken || '');
+  const headers = rcfg.writeToken ? { [rcfg.writeTokenHeader]: rcfg.writeToken } : {};
+  const tenantId = String(scope.tenant_id || '').trim();
+  const workspaceId = String(scope.workspace_id || '').trim();
+  if (!secret) {
+    if (tenantId === 'cortex-local' && workspaceId === 'default') {
+      return { ...headers, 'x-cortex-tenant-id': tenantId, 'x-cortex-workspace-id': workspaceId };
+    }
+    throw new Error('scopeHmacSecret or writeToken is required to authenticate non-default Cortex memory scope');
+  }
+  const signature = createHmac('sha256', secret)
+    .update(`cortex.memory.scope.v1\n${tenantId}\n${workspaceId}`, 'utf8')
+    .digest('hex');
+  return {
+    ...headers,
+    'x-cortex-tenant-id': tenantId,
+    'x-cortex-workspace-id': workspaceId,
+    'x-cortex-scope-signature': signature,
+  };
+}
+
+function memoryScopeFields(rcfg, scope) {
+  const headers = scopedHeaders(rcfg, scope);
+  return {
+    tenant_id: headers['x-cortex-tenant-id'],
+    workspace_id: headers['x-cortex-workspace-id'],
+    ...(headers['x-cortex-scope-signature'] ? { scope_signature: headers['x-cortex-scope-signature'] } : {}),
+  };
+}
+
+function unavailableSearchReason(response) {
+  if (!response || typeof response !== 'object') return 'invalid search response';
+  if (response.disabled === true || response.available === false) return String(response.error || response.warning || 'search backend unavailable');
+  if (typeof response.error === 'string' && response.error.trim()) return response.error.trim();
+  const mode = String(response.search_mode ?? response.mode ?? '').trim().toLowerCase();
+  if (['disabled', 'error', 'failed', 'none', 'unavailable'].includes(mode)) return String(response.warning || `search mode ${mode}`);
+  return null;
+}
+
 export class CortexMemorySearchManager {
   constructor(params) {
     this.cfg = params.cfg;
@@ -426,8 +489,16 @@ export class CortexMemorySearchManager {
     const classification = classifyQuery(query);
     const requestedMax = Number(opts.maxResults || 6);
     const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, this.rcfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
-    const writeHeaders = this.rcfg.writeToken ? { [this.rcfg.writeTokenHeader]: this.rcfg.writeToken } : {};
-    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, { query, n_results: fetchCount }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes, writeHeaders);
+    const scope = scopedIdentity(this.rcfg, this.agentId, opts);
+    const headers = scopedHeaders(this.rcfg, scope);
+    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
+      query,
+      n_results: fetchCount,
+      scope,
+      ...memoryScopeFields(this.rcfg, scope),
+    }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes, headers);
+    const unavailable = unavailableSearchReason(response);
+    if (unavailable) throw new Error(`Cortex memory search unavailable: ${unavailable}`);
     const items = Array.isArray(response?.results) ? response.results : [];
     const reconciled = reconcileResults(query, items, this.rcfg);
     let results = reconciled.results.slice(0, requestedMax);
@@ -445,11 +516,27 @@ export class CortexMemorySearchManager {
       model: 'semantic-http',
       files: 0,
       chunks: 0,
-      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
+      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, scoped: true, modes: ['fast', 'reconcile', 'investigate-lite'] }
     };
   }
-  async probeEmbeddingAvailability() { return { ok: true }; }
-  async probeVectorAvailability() { return true; }
+  async probeSearchAvailability() {
+    try {
+      const scope = scopedIdentity(this.rcfg, this.agentId);
+      const headers = scopedHeaders(this.rcfg, scope);
+      const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
+        query: 'cortex memory backend availability probe',
+        n_results: 1,
+        scope,
+        ...memoryScopeFields(this.rcfg, scope),
+      }, this.rcfg.timeoutMs, 0, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes, headers);
+      const unavailable = unavailableSearchReason(response);
+      return unavailable ? { ok: false, error: unavailable } : { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  async probeEmbeddingAvailability() { return this.probeSearchAvailability(); }
+  async probeVectorAvailability() { return (await this.probeSearchAvailability()).ok; }
   async close() {}
 }
 

@@ -25,8 +25,9 @@ def test_nexus_orchestrate_surfaces_codec_context(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "How should we wire Codec into the real path?"},
         headers={"x-session-id": session_key},
     )
@@ -53,8 +54,9 @@ def test_nexus_orchestrate_codec_probe_exposes_hydrated_packet_without_semantic_
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    response = client.get(
+    response = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "Expose the recovered Codec canary.", "codec_probe": "true"},
         headers={"x-session-id": session_key},
     )
@@ -83,8 +85,9 @@ def test_nexus_orchestrate_records_codec_execution_artifact(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "How should we wire Codec into the real path?"},
         headers={"x-session-id": session_key},
     )
@@ -161,7 +164,7 @@ def test_nexus_orchestrate_failure_records_codec_execution_failure(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get("/nexus/orchestrate", params={"query": "How should we wire Codec into the real path?"}, headers={"x-session-id": "nexus-codec-execution-failure"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "How should we wire Codec into the real path?"}, headers={"x-session-id": "nexus-codec-execution-failure"})
     assert r.status_code == 500
     assert captured["explicit_success"] is False
     assert captured["note"].startswith("nexus_orchestrate_exception:")

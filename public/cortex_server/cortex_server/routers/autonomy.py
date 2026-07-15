@@ -32,6 +32,7 @@ from cortex_server.middleware.event_ledger_middleware import (
     get_event_health,
     get_recent_events,
 )
+from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
 
 router = APIRouter()
 
@@ -263,6 +264,7 @@ def _persist_l22(content: str, tags: Optional[List[str]] = None, metadata: Optio
                 "content": content,
                 "tags": _dedupe_str_list(tags or []),
                 "metadata": metadata or {},
+                **authenticated_memory_scope_fields(),
             },
             timeout_s=6.0,
         )

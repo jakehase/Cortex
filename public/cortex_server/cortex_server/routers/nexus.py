@@ -3,16 +3,18 @@ Nexus Router - Semantic Orchestration using L5 Oracle
 
 Replaces keyword matching with true semantic understanding.
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
+import base64
 import os
 import json
 import hashlib
 import hmac
 import math
 import re
+import secrets
 import threading
 import time
 from collections import deque
@@ -44,6 +46,8 @@ from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
+from services.routing.adaptive_router_policy import choose_route
+from services.routing.route_feature_pipeline import build_route_features
 
 router = APIRouter()
 
@@ -160,6 +164,28 @@ _LATENCY_GOVERNOR = LatencyBudgetGovernor()
 _OUTCOME_TUNER = OutcomeTuner()
 NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
+_ASSURANCE_KEY_TEXT = (
+    os.getenv("NEXUS_ASSURANCE_SIGNING_KEY", "").strip()
+    or os.getenv("CORTEX_WRITE_TOKEN", "").strip()
+)
+_ASSURANCE_SIGNING_KEY = _ASSURANCE_KEY_TEXT.encode("utf-8") if _ASSURANCE_KEY_TEXT else secrets.token_bytes(32)
+_ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
+_ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
+_ASSURANCE_RECEIPT_LOCK = threading.Lock()
+_CONSUMED_ASSURANCE_RECEIPTS: Dict[str, int] = {}
+_ASSURANCE_RESERVED_METADATA = {
+    "assurance",
+    "assurance_receipt",
+    "cognitive_quality",
+    "levels_used",
+    "query",
+    "risk_flags",
+    "source",
+    "tenant_id",
+    "validator_result",
+    "workspace_id",
+    "world_grounding",
+}
 
 
 def _context_for_disk() -> Dict[str, Any]:
@@ -2730,22 +2756,202 @@ def _build_workflow_checkpoint(query: str, routing_method: str, recommended: Lis
 
 
 def _generate_fastlane_answer(query: str, qtype: str, template: Dict[str, Any], retrieval_items: List[Dict[str, Any]]) -> str:
-    if qtype == "comparative":
-        answer = f"Comparison for '{query}': option A vs option B differ by scope, cost, and complexity. Use A for simplicity, B for flexibility."
-    elif qtype == "procedural":
-        answer = f"Steps for '{query}': 1) Prepare prerequisites. 2) Execute the core action. 3) Verify output and adjust."
-    elif qtype == "explanatory":
-        answer = f"Explanation for '{query}': this is driven by core mechanisms, constraints, and context-dependent tradeoffs."
-    elif qtype == "opinionated":
-        answer = f"Recommendation for '{query}': choose the option with lower risk and easier rollback unless you need advanced flexibility."
-    else:
-        answer = f"Factual answer for '{query}': based on available context, the most likely answer is context-dependent; verify with primary sources."
+    grounded = [
+        item for item in retrieval_items
+        if isinstance(item, dict)
+        and bool(item.get("grounded"))
+        and str(item.get("snippet") or "").strip()
+        and str(item.get("provenance") or "").strip()
+    ]
+    if not grounded:
+        return "Grounded retrieval is unavailable; escalate this query to the semantic reasoning path."
 
-    q = (query or "").lower()
-    if retrieval_items and any(x in q for x in ["cite", "citation", "source", "sources"]):
-        sources = ", ".join(sorted({str(item.get('source', 'unknown')) for item in retrieval_items[:3]}))
-        answer += f" Sources: {sources}."
-    return answer
+    labels = {
+        "comparative": "Grounded comparison evidence",
+        "procedural": "Grounded procedural evidence",
+        "explanatory": "Grounded explanatory evidence",
+        "opinionated": "Grounded decision evidence",
+        "factual": "Grounded factual evidence",
+    }
+    evidence = []
+    for item in grounded[:3]:
+        source = str(item.get("source") or "source")[:80]
+        snippet = str(item.get("snippet") or "").strip()[:600]
+        evidence.append(f"{source}: {snippet}")
+    return f"{labels.get(qtype, labels['factual'])}: " + " ".join(evidence)
+
+
+def _normalized_commit_levels(levels: List[int]) -> List[int]:
+    out = []
+    for value in levels or []:
+        try:
+            level = int(value)
+        except (TypeError, ValueError):
+            continue
+        if level in LEVEL_MAP and level not in out:
+            out.append(level)
+    return sorted(out)
+
+
+def _bounded_scope_value(value: str, default: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return default
+    if len(normalized) > 128 or not re.fullmatch(r"[A-Za-z0-9_.:@/-]+", normalized):
+        raise HTTPException(status_code=400, detail="invalid assurance scope")
+    return normalized
+
+
+def _assurance_scope(request: Optional[Request]) -> Dict[str, str]:
+    headers = request.headers if request is not None else {}
+    authorization = getattr(getattr(request, "state", None), "cortex_write_authorization", "") if request is not None else ""
+    tenant_id = _bounded_scope_value(headers.get("x-cortex-tenant-id", ""), "cortex-local")
+    workspace_id = _bounded_scope_value(headers.get("x-cortex-workspace-id", ""), "default")
+    from cortex_server.routers.librarian import _authenticated_memory_scope
+
+    tenant_id, workspace_id = _authenticated_memory_scope(
+        tenant_id,
+        workspace_id,
+        headers.get("x-cortex-scope-signature", ""),
+    )
+    return {
+        "tenant_id": tenant_id,
+        "workspace_id": workspace_id,
+        "authorization": _bounded_scope_value(authorization, "request_boundary"),
+    }
+
+
+def _content_hash(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4)))
+
+
+def _encode_assurance_receipt(payload: Dict[str, Any]) -> str:
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    signature = hmac.new(_ASSURANCE_SIGNING_KEY, body, hashlib.sha256).digest()
+    return f"{_b64url_encode(body)}.{_b64url_encode(signature)}"
+
+
+def _decode_assurance_receipt(receipt: str) -> Dict[str, Any]:
+    try:
+        body_part, signature_part = str(receipt or "").split(".", 1)
+        body = _b64url_decode(body_part)
+        supplied = _b64url_decode(signature_part)
+        expected = hmac.new(_ASSURANCE_SIGNING_KEY, body, hashlib.sha256).digest()
+        if not hmac.compare_digest(supplied, expected):
+            raise ValueError("signature_mismatch")
+        payload = json.loads(body.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid_payload")
+        return payload
+    except Exception as exc:
+        if isinstance(exc, ValueError) and str(exc) in {"signature_mismatch", "invalid_payload"}:
+            raise
+        raise ValueError("malformed_receipt") from exc
+
+
+def _server_commit_assurance(query: str, response: str) -> Dict[str, Any]:
+    query = str(query or "").strip()
+    response = str(response or "").strip()
+    qtype = classify_qtype(query)
+    checks = fast_verify(response, qtype, query)
+    validator_pass = bool(
+        query
+        and response
+        and checks.get("required_fields_ok", False)
+        and not checks.get("contradiction_detected", False)
+        and not checks.get("overclaim_detected", False)
+        and int(checks.get("missing_constraints_count", 0)) == 0
+        and not checks.get("shallow_confidence_risk", False)
+    )
+    validator_result = {"pass": validator_pass, "checks": checks, "source": "nexus.commit.server_validator"}
+    validator_summary = build_validator_summary(
+        checks=checks,
+        validator_result=validator_result,
+        cognitive_quality={},
+        execution_transaction={"status": "completed"},
+    )
+    risk_flags = _detect_risk_flags(f"{query}\n{response}")
+    world_grounding = gather_live_evidence(
+        query,
+        max_sources=3,
+        notary_packets=1,
+        enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
+    )
+    memory_decision = build_memory_commit_decision(
+        query=query,
+        response=response,
+        risk_flags=risk_flags,
+        validator_summary=validator_summary,
+        world_grounding=world_grounding,
+    )
+    return {
+        "risk_flags": risk_flags,
+        "validator_result": validator_result,
+        "validator_summary": validator_summary,
+        "world_grounding": world_grounding,
+        "memory_decision": memory_decision,
+    }
+
+
+def _issue_assurance_receipt(interaction: "AssuranceReceiptRequest", request: Optional[Request]) -> Dict[str, Any]:
+    assurance = _server_commit_assurance(interaction.query, interaction.response)
+    if not bool((assurance.get("memory_decision") or {}).get("eligible")):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "interaction_not_eligible_for_commit",
+                "reasons": list((assurance.get("memory_decision") or {}).get("reasons") or []),
+            },
+        )
+    issued_at = int(time.time())
+    payload = {
+        "version": _ASSURANCE_RECEIPT_VERSION,
+        "jti": secrets.token_hex(16),
+        "issued_at": issued_at,
+        "expires_at": issued_at + _ASSURANCE_RECEIPT_TTL_SECONDS,
+        "query_hash": _content_hash(interaction.query),
+        "response_hash": _content_hash(interaction.response),
+        "levels_used": _normalized_commit_levels(interaction.levels_used),
+        "scope": _assurance_scope(request),
+        "risk_flags": list(assurance.get("risk_flags") or []),
+        "validator_pass": bool((assurance.get("validator_summary") or {}).get("pass")),
+    }
+    return {"receipt": _encode_assurance_receipt(payload), "payload": payload, "assurance": assurance}
+
+
+def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[Request]) -> Dict[str, Any]:
+    payload = _decode_assurance_receipt(interaction.assurance_receipt)
+    now = int(time.time())
+    if payload.get("version") != _ASSURANCE_RECEIPT_VERSION:
+        raise ValueError("unsupported_receipt_version")
+    if int(payload.get("issued_at", 0)) > now + 5 or int(payload.get("expires_at", 0)) < now:
+        raise ValueError("expired_receipt")
+    if not hmac.compare_digest(str(payload.get("query_hash") or ""), _content_hash(interaction.query)):
+        raise ValueError("query_binding_mismatch")
+    if not hmac.compare_digest(str(payload.get("response_hash") or ""), _content_hash(interaction.response)):
+        raise ValueError("response_binding_mismatch")
+    if payload.get("levels_used") != _normalized_commit_levels(interaction.levels_used):
+        raise ValueError("levels_binding_mismatch")
+    if payload.get("scope") != _assurance_scope(request):
+        raise ValueError("scope_binding_mismatch")
+    jti = str(payload.get("jti") or "")
+    if not jti:
+        raise ValueError("missing_receipt_id")
+    with _ASSURANCE_RECEIPT_LOCK:
+        expired = [key for key, expires_at in _CONSUMED_ASSURANCE_RECEIPTS.items() if expires_at < now]
+        for key in expired:
+            _CONSUMED_ASSURANCE_RECEIPTS.pop(key, None)
+        if jti in _CONSUMED_ASSURANCE_RECEIPTS:
+            raise ValueError("receipt_already_consumed")
+    return payload
 
 
 
@@ -2757,8 +2963,19 @@ class AutoIndexRequest(BaseModel):
 class InteractionData(BaseModel):
     query: str
     response: str
-    levels_used: List[int] = []
-    metadata: Dict[str, Any] = {}
+    levels_used: List[int] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    assurance_receipt: str = ""
+
+
+class AssuranceReceiptRequest(BaseModel):
+    query: str
+    response: str
+    levels_used: List[int] = Field(default_factory=list)
+
+
+class OrchestrateRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=1_048_576)
 
 
 class PolicyReplayRequest(BaseModel):
@@ -2782,6 +2999,9 @@ class CodecEventsRequest(BaseModel):
     session_key: str = ""
     events: List[Dict[str, Any]] = Field(default_factory=list)
     max_chars: int = 420
+    tenant_id: str = Field("cortex-local", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    workspace_id: str = Field("default", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 def analyze_intent_with_oracle(query: str) -> Dict[str, Any]:
@@ -2998,6 +3218,13 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         raise HTTPException(status_code=400, detail="session_key is required")
     if not payload.events or len(payload.events) > 32:
         raise HTTPException(status_code=400, detail="events must contain between 1 and 32 records")
+    from cortex_server.routers.librarian import _authenticated_memory_scope
+
+    tenant_id, workspace_id = _authenticated_memory_scope(
+        payload.tenant_id,
+        payload.workspace_id,
+        payload.scope_signature,
+    )
     events = []
     for row in payload.events:
         if not isinstance(row, dict):
@@ -3008,11 +3235,19 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         tags = row.get("tags") if isinstance(row.get("tags"), list) else []
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         events.append({"text": text, "tags": [str(tag)[:80] for tag in tags[:24]], "metadata": metadata})
-    state = await run_in_threadpool(update_codec_state_for_session, resolved_session_key, events)
+    state = await run_in_threadpool(
+        update_codec_state_for_session,
+        resolved_session_key,
+        events,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     packet = await run_in_threadpool(
         get_codec_packet_for_session,
         resolved_session_key,
         max_chars=max(120, min(int(payload.max_chars), 2400)),
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     return {
         "success": True,
@@ -3818,9 +4053,32 @@ async def outcome_feedback(payload: OutcomeFeedbackRequest):
 
 
 @router.get("/orchestrate")
+async def orchestrate_query_read_only_guard():
+    """Keep legacy route discovery truthful without permitting GET mutations."""
+    raise HTTPException(
+        status_code=405,
+        detail="Nexus orchestration mutates routing and continuity state; use authorized POST.",
+    )
+
+
 @router.post("/orchestrate")
-async def orchestrate_query(query: str, request: Request = None, codec_probe: bool = False):
+async def orchestrate_query(
+    query: Optional[str] = None,
+    request: Request = None,
+    codec_probe: bool = False,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+):
     """Semantic query orchestration with Q&A fastlane option."""
+    body_query = payload.get("query") if payload is not None else None
+    if body_query is not None and not isinstance(body_query, str):
+        raise HTTPException(status_code=422, detail="JSON body query must be a string")
+    if query is not None and body_query is not None and query != body_query:
+        raise HTTPException(status_code=400, detail="query parameter and JSON body disagree")
+    query = str(query if query is not None else body_query or "").strip()
+    if not query:
+        raise HTTPException(status_code=422, detail="query is required")
+    if len(query) > 1_048_576:
+        raise HTTPException(status_code=422, detail="query exceeds maximum length")
     started = datetime.utcnow()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
     session_key = _codec_session_key(request)
@@ -3899,6 +4157,48 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
         )
         archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate, kernel_contract=kernel_contract)
         policy_hint = _OUTCOME_TUNER.get_policy_hint(archetype=archetype, query=query)
+        adaptive_route: Dict[str, Any] = {
+            "enabled": bool(autotune_policy.get("autotune_enabled", True)),
+            "evaluated": False,
+            "applied": False,
+            "selected_chain": None,
+            "rollout_stage": str(policy_hint.get("stage", "shadow")),
+            "rollout_percent": int(policy_hint.get("rollout_percent", 0) or 0),
+            "reason": "autotune_disabled" if not bool(autotune_policy.get("autotune_enabled", True)) else "shadow_only",
+        }
+        if adaptive_route["enabled"]:
+            try:
+                adaptive_features = build_route_features(query, risk_flags=risk_flags)
+                adaptive_decision = choose_route(adaptive_features)
+                adaptive_selected = adaptive_decision.get("selected") if isinstance(adaptive_decision.get("selected"), dict) else {}
+                recommended_policy = str(policy_hint.get("recommended_policy") or "")
+                selected_chain = str(adaptive_selected.get("chain_id") or "")
+                rollout_guard_open = bool(policy_hint.get("apply_recommendation", False))
+                rollout_eligible = bool(
+                    rollout_guard_open
+                    and selected_chain
+                    and (not recommended_policy or selected_chain == recommended_policy)
+                )
+                adaptive_route.update({
+                    "evaluated": True,
+                    "selected_chain": selected_chain or None,
+                    "selected_levels": list(adaptive_selected.get("levels") or []),
+                    "selected_policy": adaptive_selected.get("policy"),
+                    "utility": adaptive_selected.get("utility"),
+                    "estimated_quality": adaptive_selected.get("estimated_quality"),
+                    "features": adaptive_features,
+                    "decision": adaptive_decision,
+                    "rollout_eligible": rollout_eligible,
+                    "reason": (
+                        "rollout_guard_open"
+                        if rollout_eligible
+                        else "rollout_policy_mismatch"
+                        if rollout_guard_open
+                        else "rollout_guard_closed"
+                    ),
+                })
+            except Exception as exc:
+                adaptive_route.update({"reason": f"adaptive_router_error:{type(exc).__name__}", "error": str(exc)[:160]})
         world_grounding = gather_live_evidence(
             query,
             max_sources=3,
@@ -3909,6 +4209,7 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
         optimizer_telemetry["enabled"] = bool(optimizer_cfg.get("enabled", True))
         optimizer_telemetry["autotune_policy"] = autotune_policy
         optimizer_telemetry["policy_hint"] = policy_hint
+        optimizer_telemetry["adaptive_router"] = adaptive_route
         optimizer_telemetry["world_grounding"] = {
             "required": bool(world_grounding.get("required", False)),
             "mode": world_grounding.get("mode", "not_required"),
@@ -4145,6 +4446,38 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
             and not complexity_gate.get("hard", False)
             and not bool(world_grounding.get("required", False))
         )
+        adaptive_apply = bool(
+            adaptive_route.get("evaluated")
+            and adaptive_route.get("rollout_eligible")
+            and not specialist_guard
+            and adaptive_route.get("selected_chain")
+        )
+        if adaptive_apply:
+            selected_chain = str(adaptive_route.get("selected_chain"))
+            selected_policy = str(adaptive_route.get("selected_policy") or selected_chain)
+            for lvl in adaptive_route.get("selected_levels") or []:
+                try:
+                    level = int(lvl)
+                except (TypeError, ValueError):
+                    continue
+                if level in LEVEL_MAP and level not in [row.get("level") for row in recommended]:
+                    recommended.append({"level": level, "name": LEVEL_MAP[level]["name"], "method": "adaptive_router_policy"})
+            if selected_chain != "fastlane_memory" and selected_policy not in {"fastlane", "direct"}:
+                use_fastlane = False
+            routing_method = f"adaptive_{selected_chain}"
+            adaptive_route["applied"] = True
+            adaptive_route["reason"] = "selected_chain_applied"
+            reasoning.append(f"Adaptive router rollout selected {selected_chain}; applying its live level chain.")
+        elif adaptive_route.get("evaluated") and adaptive_route.get("rollout_eligible") and specialist_guard:
+            adaptive_route["reason"] = "specialist_guard_preserved"
+        routing_markers["adaptive_route"] = {
+            "evaluated": bool(adaptive_route.get("evaluated")),
+            "applied": bool(adaptive_route.get("applied")),
+            "selected_chain": adaptive_route.get("selected_chain"),
+            "rollout_stage": adaptive_route.get("rollout_stage"),
+            "rollout_percent": adaptive_route.get("rollout_percent"),
+            "reason": adaptive_route.get("reason"),
+        }
         if kernel_active and str(kernel_plan.get("lane") or "fast") == "deep":
             reasoning.append("Fastlane bypassed because Kernel V2 selected the deep lane for this query.")
 
@@ -4232,7 +4565,12 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
                 cached_items = _DELTA_CACHE.maybe_reuse_retrieval(query, min_similarity=float(optimizer_cfg.get("delta_reuse_similarity", 0.62)))
 
             def _retrieve_context():
-                return (cached_items + prefetched_retrieval + retrieve_top3(query, max_items=int(fastlane_cfg.get("max_retrieval_items", 3)), timeout_ms=min(int(fastlane_cfg.get("max_latency_ms", 2200)), 500)))[: max(1, int(fastlane_cfg.get("max_retrieval_items", 3)))]
+                return retrieve_top3(
+                    query,
+                    max_items=int(fastlane_cfg.get("max_retrieval_items", 3)),
+                    timeout_ms=min(int(fastlane_cfg.get("max_latency_ms", 2200)), 500),
+                    candidates=cached_items + prefetched_retrieval,
+                )
 
             retrieval_items = tx.run_step("retrieve_context", _retrieve_context, retry_policy=RetryPolicy.for_kind("transient_io"), rollback=lambda _out: {"retrieval_cache_cleared": True}, verify=lambda x: isinstance(x, list))
 
@@ -4258,7 +4596,10 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
             answer = tx.run_step("draft_fastlane", lambda: _generate_fastlane_answer(query, qtype, template, retrieval_items), retry_policy=RetryPolicy.for_kind("validation_retry"), rollback=lambda _out: {"draft_discarded": True}, verify=lambda x: isinstance(x, str) and len(x) > 10)
             checks = tx.run_step("validate_fastlane", lambda: fast_verify(answer, qtype, query) if fastlane_cfg.get("verify_enabled", True) else {}, retry_policy=RetryPolicy.for_kind("validation_retry"), verify=lambda x: isinstance(x, dict))
             checks["retrieval_hits"] = len(retrieval_items)
+            checks["grounded_retrieval"] = bool(retrieval_items) and all(bool(item.get("grounded")) for item in retrieval_items)
             conf = confidence_score(answer, checks)
+            if not checks["grounded_retrieval"]:
+                conf = 0.0
             latency_decision = _LATENCY_GOVERNOR.should_escalate(
                 confidence=conf,
                 elapsed_ms=int((datetime.utcnow() - started).total_seconds() * 1000),
@@ -4266,9 +4607,12 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
                 complexity_gate=complexity_gate,
                 validator_result=checks,
                 plan=latency_plan,
-                already_escalated=should_escalate(conf, risk_flags, threshold=float(fastlane_cfg.get("escalation_threshold", 0.72))),
+                already_escalated=(
+                    not checks["grounded_retrieval"]
+                    or should_escalate(conf, risk_flags, threshold=float(fastlane_cfg.get("escalation_threshold", 0.72)))
+                ),
             )
-            escalate = bool(latency_decision.get("escalate"))
+            escalate = bool(not checks["grounded_retrieval"] or latency_decision.get("escalate"))
             tool_path_observability = {
                 "attempted": True,
                 "steps": ["classify", "retrieve", "token_plan", "verify", "score", "escalate"],
@@ -4398,7 +4742,7 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
             hud_parts.append(f"🟢 L{level_num} ({name})")
         hud_line = " | ".join(hud_parts)
 
-        activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'autotune_l9', 'complexity_gate', 'world_grounding'} or item.get('always_on')]
+        activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'adaptive_router_policy', 'autotune_l9', 'complexity_gate', 'world_grounding'} or item.get('always_on')]
         workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
 
         cognitive_trace = _cognitive_reasoning(query, risk_flags, kernel_contract=kernel_contract)
@@ -4455,7 +4799,7 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
 
         if request is not None:
             for item in recommended:
-                if item.get("method") in {"qa_fastlane", "brainstorm_forced", "semantic", "keyword", "referent_guard", "l9_fallback", "cognitive_policy", "bandit_policy", "autotune_l9", "complexity_gate", "world_grounding"}:
+                if item.get("method") in {"qa_fastlane", "brainstorm_forced", "semantic", "keyword", "referent_guard", "l9_fallback", "cognitive_policy", "bandit_policy", "adaptive_router_policy", "autotune_l9", "complexity_gate", "world_grounding"}:
                     track_level(request, item["level"], item["name"], always_on=False)
             request.state.routing_method = routing_method
 
@@ -4600,6 +4944,7 @@ async def orchestrate_query(query: str, request: Request = None, codec_probe: bo
             "semantic_delta": delta_info,
             "latency_budget": latency_plan,
             "policy_hint": policy_hint,
+            "adaptive_route": adaptive_route,
             "codec_context": codec_context,
             "autotune_policy": autotune_policy,
             "execution_transaction": execution_tx,
@@ -4667,25 +5012,58 @@ async def replay_level_policy(payload: PolicyReplayRequest):
     }
 
 
+@router.post("/assurance/receipt")
+async def issue_commit_assurance_receipt(interaction: AssuranceReceiptRequest, request: Request):
+    """Validate an interaction server-side and issue a short-lived bound receipt."""
+    issued = _issue_assurance_receipt(interaction, request)
+    return {
+        "success": True,
+        "receipt": issued["receipt"],
+        "expires_at": issued["payload"]["expires_at"],
+        "assurance": {
+            "version": _ASSURANCE_RECEIPT_VERSION,
+            "risk_flags": issued["assurance"]["risk_flags"],
+            "validators": issued["assurance"]["validator_summary"],
+            "memory_commit": issued["assurance"]["memory_decision"],
+        },
+    }
+
+
 @router.post("/commit")
-async def commit_memory(interaction: InteractionData):
-    """Commit memory through the canonical L22 durable store with assurance gating."""
-    metadata = dict(interaction.metadata or {})
-    risk_flags = metadata.get("risk_flags") if isinstance(metadata.get("risk_flags"), list) else _detect_risk_flags(interaction.query)
-    validator_result = metadata.get("validator_result") if isinstance(metadata.get("validator_result"), dict) else {"pass": True, "checks": {}}
-    checks = validator_result.get("checks") if isinstance(validator_result.get("checks"), dict) else {}
-    validator_summary = build_validator_summary(
-        checks=checks,
-        validator_result=validator_result,
-        cognitive_quality=metadata.get("cognitive_quality") if isinstance(metadata.get("cognitive_quality"), dict) else {},
-        execution_transaction={"status": "completed"},
-    )
-    memory_decision = build_memory_commit_decision(
-        query=interaction.query,
-        response=interaction.response,
-        risk_flags=risk_flags,
-        validator_summary=validator_summary,
-        world_grounding=metadata.get("world_grounding") if isinstance(metadata.get("world_grounding"), dict) else {},
+async def commit_memory(interaction: InteractionData, request: Request):
+    """Commit memory only with a valid server-issued, interaction-bound receipt."""
+    try:
+        receipt_payload = _verify_assurance_receipt(interaction, request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "valid_server_assurance_receipt_required", "reason": str(exc)},
+        ) from exc
+
+    server_assurance = _server_commit_assurance(interaction.query, interaction.response)
+    risk_flags = list(server_assurance.get("risk_flags") or [])
+    validator_summary = dict(server_assurance.get("validator_summary") or {})
+    world_grounding = dict(server_assurance.get("world_grounding") or {})
+    memory_decision = dict(server_assurance.get("memory_decision") or {})
+    if receipt_payload.get("risk_flags") != risk_flags or not bool(receipt_payload.get("validator_pass")):
+        raise HTTPException(status_code=403, detail={"error": "assurance_receipt_state_mismatch"})
+    if not bool(memory_decision.get("eligible")):
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "interaction_no_longer_eligible_for_commit", "reasons": list(memory_decision.get("reasons") or [])},
+        )
+
+    caller_metadata = {
+        str(key): value
+        for key, value in dict(interaction.metadata or {}).items()
+        if str(key) not in _ASSURANCE_RESERVED_METADATA
+    }
+    scope = _assurance_scope(request)
+    caller_idempotency_key = str(caller_metadata.get("idempotency_key") or "").strip()
+    durable_idempotency_key = (
+        caller_idempotency_key
+        if 0 < len(caller_idempotency_key) <= 256
+        else str(receipt_payload.get("jti") or "")
     )
 
     durable_write = None
@@ -4697,16 +5075,24 @@ async def commit_memory(interaction: InteractionData):
                 content=interaction.response,
                 memory_type="memory",
                 tags=["nexus_commit", "durable_memory"],
+                tenant_id=scope["tenant_id"],
+                workspace_id=scope["workspace_id"],
+                idempotency_key=durable_idempotency_key,
                 metadata={
+                    **caller_metadata,
                     "query": interaction.query,
-                    "levels_used": interaction.levels_used,
+                    "levels_used": _normalized_commit_levels(interaction.levels_used),
                     "source": "nexus.commit",
+                    "tenant_id": scope["tenant_id"],
+                    "workspace_id": scope["workspace_id"],
                     "assurance": {
+                        "receipt_version": _ASSURANCE_RECEIPT_VERSION,
+                        "receipt_id": durable_idempotency_key,
                         "validator_pass": bool(validator_summary.get("pass")),
                         "validator_reason_codes": validator_summary.get("reason_codes", []),
                         "risk_flags": risk_flags,
+                        "scope": scope,
                     },
-                    **metadata,
                 },
             )
             ROUTE_HEALTH.record_success("l22")
@@ -4721,15 +5107,19 @@ async def commit_memory(interaction: InteractionData):
         response=interaction.response,
         risk_flags=risk_flags,
         validator_summary=validator_summary,
-        world_grounding=metadata.get("world_grounding") if isinstance(metadata.get("world_grounding"), dict) else {},
+        world_grounding=world_grounding,
         durable_store_result=durable_write,
     )
+    if durable_write and durable_write.get("status") in {"stored", "stored_below_threshold"}:
+        with _ASSURANCE_RECEIPT_LOCK:
+            _CONSUMED_ASSURANCE_RECEIPTS[str(receipt_payload.get("jti"))] = int(receipt_payload.get("expires_at", int(time.time())))
 
     assurance = {
         "version": "nexus.assurance.v1",
         "verdict": "pass" if memory_decision.get("eligible") and durable_write and durable_write.get("status") == "stored" else ("degraded" if memory_decision.get("eligible") else "warn"),
         "memory_commit": memory_decision,
         "validators": validator_summary,
+        "receipt": {"version": _ASSURANCE_RECEIPT_VERSION, "id": receipt_payload.get("jti"), "scope": scope},
         "route_health": {"version": "route_health.v1", "dependencies": {"l22": ROUTE_HEALTH.snapshot("l22")}},
     }
 

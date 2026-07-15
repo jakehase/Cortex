@@ -2544,7 +2544,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
     track_level(http_request, 5, "Oracle", always_on=False)
 
     # Emergency bypass: keep /oracle/chat responsive under orchestration stalls.
-    if (os.getenv("ORACLE_EMERGENCY_BYPASS") or "true").strip().lower() == "true":
+    if (os.getenv("ORACLE_EMERGENCY_BYPASS") or "false").strip().lower() == "true":
         track_level(http_request, 5, "Oracle", always_on=False)
         return _mk_chat_response(
             prompt=prompt,

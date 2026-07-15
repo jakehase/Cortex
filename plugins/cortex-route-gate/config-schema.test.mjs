@@ -33,10 +33,14 @@ test('existing route-gate configuration remains valid', () => {
     writeToken: 'secret',
     writeTokenHeader: 'x-cortex-write-token',
     timeoutMs: 8000,
+    maxRoutingPromptBytes: 262_144,
     maxLevels: 10,
     creativityGovernorEnabled: true,
     creativityHistorySize: 24,
     creativityQuarantineTerms: 8,
+    oracleSessionQuarantineEnabled: false,
+    oracleSessionResetBytes: 500_000,
+    oracleSessionDir: '/tmp/openclaw-sessions',
     stateDir: '/tmp/cortex-route-gate',
   }), true);
 });
@@ -69,4 +73,14 @@ test('route-gate schema continues to reject unknown configuration', () => {
   assert.equal(schema.additionalProperties, false);
   assert.equal(validateConfig({ maxCachedPlanAgeMS: 300_000 }), false);
   assert.equal(validateConfig({ maxResponseByte: 1_048_576 }), false);
+});
+
+test('oversized Oracle session archival is declared and explicitly opt-in', () => {
+  assert.equal(validateConfig({
+    oracleSessionQuarantineEnabled: true,
+    oracleSessionResetBytes: 500_000,
+    oracleSessionDir: '/var/lib/openclaw/sessions',
+  }), true);
+  assert.equal(validateConfig({ oracleSessionResetBytes: 1023 }), false);
+  assert.equal(manifest.uiHints.oracleSessionQuarantineEnabled.advanced, true);
 });

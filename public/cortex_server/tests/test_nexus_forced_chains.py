@@ -16,7 +16,7 @@ def _client(monkeypatch):
 def test_coding_chain_forced(monkeypatch):
     monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Implement bug fix and add unit tests for this API"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Implement bug fix and add unit tests for this API"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] == "coding_chain_forced"
@@ -26,7 +26,7 @@ def test_coding_chain_forced(monkeypatch):
 
 def test_incident_chain_forced(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "SEV1 incident: service down, rollback now"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "SEV1 incident: service down, rollback now"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] == "incident_chain_forced"
@@ -36,7 +36,7 @@ def test_incident_chain_forced(monkeypatch):
 
 def test_research_chain_forced(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Research this topic with sources and evidence"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Research this topic with sources and evidence"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] == "research_chain_forced"
@@ -46,7 +46,7 @@ def test_research_chain_forced(monkeypatch):
 
 def test_preference_prefix_query_does_not_trigger_coding_chain(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "What prefix should replies use for Jake?"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "What prefix should replies use for Jake?"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] != "coding_chain_forced"
@@ -56,7 +56,7 @@ def test_preference_prefix_query_does_not_trigger_coding_chain(monkeypatch):
 def test_architecture_chain_forced(monkeypatch):
     monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Draft a system design blueprint for multi-tenant API boundaries"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Draft a system design blueprint for multi-tenant API boundaries"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] == "l9_chain_forced"
@@ -68,7 +68,7 @@ def test_complexity_auto_activates_l9(monkeypatch):
     monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
     client = _client(monkeypatch)
     q = "Optimize a multi-step strategy under budget with 5 constraints and tradeoff analysis versus baseline"
-    r = client.get("/nexus/orchestrate", params={"query": q})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": q})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] == "semantic_orchestration"

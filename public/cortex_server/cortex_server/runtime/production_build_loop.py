@@ -1130,15 +1130,19 @@ def evaluate_production_completion(
 
     required_rows = [row for row in criteria_rows if row.get("required")]
     satisfied_required = [row for row in required_rows if row.get("satisfied")]
+    has_required_criteria = bool(required_rows)
+    all_required_satisfied = has_required_criteria and len(required_rows) == len(satisfied_required)
     return {
         "process_id": contract.process_id,
         "current_stage": current_stage or None,
         "criteria": criteria_rows,
         "required_total": len(required_rows),
         "required_satisfied": len(satisfied_required),
-        "all_required_satisfied": len(required_rows) == len(satisfied_required),
+        "all_required_satisfied": all_required_satisfied,
+        "contract_valid": has_required_criteria,
+        "contract_errors": [] if has_required_criteria else ["at least one required completion criterion is required"],
         "operator_summary": (
-            f"completion {'ready' if len(required_rows) == len(satisfied_required) else 'pending'} for {contract.process_id}: "
+            f"completion {'ready' if all_required_satisfied else 'pending'} for {contract.process_id}: "
             f"{len(satisfied_required)}/{len(required_rows)} required criteria satisfied"
         ),
     }
@@ -1604,7 +1608,35 @@ def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> Production
     for gate in contract.stage_gates:
         if gate.stage == stage:
             return gate
-    return ProductionStageGate(stage=stage)
+    plan = _stage_plan(contract)
+    stage_index = plan.index(stage) if stage in plan else 0
+    prior_stages = plan[:stage_index]
+    release_bundle = f"artifact_release_bundle:{contract.process_id}"
+    smoke_report = f"artifact_smoke_report:{contract.process_id}"
+    is_target = stage == contract.target_environment
+    requires_independent_handoff = stage_index > 0
+    recipient = "release-manager" if is_target else "release-verifier"
+    return ProductionStageGate(
+        stage=stage,
+        required_fencepost_stages=prior_stages,
+        required_artifacts=[release_bundle] + ([smoke_report] if is_target else []),
+        required_handoff_count=1 if requires_independent_handoff else 0,
+        metadata={
+            "default_evidence_gate": True,
+            **(
+                {
+                    "handoff": {
+                        "to_agent": recipient,
+                        "scope": f"release:{stage}",
+                        "expected_output": f"Acknowledge revision-bound verification evidence for {stage}",
+                        "relevant_artifact_ids": [release_bundle] + ([smoke_report] if is_target else []),
+                    }
+                }
+                if requires_independent_handoff
+                else {}
+            ),
+        },
+    )
 
 
 
@@ -1638,7 +1670,14 @@ def _maybe_dispatch_release_handoff(
         return {"state": release_state, "actions_taken": []}
 
     required_handoffs = max(1, int(gate_spec.required_handoff_count or 0))
-    stage_records = [row for row in release_state.handoff_records if str(row.get("stage") or "").strip() == next_stage]
+    stage_records = [
+        row
+        for row in release_state.handoff_records
+        if str(row.get("stage") or "").strip() == next_stage
+        and str(row.get("revision_id") or "").strip() == shared_state.revision_id
+        and str(row.get("release_id") or "").strip() == release_state.release_id
+        and str(row.get("candidate_ref") or "").strip() == release_state.candidate_ref
+    ]
     acked_count = sum(1 for row in stage_records if str(row.get("delivery_status") or "") == "acked")
     if acked_count >= required_handoffs:
         return {"state": release_state, "actions_taken": []}
@@ -1712,25 +1751,13 @@ def _maybe_dispatch_release_handoff(
         },
         metadata={
             "release_id": release_state.release_id,
+            "candidate_ref": release_state.candidate_ref,
             "transition": f"{release_state.current_stage}->{next_stage}",
             "target_stage": next_stage,
         },
     )
     release_state = record_release_handoff(release_state, message, stage=next_stage, notes="auto-dispatched by production build loop")
     actions_taken.append({"action": "dispatch_release_handoff", "message_id": message.message_id, "target_stage": next_stage, "to_agent": to_agent})
-
-    accepted = mailbox.receive(
-        to_agent=to_agent,
-        process_id=release_state.process_id,
-        include_inflight=True,
-        expected_revision_id=shared_state.revision_id,
-        reject_stale_revision=True,
-    )
-    accepted_map = {row.message_id: row for row in accepted}
-    if message.message_id in accepted_map:
-        acked = mailbox.acknowledge(message.message_id)
-        release_state = record_release_handoff(release_state, acked, stage=next_stage, notes="auto-acked by production build loop")
-        actions_taken.append({"action": "ack_release_handoff", "message_id": acked.message_id, "target_stage": next_stage, "to_agent": to_agent})
 
     return {"state": release_state, "actions_taken": actions_taken}
 

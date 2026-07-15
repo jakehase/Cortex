@@ -564,6 +564,39 @@ async def test_memory_status_is_unavailable_when_persistence_backend_fails(monke
     assert result["canonical_endpoint"] == "/knowledge/status"
 
 
+@pytest.mark.asyncio
+async def test_knowledge_search_authenticates_and_forwards_memory_scope(monkeypatch):
+    secret = "knowledge-scope-secret"
+    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_SECRET", secret)
+    signature = librarian._memory_scope_signature("tenant-a", "workspace-a", secret)
+    calls = []
+
+    def scoped_search(**kwargs):
+        calls.append(kwargs)
+        return {"results": [], "search_mode": "lexical_fallback", "degraded": True, "available": True}
+
+    monkeypatch.setattr(knowledge, "robust_search", scoped_search)
+    response = await knowledge.search_knowledge(knowledge.KnowledgeSearchRequest(
+        query="scoped memory",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        scope_signature=signature,
+    ))
+
+    assert response["results"] == []
+    assert calls[0]["tenant_id"] == "tenant-a"
+    assert calls[0]["workspace_id"] == "workspace-a"
+
+    with pytest.raises(HTTPException) as invalid:
+        await knowledge.search_knowledge(knowledge.KnowledgeSearchRequest(
+            query="wrong scope",
+            tenant_id="tenant-b",
+            workspace_id="workspace-a",
+            scope_signature=signature,
+        ))
+    assert invalid.value.status_code == 403
+
+
 def test_memory_write_models_bound_metadata_depth_bytes_and_tag_items():
     from pydantic import ValidationError
     from cortex_server.routers import librarian, l22
@@ -581,3 +614,148 @@ def test_memory_write_models_bound_metadata_depth_bytes_and_tag_items():
     ):
         with pytest.raises(ValidationError):
             model(**kwargs)
+
+
+def test_librarian_fact_supersession_and_recall_are_workspace_scoped(monkeypatch, tmp_path):
+    class ScopeIgnoringCollection(FakeCollection):
+        def query(self, **_kwargs):
+            selected = list(self.rows)
+            return {
+                "ids": [selected],
+                "documents": [[self.rows[row_id]["document"] for row_id in selected]],
+                "distances": [[0.1 for _ in selected]],
+                "metadatas": [[copy.deepcopy(self.rows[row_id]["metadata"]) for row_id in selected]],
+            }
+
+    fake = ScopeIgnoringCollection()
+    monkeypatch.setattr(librarian, "collection", fake)
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    scope_a = {"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    scope_b = {"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
+
+    librarian._add_memory_with_supersession(
+        "a-old", "shared marker old A", {"fact_key": "shared-fact"}, **scope_a
+    )
+    librarian._add_memory_with_supersession(
+        "b-current", "shared marker current B", {"fact_key": "shared-fact"}, **scope_b
+    )
+    librarian._add_memory_with_supersession(
+        "a-current", "shared marker current A", {"fact_key": "shared-fact"}, **scope_a
+    )
+
+    assert fake.rows["a-old"]["metadata"]["memory_status"] == "superseded"
+    assert fake.rows["a-current"]["metadata"]["memory_status"] == "active"
+    assert fake.rows["b-current"]["metadata"]["memory_status"] == "active"
+    recalled_a = librarian.robust_search("shared marker", n_results=5, **scope_a)
+    recalled_b = librarian.robust_search("shared marker", n_results=5, **scope_b)
+    assert {row["id"] for row in recalled_a["results"]} == {"a-current"}
+    assert {row["id"] for row in recalled_b["results"]} == {"b-current"}
+
+
+def test_fallback_rows_are_scoped_and_fact_corrections_hide_stale_versions(monkeypatch, tmp_path):
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    scope_a = {"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    scope_b = {"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
+    meta_a = librarian._normalize_memory_metadata({"fact_key": "color"}, **scope_a)
+    meta_b = librarian._normalize_memory_metadata({"fact_key": "color"}, **scope_b)
+
+    librarian._persist_fallback_memory("a-old", "the color was blue", meta_a, reason="offline", mode="embed")
+    librarian._persist_fallback_memory("b-current", "the color is red", meta_b, reason="offline", mode="embed")
+    librarian._append_fallback_fact_supersession(
+        "color", superseded_by="a-chroma", **scope_a
+    )
+
+    assert librarian._read_fallback_rows(limit=20, **scope_a) == []
+    rows_b = librarian._read_fallback_rows(limit=20, **scope_b)
+    assert [row["id"] for row in rows_b] == ["b-current"]
+
+
+@pytest.mark.asyncio
+async def test_embed_fails_when_primary_and_fallback_persistence_both_fail(monkeypatch):
+    class DownCollection:
+        def add(self, **_kwargs):
+            raise RuntimeError("embedding unavailable")
+
+    monkeypatch.setattr(librarian, "collection", DownCollection())
+    monkeypatch.setattr(
+        librarian,
+        "_append_fallback_row",
+        lambda _row: (_ for _ in ()).throw(librarian.FallbackPersistenceError("disk full")),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await librarian.embed_memory(librarian.EmbedRequest(text="must be durable"))
+    assert exc_info.value.status_code == 503
+    assert "persistence" in str(exc_info.value.detail)
+
+
+def test_fallback_store_enforces_byte_and_record_retention(monkeypatch, tmp_path):
+    fallback = tmp_path / "bounded.jsonl"
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", fallback)
+    monkeypatch.setattr(librarian, "_FALLBACK_MAX_BYTES", 1800)
+    monkeypatch.setattr(librarian, "_FALLBACK_MAX_ROW_BYTES", 900)
+    monkeypatch.setattr(librarian, "_FALLBACK_READ_MAX_BYTES", 1800)
+    monkeypatch.setattr(librarian, "_FALLBACK_MAX_ROWS", 3)
+
+    for index in range(8):
+        librarian._persist_fallback_memory(
+            f"row-{index}",
+            f"bounded fallback row {index}",
+            {},
+            reason="offline",
+            mode="embed",
+        )
+
+    rows = librarian._read_fallback_rows(limit=20)
+    assert fallback.stat().st_size <= librarian._FALLBACK_MAX_BYTES
+    assert len(rows) <= librarian._FALLBACK_MAX_ROWS
+    assert rows[-1]["id"] == "row-7"
+
+
+def test_nondefault_scope_does_not_scan_global_local_memory_roots(monkeypatch, tmp_path):
+    global_root = tmp_path / "global-memory"
+    global_root.mkdir()
+    (global_root / "secret.md").write_text("tenant A secret", encoding="utf-8")
+    monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(global_root))
+    monkeypatch.delenv(librarian._SCOPED_LOCAL_FILE_MEMORY_ROOTS_ENV, raising=False)
+
+    assert librarian._configured_local_file_memory_roots() == [global_root.resolve()]
+    assert librarian._configured_local_file_memory_roots(
+        tenant_id="tenant-b", workspace_id="workspace-b"
+    ) == []
+
+
+def test_external_memory_scope_requires_authenticated_signature(monkeypatch):
+    monkeypatch.delenv("CORTEX_MEMORY_SCOPE_SECRET", raising=False)
+    with pytest.raises(HTTPException) as unconfigured:
+        librarian._authenticated_memory_scope("tenant-a", "workspace-a", None)
+    assert unconfigured.value.status_code == 503
+
+    secret = "test-memory-scope-secret"
+    monkeypatch.setenv("CORTEX_MEMORY_SCOPE_SECRET", secret)
+    signature = librarian._memory_scope_signature("tenant-a", "workspace-a", secret)
+    assert librarian._authenticated_memory_scope(
+        "tenant-a", "workspace-a", signature
+    ) == ("tenant-a", "workspace-a")
+    with pytest.raises(HTTPException) as invalid:
+        librarian._authenticated_memory_scope("tenant-b", "workspace-a", signature)
+    assert invalid.value.status_code == 403
+
+
+def test_production_memory_path_never_silently_falls_back_to_home(monkeypatch):
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.delenv("CORTEX_CHROMA_DIR", raising=False)
+    with pytest.raises(RuntimeError, match="required"):
+        librarian._default_chroma_dir()
+
+
+def test_production_memory_path_verifies_durable_mount_identity(monkeypatch, tmp_path):
+    durable = tmp_path / "durable-chroma"
+    durable.mkdir()
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_CHROMA_MOUNT_ID", "volume-123")
+
+    with pytest.raises(RuntimeError, match="mount identity"):
+        librarian._validate_chroma_storage(str(durable))
+    (durable / ".cortex-durable-memory").write_text("volume-123\n", encoding="utf-8")
+    librarian._validate_chroma_storage(str(durable))

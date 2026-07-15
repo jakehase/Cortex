@@ -15,10 +15,20 @@ from cortex_server.modules import runtime_pressure
 
 JsonDict = Dict[str, Any]
 
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
 _EVENTS: Deque[JsonDict] = deque(maxlen=600)
 _SESSIONS: Dict[str, JsonDict] = {}
 _PENDING: Dict[str, JsonDict] = {}
+_SESSION_ACCESS: Dict[str, float] = {}
+_SESSION_TTLS: Dict[str, int] = {}
+_SESSION_RUNTIMES: Dict[str, str] = {}
+_PENDING_CREATED: Dict[str, float] = {}
+_RETENTION_EVICTIONS: JsonDict = {
+    "session_ttl": 0,
+    "session_capacity": 0,
+    "pending_ttl": 0,
+    "pending_capacity": 0,
+}
 
 _FAST_ACTUAL_LANES = {
     "strict_contract_micro_fastpath",
@@ -126,8 +136,112 @@ def _settings(scope: str = "oracle") -> JsonDict:
         "warm_chars_budget": _env_int(_env_names(scope, "KERNEL_V2_WARM_CHARS_BUDGET"), 240, minimum=80, maximum=1200),
         "cold_chars_budget": _env_int(_env_names(scope, "KERNEL_V2_COLD_CHARS_BUDGET"), 420, minimum=120, maximum=2400),
         "telemetry_limit": _env_int(_env_names(scope, "KERNEL_V2_TELEMETRY_LIMIT"), 600, minimum=50, maximum=1200),
+        "session_capacity": _env_int(_env_names(scope, "KERNEL_V2_SESSION_CAPACITY"), 512, minimum=1, maximum=10000),
+        "session_ttl_seconds": _env_int(_env_names(scope, "KERNEL_V2_SESSION_TTL_SECONDS"), 3600, minimum=1, maximum=604800),
+        "pending_capacity": _env_int(_env_names(scope, "KERNEL_V2_PENDING_CAPACITY"), 1024, minimum=1, maximum=20000),
+        "pending_ttl_seconds": _env_int(_env_names(scope, "KERNEL_V2_PENDING_TTL_SECONDS"), 300, minimum=1, maximum=86400),
+        "session_key_max_chars": _env_int(_env_names(scope, "KERNEL_V2_SESSION_KEY_MAX_CHARS"), 256, minimum=32, maximum=2048),
         "fast_latency_budget_ms": _env_int(_env_names(scope, "KERNEL_V2_FAST_BUDGET_MS"), 1600, minimum=200, maximum=10000),
         "deep_latency_budget_ms": _env_int(_env_names(scope, "KERNEL_V2_DEEP_BUDGET_MS"), 4200, minimum=600, maximum=20000),
+    }
+
+
+def _canonical_session_key(session_key: Any, *, max_chars: int = 256) -> str:
+    raw = str(session_key or "").strip()
+    if not raw:
+        return ""
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", raw):
+        return raw
+    if len(raw) <= max(32, int(max_chars)) and all(ord(char) >= 32 for char in raw):
+        return raw
+    import hashlib
+
+    return f"sha256:{hashlib.sha256(raw.encode('utf-8', errors='replace')).hexdigest()}"
+
+
+def _session_storage_key(session_key: str, settings: JsonDict) -> str:
+    runtime = str(settings.get("scope") or "oracle").strip().lower() or "oracle"
+    return f"{runtime}\0{session_key}"
+
+
+def _evict_session_locked(session_key: str, reason: str) -> None:
+    _SESSIONS.pop(session_key, None)
+    _SESSION_ACCESS.pop(session_key, None)
+    _SESSION_TTLS.pop(session_key, None)
+    _SESSION_RUNTIMES.pop(session_key, None)
+    _RETENTION_EVICTIONS[reason] = int(_RETENTION_EVICTIONS.get(reason, 0) or 0) + 1
+
+
+def _evict_pending_locked(request_id: str, reason: str) -> None:
+    _PENDING.pop(request_id, None)
+    _PENDING_CREATED.pop(request_id, None)
+    _RETENTION_EVICTIONS[reason] = int(_RETENTION_EVICTIONS.get(reason, 0) or 0) + 1
+
+
+def _cleanup_retention_locked(*, now: Optional[float] = None) -> None:
+    current = time.monotonic() if now is None else float(now)
+    for session_key, accessed_at in list(_SESSION_ACCESS.items()):
+        ttl = max(1, int(_SESSION_TTLS.get(session_key, 3600) or 3600))
+        if current - float(accessed_at) >= ttl:
+            _evict_session_locked(session_key, "session_ttl")
+    for request_id, created_at in list(_PENDING_CREATED.items()):
+        trace = _PENDING.get(request_id) or {}
+        settings = trace.get("settings") if isinstance(trace.get("settings"), dict) else {}
+        ttl = max(1, int(settings.get("pending_ttl_seconds", 300) or 300))
+        if current - float(created_at) >= ttl:
+            _evict_pending_locked(request_id, "pending_ttl")
+
+
+def _enforce_session_capacity_locked(settings: JsonDict, *, protected: str = "") -> None:
+    capacity = max(1, int(settings.get("session_capacity", 512) or 512))
+    runtime = str(settings.get("scope") or "oracle").strip().lower() or "oracle"
+    runtime_keys = [key for key in _SESSIONS if _SESSION_RUNTIMES.get(key) == runtime]
+    while len(runtime_keys) > capacity:
+        candidates = [key for key in runtime_keys if key != protected]
+        if not candidates:
+            break
+        oldest = min(candidates, key=lambda key: float(_SESSION_ACCESS.get(key, 0.0)))
+        _evict_session_locked(oldest, "session_capacity")
+        runtime_keys.remove(oldest)
+
+
+def _enforce_pending_capacity_locked(settings: JsonDict, *, protected: str = "") -> None:
+    capacity = max(1, int(settings.get("pending_capacity", 1024) or 1024))
+    runtime = str(settings.get("scope") or "oracle").strip().lower() or "oracle"
+    runtime_keys = [
+        key for key, trace in _PENDING.items()
+        if str(trace.get("runtime") or "oracle").strip().lower() == runtime
+    ]
+    while len(runtime_keys) > capacity:
+        candidates = [key for key in runtime_keys if key != protected]
+        if not candidates:
+            break
+        oldest = min(candidates, key=lambda key: float(_PENDING_CREATED.get(key, 0.0)))
+        _evict_pending_locked(oldest, "pending_capacity")
+        runtime_keys.remove(oldest)
+
+
+def _retention_snapshot_locked(settings: JsonDict) -> JsonDict:
+    _cleanup_retention_locked()
+    runtime = str(settings.get("scope") or "oracle").strip().lower() or "oracle"
+    session_count = sum(1 for key in _SESSIONS if _SESSION_RUNTIMES.get(key) == runtime)
+    pending_count = sum(
+        1 for trace in _PENDING.values()
+        if str(trace.get("runtime") or "oracle").strip().lower() == runtime
+    )
+    return {
+        "sessions": {
+            "current": session_count,
+            "capacity": max(1, int(settings.get("session_capacity", 512) or 512)),
+            "ttl_seconds": max(1, int(settings.get("session_ttl_seconds", 3600) or 3600)),
+        },
+        "pending": {
+            "current": pending_count,
+            "capacity": max(1, int(settings.get("pending_capacity", 1024) or 1024)),
+            "ttl_seconds": max(1, int(settings.get("pending_ttl_seconds", 300) or 300)),
+        },
+        "session_key_max_chars": max(32, int(settings.get("session_key_max_chars", 256) or 256)),
+        "evictions": dict(_RETENTION_EVICTIONS),
     }
 
 
@@ -274,6 +388,7 @@ def compile_request_contract(
     simple_qa = _simple_qa(prompt, strict_contract=strict_contract, complexity_score=complexity_score)
     priority_norm = (priority or "").strip().lower() or "normal"
     settings = dict(settings or _settings())
+    session_key = _canonical_session_key(session_key, max_chars=int(settings["session_key_max_chars"])) or None
 
     preferred_lane = "fast"
     if settings["disable_fast_path"]:
@@ -328,25 +443,41 @@ def compile_request_contract(
     }
 
 
-def _session_state(session_key: str) -> JsonDict:
-    state = _SESSIONS.get(session_key)
-    if state is None:
-        state = {
-            "hot_turns": deque(maxlen=12),
-            "warm_notes": deque(maxlen=8),
-            "cold_context": {},
-            "updated_at": None,
-        }
-        _SESSIONS[session_key] = state
-    return state
+def _session_state(session_key: str, *, settings: Optional[JsonDict] = None) -> JsonDict:
+    resolved_settings = dict(settings or _settings())
+    session_key = _canonical_session_key(
+        session_key,
+        max_chars=int(resolved_settings.get("session_key_max_chars", 256) or 256),
+    )
+    storage_key = _session_storage_key(session_key, resolved_settings)
+    with _LOCK:
+        now = time.monotonic()
+        _cleanup_retention_locked(now=now)
+        state = _SESSIONS.get(storage_key)
+        if state is None:
+            state = {
+                "hot_turns": deque(maxlen=12),
+                "warm_notes": deque(maxlen=8),
+                "cold_context": {},
+                "updated_at": None,
+                "runtime": str(resolved_settings.get("scope") or "oracle"),
+                "session_key": session_key,
+            }
+            _SESSIONS[storage_key] = state
+        _SESSION_ACCESS[storage_key] = now
+        _SESSION_TTLS[storage_key] = max(1, int(resolved_settings.get("session_ttl_seconds", 3600) or 3600))
+        _SESSION_RUNTIMES[storage_key] = str(resolved_settings.get("scope") or "oracle").strip().lower() or "oracle"
+        _enforce_session_capacity_locked(resolved_settings, protected=storage_key)
+        return state
 
 
 def _compile_hot_context(session_key: Optional[str], prompt: str, *, settings: JsonDict) -> JsonDict:
     if not session_key or settings["disable_context_reuse"]:
         return {"class": "hot", "applied": False, "items": [], "text": "", "chars": 0, "hit_count": 0}
-    state = _session_state(session_key)
+    state = _session_state(session_key, settings=settings)
     candidates = []
-    turns = list(state.get("hot_turns") or [])[- int(settings["hot_turn_window"]):]
+    with _LOCK:
+        turns = list(state.get("hot_turns") or [])[- int(settings["hot_turn_window"]):]
     for turn in reversed(turns):
         overlap = _overlap_score(prompt, str(turn.get("prompt") or "")) + _overlap_score(prompt, str(turn.get("response") or ""))
         if overlap <= 0 and not turn.get("follow_up_like"):
@@ -388,7 +519,9 @@ def _compile_cold_context(session_key: Optional[str], codec_prefix: str, *, sett
     if text:
         items.append({"kind": "codec", "preview": text})
     elif session_key and not settings["disable_context_reuse"]:
-        cold = dict((_session_state(session_key).get("cold_context") or {}))
+        state = _session_state(session_key, settings=settings)
+        with _LOCK:
+            cold = dict((state.get("cold_context") or {}))
         cached = _truncate(str(cold.get("text") or ""), int(settings["cold_chars_budget"]))
         if cached:
             text = cached
@@ -405,6 +538,10 @@ def compile_working_set(
     settings: Optional[JsonDict] = None,
 ) -> JsonDict:
     settings = dict(settings or _settings())
+    session_key = _canonical_session_key(
+        session_key,
+        max_chars=int(settings.get("session_key_max_chars", 256) or 256),
+    ) or None
     hot = _compile_hot_context(session_key, prompt, settings=settings)
     warm = _compile_warm_context(continuity_prefix, settings=settings)
     cold = _compile_cold_context(session_key, codec_prefix, settings=settings)
@@ -494,6 +631,10 @@ def prepare_request(
     surface: str = "chat",
 ) -> JsonDict:
     settings = _settings(runtime)
+    session_key = _canonical_session_key(
+        session_key,
+        max_chars=int(settings.get("session_key_max_chars", 256) or 256),
+    ) or None
     started = time.perf_counter()
     contract_started = time.perf_counter()
     contract = compile_request_contract(
@@ -551,7 +692,11 @@ def prepare_request(
         "codec_prefix": codec_prefix,
     }
     with _LOCK:
+        now = time.monotonic()
+        _cleanup_retention_locked(now=now)
         _PENDING[request_id] = trace
+        _PENDING_CREATED[request_id] = now
+        _enforce_pending_capacity_locked(settings, protected=request_id)
     return trace
 
 
@@ -753,7 +898,10 @@ def finalize_request(
     error: Optional[str] = None,
 ) -> JsonDict:
     with _LOCK:
+        _cleanup_retention_locked()
         trace = _PENDING.pop(str(request_id or ""), None) if request_id else None
+        if request_id:
+            _PENDING_CREATED.pop(str(request_id or ""), None)
     if trace is None:
         return {"recorded": False, "reason": "missing_trace"}
 
@@ -800,7 +948,7 @@ def finalize_request(
     session_key = str(trace.get("session_key") or "").strip()
     if session_key and not bool((trace.get("settings") or {}).get("disable_context_reuse")):
         with _LOCK:
-            state = _session_state(session_key)
+            state = _session_state(session_key, settings=trace.get("settings"))
             hot_turns = state.get("hot_turns")
             if isinstance(hot_turns, deque):
                 hot_turns.append(
@@ -821,7 +969,7 @@ def finalize_request(
             if codec_text:
                 state["cold_context"] = {"kind": "codec", "text": codec_text, "updated_at": _utcnow_iso()}
             state["updated_at"] = _utcnow_iso()
-            _SESSIONS[session_key] = state
+            _SESSIONS[_session_storage_key(session_key, trace.get("settings") or {})] = state
             _EVENTS.append(event)
     else:
         with _LOCK:
@@ -832,6 +980,7 @@ def finalize_request(
 
 def recent_events(limit: int = 50, *, runtime: Optional[str] = None, surface: Optional[str] = None) -> List[JsonDict]:
     with _LOCK:
+        _cleanup_retention_locked()
         items = list(_EVENTS)
     if runtime:
         runtime_norm = str(runtime or "").strip().lower()
@@ -848,6 +997,7 @@ def recent_events(limit: int = 50, *, runtime: Optional[str] = None, surface: Op
 
 def known_runtimes(*, include_defaults: bool = True) -> List[str]:
     with _LOCK:
+        _cleanup_retention_locked()
         names = {
             str(item.get("runtime") or "").strip().lower()
             for item in [*_EVENTS, *_PENDING.values()]
@@ -861,6 +1011,7 @@ def known_runtimes(*, include_defaults: bool = True) -> List[str]:
 def known_surfaces(*, runtime: Optional[str] = None, include_defaults: bool = True) -> List[str]:
     runtime_norm = str(runtime or "").strip().lower()
     with _LOCK:
+        _cleanup_retention_locked()
         names = {
             str(item.get("surface") or "").strip().lower()
             for item in [*_EVENTS, *_PENDING.values()]
@@ -881,6 +1032,7 @@ def performance_snapshot(*, runtime: Optional[str] = None, surface: Optional[str
     scope = str(runtime or "oracle").strip().lower() or "oracle"
     settings = _settings(scope)
     with _LOCK:
+        retention = _retention_snapshot_locked(settings)
         all_events = list(_EVENTS)
         pending_traces = list(_PENDING.values())
         global_active_sessions = len(_SESSIONS)
@@ -937,7 +1089,7 @@ def performance_snapshot(*, runtime: Optional[str] = None, surface: Optional[str
         surface_key = str(event.get("surface") or "chat")
         runtime_breakdown[runtime_key] = runtime_breakdown.get(runtime_key, 0) + 1
         surface_breakdown[surface_key] = surface_breakdown.get(surface_key, 0) + 1
-    return {
+    snapshot = {
         "version": settings["version"],
         "scope": {"runtime": runtime_norm or None, "surface": surface_norm or None},
         "enabled": settings["enabled"],
@@ -983,10 +1135,13 @@ def performance_snapshot(*, runtime: Optional[str] = None, surface: Optional[str
         },
         "latest": events[-1] if events else None,
     }
+    snapshot["telemetry"]["retention"] = retention
+    return snapshot
 
 
 def mission_control_summary() -> JsonDict:
     with _LOCK:
+        retention = _retention_snapshot_locked(_settings("oracle"))
         all_events = list(_EVENTS)
         pending_traces = list(_PENDING.values())
         global_active_sessions = len(_SESSIONS)
@@ -1097,6 +1252,7 @@ def mission_control_summary() -> JsonDict:
             "avg_context_chars": benchmark.get("avg_context_chars", 0.0),
             "runtime_breakdown": dict(telemetry.get("runtime_breakdown") or {}),
             "surface_breakdown": dict(telemetry.get("surface_breakdown") or {}),
+            "retention": retention,
             "latest": snapshot.get("latest"),
             "runtimes": runtime_summaries,
             "surfaces": surface_summaries,
@@ -1127,3 +1283,9 @@ def reset_state() -> None:
         _EVENTS.clear()
         _SESSIONS.clear()
         _PENDING.clear()
+        _SESSION_ACCESS.clear()
+        _SESSION_TTLS.clear()
+        _SESSION_RUNTIMES.clear()
+        _PENDING_CREATED.clear()
+        for key in _RETENTION_EVICTIONS:
+            _RETENTION_EVICTIONS[key] = 0
