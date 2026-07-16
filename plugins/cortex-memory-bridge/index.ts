@@ -1049,9 +1049,14 @@ function canonicalLifecycleContext(cfg: BridgeConfig, ctx: any = {}, idempotency
   return {
     sessionKey: session,
     sessionId: session,
-    channelId: boundedLifecycleIdentity(ctx?.channelId || ctx?.messageChannel, 'channel identity', 256),
-    agentId: boundedLifecycleIdentity(ctx?.agentId, 'agent identity', 256),
-    userId: boundedLifecycleIdentity(ctx?.userId || ctx?.requesterSenderId, 'user identity', 256),
+    // OpenClaw lifecycle hooks are not guaranteed to repeat fixed principal
+    // dimensions. They must still provide the per-run session identity; the
+    // remaining values may fall back only to this plugin's configured scope.
+    // Cortex subsequently verifies the complete HMAC-signed scope against the
+    // credential allow-list, so these defaults cannot broaden authorization.
+    channelId: boundedLifecycleIdentity(ctx?.channelId || ctx?.messageChannel || cfg.channelId, 'channel identity', 256),
+    agentId: boundedLifecycleIdentity(ctx?.agentId || cfg.agentId, 'agent identity', 256),
+    userId: boundedLifecycleIdentity(ctx?.userId || ctx?.requesterSenderId || cfg.userId, 'user identity', 256),
     idempotencyKey,
   };
 }

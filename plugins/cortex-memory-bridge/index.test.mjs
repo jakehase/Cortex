@@ -84,6 +84,16 @@ const runReceiptWorker = (stateDir, receipt) => new Promise((resolve, reject) =>
   });
 });
 
+const runEvalWorker = (script, label) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, ['--input-type=module', '--eval', script], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+  child.on('error', reject);
+  child.on('close', (code) => code === 0
+    ? resolve()
+    : reject(new Error(`${label} exited ${code}: ${stderr}`)));
+});
+
 test('registration rejects an unprovisioned shared session secret before hooks or lifecycle replay start', () => {
   for (const sessionIdentityHmacSecret of [undefined, '', '   ']) {
     let registrations = 0;
@@ -295,13 +305,17 @@ test('lifecycle writes and memory_search recall remain isolated across trusted i
   }
 });
 
-test('every lifecycle hook rejects each missing invocation principal dimension without configured fallback', async () => {
+test('lifecycle hooks require a trusted session and use only configured fixed-principal fallbacks', async () => {
   const handlers = new Map();
-  let fetchCalls = 0;
+  const requests = [];
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-missing-principal-'));
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    fetchCalls += 1;
+  globalThis.fetch = async (url, options) => {
+    requests.push({
+      path: new URL(String(url)).pathname,
+      headers: new Headers(options?.headers),
+      body: JSON.parse(String(options?.body || '{}')),
+    });
     return successfulCommitResponse();
   };
   try {
@@ -311,32 +325,49 @@ test('every lifecycle hook rejects each missing invocation principal dimension w
         enabledWriteThrough: true,
         minDurabilityScore: 0,
         sessionId: 'configured-session-must-not-be-used',
-        userId: 'configured-user-must-not-be-used',
-        channelId: 'configured-channel-must-not-be-used',
-        agentId: 'configured-agent-must-not-be-used',
+        userId: 'configured-user',
+        channelId: 'configured-channel',
+        agentId: 'configured-agent',
       }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    for (const field of ['sessionKey', 'userId', 'channelId', 'agentId']) {
-      const context = lifecycleContext('complete-session');
-      delete context[field];
-      assert.throws(
-        () => handlers.get('llm_output')({ content: 'must not cross principal scope' }, context),
-        /lifecycle callback requires trusted/,
-      );
-      await assert.rejects(
-        () => handlers.get('subagent_ended')({ result: 'must not persist' }, context),
-        /lifecycle callback requires trusted/,
-      );
-      await assert.rejects(
-        () => handlers.get('agent_end')({ result: 'must not persist' }, context),
-        /lifecycle callback requires trusted/,
-      );
-    }
-    assert.equal(fetchCalls, 0);
+
+    assert.throws(
+      () => handlers.get('llm_output')({ content: 'must not use the configured global session' }, {}),
+      /lifecycle callback requires trusted session identity/,
+    );
+    await assert.rejects(
+      () => handlers.get('subagent_ended')({ result: 'must not persist' }, {}),
+      /lifecycle callback requires trusted session identity/,
+    );
+    await assert.rejects(
+      () => handlers.get('agent_end')({ result: 'must not persist' }, {}),
+      /lifecycle callback requires trusted session identity/,
+    );
+    assert.equal(requests.length, 0);
+    assert.deepEqual(lifecycleSpoolFiles(stateDir), []);
+
+    const context = { sessionKey: 'trusted-lifecycle-session' };
+    handlers.get('llm_output')({ content: 'durable output from the supported lifecycle hook shape' }, context);
+    await handlers.get('agent_end')({
+      messages: [{ role: 'user', content: 'Remember the supported lifecycle callback contract.' }],
+    }, context);
+
+    assert.deepEqual(requests.map(({ path: requestPath }) => requestPath), ['/nexus/assurance/receipt', '/nexus/commit']);
+    const commit = requests[1];
+    assert.equal(commit.body.metadata.scope.agent_id, 'configured-agent');
+    assert.equal(commit.body.metadata.scope.user_id, 'configured-user');
+    assert.equal(commit.body.metadata.scope.channel_id, 'configured-channel');
+    assert.equal(
+      commit.body.metadata.scope.session_id,
+      `openclaw-${createHmac('sha256', 'session-test-secret').update(context.sessionKey).digest('hex')}`,
+    );
+    assert.equal(commit.headers.get('x-cortex-agent-id'), 'configured-agent');
+    assert.equal(commit.headers.get('x-cortex-user-id'), 'configured-user');
+    assert.equal(commit.headers.get('x-cortex-channel-id'), 'configured-channel');
     assert.deepEqual(lifecycleSpoolFiles(stateDir), []);
   } finally {
     globalThis.fetch = originalFetch;
@@ -693,6 +724,86 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     assert.equal(fs.existsSync(spoolFiles[0]), false, 'an acknowledged principal spool leaves no empty state directory behind');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('separate processes reuse the retained receipt after a durable commit response is lost', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-response-loss-'));
+  const durableServerState = path.join(stateDir, 'simulated-durable-server.json');
+  const moduleUrl = new URL('./index.ts', import.meta.url).href;
+  const config = lifecycleConfig({
+    stateDir,
+    enabledWriteThrough: true,
+    minDurabilityScore: 0,
+    retryCount: 0,
+  });
+  // Exercise the supported lifecycle hook shape: session identity is dynamic,
+  // while fixed agent/user/channel values come from the configured scope.
+  delete config.agentId;
+  delete config.userId;
+  delete config.channelId;
+  const context = { sessionKey: 'response-loss-session' };
+  const firstScript = `
+    import fs from 'node:fs';
+    import plugin from ${JSON.stringify(moduleUrl)};
+    const handlers = new Map();
+    globalThis.fetch = async (url, options) => {
+      if (String(url).endsWith('/nexus/assurance/receipt')) {
+        return new Response(JSON.stringify({ success: true, receipt: 'durable-response-loss-receipt' }));
+      }
+      const request = JSON.parse(String(options?.body || '{}'));
+      fs.writeFileSync(${JSON.stringify(durableServerState)}, JSON.stringify(request), { mode: 0o600 });
+      throw new Error('ECONNRESET after durable commit');
+    };
+    plugin.register({
+      pluginConfig: ${JSON.stringify(config)}, logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); }, registerMemoryRuntime() {}, registerTool() {},
+    });
+    const context = ${JSON.stringify(context)};
+    handlers.get('llm_output')({ content: 'We decided to preserve the durable response-loss deployment.' }, context);
+    try {
+      await handlers.get('agent_end')({ messages: [{ role: 'user', content: 'Remember the durable response-loss decision.' }] }, context);
+      process.exit(2);
+    } catch (error) {
+      if (!String(error).includes('output retained for retry')) process.exit(3);
+    }
+  `;
+  const secondScript = `
+    import fs from 'node:fs'; import path from 'node:path';
+    import plugin from ${JSON.stringify(moduleUrl)};
+    globalThis.fetch = async (url, options) => {
+      if (String(url).endsWith('/nexus/assurance/receipt')) throw new Error('restart minted a second receipt');
+      const request = JSON.parse(String(options?.body || '{}'));
+      const committed = JSON.parse(fs.readFileSync(${JSON.stringify(durableServerState)}, 'utf8'));
+      if (request.assurance_receipt !== committed.assurance_receipt) throw new Error('restart changed the durable receipt identity');
+      return new Response(JSON.stringify({
+        success: true, committed: true, durable_write: { status: 'stored' },
+        assurance: { memory_commit: { eligible: true } },
+      }));
+    };
+    plugin.register({
+      pluginConfig: ${JSON.stringify(config)}, logger: { info() {}, warn() {} },
+      on() {}, registerMemoryRuntime() {}, registerTool() {},
+    });
+    const root = path.join(${JSON.stringify(stateDir)}, 'lifecycle-principals-v2');
+    const pending = () => fs.existsSync(root) && fs.readdirSync(root)
+      .some((entry) => fs.existsSync(path.join(root, entry, 'lifecycle-spool.json')));
+    const deadline = Date.now() + 4000;
+    while (pending() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    if (pending()) process.exit(4);
+  `;
+  try {
+    await runEvalWorker(firstScript, 'response-loss writer');
+    const [spoolFile] = lifecycleSpoolFiles(stateDir);
+    const [retained] = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
+    const committed = JSON.parse(fs.readFileSync(durableServerState, 'utf8'));
+    assert.equal(retained.assuranceReceipt, 'durable-response-loss-receipt');
+    assert.equal(committed.assurance_receipt, retained.assuranceReceipt);
+
+    await runEvalWorker(secondScript, 'response-loss restart');
+    assert.equal(fs.existsSync(spoolFile), false);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
 
