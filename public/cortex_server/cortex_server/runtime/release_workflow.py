@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import hashlib
 import hmac
@@ -830,7 +831,7 @@ class ReleaseWorkflowStore:
         return ReleaseArtifactStore(root)
 
     @contextmanager
-    def release_transaction(self, process_id: str):
+    def release_transaction(self, process_id: str, *, nonblocking: bool = False):
         """Serialize every release mutation for one process across processes.
 
         The transaction is re-entrant for callers such as reconciliation and
@@ -855,7 +856,22 @@ class ReleaseWorkflowStore:
         lock_target = self._rollback_lock_target(process_id)
         lock_target.parent.mkdir(parents=True, exist_ok=True)
         with lock_target.open("a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            flags = fcntl.LOCK_EX
+            try:
+                running_on_event_loop = asyncio.get_running_loop() is not None
+            except RuntimeError:
+                running_on_event_loop = False
+            if nonblocking or running_on_event_loop:
+                # A synchronous flock wait on the event-loop thread can
+                # deadlock an async execution that owns this transaction.
+                # Event-loop callers fail fast and may retry; worker threads
+                # and ordinary synchronous reconciliation retain blocking
+                # serialization.
+                flags |= fcntl.LOCK_NB
+            try:
+                fcntl.flock(handle.fileno(), flags)
+            except BlockingIOError as exc:
+                raise RuntimeError(f"release transaction busy for {process}") from exc
             depths[process] = 1
             try:
                 yield
@@ -1077,6 +1093,9 @@ def record_release_handoff(
         "revision_id": message.revision_id,
         "release_id": str(message_metadata.get("release_id") or state.release_id).strip(),
         "candidate_ref": str(message_metadata.get("candidate_ref") or state.candidate_ref).strip(),
+        "lease_id": str(message_metadata.get("lease_id") or "").strip() or None,
+        "lease_generation": message_metadata.get("lease_generation"),
+        "lease_scope": str(message_metadata.get("lease_scope") or "").strip() or None,
         "created_at": message.created_at,
         "acked_at": message.acked_at,
         "dead_lettered_at": message.dead_lettered_at,
@@ -1746,17 +1765,13 @@ def repair_release_workflow(
         )
 
     if not active_gate["checks"].get("lease_health_ok", True):
-        reclaim_now = _now() + timedelta(days=365)
-        reclaimed = supervisor.reclaim_stale(now=reclaim_now)
-        resolved_ids: List[str] = []
-        for lease in supervisor.list(process_id=state.process_id, status="stale"):
-            resolved = supervisor.resolve(lease.lease_id, status="released", metadata={"resolution": "release_gate_repair"})
-            resolved_ids.append(resolved.lease_id)
+        reclaimed = supervisor.reclaim_stale(process_id=state.process_id)
         actions_taken.append(
             {
-                "action": "resolve_stale_leases",
+                "action": "stale_leases_require_fenced_takeover",
                 "reclaimed_ids": [row.lease_id for row in reclaimed],
-                "resolved_ids": resolved_ids,
+                "stale_ids": [row.lease_id for row in supervisor.list(process_id=state.process_id, status="stale")],
+                "blocking": True,
             }
         )
 
@@ -1816,6 +1831,17 @@ def _restore_release_session_registry(session_registry: Any, *, process_id: str,
         session_registry._write_all(retained + restored_rows)
 
 
+def _restore_release_watchers(watcher_store: Any, *, process_id: str, session_state: Dict[str, Any]) -> None:
+    if watcher_store is None or "watchers" not in session_state:
+        return
+    restored_rows = [
+        row
+        for row in (session_state.get("watchers") or [])
+        if isinstance(row, dict) and str(row.get("process_id") or "").strip() == process_id
+    ]
+    watcher_store.replace_process(process_id=process_id, registrations=restored_rows)
+
+
 def apply_release_rollback_restore(
     state: ReleaseWorkflowState,
     *,
@@ -1824,6 +1850,7 @@ def apply_release_rollback_restore(
     release_store: Optional[ReleaseWorkflowStore] = None,
     journal: Optional[ProcessJournal] = None,
     session_registry: Any = None,
+    watcher_store: Any = None,
     stage: Optional[str] = None,
     fencepost_id: Optional[str] = None,
     actor: Optional[str] = None,
@@ -2037,6 +2064,11 @@ def apply_release_rollback_restore(
 
             _restore_release_session_registry(
                 session_registry,
+                process_id=state.process_id,
+                session_state=dict(restore_state.get("session_state") or {}),
+            )
+            _restore_release_watchers(
+                watcher_store,
                 process_id=state.process_id,
                 session_state=dict(restore_state.get("session_state") or {}),
             )

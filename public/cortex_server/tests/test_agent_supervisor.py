@@ -23,7 +23,11 @@ def _assign_concurrent_lease(path: str, index: int, start) -> None:
 
 
 def test_agent_supervisor_assign_heartbeat_release_and_reclaim(tmp_path: Path):
-    supervisor = AgentSupervisor(tmp_path / "runtime" / "leases.json")
+    trusted_now = [datetime.now(timezone.utc)]
+    supervisor = AgentSupervisor(
+        tmp_path / "runtime" / "leases.json",
+        clock_fn=lambda: trusted_now[0],
+    )
 
     lease = supervisor.assign(
         process_id="proc_123",
@@ -45,12 +49,92 @@ def test_agent_supervisor_assign_heartbeat_release_and_reclaim(tmp_path: Path):
     assert len(active) == 1
     assert active[0].lease_id == lease.lease_id
 
-    stale = supervisor.reclaim_stale(now=datetime.now(timezone.utc) + timedelta(seconds=180))
+    trusted_now[0] += timedelta(seconds=180)
+    stale = supervisor.reclaim_stale(process_id="proc_123")
     assert len(stale) == 1
     assert stale[0].status == "stale"
 
     released = supervisor.release(lease.lease_id)
     assert released.status == "released"
+
+
+def test_reclaim_stale_uses_trusted_clock_and_is_process_scoped(tmp_path: Path):
+    observed_now = datetime.now(timezone.utc)
+    trusted_now = [observed_now]
+    supervisor = AgentSupervisor(
+        tmp_path / "runtime" / "leases.json",
+        clock_fn=lambda: trusted_now[0],
+    )
+    first = supervisor.assign(
+        process_id="proc_first",
+        scope="worker",
+        agent_id="first",
+        lease_seconds=1,
+    )
+    second = supervisor.assign(
+        process_id="proc_second",
+        scope="worker",
+        agent_id="second",
+        lease_seconds=1,
+    )
+    trusted_now[0] = observed_now + timedelta(seconds=2)
+
+    reclaimed = supervisor.reclaim_stale(process_id="proc_first")
+
+    assert [row.lease_id for row in reclaimed] == [first.lease_id]
+    assert supervisor.list(process_id="proc_first")[0].status == "stale"
+    assert supervisor.list(process_id="proc_second")[0].lease_id == second.lease_id
+    assert supervisor.list(process_id="proc_second")[0].status == "active"
+
+
+def test_promotion_snapshot_projects_near_expiry_lease_as_stale(tmp_path: Path):
+    trusted_now = [datetime.now(timezone.utc)]
+    supervisor = AgentSupervisor(
+        tmp_path / "runtime" / "leases.json",
+        clock_fn=lambda: trusted_now[0],
+    )
+    lease = supervisor.assign(
+        process_id="proc_release",
+        scope="release:production",
+        agent_id="release-manager",
+        lease_seconds=5,
+    )
+    trusted_now[0] += timedelta(seconds=4, milliseconds=500)
+
+    with supervisor.promotion_snapshot(
+        process_id="proc_release",
+        minimum_remaining_seconds=1,
+    ) as (_, leases):
+        projected = next(row for row in leases if row.lease_id == lease.lease_id)
+        assert projected.status == "stale"
+
+
+def test_stale_takeover_persists_new_generation_and_fences_old_heartbeat(tmp_path: Path):
+    trusted_now = [datetime.now(timezone.utc)]
+    supervisor = AgentSupervisor(
+        tmp_path / "runtime" / "leases.json",
+        clock_fn=lambda: trusted_now[0],
+    )
+    old = supervisor.assign(
+        process_id="proc_takeover",
+        scope="worker",
+        agent_id="worker-a",
+        lease_seconds=1,
+    )
+    trusted_now[0] += timedelta(seconds=2)
+    supervisor.reclaim_stale(process_id="proc_takeover")
+
+    superseded, successor = supervisor.takeover_stale(
+        old.lease_id,
+        agent_id="worker-b",
+        lease_seconds=30,
+    )
+
+    assert superseded.status == "superseded"
+    assert successor.generation == old.generation + 1
+    assert successor.metadata["takeover_of_lease_id"] == old.lease_id
+    with pytest.raises(RuntimeError, match="non-active"):
+        supervisor.heartbeat(old.lease_id)
 
 
 
@@ -69,7 +153,11 @@ def test_agent_supervisor_rejects_bad_inputs_and_missing_leases(tmp_path: Path):
 
 
 def test_agent_supervisor_blocks_duplicate_active_claims_and_reuses_same_agent_claim(tmp_path: Path):
-    supervisor = AgentSupervisor(tmp_path / "runtime" / "leases.json")
+    trusted_now = [datetime.now(timezone.utc)]
+    supervisor = AgentSupervisor(
+        tmp_path / "runtime" / "leases.json",
+        clock_fn=lambda: trusted_now[0],
+    )
 
     first = supervisor.assign(process_id="proc_123", scope="step1", agent_id="planner", lease_seconds=60)
     same = supervisor.assign(process_id="proc_123", scope="step1", agent_id="planner", lease_seconds=60)
@@ -79,17 +167,23 @@ def test_agent_supervisor_blocks_duplicate_active_claims_and_reuses_same_agent_c
     with pytest.raises(ValueError, match="active claim exists"):
         supervisor.assign(process_id="proc_123", scope="step1", agent_id="researcher", lease_seconds=60)
 
-    supervisor.reclaim_stale(now=datetime.now(timezone.utc) + timedelta(seconds=180))
+    trusted_now[0] += timedelta(seconds=180)
+    supervisor.reclaim_stale(process_id="proc_123")
     replacement = supervisor.assign(process_id="proc_123", scope="step1", agent_id="researcher", lease_seconds=60)
     assert replacement.agent_id == "researcher"
 
 
 
 def test_agent_supervisor_can_resolve_stale_leases_with_metadata(tmp_path: Path):
-    supervisor = AgentSupervisor(tmp_path / "runtime" / "leases.json")
+    trusted_now = [datetime.now(timezone.utc)]
+    supervisor = AgentSupervisor(
+        tmp_path / "runtime" / "leases.json",
+        clock_fn=lambda: trusted_now[0],
+    )
 
     lease = supervisor.assign(process_id="proc_123", scope="step1", agent_id="planner", lease_seconds=1)
-    supervisor.reclaim_stale(now=datetime.now(timezone.utc) + timedelta(seconds=10))
+    trusted_now[0] += timedelta(seconds=10)
+    supervisor.reclaim_stale(process_id="proc_123")
     resolved = supervisor.resolve(lease.lease_id, status="released", metadata={"resolution": "watchdog_recovered"})
 
     assert resolved.status == "released"

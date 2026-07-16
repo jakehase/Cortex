@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
+import cortex_server.runtime.agent_supervisor as agent_supervisor
 
 
 def _install_fake_diplomat(monkeypatch):
@@ -62,8 +63,10 @@ def _workflow(name: str, *, owner: str, session_key: str, channel: str, conversa
 def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_path, monkeypatch):
     db_path = tmp_path / "runtime.db"
     delivery_root = tmp_path / "delivery"
+    trusted_now = [datetime(2026, 2, 1, tzinfo=timezone.utc)]
 
     sent = _install_fake_diplomat(monkeypatch)
+    monkeypatch.setattr(agent_supervisor, "_now", lambda: trusted_now[0])
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
@@ -94,7 +97,7 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
         session_key="session:canary:delivery",
     )
 
-    first_now = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    first_now = trusted_now[0]
     roadmap = asyncio.run(
         orchestrator.reconcile_runtime_roadmap(
             roadmap_process["process_id"],
@@ -188,6 +191,7 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
     ]
     assert len(controller_lease_expiries) == 2
     watchdog_now = max(controller_lease_expiries) + timedelta(seconds=1)
+    trusted_now[0] = watchdog_now
 
     tick = asyncio.run(
         orchestrator.tick_runtime(

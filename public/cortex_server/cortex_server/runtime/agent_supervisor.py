@@ -6,7 +6,7 @@ import fcntl
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -38,6 +38,7 @@ class AgentLease(BaseModel):
     heartbeat_at: str = Field(default_factory=_now_iso)
     expires_at: str
     status: str = "active"
+    generation: int = 1
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("lease_id", "process_id", "scope", "agent_id", "assigned_at", "heartbeat_at", "expires_at", "status")
@@ -57,6 +58,14 @@ class AgentLease(BaseModel):
         except ValueError as exc:
             raise ValueError("timestamp must be ISO-8601") from exc
         return text
+
+    @field_validator("generation")
+    @classmethod
+    def _validate_generation(cls, value: int) -> int:
+        generation = int(value or 0)
+        if generation <= 0:
+            raise ValueError("generation must be positive")
+        return generation
 
 
 
@@ -79,9 +88,16 @@ def _model_dump_compat(model: AgentLease) -> Dict[str, Any]:
 
 
 class AgentSupervisor:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, clock_fn: Optional[Callable[[], datetime]] = None):
         self.path = Path(path)
         self.lock_path = self.path.with_name(f"{self.path.name}.lock")
+        self._clock_fn = clock_fn or _now
+
+    def _trusted_now(self) -> datetime:
+        observed = self._clock_fn()
+        if observed.tzinfo is None:
+            raise ValueError("agent supervisor clock must be timezone-aware")
+        return observed.astimezone(timezone.utc)
 
     @contextmanager
     def _locked(self, *, exclusive: bool):
@@ -149,7 +165,11 @@ class AgentSupervisor:
                 if row.agent_id == agent_id:
                     return row
                 raise ValueError(f"active claim exists for {process_id}:{scope} via {row.agent_id}")
-            now = _now()
+            now = self._trusted_now()
+            generation = max(
+                (row.generation for row in rows if row.process_id == process_id and row.scope == scope),
+                default=0,
+            ) + 1
             record = AgentLease(
                 process_id=process_id,
                 scope=scope,
@@ -157,6 +177,7 @@ class AgentSupervisor:
                 assigned_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                 heartbeat_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                 expires_at=(now + timedelta(seconds=int(lease_seconds))).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                generation=generation,
                 metadata=dict(metadata or {}),
             )
             rows.append(record)
@@ -194,8 +215,10 @@ class AgentSupervisor:
         raise KeyError(f"lease not found: {lease_id}")
 
     def heartbeat(self, lease_id: str, *, lease_seconds: Optional[int] = None) -> AgentLease:
-        now = _now()
+        now = self._trusted_now()
         def _apply(row: AgentLease) -> None:
+            if row.status != "active":
+                raise RuntimeError(f"cannot heartbeat non-active lease: {lease_id}")
             row.heartbeat_at = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
             if lease_seconds is not None:
                 if int(lease_seconds) <= 0:
@@ -217,18 +240,136 @@ class AgentSupervisor:
 
         return self._mutate(lease_id, _apply)
 
-    def reclaim_stale(self, *, now: Optional[datetime] = None) -> List[AgentLease]:
-        now_dt = now or _now()
+    def takeover_stale(
+        self,
+        lease_id: str,
+        *,
+        agent_id: str,
+        lease_seconds: int,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> tuple[AgentLease, AgentLease]:
+        """Atomically fence a stale generation and persist its successor."""
+
+        if int(lease_seconds) <= 0:
+            raise ValueError("lease_seconds must be positive")
+        successor_agent = str(agent_id or "").strip()
+        if not successor_agent:
+            raise ValueError("agent_id must be non-empty")
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope()
+            stale = next((row for row in rows if row.lease_id == lease_id), None)
+            if stale is None:
+                raise KeyError(f"lease not found: {lease_id}")
+            if stale.status != "stale":
+                raise RuntimeError(f"lease is not stale: {lease_id}")
+            if any(
+                row.status == "active"
+                and row.process_id == stale.process_id
+                and row.scope == stale.scope
+                for row in rows
+            ):
+                raise RuntimeError(f"active successor already exists for {stale.process_id}:{stale.scope}")
+            generation = max(
+                (row.generation for row in rows if row.process_id == stale.process_id and row.scope == stale.scope),
+                default=stale.generation,
+            ) + 1
+            now = self._trusted_now()
+            successor = AgentLease(
+                process_id=stale.process_id,
+                scope=stale.scope,
+                agent_id=successor_agent,
+                assigned_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                heartbeat_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                expires_at=(now + timedelta(seconds=int(lease_seconds))).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                generation=generation,
+                metadata={
+                    **dict(metadata or {}),
+                    "takeover_of_lease_id": stale.lease_id,
+                    "takeover_of_generation": stale.generation,
+                },
+            )
+            stale.status = "superseded"
+            stale.metadata = {
+                **dict(stale.metadata or {}),
+                "superseded_by_lease_id": successor.lease_id,
+                "superseded_by_generation": successor.generation,
+            }
+            rows.append(successor)
+            self._write_all(rows, expected_revision=revision)
+            return stale, successor
+
+    def reclaim_stale(self, *, process_id: str) -> List[AgentLease]:
+        process = str(process_id or "").strip()
+        if not process:
+            raise ValueError("process_id must be non-empty")
+        now_dt = self._trusted_now()
         with self._locked(exclusive=True):
             revision, rows = self._read_envelope()
             reclaimed: List[AgentLease] = []
             for row in rows:
-                if row.status == "active" and _parse_ts(row.expires_at) <= now_dt:
+                if row.process_id == process and row.status == "active" and _parse_ts(row.expires_at) <= now_dt:
                     row.status = "stale"
                     reclaimed.append(row)
             if reclaimed:
                 self._write_all(rows, expected_revision=revision)
             return reclaimed
+
+    def complete_active_generation(
+        self,
+        lease_id: str,
+        *,
+        generation: int,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AgentLease:
+        """Release only the live generation proven by a completed handoff."""
+
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope()
+            row = next((item for item in rows if item.lease_id == lease_id), None)
+            if row is None:
+                raise KeyError(f"lease not found: {lease_id}")
+            if int(row.generation) != int(generation):
+                raise RuntimeError("lease generation no longer matches the acknowledged handoff")
+            if row.status != "active":
+                raise RuntimeError(f"lease is not active: {row.status}")
+            if _parse_ts(row.expires_at) <= self._trusted_now():
+                row.status = "stale"
+                self._write_all(rows, expected_revision=revision)
+                raise RuntimeError("acknowledged lease expired before completion was committed")
+            row.status = "released"
+            row.metadata = {**dict(row.metadata or {}), **dict(metadata or {})}
+            self._write_all(rows, expected_revision=revision)
+            return row
+
+    @contextmanager
+    def promotion_snapshot(
+        self,
+        *,
+        process_id: str,
+        minimum_remaining_seconds: float = 1.0,
+    ) -> Iterator[tuple[int, List[AgentLease]]]:
+        """Hold lease state stable while a release promotion is committed.
+
+        Expired or near-expiry active leases are projected as stale from the
+        trusted clock without mutating the journal under a read lock.
+        """
+
+        process = str(process_id or "").strip()
+        if not process:
+            raise ValueError("process_id must be non-empty")
+        margin = max(0.0, float(minimum_remaining_seconds or 0.0))
+        with self._locked(exclusive=False):
+            revision, rows = self._read_envelope()
+            cutoff = self._trusted_now() + timedelta(seconds=margin)
+            projected: List[AgentLease] = []
+            for row in rows:
+                if row.process_id != process:
+                    continue
+                payload = _model_dump_compat(row)
+                if row.status == "active" and _parse_ts(row.expires_at) <= cutoff:
+                    payload["status"] = "stale"
+                projected.append(_model_validate_compat(payload))
+            yield revision, projected
 
 
 __all__ = ["AgentLease", "AgentSupervisor", "ValidationError"]

@@ -20,6 +20,7 @@ import json
 import asyncio
 import base64
 import httpx
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from functools import partial
 from uuid import uuid4
 
@@ -324,6 +325,27 @@ def _clear_runtime_event_pending(*, stores: Dict[str, Any], process_id: str, eve
             _unlink_fsynced(pending_path)
 
 
+@contextmanager
+def _runtime_session_mutation(
+    *,
+    stores: Dict[str, Any],
+    process_id: str,
+    operation: str,
+):
+    """Use rollback's release -> shared -> snapshot lock order."""
+
+    with (
+        stores["release_store"].release_transaction(process_id),
+        stores["shared_state_store"].transaction(process_id),
+        stores["snapshot_store"].transaction(process_id),
+    ):
+        stores["release_store"].assert_mutation_allowed(
+            process_id,
+            operation=operation,
+        )
+        yield
+
+
 def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
     stores["release_store"].assert_mutation_allowed(
         process_id,
@@ -482,10 +504,10 @@ def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores:
 def _record_runtime_session_event(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
     """Commit every session projection under the same rollback lock order."""
 
-    with (
-        stores["release_store"].release_transaction(process_id),
-        stores["shared_state_store"].transaction(process_id),
-        stores["snapshot_store"].transaction(process_id),
+    with _runtime_session_mutation(
+        stores=stores,
+        process_id=process_id,
+        operation="runtime session event ingestion",
     ):
         return _record_runtime_session_event_locked(
             process_id=process_id,
@@ -511,6 +533,19 @@ def _runtime_workspace_targets_from_process(process: Dict[str, Any]) -> List[str
         if value not in out:
             out.append(value)
     return out
+
+
+def _authorize_runtime_watcher_target(*, process: Dict[str, Any], kind: str, target: str) -> List[str]:
+    if kind not in {"workspace", "log-pattern", "path-state"}:
+        return []
+    try:
+        resolved_target = Path(target).expanduser().resolve(strict=False)
+        roots = [Path(row).expanduser().resolve(strict=False) for row in _runtime_workspace_targets_from_process(process)]
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=403, detail="watcher target is not an authorized process workspace path") from exc
+    if not roots or not any(resolved_target == root or resolved_target.is_relative_to(root) for root in roots):
+        raise HTTPException(status_code=403, detail="watcher target is outside the authorized process workspace")
+    return [str(root) for root in roots]
 
 
 def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
@@ -577,6 +612,7 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
     default_watchers.append(model_dump_compat(heartbeat_watcher))
 
     for target in _runtime_workspace_targets_from_process(process):
+        authorized_roots = _authorize_runtime_watcher_target(process=process, kind="workspace", target=target)
         watcher = ensure_watcher(
             WatchRegistration(
                 process_id=process_id,
@@ -586,7 +622,12 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
                 session_name=session_name,
                 tool="workspace",
                 debounce_seconds=float(metadata.get("workspace_debounce_seconds") or 1.0),
-                metadata={"bootstrapped": True, "canonical": True},
+                metadata={
+                    "bootstrapped": True,
+                    "canonical": True,
+                    "cortex_authorized_roots": authorized_roots,
+                    "cortex_workspace_attested_by": "server",
+                },
             )
         )
         default_watchers.append(model_dump_compat(watcher))
@@ -648,11 +689,137 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
 
 
 def _ensure_runtime_session_plane_bootstrap(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
-    return _bootstrap_runtime_session_plane(process_id, process=process, stores=stores)
+    with _runtime_session_mutation(
+        stores=stores,
+        process_id=process_id,
+        operation="runtime session plane bootstrap",
+    ):
+        return _bootstrap_runtime_session_plane(
+            process_id,
+            process=get_runtime_process(process_id) or process,
+            stores=stores,
+        )
+
+
+def _migrate_runtime_watcher_attestations(*, process_id: str, process: Dict[str, Any], stores: Dict[str, Any]) -> List[str]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    workflow_metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    # Physical roots on legacy scoped-principal plans were caller controlled
+    # and can never be promoted into server attestations.
+    if isinstance(workflow_metadata.get("principal"), dict) or workflow_metadata.get("scope_credential_id"):
+        return []
+    migrated: List[str] = []
+    invalid_ids = set(stores["watcher_store"].invalid_file_watcher_ids())
+    for watcher in stores["watcher_store"].list(process_id=process_id):
+        if watcher.kind not in {"workspace", "log-pattern", "path-state"} or watcher.watch_id not in invalid_ids:
+            continue
+        try:
+            roots = _authorize_runtime_watcher_target(
+                process=process,
+                kind=watcher.kind,
+                target=watcher.target,
+            )
+        except HTTPException:
+            continue
+        watcher.metadata = {
+            **dict(watcher.metadata or {}),
+            "cortex_authorized_roots": roots,
+            "cortex_workspace_attested_by": "server",
+            "cortex_attestation_migrated": True,
+        }
+        stores["watcher_store"].register(watcher)
+        migrated.append(watcher.watch_id)
+    return migrated
+
+
+def _refresh_runtime_session_plane(
+    *,
+    stores: Dict[str, Any],
+    now: Optional[datetime] = None,
+    process_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    process_ids = sorted(
+        {
+            row.process_id
+            for row in stores["session_registry"].list(process_id=process_id)
+        }
+        | {
+            row.process_id
+            for row in stores["watcher_store"].list(process_id=process_id)
+        }
+    )
+    recorded: List[Dict[str, Any]] = []
+    for active_process_id in process_ids:
+        intent = stores["release_store"].load_rollback_intent(active_process_id)
+        if intent and intent.get("status") in {"in_progress", "recovery_required"}:
+            # The authoritative registry will be restored by rollback. Defer
+            # watchdog-derived mutations until recovery commits.
+            continue
+        with _runtime_session_mutation(
+            stores=stores,
+            process_id=active_process_id,
+            operation="runtime session and watcher reconciliation",
+        ):
+            active_process = get_runtime_process(active_process_id)
+            if active_process is not None:
+                _migrate_runtime_watcher_attestations(
+                    process_id=active_process_id,
+                    process=active_process,
+                    stores=stores,
+                )
+            stale_rows = stores["session_registry"].detect_stale(
+                now=now,
+                process_id=active_process_id,
+            )
+            emitted = stores["watcher_store"].reconcile(
+                session_registry=stores["session_registry"],
+                now=now,
+                process_id=active_process_id,
+            )
+            emitted_stale_sessions = {
+                str(event.session_id or event.process_id)
+                for event in emitted
+                if event.kind == "session.stale"
+            }
+            for stale in stale_rows:
+                if stale.session_id in emitted_stale_sessions:
+                    continue
+                event = normalize_session_event(
+                    active_process_id,
+                    "session.stale",
+                    tool=stale.tool,
+                    session_id=stale.session_id,
+                    session_name=stale.session_name,
+                    summary=stale.blocked_reason or "session heartbeat expired",
+                    payload={"source": "session-registry"},
+                )
+                if now is not None:
+                    event.ts = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                emitted.append(event)
+            for event in emitted:
+                delivery = resilient_delivery_attempt(
+                    "runtime_session_event_ingest",
+                    lambda event=event: _record_runtime_session_event(
+                        process_id=event.process_id,
+                        event=event,
+                        stores=stores,
+                    ),
+                    process_id=event.process_id,
+                    event_kind=event.kind,
+                    payload=model_dump_compat(event),
+                    dlq_store=stores["delivery_dlq"],
+                )
+                recorded.append(
+                    {
+                        "event": model_dump_compat(event),
+                        "delivery": {key: value for key, value in delivery.items() if key != "result"},
+                    }
+                )
+    return recorded
 
 
 def _runtime_session_plane_status(*, stores: Dict[str, Any], process_id: Optional[str] = None) -> Dict[str, Any]:
-    stores["session_registry"].detect_stale()
+    _refresh_runtime_session_plane(stores=stores, process_id=process_id)
     sessions = stores["session_registry"].list(process_id=process_id)
     watchers = stores["watcher_store"].list(process_id=process_id)
     by_status: Dict[str, int] = {}
@@ -1180,11 +1347,14 @@ def _runtime_delivery_projection(
         "loop_iteration": int(loop_state.iteration_count or 0) if loop_state is not None else 0,
         "loop_checkpoint_count": int(loop_state.checkpoint_count or 0) if loop_state is not None else 0,
         "loop_recovery_count": int(loop_state.recovery_count or 0) if loop_state is not None else 0,
+        "loop_persistence_revision": int(loop_state.persistence_revision or 0) if loop_state is not None else 0,
         "release_id": release_state.release_id if release_state is not None else None,
         "release_stage": release_state.current_stage if release_state is not None else None,
         "release_status": release_state.status if release_state is not None else None,
+        "release_persistence_revision": int(release_state.persistence_revision or 0) if release_state is not None else 0,
         "shared_state_revision_id": shared_state.revision_id if shared_state is not None else None,
         "snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
+        "snapshot_persistence_revision": int(snapshot.persistence_revision or 0) if snapshot is not None else 0,
         "snapshot_lifecycle_state": snapshot.lifecycle_state if snapshot is not None else None,
         "latest_report_id": latest_report.report_id if latest_report is not None else None,
         "latest_report_kind": latest_report.kind if latest_report is not None else None,
@@ -1215,7 +1385,7 @@ def _runtime_delivery_projection(
 
 
 
-def _sync_runtime_process_delivery_state(
+def _sync_runtime_process_delivery_state_locked(
     process_id: str,
     *,
     process: Dict[str, Any],
@@ -1286,6 +1456,10 @@ def _sync_runtime_process_delivery_state(
         desired_metadata["delivery_follow_through"] = dict(loop_state.follow_through or {})
     if contract is not None:
         desired_metadata["production_build_loop"] = model_dump_compat(contract)
+    if transaction_id and snapshot is not None:
+        restored_policy = dict(desired_metadata.get("policy") or {})
+        restored_policy["settings"] = dict(snapshot.runtime_policy or {})
+        desired_metadata["policy"] = restored_policy
 
     if desired_metadata != metadata:
         process = replace_process_workflow(
@@ -1302,6 +1476,53 @@ def _sync_runtime_process_delivery_state(
         process = record_runtime_event(process_id, event_kind, dict(event_payload or {}))
     refreshed = get_runtime_process(process_id)
     return refreshed or process
+
+
+def _sync_runtime_process_delivery_state(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    event_kind: str,
+    event_payload: Optional[Dict[str, Any]] = None,
+    projection_transaction_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Project release state only from a view owned by its release fence."""
+
+    release_store = stores["release_store"]
+    transaction_id = str(projection_transaction_id or "").strip()
+    with release_store.release_transaction(process_id):
+        intent = release_store.load_rollback_intent(process_id)
+        if intent and intent.get("status") in {"in_progress", "recovery_required"}:
+            intent_transaction_id = str(intent.get("transaction_id") or "").strip()
+            if not transaction_id or not hmac.compare_digest(transaction_id, intent_transaction_id):
+                release_store.assert_mutation_allowed(
+                    process_id,
+                    operation="runtime process delivery projection",
+                )
+            release_state = release_store.load(process_id)
+            if (
+                release_state is None
+                or not hmac.compare_digest(
+                    str((release_state.metadata or {}).get("rollback_transaction_id") or ""),
+                    transaction_id,
+                )
+            ):
+                raise RuntimeError("rollback runtime projection is not bound to the authoritative transaction")
+        else:
+            release_store.assert_mutation_allowed(
+                process_id,
+                operation="runtime process delivery projection",
+            )
+        authoritative_process = get_runtime_process(process_id) or process
+        return _sync_runtime_process_delivery_state_locked(
+            process_id,
+            process=authoritative_process,
+            stores=stores,
+            event_kind=event_kind,
+            event_payload=event_payload,
+            projection_transaction_id=projection_transaction_id,
+        )
 
 
 
@@ -1528,6 +1749,7 @@ def _recover_runtime_delivery_rollbacks(*, stores: Optional[Dict[str, Any]] = No
             release_store=release_store,
             journal=active_stores["journal"],
             session_registry=active_stores["session_registry"],
+            watcher_store=active_stores["watcher_store"],
             actor=str(intent.get("actor") or "rollback-recovery"),
             reason=str(intent.get("reason") or "rollback-recovery"),
             required_projections=required_projections,
@@ -1540,6 +1762,21 @@ def _recover_runtime_delivery_rollbacks(*, stores: Optional[Dict[str, Any]] = No
 @router.on_event("startup")
 async def recover_runtime_delivery_rollbacks_on_startup() -> None:
     _recover_runtime_delivery_rollbacks()
+    stores = _runtime_delivery_stores()
+    for process in list_runtime_processes():
+        process_id = str(process.get("process_id") or "").strip()
+        if not process_id:
+            continue
+        with _runtime_session_mutation(
+            stores=stores,
+            process_id=process_id,
+            operation="legacy watcher attestation migration",
+        ):
+            _migrate_runtime_watcher_attestations(
+                process_id=process_id,
+                process=get_runtime_process(process_id) or process,
+                stores=stores,
+            )
 
 
 
@@ -3119,11 +3356,45 @@ def _record_runtime_beliefs(
     )
 
 
+def _reasoning_scheduler_tick_fenced(*, now_iso: Optional[str] = None, limit: int = 50) -> Dict[str, Any]:
+    stores = _runtime_delivery_stores()
+    process_ids = sorted(
+        {
+            str(row.get("process_id") or "").strip()
+            for row in list_runtime_processes()
+            if str(row.get("process_id") or "").strip()
+        }
+    )
+    with ExitStack() as stack:
+        for process_id in process_ids:
+            stack.enter_context(stores["release_store"].release_transaction(process_id))
+            stores["release_store"].assert_mutation_allowed(
+                process_id,
+                operation="reasoning scheduler tick",
+            )
+        return reasoning_scheduler_tick(now_iso=now_iso, limit=limit)
+
+
 async def _execute_runtime_batch(*, limit: int = 25, now_iso: Optional[str] = None) -> Dict[str, Any]:
+    stores = _runtime_delivery_stores()
+
+    @asynccontextmanager
+    async def _execution_fence(process_id: str):
+        transaction = stores["release_store"].release_transaction(process_id, nonblocking=True)
+        transaction.__enter__()
+        try:
+            stores["release_store"].assert_mutation_allowed(
+                process_id,
+                operation="reasoning runtime execution",
+            )
+            yield
+        finally:
+            transaction.__exit__(None, None, None)
+
     return await runtime_workflows.execute_runtime_batch(
         limit=limit,
         now_iso=now_iso,
-        scheduler_tick_fn=reasoning_scheduler_tick,
+        scheduler_tick_fn=_reasoning_scheduler_tick_fenced,
         get_runtime_process_fn=get_runtime_process,
         mark_node_running_fn=mark_node_running,
         execute_step_with_retry_fn=_execute_step_with_retry,
@@ -3133,6 +3404,7 @@ async def _execute_runtime_batch(*, limit: int = 25, now_iso: Optional[str] = No
         record_node_result_fn=record_node_result,
         workflow_policy_settings_fn=_workflow_policy_settings,
         scheduler_error_cls=ReasoningSchedulerError,
+        process_execution_fence_fn=_execution_fence,
     )
 
 
@@ -3489,6 +3761,60 @@ def _runtime_delivery_watchdog_decision(*, process: Dict[str, Any], contract: Pr
 
 
 
+def _reconcile_runtime_delivery_watchdog_sequence(
+    *,
+    process_id: str,
+    process: Dict[str, Any],
+    contract: ProductionBuildContract,
+    decision: Dict[str, Any],
+    stores: Dict[str, Any],
+    now: datetime,
+) -> Dict[str, Any]:
+    with stores["release_store"].release_transaction(process_id):
+        stores["release_store"].assert_mutation_allowed(
+            process_id,
+            operation="runtime delivery watchdog sequence",
+        )
+        if stores["snapshot_store"].load(process_id) is None or stores["shared_state_store"].load(process_id) is None:
+            _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+        reconciled = reconcile_production_build_loop(
+            contract,
+            loop_store=stores["loop_store"],
+            snapshot_store=stores["snapshot_store"],
+            shared_state_store=stores["shared_state_store"],
+            journal=stores["journal"],
+            mailbox=stores["mailbox"],
+            supervisor=stores["supervisor"],
+            release_store=stores["release_store"],
+            controller_id="runtime-watchdog",
+            controller_session_id=f"runtime-watchdog:{process_id}",
+            now=now,
+            watchdog_context={**decision, "source": "runtime_tick", "process_id": process_id},
+        )
+        process = _sync_runtime_process_delivery_state(
+            process_id,
+            process=get_runtime_process(process_id) or process,
+            stores=stores,
+            event_kind="runtime_delivery_watchdog",
+            event_payload={
+                "decision": decision.get("decision"),
+                "classification": decision.get("classification"),
+                "status": (reconciled.get("state") or {}).get("status"),
+            },
+        )
+        follow_up = _bridge_runtime_delivery_follow_up(
+            process_id,
+            process=process,
+            stores=stores,
+            now=now,
+        )
+        return {
+            "reconciled": reconciled,
+            "process": follow_up.get("process") or process,
+            "follow_up": follow_up,
+        }
+
+
 def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit: int = 25) -> Dict[str, Any]:
     stores = _runtime_delivery_stores()
     now = _runtime_watchdog_now(now_iso)
@@ -3531,28 +3857,20 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
                 actions.append({"kind": "roadmap", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None, "follow_up_dispatch": follow_up_bridge.get("dispatch")})
                 continue
         if (stores["loop_store"].load_contract(process_id) is not None or stores["loop_store"].load_state(process_id) is not None or isinstance(metadata.get("production_build_loop"), dict)) and (snapshot is not None or shared_state is not None):
-            if snapshot is None or shared_state is None:
-                _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
             contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=RuntimeDeliveryReconcileRequest())
             state = stores["loop_store"].load_state(process_id)
             decision = _runtime_delivery_watchdog_decision(process=process, contract=contract, state=state, now=now)
             if decision is not None:
                 try:
-                    reconciled = reconcile_production_build_loop(
-                        contract,
-                        loop_store=stores["loop_store"],
-                        snapshot_store=stores["snapshot_store"],
-                        shared_state_store=stores["shared_state_store"],
-                        journal=stores["journal"],
-                        mailbox=stores["mailbox"],
-                        supervisor=stores["supervisor"],
-                        release_store=stores["release_store"],
-                        controller_id="runtime-watchdog",
-                        controller_session_id=f"runtime-watchdog:{process_id}",
+                    sequence = _reconcile_runtime_delivery_watchdog_sequence(
+                        process_id=process_id,
+                        process=process,
+                        contract=contract,
+                        decision=decision,
+                        stores=stores,
                         now=now,
-                        watchdog_context={**decision, "source": "runtime_tick", "process_id": process_id},
                     )
-                except PermissionError as exc:
+                except (PermissionError, RuntimeError) as exc:
                     actions.append(
                         {
                             "kind": "delivery_owner_held",
@@ -3563,15 +3881,9 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
                         }
                     )
                     continue
-                process = _sync_runtime_process_delivery_state(
-                    process_id,
-                    process=get_runtime_process(process_id) or process,
-                    stores=stores,
-                    event_kind="runtime_delivery_watchdog",
-                    event_payload={"decision": decision.get("decision"), "classification": decision.get("classification"), "status": (reconciled.get("state") or {}).get("status")},
-                )
-                follow_up_bridge = _bridge_runtime_delivery_follow_up(process_id, process=process, stores=stores, now=now)
-                process = follow_up_bridge.get("process") or process
+                reconciled = sequence["reconciled"]
+                process = sequence["process"]
+                follow_up_bridge = sequence["follow_up"]
                 actions.append({"kind": "delivery", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None, "follow_up_dispatch": follow_up_bridge.get("dispatch")})
                 continue
         roadmap_state = stores["roadmap_store"].load_state(process_id)
@@ -3697,8 +4009,11 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
             "scope_credential_id": principal.credential_id,
             "owner": principal.user_id,
         }
+        supplied_metadata = dict(request.graph.metadata or {})
+        for physical_root_field in ("workspace_path", "workspace_root", "repo_root", "repo_path", "target_path", "workspace_paths"):
+            supplied_metadata.pop(physical_root_field, None)
         request.graph.metadata = {
-            **dict(request.graph.metadata or {}),
+            **supplied_metadata,
             **principal_metadata,
             "principal": dict(principal_metadata),
         }
@@ -3738,12 +4053,15 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
 async def tick_runtime(request: RuntimeTickRequest):
     """Advance the reasoning runtime and optionally execute due ready nodes."""
     stores = _runtime_delivery_stores()
-    if not bool(request.execute):
-        tick = reasoning_scheduler_tick(now_iso=request.now_iso, limit=request.limit)
-        watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
-        session_watchdog = await reconcile_runtime_watchers(RuntimeWatcherReconcileRequest(now_iso=request.now_iso))
-        return {"success": True, "tick": tick, "executed": [], "executed_count": 0, "watchdog": watchdog, "session_watchdog": session_watchdog, "session_plane": _runtime_session_plane_status(stores=stores)}
-    batch = await _execute_runtime_batch(limit=request.limit, now_iso=request.now_iso)
+    try:
+        if not bool(request.execute):
+            tick = _reasoning_scheduler_tick_fenced(now_iso=request.now_iso, limit=request.limit)
+            watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
+            session_watchdog = await reconcile_runtime_watchers(RuntimeWatcherReconcileRequest(now_iso=request.now_iso))
+            return {"success": True, "tick": tick, "executed": [], "executed_count": 0, "watchdog": watchdog, "session_watchdog": session_watchdog, "session_plane": _runtime_session_plane_status(stores=stores)}
+        batch = await _execute_runtime_batch(limit=request.limit, now_iso=request.now_iso)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
     session_watchdog = await reconcile_runtime_watchers(RuntimeWatcherReconcileRequest(now_iso=request.now_iso))
     return {"success": True, **batch, "watchdog": watchdog, "session_watchdog": session_watchdog, "session_plane": _runtime_session_plane_status(stores=stores)}
@@ -3784,23 +4102,36 @@ async def register_runtime_session(request: RuntimeSessionRegisterRequest):
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
     stores = _runtime_delivery_stores()
-    record = stores["session_registry"].register(
-        process_id=request.process_id,
-        session_id=request.session_id,
-        session_name=request.session_name,
-        tool=request.tool,
-        source=request.source,
-        stale_after_seconds=request.stale_after_seconds,
-        parent_process=request.parent_process,
-        metadata=request.metadata,
-    )
+    try:
+        with _runtime_session_mutation(
+            stores=stores,
+            process_id=request.process_id,
+            operation="runtime session registration",
+        ):
+            record = stores["session_registry"].register(
+                process_id=request.process_id,
+                session_id=request.session_id,
+                session_name=request.session_name,
+                tool=request.tool,
+                source=request.source,
+                stale_after_seconds=request.stale_after_seconds,
+                parent_process=request.parent_process,
+                metadata=request.metadata,
+            )
+            _upsert_runtime_snapshot_session_state_locked(
+                process_id=request.process_id,
+                stores=stores,
+                process=get_runtime_process(request.process_id) or process,
+            )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"success": True, "process": process, "session": model_dump_compat(record)}
 
 
 @router.get("/runtime/sessions")
 async def list_runtime_sessions(process_id: Optional[str] = None):
     stores = _runtime_delivery_stores()
-    stores["session_registry"].detect_stale()
+    _refresh_runtime_session_plane(stores=stores, process_id=process_id)
     return {"success": True, "sessions": [model_dump_compat(row) for row in stores["session_registry"].list(process_id=process_id)]}
 
 
@@ -3852,21 +4183,29 @@ async def heartbeat_runtime_session(request: RuntimeSessionHeartbeatRequest):
     process = get_runtime_process(request.process_id)
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
-    session = stores["session_registry"].heartbeat(
-        process_id=request.process_id,
-        session_id=request.session_id,
-        stale_after_seconds=request.stale_after_seconds,
-    )
-    event = normalize_session_event(
-        request.process_id,
-        "session.heartbeat",
-        tool=session.tool,
-        session_id=session.session_id,
-        session_name=session.session_name,
-        summary="heartbeat",
-        payload={"stale_after_seconds": session.stale_after_seconds},
-    )
-    result = _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores)
+    try:
+        with _runtime_session_mutation(
+            stores=stores,
+            process_id=request.process_id,
+            operation="runtime session heartbeat",
+        ):
+            session = stores["session_registry"].heartbeat(
+                process_id=request.process_id,
+                session_id=request.session_id,
+                stale_after_seconds=request.stale_after_seconds,
+            )
+            event = normalize_session_event(
+                request.process_id,
+                "session.heartbeat",
+                tool=session.tool,
+                session_id=session.session_id,
+                session_name=session.session_name,
+                summary="heartbeat",
+                payload={"stale_after_seconds": session.stale_after_seconds},
+            )
+            result = _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "success": True,
         "session": model_dump_compat(result.get("session")),
@@ -3876,31 +4215,60 @@ async def heartbeat_runtime_session(request: RuntimeSessionHeartbeatRequest):
 
 
 @router.post("/runtime/watchers/register")
-async def register_runtime_watcher(request: RuntimeWatcherRegisterRequest):
+async def register_runtime_watcher(request: RuntimeWatcherRegisterRequest, http_request: Request = None):
     stores = _runtime_delivery_stores()
     process = get_runtime_process(request.process_id)
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
-    watcher = stores["watcher_store"].register(
-        WatchRegistration(
+    try:
+        with _runtime_session_mutation(
+            stores=stores,
             process_id=request.process_id,
-            kind=request.kind,
-            target=request.target,
-            session_id=request.session_id,
-            session_name=request.session_name,
-            tool=request.tool,
-            debounce_seconds=request.debounce_seconds,
-            stale_after_seconds=request.stale_after_seconds,
-            keywords=list(request.keywords or []),
-            enabled=bool(request.enabled),
-            metadata=dict(request.metadata or {}),
-        )
-    )
-    if request.session_id:
-        try:
-            stores["session_registry"].attach_watcher(process_id=request.process_id, session_id=request.session_id, watcher_id=watcher.watch_id)
-        except KeyError:
-            pass
+            operation="runtime watcher registration",
+        ):
+            principal = getattr(getattr(http_request, "state", None), "cortex_principal", None)
+            if (
+                request.kind in {"workspace", "log-pattern", "path-state"}
+                and principal is not None
+                and getattr(principal, "role", "") == "principal"
+            ):
+                raise HTTPException(status_code=403, detail="principal-created file watchers require a server-attested workspace capability")
+            authorized_roots = _authorize_runtime_watcher_target(
+                process=get_runtime_process(request.process_id) or process,
+                kind=request.kind,
+                target=request.target,
+            )
+            watcher_metadata = dict(request.metadata or {})
+            if authorized_roots:
+                watcher_metadata["cortex_authorized_roots"] = authorized_roots
+                watcher_metadata["cortex_workspace_attested_by"] = "server"
+            watcher = stores["watcher_store"].register(
+                WatchRegistration(
+                    process_id=request.process_id,
+                    kind=request.kind,
+                    target=request.target,
+                    session_id=request.session_id,
+                    session_name=request.session_name,
+                    tool=request.tool,
+                    debounce_seconds=request.debounce_seconds,
+                    stale_after_seconds=request.stale_after_seconds,
+                    keywords=list(request.keywords or []),
+                    enabled=bool(request.enabled),
+                    metadata=watcher_metadata,
+                )
+            )
+            if request.session_id:
+                try:
+                    stores["session_registry"].attach_watcher(process_id=request.process_id, session_id=request.session_id, watcher_id=watcher.watch_id)
+                except KeyError:
+                    pass
+            _upsert_runtime_snapshot_session_state_locked(
+                process_id=request.process_id,
+                stores=stores,
+                process=get_runtime_process(request.process_id) or process,
+            )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"success": True, "watcher": model_dump_compat(watcher)}
 
 
@@ -3914,23 +4282,8 @@ async def list_runtime_watchers(process_id: Optional[str] = None):
 async def reconcile_runtime_watchers(request: RuntimeWatcherReconcileRequest = RuntimeWatcherReconcileRequest()):
     stores = _runtime_delivery_stores()
     now_dt = _parse_optional_dt(request.now_iso)
-    stores["session_registry"].detect_stale(now=now_dt)
-    emitted = stores["watcher_store"].reconcile(session_registry=stores["session_registry"], now=now_dt)
-    recorded = []
-    for event in emitted:
-        delivery = resilient_delivery_attempt(
-            "runtime_session_event_ingest",
-            lambda event=event: _record_runtime_session_event(process_id=event.process_id, event=event, stores=stores),
-            process_id=event.process_id,
-            event_kind=event.kind,
-            payload=model_dump_compat(event),
-            dlq_store=stores["delivery_dlq"],
-        )
-        recorded.append({
-            "event": model_dump_compat(event),
-            "delivery": {k: v for k, v in delivery.items() if k != "result"},
-        })
-    return {"success": True, "emitted_count": len(emitted), "emitted": recorded}
+    recorded = _refresh_runtime_session_plane(stores=stores, now=now_dt)
+    return {"success": True, "emitted_count": len(recorded), "emitted": recorded}
 
 
 @router.post("/runtime/memory/note")
@@ -4042,10 +4395,11 @@ def _runtime_delivery_handoff_claim_paths(
     recipient: str,
     request_id: str,
 ) -> tuple[Path, Path]:
-    recipient_digest = hashlib.sha256(str(recipient).encode("utf-8")).hexdigest()
     request_digest = hashlib.sha256(f"{recipient}:{request_id}".encode("utf-8")).hexdigest()
     root = Path(stores["root"]) / "handoff_claim_receipts"
-    return root / f"{request_digest}.json", root / f"{recipient_digest}.lock"
+    # Capacity enforcement and nonce creation must be atomic across every
+    # recipient, not merely across requests for one recipient.
+    return root / f"{request_digest}.json", root / ".journal.lock"
 
 
 def _runtime_delivery_handoff_claim_max_skew_seconds() -> int:
@@ -4060,7 +4414,7 @@ def _prune_runtime_delivery_handoff_claim_receipts(*, stores: Dict[str, Any]) ->
     root = Path(stores["root"]) / "handoff_claim_receipts"
     if not root.exists():
         return 0
-    now = datetime.now().timestamp()
+    now = datetime.now().astimezone()
     retention_seconds = _runtime_delivery_handoff_claim_max_skew_seconds()
     receipts = []
     for target in root.glob("*.json"):
@@ -4068,14 +4422,72 @@ def _prune_runtime_delivery_handoff_claim_receipts(*, stores: Dict[str, Any]) ->
             stat = target.stat()
         except FileNotFoundError:
             continue
-        if now - stat.st_mtime > retention_seconds:
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            expires_at = _parse_optional_dt(str((payload or {}).get("expires_at") or ""))
+        except (OSError, json.JSONDecodeError, ValueError):
+            # A malformed nonce record cannot be safely discarded or ignored;
+            # count it against bounded capacity and let readiness expose it.
+            receipts.append((stat.st_mtime, target))
+            continue
+        expired = (
+            expires_at is not None
+            and expires_at.tzinfo is not None
+            and now > expires_at.astimezone(now.tzinfo)
+        )
+        if expires_at is None:
+            expired = now.timestamp() - stat.st_mtime > retention_seconds
+        if expired:
             _unlink_fsynced(target)
             continue
         receipts.append((stat.st_mtime, target))
+    return len(receipts)
+
+
+def _consume_runtime_delivery_handoff_request(
+    *,
+    stores: Dict[str, Any],
+    receipt_path: Path,
+    recipient: str,
+    request_id: str,
+    requested_at: str,
+    request_kind: str,
+) -> Dict[str, Any]:
+    """Durably consume an authenticated nonce before mailbox inspection."""
+
+    # Freshness and replay state must be evaluated while the caller owns the
+    # global journal lock.  A request that waited behind that lock may have
+    # expired since transport authentication; never prune its old receipt and
+    # then admit it as a new nonce.
+    if receipt_path.exists():
+        raise HTTPException(status_code=409, detail=f"handoff {request_kind} request was already consumed")
+    requested = _parse_optional_dt(requested_at)
+    if requested is None or requested.tzinfo is None:
+        raise HTTPException(status_code=422, detail="requested_at must be an ISO-8601 timestamp with a timezone")
+    now = datetime.now().astimezone()
+    maximum_skew = _runtime_delivery_handoff_claim_max_skew_seconds()
+    if abs((now - requested).total_seconds()) > maximum_skew:
+        raise HTTPException(status_code=403, detail="handoff claim timestamp is outside the allowed window")
+    receipt_count = _prune_runtime_delivery_handoff_claim_receipts(stores=stores)
+    if receipt_path.exists():
+        raise HTTPException(status_code=409, detail=f"handoff {request_kind} request was already consumed")
     maximum = 4096
-    for _, target in sorted(receipts)[: max(0, len(receipts) - maximum)]:
-        _unlink_fsynced(target)
-    return min(len(receipts), maximum)
+    if receipt_count >= maximum:
+        raise HTTPException(status_code=503, detail="handoff request nonce journal is at capacity")
+    expires_at = requested + timedelta(seconds=maximum_skew)
+    consumed_at = now.isoformat(timespec="milliseconds")
+    receipt = {
+        "version": "cortex.runtime_delivery.handoff_request_receipt.v2",
+        "status": "consumed",
+        "request_kind": request_kind,
+        "recipient": recipient,
+        "request_id": request_id,
+        "requested_at": requested_at,
+        "consumed_at": consumed_at,
+        "expires_at": expires_at.isoformat(timespec="milliseconds"),
+    }
+    _write_runtime_event_receipt(receipt_path, receipt)
+    return receipt
 
 
 def _validate_runtime_delivery_handoff_claim_freshness(requested_at: str) -> None:
@@ -4308,6 +4720,7 @@ def _claim_runtime_delivery_handoffs_locked(
     process_id: str,
     expected_revision_id: str,
     request_id: str,
+    requested_at: str,
 ) -> Dict[str, Any]:
     release_state = stores["release_store"].load(process_id)
     if release_state is None:
@@ -4322,9 +4735,14 @@ def _claim_runtime_delivery_handoffs_locked(
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        _prune_runtime_delivery_handoff_claim_receipts(stores=stores)
-        if receipt_path.exists():
-            raise HTTPException(status_code=409, detail="handoff claim request was already consumed")
+        receipt = _consume_runtime_delivery_handoff_request(
+            stores=stores,
+            receipt_path=receipt_path,
+            recipient=recipient,
+            request_id=request_id,
+            requested_at=requested_at,
+            request_kind="claim",
+        )
         received = stores["mailbox"].receive(
             to_agent=recipient,
             process_id=process_id,
@@ -4365,7 +4783,7 @@ def _claim_runtime_delivery_handoffs_locked(
         }
         _write_runtime_event_receipt(
             receipt_path,
-            {"version": "cortex.runtime_delivery.handoff_claim_receipt.v1", **response},
+            {**receipt, "status": "committed", **response},
         )
         return response
 
@@ -4410,6 +4828,7 @@ async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRe
                 process_id=process_id,
                 expected_revision_id=expected_revision_id,
                 request_id=request_id,
+                requested_at=requested_at,
             )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -4438,10 +4857,6 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
     _validate_runtime_delivery_handoff_claim_freshness(requested_at)
 
     stores = _runtime_delivery_stores()
-    recovered_progress = _recover_acknowledged_release_handoffs(
-        recipient,
-        stores=stores,
-    )
     receipt_path, lock_path = _runtime_delivery_handoff_claim_paths(
         stores=stores,
         recipient=recipient,
@@ -4450,9 +4865,18 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        _prune_runtime_delivery_handoff_claim_receipts(stores=stores)
-        if receipt_path.exists():
-            raise HTTPException(status_code=409, detail="handoff discovery request was already consumed")
+        receipt = _consume_runtime_delivery_handoff_request(
+            stores=stores,
+            receipt_path=receipt_path,
+            recipient=recipient,
+            request_id=request_id,
+            requested_at=requested_at,
+            request_kind="discovery",
+        )
+        recovered_progress = _recover_acknowledged_release_handoffs(
+            recipient,
+            stores=stores,
+        )
         release_handoffs = []
         candidate_process_ids = sorted({
             message.process_id
@@ -4517,14 +4941,10 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
             "recovered_release_progress": recovered_progress,
             "messages": [model_dump_compat(message) for message in release_handoffs],
         }
-        # Empty polling is safe to repeat and must not create an unbounded
-        # durable-file stream. Persist only a response that carries work or a
-        # recovery side effect, and retain it no longer than request skew.
-        if release_handoffs or recovered_progress:
-            _write_runtime_event_receipt(
-                receipt_path,
-                {"version": "cortex.runtime_delivery.handoff_discovery_receipt.v1", **response},
-            )
+        _write_runtime_event_receipt(
+            receipt_path,
+            {**receipt, "status": "committed", **response},
+        )
     return response
 
 
@@ -4684,23 +5104,32 @@ async def get_runtime_delivery_status(process_id: str):
     }
 
 
-@router.post("/runtime/delivery/reconcile/{process_id}")
-async def reconcile_runtime_delivery(process_id: str, request: Optional[RuntimeDeliveryReconcileRequest] = None):
-    request = request or RuntimeDeliveryReconcileRequest()
-    process = get_runtime_process(process_id)
-    if not process:
-        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
-    stores = _runtime_delivery_stores()
-    if request.bootstrap_runtime_state:
-        _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
-    snapshot = stores["snapshot_store"].load(process_id)
-    shared_state = stores["shared_state_store"].load(process_id)
-    if snapshot is None or shared_state is None:
-        raise HTTPException(status_code=400, detail=f"runtime delivery state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
-    contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=request)
-    if request.initialize_release:
-        _ensure_runtime_release_state(process_id, process=process, contract=contract, stores=stores, request=request)
-    try:
+def _reconcile_runtime_delivery_sequence(
+    process_id: str,
+    *,
+    request: RuntimeDeliveryReconcileRequest,
+    stores: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Commit reconciliation, reasoning projection, and follow-up atomically."""
+
+    release_store = stores["release_store"]
+    with release_store.release_transaction(process_id):
+        release_store.assert_mutation_allowed(
+            process_id,
+            operation="runtime delivery reconciliation sequence",
+        )
+        process = get_runtime_process(process_id)
+        if not process:
+            raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+        if request.bootstrap_runtime_state:
+            _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+        snapshot = stores["snapshot_store"].load(process_id)
+        shared_state = stores["shared_state_store"].load(process_id)
+        if snapshot is None or shared_state is None:
+            raise HTTPException(status_code=400, detail=f"runtime delivery state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
+        contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=request)
+        if request.initialize_release:
+            _ensure_runtime_release_state(process_id, process=process, contract=contract, stores=stores, request=request)
         reconciled = reconcile_production_build_loop(
             contract,
             loop_store=stores["loop_store"],
@@ -4714,31 +5143,47 @@ async def reconcile_runtime_delivery(process_id: str, request: Optional[RuntimeD
             controller_session_id=request.controller_session_id or f"runtime-delivery:{process_id}",
             now=_parse_optional_dt(request.now_iso),
         )
-    except PermissionError as exc:
+        process = _sync_runtime_process_delivery_state(
+            process_id,
+            process=process,
+            stores=stores,
+            event_kind="runtime_delivery_reconciled",
+            event_payload={
+                "controller_id": request.controller_id,
+                "controller_session_id": request.controller_session_id or f"runtime-delivery:{process_id}",
+                "loop_status": reconciled["state"].get("status") if isinstance(reconciled.get("state"), dict) else None,
+                "release_stage": ((reconciled.get("release_state") or {}).get("current_stage") if isinstance(reconciled.get("release_state"), dict) else None),
+            },
+        )
+        follow_up_bridge = _bridge_runtime_delivery_follow_up(
+            process_id,
+            process=process,
+            stores=stores,
+            now=_parse_optional_dt(request.now_iso),
+        )
+        process = follow_up_bridge.get("process") or process
+        return {
+            "success": True,
+            "process_id": process_id,
+            "process": process,
+            "contract": model_dump_compat(contract),
+            **reconciled,
+            "follow_up_dispatch": follow_up_bridge.get("dispatch"),
+            "delivery": _runtime_delivery_status_payload(process_id, process=process, stores=stores),
+        }
+
+
+@router.post("/runtime/delivery/reconcile/{process_id}")
+async def reconcile_runtime_delivery(process_id: str, request: Optional[RuntimeDeliveryReconcileRequest] = None):
+    request = request or RuntimeDeliveryReconcileRequest()
+    try:
+        return _reconcile_runtime_delivery_sequence(
+            process_id,
+            request=request,
+            stores=_runtime_delivery_stores(),
+        )
+    except (PermissionError, RuntimeError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    process = _sync_runtime_process_delivery_state(
-        process_id,
-        process=process,
-        stores=stores,
-        event_kind="runtime_delivery_reconciled",
-        event_payload={
-            "controller_id": request.controller_id,
-            "controller_session_id": request.controller_session_id or f"runtime-delivery:{process_id}",
-            "loop_status": reconciled["state"].get("status") if isinstance(reconciled.get("state"), dict) else None,
-            "release_stage": ((reconciled.get("release_state") or {}).get("current_stage") if isinstance(reconciled.get("release_state"), dict) else None),
-        },
-    )
-    follow_up_bridge = _bridge_runtime_delivery_follow_up(process_id, process=process, stores=stores, now=_parse_optional_dt(request.now_iso))
-    process = follow_up_bridge.get("process") or process
-    return {
-        "success": True,
-        "process_id": process_id,
-        "process": process,
-        "contract": model_dump_compat(contract),
-        **reconciled,
-        "follow_up_dispatch": follow_up_bridge.get("dispatch"),
-        "delivery": _runtime_delivery_status_payload(process_id, process=process, stores=stores),
-    }
 
 
 @router.post("/runtime/delivery/artifacts/{process_id}")
@@ -4812,6 +5257,7 @@ async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDe
         release_store=stores["release_store"],
         journal=stores["journal"],
         session_registry=stores["session_registry"],
+        watcher_store=stores["watcher_store"],
         stage=request.stage,
         fencepost_id=request.fencepost_id,
         actor=request.actor,
@@ -5018,10 +5464,43 @@ async def get_runtime_policy_history(process_id: str):
     )
 
 
+@asynccontextmanager
+async def _runtime_policy_mutation_fence(*, process_id: str, operation: str, stores: Dict[str, Any]):
+    transaction = stores["release_store"].release_transaction(process_id, nonblocking=True)
+    transaction.__enter__()
+    try:
+        stores["release_store"].assert_mutation_allowed(process_id, operation=operation)
+        yield
+    finally:
+        transaction.__exit__(None, None, None)
+
+
+def _sync_runtime_policy_snapshot(*, process_id: str, stores: Dict[str, Any]) -> None:
+    with (
+        stores["shared_state_store"].transaction(process_id),
+        stores["snapshot_store"].transaction(process_id),
+    ):
+        snapshot = stores["snapshot_store"].load(process_id)
+        process = get_runtime_process(process_id)
+        if snapshot is None or process is None:
+            return
+        workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+        settings = dict(((metadata.get("policy") or {}).get("settings") or {}))
+        if settings == dict(snapshot.runtime_policy or {}):
+            return
+        stores["snapshot_store"].save(
+            snapshot.model_copy(update={"runtime_policy": settings}),
+            expected_persistence_revision=snapshot.persistence_revision,
+        )
+
+
 @router.post("/runtime/policy-rollback/{process_id}/{revision_id}")
 async def rollback_runtime_policy_patch(process_id: str, revision_id: str, req: Optional[RuntimePolicyRollbackRequest] = None):
     req = req or RuntimePolicyRollbackRequest()
-    return await runtime_service.rollback_runtime_policy_patch(
+    stores = _runtime_delivery_stores()
+    async with _runtime_policy_mutation_fence(process_id=process_id, operation="runtime policy rollback", stores=stores):
+        result = await runtime_service.rollback_runtime_policy_patch(
         process_id,
         revision_id,
         get_runtime_process_fn=get_runtime_process,
@@ -5039,13 +5518,18 @@ async def rollback_runtime_policy_patch(process_id: str, revision_id: str, req: 
         allow_intervening_revisions=bool(req.allow_intervening_revisions),
         load_workflow_fn=_load_workflow,
         persist_workflow_fn=_persist_workflow,
-    )
+        )
+        if not req.dry_run:
+            _sync_runtime_policy_snapshot(process_id=process_id, stores=stores)
+        return result
 
 
 @router.post("/runtime/policy-apply/{process_id}")
 async def apply_runtime_policy_patch(process_id: str, req: Optional[RuntimePolicyApplyRequest] = None):
     req = req or RuntimePolicyApplyRequest()
-    return await runtime_service.apply_runtime_policy_patch(
+    stores = _runtime_delivery_stores()
+    async with _runtime_policy_mutation_fence(process_id=process_id, operation="runtime policy apply", stores=stores):
+        result = await runtime_service.apply_runtime_policy_patch(
         process_id,
         get_runtime_process_fn=get_runtime_process,
         explain_runtime_process_fn=explain_runtime_process,
@@ -5062,13 +5546,18 @@ async def apply_runtime_policy_patch(process_id: str, req: Optional[RuntimePolic
         allow_confirmation_required=bool(req.allow_confirmation_required),
         load_workflow_fn=_load_workflow,
         persist_workflow_fn=_persist_workflow,
-    )
+        )
+        if not req.dry_run:
+            _sync_runtime_policy_snapshot(process_id=process_id, stores=stores)
+        return result
 
 
 @router.post("/runtime/homeostasis/freeze/{process_id}")
 async def freeze_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeostasisControlRequest] = None):
     req = req or RuntimeHomeostasisControlRequest()
-    return await runtime_service.runtime_homeostasis_freeze_control(
+    stores = _runtime_delivery_stores()
+    async with _runtime_policy_mutation_fence(process_id=process_id, operation="runtime homeostasis freeze", stores=stores):
+        result = await runtime_service.runtime_homeostasis_freeze_control(
         process_id,
         get_runtime_process_fn=get_runtime_process,
         explain_runtime_process_fn=explain_runtime_process,
@@ -5087,13 +5576,18 @@ async def freeze_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeo
         dry_run=bool(req.dry_run),
         load_workflow_fn=_load_workflow,
         persist_workflow_fn=_persist_workflow,
-    )
+        )
+        if not req.dry_run:
+            _sync_runtime_policy_snapshot(process_id=process_id, stores=stores)
+        return result
 
 
 @router.post("/runtime/homeostasis/rollback/{process_id}")
 async def rollback_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeostasisControlRequest] = None):
     req = req or RuntimeHomeostasisControlRequest()
-    return await runtime_service.runtime_homeostasis_rollback_control(
+    stores = _runtime_delivery_stores()
+    async with _runtime_policy_mutation_fence(process_id=process_id, operation="runtime homeostasis rollback", stores=stores):
+        result = await runtime_service.runtime_homeostasis_rollback_control(
         process_id,
         get_runtime_process_fn=get_runtime_process,
         get_runtime_events_fn=get_runtime_events,
@@ -5113,13 +5607,18 @@ async def rollback_runtime_homeostasis(process_id: str, req: Optional[RuntimeHom
         allow_intervening_revisions=bool(req.allow_intervening_revisions),
         load_workflow_fn=_load_workflow,
         persist_workflow_fn=_persist_workflow,
-    )
+        )
+        if not req.dry_run:
+            _sync_runtime_policy_snapshot(process_id=process_id, stores=stores)
+        return result
 
 
 @router.post("/runtime/homeostasis/resume/{process_id}")
 async def resume_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeostasisControlRequest] = None):
     req = req or RuntimeHomeostasisControlRequest()
-    return runtime_service.runtime_homeostasis_resume_control(
+    stores = _runtime_delivery_stores()
+    async with _runtime_policy_mutation_fence(process_id=process_id, operation="runtime homeostasis resume", stores=stores):
+        result = runtime_service.runtime_homeostasis_resume_control(
         process_id,
         get_runtime_process_fn=get_runtime_process,
         resume_process_fn=resume_runtime_process,
@@ -5127,7 +5626,9 @@ async def resume_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeo
         actor_id=req.actor_id,
         actor_session_key=req.actor_session_key,
         reason=req.reason,
-    )
+        )
+        _sync_runtime_policy_snapshot(process_id=process_id, stores=stores)
+        return result
 
 @router.get("/runtime/incident-trends")
 async def get_runtime_incident_trends(hours: Optional[float] = None):

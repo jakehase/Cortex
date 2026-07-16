@@ -1768,14 +1768,10 @@ def _claim_controller(
     now: Optional[datetime] = None,
 ) -> JsonDict:
     scope = f"{contract.controller_scope}:{contract.process_id}"
-    current_time = _now(now)
-    supervisor.reclaim_stale(now=current_time)
+    supervisor.reclaim_stale(process_id=contract.process_id)
 
     stale_scope_leases = [row for row in supervisor.list(process_id=contract.process_id, status="stale") if row.scope == scope]
     actions: List[JsonDict] = []
-    for row in stale_scope_leases:
-        resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "controller_takeover"})
-        actions.append({"action": "release_stale_controller", "lease_id": resolved.lease_id})
 
     active_scope_leases = [row for row in supervisor.list(process_id=contract.process_id, status="active") if row.scope == scope]
     lease: Optional[AgentLease] = None
@@ -1800,18 +1796,36 @@ def _claim_controller(
             }
         )
     elif lease is None:
-        lease = supervisor.assign(
-            process_id=contract.process_id,
-            scope=scope,
-            agent_id=controller_id,
-            lease_seconds=contract.controller_lease_seconds,
-            metadata={
+        lease_metadata = {
                 "session_id": controller_session_id,
                 "objective_id": contract.objective_id,
                 "objective": contract.objective,
-            },
-        )
-        actions.append({"action": "claim_controller", "lease_id": lease.lease_id})
+        }
+        if stale_scope_leases:
+            stale, lease = supervisor.takeover_stale(
+                stale_scope_leases[0].lease_id,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append(
+                {
+                    "action": "fenced_controller_takeover",
+                    "lease_id": lease.lease_id,
+                    "generation": lease.generation,
+                    "superseded_lease_id": stale.lease_id,
+                }
+            )
+            recovery = True
+        else:
+            lease = supervisor.assign(
+                process_id=contract.process_id,
+                scope=scope,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append({"action": "claim_controller", "lease_id": lease.lease_id, "generation": lease.generation})
         previous_session = str(previous_state.controller.session_id if previous_state and previous_state.controller else "").strip()
         if previous_session and previous_session != controller_session_id:
             recovery = True
@@ -2046,8 +2060,7 @@ def _dispatch_ready_tasks(
     budget: Optional[RoadmapPassBudget] = None,
     now: Optional[datetime] = None,
 ) -> JsonDict:
-    current_time = _now(now)
-    supervisor.reclaim_stale(now=current_time)
+    supervisor.reclaim_stale(process_id=contract.process_id)
 
     phase_state_map = _phase_status_map(state)
     task_state_map = _task_status_map(state)
@@ -2073,11 +2086,6 @@ def _dispatch_ready_tasks(
         agent_id = _select_task_agent(task, contract=contract, snapshot=snapshot, shared_state=shared_state, controller_id=controller_id)
         scope = str((task.metadata or {}).get("lease_scope") or _task_scope(task.task_id)).strip() or _task_scope(task.task_id)
         stale_leases = [row for row in supervisor.list(process_id=contract.process_id, status="stale") if row.scope == scope]
-        for row in stale_leases:
-            supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "roadmap_task_takeover", "task_id": task.task_id})
-            actions_taken.append({"action": "release_stale_task_lease", "lease_id": row.lease_id, "task_id": task.task_id})
-            recovery = True
-
         active_leases = [row for row in supervisor.list(process_id=contract.process_id, status="active") if row.scope == scope]
         lease: Optional[AgentLease] = None
         if active_leases:
@@ -2086,21 +2094,32 @@ def _dispatch_ready_tasks(
                 lease = supervisor.heartbeat(lease.lease_id, lease_seconds=contract.worker_lease_seconds)
                 actions_taken.append({"action": "heartbeat_task_lease", "lease_id": lease.lease_id, "task_id": task.task_id, "agent_id": agent_id})
             else:
-                supervisor.resolve(lease.lease_id, status="released", metadata={"resolution": "roadmap_task_reassigned", "task_id": task.task_id})
-                recovery = True
-                actions_taken.append({"action": "reassign_task_lease", "lease_id": lease.lease_id, "task_id": task.task_id, "from_agent": lease.agent_id, "to_agent": agent_id})
-                lease = None
+                active_task_ids.append(task.task_id)
+                actions_taken.append({"action": "task_lease_owner_held", "lease_id": lease.lease_id, "task_id": task.task_id, "owner": lease.agent_id, "requested_agent": agent_id})
+                continue
 
         if lease is None:
+            lease_metadata = {"objective_id": contract.objective_id, "task_id": task.task_id, "work_type": task.work_type}
+            if stale_leases:
+                active_task_ids.append(task.task_id)
+                actions_taken.append(
+                    {
+                        "action": "task_requires_fenced_takeover",
+                        "task_id": task.task_id,
+                        "lease_ids": [row.lease_id for row in stale_leases],
+                        "blocking": True,
+                    }
+                )
+                continue
             lease = supervisor.assign(
                 process_id=contract.process_id,
                 scope=scope,
                 agent_id=agent_id,
                 lease_seconds=contract.worker_lease_seconds,
-                metadata={"objective_id": contract.objective_id, "task_id": task.task_id, "work_type": task.work_type},
+                metadata=lease_metadata,
             )
             task_state.attempt_count = int(task_state.attempt_count or 0) + 1
-            actions_taken.append({"action": "assign_task_lease", "lease_id": lease.lease_id, "task_id": task.task_id, "agent_id": agent_id})
+            actions_taken.append({"action": "assign_task_lease", "lease_id": lease.lease_id, "generation": lease.generation, "task_id": task.task_id, "agent_id": agent_id})
             if task_state.started_at is not None:
                 recovery = True
 
@@ -2119,8 +2138,18 @@ def _dispatch_ready_tasks(
                 "summary": task.summary,
                 "work_type": task.work_type,
                 "success_criteria": list(task.success_criteria or []),
+                "lease_id": lease.lease_id,
+                "lease_generation": lease.generation,
             },
-            metadata={"objective_id": contract.objective_id, "task_id": task.task_id, "phase_id": task.phase_id, "work_type": task.work_type},
+            metadata={
+                "objective_id": contract.objective_id,
+                "task_id": task.task_id,
+                "phase_id": task.phase_id,
+                "work_type": task.work_type,
+                "lease_id": lease.lease_id,
+                "lease_generation": lease.generation,
+                "lease_scope": lease.scope,
+            },
         )
         actions_taken.append({"action": "dispatch_task_handoff", "message_id": handoff.message_id, "task_id": task.task_id, "agent_id": agent_id})
         accepted = mailbox.receive(

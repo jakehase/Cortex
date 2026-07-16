@@ -35,6 +35,7 @@ from cortex_server.runtime.release_workflow import (
     record_release_fencepost,
     record_release_handoff,
     repair_release_workflow,
+    verify_release_artifact_receipt,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
 
@@ -256,6 +257,213 @@ def runtime_delivery_artifact_fetch_signature(
     return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
 
 
+def _probe_runtime_delivery_state_consistency(
+    *,
+    delivery_root: Path,
+    reasoning_processes: Dict[str, Dict[str, Any]],
+    verifier_credentials: Dict[str, str],
+) -> JsonDict:
+    """Validate every release-owned projection from one fail-closed view."""
+
+    release_root = delivery_root / "release_workflow"
+    release_store = ReleaseWorkflowStore(release_root)
+    snapshot_store = ProcessSnapshotStore(delivery_root / "snapshots")
+    shared_state_store = SharedProcessStateStore(delivery_root / "shared_state")
+    loop_store = ProductionBuildLoopStore(delivery_root / "production_build_loop")
+    pending: List[str] = []
+    errors: List[JsonDict] = []
+
+    from cortex_server.runtime.watchers import WatcherRuntimeStore
+
+    invalid_watcher_ids = WatcherRuntimeStore(delivery_root / "watchers.json").invalid_file_watcher_ids()
+    if invalid_watcher_ids:
+        errors.append(
+            {
+                "process_id": None,
+                "check": "watcher_workspace_attestation",
+                "error": "unattested file watchers require safe migration: " + ", ".join(sorted(invalid_watcher_ids)),
+            }
+        )
+
+    for intent_path in sorted(release_root.glob(".*.json.rollback-intent.json")):
+        try:
+            intent = json.loads(intent_path.read_text(encoding="utf-8"))
+            if not isinstance(intent, dict):
+                raise ValueError("rollback intent must be an object")
+            process_id = str(intent.get("process_id") or "").strip()
+            if not process_id:
+                raise ValueError("rollback intent process_id is missing")
+            if intent.get("status") in {"in_progress", "recovery_required"}:
+                pending.append(process_id)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(
+                {
+                    "process_id": None,
+                    "check": "rollback_intent_integrity",
+                    "error": f"{intent_path.name}: {type(exc).__name__}: {exc}",
+                }
+            )
+
+    state_paths = [
+        path
+        for path in sorted(release_root.glob("*.json"))
+        if not path.name.startswith(".")
+    ]
+    for state_path in state_paths:
+        process_id = state_path.stem
+        try:
+            with release_store.release_transaction(process_id):
+                intent = release_store.load_rollback_intent(process_id)
+                if intent and intent.get("status") in {"in_progress", "recovery_required"}:
+                    raise RuntimeError("rollback intent requires recovery")
+                state = release_store.load(process_id)
+                if state is None:
+                    raise ValueError("release workflow is missing")
+                process_id = state.process_id
+                snapshot = snapshot_store.load(process_id)
+                shared_state = shared_state_store.load(process_id)
+                loop_state = loop_store.load_state(process_id)
+                process = reasoning_processes.get(process_id)
+                missing = [
+                    name
+                    for name, value in (
+                        ("snapshot", snapshot),
+                        ("shared_state", shared_state),
+                        ("production_loop", loop_state),
+                        ("reasoning_process", process),
+                    )
+                    if value is None
+                ]
+                if missing:
+                    raise ValueError("missing authoritative projections: " + ", ".join(missing))
+                assert snapshot is not None and shared_state is not None and loop_state is not None and process is not None
+
+                mismatches: List[str] = []
+                if state.revision_id != shared_state.revision_id:
+                    mismatches.append("release.revision_id != shared_state.revision_id")
+                if loop_state.current_revision_id != shared_state.revision_id:
+                    mismatches.append("loop.current_revision_id != shared_state.revision_id")
+                if loop_state.current_snapshot_id != snapshot.snapshot_id:
+                    mismatches.append("loop.current_snapshot_id != snapshot.snapshot_id")
+                if loop_state.current_stage != state.current_stage:
+                    mismatches.append("loop.current_stage != release.current_stage")
+
+                workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+                metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+                projection = metadata.get("runtime_delivery") if isinstance(metadata.get("runtime_delivery"), dict) else {}
+                expected_projection = {
+                    "release_id": state.release_id,
+                    "release_stage": state.current_stage,
+                    "release_status": state.status,
+                    "shared_state_revision_id": shared_state.revision_id,
+                    "snapshot_id": snapshot.snapshot_id,
+                    "loop_id": loop_state.loop_id,
+                    "loop_status": loop_state.status,
+                    "loop_iteration": loop_state.iteration_count,
+                    "loop_persistence_revision": loop_state.persistence_revision,
+                    "release_persistence_revision": state.persistence_revision,
+                    "snapshot_persistence_revision": snapshot.persistence_revision,
+                }
+                for field, expected in expected_projection.items():
+                    if projection.get(field) != expected:
+                        mismatches.append(f"runtime_delivery.{field} is stale")
+                if metadata.get("release_stage") != state.current_stage:
+                    mismatches.append("workflow.release_stage is stale")
+                if metadata.get("release_status") != state.status:
+                    mismatches.append("workflow.release_status is stale")
+                if metadata.get("delivery_revision_id") != shared_state.revision_id:
+                    mismatches.append("workflow.delivery_revision_id is stale")
+                workflow_policy = dict(((metadata.get("policy") or {}).get("settings") or {}))
+                if workflow_policy != dict(snapshot.runtime_policy or {}):
+                    mismatches.append("workflow policy differs from snapshot.runtime_policy")
+
+                nodes = process.get("nodes") if isinstance(process.get("nodes"), dict) else {}
+                expected_node_statuses = {
+                    **{node_id: "running" for node_id in snapshot.active_steps},
+                    **{node_id: "waiting" for node_id in snapshot.waiting_steps},
+                    **{node_id: "completed" for node_id in snapshot.completed_steps},
+                    **{node_id: "failed" for node_id in snapshot.failed_steps},
+                }
+                for node_id, expected_status in expected_node_statuses.items():
+                    observed_status = str((nodes.get(node_id) or {}).get("status") or "")
+                    if observed_status != expected_status:
+                        mismatches.append(f"reasoning node {node_id} is {observed_status or 'missing'}, expected {expected_status}")
+
+                rollback_transaction_id = str((state.metadata or {}).get("rollback_transaction_id") or "").strip()
+                if rollback_transaction_id:
+                    if str((loop_state.metadata or {}).get("last_rollback_transaction_id") or "") != rollback_transaction_id:
+                        mismatches.append("loop rollback transaction marker is stale")
+                    if str(metadata.get("last_runtime_delivery_rollback_transaction_id") or "") != rollback_transaction_id:
+                        mismatches.append("reasoning rollback transaction marker is stale")
+
+                artifact_store = release_store.artifact_store()
+                active_receipts: Dict[str, ReleaseArtifactReceipt] = {}
+                for raw_receipt in state.metadata.get("release_artifacts") or []:
+                    receipt = ReleaseArtifactReceipt.model_validate(raw_receipt)
+                    verify_release_artifact_receipt(
+                        receipt,
+                        artifact_store=artifact_store,
+                        verifier_credentials=verifier_credentials,
+                    )
+                    if receipt.release_id == state.release_id and receipt.revision_id == state.revision_id:
+                        if receipt.candidate_ref != state.candidate_ref or receipt.validation_outcome != "passed":
+                            mismatches.append(f"active artifact {receipt.artifact_id} has invalid release binding")
+                        else:
+                            active_receipts[receipt.artifact_id] = receipt
+
+                # Draft releases have not crossed an evidence gate yet. Every
+                # promoted stage must retain the immutable, revision-bound
+                # evidence that made that stage admissible. Older valid
+                # receipts remain audit history and are integrity-checked
+                # above, but do not satisfy the active revision's gate.
+                contract = loop_store.load_contract(process_id)
+                if state.current_stage != "draft":
+                    if contract is None:
+                        mismatches.append("production contract is missing")
+                    else:
+                        required_artifacts = _stage_gate_for(contract, state.current_stage).required_artifacts
+                        for artifact_id in required_artifacts:
+                            receipt = active_receipts.get(artifact_id)
+                            if receipt is None:
+                                mismatches.append(f"required active artifact {artifact_id} is missing")
+                            elif (
+                                artifact_id.startswith("artifact_release_bundle:")
+                                and receipt.artifact_kind != "release_bundle"
+                            ) or (
+                                artifact_id.startswith("artifact_smoke_report:")
+                                and receipt.artifact_kind != "smoke_report"
+                            ):
+                                mismatches.append(f"required active artifact {artifact_id} has the wrong kind")
+
+                if mismatches:
+                    raise ValueError("; ".join(mismatches))
+        except (OSError, RuntimeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+            errors.append(
+                {
+                    "process_id": process_id,
+                    "check": "release_projection_consistency",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    pending = sorted(set(pending))
+    for process_id in pending:
+        errors.append(
+            {
+                "process_id": process_id,
+                "check": "rollback_recovery_pending",
+                "error": "rollback intent is in_progress or recovery_required",
+            }
+        )
+    return {
+        "ok": not errors,
+        "releaseCount": len(state_paths),
+        "pendingRollbackProcessIds": pending,
+        "inconsistencies": errors,
+        "error": None if not errors else "runtime delivery projections require recovery",
+    }
+
+
 def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
     """Fail closed unless release credentials and the durable delivery mount are usable."""
 
@@ -398,6 +606,7 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         reasoning_error: Optional[str] = None
         quick_check: Optional[str] = None
         missing_process_ids: List[str] = []
+        reasoning_processes: Dict[str, Dict[str, Any]] = {}
         try:
             if not reasoning_path.is_absolute():
                 raise RuntimeError("reasoning store path must be absolute")
@@ -421,13 +630,18 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
             with sqlite3.connect(f"file:{reasoning_path}?mode=ro", uri=True, timeout=2.0) as connection:
                 row = connection.execute("PRAGMA quick_check").fetchone()
                 process_rows = connection.execute(
-                    "SELECT doc_id FROM reasoning_documents WHERE namespace = ?",
+                    "SELECT doc_id, payload FROM reasoning_documents WHERE namespace = ?",
                     ("reasoning_processes",),
                 ).fetchall()
             quick_check = str(row[0] if row else "")
             if quick_check != "ok":
                 raise RuntimeError(f"reasoning store quick_check failed: {quick_check}")
             process_ids = {str(row[0]) for row in process_rows}
+            for row in process_rows:
+                payload = json.loads(str(row[1]))
+                if not isinstance(payload, dict):
+                    raise RuntimeError(f"reasoning process {row[0]} payload is invalid")
+                reasoning_processes[str(row[0])] = payload
             missing_process_ids = sorted(persisted_release_ids - process_ids)
             if missing_process_ids:
                 raise RuntimeError(
@@ -445,6 +659,20 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
             "missingProcessIds": missing_process_ids,
             "error": reasoning_error,
         }
+        try:
+            checks["runtimeDeliveryConsistency"] = _probe_runtime_delivery_state_consistency(
+                delivery_root=delivery_root,
+                reasoning_processes=reasoning_processes,
+                verifier_credentials=verifier_credentials,
+            )
+        except (OSError, RuntimeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+            checks["runtimeDeliveryConsistency"] = {
+                "ok": False,
+                "releaseCount": 0,
+                "pendingRollbackProcessIds": [],
+                "inconsistencies": [],
+                "error": f"{type(exc).__name__}: {exc}",
+            }
 
     ready = all(check["ok"] for check in checks.values())
     return {
@@ -1021,6 +1249,14 @@ def _report_dump(model: ProductionBuildLoopReport) -> Dict[str, Any]:
 
 def _now(now: Optional[datetime] = None) -> datetime:
     return now or datetime.now(timezone.utc)
+
+
+def _promotion_lease_margin_seconds() -> float:
+    try:
+        configured = float(os.getenv("CORTEX_PROMOTION_LEASE_MIN_REMAINING_SECONDS", "1"))
+    except ValueError:
+        configured = 1.0
+    return min(max(configured, 1.0), 60.0)
 
 
 
@@ -1866,8 +2102,7 @@ def _claim_controller(
     now: Optional[datetime] = None,
 ) -> JsonDict:
     scope = f"{contract.controller_scope}:{contract.process_id}"
-    current_time = _now(now)
-    supervisor.reclaim_stale(now=current_time)
+    supervisor.reclaim_stale(process_id=contract.process_id)
 
     stale_scope_leases = [
         row
@@ -1875,9 +2110,6 @@ def _claim_controller(
         if row.scope == scope
     ]
     actions: List[JsonDict] = []
-    for row in stale_scope_leases:
-        resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "controller_takeover"})
-        actions.append({"action": "release_stale_controller", "lease_id": resolved.lease_id})
 
     active_scope_leases = [
         row
@@ -1906,18 +2138,36 @@ def _claim_controller(
             }
         )
     elif lease is None:
-        lease = supervisor.assign(
-            process_id=contract.process_id,
-            scope=scope,
-            agent_id=controller_id,
-            lease_seconds=contract.controller_lease_seconds,
-            metadata={
+        lease_metadata = {
                 "session_id": controller_session_id,
                 "contract_id": contract.contract_id,
                 "objective": contract.objective,
-            },
-        )
-        actions.append({"action": "claim_controller", "lease_id": lease.lease_id})
+        }
+        if stale_scope_leases:
+            stale, lease = supervisor.takeover_stale(
+                stale_scope_leases[0].lease_id,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append(
+                {
+                    "action": "fenced_controller_takeover",
+                    "lease_id": lease.lease_id,
+                    "generation": lease.generation,
+                    "superseded_lease_id": stale.lease_id,
+                }
+            )
+            recovery = True
+        else:
+            lease = supervisor.assign(
+                process_id=contract.process_id,
+                scope=scope,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append({"action": "claim_controller", "lease_id": lease.lease_id, "generation": lease.generation})
         previous_session = str(previous_state.controller.session_id if previous_state and previous_state.controller else "").strip()
         if previous_session and previous_session != controller_session_id:
             recovery = True
@@ -1969,22 +2219,23 @@ def repair_production_dependability(
             "success": True,
         }
 
-    current_time = _now(now)
     plan = compile_dependability_repair_plan(before)
     shared_state = shared_state_store.load(contract.process_id)
     current_revision_id = shared_state.revision_id if shared_state else None
 
-    reclaimed = supervisor.reclaim_stale(now=current_time)
+    reclaimed = supervisor.reclaim_stale(process_id=contract.process_id)
     if reclaimed:
         actions_taken.append({"action": "reclaim_stale", "lease_ids": [row.lease_id for row in reclaimed if row.process_id == contract.process_id]})
 
     stale_leases = supervisor.list(process_id=contract.process_id, status="stale")
     if stale_leases:
-        resolved_ids: List[str] = []
-        for row in stale_leases:
-            resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "production_dependability_repair"})
-            resolved_ids.append(resolved.lease_id)
-        actions_taken.append({"action": "resolve_stale_leases", "lease_ids": resolved_ids})
+        actions_taken.append(
+            {
+                "action": "stale_leases_require_fenced_takeover",
+                "lease_ids": [row.lease_id for row in stale_leases],
+                "blocking": True,
+            }
+        )
 
     dead_letters = mailbox.list(process_id=contract.process_id, delivery_statuses=["dead_letter"])
     recovered_ids: List[str] = []
@@ -2094,7 +2345,24 @@ def recover_production_worker(
         for row in supervisor.list(process_id=contract.process_id, status="active")
         if row.scope == node_id
     ]
+    stale_scope_leases = [
+        row
+        for row in supervisor.list(process_id=contract.process_id, status="stale")
+        if row.scope == node_id
+    ]
     if not active_scope_leases:
+        if stale_scope_leases:
+            return {
+                "recovered": False,
+                "actions_taken": [
+                    {
+                        "action": "worker_requires_fenced_takeover",
+                        "node_id": node_id,
+                        "lease_ids": [row.lease_id for row in stale_scope_leases],
+                        "blocking": True,
+                    }
+                ],
+            }
         lease = supervisor.assign(
             process_id=contract.process_id,
             scope=node_id,
@@ -2117,17 +2385,15 @@ def recover_production_worker(
             "objective": contract.objective,
             "node_id": node_id,
             "loop_scope": contract.controller_scope,
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
+        },
+        metadata={
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
+            "lease_scope": lease.scope,
         },
     )
-    accepted = mailbox.receive(
-        to_agent=agent_id,
-        process_id=contract.process_id,
-        include_inflight=True,
-        expected_revision_id=shared_state.revision_id,
-        reject_stale_revision=True,
-    )
-    if any(row.message_id == handoff.message_id for row in accepted):
-        mailbox.acknowledge(handoff.message_id, actor=agent_id)
     actions_taken.append({"action": "dispatch_resume_handoff", "message_id": handoff.message_id, "agent_id": agent_id})
 
     if snapshot.lifecycle_state in {"waiting", "blocked", "created", "rolled_back"}:
@@ -2433,12 +2699,17 @@ def _maybe_dispatch_release_handoff(
                 and str(row.get("release_id") or "") == release_state.release_id
                 and str(row.get("revision_id") or "") == release_state.revision_id
             ],
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
         },
         metadata={
             "release_id": release_state.release_id,
             "candidate_ref": release_state.candidate_ref,
             "transition": f"{release_state.current_stage}->{next_stage}",
             "target_stage": next_stage,
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
+            "lease_scope": lease.scope,
         },
     )
     release_state = record_release_handoff(release_state, message, stage=next_stage, notes="auto-dispatched by production build loop")
@@ -2532,7 +2803,7 @@ def advance_production_release_loop(
             + list(shared_state.agent_ownership.values())
         )
         observed_mailbox = mailbox.list(process_id=contract.process_id)
-        observed_lease_revision, observed_leases = supervisor.list_with_revision()
+        _, observed_leases = supervisor.list_with_revision()
         observed_mailbox_digest = _persistence_rows_digest(observed_mailbox)
         gate = evaluate_release_promotion_gate(
             state=release_state,
@@ -2588,7 +2859,7 @@ def advance_production_release_loop(
             # The repair path can mutate leases and mailbox state. Re-evaluate
             # against a fresh, revision-bound view before promotion.
             observed_mailbox = mailbox.list(process_id=contract.process_id)
-            observed_lease_revision, observed_leases = supervisor.list_with_revision()
+            _, observed_leases = supervisor.list_with_revision()
             observed_mailbox_digest = _persistence_rows_digest(observed_mailbox)
             last_gate = evaluate_release_promotion_gate(
                 state=release_state,
@@ -2636,53 +2907,93 @@ def advance_production_release_loop(
             )
 
         release_store.assert_mutation_allowed(contract.process_id, operation="release promotion")
-        authoritative_release = release_store.load(contract.process_id)
-        authoritative_snapshot = snapshot_store.load(contract.process_id)
-        authoritative_shared = shared_state_store.load(contract.process_id)
-        current_mailbox_digest = _persistence_rows_digest(mailbox.list(process_id=contract.process_id))
-        stale_gate_inputs = bool(
-            authoritative_release is None
-            or authoritative_release.persistence_revision != release_state.persistence_revision
-            or authoritative_snapshot is None
-            or authoritative_snapshot.persistence_revision != snapshot.persistence_revision
-            or authoritative_shared is None
-            or authoritative_shared.revision_id != shared_state.revision_id
-            or supervisor.revision() != observed_lease_revision
-            or current_mailbox_digest != observed_mailbox_digest
-        )
-        if stale_gate_inputs:
-            actions_taken.append({"action": "abort_stale_promotion_inputs", "target_stage": next_stage})
-            break
-        promoted = advance_release_workflow(
-            release_state,
-            gate=last_gate,
-            next_stage=next_stage,
-            actor=controller_id,
-        )
-        if not promoted.get("promoted"):
-            break
-        release_state = release_store.save(
-            promoted["state"],
-            actor=controller_id,
-            provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
-        )
-        approved_recipients = {
-            str(row.get("to_agent") or "").strip()
+        approved_handoffs = [
+            row
             for row in release_state.handoff_records
             if str(row.get("stage") or "").strip() == next_stage
             and str(row.get("delivery_status") or "").strip() == "acked"
-        }
+        ]
         handoff_scope = str(handoff_config.get("scope") or f"release:{next_stage}").strip()
-        for lease in supervisor.list(process_id=contract.process_id, status="active"):
-            if lease.agent_id in approved_recipients and lease.scope == handoff_scope:
-                supervisor.resolve(
-                    lease.lease_id,
-                    status="released",
+        for handoff_row in approved_handoffs:
+            lease_id = str(handoff_row.get("lease_id") or "").strip()
+            generation = handoff_row.get("lease_generation")
+            if not lease_id or generation is None or str(handoff_row.get("lease_scope") or "").strip() != handoff_scope:
+                continue
+            try:
+                lease = supervisor.complete_active_generation(
+                    lease_id,
+                    generation=int(generation),
                     metadata={"resolution": "release_approval_recorded", "stage": next_stage},
                 )
+            except (KeyError, RuntimeError, ValueError) as exc:
                 actions_taken.append(
-                    {"action": "release_approval_scope", "lease_id": lease.lease_id, "stage": next_stage}
+                    {"action": "reject_stale_approval_generation", "lease_id": lease_id, "stage": next_stage, "reason": str(exc)}
                 )
+                continue
+            actions_taken.append(
+                {"action": "release_approval_scope", "lease_id": lease.lease_id, "stage": next_stage}
+            )
+        with supervisor.promotion_snapshot(
+            process_id=contract.process_id,
+            minimum_remaining_seconds=_promotion_lease_margin_seconds(),
+        ) as (_, commit_leases):
+            authoritative_release = release_store.load(contract.process_id)
+            authoritative_snapshot = snapshot_store.load(contract.process_id)
+            authoritative_shared = shared_state_store.load(contract.process_id)
+            current_mailbox = mailbox.list(process_id=contract.process_id)
+            current_mailbox_digest = _persistence_rows_digest(current_mailbox)
+            stale_gate_inputs = bool(
+                authoritative_release is None
+                or authoritative_release.persistence_revision != release_state.persistence_revision
+                or authoritative_snapshot is None
+                or authoritative_snapshot.persistence_revision != snapshot.persistence_revision
+                or authoritative_shared is None
+                or authoritative_shared.revision_id != shared_state.revision_id
+                or current_mailbox_digest != observed_mailbox_digest
+            )
+            if stale_gate_inputs:
+                actions_taken.append({"action": "abort_stale_promotion_inputs", "target_stage": next_stage})
+                break
+            controller_scope = f"{contract.controller_scope}:{contract.process_id}"
+            gate_commit_leases = [row for row in commit_leases if row.scope != controller_scope]
+            if any(row.status == "active" for row in gate_commit_leases):
+                actions_taken.append({"action": "abort_active_commit_leases", "target_stage": next_stage})
+                break
+            last_gate = evaluate_release_promotion_gate(
+                state=authoritative_release,
+                snapshot=authoritative_snapshot,
+                shared_state=authoritative_shared,
+                target_stage=next_stage,
+                mailbox_messages=current_mailbox,
+                leases=gate_commit_leases,
+                dependability_report=dependability_report,
+                required_fencepost_stages=list(gate_spec.required_fencepost_stages),
+                required_artifacts=list(gate_spec.required_artifacts),
+                required_handoff_count=int(gate_spec.required_handoff_count or 0),
+                allowed_active_agents=allowed_active_agents,
+                allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
+                require_dependability=bool(gate_spec.require_dependability),
+                artifact_store=artifact_store,
+            )
+            if not bool(last_gate.get("safe_push")):
+                actions_taken.append({"action": "abort_unhealthy_commit_leases", "target_stage": next_stage})
+                break
+            promoted = advance_release_workflow(
+                authoritative_release,
+                gate=last_gate,
+                next_stage=next_stage,
+                actor=controller_id,
+            )
+            if not promoted.get("promoted"):
+                break
+            # The supervisor read lock remains held through this durable save;
+            # no heartbeat, reclaim, release, or assignment can invalidate the
+            # commit-time lease evidence until promotion is committed.
+            release_state = release_store.save(
+                promoted["state"],
+                actor=controller_id,
+                provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
+            )
         release_fencepost = capture_release_rollback_fencepost(
             snapshot=snapshot,
             shared_state=shared_state,

@@ -158,7 +158,16 @@ class RuntimeSoakHarness:
         self.release_store = ReleaseWorkflowStore(self.root / "release_state")
         self.journal = ProcessJournal(self.root / "runtime" / "processes.jsonl")
         self.mailbox = AgentMailbox(self.root / "runtime" / "mailbox.json")
-        self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json")
+        self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json", clock_fn=self.clock_fn)
+
+    def _reclaim_stale_at(self, process_id: str, observed_at: datetime) -> List[Any]:
+        """Advance only the deterministic soak clock, never a product request clock."""
+
+        supervisor = AgentSupervisor(
+            self.root / "runtime" / "leases.json",
+            clock_fn=lambda: observed_at,
+        )
+        return supervisor.reclaim_stale(process_id=process_id)
 
     def _seed_waiting_process(
         self,
@@ -393,7 +402,10 @@ class RuntimeSoakHarness:
     ) -> JsonDict:
         self._seed_waiting_process(process_id=process_id, revision_id=revision_id, node_id=node_id, agent_id=agent_id)
         lease = self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=agent_id, lease_seconds=lease_seconds)
-        reclaimed = self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=int(reclaim_after_seconds)))
+        reclaimed = self._reclaim_stale_at(
+            process_id,
+            self.clock_fn() + timedelta(seconds=int(reclaim_after_seconds)),
+        )
         stale_detected = any(row.lease_id == lease.lease_id and row.status == "stale" for row in reclaimed)
         return {
             "scenario": "stale_agent",
@@ -423,7 +435,7 @@ class RuntimeSoakHarness:
         except ValueError as exc:
             duplicate_claim_blocked = True
             duplicate_claim_error = str(exc)
-        reclaimed = self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=120))
+        reclaimed = self._reclaim_stale_at(process_id, self.clock_fn() + timedelta(seconds=120))
         replacement = self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=second_agent_id, lease_seconds=60)
         return {
             "scenario": "duplicate_claim_block",
@@ -1048,8 +1060,9 @@ class RuntimeSoakHarness:
             lease_seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180),
             metadata={"campaign": True, "injected": True, "fault": "stale_lease"},
         )
-        self.supervisor.reclaim_stale(
-            now=self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1)
+        self._reclaim_stale_at(
+            process_id,
+            self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1),
         )
         stale_message = self.mailbox.send(
             process_id=process_id,
@@ -1119,8 +1132,9 @@ class RuntimeSoakHarness:
 
         active_leases = self.supervisor.list(process_id=process_id, status="active")
         if active_leases:
-            reclaimed = self.supervisor.reclaim_stale(
-                now=self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1)
+            reclaimed = self._reclaim_stale_at(
+                process_id,
+                self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1),
             )
             if reclaimed:
                 actions_taken.append({"action": "reclaim_stale", "lease_ids": [row.lease_id for row in reclaimed]})
@@ -1595,7 +1609,7 @@ class RuntimeSoakHarness:
         )
         release_state = record_release_handoff(release_state, stale_promote_message, stage="production")
         stale_lease = self.supervisor.assign(process_id=process_id, scope="release_promote", agent_id="release-manager", lease_seconds=1)
-        self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=10))
+        self._reclaim_stale_at(process_id, self.clock_fn() + timedelta(seconds=10))
         self.mailbox.receive(
             to_agent="release-manager",
             process_id=process_id,
@@ -1659,6 +1673,66 @@ class RuntimeSoakHarness:
             recovery["state"],
             production_acked,
             stage="production",
+        )
+        # The expired generation is never made promotion-safe. Model an
+        # operator's fenced termination proof, then issue fresh work bound to
+        # the successor generation and complete that exact live generation.
+        self.supervisor.resolve(
+            stale_lease.lease_id,
+            status="revoked",
+            metadata={"termination_proof": "soak-worker-fenced", "terminated_generation": stale_lease.generation},
+        )
+        successor = self.supervisor.assign(
+            process_id=process_id,
+            scope=stale_lease.scope,
+            agent_id="release-manager",
+            lease_seconds=60,
+            metadata={"takeover_proof": "soak-worker-fenced"},
+        )
+        successor_message = self.mailbox.send(
+            process_id=process_id,
+            from_agent="verifier",
+            to_agent="release-manager",
+            kind="handoff",
+            revision_id=shared_state.revision_id,
+            dedupe_key=f"release_promote:{process_id}:generation:{successor.generation}",
+            payload={
+                "objective": promote_handoff.objective,
+                "scope": promote_handoff.scope,
+                "lease_id": successor.lease_id,
+                "lease_generation": successor.generation,
+            },
+            metadata={
+                "release_id": release_state.release_id,
+                "candidate_ref": release_state.candidate_ref,
+                "target_stage": "production",
+                "lease_id": successor.lease_id,
+                "lease_generation": successor.generation,
+                "lease_scope": successor.scope,
+            },
+        )
+        self.mailbox.receive(
+            to_agent="release-manager",
+            process_id=process_id,
+            expected_revision_id=shared_state.revision_id,
+            reject_stale_revision=True,
+        )
+        successor_acked = self.mailbox.acknowledge(
+            successor_message.message_id,
+            actor="release-manager",
+            result_receipt={
+                "candidate_ref": release_state.candidate_ref,
+                "release_id": release_state.release_id,
+                "revision_id": release_state.revision_id,
+                "result": "approved",
+                "evidence_receipts": [production_evidence_id],
+            },
+        )
+        release_state = record_release_handoff(release_state, successor_acked, stage="production")
+        self.supervisor.complete_active_generation(
+            successor.lease_id,
+            generation=successor.generation,
+            metadata={"acknowledged_message_id": successor_acked.message_id},
         )
         repaired = repair_release_workflow(
             release_state,

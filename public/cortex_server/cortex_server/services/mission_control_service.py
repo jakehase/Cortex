@@ -420,7 +420,6 @@ def _objective_view(*, process: Optional[JsonDict], queue_item: Optional[JsonDic
     shared_state_model = stores["shared_state_store"].load(process_id) if process_id else None
     follow_up_rows = stores["follow_up_store"].list(process_id=process_id) if process_id else []
     mailbox_rows = stores["mailbox"].list(process_id=process_id) if process_id else []
-    stores["supervisor"].reclaim_stale(now=_now())
     lease_rows = stores["supervisor"].list(process_id=process_id) if process_id else []
 
     roadmap_contract = _model_dump(roadmap_contract_model) if roadmap_contract_model is not None else None

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 import pytest
 
 from cortex_server.runtime import (
     ReleaseWorkflowState,
+    ReleaseWorkflowStore,
     RuntimeSoakHarness,
     advance_release_workflow,
     apply_release_rollback_restore,
@@ -27,6 +29,24 @@ from cortex_server.runtime.shared_process_state import SharedProcessState
 
 VERIFIER_ID = "independent-release-verifier"
 VERIFIER_SECRET = "release-workflow-test-secret"
+
+
+def test_event_loop_release_lock_contention_fails_fast_without_deadlock(tmp_path):
+    first_store = ReleaseWorkflowStore(tmp_path / "release")
+    second_store = ReleaseWorkflowStore(tmp_path / "release")
+
+    async def exercise() -> None:
+        transaction = first_store.release_transaction("proc_async_lock")
+        await asyncio.to_thread(transaction.__enter__)
+        try:
+            with pytest.raises(RuntimeError, match="release transaction busy"):
+                with second_store.release_transaction("proc_async_lock"):
+                    pass
+            await asyncio.sleep(0)
+        finally:
+            await asyncio.to_thread(transaction.__exit__, None, None, None)
+
+    asyncio.run(asyncio.wait_for(exercise(), timeout=1.0))
 
 
 def _record_canary_evidence(harness, state, *, evidence_id: str, target_stage: str):
@@ -626,7 +646,7 @@ def test_release_repair_requeues_handoff_but_never_fabricates_missing_fenceposts
     state = record_release_handoff(state, dead_letter, stage="production")
 
     stale_lease = harness.supervisor.assign(process_id="proc_release_repair", scope="release_promote", agent_id="release-manager", lease_seconds=1)
-    harness.supervisor.reclaim_stale(now=harness.clock_fn() + timedelta(seconds=10))
+    harness._reclaim_stale_at("proc_release_repair", harness.clock_fn() + timedelta(seconds=10))
 
     gate_before = evaluate_release_promotion_gate(
         state=state,
@@ -664,7 +684,8 @@ def test_release_repair_requeues_handoff_but_never_fabricates_missing_fenceposts
     assert repaired["state"].revision_id == "rev_2"
     assert "refresh_release_revision" in action_names
     assert "recover_handoff_messages" in action_names
-    assert "resolve_stale_leases" in action_names
+    assert "stale_leases_require_fenced_takeover" in action_names
+    assert stale_lease.lease_id in {row.lease_id for row in harness.supervisor.list(process_id="proc_release_repair", status="stale")}
     assert "missing_historical_fenceposts" in action_names
     assert "capture_missing_fenceposts" not in action_names
     assert not any(row.stage == "canary_verified" for row in repaired["state"].rollback_fenceposts)

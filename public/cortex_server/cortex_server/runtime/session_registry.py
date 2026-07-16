@@ -324,12 +324,14 @@ class SessionRegistryStore:
         self._write_all(rows)
         return current
 
-    def detect_stale(self, *, now: Optional[datetime] = None) -> List[SessionRecord]:
+    def detect_stale(self, *, now: Optional[datetime] = None, process_id: Optional[str] = None) -> List[SessionRecord]:
         now_dt = now or _now()
         rows = self._load_all()
         stale_rows: List[SessionRecord] = []
         changed = False
         for row in rows:
+            if process_id and row.process_id != process_id:
+                continue
             if row.status in {"finished", "failed"}:
                 continue
             heartbeat_at = _parse_ts(row.heartbeat_at or row.last_event_at or row.registered_at)

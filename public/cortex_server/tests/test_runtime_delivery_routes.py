@@ -6,12 +6,13 @@ import hashlib
 import json
 import httpx
 import pytest
+import threading
 from fastapi import FastAPI
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.middleware.write_authorization import WriteAuthorizationMiddleware
-from cortex_server.runtime import AgentMessage, agent_acknowledgement_signature
+from cortex_server.runtime import AgentMessage, AgentSupervisor, agent_acknowledgement_signature
 from cortex_server.runtime.production_build_loop import (
     RUNTIME_DELIVERY_MOUNT_MARKER,
     runtime_delivery_handoff_claim_signature,
@@ -524,7 +525,7 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
     }
     assert all(reopened_artifacts.resolve(receipt.artifact_ref) for receipt in reopened_receipts)
     assert any(row.stage == "production" for row in reopened_release.rollback_fenceposts)
-    assert len(list((delivery_root / "handoff_claim_receipts").glob("*.json"))) == 2
+    assert len(list((delivery_root / "handoff_claim_receipts").glob("*.json"))) == 52
     assert all(
         message.ack_receipt.get("authentication") == "hmac-sha256"
         for message in reopened["mailbox"].list(process_id=process["process_id"])
@@ -867,6 +868,107 @@ def test_pending_rollback_fences_release_handoff_claim_mutation(tmp_path, monkey
     assert not list((delivery_root / "handoff_claim_receipts").glob("*.json"))
 
 
+def test_empty_handoff_discovery_consumes_authenticated_request_id(tmp_path, monkeypatch):
+    delivery_root = tmp_path / "delivery"
+    secret = "release-manager-recipient-secret-000000000001"
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps(
+            {
+                "release-verifier": "release-verifier-recipient-secret-000000001",
+                "release-manager": secret,
+            }
+        ),
+    )
+    requested_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    request = orchestrator.RuntimeDeliveryHandoffClaimNextRequest(
+        recipient="release-manager",
+        request_id="empty-request-must-be-consumed",
+        requested_at=requested_at,
+        recipient_signature=runtime_delivery_handoff_discovery_signature(
+            recipient="release-manager",
+            request_id="empty-request-must-be-consumed",
+            requested_at=requested_at,
+            secret=secret,
+        ),
+    )
+
+    first = asyncio.run(orchestrator.claim_next_runtime_delivery_handoff(request))
+    assert first["messages"] == []
+    assert len(list((delivery_root / "handoff_claim_receipts").glob("*.json"))) == 1
+
+    def must_not_prune_consumed_replay(**_kwargs):
+        raise AssertionError("a consumed target must be rejected before expiry pruning")
+
+    monkeypatch.setattr(orchestrator, "_prune_runtime_delivery_handoff_claim_receipts", must_not_prune_consumed_replay)
+
+    with pytest.raises(orchestrator.HTTPException) as exc_info:
+        asyncio.run(orchestrator.claim_next_runtime_delivery_handoff(request))
+    assert exc_info.value.status_code == 409
+
+
+def test_runtime_process_delivery_projection_holds_release_transaction(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    process = scheduler.create_process_from_workflow(
+        _workflow(),
+        process_id="proc_projection_transaction",
+    )
+    stores = orchestrator._runtime_delivery_stores()
+    projection_entered = threading.Event()
+    allow_projection = threading.Event()
+    competing_transaction_entered = threading.Event()
+    projection_errors = []
+    original_reports = stores["loop_store"].reports
+
+    def pause_after_authoritative_reads(*args, **kwargs):
+        reports = original_reports(*args, **kwargs)
+        projection_entered.set()
+        assert allow_projection.wait(timeout=5)
+        return reports
+
+    monkeypatch.setattr(
+        stores["loop_store"],
+        "reports",
+        pause_after_authoritative_reads,
+    )
+
+    def run_projection():
+        try:
+            orchestrator._sync_runtime_process_delivery_state(
+                process["process_id"],
+                process=process,
+                stores=stores,
+                event_kind="test_projection_transaction",
+            )
+        except BaseException as exc:
+            projection_errors.append(exc)
+
+    projection_thread = threading.Thread(target=run_projection)
+
+    def competing_transaction():
+        with stores["release_store"].release_transaction(process["process_id"]):
+            competing_transaction_entered.set()
+
+    projection_thread.start()
+    assert projection_entered.wait(timeout=5)
+    contender = threading.Thread(target=competing_transaction)
+    contender.start()
+    assert not competing_transaction_entered.wait(timeout=0.2)
+    allow_projection.set()
+    projection_thread.join(timeout=5)
+    contender.join(timeout=5)
+
+    assert not projection_thread.is_alive()
+    assert not contender.is_alive()
+    assert projection_errors == []
+    assert competing_transaction_entered.is_set()
+
+
 def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persists_ownership(tmp_path, monkeypatch):
     db_path = tmp_path / "runtime.db"
     delivery_root = tmp_path / "delivery"
@@ -937,6 +1039,10 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
         if row.scope == f"production_build_loop:{process['process_id']}"
     )
     watchdog_now = datetime.fromisoformat(controller_lease.expires_at.replace("Z", "+00:00")) + timedelta(seconds=1)
+    AgentSupervisor(
+        stores["supervisor"].path,
+        clock_fn=lambda: watchdog_now,
+    ).reclaim_stale(process_id=process["process_id"])
 
     tick = asyncio.run(
         orchestrator.tick_runtime(

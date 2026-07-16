@@ -862,7 +862,12 @@ def test_roadmap_executor_long_chain_reports_narrow_only_true_human_blockers(tmp
 
 
 def test_roadmap_executor_recovers_stale_controller_and_task_worker(tmp_path):
-    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    trusted_now = [datetime.now(timezone.utc)]
+    harness = RuntimeSoakHarness(
+        tmp_path / "soak",
+        sleep_fn=lambda seconds: None,
+        clock_fn=lambda: trusted_now[0],
+    )
     process_id = "proc_roadmap_takeover"
     seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="finalize", agent_id="builder")
     harness.shared_state_store.save(
@@ -948,6 +953,7 @@ def test_roadmap_executor_recovers_stale_controller_and_task_worker(tmp_path):
             active_task_ids=["finalize"],
         )
     )
+    trusted_now[0] += timedelta(seconds=5)
 
     result = reconcile_roadmap_execution(
         contract,
@@ -966,8 +972,9 @@ def test_roadmap_executor_recovers_stale_controller_and_task_worker(tmp_path):
     assert result["state"]["status"] == "active"
     assert result["state"]["recovery_count"] == 1
     assert result["state"]["controller"]["session_id"] == "sess-new"
-    assert any(action["action"] in {"release_stale_task_lease", "resolve_stale_leases"} for action in result["actions_taken"])
-    assert any(action["action"] == "dispatch_task_handoff" and action["task_id"] == "finalize" for action in result["actions_taken"])
+    assert any(action["action"] == "stale_leases_require_fenced_takeover" for action in result["actions_taken"])
+    assert any(action["action"] == "task_requires_fenced_takeover" for action in result["actions_taken"])
+    assert not any(action["action"] == "dispatch_task_handoff" and action["task_id"] == "finalize" for action in result["actions_taken"])
     assert any(task["task_id"] == "finalize" and task["status"] == "in_progress" for task in result["state"]["task_states"])
 
 

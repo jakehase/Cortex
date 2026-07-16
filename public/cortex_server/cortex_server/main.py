@@ -350,6 +350,25 @@ _RUNTIME_COLLECTION_PATHS = frozenset(
 _RUNTIME_STATUS_PATHS = frozenset(
     f"/{prefix}/runtime/status" for prefix in ("orchestrator", "conductor")
 )
+_CODEC_ADMIN_READ_ROUTE_PATHS = frozenset(
+    {
+        "/nexus/codec/status",
+        "/nexus/codec/benchmark",
+        "/nexus/codec/policy",
+        "/nexus/codec/lineage",
+        "/nexus/codec/memory/{memory_id}/lineage",
+        "/nexus/codec/corpus-replay",
+        "/nexus/codec/corpus-replay/live-reexecute/backends",
+        "/nexus/codec/corpus-replay/live-reexecute/reports",
+        "/nexus/codec/corpus-replay/reports",
+        "/nexus/codec/corpus-replay/diff",
+        "/nexus/codec/corpus-replay/active-policy",
+        "/nexus/codec/corpus-replay/plans",
+        "/nexus/codec/corpus-replay/corpus-versions",
+        "/nexus/codec/corpus-replay/retention",
+        "/nexus/codec/corpus-replay/export",
+    }
+)
 _PRINCIPAL_MUTATION_PREFIXES = (
     "/nexus/orchestrate",
     "/nexus/codec/events",
@@ -702,7 +721,7 @@ def _authenticate_sensitive_read(request, config: ReadAuthorizationConfig) -> Tu
     if token_matches(request.headers.get("x-cortex-admin-token", ""), config.admin_token):
         return ReadPrincipal(role="admin", credential_id="cortex-admin"), None
     if token_matches(request.headers.get("x-cortex-codec-admin-token", ""), config.codec_admin_token):
-        return ReadPrincipal(role="admin", credential_id="codec-admin"), None
+        return ReadPrincipal(role="codec_admin", credential_id="codec-admin"), None
 
     if config.configuration_error:
         return None, "sensitive read authorization is misconfigured"
@@ -758,6 +777,22 @@ def _authenticate_sensitive_read(request, config: ReadAuthorizationConfig) -> Tu
         storage_workspace_id=memory_principal.storage_workspace_id,
         **normalized_scope,
     ), None
+
+
+def _codec_admin_read_path_allowed(
+    path: str,
+    method: str,
+    inventory: Tuple[ReadRoutePolicy, ...],
+) -> bool:
+    """Authorize the specialized credential only on enumerated codec reads."""
+
+    normalized_method = str(method or "GET").upper()
+    return any(
+        route_policy.path in _CODEC_ADMIN_READ_ROUTE_PATHS
+        and normalized_method in route_policy.methods
+        and route_policy.path_regex.fullmatch(path)
+        for route_policy in inventory
+    )
 
 
 def _runtime_process_for_read_authorization(process_id: str) -> Optional[Dict[str, Any]]:
@@ -1297,7 +1332,7 @@ def create_app() -> FastAPI:
                 and principal.credential_id == "cortex-admin"
             )
             is_codec_admin_for_codec = (
-                principal.role == "admin"
+                principal.role == "codec_admin"
                 and principal.credential_id == "codec-admin"
                 and (path == "/nexus/codec" or path.startswith("/nexus/codec/"))
             )
@@ -1355,7 +1390,18 @@ def create_app() -> FastAPI:
                     status_code=503 if unavailable else 403,
                     content={"success": False, "error": error},
                 )
-            if policy.startswith("admin_") and principal.role != "admin":
+            if principal.role == "codec_admin" and not _codec_admin_read_path_allowed(
+                request.url.path,
+                request.method,
+                getattr(app.state, "read_route_policies", ()),
+            ):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=403,
+                    content={"success": False, "error": "codec administrator credential is restricted to codec reads"},
+                )
+            if policy.startswith("admin_") and principal.role not in {"admin", "codec_admin"}:
                 from fastapi.responses import JSONResponse
 
                 return JSONResponse(
@@ -1659,7 +1705,7 @@ def create_app() -> FastAPI:
             "type": "apiKey",
             "in": "header",
             "name": "x-cortex-codec-admin-token",
-            "description": "Codec administrator credential, also accepted for privileged operational reads.",
+            "description": "Specialized codec administrator credential accepted only on enumerated /nexus/codec control and read routes.",
         }
         security_schemes["CortexPrincipalSignature"] = {
             "type": "apiKey",
@@ -1680,10 +1726,9 @@ def create_app() -> FastAPI:
                 else None
             )
             if operation and read_policy not in {"public", "public_redacted"}:
-                admin_security = [
-                    {"CortexAdminToken": []},
-                    {"CortexCodecAdminToken": []},
-                ]
+                admin_security = [{"CortexAdminToken": []}]
+                if path in _CODEC_ADMIN_READ_ROUTE_PATHS:
+                    admin_security.append({"CortexCodecAdminToken": []})
                 operation["security"] = admin_security
                 if not read_policy.startswith("admin_"):
                     operation["security"].append({"CortexPrincipalSignature": []})

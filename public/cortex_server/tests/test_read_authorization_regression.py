@@ -189,9 +189,31 @@ async def test_kernel_telemetry_requires_authentication_and_is_operationally_red
     assert telemetry_operation["x-cortex-read-authorization-mode"] == "signed_principal_or_admin"
     assert telemetry_operation["security"] == [
         {"CortexAdminToken": []},
-        {"CortexCodecAdminToken": []},
         {"CortexPrincipalSignature": []},
     ]
+
+
+@pytest.mark.asyncio
+async def test_codec_admin_read_credential_is_confined_to_codec_routes(monkeypatch):
+    app = _configured_app(monkeypatch)
+    codec_headers = {
+        "x-cortex-codec-admin-token": "codec-admin-secret-0000000000000001",
+    }
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        codec_status = await client.get("/nexus/codec/status", headers=codec_headers)
+        assert codec_status.status_code == 200
+
+        unrelated_admin_read = await client.get(
+            "/nexus/kernel/telemetry",
+            headers=codec_headers,
+        )
+        assert unrelated_admin_read.status_code == 403
+
+    schema = app.openapi()
+    assert {"CortexCodecAdminToken": []} in schema["paths"]["/nexus/codec/status"]["get"]["security"]
+    assert {"CortexCodecAdminToken": []} not in schema["paths"]["/nexus/kernel/telemetry"]["get"]["security"]
 
 
 @pytest.mark.asyncio

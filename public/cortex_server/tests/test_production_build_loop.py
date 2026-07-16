@@ -142,6 +142,21 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
 
     release_root = delivery_root / "release_workflow"
     release_root.mkdir()
+    (release_root / ".proc_pending.json.rollback-intent.json").write_text(
+        json.dumps(
+            {
+                "process_id": "proc_pending",
+                "status": "recovery_required",
+                "phase": "snapshot_committed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    pending = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    assert pending["ready"] is False
+    assert pending["checks"]["runtimeDeliveryConsistency"]["pendingRollbackProcessIds"] == ["proc_pending"]
+    (release_root / ".proc_pending.json.rollback-intent.json").unlink()
+
     (release_root / "proc_missing.json").write_text(
         json.dumps({"process_id": "proc_missing"}),
         encoding="utf-8",
@@ -685,6 +700,7 @@ def test_production_loop_persists_live_follow_up_and_emits_watchdog_review_repor
         if row.scope == f"{contract.controller_scope}:{process_id}"
     )
     controller_lease_expires_at = datetime.fromisoformat(controller_lease.expires_at.replace("Z", "+00:00"))
+    harness._reclaim_stale_at(process_id, controller_lease_expires_at + timedelta(seconds=1))
 
     second = reconcile_production_build_loop(
         contract,
@@ -755,6 +771,7 @@ def test_production_loop_recovers_stale_controller_and_resumes_worker(tmp_path):
             ),
         )
     )
+    harness._reclaim_stale_at(process_id, datetime.now(timezone.utc) + timedelta(seconds=5))
 
     result = reconcile_production_build_loop(
         contract,
@@ -823,7 +840,6 @@ def test_production_loop_stops_only_for_true_human_blockers(tmp_path):
         ],
         promotion_stages=[],
     )
-
     result = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -954,6 +970,7 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
         ],
         promotion_stages=[],
     )
+    harness._reclaim_stale_at(process_id, datetime.now(timezone.utc) + timedelta(seconds=10))
 
     result = reconcile_production_build_loop(
         contract,
@@ -978,7 +995,9 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
         for action in result["dependability"]["actions_taken"]
     )
     assert any(action["action"] == "recover_dead_letters" for action in result["actions_taken"])
-    assert any(action["action"] == "resolve_stale_leases" for action in result["actions_taken"])
+    assert any(action["action"] == "stale_leases_require_fenced_takeover" for action in result["actions_taken"])
+    assert any(row.scope == "verify" for row in harness.supervisor.list(process_id=process_id, status="stale"))
+    assert not any(row.scope == "verify" for row in harness.supervisor.list(process_id=process_id, status="active"))
     assert any(action["action"] == "checkpoint_from_journal" for action in result["actions_taken"])
 
 

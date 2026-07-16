@@ -2,6 +2,8 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
 
@@ -31,7 +33,9 @@ def test_orchestrator_runtime_session_endpoints_wire_registry_memory_and_watcher
         lambda dependency, operation, **kwargs: {"success": True, "dependency": dependency, "queued": False, "result": operation()},
     )
 
-    process = scheduler.create_process_from_workflow(_workflow())
+    workflow = _workflow()
+    workflow["metadata"]["workspace_path"] = str(tmp_path)
+    process = scheduler.create_process_from_workflow(workflow)
     process_id = process["process_id"]
 
     registered = asyncio.run(
@@ -90,3 +94,82 @@ def test_orchestrator_runtime_session_endpoints_wire_registry_memory_and_watcher
     )
     assert reconciled["emitted_count"] >= 1
     assert any(row["event"]["kind"] == "session.workspace-changed" for row in reconciled["emitted"])
+
+
+def test_pending_rollback_fences_every_session_and_watcher_mutation(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    process = scheduler.create_process_from_workflow(_workflow(), process_id="proc_session_fence")
+    stores = orchestrator._runtime_delivery_stores()
+    stores["session_registry"].register(
+        process_id=process["process_id"],
+        session_id="existing-session",
+        stale_after_seconds=1,
+    )
+    before = stores["session_registry"].get(
+        process_id=process["process_id"],
+        session_id="existing-session",
+    )
+    stores["release_store"].save_rollback_intent(
+        process["process_id"],
+        {
+            "process_id": process["process_id"],
+            "status": "recovery_required",
+            "phase": "snapshot_committed",
+        },
+    )
+
+    with pytest.raises(orchestrator.HTTPException) as registration_error:
+        asyncio.run(
+            orchestrator.register_runtime_session(
+                orchestrator.RuntimeSessionRegisterRequest(
+                    process_id=process["process_id"],
+                    session_id="must-not-register",
+                )
+            )
+        )
+    assert registration_error.value.status_code == 409
+
+    with pytest.raises(orchestrator.HTTPException) as heartbeat_error:
+        asyncio.run(
+            orchestrator.heartbeat_runtime_session(
+                orchestrator.RuntimeSessionHeartbeatRequest(
+                    process_id=process["process_id"],
+                    session_id="existing-session",
+                )
+            )
+        )
+    assert heartbeat_error.value.status_code == 409
+
+    with pytest.raises(orchestrator.HTTPException) as watcher_error:
+        asyncio.run(
+            orchestrator.register_runtime_watcher(
+                orchestrator.RuntimeWatcherRegisterRequest(
+                    process_id=process["process_id"],
+                    kind="workspace",
+                    target=str(tmp_path),
+                    session_id="existing-session",
+                )
+            )
+        )
+    assert watcher_error.value.status_code == 409
+
+    reconciled = asyncio.run(
+        orchestrator.reconcile_runtime_watchers(
+            orchestrator.RuntimeWatcherReconcileRequest(
+                now_iso=(datetime.now(timezone.utc) + timedelta(seconds=10)).isoformat(),
+            )
+        )
+    )
+    after = stores["session_registry"].get(
+        process_id=process["process_id"],
+        session_id="existing-session",
+    )
+    assert reconciled["emitted_count"] == 0
+    assert after.heartbeat_at == before.heartbeat_at
+    assert after.status == before.status
+    assert stores["session_registry"].get(
+        process_id=process["process_id"],
+        session_id="must-not-register",
+    ) is None
+    assert stores["watcher_store"].list(process_id=process["process_id"]) == []

@@ -1,3 +1,5 @@
+import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -43,6 +45,7 @@ def test_workspace_and_log_watchers_emit_runtime_events(tmp_path: Path):
             session_name="issue-7",
             tool="workspace",
             debounce_seconds=1.0,
+            metadata={"cortex_authorized_roots": [str(tmp_path.resolve())], "cortex_workspace_attested_by": "server"},
         )
     )
     watcher_store.register(
@@ -54,6 +57,7 @@ def test_workspace_and_log_watchers_emit_runtime_events(tmp_path: Path):
             session_name="issue-7",
             tool="log-monitor",
             keywords=["error"],
+            metadata={"cortex_authorized_roots": [str(tmp_path.resolve())], "cortex_workspace_attested_by": "server"},
         )
     )
 
@@ -84,7 +88,13 @@ def test_path_state_watcher_emits_when_expected_state_is_observed(tmp_path: Path
             session_id="sess_1",
             session_name="issue-7",
             tool="artifact-watch",
-            metadata={"expected_exists": True, "event": "session.finished", "summary": "artifact appeared"},
+            metadata={
+                "expected_exists": True,
+                "event": "session.finished",
+                "summary": "artifact appeared",
+                "cortex_authorized_roots": [str(tmp_path.resolve())],
+                "cortex_workspace_attested_by": "server",
+            },
         )
     )
 
@@ -94,3 +104,85 @@ def test_path_state_watcher_emits_when_expected_state_is_observed(tmp_path: Path
     artifact.write_text("done", encoding="utf-8")
     emitted = watcher_store.reconcile(session_registry=registry, now=datetime(2026, 4, 3, 20, 0, 1, tzinfo=timezone.utc))
     assert [row.kind for row in emitted] == ["session.finished"]
+
+
+def test_persisted_forged_workspace_marker_is_not_a_server_attestation(tmp_path: Path):
+    target = tmp_path / "outside.log"
+    target.write_text("match-me\n", encoding="utf-8")
+    path = tmp_path / "runtime" / "watchers.json"
+    path.parent.mkdir(parents=True)
+    forged = WatchRegistration(
+        process_id="proc_untrusted",
+        kind="log-pattern",
+        target=str(target),
+        keywords=["match-me"],
+        metadata={
+            "cortex_workspace_attested_by": "server",
+            "cortex_authorized_roots": [str(tmp_path)],
+            "cortex_workspace_attestation": "0" * 64,
+        },
+    )
+    path.write_text(
+        json.dumps(
+            {
+                "version": "watchers.v1",
+                "registrations": [forged.model_dump()],
+                "runtime": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = WatcherRuntimeStore(path)
+
+    assert store.reconcile() == []
+    assert store.invalid_file_watcher_ids() == [forged.watch_id]
+
+
+def test_attested_log_watcher_never_follows_replaced_symlink(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    watched = workspace / "run.log"
+    watched.write_text("safe\n", encoding="utf-8")
+    outside = tmp_path / "outside.log"
+    outside.write_text("forbidden-match\n", encoding="utf-8")
+    store = WatcherRuntimeStore(tmp_path / "runtime" / "watchers.json")
+    store.register(
+        WatchRegistration(
+            process_id="proc_symlink",
+            kind="log-pattern",
+            target=str(watched),
+            keywords=["forbidden-match"],
+            metadata={
+                "cortex_authorized_roots": [str(workspace.resolve())],
+                "cortex_workspace_attested_by": "server",
+            },
+        )
+    )
+    watched.unlink()
+    watched.symlink_to(outside)
+
+    assert store.reconcile() == []
+
+
+def test_attested_log_watcher_rejects_fifo_without_blocking(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    watched = workspace / "run.log"
+    watched.write_text("safe\n", encoding="utf-8")
+    store = WatcherRuntimeStore(tmp_path / "runtime" / "watchers.json")
+    store.register(
+        WatchRegistration(
+            process_id="proc_fifo",
+            kind="log-pattern",
+            target=str(watched),
+            keywords=["match"],
+            metadata={
+                "cortex_authorized_roots": [str(workspace.resolve())],
+                "cortex_workspace_attested_by": "server",
+            },
+        )
+    )
+    watched.unlink()
+    os.mkfifo(watched)
+
+    assert store.reconcile() == []
