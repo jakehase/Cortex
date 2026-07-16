@@ -16,20 +16,25 @@ services:
       - ./openclaw_state:/root/.openclaw:rw
       - ./geneticist_applied:/opt/clawdbot/geneticist_applied:rw
       - cortex-chroma:/app/cortex_server/chroma_db:rw
-      # Mount the containing state directory so SQLite, WAL/SHM, rollback
-      # intents, snapshots, mailbox, and artifact evidence survive together.
-      - cortex-runtime-delivery:/opt/clawdbot/state:rw
+      # Runtime delivery owns an isolated mount plus a physically allocated
+      # rollback reserve. Unrelated SQLite/WAL growth cannot consume it.
+      - cortex-runtime-delivery:/opt/clawdbot/runtime-volume:rw
+      - cortex-app-state:/opt/clawdbot/state:rw
+      - cortex-knowledge:/opt/clawdbot/knowledge:rw
+      - cortex-reasoning:/opt/clawdbot/reasoning:rw
     environment:
       MALLOC_ARENA_MAX: "2"
       MALLOC_TRIM_THRESHOLD_: "131072"
       MALLOC_TOP_PAD_: "131072"
       CORTEX_ENV: production
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
-      CORTEX_DB_PATH: /opt/clawdbot/state/knowledge/cortex_graph.db
+      CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE: "true"
+      CORTEX_DB_PATH: /opt/clawdbot/knowledge/cortex_graph.db
       CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID and run the explicit volume bootstrap}
-      ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery
-      REASONING_STORE_DB_PATH: /opt/clawdbot/state/reasoning_runtime.db
+      ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/runtime-volume/runtime_delivery
+      REASONING_STORE_DB_PATH: /opt/clawdbot/reasoning/reasoning_runtime.db
+      CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE: "true"
       CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID and run the explicit volume bootstrap}
       # Optional deployment requirements extend the non-removable production baseline.
       CORTEX_REQUIRED_PATHS: ${CORTEX_REQUIRED_PATHS:-}
@@ -48,6 +53,8 @@ services:
       # Rotate this independent submission credential only after in-flight feedback receipts drain.
       NEXUS_OUTCOME_FEEDBACK_TOKEN: ${NEXUS_OUTCOME_FEEDBACK_TOKEN:?set a distinct outcome-feedback submission token in .env}
       NEXUS_ASSURANCE_SIGNING_KEY: ${NEXUS_ASSURANCE_SIGNING_KEY:?set a distinct server-only assurance signing key in .env}
+      NEXUS_ASSURANCE_SIGNING_KEY_ID: ${NEXUS_ASSURANCE_SIGNING_KEY_ID:?set a stable ID for the current assurance signing key}
+      NEXUS_ASSURANCE_VERIFY_KEYS: '${NEXUS_ASSURANCE_VERIFY_KEYS:-{}}'
       CORTEX_RELEASE_VERIFIER_HEALTH_URL: http://release-verifier:8891/ready
       CORTEX_RELEASE_MANAGER_HEALTH_URL: http://release-manager:8892/ready
     env_file:
@@ -187,7 +194,6 @@ services:
           exit 1
         fi
         for directory in \
-          /state/knowledge \
           /state/runtime_delivery \
           /state/runtime_delivery/session_event_inbox \
           /state/runtime_delivery/snapshots \
@@ -227,11 +233,18 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
+      CORTEX_ENV: production
       CORTEX_BASE_URL: http://cortex-brain:8888
       CORTEX_HANDOFF_RECIPIENT: release-verifier
       CORTEX_HANDOFF_RECIPIENT_SECRET: ${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set a distinct release-verifier recipient secret in .env}
+      CORTEX_RELEASE_VERIFIER_ID: ${CORTEX_RELEASE_VERIFIER_ATTESTATION_ID:?set the verifier ID present in CORTEX_RELEASE_VERIFIER_CREDENTIALS}
+      CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET: ${CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:?set the verifier-only attestation secret present in CORTEX_RELEASE_VERIFIER_CREDENTIALS}
+      CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation
+      CORTEX_RELEASE_CONTROLLER_STATE_DIR: /controller-state
       CORTEX_HANDOFF_HEALTH_PORT: 8891
-    command: python -m cortex_server.runtime.handoff_consumer
+    volumes:
+      - cortex-release-verifier-state:/controller-state:rw
+    command: python -m cortex_server.runtime.release_verifier_worker
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8891/live"]
       interval: 10s
@@ -246,11 +259,16 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
+      CORTEX_ENV: production
       CORTEX_BASE_URL: http://cortex-brain:8888
       CORTEX_HANDOFF_RECIPIENT: release-manager
       CORTEX_HANDOFF_RECIPIENT_SECRET: ${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET:?set a distinct release-manager recipient secret in .env}
+      CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation
+      CORTEX_RELEASE_CONTROLLER_STATE_DIR: /controller-state
       CORTEX_HANDOFF_HEALTH_PORT: 8892
-    command: python -m cortex_server.runtime.handoff_consumer
+    volumes:
+      - cortex-release-manager-state:/controller-state:rw
+    command: python -m cortex_server.runtime.release_manager_worker
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8892/live"]
       interval: 10s
@@ -280,3 +298,8 @@ networks:
 volumes:
   cortex-chroma:
   cortex-runtime-delivery:
+  cortex-app-state:
+  cortex-knowledge:
+  cortex-reasoning:
+  cortex-release-verifier-state:
+  cortex-release-manager-state:

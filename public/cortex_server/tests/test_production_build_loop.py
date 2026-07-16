@@ -2077,6 +2077,54 @@ def test_whole_volume_reservations_serialize_cross_worker_admission(tmp_path, mo
     assert runtime_delivery_quota.runtime_delivery_capacity(root)["reservedBytes"] == 0
 
 
+def test_preallocated_recovery_reserve_isolated_from_sibling_database_growth(tmp_path, monkeypatch):
+    root = tmp_path / "runtime-volume" / "runtime_delivery"
+    sibling_database = tmp_path / "application-state" / "reasoning_runtime.db"
+    sibling_database.parent.mkdir(parents=True)
+    monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE", "true")
+    monkeypatch.setattr(runtime_delivery_quota, "MAX_RUNTIME_DELIVERY_VOLUME_BYTES", 64 * 1024)
+    monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES", 16 * 1024)
+    monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES", 4 * 1024)
+
+    with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
+        pass
+    initial = runtime_delivery_quota.runtime_delivery_capacity(root)
+    assert initial["physicalRecoveryReserveEnforced"] is True
+    assert initial["physicalRecoveryReserveBytes"] == 16 * 1024
+    assert initial["physicalRecoveryReserveAllocatedBytes"] >= 16 * 1024
+
+    sibling_database.write_bytes(b"s" * (256 * 1024))
+    after_sibling_growth = runtime_delivery_quota.runtime_delivery_capacity(root)
+    assert after_sibling_growth["usedBytes"] == initial["usedBytes"]
+    assert after_sibling_growth["ok"] is True
+
+    intent_path = root / "release_workflow" / ".proc-reserve.json.rollback-intent.json"
+    intent_path.parent.mkdir(parents=True)
+    intent_path.write_text(
+        json.dumps(
+            {
+                "process_id": "proc-reserve",
+                "transaction_id": "rollback-reserve",
+                "status": "recovery_required",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with runtime_delivery_quota.runtime_delivery_recovery_transaction(
+        root,
+        process_id="proc-reserve",
+        transaction_id="rollback-reserve",
+        intent_path=intent_path,
+    ):
+        during_recovery = runtime_delivery_quota.runtime_delivery_capacity(root)
+        assert during_recovery["physicalRecoveryReserveBytes"] == 12 * 1024
+        (root / "bounded-recovery-write.bin").write_bytes(b"r" * 1024)
+
+    restored = runtime_delivery_quota.runtime_delivery_capacity(root)
+    assert restored["physicalRecoveryReserveBytes"] == 16 * 1024
+    assert restored["physicalRecoveryReserveAllocatedBytes"] >= 16 * 1024
+
+
 def test_auto_chain_budget_has_an_immutable_upper_bound():
     with pytest.raises(ValidationError, match="immutable limit"):
         ProductionPassBudget(max_auto_chain_passes=33)

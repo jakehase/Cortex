@@ -108,10 +108,10 @@ def test_compose_mounts_and_identifies_durable_memory_volume():
 def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "cortex-runtime-delivery:/opt/clawdbot/state:rw" in compose
-    assert "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery" in compose
-    assert "REASONING_STORE_DB_PATH: /opt/clawdbot/state/reasoning_runtime.db" in compose
-    assert "CORTEX_DB_PATH: /opt/clawdbot/state/knowledge/cortex_graph.db" in compose
+    assert "cortex-runtime-delivery:/opt/clawdbot/runtime-volume:rw" in compose
+    assert "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/runtime-volume/runtime_delivery" in compose
+    assert "REASONING_STORE_DB_PATH: /opt/clawdbot/reasoning/reasoning_runtime.db" in compose
+    assert "CORTEX_DB_PATH: /opt/clawdbot/knowledge/cortex_graph.db" in compose
     assert "CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db" in compose
     assert "./knowledge:/app/cortex_server/knowledge" not in compose
     assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:" in compose
@@ -123,13 +123,39 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "/state/runtime_delivery/release_workflow/artifacts" in compose
     assert "/state/runtime_delivery/production_build_loop/locks" in compose
     assert "/state/runtime_delivery/session_event_inbox" in compose
-    assert "/state/knowledge" in compose
+    assert "cortex-knowledge:/opt/clawdbot/knowledge:rw" in compose
     assert "chmod 0700 /state /state/runtime_delivery" in compose
     assert "release-verifier:" in compose
     assert "release-manager:" in compose
     assert "CORTEX_RELEASE_VERIFIER_HEALTH_URL:" in compose
     assert "CORTEX_RELEASE_MANAGER_HEALTH_URL:" in compose
     assert "cortex-runtime-delivery:" in compose
+
+
+def test_compose_runs_distinct_capability_checked_release_controllers():
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+    brain = _compose_service_definition(compose, "cortex-brain")
+    verifier = _compose_service_definition(compose, "release-verifier")
+    manager = _compose_service_definition(compose, "release-manager")
+
+    assert "cortex-runtime-delivery:/opt/clawdbot/runtime-volume:rw" in brain
+    assert "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/runtime-volume/runtime_delivery" in brain
+    assert "cortex-app-state:/opt/clawdbot/state:rw" in brain
+    assert "cortex-knowledge:/opt/clawdbot/knowledge:rw" in brain
+    assert "cortex-reasoning:/opt/clawdbot/reasoning:rw" in brain
+    assert "CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE: \"true\"" in brain
+
+    assert "python -m cortex_server.runtime.release_verifier_worker" in verifier
+    assert "CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:" in verifier
+    assert "CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation" in verifier
+    assert "cortex-release-verifier-state:/controller-state:rw" in verifier
+    assert "CORTEX_WRITE_TOKEN:" not in verifier
+
+    assert "python -m cortex_server.runtime.release_manager_worker" in manager
+    assert "CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:" not in manager
+    assert "CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation" in manager
+    assert "cortex-release-manager-state:/controller-state:rw" in manager
+    assert "CORTEX_WRITE_TOKEN:" not in manager
 
 
 def test_volume_identity_markers_are_minted_only_by_explicit_bootstrap():

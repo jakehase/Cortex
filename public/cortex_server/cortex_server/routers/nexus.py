@@ -199,6 +199,9 @@ NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() i
 NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
 _ASSURANCE_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
 _ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
+_ASSURANCE_LEGACY_RECEIPT_VERSION = "nexus.commit-receipt.v1"
+_ASSURANCE_KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+_ASSURANCE_MAX_VERIFY_KEYS = 16
 _ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
 _ASSURANCE_RECEIPT_STATE_PATH = Path(
     os.getenv(
@@ -3271,30 +3274,85 @@ def _b64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4)))
 
 
-def _assurance_signing_key() -> bytes:
+def _assurance_keyring() -> tuple[str, bytes, Dict[str, bytes]]:
     configured = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY", "").strip()
+    key_id = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "").strip()
     if not configured:
         if _production_memory_scope_mode():
             raise RuntimeError("production requires NEXUS_ASSURANCE_SIGNING_KEY")
-        return _ASSURANCE_EPHEMERAL_SIGNING_KEY
-    if _production_memory_scope_mode() and len(configured.encode("utf-8")) < 32:
+        configured_key = _ASSURANCE_EPHEMERAL_SIGNING_KEY
+        key_id = key_id or "ephemeral-process"
+    else:
+        configured_key = configured.encode("utf-8")
+        if not key_id:
+            if _production_memory_scope_mode():
+                raise RuntimeError("production requires NEXUS_ASSURANCE_SIGNING_KEY_ID")
+            key_id = "current"
+    if not _ASSURANCE_KEY_ID_PATTERN.fullmatch(key_id):
+        raise RuntimeError("NEXUS_ASSURANCE_SIGNING_KEY_ID must be a bounded opaque identifier")
+    if _production_memory_scope_mode() and len(configured_key) < 32:
         raise RuntimeError("production assurance signing key must contain at least 32 bytes")
+
+    raw_previous = os.getenv("NEXUS_ASSURANCE_VERIFY_KEYS", "").strip() or "{}"
+    try:
+        parsed_previous = json.loads(raw_previous)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("NEXUS_ASSURANCE_VERIFY_KEYS must be a JSON key-id object") from exc
+    if not isinstance(parsed_previous, dict) or len(parsed_previous) > _ASSURANCE_MAX_VERIFY_KEYS:
+        raise RuntimeError(
+            f"NEXUS_ASSURANCE_VERIFY_KEYS must contain at most {_ASSURANCE_MAX_VERIFY_KEYS} keys"
+        )
+    verify_keys: Dict[str, bytes] = {key_id: configured_key}
+    for previous_id, previous_secret in parsed_previous.items():
+        normalized_id = str(previous_id or "").strip()
+        if not _ASSURANCE_KEY_ID_PATTERN.fullmatch(normalized_id):
+            raise RuntimeError("assurance verification key ID is invalid")
+        if not isinstance(previous_secret, str) or not previous_secret.strip():
+            raise RuntimeError("assurance verification keys must be non-empty strings")
+        encoded_secret = previous_secret.strip().encode("utf-8")
+        if _production_memory_scope_mode() and len(encoded_secret) < 32:
+            raise RuntimeError("production assurance verification keys must contain at least 32 bytes")
+        if normalized_id == key_id and not hmac.compare_digest(encoded_secret, configured_key):
+            raise RuntimeError("current assurance key ID cannot map to a different verification key")
+        if any(
+            existing_id != normalized_id
+            and hmac.compare_digest(existing_secret, encoded_secret)
+            for existing_id, existing_secret in verify_keys.items()
+        ):
+            raise RuntimeError("assurance key IDs must map to distinct key material")
+        verify_keys[normalized_id] = encoded_secret
+
+    reserved_credentials = {
+        **_outcome_feedback_request_credentials(),
+        **{
+            name: os.getenv(name, "").strip()
+            for name in ("NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",)
+            if os.getenv(name, "").strip()
+        },
+    }
     reused = [
-        name
-        for name, secret in _outcome_feedback_request_credentials().items()
-        if secret and hmac.compare_digest(configured, secret)
+        f"{key_name}:{credential_name}"
+        for key_name, key_secret in verify_keys.items()
+        for credential_name, credential in reserved_credentials.items()
+        if credential and hmac.compare_digest(key_secret, credential.encode("utf-8"))
     ]
     if reused:
         raise RuntimeError(
-            "assurance signing key must be server-only and distinct from request credentials: "
+            "assurance keyring must be server-only and distinct from request credentials: "
             + ", ".join(sorted(reused))
         )
-    return configured.encode("utf-8")
+    return key_id, configured_key, verify_keys
+
+
+def _assurance_signing_key() -> bytes:
+    return _assurance_keyring()[1]
 
 
 def _encode_assurance_receipt(payload: Dict[str, Any]) -> str:
-    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    signature = hmac.new(_assurance_signing_key(), body, hashlib.sha256).digest()
+    key_id, signing_key, _verify_keys = _assurance_keyring()
+    signed_payload = {**dict(payload), "signing_key_id": key_id}
+    body = json.dumps(signed_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    signature = hmac.new(signing_key, body, hashlib.sha256).digest()
     return f"{_b64url_encode(body)}.{_b64url_encode(signature)}"
 
 
@@ -3303,15 +3361,35 @@ def _decode_assurance_receipt(receipt: str) -> Dict[str, Any]:
         body_part, signature_part = str(receipt or "").split(".", 1)
         body = _b64url_decode(body_part)
         supplied = _b64url_decode(signature_part)
-        expected = hmac.new(_assurance_signing_key(), body, hashlib.sha256).digest()
-        if not hmac.compare_digest(supplied, expected):
-            raise ValueError("signature_mismatch")
         payload = json.loads(body.decode("utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("invalid_payload")
+        _current_id, _current_key, verify_keys = _assurance_keyring()
+        receipt_key_id = str(payload.get("signing_key_id") or "").strip()
+        if receipt_key_id:
+            verification_key = verify_keys.get(receipt_key_id)
+            if verification_key is None:
+                raise ValueError("unknown_signing_key")
+            signature_matches = hmac.compare_digest(
+                supplied,
+                hmac.new(verification_key, body, hashlib.sha256).digest(),
+            )
+        else:
+            # Transitional v1 receipts did not carry a KID. Try the bounded
+            # verify-only ring so rotation can drain already-spooled records.
+            signature_matches = any(
+                hmac.compare_digest(supplied, hmac.new(key, body, hashlib.sha256).digest())
+                for key in verify_keys.values()
+            )
+        if not signature_matches:
+            raise ValueError("signature_mismatch")
         return payload
     except Exception as exc:
-        if isinstance(exc, ValueError) and str(exc) in {"signature_mismatch", "invalid_payload"}:
+        if isinstance(exc, ValueError) and str(exc) in {
+            "signature_mismatch",
+            "unknown_signing_key",
+            "invalid_payload",
+        }:
             raise
         raise ValueError("malformed_receipt") from exc
 
@@ -3443,7 +3521,10 @@ def _issue_assurance_receipt(interaction: "AssuranceReceiptRequest", request: Op
 def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[Request]) -> Dict[str, Any]:
     payload = _decode_assurance_receipt(interaction.assurance_receipt)
     now = int(time.time())
-    if payload.get("version") != _ASSURANCE_RECEIPT_VERSION:
+    if payload.get("version") not in {
+        _ASSURANCE_RECEIPT_VERSION,
+        _ASSURANCE_LEGACY_RECEIPT_VERSION,
+    }:
         raise ValueError("unsupported_receipt_version")
     if int(payload.get("issued_at", 0)) > now + 5 or int(payload.get("expires_at", 0)) <= int(payload.get("issued_at", 0)):
         raise ValueError("expired_receipt")

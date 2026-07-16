@@ -7,12 +7,43 @@ import asyncio
 import inspect
 import json
 import re
+import threading
+import time
 
 from cortex_server.middleware.write_authorization import token_matches
 
 router = APIRouter()
 
 _CONTAINER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,127}$")
+MAX_PROGRESS_MESSAGE_BYTES = 4096
+
+
+class WebSocketAdmission:
+    """Small fail-fast application admission independent of ASGI tasks."""
+
+    def __init__(self, limit: int):
+        if int(limit) <= 0:
+            raise ValueError("WebSocket admission limit must be positive")
+        self.limit = int(limit)
+        self._active = 0
+        self._lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        with self._lock:
+            if self._active >= self.limit:
+                return False
+            self._active += 1
+            return True
+
+    def release(self) -> None:
+        with self._lock:
+            self._active = max(0, self._active - 1)
+
+    @property
+    def active(self) -> int:
+        with self._lock:
+            return self._active
 
 
 def _allowed_websocket_origin(websocket: WebSocket) -> bool:
@@ -34,6 +65,12 @@ def _log_websocket_authorized(websocket: WebSocket) -> bool:
     )
 
 
+def _progress_websocket_authorized(websocket: WebSocket) -> bool:
+    config = websocket.app.state.websocket_security
+    supplied = websocket.headers.get(config.write_token_header, "")
+    return bool(config.write_token) and token_matches(supplied, config.write_token)
+
+
 async def _close_log_stream(logs) -> None:
     """Close either an async or synchronous Docker log stream."""
     if logs is None:
@@ -49,33 +86,59 @@ async def _close_log_stream(logs) -> None:
 @router.websocket("/ws/progress")
 async def ws_progress(websocket: WebSocket):
     """WebSocket for progress updates on long-running tasks."""
-    await websocket.accept()
+    if not _allowed_websocket_origin(websocket) or not _progress_websocket_authorized(websocket):
+        await websocket.close(code=1008, reason="connection rejected")
+        return
+    admission = websocket.app.state.websocket_progress_admission
+    if not admission.acquire():
+        await websocket.close(code=1013, reason="connection capacity exhausted")
+        return
     try:
+        await websocket.accept()
+        security = websocket.app.state.websocket_security
+        idle_timeout = float(security.progress_idle_timeout_seconds)
+        lifetime_deadline = time.monotonic() + float(security.progress_lifetime_seconds)
         while True:
-            # Wait for client messages (task subscriptions)
-            data = await websocket.receive_text()
+            remaining = lifetime_deadline - time.monotonic()
+            if remaining <= 0:
+                await websocket.close(code=1000, reason="connection lifetime complete")
+                return
+            data = await asyncio.wait_for(
+                websocket.receive_text(),
+                timeout=min(idle_timeout, remaining),
+            )
+            if len(data.encode("utf-8")) > MAX_PROGRESS_MESSAGE_BYTES:
+                await websocket.close(code=1009, reason="message too large")
+                return
             try:
                 msg = json.loads(data)
+                if not isinstance(msg, dict) or set(msg) - {"action", "task_id"}:
+                    raise ValueError("invalid message schema")
                 action = msg.get("action")
-                
+
                 if action == "subscribe":
-                    task_id = msg.get("task_id")
+                    task_id = str(msg.get("task_id") or "")
+                    if not _TASK_ID.fullmatch(task_id):
+                        raise ValueError("invalid task_id")
                     await websocket.send_json({
                         "type": "subscribed",
                         "task_id": task_id,
                     })
-                
                 elif action == "ping":
+                    if "task_id" in msg:
+                        raise ValueError("invalid ping schema")
                     await websocket.send_json({"type": "pong"})
-                    
-            except json.JSONDecodeError:
+                else:
+                    raise ValueError("unsupported action")
+            except (json.JSONDecodeError, ValueError):
                 await websocket.send_json({
                     "type": "error",
-                    "message": "Invalid JSON"
+                    "message": "Invalid progress message"
                 })
-                
-    except WebSocketDisconnect:
+    except (asyncio.TimeoutError, WebSocketDisconnect):
         pass
+    finally:
+        admission.release()
 
 
 @router.websocket("/ws/logs/{container_id}")
@@ -116,14 +179,7 @@ async def ws_logs(websocket: WebSocket, container_id: str):
         await _close_log_stream(logs)
 
 
-@router.websocket("/ws/health")
-async def ws_health(websocket: WebSocket):
-    """Health check WebSocket."""
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            if data == "ping":
-                await websocket.send_text("pong")
-    except WebSocketDisconnect:
-        pass
+@router.get("/ws/health")
+async def websocket_transport_health():
+    """Bodyless compatibility probe; health never consumes a WebSocket task."""
+    return {"status": "ok", "transport": "websocket"}

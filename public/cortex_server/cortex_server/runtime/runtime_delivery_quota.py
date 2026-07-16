@@ -28,6 +28,7 @@ MAX_REPORT_RECORDS = 256
 MAX_REPORT_BYTES = 16 * 1024 * 1024
 MAX_SESSION_EVENT_PROJECTION_BYTES = 32 * 1024 * 1024
 RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS = 10 * 60
+RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE = ".runtime-delivery-physical-recovery-reserve"
 
 _LOCKS: Dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -60,6 +61,8 @@ def _usage(root: Path) -> int:
         try:
             if ".runtime-delivery-reservations" in candidate.parts:
                 continue
+            if candidate.name == RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE:
+                continue
             if candidate.is_file() and not candidate.is_symlink():
                 total += candidate.stat().st_size
         except FileNotFoundError:
@@ -68,11 +71,95 @@ def _usage(root: Path) -> int:
 
 
 def _volume_usage(delivery_root: Path) -> int:
-    """Account the mounted state volume, including sibling databases."""
+    """Account the capacity-isolated runtime-delivery tree."""
 
+    return _usage(Path(delivery_root).resolve())
+
+
+def _physical_reserve_enabled() -> bool:
+    return os.getenv("CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE", "false").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _physical_reserve_path(delivery_root: Path) -> Path:
+    return Path(delivery_root).resolve() / RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE
+
+
+def _physical_reserve_bytes(delivery_root: Path) -> int:
+    target = _physical_reserve_path(delivery_root)
+    try:
+        return int(target.stat().st_size) if target.is_file() and not target.is_symlink() else 0
+    except FileNotFoundError:
+        return 0
+
+
+def _physical_reserve_allocated_bytes(delivery_root: Path) -> int:
+    target = _physical_reserve_path(delivery_root)
+    try:
+        stat = target.stat()
+        if not target.is_file() or target.is_symlink():
+            return 0
+        # POSIX st_blocks is reported in 512-byte units and proves the reserve
+        # is allocated rather than merely a sparse logical file.
+        return int(stat.st_blocks) * 512
+    except FileNotFoundError:
+        return 0
+
+
+def _resize_physical_reserve(delivery_root: Path, size: int) -> None:
+    if not _physical_reserve_enabled():
+        return
     root = Path(delivery_root).resolve()
-    volume_root = root.parent if root.name == "runtime_delivery" else root
-    return _usage(volume_root)
+    durable_mkdir(root)
+    target = _physical_reserve_path(root)
+    requested = max(0, int(size))
+    if (
+        _physical_reserve_bytes(root) == requested
+        and _physical_reserve_allocated_bytes(root) >= requested
+    ):
+        return
+    if target.is_file() and not target.is_symlink():
+        try:
+            flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(target, flags)
+            try:
+                current = int(os.fstat(fd).st_size)
+                if requested >= current:
+                    if not hasattr(os, "posix_fallocate"):
+                        raise OSError("posix_fallocate is required for the recovery reserve")
+                    os.posix_fallocate(fd, 0, requested)
+                os.ftruncate(fd, requested)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            fsync_directory(root)
+            return
+        except OSError as exc:
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery physical recovery reserve could not be resized"
+            ) from exc
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        try:
+            if not hasattr(os, "posix_fallocate"):
+                raise OSError("posix_fallocate is required for the recovery reserve")
+            os.posix_fallocate(fd, 0, requested)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, target)
+        fsync_directory(root)
+    except OSError as exc:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve could not be allocated"
+        ) from exc
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _filesystem_available(delivery_root: Path) -> int:
@@ -88,10 +175,18 @@ def runtime_delivery_capacity(delivery_root: Path) -> Dict[str, int | bool]:
     reserved = _active_reservation_bytes_unlocked(root, prune_stale=False)
     available = _filesystem_available(root)
     operational_limit = MAX_RUNTIME_DELIVERY_VOLUME_BYTES - RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+    physical_reserve = _physical_reserve_bytes(root)
+    physical_reserve_allocated = _physical_reserve_allocated_bytes(root)
+    reserve_enforced = _physical_reserve_enabled()
     return {
         "ok": (
             used + reserved <= operational_limit
-            and available - reserved >= RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+            and (
+                physical_reserve == RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                and physical_reserve_allocated >= RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                if reserve_enforced
+                else available - reserved >= RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+            )
         ),
         "usedBytes": used,
         "reservedBytes": reserved,
@@ -99,6 +194,9 @@ def runtime_delivery_capacity(delivery_root: Path) -> Dict[str, int | bool]:
         "volumeLimitBytes": MAX_RUNTIME_DELIVERY_VOLUME_BYTES,
         "recoveryReserveBytes": RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES,
         "filesystemAvailableBytes": available,
+        "physicalRecoveryReserveBytes": physical_reserve,
+        "physicalRecoveryReserveAllocatedBytes": physical_reserve_allocated,
+        "physicalRecoveryReserveEnforced": reserve_enforced,
         "operationalRemainingBytes": max(0, operational_limit - used - reserved),
         "recoveryRemainingBytes": max(0, MAX_RUNTIME_DELIVERY_VOLUME_BYTES - used - reserved),
     }
@@ -128,6 +226,11 @@ def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
             depths[lock_key] = 1
             _TRANSACTION_STATE.depths = depths
             try:
+                if not _recovery_admission(root):
+                    _resize_physical_reserve(
+                        root,
+                        RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES,
+                    )
                 yield
             finally:
                 depths.pop(lock_key, None)
@@ -201,6 +304,14 @@ def runtime_delivery_recovery_transaction(
             raise RuntimeDeliveryQuotaError("runtime delivery recovery transaction identity conflict")
         recoveries[lock_key] = (str(process_id), str(transaction_id))
         _TRANSACTION_STATE.recoveries = recoveries
+        _resize_physical_reserve(
+            root,
+            max(
+                0,
+                RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                - RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES,
+            ),
+        )
         try:
             yield
         finally:
@@ -209,6 +320,14 @@ def runtime_delivery_recovery_transaction(
             else:
                 recoveries[lock_key] = existing
             _TRANSACTION_STATE.recoveries = recoveries
+            try:
+                _resize_physical_reserve(root, RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES)
+            except RuntimeDeliveryQuotaError:
+                # The rollback itself is already durably committed. Readiness
+                # remains failed until capacity cleanup permits replenishment;
+                # never rewrite a committed intent as recovery-required solely
+                # because post-commit reserve replenishment is unavailable.
+                pass
 
 
 def _recovery_admission(delivery_root: Path) -> bool:
@@ -233,11 +352,14 @@ def _assert_volume_projection(root: Path, *, additional_bytes: int) -> None:
     if projected_volume > admission_limit:
         detail = "bounded rollback recovery capacity exceeded" if recovery else "recovery reserve preserved"
         raise RuntimeDeliveryQuotaError(f"runtime delivery volume quota exceeded; {detail}")
-    required_filesystem_headroom = max(
-        0,
-        RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
-        - (RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES if recovery else 0),
-    )
+    if _physical_reserve_enabled():
+        required_filesystem_headroom = 0
+    else:
+        required_filesystem_headroom = max(
+            0,
+            RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+            - (RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES if recovery else 0),
+        )
     if _filesystem_available(root) - reservations - additional < required_filesystem_headroom:
         raise RuntimeDeliveryQuotaError(
             "runtime delivery filesystem headroom is below the bounded recovery reserve"
@@ -510,6 +632,7 @@ __all__ = [
     "MAX_RUNTIME_DELIVERY_OBJECT_BYTES",
     "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES",
     "RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES",
+    "RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE",
     "RuntimeDeliveryQuotaError",
     "append_bounded_jsonl",
     "bounded_jsonl_payload",

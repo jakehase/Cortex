@@ -493,6 +493,42 @@ async def test_consumed_receipt_survives_router_recreation(monkeypatch):
     assert len(recorder.calls) == 1
 
 
+@pytest.mark.asyncio
+async def test_assurance_receipt_key_id_survives_rotation_and_lost_response(monkeypatch):
+    recorder = _Recorder()
+    app = _app(monkeypatch, recorder)
+    old_key = "old-assurance-signing-key-material-00000001"
+    new_key = "new-assurance-signing-key-material-00000002"
+    monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "assurance-2026-01")
+    monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY", old_key)
+    interaction = {
+        "query": "Remember this rotation-safe deployment decision",
+        "response": "Retain verify-only keys until every durable memory spool has drained.",
+        "levels_used": [7, 22],
+    }
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        receipt = await _receipt(client, interaction)
+        assert nexus._decode_assurance_receipt(receipt)["signing_key_id"] == "assurance-2026-01"
+
+        monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "assurance-2026-07")
+        monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY", new_key)
+        monkeypatch.setenv(
+            "NEXUS_ASSURANCE_VERIFY_KEYS",
+            json.dumps({"assurance-2026-01": old_key}),
+        )
+        committed = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+        replay = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+
+    assert committed.status_code == 200
+    assert replay.json() == committed.json()
+    assert len(recorder.calls) == 1
+
+
 def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_restart(
     monkeypatch,
     tmp_path,

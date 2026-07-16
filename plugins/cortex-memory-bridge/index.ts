@@ -291,6 +291,45 @@ type LifecycleLockOwner = {
 type LifecycleLockContender = LifecycleLockOwner & { ticket: number | null };
 const LIFECYCLE_MALFORMED_LOCK_GRACE_MS = 30_000;
 
+function fsyncLifecycleDirectory(directory: string): void {
+  if (process.platform === 'win32') return;
+  const fd = fs.openSync(directory, 'r');
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+
+function durableLifecycleMkdir(directory: string): void {
+  const target = path.resolve(directory);
+  const missing: string[] = [];
+  let cursor = target;
+  while (!fs.existsSync(cursor)) {
+    missing.push(cursor);
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  for (const child of missing.reverse()) {
+    const parent = path.dirname(child);
+    let created = false;
+    try {
+      fs.mkdirSync(child, { mode: 0o700 });
+      created = true;
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST' || !fs.statSync(child).isDirectory()) throw error;
+    }
+    try {
+      fs.chmodSync(child, 0o700);
+      if (created) fsyncLifecycleDirectory(parent);
+    } catch (error) {
+      // A failed parent fsync cannot be reported as durable.  Remove the
+      // still-empty link where possible so retry must recreate and resync it.
+      if (created) try { fs.rmdirSync(child); } catch {}
+      throw error;
+    }
+  }
+  if (!fs.statSync(target).isDirectory()) throw new Error(`lifecycle state path is not a directory: ${target}`);
+  try { fs.chmodSync(target, 0o700); } catch {}
+}
+
 function lifecycleProcessStartIdentity(pid: number): string | null {
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
@@ -330,6 +369,7 @@ function unlinkLifecycleLockIfOwned(lockPath: string, token: string): boolean {
     const owner = parseLifecycleLockOwner(fs.readFileSync(lockPath, 'utf8'));
     if (!owner || owner.token !== token) return false;
     fs.unlinkSync(lockPath);
+    fsyncLifecycleDirectory(path.dirname(lockPath));
     return true;
   } catch { return false; }
 }
@@ -361,6 +401,7 @@ function createLifecycleLock(lockPath: string): { fd: number; owner: LifecycleLo
     // A hard-link publish is exclusive and exposes only a complete owner.
     fs.linkSync(temporary, lockPath);
     try { fs.unlinkSync(temporary); } catch {}
+    fsyncLifecycleDirectory(path.dirname(lockPath));
     return { fd, owner };
   } catch (error) {
     if (fd !== undefined) try { fs.closeSync(fd); } catch {}
@@ -384,6 +425,7 @@ function publishLifecycleContender(guardPath: string, contender: LifecycleLockCo
     fs.closeSync(fd);
     fd = undefined;
     fs.renameSync(temporary, entry);
+    fsyncLifecycleDirectory(guardPath);
     return entry;
   } catch (error) {
     if (fd !== undefined) try { fs.closeSync(fd); } catch {}
@@ -423,7 +465,7 @@ function acquireLifecycleReclamationGuard(
   deadline: number,
 ): { entry: string; owner: LifecycleLockContender } {
   const guardPath = `${lockPath}.guard`;
-  fs.mkdirSync(guardPath, { recursive: true, mode: 0o700 });
+  durableLifecycleMkdir(guardPath);
   const base: LifecycleLockContender = {
     version: 1,
     pid: process.pid,
@@ -447,8 +489,13 @@ function acquireLifecycleReclamationGuard(
     }
     const owner = { ...base, ticket: maximumTicket + 1 };
     const replacement = `${entry}.ticket`;
-    fs.writeFileSync(replacement, JSON.stringify(owner), { flag: 'wx', mode: 0o600 });
+    const replacementFd = fs.openSync(replacement, 'wx', 0o600);
+    try {
+      fs.writeFileSync(replacementFd, JSON.stringify(owner));
+      fs.fsyncSync(replacementFd);
+    } finally { fs.closeSync(replacementFd); }
     fs.renameSync(replacement, entry);
+    fsyncLifecycleDirectory(guardPath);
     while (true) {
       let blocked = false;
       for (const contender of readLifecycleContenders(guardPath)) {
@@ -518,8 +565,7 @@ class DurableLifecycleSpool {
     this.filePath = path.join(stateDir, 'lifecycle-spool.json');
     this.lockPath = path.join(stateDir, '.lifecycle-spool.lock');
     this.maxRecords = maxRecords;
-    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-    try { fs.chmodSync(stateDir, 0o700); } catch {}
+    durableLifecycleMkdir(stateDir);
     this.withLock(() => this.reload());
   }
 
@@ -606,9 +652,7 @@ class DurableLifecycleSpool {
   }
 
   private fsyncDirectory(): void {
-    if (process.platform === 'win32') return;
-    const dirFd = fs.openSync(path.dirname(this.filePath), 'r');
-    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    fsyncLifecycleDirectory(path.dirname(this.filePath));
   }
 
   private flush(): void {
@@ -674,6 +718,7 @@ function quarantineLifecycleFile(filePath: string, reason: string): string {
   const suffix = `${reason}.${Date.now()}.${process.pid}.${Math.random().toString(16).slice(2)}.quarantine`;
   const destination = `${filePath}.${suffix}`;
   fs.renameSync(filePath, destination);
+  fsyncLifecycleDirectory(path.dirname(filePath));
   return destination;
 }
 
@@ -1279,8 +1324,7 @@ function loadLifecycleSpools(
   logger: { warn?: (message: string) => void },
 ): { root: string; spools: Map<string, DurableLifecycleSpool>; quota: DurableLifecycleQuota } {
   const stateRoot = cfg.stateDir;
-  fs.mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(stateRoot, 0o700); } catch {}
+  durableLifecycleMkdir(stateRoot);
 
   const legacyFile = path.join(stateRoot, 'lifecycle-spool.json');
   if (fs.existsSync(legacyFile)) {
@@ -1289,8 +1333,7 @@ function loadLifecycleSpools(
   }
 
   const principalRoot = path.join(stateRoot, 'lifecycle-principals-v2');
-  fs.mkdirSync(principalRoot, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(principalRoot, 0o700); } catch {}
+  durableLifecycleMkdir(principalRoot);
   const quota = new DurableLifecycleQuota(principalRoot, cfg.lifecycleSpoolMaxRecords);
   return quota.runExclusive(() => {
     const spools = new Map<string, DurableLifecycleSpool>();
@@ -2008,4 +2051,4 @@ const plugin = {
 };
 
 export default plugin;
-export { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults, withLifecycleDirectoryLock };
+export { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults, withLifecycleDirectoryLock };

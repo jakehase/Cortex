@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from types import SimpleNamespace
 
@@ -70,6 +71,29 @@ class FakeWebSocket:
 
     async def send_json(self, value):
         self.json.append(value)
+
+
+class FakeProgressWebSocket(FakeWebSocket):
+    def __init__(self, messages=(), **kwargs):
+        security = kwargs.pop("security", None) or SimpleNamespace(
+            write_auth_mode="token_required",
+            write_token="progress-secret",
+            write_token_header="x-progress-token",
+            admin_token="admin-secret",
+            allowed_origins=frozenset({"https://console.example"}),
+            progress_idle_timeout_seconds=0.1,
+            progress_lifetime_seconds=1.0,
+        )
+        super().__init__(security=security, **kwargs)
+        self.app.state.websocket_progress_admission = websockets.WebSocketAdmission(1)
+        self.messages = iter(messages)
+
+    async def receive_text(self):
+        try:
+            value = next(self.messages)
+        except StopIteration as exc:
+            raise WebSocketDisconnect() from exc
+        return value
 
 
 class FakeLogs:
@@ -392,6 +416,79 @@ async def test_log_websocket_sanitizes_docker_constructor_failure(monkeypatch):
     assert socket.accepted is True
     assert socket.sent == [{"type": "error", "message": "log stream unavailable"}]
     assert socket.closed == [{"code": 1011, "reason": "log stream unavailable"}]
+
+
+@pytest.mark.asyncio
+async def test_progress_websocket_authenticates_bounds_schema_and_preserves_capacity():
+    denied = FakeProgressWebSocket(host="203.0.113.9")
+    await websockets.ws_progress(denied)
+    assert denied.accepted is False
+    assert denied.closed == [(1008, "connection rejected")]
+
+    saturated = FakeProgressWebSocket(
+        headers={"x-progress-token": "progress-secret", "origin": "https://console.example"},
+    )
+    assert saturated.app.state.websocket_progress_admission.acquire() is True
+    await websockets.ws_progress(saturated)
+    assert saturated.closed == [(1013, "connection capacity exhausted")]
+    saturated.app.state.websocket_progress_admission.release()
+
+    healthy = FakeProgressWebSocket(
+        messages=['{"action":"ping"}'],
+        headers={"x-progress-token": "progress-secret", "origin": "https://console.example"},
+    )
+    await websockets.ws_progress(healthy)
+    assert healthy.accepted is True
+    assert healthy.json == [{"type": "pong"}]
+    assert healthy.app.state.websocket_progress_admission.active == 0
+
+    oversized = FakeProgressWebSocket(
+        messages=[json.dumps({"action": "subscribe", "task_id": "x" * 5000})],
+        headers={"x-progress-token": "progress-secret"},
+    )
+    await websockets.ws_progress(oversized)
+    assert oversized.closed == [(1009, "message too large")]
+
+
+def test_websocket_health_is_bodyless_http_not_a_long_lived_socket():
+    health_routes = [route for route in websockets.router.routes if route.path == "/ws/health"]
+    assert len(health_routes) == 1
+    assert "GET" in health_routes[0].methods
+    assert health_routes[0].__class__.__name__ != "APIWebSocketRoute"
+
+
+@pytest.mark.asyncio
+async def test_options_bodies_never_consume_authenticated_reader_capacity():
+    dispatched = []
+    app = FastAPI()
+
+    @app.post("/write")
+    async def write(request: Request):
+        dispatched.append(await request.body())
+        return {"ok": True}
+
+    limiter = RequestBodyLimitMiddleware(
+        app,
+        write_auth_mode="token_required",
+        write_token="write-secret",
+        write_token_header="x-write-token",
+        max_concurrent_body_reads=1,
+        max_buffered_body_bytes=1024,
+        max_body_bytes=1024,
+    )
+    transport = httpx.ASGITransport(app=limiter)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        for _index in range(64):
+            rejected = await client.request("OPTIONS", "/write", content=b"slow-body")
+            assert rejected.status_code == 400
+        accepted = await client.post(
+            "/write",
+            content=b"authenticated",
+            headers={"x-write-token": "write-secret"},
+        )
+    assert accepted.status_code == 200
+    assert dispatched == [b"authenticated"]
+    assert limiter._active_body_reads == 0
 
 
 @pytest.mark.asyncio

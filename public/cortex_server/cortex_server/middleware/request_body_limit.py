@@ -246,18 +246,22 @@ class RequestBodyLimitMiddleware:
 
         method = str(scope.get("method") or "").upper()
         headers = self._headers(scope)
-        if method in {"GET", "HEAD"}:
+        if method not in MUTATING_METHODS:
             if (declared or 0) > 0 or headers.get("transfer-encoding", "").strip():
                 await self._send_json(
                     send,
                     status=400,
-                    payload={"success": False, "error": f"{method} request bodies are not accepted"},
+                    payload={
+                        "success": False,
+                        "error": f"{method or 'unknown'} request bodies are not accepted",
+                    },
                     head=head,
                 )
                 return
-            # Read-only bodyless traffic is not a body-acquisition consumer.
-            # In particular, health checks must remain reachable while slow
-            # unauthenticated writers occupy the bounded reader pool.
+            # A method without defined application body semantics never enters
+            # either reader pool.  This includes OPTIONS/TRACE: allowing an
+            # unauthenticated slow body there would consume capacity reserved
+            # for positively authenticated writes.
             await self.app(scope, receive, send)
             return
         if declared is not None and declared > self.max_body_bytes:

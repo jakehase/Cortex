@@ -85,6 +85,8 @@ class WebSocketSecurityConfig:
     write_token_header: str
     admin_token: str
     allowed_origins: frozenset[str]
+    progress_idle_timeout_seconds: float
+    progress_lifetime_seconds: float
 
 
 @dataclass(frozen=True)
@@ -440,11 +442,14 @@ _PRINCIPAL_MUTATION_PREFIXES = (
 _TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES = (
     "/orchestrator/runtime/delivery/handoffs/",
     "/conductor/runtime/delivery/handoffs/",
+    # Artifact ingestion authenticates the independent verifier's revision-
+    # bound HMAC inside the request. It must not also receive the broad write
+    # credential used by the Cortex application.
+    "/orchestrator/runtime/delivery/artifacts/",
+    "/conductor/runtime/delivery/artifacts/",
 )
 _INDEPENDENT_RELEASE_PRINCIPAL_AUTH_PREFIXES = (
     *_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
-    "/orchestrator/runtime/delivery/artifacts/",
-    "/conductor/runtime/delivery/artifacts/",
 )
 _RUNTIME_MUTATION_RESOURCE_PATH = re.compile(
     rf"^/{_RUNTIME_ROUTE_PREFIX}/runtime/(?:delivery/(?:reconcile|rollback)|roadmap/reconcile|policy-(?:apply|rollback)|homeostasis/(?:freeze|rollback|resume)|(?:wake|cancel|pause|resume))/([^/]+)(?:/[^/]+)?$"
@@ -532,6 +537,7 @@ _PUBLIC_READ_PATHS = frozenset(
         "/docs",
         "/docs/oauth2-redirect",
         "/health",
+        "/release-observation",
         "/openapi.json",
         "/ready",
         "/redoc",
@@ -1152,6 +1158,12 @@ def create_app() -> FastAPI:
         write_token_header=write_token_header,
         admin_token=admin_token,
         allowed_origins=allowed_origins,
+        progress_idle_timeout_seconds=_bounded_body_float(
+            "CORTEX_PROGRESS_WEBSOCKET_IDLE_TIMEOUT_SECONDS", 15.0, 60.0
+        ),
+        progress_lifetime_seconds=_bounded_body_float(
+            "CORTEX_PROGRESS_WEBSOCKET_LIFETIME_SECONDS", 300.0, 900.0
+        ),
     )
 
     @asynccontextmanager
@@ -1357,6 +1369,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.websocket_security = websocket_security
+    app.state.websocket_progress_admission = websockets.WebSocketAdmission(
+        _bounded_body_int("CORTEX_MAX_PROGRESS_WEBSOCKETS", 32, 128)
+    )
     app.state.readiness_config = readiness_config
     app.state.read_authorization = read_authorization
     app.state.max_request_body_bytes = max_request_body_bytes
@@ -1585,13 +1600,16 @@ def create_app() -> FastAPI:
         missing_paths = sorted(required_paths - route_paths)
         missing_routers = sorted(required_routers - loaded_routers)
         configured_graph = os.getenv("CORTEX_DB_PATH", "").strip()
-        graph_path = Path(configured_graph or ("/opt/clawdbot/state/knowledge/cortex_graph.db" if production_environment else Path(__file__).resolve().parents[2] / "cortex_graph.db")).expanduser().resolve()
+        graph_path = Path(configured_graph or ("/opt/clawdbot/knowledge/cortex_graph.db" if production_environment else Path(__file__).resolve().parents[2] / "cortex_graph.db")).expanduser().resolve()
         graph_error = None
         graph_quick_check = None
         try:
             if not graph_path.is_file() or graph_path.is_symlink():
                 raise RuntimeError("configured graph database is not a regular file")
-            if production_environment and Path("/opt/clawdbot/state") not in graph_path.parents:
+            if production_environment and not any(
+                durable_root in graph_path.parents
+                for durable_root in (Path("/opt/clawdbot/knowledge"), Path("/opt/clawdbot/state"))
+            ):
                 raise RuntimeError("production graph database is outside the durable state volume")
             with sqlite3.connect(f"file:{graph_path}?mode=ro", uri=True, timeout=2.0) as connection:
                 row = connection.execute("PRAGMA quick_check").fetchone()
@@ -1836,6 +1854,78 @@ def create_app() -> FastAPI:
             "readiness": readiness["ready"],
         }
         return JSONResponse(status_code=200 if readiness["ready"] else 503, content=payload)
+
+    @app.get("/release-observation")
+    async def release_observation(
+        process_id: Optional[str] = None,
+        release_id: Optional[str] = None,
+        revision_id: Optional[str] = None,
+        target_stage: Optional[str] = None,
+    ):
+        """Core health sample that deliberately excludes controller self-health."""
+        from fastapi.responses import JSONResponse
+
+        binding_values = (process_id, release_id, revision_id, target_stage)
+        binding = None
+        if any(binding_values):
+            if not all(binding_values):
+                return JSONResponse(
+                    status_code=422,
+                    content={"status": "invalid", "error": "complete release observation binding required"},
+                )
+            from cortex_server.routers import orchestrator as orchestrator_module
+
+            state = orchestrator_module._runtime_delivery_stores()["release_store"].load(
+                str(process_id)
+            )
+            expected_target = (
+                "canary_verified"
+                if state is not None and state.current_stage == "build_verified"
+                else state.target_environment
+                if state is not None and state.current_stage == "canary_verified"
+                else state.target_environment
+                if state is not None and state.current_stage == state.target_environment
+                else None
+            )
+            if (
+                state is None
+                or not hmac.compare_digest(state.release_id, str(release_id))
+                or not hmac.compare_digest(state.revision_id, str(revision_id))
+                or not expected_target
+                or not hmac.compare_digest(expected_target, str(target_stage))
+            ):
+                return JSONResponse(
+                    status_code=409,
+                    content={"status": "stale", "error": "release observation binding is not active"},
+                )
+            binding = {
+                "process_id": state.process_id,
+                "release_id": state.release_id,
+                "revision_id": state.revision_id,
+                "target_stage": expected_target,
+            }
+
+        readiness = await async_readiness_payload()
+        checks = dict(readiness.get("checks") or {})
+        core_ok = True
+        for name, check in checks.items():
+            if name == "runtimeDelivery":
+                runtime_checks = dict(check.get("checks") or {})
+                core_ok = core_ok and all(
+                    bool(row.get("ok"))
+                    for check_name, row in runtime_checks.items()
+                    if check_name != "releaseConsumers"
+                )
+            elif check.get("required", True):
+                core_ok = core_ok and bool(check.get("ok"))
+        return JSONResponse(
+            status_code=200 if core_ok else 503,
+            content={
+                "status": "healthy" if core_ok else "degraded",
+                "core_ready": core_ok,
+                "release_binding": binding,
+            },
+        )
 
     @app.get("/")
     async def root():

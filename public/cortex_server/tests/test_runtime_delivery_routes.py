@@ -23,6 +23,7 @@ from cortex_server.runtime.production_build_loop import (
     RUNTIME_DELIVERY_MOUNT_MARKER,
     runtime_delivery_handoff_claim_signature,
     runtime_delivery_handoff_discovery_signature,
+    runtime_delivery_verifier_capability_signature,
 )
 from cortex_server.runtime.release_workflow import (
     ReleaseArtifactReceipt,
@@ -204,6 +205,42 @@ def test_release_bootstrap_intent_recovers_crash_between_contract_and_release(tm
     assert recovered == [process["process_id"]]
     assert stores["release_store"].load(process["process_id"]) is not None
     assert stores["loop_store"].load_state(process["process_id"]) is not None
+    assert not list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
+
+
+def test_release_bootstrap_intent_recovers_crash_before_contract_publication(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    process = scheduler.create_process_from_workflow(_workflow())
+    stores = orchestrator._runtime_delivery_stores()
+    original_save_contract = stores["loop_store"].save_contract
+    failures = {"remaining": 1}
+
+    def crash_before_contract(contract):
+        if failures["remaining"]:
+            failures["remaining"] -= 1
+            raise OSError("simulated crash before contract publication")
+        return original_save_contract(contract)
+
+    monkeypatch.setattr(stores["loop_store"], "save_contract", crash_before_contract)
+    with pytest.raises(OSError, match="before contract publication"):
+        orchestrator._reconcile_runtime_delivery_sequence(
+            process["process_id"],
+            request=orchestrator.RuntimeDeliveryReconcileRequest(bootstrap_runtime_state=True),
+            stores=stores,
+        )
+
+    intents = list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
+    assert len(intents) == 1
+    retained = json.loads(intents[0].read_text(encoding="utf-8"))
+    retained_contract_id = retained["contract"]["contract_id"]
+    assert stores["loop_store"].load_contract(process["process_id"]) is None
+
+    recovered = orchestrator._recover_runtime_delivery_bootstraps(stores=stores)
+    assert recovered == [process["process_id"]]
+    assert stores["loop_store"].load_contract(process["process_id"]).contract_id == retained_contract_id
+    assert stores["release_store"].load(process["process_id"]) is not None
     assert not list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
 
 
@@ -1159,6 +1196,37 @@ def test_pending_rollback_fences_release_handoff_claim_mutation(tmp_path, monkey
     persisted = next(row for row in stores["mailbox"].list() if row.message_id == message.message_id)
     assert persisted.delivery_status == "queued"
     assert not list((delivery_root / "handoff_claim_receipts").glob("*.json"))
+
+
+def test_verifier_capability_challenge_requires_dedicated_attestation_secret(monkeypatch):
+    verifier = "compose-release-verifier"
+    verifier_secret = "verifier-capability-secret-material-00000001"
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({verifier: verifier_secret}),
+    )
+    requested_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+    request_id = "verifier-capability-proof"
+    valid = orchestrator.RuntimeDeliveryVerifierCapabilityRequest(
+        verifier=verifier,
+        request_id=request_id,
+        requested_at=requested_at,
+        verifier_signature=runtime_delivery_verifier_capability_signature(
+            verifier=verifier,
+            request_id=request_id,
+            requested_at=requested_at,
+            secret=verifier_secret,
+        ),
+    )
+    response = asyncio.run(orchestrator.verify_runtime_delivery_verifier_capability(valid))
+    assert response["capability"] == "revision-bound-artifact-attestation"
+
+    invalid = valid.model_copy(update={"verifier_signature": "0" * 64})
+    with pytest.raises(orchestrator.HTTPException) as rejected:
+        asyncio.run(orchestrator.verify_runtime_delivery_verifier_capability(invalid))
+    assert rejected.value.status_code == 403
 
 
 def test_empty_handoff_discovery_consumes_authenticated_request_id(tmp_path, monkeypatch):

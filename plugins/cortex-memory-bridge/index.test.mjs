@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
-import plugin, { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults } from './index.ts';
+import plugin, { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
 const lifecycleConfig = (overrides = {}) => ({
   stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-test-')),
@@ -92,6 +92,42 @@ const runEvalWorker = (script, label) => new Promise((resolve, reject) => {
   child.on('close', (code) => code === 0
     ? resolve()
     : reject(new Error(`${label} exited ${code}: ${stderr}`)));
+});
+
+test('first-use lifecycle directory links fsync every parent and fail closed', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-durable-mkdir-'));
+  const target = path.join(root, 'state', 'lifecycle-principals-v2', 'principal');
+  const originalFsync = fs.fsyncSync;
+  const synced = [];
+  try {
+    fs.fsyncSync = (fd) => {
+      const descriptor = fs.fstatSync(fd);
+      if (descriptor.isDirectory()) synced.push(fs.realpathSync(`/proc/self/fd/${fd}`));
+      return originalFsync(fd);
+    };
+    durableLifecycleMkdir(target);
+    assert.deepEqual(synced.slice(0, 3), [
+      fs.realpathSync(root),
+      fs.realpathSync(path.join(root, 'state')),
+      fs.realpathSync(path.join(root, 'state', 'lifecycle-principals-v2')),
+    ]);
+
+    const failedTarget = path.join(root, 'failed-parent', 'namespace');
+    fs.fsyncSync = (fd) => {
+      if (fs.fstatSync(fd).isDirectory()) {
+        const error = new Error('injected parent fsync failure');
+        error.code = 'EIO';
+        throw error;
+      }
+      return originalFsync(fd);
+    };
+    assert.throws(() => durableLifecycleMkdir(failedTarget), /injected parent fsync failure/);
+    assert.equal(fs.existsSync(path.join(root, 'failed-parent')), false);
+    assert.equal(fs.existsSync(failedTarget), false);
+  } finally {
+    fs.fsyncSync = originalFsync;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('registration rejects an unprovisioned shared session secret before hooks or lifecycle replay start', () => {

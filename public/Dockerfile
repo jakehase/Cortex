@@ -45,7 +45,7 @@ COPY cortex_server/cortex_server/knowledge/evolution/ ./cortex_server/knowledge/
 
 # Create necessary directories. The runtime delivery path is replaced by the
 # access-controlled durable volume in the production Compose deployment.
-RUN mkdir -p /app/config /app/logs /app/seed /app/cortex_server/knowledge/evolution /opt/clawdbot/state/runtime_delivery /opt/clawdbot/state/knowledge
+RUN mkdir -p /app/config /app/logs /app/seed /app/cortex_server/knowledge/evolution /opt/clawdbot/runtime_delivery /opt/clawdbot/state /opt/clawdbot/knowledge /opt/clawdbot/reasoning
 
 # Set environment variables
 ENV PYTHONPATH=/app
@@ -64,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -fsS http://localhost:8888/ready >/dev/null || exit 1
 
 # Run the Cortex
-CMD ["python", "-m", "uvicorn", "cortex_server.main:app", "--host", "0.0.0.0", "--port", "8888", "--limit-concurrency", "128", "--timeout-keep-alive", "5"]
+CMD ["python", "-m", "uvicorn", "cortex_server.main:app", "--host", "0.0.0.0", "--port", "8888", "--limit-concurrency", "128", "--timeout-keep-alive", "5", "--ws-max-size", "4096"]

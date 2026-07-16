@@ -18,4 +18,5 @@ export CORTEX_PORT="${CORTEX_PORT:-8000}"
 
 exec /usr/bin/python3 -m uvicorn cortex_server.main:app \
   --host "${CORTEX_HOST}" \
-  --port "${CORTEX_PORT}"
+  --port "${CORTEX_PORT}" \
+  --ws-max-size 4096

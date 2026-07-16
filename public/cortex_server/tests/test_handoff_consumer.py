@@ -100,3 +100,114 @@ def test_permanent_message_failure_does_not_refresh_readiness(monkeypatch):
     assert handoff_consumer._consumer_readiness()["ready"] is False
     with handoff_consumer._POLL_STATUS_LOCK:
         assert handoff_consumer._POLL_STATUS["last_success_epoch"] == 2980.0
+
+
+def test_verifier_generates_revision_bound_signed_evidence_from_real_window(monkeypatch):
+    monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_ID", "compose-release-verifier")
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET",
+        "verifier-attestation-secret-material-00000001",
+    )
+    submissions = []
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_post_json",
+        lambda base_url, path, payload: submissions.append((base_url, path, payload))
+        or {"receipt": {"artifact_id": payload["artifact_id"]}},
+    )
+    release = {
+        "process_id": "proc-controller-verifier",
+        "release_id": "release-controller-verifier",
+        "revision_id": "revision-controller-verifier",
+        "candidate_ref": "build:controller-verifier",
+        "target_stage": "canary_verified",
+        "artifact_receipts": [
+            {"artifact_kind": "release_bundle", "content_hash": "sha256:" + "a" * 64}
+        ],
+    }
+    window = {
+        "first_epoch": 1000.0,
+        "last_epoch": 1900.0,
+        "total": 1000,
+        "succeeded": 1000,
+    }
+
+    receipt = handoff_consumer._submit_verifier_evidence("http://cortex", release, window)
+    assert receipt["artifact_id"] == submissions[0][2]["artifact_id"]
+    assert submissions[0][1].endswith("/artifacts/proc-controller-verifier")
+    evidence = submissions[0][2]
+    assert evidence["target_stage"] == "canary_verified"
+    assert "revision-controller-verifier" in evidence["artifact_id"]
+    assert evidence["claims"]["deployment_id"] == "release-controller-verifier"
+    assert evidence["claims"]["cohort_id"] == (
+        "canary_verified:revision-controller-verifier"
+    )
+    assert evidence["validation_outcome"] == "passed"
+    assert evidence["claims"]["observation_window_seconds"] == 900
+    assert evidence["claims"]["traffic_volume"] == 1000
+    assert len(evidence["attestation_signature"]) == 64
+
+    changed_window = {**window, "first_epoch": 2000.0, "last_epoch": 2900.0, "succeeded": 999}
+    handoff_consumer._submit_verifier_evidence("http://cortex", release, changed_window)
+    assert submissions[1][2]["artifact_id"] != evidence["artifact_id"]
+
+
+def test_manager_invokes_signed_idempotent_rollback_after_full_failure_window(monkeypatch, tmp_path):
+    requests = []
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_record_measurement_burst",
+        lambda *_args, **_kwargs: {
+            "first_epoch": 1000.0,
+            "last_epoch": 1900.0,
+            "total": 1000,
+            "succeeded": 970,
+        },
+    )
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_post_json",
+        lambda base_url, path, payload: requests.append((base_url, path, payload)) or {"applied": True},
+    )
+    release = {
+        "process_id": "proc-controller-manager",
+        "release_id": "release-controller-manager",
+        "revision_id": "revision-controller-manager",
+    }
+    secret = "manager-recipient-secret-material-000000001"
+    store = handoff_consumer._ObservationStore(tmp_path / "controller-state")
+
+    handoff_consumer._monitor_managed_release(
+        "http://cortex",
+        secret,
+        store,
+        release,
+        "http://cortex/release-observation",
+    )
+    assert requests[0][1] == (
+        "/orchestrator/runtime/delivery/handoffs/manager-rollback/proc-controller-manager"
+    )
+    payload = requests[0][2]
+    assert payload["reason"] == "post_promotion_health_policy_failure"
+    assert payload["idempotency_key"].startswith(
+        "health:release-controller-manager:revision-controller-manager:"
+    )
+    assert len(payload["manager_signature"]) == 64
+
+
+def test_production_controller_readiness_requires_live_measurement_capability(monkeypatch):
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_HANDOFF_READY_MAX_AGE_SECONDS", "30")
+    with handoff_consumer._POLL_STATUS_LOCK:
+        handoff_consumer._POLL_STATUS.update(
+            {
+                "last_success_epoch": handoff_consumer.time.time(),
+                "last_success_at": "now",
+                "last_error": None,
+                "capability_verified": False,
+            }
+        )
+    assert handoff_consumer._consumer_readiness()["ready"] is False
+    with handoff_consumer._POLL_STATUS_LOCK:
+        handoff_consumer._POLL_STATUS["capability_verified"] = True
+    assert handoff_consumer._consumer_readiness()["ready"] is True

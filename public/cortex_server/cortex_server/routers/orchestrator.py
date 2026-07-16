@@ -120,7 +120,10 @@ from cortex_server.runtime.production_build_loop import (
     runtime_delivery_artifact_fetch_signature,
     runtime_delivery_handoff_claim_signature,
     runtime_delivery_handoff_discovery_signature,
+    runtime_delivery_manager_rollback_signature,
     runtime_delivery_recipient_credentials,
+    runtime_delivery_verifier_capability_signature,
+    runtime_delivery_verifier_credentials,
 )
 from cortex_server.runtime.release_workflow import (
     RELEASE_STAGE_TOPOLOGY,
@@ -1438,6 +1441,7 @@ def _resolve_runtime_delivery_contract(
     process: Dict[str, Any],
     stores: Dict[str, Any],
     request: RuntimeDeliveryReconcileRequest,
+    bootstrap_recovery_contract: Optional[ProductionBuildContract] = None,
 ) -> ProductionBuildContract:
     workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
     metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
@@ -1453,12 +1457,22 @@ def _resolve_runtime_delivery_contract(
     if isinstance(request.contract, dict):
         if "contract_id" in request.contract:
             requested_contract_id = str(request.contract.get("contract_id") or "").strip()
-            if stored_contract is None or requested_contract_id != stored_contract.contract_id:
+            recovery_identity_matches = bool(
+                stored_contract is None
+                and bootstrap_recovery_contract is not None
+                and requested_contract_id == bootstrap_recovery_contract.contract_id
+                and request.contract == model_dump_compat(bootstrap_recovery_contract)
+            )
+            if not recovery_identity_matches and (
+                stored_contract is None or requested_contract_id != stored_contract.contract_id
+            ):
                 raise HTTPException(status_code=409, detail="production contract_id is server-owned and immutable")
         payload.update({key: value for key, value in request.contract.items() if key != "contract_id"})
 
     if stored_contract is not None:
         payload["contract_id"] = stored_contract.contract_id
+    elif bootstrap_recovery_contract is not None:
+        payload["contract_id"] = bootstrap_recovery_contract.contract_id
     else:
         payload.pop("contract_id", None)
 
@@ -1860,7 +1874,7 @@ def _apply_runtime_delivery_rollback_projections(
     transaction_id = str(intent.get("transaction_id") or "").strip()
     if not transaction_id:
         raise ValueError("rollback projection requires transaction_id")
-    rollback_fencepost_id = str((intent.get("fencepost") or {}).get("fencepost_id") or "").strip() or None
+    rollback_fencepost_id = str(intent.get("selected_fencepost_id") or "").strip() or None
     release_store = stores["release_store"]
     rollback_checkpoint = _checkpoint_runtime_delivery_rollback(
         process_id,
@@ -1977,9 +1991,25 @@ def _recover_runtime_delivery_bootstraps(*, stores: Optional[Dict[str, Any]] = N
         contract_payload = payload.get("contract")
         if not process_id or not isinstance(request_payload, dict) or not isinstance(contract_payload, dict):
             raise RuntimeError(f"incomplete runtime delivery bootstrap intent: {target.name}")
+        if target != _release_bootstrap_intent_target(
+            stores=active_stores,
+            process_id=process_id,
+        ):
+            raise RuntimeError(f"runtime delivery bootstrap intent path mismatch: {target.name}")
+        try:
+            recovery_contract = ProductionBuildContract.model_validate(contract_payload)
+        except Exception as exc:
+            raise RuntimeError(f"invalid runtime delivery bootstrap contract: {target.name}") from exc
+        if recovery_contract.process_id != process_id:
+            raise RuntimeError(f"runtime delivery bootstrap contract process mismatch: {target.name}")
         request_payload = {**request_payload, "contract": contract_payload, "initialize_release": True}
         request = RuntimeDeliveryReconcileRequest.model_validate(request_payload)
-        _reconcile_runtime_delivery_sequence(process_id, request=request, stores=active_stores)
+        _reconcile_runtime_delivery_sequence(
+            process_id,
+            request=request,
+            stores=active_stores,
+            bootstrap_recovery_contract=recovery_contract,
+        )
         recovered.append(process_id)
     return recovered
 
@@ -1987,6 +2017,10 @@ def _recover_runtime_delivery_bootstraps(*, stores: Optional[Dict[str, Any]] = N
 @router.on_event("startup")
 async def recover_runtime_delivery_rollbacks_on_startup() -> None:
     stores = _runtime_delivery_stores()
+    # Allocate and verify the physical rollback reserve before readiness can
+    # advertise the delivery plane, including on a completely fresh volume.
+    with runtime_delivery_quota_transaction(Path(stores["root"])):
+        pass
     _recover_runtime_delivery_bootstraps(stores=stores)
     _recover_runtime_delivery_rollbacks(stores=stores)
     for process in list_runtime_processes():
@@ -3324,6 +3358,35 @@ class RuntimeDeliveryHandoffClaimNextRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=256)
     requested_at: str = Field(min_length=1, max_length=64)
     recipient_signature: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
+    )
+
+
+class RuntimeDeliveryManagerRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    release_id: str = Field(min_length=1, max_length=256)
+    revision_id: str = Field(min_length=1, max_length=256)
+    idempotency_key: str = Field(min_length=1, max_length=256)
+    reason: str = Field(min_length=1, max_length=512)
+    request_id: str = Field(min_length=1, max_length=256)
+    requested_at: str = Field(min_length=1, max_length=64)
+    manager_signature: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
+    )
+
+
+class RuntimeDeliveryVerifierCapabilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verifier: str = Field(min_length=1, max_length=256)
+    request_id: str = Field(min_length=1, max_length=256)
+    requested_at: str = Field(min_length=1, max_length=64)
+    verifier_signature: str = Field(
         min_length=1,
         max_length=64,
         pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
@@ -5343,6 +5406,51 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
                     )
                     release_handoffs.append(message)
         claimed_at = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+        controller_process_ids = sorted({
+            message.process_id
+            for message in stores["mailbox"].list()
+            if message.to_agent in REQUIRED_RELEASE_HANDOFF_RECIPIENTS
+        })
+        verification_releases: List[Dict[str, Any]] = []
+        managed_releases: List[Dict[str, Any]] = []
+        for controller_process_id in controller_process_ids:
+            controller_state = stores["release_store"].load(controller_process_id)
+            if controller_state is None:
+                continue
+            controller_receipts = [
+                dict(row)
+                for row in (controller_state.metadata.get("release_artifacts") or [])
+                if isinstance(row, dict)
+                and str(row.get("release_id") or "") == controller_state.release_id
+                and str(row.get("revision_id") or "") == controller_state.revision_id
+            ]
+            view = {
+                "process_id": controller_state.process_id,
+                "candidate_ref": controller_state.candidate_ref,
+                "release_id": controller_state.release_id,
+                "revision_id": controller_state.revision_id,
+                "current_stage": controller_state.current_stage,
+                "target_environment": controller_state.target_environment,
+                "artifact_receipts": controller_receipts,
+            }
+            if recipient == "release-verifier":
+                target_stage = (
+                    "canary_verified"
+                    if controller_state.current_stage == "build_verified"
+                    else controller_state.target_environment
+                    if controller_state.current_stage == "canary_verified"
+                    else None
+                )
+                has_evidence = any(
+                    row.get("artifact_kind") == "canary_evidence"
+                    and row.get("target_stage") == target_stage
+                    and row.get("validation_outcome") == "passed"
+                    for row in controller_receipts
+                )
+                if target_stage and not has_evidence:
+                    verification_releases.append({**view, "target_stage": target_stage})
+            elif recipient == "release-manager" and controller_state.current_stage == controller_state.target_environment:
+                managed_releases.append(view)
         response = {
             "success": True,
             "authentication": "hmac-sha256",
@@ -5351,12 +5459,79 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
             "claimed_at": claimed_at,
             "recovered_release_progress": recovered_progress,
             "messages": [model_dump_compat(message) for message in release_handoffs],
+            "verification_releases": verification_releases,
+            "managed_releases": managed_releases,
         }
         _write_runtime_event_receipt(
             receipt_path,
             {**receipt, "status": "committed", **response},
         )
     return response
+
+
+@router.post("/runtime/delivery/handoffs/manager-rollback/{process_id}")
+async def manager_rollback_runtime_delivery(
+    process_id: str,
+    request: RuntimeDeliveryManagerRollbackRequest,
+):
+    credentials = _runtime_delivery_recipient_credentials_or_503()
+    manager_secret = credentials["release-manager"]
+    expected = runtime_delivery_manager_rollback_signature(
+        process_id=process_id,
+        release_id=request.release_id,
+        revision_id=request.revision_id,
+        idempotency_key=request.idempotency_key,
+        reason=request.reason,
+        request_id=request.request_id,
+        requested_at=request.requested_at,
+        secret=manager_secret,
+    )
+    if not hmac.compare_digest(str(request.manager_signature or ""), expected):
+        raise HTTPException(status_code=403, detail="authenticated release-manager signature required")
+    _validate_runtime_delivery_handoff_claim_freshness(request.requested_at)
+    stores = _runtime_delivery_stores()
+    state = stores["release_store"].load(process_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="release workflow not found")
+    if not (
+        hmac.compare_digest(state.release_id, request.release_id)
+        and hmac.compare_digest(state.revision_id, request.revision_id)
+    ):
+        raise HTTPException(status_code=409, detail="manager rollback does not match the active release revision")
+    return await rollback_runtime_delivery(
+        process_id,
+        RuntimeDeliveryRollbackRequest(
+            idempotency_key=request.idempotency_key,
+            reason=request.reason,
+            actor="release-manager",
+        ),
+    )
+
+
+@router.post("/runtime/delivery/handoffs/verifier-capability")
+async def verify_runtime_delivery_verifier_capability(
+    request: RuntimeDeliveryVerifierCapabilityRequest,
+):
+    try:
+        credentials = runtime_delivery_verifier_credentials()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    secret = str(credentials.get(request.verifier) or "")
+    expected = runtime_delivery_verifier_capability_signature(
+        verifier=request.verifier,
+        request_id=request.request_id,
+        requested_at=request.requested_at,
+        secret=secret,
+    )
+    if not secret or not hmac.compare_digest(request.verifier_signature, expected):
+        raise HTTPException(status_code=403, detail="authenticated release-verifier capability required")
+    _validate_runtime_delivery_handoff_claim_freshness(request.requested_at)
+    return {
+        "success": True,
+        "capability": "revision-bound-artifact-attestation",
+        "verifier": request.verifier,
+        "request_id": request.request_id,
+    }
 
 
 @router.post("/runtime/delivery/handoffs/artifacts/resolve")
@@ -5520,6 +5695,7 @@ def _reconcile_runtime_delivery_sequence(
     *,
     request: RuntimeDeliveryReconcileRequest,
     stores: Dict[str, Any],
+    bootstrap_recovery_contract: Optional[ProductionBuildContract] = None,
 ) -> Dict[str, Any]:
     """Commit reconciliation, reasoning projection, and follow-up atomically."""
 
@@ -5544,18 +5720,25 @@ def _reconcile_runtime_delivery_sequence(
                 status_code=400,
                 detail="initialize_release=false is invalid before durable release workflow initialization",
             )
-        contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=request)
+        contract = _resolve_runtime_delivery_contract(
+            process_id,
+            process=process,
+            stores=stores,
+            request=request,
+            bootstrap_recovery_contract=bootstrap_recovery_contract,
+        )
         bootstrap_intent = _release_bootstrap_intent_target(
             stores=stores,
             process_id=process_id,
         ).exists()
         if release_state is None:
-            _save_release_bootstrap_intent(
-                stores=stores,
-                process_id=process_id,
-                request=request,
-                contract=contract,
-            )
+            if bootstrap_recovery_contract is None:
+                _save_release_bootstrap_intent(
+                    stores=stores,
+                    process_id=process_id,
+                    request=request,
+                    contract=contract,
+                )
             bootstrap_intent = True
         # Establish the immutable contract identity before release creation,
         # dependability campaigns, promotion, or any other side effect.

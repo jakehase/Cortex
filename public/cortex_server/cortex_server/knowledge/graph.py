@@ -88,7 +88,7 @@ class SQLiteStorage:
         else:
             production = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower() in {"production", "prod", "staging"}
             if production:
-                self.db_path = "/opt/clawdbot/state/knowledge/cortex_graph.db"
+                self.db_path = "/opt/clawdbot/knowledge/cortex_graph.db"
             else:
                 chosen = None
                 for c in self.DEFAULT_DB_CANDIDATES:

@@ -1271,3 +1271,78 @@ def test_committed_rollback_retry_returns_durable_response_without_rolling_back_
             actor="release-manager",
             idempotency_key="health-incident-002",
         )
+
+
+def test_near_limit_release_state_uses_one_bounded_rollback_bundle(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_near_limit_rollback"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    large_value = "x" * 1_100_000
+    shared = harness.shared_state_store.save(
+        seeded["shared_state"].model_copy(
+            update={
+                "revision_id": "rev_near_limit",
+                "world_state": {"near_limit_restore_payload": large_value},
+            }
+        ),
+        expected_revision_id=seeded["shared_state"].revision_id,
+    )
+    snapshot = harness.snapshot_store.save(
+        seeded["snapshot"].model_copy(
+            update={"world_state": {"near_limit_restore_payload": large_value}}
+        )
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:near-limit-rollback",
+        target_environment="production",
+        revision_id=shared.revision_id,
+        current_stage="production",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=snapshot,
+            shared_state=shared,
+            stage="build_verified",
+        ),
+    )
+    stored = harness.release_store.save(state)
+    assert len(harness.release_store._encoded_json(stored.model_dump(), pretty=True)) > 1_000_000
+
+    first = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="near_limit_health_failure",
+        actor="release-manager",
+        idempotency_key="near-limit-health-001",
+    )
+    intent = harness.release_store.load_rollback_intent(process_id)
+    encoded_intent = harness.release_store._encoded_json(intent, pretty=True)
+    assert intent["status"] == "committed"
+    assert len(encoded_intent) < 4 * 1024 * 1024
+    assert set(intent).isdisjoint({"source_release_state", "rolled_state", "fencepost", "restore_state"})
+    assert intent["rollback_bundle"]["rolled_state"]["rollback_fenceposts"][0]["restore_state"][
+        "world_state"
+    ]["near_limit_restore_payload"] == large_value
+    assert intent["committed_response"]["version"] == "cortex.release-rollback-committed.v1"
+
+    retried = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="near_limit_health_failure",
+        actor="release-manager",
+        idempotency_key="near-limit-health-001",
+    )
+    assert retried["rollback_transaction"]["transaction_id"] == first["rollback_transaction"]["transaction_id"]

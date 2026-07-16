@@ -1893,11 +1893,12 @@ def index_with_novelty(
     compare_window: int = 40,
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
+    memory_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not (text or "").strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
-    memory_id = str(uuid.uuid4())
+    memory_id = str(memory_id or uuid.uuid4())
     tenant, workspace = _memory_scope(tenant_id, workspace_id)
     enriched_metadata = _normalize_memory_metadata(_build_novel_metadata(
         text=text,

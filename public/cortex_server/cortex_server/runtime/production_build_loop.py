@@ -268,6 +268,32 @@ def runtime_delivery_recipient_credentials() -> Dict[str, str]:
     return _runtime_delivery_credential_map("CORTEX_AGENT_ACK_CREDENTIALS")
 
 
+def runtime_delivery_verifier_credentials() -> Dict[str, str]:
+    """Return active attestation-only credentials for verifier challenges."""
+
+    return _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
+
+
+def runtime_delivery_verifier_capability_signature(
+    *,
+    verifier: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.verifier_capability.v1",
+        "verifier": str(verifier or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
 def validate_production_delivery_credentials() -> Dict[str, Any]:
     """Validate all independent production signing authorities before serving."""
 
@@ -367,6 +393,34 @@ def runtime_delivery_artifact_fetch_signature(
         "release_id": str(release_id or "").strip(),
         "revision_id": str(revision_id or "").strip(),
         "artifact_ref": str(artifact_ref or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def runtime_delivery_manager_rollback_signature(
+    *,
+    process_id: str,
+    release_id: str,
+    revision_id: str,
+    idempotency_key: str,
+    reason: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.manager_rollback.v1",
+        "process_id": str(process_id or "").strip(),
+        "release_id": str(release_id or "").strip(),
+        "revision_id": str(revision_id or "").strip(),
+        "idempotency_key": str(idempotency_key or "").strip(),
+        "reason": str(reason or "").strip(),
         "request_id": str(request_id or "").strip(),
         "requested_at": str(requested_at or "").strip(),
     }
@@ -962,7 +1016,7 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
             }
 
         reasoning_path = Path(
-            os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db")
+            os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/reasoning/reasoning_runtime.db")
         )
         reasoning_error: Optional[str] = None
         quick_check: Optional[str] = None
@@ -4438,7 +4492,10 @@ __all__ = [
     "runtime_delivery_handoff_claim_signature",
     "runtime_delivery_handoff_discovery_signature",
     "runtime_delivery_artifact_fetch_signature",
+    "runtime_delivery_manager_rollback_signature",
     "runtime_delivery_recipient_credentials",
+    "runtime_delivery_verifier_capability_signature",
+    "runtime_delivery_verifier_credentials",
     "validate_production_delivery_credentials",
     "ValidationError",
 ]

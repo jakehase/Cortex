@@ -19,4 +19,5 @@ if __name__ == "__main__":
         port=8000,
         reload=True,
         log_level="info",
+        ws_max_size=4096,
     )

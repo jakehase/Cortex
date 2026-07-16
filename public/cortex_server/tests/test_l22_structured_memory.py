@@ -139,3 +139,175 @@ def test_l22_idempotency_is_durable_scoped_and_rejects_payload_reuse(monkeypatch
             **scope,
         )
     assert exc_info.value.status_code == 409
+
+
+def test_l22_quota_serializes_workspace_and_global_durable_admission(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "quota.sqlite3"))
+    monkeypatch.setenv("CORTEX_L22_WORKSPACE_RECORDS", "1")
+    monkeypatch.setenv("CORTEX_L22_GLOBAL_RECORDS", "2")
+    rows = {}
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in rows]
+            return {"ids": found, "metadatas": [rows[row_id] for row_id in found]}
+
+    def add_record(memory_id, _text, metadata, **_scope):
+        rows[memory_id] = dict(metadata)
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_record)
+
+    l22.store_memory_record(content="workspace a", tenant_id="tenant", workspace_id="a")
+    with pytest.raises(HTTPException) as workspace_full:
+        l22.store_memory_record(content="workspace a again", tenant_id="tenant", workspace_id="a")
+    assert workspace_full.value.status_code == 507
+
+    l22.store_memory_record(content="workspace b", tenant_id="tenant", workspace_id="b")
+    with pytest.raises(HTTPException) as global_full:
+        l22.store_memory_record(content="workspace c", tenant_id="tenant", workspace_id="c")
+    assert global_full.value.status_code == 507
+    assert "global record quota" in str(global_full.value.detail)
+
+
+def test_l22_quota_reconciles_crash_after_chroma_publication(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "quota-recovery.sqlite3"))
+    monkeypatch.setattr(l22, "_L22_QUOTA_RESERVATION_TIMEOUT_SECONDS", 0)
+    rows = {}
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in rows]
+            return {"ids": found, "metadatas": [rows[row_id] for row_id in found]}
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    l22._reserve_memory_quota(
+        memory_id="crash-published",
+        tenant="tenant",
+        workspace="workspace",
+        credential="credential",
+        charge_bytes=8192,
+        payload_hash="a" * 64,
+    )
+    rows["crash-published"] = {"idempotency_hash": "a" * 64}
+    l22._reserve_memory_quota(
+        memory_id="next-write",
+        tenant="tenant",
+        workspace="workspace",
+        credential="credential",
+        charge_bytes=8192,
+        payload_hash="b" * 64,
+    )
+
+    connection = l22._structured_memory_connection()
+    try:
+        statuses = dict(connection.execute(
+            "SELECT memory_id, status FROM l22_quota_records ORDER BY memory_id"
+        ).fetchall())
+    finally:
+        connection.close()
+    assert statuses == {"crash-published": "committed", "next-write": "reserved"}
+
+
+def test_l22_preallocates_physical_recovery_capacity(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "quota.sqlite3"))
+    monkeypatch.setenv("CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE", "true")
+    monkeypatch.setenv("CORTEX_L22_RECOVERY_RESERVE_BYTES", "16384")
+
+    connection = l22._structured_memory_connection()
+    connection.close()
+    reserve = tmp_path / l22._L22_PHYSICAL_RESERVE_FILE
+    assert reserve.stat().st_size == 16384
+    assert reserve.stat().st_blocks * 512 >= 16384
+    expected_usage = sum(
+        path.stat().st_size
+        for path in tmp_path.rglob("*")
+        if path.is_file() and path.name != l22._L22_PHYSICAL_RESERVE_FILE
+    )
+    assert l22._l22_volume_usage() == expected_usage
+
+
+def test_l22_retains_charge_when_publish_raises_after_durable_add(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "partial.sqlite3"))
+    rows = {}
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in rows]
+            return {"ids": found, "metadatas": [rows[row_id] for row_id in found]}
+
+    def add_then_fail(memory_id, _text, metadata, **_scope):
+        rows[memory_id] = dict(metadata)
+        raise RuntimeError("response lost after durable Chroma add")
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_then_fail)
+    with pytest.raises(RuntimeError, match="response lost"):
+        l22.store_memory_record(content="durably added before failure")
+
+    connection = l22._structured_memory_connection()
+    try:
+        record = connection.execute(
+            "SELECT memory_id, status FROM l22_quota_records"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert record["memory_id"] in rows
+    assert record["status"] == "committed"
+
+
+def test_l22_backfills_preexisting_chroma_and_structured_rows_once(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "backfill.sqlite3"))
+    connection = l22._structured_memory_connection()
+    connection.execute(
+        "INSERT INTO structured_memory(id, tenant_id, workspace_id, memory_type, lookup_key, "
+        "content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "legacy-structured",
+            "tenant-a",
+            "workspace-a",
+            "codec",
+            "",
+            "structured content",
+            json.dumps({"scope_credential_id": "credential-a"}),
+            "2026-01-01T00:00:00Z",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    class Collection:
+        def get(self, *, limit, offset, include):
+            if offset:
+                return {"ids": [], "metadatas": [], "documents": []}
+            return {
+                "ids": ["legacy-chroma"],
+                "metadatas": [
+                    {
+                        "tenant_id": "tenant-b",
+                        "storage_workspace_id": "workspace-b",
+                        "scope_credential_id": "credential-b",
+                    }
+                ],
+                "documents": ["chroma content"],
+            }
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    l22._backfill_l22_quota_ledger()
+    l22._backfill_l22_quota_ledger()
+
+    connection = l22._structured_memory_connection()
+    try:
+        records = connection.execute(
+            "SELECT memory_id, status FROM l22_quota_records ORDER BY memory_id"
+        ).fetchall()
+        global_usage = connection.execute(
+            "SELECT record_count FROM l22_quota_usage WHERE scope_type = 'global' AND scope_id = '*'"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    assert [(row["memory_id"], row["status"]) for row in records] == [
+        ("legacy-chroma", "committed"),
+        ("legacy-structured", "committed"),
+    ]
+    assert global_usage == 2
