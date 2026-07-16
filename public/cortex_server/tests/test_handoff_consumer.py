@@ -318,3 +318,149 @@ def test_production_controller_readiness_requires_live_measurement_capability(mo
     with handoff_consumer._POLL_STATUS_LOCK:
         handoff_consumer._POLL_STATUS["capability_verified"] = True
     assert handoff_consumer._consumer_readiness()["ready"] is True
+
+
+def test_controller_observation_store_fails_closed_on_missing_or_symlinked_state(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.delenv("CORTEX_RELEASE_CONTROLLER_REQUIRE_EXISTING_STATE", raising=False)
+    missing = handoff_consumer._ObservationStore(tmp_path / "missing-controller")
+    with pytest.raises(RuntimeError, match="observation state is missing"):
+        missing.retain(set())
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_CONTROLLER_STATE_DIR", str(tmp_path / "startup-controller")
+    )
+    with pytest.raises(RuntimeError, match="observation state is missing"):
+        handoff_consumer._observation_store()
+
+    external = tmp_path / "external-observations.json"
+    external.write_text(
+        '{"version":"cortex.release-controller-observations.v1","windows":{}}\n',
+        encoding="utf-8",
+    )
+    linked = handoff_consumer._ObservationStore(tmp_path / "linked-controller")
+    linked.path.symlink_to(external)
+    with pytest.raises(RuntimeError, match="missing|regular non-symlink"):
+        linked.retain(set())
+
+
+def test_manager_restart_preserves_qualified_rollback_window(monkeypatch, tmp_path):
+    key = "manager:release-preserved:revision-preserved"
+    controller_root = tmp_path / "manager-controller"
+    initial = handoff_consumer._ObservationStore(controller_root)
+    initial._save(
+        {
+            "version": "cortex.release-controller-observations.v1",
+            "windows": {
+                key: {
+                    "first_epoch": 1000.0,
+                    "last_epoch": 1899.0,
+                    "total": 999,
+                    "succeeded": 0,
+                }
+            },
+        }
+    )
+    monkeypatch.setenv("CORTEX_RELEASE_CONTROLLER_REQUIRE_EXISTING_STATE", "true")
+    reopened = handoff_consumer._ObservationStore(controller_root)
+    monkeypatch.setattr(handoff_consumer.time, "time", lambda: 1900.0)
+    monkeypatch.setattr(handoff_consumer, "_probe_measurement", lambda _url: False)
+    requests = []
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_post_json",
+        lambda base_url, path, payload: requests.append((base_url, path, payload))
+        or {"applied": True},
+    )
+
+    handoff_consumer._monitor_managed_release(
+        "http://cortex",
+        "manager-recipient-secret-material-000000001",
+        reopened,
+        {
+            "process_id": "proc-preserved",
+            "release_id": "release-preserved",
+            "revision_id": "revision-preserved",
+        },
+        "http://cortex/release-observation",
+    )
+
+    assert len(requests) == 1
+    assert requests[0][1].endswith("/manager-rollback/proc-preserved")
+    assert key not in reopened.path.read_text(encoding="utf-8")
+
+
+def test_manager_capability_challenge_uses_rollback_route_and_signature(monkeypatch):
+    secret = "manager-recipient-secret-material-000000001"
+    requests = []
+
+    def respond(base_url, path, payload):
+        requests.append((base_url, path, payload))
+        expected = handoff_consumer.runtime_delivery_manager_rollback_signature(
+            process_id=handoff_consumer.RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+            release_id=payload["release_id"],
+            revision_id=payload["revision_id"],
+            idempotency_key=payload["idempotency_key"],
+            reason=payload["reason"],
+            request_id=payload["request_id"],
+            requested_at=payload["requested_at"],
+            secret=secret,
+        )
+        assert payload["manager_signature"] == expected
+        return {
+            "success": True,
+            "capability": "signed-non-mutating-manager-rollback",
+            "request_id": payload["request_id"],
+        }
+
+    monkeypatch.setattr(handoff_consumer, "_post_json", respond)
+
+    assert handoff_consumer._verify_manager_capability("http://cortex", secret) is True
+    assert "/manager-rollback/" in requests[0][1]
+    assert requests[0][2]["reason"] == (
+        handoff_consumer.RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON
+    )
+
+
+def test_manager_readiness_rejects_unavailable_rollback_capability(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_MEASUREMENT_URL", "http://cortex/release-observation"
+    )
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_observation_store",
+        lambda: handoff_consumer._ObservationStore(tmp_path / "controller"),
+    )
+    monkeypatch.setattr(handoff_consumer, "_probe_measurement", lambda _url: True)
+    requests = []
+
+    def unavailable(_base_url, path, _payload):
+        requests.append(path)
+        if path.endswith("/claim-next"):
+            return {"messages": [], "managed_releases": []}
+        if "/manager-rollback/" in path:
+            raise RuntimeError("manager rollback endpoint returned 404")
+        raise AssertionError(path)
+
+    monkeypatch.setattr(handoff_consumer, "_post_json", unavailable)
+    with handoff_consumer._POLL_STATUS_LOCK:
+        handoff_consumer._POLL_STATUS.update(
+            {
+                "last_success_epoch": None,
+                "last_success_at": None,
+                "last_error": "authenticated poll has not succeeded",
+                "capability_verified": False,
+            }
+        )
+
+    with pytest.raises(RuntimeError, match="returned 404"):
+        handoff_consumer._poll_once(
+            "http://cortex",
+            "release-manager",
+            "manager-recipient-secret-material-000000001",
+        )
+
+    assert any("/manager-rollback/" in path for path in requests)
+    assert handoff_consumer._consumer_readiness()["ready"] is False

@@ -1,6 +1,9 @@
 import asyncio
+import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import textwrap
 from types import SimpleNamespace
@@ -25,8 +28,19 @@ def _compose_init_script(compose: str, service: str, mounts: dict[str, Path]) ->
     section = _compose_service_definition(compose, service)
     script = section.split("      - |\n", 1)[1].split("\n    restart:", 1)[0]
     script = textwrap.dedent(script).replace("$$", "$")
-    for container_path, host_path in mounts.items():
-        script = script.replace(container_path, str(host_path))
+    replacements = []
+    for index, (container_path, host_path) in enumerate(
+        sorted(mounts.items(), key=lambda item: len(item[0]), reverse=True)
+    ):
+        placeholder = f"__CORTEX_TEST_MOUNT_{index}__"
+        script = re.sub(
+            rf"(?<![A-Za-z0-9_.\-/]){re.escape(container_path)}",
+            placeholder,
+            script,
+        )
+        replacements.append((placeholder, str(host_path)))
+    for placeholder, host_path in replacements:
+        script = script.replace(placeholder, host_path)
     return script
 
 
@@ -65,6 +79,34 @@ VOLUME_INITIALIZERS = (
         "cortex-knowledge.volume-id",
         "/knowledge",
         Path(".cortex-durable-knowledge"),
+    ),
+    (
+        "cortex-app-state-volume-init",
+        "CORTEX_APP_STATE_MOUNT_ID",
+        "cortex-app-state.volume-id",
+        "/application",
+        Path(".cortex-durable-app-state"),
+    ),
+    (
+        "cortex-reasoning-volume-init",
+        "CORTEX_REASONING_MOUNT_ID",
+        "cortex-reasoning.volume-id",
+        "/reasoning",
+        Path(".cortex-durable-reasoning"),
+    ),
+    (
+        "cortex-release-verifier-state-volume-init",
+        "CORTEX_RELEASE_CONTROLLER_MOUNT_ID",
+        "cortex-release-verifier-state.volume-id",
+        "/controller",
+        Path(".cortex-durable-release-controller"),
+    ),
+    (
+        "cortex-release-manager-state-volume-init",
+        "CORTEX_RELEASE_CONTROLLER_MOUNT_ID",
+        "cortex-release-manager-state.volume-id",
+        "/controller",
+        Path(".cortex-durable-release-controller"),
     ),
 )
 
@@ -134,6 +176,8 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "cortex-knowledge:/opt/clawdbot/knowledge:rw" in compose
     assert "CORTEX_KNOWLEDGE_MOUNT_ID:" in compose
     assert "cortex-knowledge-volume-init:" in compose
+    assert "cortex-app-state-volume-init:" in compose
+    assert "cortex-reasoning-volume-init:" in compose
     assert "chmod 0700 /state /state/runtime_delivery" in compose
     assert "release-verifier:" in compose
     assert "release-manager:" in compose
@@ -166,6 +210,8 @@ def test_compose_runs_distinct_capability_checked_release_controllers():
     assert "CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:" not in manager
     assert "CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation" in manager
     assert "cortex-release-manager-state:/controller-state:rw" in manager
+    assert 'CORTEX_RELEASE_CONTROLLER_REQUIRE_EXISTING_STATE: "true"' in manager
+    assert "cortex-release-manager-state-volume-init:" in manager
     assert "CORTEX_WRITE_TOKEN:" not in manager
 
 
@@ -175,12 +221,12 @@ def test_volume_identity_markers_are_minted_only_by_explicit_bootstrap():
     assert 'profiles: ["bootstrap"]' in compose
     assert "cortex-volume-bootstrap:" in compose
     assert "./continuity:/continuity:rw" in compose
-    assert compose.count("./continuity:/continuity:ro") == 3
+    assert compose.count("./continuity:/continuity:ro") == 7
     assert "CORTEX_CHROMA_MOUNT_ID:-" not in compose
     assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-" not in compose
     assert "CORTEX_KNOWLEDGE_MOUNT_ID:-" not in compose
-    assert compose.count('if [ ! -e "$$marker" ]; then') == 3
-    assert compose.count("refusing blank replacement volume") == 3
+    assert compose.count('if [ ! -e "$$marker" ]; then') == 7
+    assert compose.count("refusing blank replacement volume") == 7
     assert compose.count("run explicit bootstrap or restore") == 3
 
 
@@ -208,6 +254,63 @@ def test_blank_replacement_volumes_fail_before_ordinary_initialization_mutates_t
     assert "CORTEX_DB_SEED_PATH" not in knowledge_init
 
 
+def test_explicit_bootstrap_initializes_every_identity_and_controller_ledger(tmp_path):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    mounts = {
+        "/continuity": tmp_path / "continuity",
+        "/seed": tmp_path / "seed",
+        "/memory": tmp_path / "memory",
+        "/knowledge": tmp_path / "knowledge",
+        "/state": tmp_path / "state",
+        "/application": tmp_path / "application",
+        "/reasoning": tmp_path / "reasoning",
+        "/verifier-controller": tmp_path / "verifier-controller",
+        "/manager-controller": tmp_path / "manager-controller",
+    }
+    for path in mounts.values():
+        path.mkdir()
+    (mounts["/seed"] / "cortex_graph.db").write_text("seed-graph", encoding="utf-8")
+    identities = {
+        "CORTEX_CHROMA_MOUNT_ID": "bootstrap-chroma-id",
+        "CORTEX_KNOWLEDGE_MOUNT_ID": "bootstrap-knowledge-id",
+        "CORTEX_RUNTIME_DELIVERY_MOUNT_ID": "bootstrap-runtime-id",
+        "CORTEX_APP_STATE_MOUNT_ID": "bootstrap-application-id",
+        "CORTEX_REASONING_MOUNT_ID": "bootstrap-reasoning-id",
+        "CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID": "bootstrap-verifier-id",
+        "CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID": "bootstrap-manager-id",
+    }
+
+    completed = subprocess.run(
+        [
+            "/bin/sh",
+            "-ec",
+            _compose_init_script(compose, "cortex-volume-bootstrap", mounts),
+        ],
+        capture_output=True,
+        check=False,
+        env={**os.environ, **identities},
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert len(list(mounts["/continuity"].glob("*.volume-id"))) == 7
+    assert (mounts["/continuity"] / "cortex-volume-set.complete").read_text(
+        encoding="utf-8"
+    ).strip() == "cortex.volume-set.v1"
+    assert (mounts["/knowledge"] / "cortex_graph.db").read_text(
+        encoding="utf-8"
+    ) == "seed-graph"
+    for controller in ("/verifier-controller", "/manager-controller"):
+        assert json.loads(
+            (mounts[controller] / "observations.json").read_text(encoding="utf-8")
+        ) == {
+            "version": "cortex.release-controller-observations.v1",
+            "windows": {},
+        }
+
+
 @pytest.mark.parametrize(
     "service,credential,manifest_name,volume_mount,marker_relative",
     VOLUME_INITIALIZERS,
@@ -228,12 +331,18 @@ def test_blank_replacement_volume_commands_exit_without_mutation(
         "/memory": tmp_path / "memory",
         "/knowledge": tmp_path / "knowledge",
         "/state": tmp_path / "state",
+        "/application": tmp_path / "application",
+        "/reasoning": tmp_path / "reasoning",
+        "/controller": tmp_path / "controller",
     }
     for path in mounts.values():
         path.mkdir()
     identity = "deployment-volume-id"
     (mounts["/continuity"] / manifest_name).write_text(
         identity + "\n", encoding="utf-8"
+    )
+    (mounts["/continuity"] / "cortex-volume-set.complete").write_text(
+        "cortex.volume-set.v1\n", encoding="utf-8"
     )
     volume = mounts[volume_mount]
     before = _volume_tree(volume)
@@ -271,12 +380,18 @@ def test_symlink_volume_identity_markers_are_rejected_before_initialization(
         "/memory": tmp_path / "memory",
         "/knowledge": tmp_path / "knowledge",
         "/state": tmp_path / "state",
+        "/application": tmp_path / "application",
+        "/reasoning": tmp_path / "reasoning",
+        "/controller": tmp_path / "controller",
     }
     for path in mounts.values():
         path.mkdir()
     identity = "deployment-volume-id"
     manifest = mounts["/continuity"] / manifest_name
     manifest.write_text(identity + "\n", encoding="utf-8")
+    (mounts["/continuity"] / "cortex-volume-set.complete").write_text(
+        "cortex.volume-set.v1\n", encoding="utf-8"
+    )
     marker = mounts[volume_mount] / marker_relative
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.symlink_to(manifest)
@@ -294,6 +409,259 @@ def test_symlink_volume_identity_markers_are_rejected_before_initialization(
     assert completed.returncode != 0
     assert "regular non-symlink file" in completed.stderr
     assert _volume_tree(volume) == before
+
+
+@pytest.mark.parametrize(
+    "service,manifest_name",
+    (
+        (
+            "cortex-release-verifier-state-volume-init",
+            "cortex-release-verifier-state.volume-id",
+        ),
+        (
+            "cortex-release-manager-state-volume-init",
+            "cortex-release-manager-state.volume-id",
+        ),
+    ),
+)
+def test_controller_initializers_reject_missing_observation_store_without_mutation(
+    tmp_path, service, manifest_name
+):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    continuity = tmp_path / "continuity"
+    controller = tmp_path / "controller"
+    continuity.mkdir()
+    controller.mkdir()
+    identity = "controller-volume-id"
+    (continuity / manifest_name).write_text(identity + "\n", encoding="utf-8")
+    (continuity / "cortex-volume-set.complete").write_text(
+        "cortex.volume-set.v1\n", encoding="utf-8"
+    )
+    (controller / ".cortex-durable-release-controller").write_text(
+        identity + "\n", encoding="utf-8"
+    )
+    before = _volume_tree(controller)
+
+    completed = subprocess.run(
+        [
+            "/bin/sh",
+            "-ec",
+            _compose_init_script(
+                compose,
+                service,
+                {"/continuity": continuity, "/controller": controller},
+            ),
+        ],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "CORTEX_RELEASE_CONTROLLER_MOUNT_ID": identity},
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "observations are missing or unsafe" in completed.stderr
+    assert _volume_tree(controller) == before
+
+
+def _source_adoption_fixture(tmp_path: Path) -> tuple[dict[str, Path], dict[str, str]]:
+    mounts = {
+        "/continuity": tmp_path / "continuity",
+        "/source-memory": tmp_path / "source-memory",
+        "/source": tmp_path / "source",
+        "/application": tmp_path / "application",
+        "/knowledge": tmp_path / "knowledge",
+        "/reasoning": tmp_path / "reasoning",
+        "/verifier-controller": tmp_path / "verifier-controller",
+        "/manager-controller": tmp_path / "manager-controller",
+    }
+    for path in mounts.values():
+        path.mkdir()
+    (mounts["/source-memory"] / ".cortex-durable-memory").write_text(
+        "cortex-chroma-v1\n", encoding="utf-8"
+    )
+    (mounts["/source-memory"] / "chroma.sqlite3").write_text(
+        "preserved-memory", encoding="utf-8"
+    )
+    runtime = mounts["/source"] / "runtime_delivery"
+    runtime.mkdir()
+    (runtime / ".cortex-durable-runtime-delivery").write_text(
+        "cortex-runtime-delivery-v1\n", encoding="utf-8"
+    )
+    (runtime / "active-rollback.json").write_text(
+        '{"release":"active"}\n', encoding="utf-8"
+    )
+    source_knowledge = mounts["/source"] / "knowledge"
+    source_knowledge.mkdir()
+    (source_knowledge / "cortex_graph.db").write_text(
+        "preserved-knowledge", encoding="utf-8"
+    )
+    (mounts["/source"] / "reasoning_runtime.db").write_text(
+        "preserved-reasoning", encoding="utf-8"
+    )
+    (mounts["/source"] / "nexus_outcome_feedback_receipts.json").write_text(
+        '{"consumed":["jti-preserved"]}\n', encoding="utf-8"
+    )
+    identities = {
+        "CORTEX_SOURCE_CHROMA_MOUNT_ID": "cortex-chroma-v1",
+        "CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID": "cortex-runtime-delivery-v1",
+        "CORTEX_CHROMA_MOUNT_ID": "adopted-chroma-id",
+        "CORTEX_KNOWLEDGE_MOUNT_ID": "adopted-knowledge-id",
+        "CORTEX_RUNTIME_DELIVERY_MOUNT_ID": "adopted-runtime-id",
+        "CORTEX_APP_STATE_MOUNT_ID": "adopted-application-id",
+        "CORTEX_REASONING_MOUNT_ID": "adopted-reasoning-id",
+        "CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID": "adopted-verifier-id",
+        "CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID": "adopted-manager-id",
+        "CORTEX_ADOPTION_MAX_SOURCE_BYTES": "1048576",
+        "CORTEX_ADOPTION_MAX_SOURCE_ENTRIES": "1000",
+    }
+    return mounts, identities
+
+
+def _run_source_adoption(
+    compose: str,
+    mounts: dict[str, Path],
+    identities: dict[str, str],
+    *,
+    path: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    environment = {**os.environ, **identities}
+    if path is not None:
+        environment["PATH"] = path
+    return subprocess.run(
+        [
+            "/bin/sh",
+            "-ec",
+            _compose_init_script(compose, "cortex-volume-adopt-source", mounts),
+        ],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+
+def test_source_volume_adoption_preserves_split_state_and_completed_rerun_is_noop(tmp_path):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    mounts, identities = _source_adoption_fixture(tmp_path)
+
+    completed = _run_source_adoption(compose, mounts, identities)
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        mounts["/application"] / "nexus_outcome_feedback_receipts.json"
+    ).read_text(encoding="utf-8") == '{"consumed":["jti-preserved"]}\n'
+    assert not (mounts["/application"] / "runtime_delivery").exists()
+    assert not (mounts["/application"] / "knowledge").exists()
+    assert (mounts["/knowledge"] / "cortex_graph.db").read_text(
+        encoding="utf-8"
+    ) == "preserved-knowledge"
+    assert (mounts["/reasoning"] / "reasoning_runtime.db").read_text(
+        encoding="utf-8"
+    ) == "preserved-reasoning"
+    assert (mounts["/source"] / "runtime_delivery/active-rollback.json").is_file()
+    assert "complete" in (
+        mounts["/continuity"] / "cortex-source-adoption.journal"
+    ).read_text(encoding="utf-8").splitlines()
+    manifests = sorted(mounts["/continuity"].glob("*.volume-id"))
+    assert len(manifests) == 7
+    assert (
+        mounts["/continuity"] / "cortex-volume-set.complete"
+    ).read_text(encoding="utf-8").strip() == "cortex.volume-set.v1"
+    for controller in ("/verifier-controller", "/manager-controller"):
+        payload = (mounts[controller] / "observations.json").read_text(encoding="utf-8")
+        assert json.loads(payload) == {
+            "version": "cortex.release-controller-observations.v1",
+            "windows": {},
+        }
+
+    application_receipts = mounts["/application"] / "nexus_outcome_feedback_receipts.json"
+    application_receipts.write_text('{"consumed":["jti-after-adoption"]}\n', encoding="utf-8")
+    (mounts["/continuity"] / "cortex-volume-set.complete").unlink()
+    rerun = _run_source_adoption(compose, mounts, identities)
+
+    assert rerun.returncode == 0, rerun.stderr
+    assert "already complete" in rerun.stdout
+    assert json.loads(application_receipts.read_text(encoding="utf-8")) == {
+        "consumed": ["jti-after-adoption"]
+    }
+    assert (mounts["/continuity"] / "cortex-volume-set.complete").is_file()
+
+
+def test_interrupted_source_adoption_is_rerunnable_and_withholds_manifests(tmp_path):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    mounts, identities = _source_adoption_fixture(tmp_path)
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    counter = tmp_path / "sync-count"
+    real_sync = shutil.which("sync")
+    assert real_sync is not None
+    fake_sync = fake_bin / "sync"
+    fake_sync.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/bin/sh
+            count=0
+            if [ -f {counter} ]; then count=$(cat {counter}); fi
+            count=$((count + 1))
+            printf '%s\n' "$count" > {counter}
+            if [ "$count" -eq 6 ]; then exit 97; fi
+            exec {real_sync} "$@"
+            """
+        ),
+        encoding="utf-8",
+    )
+    fake_sync.chmod(0o755)
+
+    interrupted = _run_source_adoption(
+        compose,
+        mounts,
+        identities,
+        path=f"{fake_bin}:{os.environ['PATH']}",
+    )
+
+    assert interrupted.returncode == 97
+    assert (mounts["/continuity"] / "cortex-source-adoption.journal").is_file()
+    assert list(mounts["/continuity"].glob("*.volume-id")) == []
+    assert not (mounts["/continuity"] / "cortex-volume-set.complete").exists()
+    assert (mounts["/source-memory"] / ".cortex-durable-memory").read_text(
+        encoding="utf-8"
+    ).strip() == "cortex-chroma-v1"
+
+    recovered = _run_source_adoption(compose, mounts, identities)
+    assert recovered.returncode == 0, recovered.stderr
+    assert len(list(mounts["/continuity"].glob("*.volume-id"))) == 7
+    assert "complete" in (
+        mounts["/continuity"] / "cortex-source-adoption.journal"
+    ).read_text(encoding="utf-8").splitlines()
+
+
+def test_source_volume_adoption_rejects_over_bound_source_before_mutation(tmp_path):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    mounts, identities = _source_adoption_fixture(tmp_path)
+    identities["CORTEX_ADOPTION_MAX_SOURCE_BYTES"] = "1"
+    targets = (
+        "/application",
+        "/knowledge",
+        "/reasoning",
+        "/verifier-controller",
+        "/manager-controller",
+    )
+
+    rejected = _run_source_adoption(compose, mounts, identities)
+
+    assert rejected.returncode != 0
+    assert "source size exceeds CORTEX_ADOPTION_MAX_SOURCE_BYTES" in rejected.stderr
+    assert not (mounts["/continuity"] / "cortex-source-adoption.journal").exists()
+    assert list(mounts["/continuity"].glob("*.volume-id")) == []
+    assert all(_volume_tree(mounts[target]) == [] for target in targets)
 
 
 def test_compose_enforces_allocator_and_cgroup_oom_boundaries():

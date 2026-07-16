@@ -19,6 +19,8 @@ from uuid import uuid4
 
 from cortex_server.runtime.agent_mailbox import AgentMessage, agent_acknowledgement_signature
 from cortex_server.runtime.production_build_loop import (
+    RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+    RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON,
     runtime_delivery_artifact_fetch_signature,
     runtime_delivery_handoff_discovery_signature,
     runtime_delivery_manager_rollback_signature,
@@ -66,7 +68,11 @@ class _ObservationStore:
 
     def _load(self) -> Dict[str, Any]:
         if not self.path.exists():
+            if self.path.is_symlink() or _require_existing_observation_state():
+                raise RuntimeError("release controller observation state is missing")
             return {"version": "cortex.release-controller-observations.v1", "windows": {}}
+        if self.path.is_symlink() or not self.path.is_file():
+            raise RuntimeError("release controller observation state must be a regular non-symlink file")
         payload = json.loads(self.path.read_text(encoding="utf-8"))
         if (
             not isinstance(payload, dict)
@@ -175,6 +181,13 @@ def _production_environment() -> bool:
     }
 
 
+def _require_existing_observation_state() -> bool:
+    if _production_environment():
+        return True
+    configured = os.getenv("CORTEX_RELEASE_CONTROLLER_REQUIRE_EXISTING_STATE", "").strip().lower()
+    return configured in {"1", "true", "yes", "on"}
+
+
 def _controller_role(recipient: str) -> str:
     configured = os.getenv("CORTEX_RELEASE_CONTROLLER_ROLE", "").strip()
     expected = "verifier" if recipient == "release-verifier" else "manager"
@@ -185,7 +198,10 @@ def _controller_role(recipient: str) -> str:
 
 def _observation_store() -> _ObservationStore:
     root = Path(os.getenv("CORTEX_RELEASE_CONTROLLER_STATE_DIR", "/tmp/cortex-release-controller"))
-    return _ObservationStore(root)
+    store = _ObservationStore(root)
+    if _require_existing_observation_state():
+        store._load()
+    return store
 
 
 def _measurement_url(base_url: str) -> str:
@@ -236,6 +252,47 @@ def _verify_verifier_capability(base_url: str) -> bool:
         response.get("success")
         and response.get("capability") == "revision-bound-artifact-attestation"
         and response.get("verifier") == verifier
+    )
+
+
+def _verify_manager_capability(base_url: str, secret: str) -> bool:
+    manager_secret = str(secret or "").strip()
+    if len(manager_secret.encode("utf-8")) < 32:
+        raise RuntimeError("release manager requires a dedicated 32-byte recipient secret")
+    request_id = f"manager-capability-{uuid4().hex}"
+    requested_at = _now_iso()
+    release_id = request_id
+    revision_id = "non-mutating"
+    idempotency_key = f"capability:{request_id}"
+    response = _post_json(
+        base_url,
+        (
+            "/orchestrator/runtime/delivery/handoffs/manager-rollback/"
+            f"{RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID}"
+        ),
+        {
+            "release_id": release_id,
+            "revision_id": revision_id,
+            "idempotency_key": idempotency_key,
+            "reason": RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON,
+            "request_id": request_id,
+            "requested_at": requested_at,
+            "manager_signature": runtime_delivery_manager_rollback_signature(
+                process_id=RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+                release_id=release_id,
+                revision_id=revision_id,
+                idempotency_key=idempotency_key,
+                reason=RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON,
+                request_id=request_id,
+                requested_at=requested_at,
+                secret=manager_secret,
+            ),
+        },
+    )
+    return bool(
+        response.get("success")
+        and response.get("capability") == "signed-non-mutating-manager-rollback"
+        and response.get("request_id") == request_id
     )
 
 
@@ -518,7 +575,9 @@ def _poll_once(base_url: str, recipient: str, secret: str) -> None:
     )
     measurement_verified = _probe_measurement(measurement_url)
     capability_verified = measurement_verified and (
-        _verify_verifier_capability(base_url) if role == "verifier" else True
+        _verify_verifier_capability(base_url)
+        if role == "verifier"
+        else _verify_manager_capability(base_url, secret)
     )
     active_observation_keys: set[str] = set()
     if role == "verifier":

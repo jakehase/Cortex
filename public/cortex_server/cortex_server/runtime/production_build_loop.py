@@ -68,6 +68,8 @@ JsonDict = Dict[str, Any]
 BUILTIN_BLOCKER_PREFIXES = ("BLOCKER:", "HUMAN:")
 REQUIRED_RELEASE_HANDOFF_RECIPIENTS = ("release-verifier", "release-manager")
 RUNTIME_DELIVERY_MOUNT_MARKER = ".cortex-durable-runtime-delivery"
+RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID = "__cortex_manager_capability__"
+RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON = "non_mutating_manager_capability_challenge"
 MIN_PRODUCTION_SECRET_BYTES = 32
 RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v1"
 RELEASE_VERIFIER_TRUST_FILE = ".release-verifier-trust.json"
@@ -4482,6 +4484,8 @@ __all__ = [
     "ProductionPassBudget",
     "ProductionStageGate",
     "REQUIRED_RELEASE_HANDOFF_RECIPIENTS",
+    "RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID",
+    "RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON",
     "RUNTIME_DELIVERY_MOUNT_MARKER",
     "advance_production_release_loop",
     "detect_true_blockers",

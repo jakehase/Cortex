@@ -115,6 +115,8 @@ from cortex_server.runtime.runtime_delivery_quota import (
 )
 from cortex_server.runtime.production_build_loop import (
     REQUIRED_RELEASE_HANDOFF_RECIPIENTS,
+    RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+    RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON,
     ingest_production_release_artifact,
     probe_runtime_delivery_readiness,
     runtime_delivery_artifact_fetch_signature,
@@ -5489,6 +5491,19 @@ async def manager_rollback_runtime_delivery(
     if not hmac.compare_digest(str(request.manager_signature or ""), expected):
         raise HTTPException(status_code=403, detail="authenticated release-manager signature required")
     _validate_runtime_delivery_handoff_claim_freshness(request.requested_at)
+    if process_id == RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID:
+        if not (
+            request.reason == RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON
+            and request.release_id == request.request_id
+            and request.revision_id == "non-mutating"
+            and request.idempotency_key == f"capability:{request.request_id}"
+        ):
+            raise HTTPException(status_code=400, detail="invalid non-mutating manager capability challenge")
+        return {
+            "success": True,
+            "capability": "signed-non-mutating-manager-rollback",
+            "request_id": request.request_id,
+        }
     stores = _runtime_delivery_stores()
     state = stores["release_store"].load(process_id)
     if state is None:

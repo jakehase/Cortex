@@ -21,8 +21,11 @@ from cortex_server.runtime import (
 )
 from cortex_server.runtime.production_build_loop import (
     RUNTIME_DELIVERY_MOUNT_MARKER,
+    RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+    RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON,
     runtime_delivery_handoff_claim_signature,
     runtime_delivery_handoff_discovery_signature,
+    runtime_delivery_manager_rollback_signature,
     runtime_delivery_verifier_capability_signature,
 )
 from cortex_server.runtime.release_workflow import (
@@ -1226,6 +1229,68 @@ def test_verifier_capability_challenge_requires_dedicated_attestation_secret(mon
     invalid = valid.model_copy(update={"verifier_signature": "0" * 64})
     with pytest.raises(orchestrator.HTTPException) as rejected:
         asyncio.run(orchestrator.verify_runtime_delivery_verifier_capability(invalid))
+    assert rejected.value.status_code == 403
+
+
+def test_manager_capability_challenge_is_signed_and_non_mutating(monkeypatch):
+    secret = "release-manager-capability-secret-000000000001"
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps(
+            {
+                "release-verifier": "release-verifier-recipient-secret-000000001",
+                "release-manager": secret,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_runtime_delivery_stores",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("capability challenge must not open or mutate release stores")
+        ),
+    )
+    requested_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+    request_id = "manager-capability-proof"
+    unsigned = {
+        "release_id": request_id,
+        "revision_id": "non-mutating",
+        "idempotency_key": f"capability:{request_id}",
+        "reason": RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON,
+        "request_id": request_id,
+        "requested_at": requested_at,
+    }
+    valid = orchestrator.RuntimeDeliveryManagerRollbackRequest(
+        **unsigned,
+        manager_signature=runtime_delivery_manager_rollback_signature(
+            process_id=RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+            **unsigned,
+            secret=secret,
+        ),
+    )
+
+    response = asyncio.run(
+        orchestrator.manager_rollback_runtime_delivery(
+            RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+            valid,
+        )
+    )
+    assert response == {
+        "success": True,
+        "capability": "signed-non-mutating-manager-rollback",
+        "request_id": request_id,
+    }
+
+    invalid = valid.model_copy(update={"manager_signature": "0" * 64})
+    with pytest.raises(orchestrator.HTTPException) as rejected:
+        asyncio.run(
+            orchestrator.manager_rollback_runtime_delivery(
+                RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
+                invalid,
+            )
+        )
     assert rejected.value.status_code == 403
 
 
