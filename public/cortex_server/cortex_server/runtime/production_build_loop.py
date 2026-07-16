@@ -412,6 +412,34 @@ def _probe_runtime_delivery_state_consistency(
         for path in sorted(release_root.glob("*.json"))
         if not path.name.startswith(".")
     ]
+    release_state_ids = {path.stem for path in state_paths}
+    projection_sources = _runtime_delivery_projection_sources(
+        delivery_root,
+        reasoning_processes=reasoning_processes,
+    )
+    release_owned_sources = {
+        "release_history",
+        "rollback_intent",
+        "production_contract",
+        "production_state",
+        "production_history",
+        "production_report",
+        "release_mailbox",
+        "reasoning_runtime_delivery",
+    }
+    for orphan_process_id, sources in sorted(projection_sources.items()):
+        if orphan_process_id in release_state_ids or not (sources & release_owned_sources):
+            continue
+        errors.append(
+            {
+                "process_id": orphan_process_id,
+                "check": "release_projection_consistency",
+                "error": (
+                    "release workflow is missing while authoritative projections survive: "
+                    + ", ".join(sorted(sources))
+                ),
+            }
+        )
     for state_path in state_paths:
         process_id = state_path.stem
         try:
@@ -501,6 +529,12 @@ def _probe_runtime_delivery_state_consistency(
 
                 artifact_store = release_store.artifact_store()
                 active_receipts: Dict[str, ReleaseArtifactReceipt] = {}
+                evidence_revision_id, activation_error = _active_release_evidence_revision(
+                    state,
+                    rollback_transaction_id=rollback_transaction_id,
+                )
+                if activation_error:
+                    mismatches.append(activation_error)
                 for raw_receipt in state.metadata.get("release_artifacts") or []:
                     receipt = ReleaseArtifactReceipt.model_validate(raw_receipt)
                     verify_release_artifact_receipt(
@@ -508,7 +542,7 @@ def _probe_runtime_delivery_state_consistency(
                         artifact_store=artifact_store,
                         verifier_credentials=verifier_credentials,
                     )
-                    if receipt.release_id == state.release_id and receipt.revision_id == state.revision_id:
+                    if receipt.release_id == state.release_id and receipt.revision_id == evidence_revision_id:
                         if receipt.candidate_ref != state.candidate_ref or receipt.validation_outcome != "passed":
                             mismatches.append(f"active artifact {receipt.artifact_id} has invalid release binding")
                         else:
@@ -560,11 +594,104 @@ def _probe_runtime_delivery_state_consistency(
         )
     return {
         "ok": not errors,
-        "releaseCount": len(state_paths),
+        "releaseCount": len(release_state_ids),
         "pendingRollbackProcessIds": pending,
         "inconsistencies": errors,
         "error": None if not errors else "runtime delivery projections require recovery",
     }
+
+
+def _active_release_evidence_revision(
+    state: ReleaseWorkflowState,
+    *,
+    rollback_transaction_id: str,
+) -> tuple[str, Optional[str]]:
+    """Resolve a server-sealed rollback's restored artifact revision."""
+
+    if state.status != "rolled_back":
+        return state.revision_id, None
+    activation = (state.metadata or {}).get("rollback_activation")
+    if not isinstance(activation, dict):
+        return state.revision_id, "rollback activation record is missing"
+    fencepost_id = str(activation.get("fencepost_id") or "")
+    activation_fencepost = next(
+        (row for row in state.rollback_fenceposts if row.fencepost_id == fencepost_id),
+        None,
+    )
+    artifact_revision_id = str(activation.get("artifact_revision_id") or "")
+    valid_activation = bool(
+        activation.get("version") == "cortex.release.rollback-activation.v1"
+        and str(activation.get("transaction_id") or "") == rollback_transaction_id
+        and str(activation.get("control_revision_id") or "") == state.revision_id
+        and str(activation.get("stage") or "") == state.current_stage
+        and activation_fencepost is not None
+        and activation_fencepost.stage == state.current_stage
+        and activation_fencepost.shared_state_revision_id == artifact_revision_id
+    )
+    if not valid_activation:
+        return state.revision_id, "rollback activation record does not match its fencepost"
+    return artifact_revision_id, None
+
+
+def _runtime_delivery_projection_sources(
+    delivery_root: Path,
+    *,
+    reasoning_processes: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, set[str]]:
+    """Index the union of durable runtime-delivery authorities by process."""
+
+    sources: Dict[str, set[str]] = {}
+
+    def add(process_id: str, source: str) -> None:
+        normalized = str(process_id or "").strip()
+        if normalized:
+            sources.setdefault(normalized, set()).add(source)
+
+    release_root = delivery_root / "release_workflow"
+    for target in release_root.glob("*.json"):
+        if not target.name.startswith("."):
+            add(target.stem, "release_state")
+    for target in (release_root / "history").glob("*.jsonl"):
+        add(target.stem, "release_history")
+    for target in release_root.glob(".*.json.rollback-intent.json"):
+        name = target.name.removeprefix(".").removesuffix(".json.rollback-intent.json")
+        add(name, "rollback_intent")
+
+    loop_root = delivery_root / "production_build_loop"
+    for directory, suffix, source in (
+        ("contracts", ".json", "production_contract"),
+        ("state", ".json", "production_state"),
+        ("history", ".jsonl", "production_history"),
+        ("reports", ".jsonl", "production_report"),
+    ):
+        for target in (loop_root / directory).glob(f"*{suffix}"):
+            add(target.name.removesuffix(suffix), source)
+
+    for directory, source in (("snapshots", "snapshot"), ("shared_state", "shared_state")):
+        for target in (delivery_root / directory).glob("*.json"):
+            add(target.stem, source)
+
+    mailbox_path = delivery_root / "mailbox.json"
+    if mailbox_path.exists():
+        payload = json.loads(mailbox_path.read_text(encoding="utf-8"))
+        rows = payload if isinstance(payload, list) else payload.get("messages", []) if isinstance(payload, dict) else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            if (
+                "release" in str(row.get("kind") or "").lower()
+                or any(key in metadata for key in ("release_id", "target_stage", "release_stage"))
+            ):
+                add(str(row.get("process_id") or ""), "release_mailbox")
+
+    for process_id, process in (reasoning_processes or {}).items():
+        workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+        projection = metadata.get("runtime_delivery") if isinstance(metadata.get("runtime_delivery"), dict) else {}
+        if projection.get("release_id") or isinstance(metadata.get("production_build_loop"), dict):
+            add(process_id, "reasoning_runtime_delivery")
+    return sources
 
 
 def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
@@ -743,7 +870,21 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         try:
             if not reasoning_path.is_absolute():
                 raise RuntimeError("reasoning store path must be absolute")
-            persisted_release_ids = set()
+            persisted_release_ids = {
+                process_id
+                for process_id, sources in _runtime_delivery_projection_sources(delivery_root).items()
+                if sources
+                & {
+                    "release_state",
+                    "release_history",
+                    "rollback_intent",
+                    "production_contract",
+                    "production_state",
+                    "production_history",
+                    "production_report",
+                    "release_mailbox",
+                }
+            }
             release_root = delivery_root / "release_workflow"
             for state_path in [*release_root.glob("*.json"), *release_root.glob(".*.rollback-intent.json")]:
                 payload = json.loads(state_path.read_text(encoding="utf-8"))
@@ -1266,9 +1407,18 @@ class ProductionBuildLoopStore:
 
     def save_contract(self, contract: ProductionBuildContract | Dict[str, Any]) -> ProductionBuildContract:
         record = _contract_validate(contract if isinstance(contract, dict) else _contract_dump(contract))
-        target = self._contract_target(record.process_id)
-        _atomic_write_json(target, _contract_dump(record))
-        return record
+        with self._locked(record.process_id, exclusive=True):
+            target = self._contract_target(record.process_id)
+            current = None
+            if target.exists():
+                current = _contract_validate(json.loads(target.read_text(encoding="utf-8")))
+            if current is not None and current.contract_id != record.contract_id:
+                raise RuntimeError(
+                    "production build contract identity conflict: "
+                    f"stored={current.contract_id}, received={record.contract_id}"
+                )
+            _atomic_write_json(target, _contract_dump(record))
+            return record
 
     def load_contract(self, process_id: str) -> Optional[ProductionBuildContract]:
         target = self._contract_target(process_id)

@@ -26,7 +26,12 @@ from cortex_server.runtime import (
     normalize_session_event,
 )
 from cortex_server.runtime.session_registry import SessionRegistryStore
-from cortex_server.runtime.release_workflow import create_release_artifact_receipt, release_canary_policy
+from cortex_server.runtime.release_workflow import (
+    MAX_RELEASE_ARTIFACT_RECEIPTS,
+    MAX_RELEASE_HISTORY_BYTES,
+    create_release_artifact_receipt,
+    release_canary_policy,
+)
 from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
 from cortex_server.runtime.shared_process_state import SharedProcessState
 
@@ -476,6 +481,120 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
     assert rolled["restore_state"]["waiting_steps"] == ["build"]
 
 
+def test_same_digest_receipt_flood_is_bounded_before_state_or_history_amplification(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_receipt_quota",
+        candidate_ref="build:receipt-quota",
+        target_environment="production",
+        revision_id="rev_receipt_quota",
+    )
+
+    for index in range(MAX_RELEASE_ARTIFACT_RECEIPTS):
+        receipt = create_release_artifact_receipt(
+            state,
+            artifact_store=artifact_store,
+            artifact_id=f"artifact-{index}",
+            payload=b"x",
+            artifact_kind="release_bundle",
+            producer="builder",
+            verifier=VERIFIER_ID,
+            verifier_secret=VERIFIER_SECRET,
+            claims={"index": index},
+        )
+        state = record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+    assert artifact_store.storage_usage_bytes() == 1
+    overflow = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact-overflow",
+        payload=b"x",
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    with pytest.raises(ValueError, match="receipt count"):
+        record_release_artifact_receipt(
+            state,
+            overflow,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+
+def test_same_digest_receipt_history_uses_bounded_hash_linked_deltas(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    artifact_store = store.artifact_store()
+    state = store.save(
+        ReleaseWorkflowState(
+            process_id="proc_receipt_history_delta",
+            candidate_ref="build:receipt-history-delta",
+            target_environment="production",
+            revision_id="rev_receipt_history_delta",
+        ),
+        actor="release-manager",
+    )
+
+    for index in range(40):
+        receipt = create_release_artifact_receipt(
+            state,
+            artifact_store=artifact_store,
+            artifact_id=f"artifact-{index}",
+            payload=b"x",
+            artifact_kind="release_bundle",
+            producer="builder",
+            verifier=VERIFIER_ID,
+            verifier_secret=VERIFIER_SECRET,
+            claims={"index": index},
+        )
+        state = record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+        state = store.save(
+            state,
+            actor=VERIFIER_ID,
+            provenance={
+                "scenario": "production_artifact_ingestion",
+                "artifact_id": receipt.artifact_id,
+                "content_hash": receipt.content_hash,
+            },
+        )
+
+    history = store.history(state.process_id)
+    assert history[-1].state["history_format"] == "cortex.release-history-artifact-delta.v1"
+    assert history[-1].state["artifact_receipt"]["artifact_id"] == "artifact-39"
+    assert len(history[-1].state["state_sha256"]) == 64
+    assert store._history_target(state.process_id).stat().st_size < 2 * 1024 * 1024
+
+
+def test_release_save_rejects_history_growth_at_immutable_boundary(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    state = ReleaseWorkflowState(
+        process_id="proc_history_quota",
+        candidate_ref="build:history-quota",
+        target_environment="production",
+        revision_id="rev_history_quota",
+    )
+    history_target = store._history_target(state.process_id)
+    history_target.parent.mkdir(parents=True)
+    with history_target.open("wb") as handle:
+        handle.truncate(MAX_RELEASE_HISTORY_BYTES)
+
+    with pytest.raises(ValueError, match="history quota"):
+        store.save(state, actor="release-manager")
+
+
 def test_repeated_rollback_never_selects_a_retained_forward_fencepost(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     seeded = harness._seed_waiting_process(
@@ -923,6 +1042,10 @@ def test_apply_release_rollback_restore_rehydrates_runtime_state_and_audit_trail
     assert restored["state"].current_stage == "build_verified"
     assert restored["state"].revision_id.startswith("rollback_")
     assert restored["state"].metadata["rollback_transaction_id"]
+    activation = restored["state"].metadata["rollback_activation"]
+    assert activation["artifact_revision_id"] == "rev_1"
+    assert activation["control_revision_id"] == restored["state"].revision_id
+    assert activation["fencepost_id"] == restored["fencepost"]["fencepost_id"]
     assert latest_release.metadata["rollback_applied"] is True
     assert latest_snapshot.lifecycle_state == "waiting"
     assert latest_snapshot.metadata["rollback_fencepost_id"] == restored["fencepost"]["fencepost_id"]

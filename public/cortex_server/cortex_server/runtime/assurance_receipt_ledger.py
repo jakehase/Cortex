@@ -14,7 +14,7 @@ import time
 from typing import Any, Mapping, Optional
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _LEDGER_LOCK = threading.RLock()
 _LOCK_RETRY_SECONDS = 10.0
 _LOCK_RETRY_INTERVAL_SECONDS = 0.01
@@ -96,11 +96,18 @@ def _connect(state_path: Path) -> sqlite3.Connection:
                 reservation_token TEXT NOT NULL,
                 expires_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
+                result_json TEXT,
                 schema_version INTEGER NOT NULL,
                 PRIMARY KEY (scope_digest, jti)
             )
             """
         )
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(assurance_receipt_ledger)").fetchall()
+        }
+        if "result_json" not in columns:
+            connection.execute("ALTER TABLE assurance_receipt_ledger ADD COLUMN result_json TEXT")
     except Exception:
         if connection is not None:
             connection.close()
@@ -134,12 +141,11 @@ def reserve_assurance_receipt(
         with _LEDGER_LOCK:
             connection = _connect(Path(state_path))
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                "DELETE FROM assurance_receipt_ledger WHERE expires_at < ?",
-                (current_time,),
-            )
+            # Never discard an expired reservation automatically. It may mark
+            # a durable L22 write whose response/finalization was interrupted;
+            # losing it would falsely authorize a fresh JTI and a duplicate.
             existing = connection.execute(
-                "SELECT scope_json FROM assurance_receipt_ledger "
+                "SELECT scope_json, status FROM assurance_receipt_ledger "
                 "WHERE scope_digest = ? AND jti = ?",
                 (scope_digest, normalized_jti),
             ).fetchone()
@@ -148,7 +154,11 @@ def reserve_assurance_receipt(
                     raise AssuranceReceiptLedgerUnavailable(
                         "receipt_scope_digest_collision"
                     )
-                raise ValueError("receipt_already_consumed")
+                raise ValueError(
+                    "receipt_already_consumed"
+                    if str(existing["status"]) == "consumed"
+                    else "receipt_commit_in_progress"
+                )
             connection.execute(
                 "INSERT INTO assurance_receipt_ledger("
                 "scope_digest, scope_json, jti, status, reservation_token, expires_at, updated_at, schema_version"
@@ -194,22 +204,28 @@ def finalize_assurance_receipt(
     state_path: Path,
     reservation: AssuranceReceiptReservation,
     *,
+    result: Mapping[str, Any],
     now: Optional[int] = None,
 ) -> None:
     """Atomically make a successful reservation permanently consumed until expiry."""
 
     current_time = int(time.time()) if now is None else int(now)
+    result_json = json.dumps(dict(result), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    if len(result_json.encode("utf-8")) > 1_048_576:
+        raise AssuranceReceiptLedgerUnavailable("assurance_receipt_result_too_large")
     connection: Optional[sqlite3.Connection] = None
     try:
         with _LEDGER_LOCK:
             connection = _connect(Path(state_path))
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
-                "UPDATE assurance_receipt_ledger SET status = 'consumed', updated_at = ? "
+                "UPDATE assurance_receipt_ledger SET status = 'consumed', updated_at = ?, result_json = ?, schema_version = ? "
                 "WHERE scope_digest = ? AND jti = ? AND scope_json = ? "
                 "AND reservation_token = ? AND status = 'reserved'",
                 (
                     current_time,
+                    result_json,
+                    _SCHEMA_VERSION,
                     reservation.scope_digest,
                     reservation.jti,
                     reservation.scope_json,
@@ -231,6 +247,81 @@ def finalize_assurance_receipt(
         raise AssuranceReceiptLedgerUnavailable(
             "assurance_receipt_ledger_unavailable"
         ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def consumed_assurance_receipt_result(
+    state_path: Path,
+    *,
+    scope: Mapping[str, Any],
+    jti: str,
+) -> Optional[dict[str, Any]]:
+    """Return the exact prior commit result for a consumed same-scope JTI."""
+
+    scope_digest, scope_json = _canonical_scope(scope)
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        with _LEDGER_LOCK:
+            connection = _connect(Path(state_path))
+            row = connection.execute(
+                "SELECT scope_json, status, result_json FROM assurance_receipt_ledger "
+                "WHERE scope_digest = ? AND jti = ?",
+                (scope_digest, str(jti or "")),
+            ).fetchone()
+            if row is None:
+                return None
+            if str(row["scope_json"]) != scope_json:
+                raise AssuranceReceiptLedgerUnavailable("receipt_scope_digest_collision")
+            if str(row["status"]) != "consumed":
+                return None
+            raw_result = str(row["result_json"] or "")
+            if not raw_result:
+                raise AssuranceReceiptLedgerUnavailable("consumed_receipt_result_missing")
+            parsed = json.loads(raw_result)
+            if not isinstance(parsed, dict):
+                raise AssuranceReceiptLedgerUnavailable("consumed_receipt_result_invalid")
+            return parsed
+    except AssuranceReceiptLedgerUnavailable:
+        raise
+    except (OSError, sqlite3.Error, json.JSONDecodeError, TypeError) as exc:
+        raise AssuranceReceiptLedgerUnavailable("assurance_receipt_ledger_unavailable") from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def assurance_receipt_status(
+    state_path: Path,
+    *,
+    scope: Mapping[str, Any],
+    jti: str,
+) -> Optional[str]:
+    """Return reserved/consumed only for the exact canonical receipt scope."""
+
+    scope_digest, scope_json = _canonical_scope(scope)
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        with _LEDGER_LOCK:
+            connection = _connect(Path(state_path))
+            row = connection.execute(
+                "SELECT scope_json, status FROM assurance_receipt_ledger "
+                "WHERE scope_digest = ? AND jti = ?",
+                (scope_digest, str(jti or "")),
+            ).fetchone()
+            if row is None:
+                return None
+            if str(row["scope_json"]) != scope_json:
+                raise AssuranceReceiptLedgerUnavailable("receipt_scope_digest_collision")
+            status = str(row["status"] or "")
+            if status not in {"reserved", "consumed"}:
+                raise AssuranceReceiptLedgerUnavailable("assurance_receipt_status_invalid")
+            return status
+    except AssuranceReceiptLedgerUnavailable:
+        raise
+    except (OSError, sqlite3.Error, TypeError) as exc:
+        raise AssuranceReceiptLedgerUnavailable("assurance_receipt_ledger_unavailable") from exc
     finally:
         if connection is not None:
             connection.close()

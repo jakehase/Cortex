@@ -55,6 +55,8 @@ from cortex_server.modules.nexus_assurance import build_orchestration_assurance,
 from cortex_server.middleware.hud_middleware import track_level
 from cortex_server.runtime.assurance_receipt_ledger import (
     AssuranceReceiptLedgerUnavailable,
+    assurance_receipt_status,
+    consumed_assurance_receipt_result,
     finalize_assurance_receipt,
     release_assurance_receipt,
     reserve_assurance_receipt,
@@ -3442,7 +3444,7 @@ def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[
     now = int(time.time())
     if payload.get("version") != _ASSURANCE_RECEIPT_VERSION:
         raise ValueError("unsupported_receipt_version")
-    if int(payload.get("issued_at", 0)) > now + 5 or int(payload.get("expires_at", 0)) < now:
+    if int(payload.get("issued_at", 0)) > now + 5 or int(payload.get("expires_at", 0)) <= int(payload.get("issued_at", 0)):
         raise ValueError("expired_receipt")
     if not hmac.compare_digest(str(payload.get("query_hash") or ""), _content_hash(interaction.query)):
         raise ValueError("query_binding_mismatch")
@@ -6021,6 +6023,46 @@ async def commit_memory(interaction: InteractionData, request: Request):
             detail={"error": "valid_server_assurance_receipt_required", "reason": str(exc)},
         ) from exc
 
+    scope = _assurance_scope(request)
+    signed_receipt_jti = str(receipt_payload["jti"])
+    try:
+        prior_result = consumed_assurance_receipt_result(
+            _ASSURANCE_RECEIPT_STATE_PATH,
+            scope=scope,
+            jti=signed_receipt_jti,
+        )
+    except AssuranceReceiptLedgerUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "assurance_receipt_ledger_unavailable", "reason": str(exc)},
+        ) from exc
+    if prior_result is not None:
+        return prior_result
+    if int(receipt_payload["expires_at"]) < int(time.time()):
+        try:
+            receipt_status = assurance_receipt_status(
+                _ASSURANCE_RECEIPT_STATE_PATH,
+                scope=scope,
+                jti=signed_receipt_jti,
+            )
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "assurance_receipt_ledger_unavailable", "reason": str(exc)},
+            ) from exc
+        if receipt_status == "reserved":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "assurance_receipt_commit_outcome_unknown",
+                    "reason": "expired_reserved_receipt",
+                },
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "assurance_receipt_expired_without_commit", "reason": "expired_receipt"},
+        )
+
     server_assurance = _server_commit_assurance(interaction.query, interaction.response)
     risk_flags = list(server_assurance.get("risk_flags") or [])
     validator_summary = dict(server_assurance.get("validator_summary") or {})
@@ -6053,9 +6095,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
         for key, value in supplied_metadata.items()
         if str(key) not in _ASSURANCE_RESERVED_METADATA
     }
-    scope = _assurance_scope(request)
     route_health = _adaptive_policies_for_scope(scope).health
-    signed_receipt_jti = str(receipt_payload["jti"])
     try:
         receipt_reservation = reserve_assurance_receipt(
             _ASSURANCE_RECEIPT_STATE_PATH,
@@ -6064,6 +6104,20 @@ async def commit_memory(interaction: InteractionData, request: Request):
             expires_at=int(receipt_payload["expires_at"]),
         )
     except ValueError as exc:
+        if str(exc) == "receipt_already_consumed":
+            try:
+                prior_result = consumed_assurance_receipt_result(
+                    _ASSURANCE_RECEIPT_STATE_PATH,
+                    scope=scope,
+                    jti=signed_receipt_jti,
+                )
+            except AssuranceReceiptLedgerUnavailable as replay_exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail={"error": "assurance_receipt_ledger_unavailable", "reason": str(replay_exc)},
+                ) from replay_exc
+            if prior_result is not None:
+                return prior_result
         raise HTTPException(
             status_code=403,
             detail={"error": "valid_server_assurance_receipt_required", "reason": str(exc)},
@@ -6111,16 +6165,6 @@ async def commit_memory(interaction: InteractionData, request: Request):
 
     durable_status = str((durable_write or {}).get("status") or "")
     if durable_status in {"stored", "stored_below_threshold"}:
-        try:
-            finalize_assurance_receipt(_ASSURANCE_RECEIPT_STATE_PATH, receipt_reservation)
-        except AssuranceReceiptLedgerUnavailable as exc:
-            # Keep the durable reservation in place. The signed JTI is also the
-            # L22 idempotency identity, so a retry can never mint another record.
-            route_health.record_failure("l22", error=str(exc))
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "assurance_receipt_finalization_failed", "reason": str(exc)},
-            ) from exc
         route_health.record_success("l22")
     else:
         try:
@@ -6148,7 +6192,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
         "route_health": {"version": "route_health.v1", "dependencies": {"l22": route_health.snapshot("l22")}},
     }
 
-    return {
+    commit_result = {
         "success": bool(memory_decision.get("eligible")) and durable_write and durable_write.get("status") == "stored",
         "committed": bool(durable_write and durable_write.get("status") == "stored"),
         "levels": [7, 22],
@@ -6164,6 +6208,22 @@ async def commit_memory(interaction: InteractionData, request: Request):
             "memory_write_eligible": bool(memory_decision.get("eligible")),
         },
     }
+    if durable_status in {"stored", "stored_below_threshold"}:
+        try:
+            finalize_assurance_receipt(
+                _ASSURANCE_RECEIPT_STATE_PATH,
+                receipt_reservation,
+                result=commit_result,
+            )
+        except AssuranceReceiptLedgerUnavailable as exc:
+            # Keep the reservation in place. The JTI remains the L22 identity,
+            # so recovery can never mint a second durable memory identity.
+            route_health.record_failure("l22", error=str(exc))
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "assurance_receipt_finalization_failed", "reason": str(exc)},
+            ) from exc
+    return commit_result
 
 
 @router.post("/index")

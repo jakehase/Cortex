@@ -474,3 +474,125 @@ def test_global_request_body_limiter_is_outermost_and_configured(monkeypatch):
     assert app.state.max_request_body_bytes == 12345
     assert app.user_middleware[0].cls is RequestBodyLimitMiddleware
     assert app.user_middleware[0].kwargs["max_body_bytes"] == 12345
+
+
+@pytest.mark.asyncio
+async def test_outer_body_limiter_times_out_stalled_chunk_before_dispatch():
+    downstream_calls = []
+    sent = []
+    receive_calls = 0
+
+    async def downstream(_scope, _receive, _send):
+        downstream_calls.append(True)
+
+    async def receive():
+        nonlocal receive_calls
+        receive_calls += 1
+        if receive_calls == 1:
+            return {"type": "http.request", "body": b"partial", "more_body": True}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        sent.append(message)
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=32,
+        idle_timeout_seconds=0.02,
+        total_timeout_seconds=0.05,
+        max_concurrent_body_reads=2,
+        max_buffered_body_bytes=32,
+    )
+    await asyncio.wait_for(
+        limiter(
+            {"type": "http", "method": "POST", "path": "/write", "headers": []},
+            receive,
+            send,
+        ),
+        timeout=0.2,
+    )
+
+    assert sent[0]["status"] == 408
+    assert (b"connection", b"close") in sent[0]["headers"]
+    assert downstream_calls == []
+    assert limiter._active_body_reads == 0
+    assert limiter._buffered_body_bytes == 0
+
+
+@pytest.mark.asyncio
+async def test_outer_body_limiter_bounds_concurrent_unauthenticated_partial_bodies():
+    entered = asyncio.Event()
+    sent = [[], [], []]
+
+    async def downstream(_scope, _receive, _send):
+        raise AssertionError("partial bodies must never dispatch")
+
+    def receiver():
+        calls = 0
+
+        async def receive():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                entered.set()
+                return {"type": "http.request", "body": b"12345678", "more_body": True}
+            await asyncio.Event().wait()
+
+        return receive
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=32,
+        idle_timeout_seconds=0.08,
+        total_timeout_seconds=0.04,
+        max_concurrent_body_reads=2,
+        max_buffered_body_bytes=32,
+    )
+
+    async def run(index):
+        async def send(message):
+            sent[index].append(message)
+        await limiter(
+            {"type": "http", "method": "POST", "path": "/write", "headers": []},
+            receiver(),
+            send,
+        )
+
+    first = asyncio.create_task(run(0))
+    second = asyncio.create_task(run(1))
+    await entered.wait()
+    third = asyncio.create_task(run(2))
+    await asyncio.gather(first, second, third)
+
+    statuses = sorted(messages[0]["status"] for messages in sent)
+    assert statuses == [408, 408, 503]
+    assert limiter._active_body_reads == 0
+    assert limiter._buffered_body_bytes == 0
+
+
+@pytest.mark.asyncio
+async def test_outer_body_limiter_rejects_missing_write_token_without_receiving_body():
+    receive_calls = []
+    sent = []
+
+    async def receive():
+        receive_calls.append(True)
+        raise AssertionError("authorization rejection must precede body acquisition")
+
+    async def send(message):
+        sent.append(message)
+
+    limiter = RequestBodyLimitMiddleware(
+        lambda *_args: None,
+        max_body_bytes=32,
+        write_auth_mode="token_required",
+        write_token="expected-token",
+    )
+    await limiter(
+        {"type": "http", "method": "POST", "path": "/write", "headers": []},
+        receive,
+        send,
+    )
+
+    assert sent[0]["status"] == 403
+    assert receive_calls == []

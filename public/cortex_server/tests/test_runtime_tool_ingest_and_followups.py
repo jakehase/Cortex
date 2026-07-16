@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 from pathlib import Path
 
 import pytest
@@ -139,6 +140,10 @@ def test_tool_event_id_is_an_end_to_end_idempotency_boundary_and_dlq_is_replayab
     assert len(journal_events) == 1
     assert memory.count(request.event_id) == 1
     assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="session")) == 1
+
+    # Model loss of the newly linked inbox directory after other authoritative
+    # projections survived. Conflicting reuse must still be rejected.
+    shutil.rmtree(Path(stores["root"]) / "session_event_inbox")
 
     conflicting_replay = orchestrator.normalize_session_event(
         process["process_id"],

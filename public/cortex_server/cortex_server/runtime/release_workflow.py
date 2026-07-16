@@ -37,6 +37,13 @@ DEFAULT_RELEASE_ARTIFACT_MAX_BYTES = 4 * 1024 * 1024
 DEFAULT_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES = 64 * 1024 * 1024
 DEFAULT_RELEASE_ARTIFACT_STORE_QUOTA_BYTES = 1024 * 1024 * 1024
 DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS = 3600
+MAX_RELEASE_ARTIFACT_RECEIPTS = 128
+MAX_RELEASE_ARTIFACT_CLAIMS_BYTES = 64 * 1024
+MAX_RELEASE_RECEIPT_METADATA_BYTES = 2 * 1024 * 1024
+MAX_RELEASE_STATE_BYTES = 4 * 1024 * 1024
+MAX_RELEASE_HISTORY_BYTES = 64 * 1024 * 1024
+MAX_RELEASE_PROCESS_DURABLE_BYTES = 128 * 1024 * 1024
+MAX_RELEASE_GLOBAL_DURABLE_BYTES = 1536 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -61,23 +68,23 @@ def _artifact_limit_from_env(name: str, default: int, *, allow_zero: bool = Fals
 
 def release_artifact_storage_limits() -> ReleaseArtifactStorageLimits:
     limits = ReleaseArtifactStorageLimits(
-        max_artifact_bytes=_artifact_limit_from_env(
+        max_artifact_bytes=min(DEFAULT_RELEASE_ARTIFACT_MAX_BYTES, _artifact_limit_from_env(
             "CORTEX_RELEASE_ARTIFACT_MAX_BYTES",
             DEFAULT_RELEASE_ARTIFACT_MAX_BYTES,
-        ),
-        release_quota_bytes=_artifact_limit_from_env(
+        )),
+        release_quota_bytes=min(DEFAULT_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES, _artifact_limit_from_env(
             "CORTEX_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES",
             DEFAULT_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES,
-        ),
-        store_quota_bytes=_artifact_limit_from_env(
+        )),
+        store_quota_bytes=min(DEFAULT_RELEASE_ARTIFACT_STORE_QUOTA_BYTES, _artifact_limit_from_env(
             "CORTEX_RELEASE_ARTIFACT_STORE_QUOTA_BYTES",
             DEFAULT_RELEASE_ARTIFACT_STORE_QUOTA_BYTES,
-        ),
-        orphan_grace_seconds=_artifact_limit_from_env(
+        )),
+        orphan_grace_seconds=min(DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS, _artifact_limit_from_env(
             "CORTEX_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS",
             DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS,
             allow_zero=True,
-        ),
+        )),
     )
     if limits.max_artifact_bytes > limits.release_quota_bytes:
         raise RuntimeError("release artifact maximum must not exceed the per-release quota")
@@ -269,6 +276,8 @@ def prepare_release_artifact(
 
 _ARTIFACT_STORE_LOCKS_GUARD = threading.Lock()
 _ARTIFACT_STORE_LOCKS: Dict[str, threading.RLock] = {}
+_RELEASE_METADATA_LOCKS_GUARD = threading.Lock()
+_RELEASE_METADATA_LOCKS: Dict[str, threading.RLock] = {}
 
 
 class ReleaseArtifactStore:
@@ -667,6 +676,16 @@ class ReleaseArtifactReceipt(BaseModel):
         _parse_ts(value)
         return value
 
+    @field_validator("claims")
+    @classmethod
+    def _bounded_receipt_claims(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        if len(encoded) > MAX_RELEASE_ARTIFACT_CLAIMS_BYTES:
+            raise ValueError(
+                f"release artifact claims exceed {MAX_RELEASE_ARTIFACT_CLAIMS_BYTES} bytes"
+            )
+        return value
+
 
 def create_release_artifact_receipt(
     state: ReleaseWorkflowState,
@@ -942,6 +961,10 @@ def record_release_artifact_receipt(
             ) == receipt_identity
         )
     ]
+    if existing is None and len(rows) >= MAX_RELEASE_ARTIFACT_RECEIPTS:
+        raise ValueError(
+            f"release artifact receipt count exceeds immutable limit of {MAX_RELEASE_ARTIFACT_RECEIPTS}"
+        )
     rows.append(record.model_dump())
     return _copy_state(
         state,
@@ -1061,6 +1084,135 @@ class ReleaseWorkflowStore:
     def _append_history(self, record: ReleaseWorkflowHistoryRecord) -> None:
         target = self._history_target(record.process_id)
         _append_fsynced_jsonl(target, _history_dump_compat(record))
+
+    @contextmanager
+    def _metadata_quota_transaction(self):
+        """Serialize aggregate metadata admission across releases and workers."""
+
+        root = self.path.parent if self.path.suffix else self.path
+        lock_target = root / ".release-metadata-quota.lock"
+        lock_key = str(lock_target.resolve())
+        with _RELEASE_METADATA_LOCKS_GUARD:
+            thread_lock = _RELEASE_METADATA_LOCKS.setdefault(lock_key, threading.RLock())
+        with thread_lock:
+            durable_mkdir(lock_target.parent)
+            with lock_target.open("a+b") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _history_state_payload(
+        state: ReleaseWorkflowState,
+        provenance: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Use receipt deltas for artifact ingestion instead of quadratic snapshots."""
+
+        payload = _workflow_dump_compat(state)
+        if str(provenance.get("scenario") or "") != "production_artifact_ingestion":
+            return payload
+        artifact_id = str(provenance.get("artifact_id") or "")
+        content_hash = str(provenance.get("content_hash") or "")
+        receipts = list((state.metadata or {}).get("release_artifacts") or [])
+        receipt = next(
+            (
+                row
+                for row in reversed(receipts)
+                if isinstance(row, dict)
+                and str(row.get("artifact_id") or "") == artifact_id
+                and str(row.get("content_hash") or "") == content_hash
+            ),
+            None,
+        )
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return {
+            "history_format": "cortex.release-history-artifact-delta.v1",
+            "process_id": state.process_id,
+            "release_id": state.release_id,
+            "candidate_ref": state.candidate_ref,
+            "target_environment": state.target_environment,
+            "revision_id": state.revision_id,
+            "current_stage": state.current_stage,
+            "status": state.status,
+            "persistence_revision": state.persistence_revision,
+            "updated_at": state.updated_at,
+            "state_sha256": hashlib.sha256(canonical).hexdigest(),
+            "release_artifact_count": len(receipts),
+            "artifact_receipt": receipt,
+        }
+
+    @staticmethod
+    def _encoded_json(payload: Dict[str, Any], *, pretty: bool) -> bytes:
+        return (
+            json.dumps(
+                payload,
+                sort_keys=True,
+                indent=2 if pretty else None,
+                separators=None if pretty else (",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+
+    def _assert_durable_metadata_capacity(
+        self,
+        state: ReleaseWorkflowState,
+        history_record: ReleaseWorkflowHistoryRecord,
+    ) -> None:
+        state_payload = _workflow_dump_compat(state)
+        receipts = list((state.metadata or {}).get("release_artifacts") or [])
+        if len(receipts) > MAX_RELEASE_ARTIFACT_RECEIPTS:
+            raise ValueError(
+                f"release artifact receipt count exceeds immutable limit of {MAX_RELEASE_ARTIFACT_RECEIPTS}"
+            )
+        receipt_bytes = sum(
+            len(self._encoded_json(receipt, pretty=False))
+            for receipt in receipts
+            if isinstance(receipt, dict)
+        )
+        if receipt_bytes > MAX_RELEASE_RECEIPT_METADATA_BYTES:
+            raise ValueError(
+                "release artifact receipt metadata quota exceeded: "
+                f"{receipt_bytes} > {MAX_RELEASE_RECEIPT_METADATA_BYTES} bytes"
+            )
+        state_bytes = len(self._encoded_json(state_payload, pretty=True))
+        if state_bytes > MAX_RELEASE_STATE_BYTES:
+            raise ValueError(
+                f"release state quota exceeded: {state_bytes} > {MAX_RELEASE_STATE_BYTES} bytes"
+            )
+        history_target = self._history_target(state.process_id)
+        history_bytes = history_target.stat().st_size if history_target.exists() else 0
+        history_append_bytes = len(
+            (json.dumps(_history_dump_compat(history_record), sort_keys=True) + "\n").encode("utf-8")
+        )
+        if history_bytes + history_append_bytes > MAX_RELEASE_HISTORY_BYTES:
+            raise ValueError(
+                "release history quota exceeded: "
+                f"{history_bytes + history_append_bytes} > {MAX_RELEASE_HISTORY_BYTES} bytes"
+            )
+        intent_target = self._rollback_intent_target(state.process_id)
+        intent_bytes = intent_target.stat().st_size if intent_target.exists() else 0
+        projected_process_bytes = state_bytes + history_bytes + history_append_bytes + intent_bytes
+        if projected_process_bytes > MAX_RELEASE_PROCESS_DURABLE_BYTES:
+            raise ValueError(
+                "release process durable quota exceeded: "
+                f"{projected_process_bytes} > {MAX_RELEASE_PROCESS_DURABLE_BYTES} bytes"
+            )
+        root = self.path.parent if self.path.suffix else self.path
+        global_usage = 0
+        if root.exists():
+            for candidate in root.rglob("*"):
+                if candidate.is_file():
+                    global_usage += candidate.stat().st_size
+        # Atomic publication temporarily retains the old state and the new
+        # state together; count that temporary plus the pending history row.
+        projected_global = global_usage + state_bytes + history_append_bytes
+        if projected_global > MAX_RELEASE_GLOBAL_DURABLE_BYTES:
+            raise ValueError(
+                "global release durable quota exceeded: "
+                f"{projected_global} > {MAX_RELEASE_GLOBAL_DURABLE_BYTES} bytes"
+            )
 
     def _rollback_intent_target(self, process_id: str) -> Path:
         target = self._target(process_id)
@@ -1247,29 +1399,30 @@ class ReleaseWorkflowStore:
                 next_revision = current.persistence_revision + 1
 
             persisted = _copy_state(record, persistence_revision=next_revision)
-            target = self._target(record.process_id)
-            _atomic_write_json(target, _workflow_dump_compat(persisted))
-            # Most callers retain the model they supplied. Once the atomic
-            # state replacement has committed, keep that model's fence in sync
-            # even if a later history append reports an I/O error.
-            if isinstance(state, ReleaseWorkflowState):
-                state.persistence_revision = next_revision
-            self._append_history(
-                ReleaseWorkflowHistoryRecord(
-                    process_id=persisted.process_id,
-                    release_id=persisted.release_id,
-                    revision_id=persisted.revision_id,
-                    current_stage=persisted.current_stage,
-                    status=persisted.status,
-                    actor=str(actor or "").strip() or None,
-                    provenance={
-                        **dict(provenance or {}),
-                        "persistence_revision": next_revision,
-                    },
-                    change_set=_state_change_set(current, persisted),
-                    state=_workflow_dump_compat(persisted),
-                )
+            history_record = ReleaseWorkflowHistoryRecord(
+                process_id=persisted.process_id,
+                release_id=persisted.release_id,
+                revision_id=persisted.revision_id,
+                current_stage=persisted.current_stage,
+                status=persisted.status,
+                actor=str(actor or "").strip() or None,
+                provenance={
+                    **dict(provenance or {}),
+                    "persistence_revision": next_revision,
+                },
+                change_set=_state_change_set(current, persisted),
+                state=self._history_state_payload(persisted, dict(provenance or {})),
             )
+            with self._metadata_quota_transaction():
+                self._assert_durable_metadata_capacity(persisted, history_record)
+                target = self._target(record.process_id)
+                _atomic_write_json(target, _workflow_dump_compat(persisted))
+                # Most callers retain the model they supplied. Once the atomic
+                # state replacement has committed, keep that model's fence in sync
+                # even if a later history append reports an I/O error.
+                if isinstance(state, ReleaseWorkflowState):
+                    state.persistence_revision = next_revision
+                self._append_history(history_record)
             return persisted
 
 
@@ -2183,6 +2336,7 @@ def apply_release_rollback_restore(
                     "source_stage": state.current_stage,
                     "source_revision_id": state.revision_id,
                     "target_revision_id": target_revision,
+                    "restored_artifact_revision_id": target_revision,
                     # Preserve the established rollback revision type suffix
                     # while retaining a server-assigned, transaction-unique
                     # identifier that callers cannot choose or collide with.
@@ -2354,6 +2508,16 @@ def apply_release_rollback_restore(
                     "rollback_fencepost_id": target_fencepost_id,
                     "rollback_revision_id": restored_shared.revision_id,
                     "rollback_transaction_id": transaction_id,
+                    "rollback_activation": {
+                        "version": "cortex.release.rollback-activation.v1",
+                        "transaction_id": transaction_id,
+                        "fencepost_id": target_fencepost_id,
+                        "stage": rolled_state.current_stage,
+                        "artifact_revision_id": str(
+                            intent.get("restored_artifact_revision_id") or target_revision_id
+                        ),
+                        "control_revision_id": restored_shared.revision_id,
+                    },
                 },
             )
             if release_store is not None:

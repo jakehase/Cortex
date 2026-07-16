@@ -14,6 +14,8 @@ import threading
 import time
 from uuid import uuid4
 
+from cortex_server.runtime.durable_files import durable_mkdir
+
 
 class NodeType(str, Enum):
     FILE = "File"
@@ -116,7 +118,7 @@ class SQLiteStorage:
         seed = Path(seed_value).expanduser().resolve()
         if not seed.is_file() or seed.is_symlink():
             raise RuntimeError("configured Cortex graph seed is not a regular file")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(target.parent)
         if target.parent.is_symlink():
             raise RuntimeError("Cortex graph database directory cannot be a symbolic link")
         temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")

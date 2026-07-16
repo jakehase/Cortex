@@ -20,6 +20,9 @@ services:
       # intents, snapshots, mailbox, and artifact evidence survive together.
       - cortex-runtime-delivery:/opt/clawdbot/state:rw
     environment:
+      MALLOC_ARENA_MAX: "2"
+      MALLOC_TRIM_THRESHOLD_: "131072"
+      MALLOC_TOP_PAD_: "131072"
       CORTEX_ENV: production
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
       CORTEX_DB_PATH: /opt/clawdbot/state/knowledge/cortex_graph.db
@@ -50,6 +53,12 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    # Give the production container an explicit cgroup/OOM recovery boundary.
+    mem_limit: 3g
+    mem_reservation: 2g
+    memswap_limit: 3584m
+    oom_kill_disable: false
+    pids_limit: 512
     networks:
       - cortex-network
     depends_on:
@@ -102,7 +111,9 @@ services:
           sync "$${parent}"
         }
         for directory in \
+          /state/knowledge \
           /state/runtime_delivery \
+          /state/runtime_delivery/session_event_inbox \
           /state/runtime_delivery/snapshots \
           /state/runtime_delivery/shared_state \
           /state/runtime_delivery/shared_state/history \

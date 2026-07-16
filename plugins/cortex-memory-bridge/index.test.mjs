@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHmac } from 'node:crypto';
+import { spawn } from 'node:child_process';
 
-import plugin, { ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults } from './index.ts';
+import plugin, { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
 const lifecycleConfig = (overrides = {}) => ({
   stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-test-')),
@@ -33,6 +34,48 @@ const lifecycleSpoolFiles = (stateDir) => {
     .map((entry) => path.join(root, entry, 'lifecycle-spool.json'))
     .filter((entry) => fs.existsSync(entry));
 };
+
+const runSpoolWorker = (stateDir, operation, prefix, count) => new Promise((resolve, reject) => {
+  const moduleUrl = new URL('./index.ts', import.meta.url).href;
+  const script = `
+    import { DurableLifecycleSpool } from ${JSON.stringify(moduleUrl)};
+    const spool = new DurableLifecycleSpool(${JSON.stringify(stateDir)}, 512);
+    const principal = { version: 1, tenant_id: 'tenant', workspace_id: 'workspace', scope_credential_id: 'credential', agent_id: 'agent', user_id: 'user', channel_id: 'channel', session_id: 'session' };
+    for (let index = 0; index < ${count}; index += 1) {
+      const key = ${JSON.stringify(prefix)} + index;
+      if (${JSON.stringify(operation)} === 'ack') spool.ack(key);
+      else spool.put({ version: 3, key, createdAt: new Date().toISOString(), principal, event: { result: key, messages: [] }, context: { sessionKey: 'session', sessionId: 'session', channelId: 'channel', agentId: 'agent', userId: 'user', idempotencyKey: key }, fallbackText: key });
+    }
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '--eval', script], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+  child.on('error', reject);
+  child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`spool worker exited ${code}: ${stderr}`)));
+});
+
+const runReceiptWorker = (stateDir, receipt) => new Promise((resolve, reject) => {
+  const moduleUrl = new URL('./index.ts', import.meta.url).href;
+  const resultPath = path.join(os.tmpdir(), `cortex-receipt-worker-${process.pid}-${Date.now()}-${Math.random()}`);
+  const script = `
+    import fs from 'node:fs';
+    import { DurableLifecycleSpool } from ${JSON.stringify(moduleUrl)};
+    const spool = new DurableLifecycleSpool(${JSON.stringify(stateDir)}, 512);
+    fs.writeFileSync(${JSON.stringify(resultPath)}, spool.retainReceipt('shared-lifecycle', ${JSON.stringify(receipt)}));
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '--eval', script], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+  child.on('error', reject);
+  child.on('close', (code) => {
+    if (code !== 0) return reject(new Error(`receipt worker exited ${code}: ${stderr}`));
+    try {
+      resolve(fs.readFileSync(resultPath, 'utf8'));
+    } finally {
+      fs.rmSync(resultPath, { force: true });
+    }
+  });
+});
 
 test('registration rejects an unprovisioned shared session secret before hooks or lifecycle replay start', () => {
   for (const sessionIdentityHmacSecret of [undefined, '', '   ']) {
@@ -435,6 +478,78 @@ test('write-through requires canonical durable-write confirmation and retains ou
   }
 });
 
+test('write-through requests a new receipt only after Nexus proves expiry without commit', async () => {
+  const handlers = new Map();
+  const commits = [];
+  let receiptRequests = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      receiptRequests += 1;
+      return new Response(JSON.stringify({ success: true, receipt: `server-receipt-${receiptRequests}` }));
+    }
+    const body = JSON.parse(String(options?.body || '{}'));
+    commits.push(body);
+    if (body.assurance_receipt === 'server-receipt-1') {
+      return new Response(
+        JSON.stringify({ detail: { error: 'assurance_receipt_expired_without_commit' } }),
+        { status: 409 },
+      );
+    }
+    return successfulCommitResponse();
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    handlers.get('llm_output')({ content: 'durable output with an expired uncommitted receipt' }, { sessionKey: 'expired-session' });
+    await handlers.get('agent_end')({}, { sessionKey: 'expired-session' });
+
+    assert.equal(receiptRequests, 2);
+    assert.deepEqual(commits.map((body) => body.assurance_receipt), ['server-receipt-1', 'server-receipt-2']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('write-through retains an expired receipt while Nexus reports unknown commit outcome', async () => {
+  const handlers = new Map();
+  let receiptRequests = 0;
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-unknown-receipt-'));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      receiptRequests += 1;
+      return new Response(JSON.stringify({ success: true, receipt: 'server-receipt-unknown' }));
+    }
+    return new Response(
+      JSON.stringify({ detail: { error: 'assurance_receipt_commit_outcome_unknown' } }),
+      { status: 409 },
+    );
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ stateDir, enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    handlers.get('llm_output')({ content: 'durable output whose commit outcome remains unknown' }, { sessionKey: 'unknown-session' });
+    await assert.rejects(() => handlers.get('agent_end')({}, { sessionKey: 'unknown-session' }), /output retained for retry/);
+    const [spoolFile] = lifecycleSpoolFiles(stateDir);
+    const [record] = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
+    assert.equal(receiptRequests, 1);
+    assert.equal(record.assuranceReceipt, 'server-receipt-unknown');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('failed lifecycle writes replay from the durable spool after plugin restart', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-restart-'));
   const config = lifecycleConfig({
@@ -445,9 +560,13 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
   });
   const originalFetch = globalThis.fetch;
   const requests = [];
+  let receiptRequests = 0;
   let acceptCommit = false;
   globalThis.fetch = async (url, options) => {
-    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      receiptRequests += 1;
+      return successfulCommitResponse();
+    }
     requests.push({ headers: new Headers(options?.headers), body: JSON.parse(String(options?.body || '{}')) });
     return acceptCommit
       ? successfulCommitResponse()
@@ -464,7 +583,7 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     });
     firstHandlers.get('llm_output')({ content: 'restart-safe durable lifecycle output' }, { sessionKey: 'restart-session' });
     await assert.rejects(() => firstHandlers.get('agent_end')({}, { sessionKey: 'restart-session' }), /output retained for retry/);
-    const firstKey = requests[0].body.metadata.idempotency_key;
+    assert.equal('idempotency_key' in requests[0].body.metadata, false);
     assert.equal(requests[0].headers.get('x-cortex-scope-credential-id'), 'bridge-test');
     assert.match(requests[0].headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
     const spoolFiles = lifecycleSpoolFiles(stateDir);
@@ -472,7 +591,9 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     assert.match(path.basename(path.dirname(spoolFiles[0])), /^[0-9a-f]{64}$/);
     const pendingRecords = JSON.parse(fs.readFileSync(spoolFiles[0], 'utf8'));
     assert.equal(pendingRecords.length, 1);
-    assert.equal(pendingRecords[0].version, 2);
+    assert.equal(pendingRecords[0].version, 3);
+    assert.equal(pendingRecords[0].assuranceReceipt, 'test-assurance-receipt');
+    const firstKey = pendingRecords[0].key;
     assert.deepEqual(pendingRecords[0].principal, {
       version: 1,
       tenant_id: 'tenant-test',
@@ -503,12 +624,50 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     await new Promise((resolve) => setTimeout(resolve, 25));
 
     assert.equal(requests.length, 2);
-    assert.equal(requests[1].body.metadata.idempotency_key, firstKey);
+    assert.equal(receiptRequests, 1, 'restart reuses the durably retained server receipt');
+    assert.equal(requests[1].body.assurance_receipt, requests[0].body.assurance_receipt);
+    assert.equal('idempotency_key' in requests[1].body.metadata, false);
     assert.equal(requests[1].headers.get('x-cortex-scope-credential-id'), 'bridge-test');
     assert.match(requests[1].headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
     assert.equal(fs.existsSync(spoolFiles[0]), false, 'an acknowledged principal spool leaves no empty state directory behind');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('two processes cannot lose concurrent spool puts or stale acknowledgements', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-multiprocess-spool-'));
+  try {
+    await Promise.all([
+      runSpoolWorker(stateDir, 'put', 'alpha-', 40),
+      runSpoolWorker(stateDir, 'put', 'beta-', 40),
+    ]);
+    let records = JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8'));
+    assert.equal(records.length, 80);
+    assert.equal(new Set(records.map((record) => record.key)).size, 80);
+
+    await Promise.all([
+      runSpoolWorker(stateDir, 'ack', 'alpha-', 40),
+      runSpoolWorker(stateDir, 'put', 'gamma-', 40),
+    ]);
+    records = JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8'));
+    const keys = new Set(records.map((record) => record.key));
+    assert.equal(records.length, 80);
+    assert.equal([...keys].filter((key) => key.startsWith('alpha-')).length, 0);
+    assert.equal([...keys].filter((key) => key.startsWith('beta-')).length, 40);
+    assert.equal([...keys].filter((key) => key.startsWith('gamma-')).length, 40);
+
+    const spool = new DurableLifecycleSpool(stateDir, 512);
+    const principal = { version: 1, tenant_id: 'tenant', workspace_id: 'workspace', scope_credential_id: 'credential', agent_id: 'agent', user_id: 'user', channel_id: 'channel', session_id: 'session' };
+    spool.put({ version: 3, key: 'shared-lifecycle', createdAt: new Date().toISOString(), principal, event: { result: 'shared', messages: [] }, context: { sessionKey: 'session', sessionId: 'session', channelId: 'channel', agentId: 'agent', userId: 'user', idempotencyKey: 'shared-lifecycle' }, fallbackText: 'shared' });
+    const selectedReceipts = await Promise.all([
+      runReceiptWorker(stateDir, 'server-receipt-alpha'),
+      runReceiptWorker(stateDir, 'server-receipt-beta'),
+    ]);
+    assert.equal(new Set(selectedReceipts).size, 1, 'overlapping processes adopt one canonical server JTI');
+    assert.equal(spool.entries().find((record) => record.key === 'shared-lifecycle').assuranceReceipt, selectedReceipts[0]);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
 
@@ -603,12 +762,14 @@ test('legacy unscoped lifecycle spool is quarantined without replay', async () =
   }
 });
 
-test('recent output, dedupe, and persistence keys isolate colliding raw sessions by complete principal', async () => {
+test('recent output, dedupe, and server receipts isolate colliding raw sessions by complete principal', async () => {
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
-    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      return new Response(JSON.stringify({ success: true, receipt: `scope-receipt-${requests.length}` }));
+    }
     requests.push(JSON.parse(String(options?.body || '{}')));
     return successfulCommitResponse();
   };
@@ -634,12 +795,8 @@ test('recent output, dedupe, and persistence keys isolate colliding raw sessions
     assert.doesNotMatch(requests[1].response, /alpha principal/);
     assert.equal(requests[0].metadata.scope.user_id, 'user-alpha');
     assert.equal(requests[1].metadata.scope.user_id, 'user-beta');
-    assert.notEqual(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
-    assert.notEqual(
-      requests[0].metadata.idempotency_key.split(':')[0],
-      requests[1].metadata.idempotency_key.split(':')[0],
-      'cache, dedupe, and persistence namespaces bind the complete principal',
-    );
+    assert.notEqual(requests[0].assurance_receipt, requests[1].assurance_receipt);
+    assert.equal('idempotency_key' in requests[0].metadata, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -761,13 +918,17 @@ test('agent_end eagerly deletes recent output lifecycle state', async () => {
   }
 });
 
-test('failed subagent persistence is retried by agent_end with the same idempotency key', async () => {
+test('failed subagent persistence is retried by agent_end with the same server receipt', async () => {
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
+  let receiptRequests = 0;
   globalThis.fetch = async (url, options) => {
     const body = JSON.parse(String(options?.body || '{}'));
-    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      receiptRequests += 1;
+      return successfulCommitResponse();
+    }
     requests.push(body);
     if (requests.length === 1) throw new Error('transient write failure');
     return successfulCommitResponse();
@@ -785,7 +946,9 @@ test('failed subagent persistence is retried by agent_end with the same idempote
     await handlers.get('agent_end')({}, { sessionKey: 'retry-session' });
 
     assert.equal(requests.length, 2);
-    assert.equal(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
+    assert.equal(receiptRequests, 1);
+    assert.equal(requests[0].assurance_receipt, requests[1].assurance_receipt);
+    assert.equal('idempotency_key' in requests[0].metadata, false);
     assert.match(requests[1].response, /durable lifecycle output/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -796,8 +959,12 @@ test('lifecycle writes distinguish bounded outputs that share a long suffix', as
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
+  let receiptNumber = 0;
   globalThis.fetch = async (url, options) => {
-    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      receiptNumber += 1;
+      return new Response(JSON.stringify({ success: true, receipt: `bounded-receipt-${receiptNumber}` }));
+    }
     requests.push(JSON.parse(String(options?.body || '{}')));
     return successfulCommitResponse();
   };
@@ -816,7 +983,7 @@ test('lifecycle writes distinguish bounded outputs that share a long suffix', as
     await handlers.get('agent_end')({}, { sessionKey: 'same-session' });
 
     assert.equal(requests.length, 2);
-    assert.notEqual(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
+    assert.notEqual(requests[0].assurance_receipt, requests[1].assurance_receipt);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -859,8 +1026,12 @@ test('distinct lifecycle runs persist identical output in the same session', asy
   const handlers = new Map();
   const requests = [];
   const originalFetch = globalThis.fetch;
+  let receiptNumber = 0;
   globalThis.fetch = async (url, options) => {
-    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      receiptNumber += 1;
+      return new Response(JSON.stringify({ success: true, receipt: `run-receipt-${receiptNumber}` }));
+    }
     requests.push(JSON.parse(String(options?.body || '{}')));
     return successfulCommitResponse();
   };
@@ -880,7 +1051,7 @@ test('distinct lifecycle runs persist identical output in the same session', asy
     await end({}, { sessionKey: 'repeat-session', runId: 'run-two' });
 
     assert.equal(requests.length, 2);
-    assert.notEqual(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
+    assert.notEqual(requests[0].assurance_receipt, requests[1].assurance_receipt);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -928,6 +1099,7 @@ test('concurrent hooks with the same lifecycle run coalesce despite differing ou
 test('recent outputs are truncated before caching, keying, and concurrent persistence', async () => {
   const handlers = new Map();
   const requests = [];
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-bounded-key-'));
   const originalFetch = globalThis.fetch;
   let release;
   const blocked = new Promise((resolve) => { release = resolve; });
@@ -939,7 +1111,7 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
   };
   try {
     plugin.register({
-      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, recentOutputMaxChars: 64 }),
+      pluginConfig: lifecycleConfig({ stateDir, enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0, recentOutputMaxChars: 64 }),
       logger: { info() {}, warn() {} },
       on(name, handler) { handlers.set(name, handler); },
       registerMemoryRuntime() {},
@@ -955,7 +1127,10 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(requests.length, 1, 'concurrent hooks coalesce on the truncated payload key');
-    assert.match(requests[0].metadata.idempotency_key, /^[0-9a-f]{64}:[0-9a-f]{64}$/);
+    const [spoolFile] = lifecycleSpoolFiles(stateDir);
+    const [spoolRecord] = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
+    assert.match(spoolRecord.key, /^[0-9a-f]{64}:[0-9a-f]{64}$/);
+    assert.equal(requests[0].assurance_receipt, spoolRecord.assuranceReceipt);
     assert.match(requests[0].response, new RegExp(expected.slice(-20)));
     assert.doesNotMatch(requests[0].response, /attacker-prefix/);
     release();

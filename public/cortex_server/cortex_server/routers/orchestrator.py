@@ -120,6 +120,7 @@ from cortex_server.runtime.release_workflow import (
     canonical_release_artifact_bytes,
     release_artifact_storage_limits,
 )
+from cortex_server.runtime.durable_files import durable_mkdir
 
 router = APIRouter()
 
@@ -268,7 +269,7 @@ def _runtime_event_receipt_paths(*, stores: Dict[str, Any], process_id: str, eve
 
 
 def _write_runtime_event_receipt(path: Path, receipt: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(path.parent)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
     encoded = (json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
     try:
@@ -322,7 +323,7 @@ def _file_tail_contains(path: Path, needle: str, *, max_bytes: int = 1_048_576) 
 
 def _clear_runtime_event_pending(*, stores: Dict[str, Any], process_id: str, event_id: str) -> None:
     _, lock_path, pending_path = _runtime_event_receipt_paths(stores=stores, process_id=process_id, event_id=event_id)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(lock_path.parent)
     with lock_path.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         pending = json.loads(pending_path.read_text(encoding="utf-8")) if pending_path.exists() else None
@@ -361,12 +362,13 @@ def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores:
         raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
 
     event.payload = {**dict(event.payload or {}), "canonical_event_id": event.event_id}
+    expected_event_identity = _canonical_event_identity(event)
     receipt_path, lock_path, pending_path = _runtime_event_receipt_paths(
         stores=stores,
         process_id=process_id,
         event_id=event.event_id,
     )
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(lock_path.parent)
     with lock_path.open("a+b") as lock_handle:
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         pending = json.loads(pending_path.read_text(encoding="utf-8")) if pending_path.exists() else None
@@ -379,6 +381,34 @@ def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores:
             if _canonical_event_identity(stored_event) != _canonical_event_identity(event):
                 raise ValueError(f"canonical event_id reuse with different payload: {event.event_id}")
             event = stored_event
+            expected_event_identity = _canonical_event_identity(event)
+        else:
+            # If the inbox directory link was lost after other projections were
+            # committed, those projections are still authoritative evidence for
+            # event-id reuse. Never infer equality from the event id alone.
+            projected_identities: List[Dict[str, Any]] = []
+            for row in stores["journal"].load(process_id=process_id):
+                payload = dict(row.payload or {})
+                if str(payload.get("canonical_event_id") or "") != event.event_id:
+                    continue
+                identity = payload.get("canonical_event_identity")
+                if not isinstance(identity, dict):
+                    raise ValueError(
+                        f"canonical event projection lacks recoverable identity: {event.event_id}"
+                    )
+                projected_identities.append(identity)
+            for row in get_runtime_events(process_id, limit=1000):
+                payload = dict(row.get("payload") or {})
+                if str(payload.get("canonical_event_id") or "") != event.event_id:
+                    continue
+                identity = payload.get("canonical_event_identity")
+                if not isinstance(identity, dict):
+                    raise ValueError(
+                        f"canonical event runtime projection lacks recoverable identity: {event.event_id}"
+                    )
+                projected_identities.append(identity)
+            if any(identity != expected_event_identity for identity in projected_identities):
+                raise ValueError(f"canonical event_id reuse with different payload: {event.event_id}")
         if pending is None:
             _write_runtime_event_receipt(
                 pending_path,
@@ -431,6 +461,7 @@ def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores:
                     "session_name": event.session_name,
                     "raw_event": event.raw_event,
                     "canonical_event_id": event.event_id,
+                    "canonical_event_identity": expected_event_identity,
                 },
             )
         projections["journal"] = True
@@ -444,7 +475,12 @@ def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores:
             record_runtime_event(
                 process_id,
                 event.kind,
-                {**dict(event.payload or {}), "operator_summary": event.operator_summary, "canonical_event_id": event.event_id},
+                {
+                    **dict(event.payload or {}),
+                    "operator_summary": event.operator_summary,
+                    "canonical_event_id": event.event_id,
+                    "canonical_event_identity": expected_event_identity,
+                },
             )
         projections["runtime_process"] = True
         _write_runtime_event_receipt(receipt_path, receipt)
@@ -1322,10 +1358,19 @@ def _resolve_runtime_delivery_contract(
     if stored_contract is not None:
         payload.update(model_dump_compat(stored_contract))
     elif workflow_contract:
-        payload.update(dict(workflow_contract))
+        payload.update({key: value for key, value in workflow_contract.items() if key != "contract_id"})
     baseline_policy_id = str(payload.get("dependability_profile") or "24h").strip().lower()
     if isinstance(request.contract, dict):
-        payload.update(dict(request.contract))
+        if "contract_id" in request.contract:
+            requested_contract_id = str(request.contract.get("contract_id") or "").strip()
+            if stored_contract is None or requested_contract_id != stored_contract.contract_id:
+                raise HTTPException(status_code=409, detail="production contract_id is server-owned and immutable")
+        payload.update({key: value for key, value in request.contract.items() if key != "contract_id"})
+
+    if stored_contract is not None:
+        payload["contract_id"] = stored_contract.contract_id
+    else:
+        payload.pop("contract_id", None)
 
     payload["process_id"] = process_id
     payload.setdefault("objective", str(workflow.get("name") or request.objective or f"Drive {process_id} to production"))
@@ -5298,6 +5343,9 @@ def _reconcile_runtime_delivery_sequence(
         if snapshot is None or shared_state is None:
             raise HTTPException(status_code=400, detail=f"runtime delivery state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
         contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=request)
+        # Establish the immutable contract identity before release creation,
+        # dependability campaigns, promotion, or any other side effect.
+        contract = stores["loop_store"].save_contract(contract)
         if request.initialize_release:
             _ensure_runtime_release_state(process_id, process=process, contract=contract, stores=stores, request=request)
         reconciled = reconcile_production_build_loop(

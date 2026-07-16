@@ -5,6 +5,7 @@ import json
 import multiprocessing
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 import cortex_server.routers.orchestrator as orchestrator
@@ -93,6 +94,94 @@ def test_production_credentials_are_strong_and_pairwise_independent(monkeypatch)
         production_build_loop.validate_production_delivery_credentials()
 
 
+def test_production_contract_identity_is_immutable_before_reconciliation_side_effects(tmp_path):
+    store = ProductionBuildLoopStore(tmp_path / "production_build_loop")
+    original = ProductionBuildContract(
+        contract_id="contract-server-owned",
+        process_id="proc_contract_identity",
+        objective="Ship safely",
+    )
+    store.save_contract(original)
+
+    with pytest.raises(RuntimeError, match="contract identity conflict"):
+        store.save_contract(
+            ProductionBuildContract(
+                contract_id="contract-caller-override",
+                process_id=original.process_id,
+                objective="Mutate identity",
+            )
+        )
+    assert store.load_contract(original.process_id).contract_id == original.contract_id
+
+    process = {"process_id": original.process_id, "workflow": {"name": "Ship safely", "metadata": {}}}
+    with pytest.raises(HTTPException) as rejected:
+        orchestrator._resolve_runtime_delivery_contract(
+            original.process_id,
+            process=process,
+            stores={"loop_store": store},
+            request=RuntimeDeliveryReconcileRequest(
+                contract={"contract_id": "contract-caller-override"}
+            ),
+        )
+    assert getattr(rejected.value, "status_code", None) == 409
+    assert store.load_contract(original.process_id).contract_id == original.contract_id
+
+
+@pytest.mark.parametrize("restored_stage", ["build_verified", "canary_verified"])
+def test_rollback_readiness_uses_fencepost_artifact_revision_only_while_restored(
+    tmp_path,
+    restored_stage,
+):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(
+        process_id="proc_rollback_evidence",
+        revision_id="rev_deployed_artifacts",
+        node_id="build",
+        agent_id="builder",
+    )
+    fencepost = capture_release_rollback_fencepost(
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        stage=restored_stage,
+    )
+    transaction_id = "rollback_transaction_test"
+    restored = ReleaseWorkflowState(
+        process_id="proc_rollback_evidence",
+        candidate_ref="build:rollback-evidence",
+        target_environment="production",
+        revision_id="rollback_control_revision.rollback",
+        current_stage=restored_stage,
+        status="rolled_back",
+        rollback_fenceposts=[fencepost],
+        metadata={
+            "rollback_transaction_id": transaction_id,
+            "rollback_activation": {
+                "version": "cortex.release.rollback-activation.v1",
+                "transaction_id": transaction_id,
+                "fencepost_id": fencepost.fencepost_id,
+                "stage": restored_stage,
+                "artifact_revision_id": "rev_deployed_artifacts",
+                "control_revision_id": "rollback_control_revision.rollback",
+            },
+        },
+    )
+
+    revision, error = production_build_loop._active_release_evidence_revision(
+        restored,
+        rollback_transaction_id=transaction_id,
+    )
+    assert error is None
+    assert revision == "rev_deployed_artifacts"
+
+    forward = restored.model_copy(update={"status": "in_progress"})
+    revision, error = production_build_loop._active_release_evidence_revision(
+        forward,
+        rollback_transaction_id=transaction_id,
+    )
+    assert error is None
+    assert revision == "rollback_control_revision.rollback"
+
+
 def test_production_readiness_requires_live_consumers_and_matching_reasoning_state(tmp_path, monkeypatch):
     _configure_production_credentials(monkeypatch)
     delivery_root = tmp_path / "runtime_delivery"
@@ -155,6 +244,18 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     assert pending["ready"] is False
     assert pending["checks"]["runtimeDeliveryConsistency"]["pendingRollbackProcessIds"] == ["proc_pending"]
     (release_root / ".proc_pending.json.rollback-intent.json").unlink()
+
+    orphan_contract = delivery_root / "production_build_loop" / "contracts" / "proc_orphaned_release.json"
+    orphan_contract.parent.mkdir(parents=True)
+    orphan_contract.write_text("{}", encoding="utf-8")
+    orphaned = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    orphan_errors = orphaned["checks"]["runtimeDeliveryConsistency"]["inconsistencies"]
+    assert any(
+        row["process_id"] == "proc_orphaned_release"
+        and "release workflow is missing" in row["error"]
+        for row in orphan_errors
+    )
+    orphan_contract.unlink()
 
     (release_root / "proc_missing.json").write_text(
         json.dumps({"process_id": "proc_missing"}),

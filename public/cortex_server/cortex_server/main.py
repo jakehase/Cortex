@@ -27,6 +27,10 @@ from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.middleware.event_ledger_middleware import EventLedgerMiddleware
 from cortex_server.middleware.observability import ObservabilityMiddleware
 from cortex_server.middleware.request_body_limit import (
+    DEFAULT_BODY_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_BODY_TOTAL_TIMEOUT_SECONDS,
+    DEFAULT_MAX_BUFFERED_BODY_BYTES,
+    DEFAULT_MAX_CONCURRENT_BODY_READS,
     RequestBodyLimitMiddleware,
     configured_max_request_body_bytes,
 )
@@ -1032,6 +1036,33 @@ def create_app() -> FastAPI:
     max_request_body_bytes = configured_max_request_body_bytes(
         os.getenv("CORTEX_MAX_REQUEST_BODY_BYTES")
     )
+    def _bounded_body_float(name: str, default: float, maximum: float) -> float:
+        try:
+            value = float(os.getenv(name, str(default)))
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError
+        except ValueError as exc:
+            raise RuntimeError(f"{name} must be a positive finite number") from exc
+        return min(value, maximum)
+
+    def _bounded_body_int(name: str, default: int, maximum: int) -> int:
+        raw = os.getenv(name, str(default)).strip()
+        if not raw.isdecimal() or int(raw) <= 0:
+            raise RuntimeError(f"{name} must be a positive integer")
+        return min(int(raw), maximum)
+
+    body_idle_timeout_seconds = _bounded_body_float(
+        "CORTEX_BODY_IDLE_TIMEOUT_SECONDS", DEFAULT_BODY_IDLE_TIMEOUT_SECONDS, 10.0
+    )
+    body_total_timeout_seconds = _bounded_body_float(
+        "CORTEX_BODY_TOTAL_TIMEOUT_SECONDS", DEFAULT_BODY_TOTAL_TIMEOUT_SECONDS, 30.0
+    )
+    max_concurrent_body_reads = _bounded_body_int(
+        "CORTEX_MAX_CONCURRENT_BODY_READS", DEFAULT_MAX_CONCURRENT_BODY_READS, 256
+    )
+    max_buffered_body_bytes = _bounded_body_int(
+        "CORTEX_MAX_BUFFERED_BODY_BYTES", DEFAULT_MAX_BUFFERED_BODY_BYTES, 256 * 1024 * 1024
+    )
     safe_mode = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
     admin_token = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
     codec_admin_token = os.getenv("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
@@ -1316,6 +1347,12 @@ def create_app() -> FastAPI:
     app.state.readiness_config = readiness_config
     app.state.read_authorization = read_authorization
     app.state.max_request_body_bytes = max_request_body_bytes
+    app.state.request_body_admission = {
+        "idle_timeout_seconds": body_idle_timeout_seconds,
+        "total_timeout_seconds": body_total_timeout_seconds,
+        "max_concurrent_body_reads": max_concurrent_body_reads,
+        "max_buffered_body_bytes": max_buffered_body_bytes,
+    }
     app.state.lifecycle_checks = _not_started_lifecycle_checks()
     app.state.parser_service = ParserService(workspace_roots=parser_workspace_roots)
 
@@ -1507,6 +1544,15 @@ def create_app() -> FastAPI:
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_body_bytes=max_request_body_bytes,
+        idle_timeout_seconds=body_idle_timeout_seconds,
+        total_timeout_seconds=body_total_timeout_seconds,
+        max_concurrent_body_reads=max_concurrent_body_reads,
+        max_buffered_body_bytes=max_buffered_body_bytes,
+        write_auth_mode=write_auth_mode,
+        write_token=write_token,
+        write_token_header=write_token_header,
+        allowed_origins=tuple(allowed_origins),
+        auth_exempt_prefixes=_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
     )
     register_exception_handlers(app)
 
@@ -1627,10 +1673,75 @@ def create_app() -> FastAPI:
             },
         }
 
+    readiness_probe_task: Optional[asyncio.Task] = None
+    readiness_probe_lock = asyncio.Lock()
+
+    async def async_readiness_payload() -> dict:
+        """Single-flight blocking probes off the event loop with a hard deadline."""
+
+        nonlocal readiness_probe_task
+        async with readiness_probe_lock:
+            if readiness_probe_task is not None and readiness_probe_task.done():
+                # A prior caller may have hit the aggregate deadline while the
+                # worker completed later. Never serve that potentially stale
+                # result; start a fresh check for this request.
+                readiness_probe_task = None
+            if readiness_probe_task is None:
+                readiness_probe_task = asyncio.create_task(
+                    asyncio.to_thread(readiness_payload),
+                    name="cortex-readiness-probe",
+                )
+            probe = readiness_probe_task
+        try:
+            payload = await asyncio.wait_for(asyncio.shield(probe), timeout=5.0)
+        except asyncio.TimeoutError:
+            return {
+                "status": "not_ready",
+                "ready": False,
+                "service": "cortex",
+                "checks": {
+                    "readinessProbe": {
+                        "ok": False,
+                        "error": "readiness probe exceeded the 5 second aggregate deadline",
+                    }
+                },
+                "routerLoad": {
+                    "loadedCount": len(router_load_report["loaded"]),
+                    "safeModeSkipped": router_load_report["safeModeSkipped"],
+                    "failed": router_load_report["failed"],
+                    "missingRouter": router_load_report["missingRouter"],
+                },
+            }
+        except Exception as exc:
+            async with readiness_probe_lock:
+                if readiness_probe_task is probe and probe.done():
+                    readiness_probe_task = None
+            return {
+                "status": "not_ready",
+                "ready": False,
+                "service": "cortex",
+                "checks": {
+                    "readinessProbe": {
+                        "ok": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                },
+                "routerLoad": {
+                    "loadedCount": len(router_load_report["loaded"]),
+                    "safeModeSkipped": router_load_report["safeModeSkipped"],
+                    "failed": router_load_report["failed"],
+                    "missingRouter": router_load_report["missingRouter"],
+                },
+            }
+        async with readiness_probe_lock:
+            if readiness_probe_task is probe:
+                readiness_probe_task = None
+        return payload
+
     @app.get("/ready")
     async def readiness_check():
         from fastapi.responses import JSONResponse
-        payload = readiness_payload()
+        payload = await async_readiness_payload()
         return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
 
     @app.get("/capabilities")
@@ -1669,7 +1780,7 @@ def create_app() -> FastAPI:
     async def health_check():
         from fastapi.responses import JSONResponse
 
-        readiness = readiness_payload()
+        readiness = await async_readiness_payload()
         payload = {
             "status": "healthy" if readiness["ready"] else "degraded",
             "service": "cortex",

@@ -1027,6 +1027,35 @@ async def test_canonical_readiness_requires_runtime_delivery_probe_in_production
 
 
 @pytest.mark.asyncio
+async def test_public_readiness_probe_never_blocks_the_event_loop(monkeypatch, lifecycle_fakes):
+    import cortex_server.runtime.production_build_loop as production_build_loop
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_probe(_root):
+        entered.set()
+        assert release.wait(1)
+        return {"ready": True, "status": "ready", "checks": {}}
+
+    monkeypatch.setattr(production_build_loop, "probe_runtime_delivery_readiness", blocking_probe)
+    app = main.create_app()
+    readiness = asyncio.create_task(_route(app, "/ready")())
+    assert await asyncio.to_thread(entered.wait, 0.5)
+
+    ticks = 0
+    for _ in range(5):
+        await asyncio.sleep(0)
+        ticks += 1
+    assert ticks == 5
+    assert readiness.done() is False
+
+    release.set()
+    response = await asyncio.wait_for(readiness, timeout=1)
+    assert response.status_code in {200, 503}
+
+
+@pytest.mark.asyncio
 async def test_readiness_policy_is_immutable_per_factory(monkeypatch, lifecycle_fakes):
     _install_minimal_routers(monkeypatch)
     monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "/l22/store")

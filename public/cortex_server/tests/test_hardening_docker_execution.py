@@ -22,6 +22,16 @@ def test_production_container_packages_adaptive_routing_services():
     assert "COPY cortex_server/services/ ./services/" in dockerfile
 
 
+def test_production_container_pid1_has_allocator_and_connection_hardening():
+    dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "ENV MALLOC_ARENA_MAX=2" in dockerfile
+    assert "ENV MALLOC_TRIM_THRESHOLD_=131072" in dockerfile
+    assert dockerfile.index("ENV MALLOC_ARENA_MAX=2") < dockerfile.index('CMD ["python"')
+    assert '"--limit-concurrency", "128"' in dockerfile
+    assert '"--timeout-keep-alive", "5"' in dockerfile
+
+
 def test_compose_mounts_and_identifies_durable_memory_volume():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
 
@@ -57,12 +67,26 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "sync \"$${parent}\"" in compose
     assert "/state/runtime_delivery/release_workflow/artifacts" in compose
     assert "/state/runtime_delivery/production_build_loop/locks" in compose
+    assert "/state/runtime_delivery/session_event_inbox" in compose
+    assert "/state/knowledge" in compose
     assert "chmod 0700 /state /state/runtime_delivery" in compose
     assert "release-verifier:" in compose
     assert "release-manager:" in compose
     assert "CORTEX_RELEASE_VERIFIER_HEALTH_URL:" in compose
     assert "CORTEX_RELEASE_MANAGER_HEALTH_URL:" in compose
     assert "cortex-runtime-delivery:" in compose
+
+
+def test_compose_enforces_allocator_and_cgroup_oom_boundaries():
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert 'MALLOC_ARENA_MAX: "2"' in compose
+    assert 'MALLOC_TRIM_THRESHOLD_: "131072"' in compose
+    assert "mem_limit: 3g" in compose
+    assert "mem_reservation: 2g" in compose
+    assert "memswap_limit: 3584m" in compose
+    assert "oom_kill_disable: false" in compose
+    assert "pids_limit: 512" in compose
 
 
 class HangingStream:

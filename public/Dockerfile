@@ -51,6 +51,10 @@ RUN mkdir -p /app/config /app/logs /app/seed /app/cortex_server/knowledge/evolut
 ENV PYTHONPATH=/app
 ENV CORTEX_HOST=0.0.0.0
 ENV CORTEX_PORT=8888
+# Bound glibc's native arena retention before Python, Chroma, and ONNX load.
+ENV MALLOC_ARENA_MAX=2
+ENV MALLOC_TRIM_THRESHOLD_=131072
+ENV MALLOC_TOP_PAD_=131072
 
 # Expose the port
 EXPOSE 8888
@@ -60,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -fsS http://localhost:8888/ready >/dev/null || exit 1
 
 # Run the Cortex
-CMD python -m uvicorn cortex_server.main:app --host 0.0.0.0 --port 8888
+CMD ["python", "-m", "uvicorn", "cortex_server.main:app", "--host", "0.0.0.0", "--port", "8888", "--limit-concurrency", "128", "--timeout-keep-alive", "5"]

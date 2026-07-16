@@ -2,17 +2,24 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import httpx
 import multiprocessing
+import json
 from pathlib import Path
 import pytest
 from fastapi import FastAPI
+import socket
+import subprocess
 import sys
 import threading
 import time
 import types
+import uvicorn
 
 import cortex_server.routers.nexus as nexus
 from cortex_server.middleware.hud_middleware import HUDMiddleware
-from cortex_server.runtime.assurance_receipt_ledger import reserve_assurance_receipt
+from cortex_server.runtime.assurance_receipt_ledger import (
+    assurance_receipt_status,
+    reserve_assurance_receipt,
+)
 
 
 class _Recorder:
@@ -125,8 +132,8 @@ async def test_commit_writes_to_l22_when_assurance_allows(monkeypatch):
     assert body["committed"] is True
     assert body["durable_write"]["status"] == "stored"
     assert body["assurance"]["memory_commit"]["eligible"] is True
-    assert replay.status_code == 403
-    assert replay.json()["detail"]["reason"] == "receipt_already_consumed"
+    assert replay.status_code == 200
+    assert replay.json() == body
     assert len(recorder.calls) == 1
     assert recorder.calls[0]["tenant_id"] == "cortex-local"
     assert recorder.calls[0]["workspace_id"] == "default"
@@ -222,8 +229,8 @@ async def test_failed_durable_write_releases_only_its_receipt_reservation(monkey
     assert first.json()["committed"] is False
     assert retry.status_code == 200
     assert retry.json()["committed"] is True
-    assert replay.status_code == 403
-    assert replay.json()["detail"]["reason"] == "receipt_already_consumed"
+    assert replay.status_code == 200
+    assert replay.json() == retry.json()
     assert len(recorder.calls) == 2
     assert recorder.calls[0]["idempotency_key"] == recorder.calls[1]["idempotency_key"]
 
@@ -257,7 +264,7 @@ async def test_finalization_failure_retains_reservation_after_durable_write(
     assert first.status_code == 503
     assert first.json()["detail"]["error"] == "assurance_receipt_finalization_failed"
     assert replay.status_code == 403
-    assert replay.json()["detail"]["reason"] == "receipt_already_consumed"
+    assert replay.json()["detail"]["reason"] == "receipt_commit_in_progress"
     assert len(recorder.calls) == 1
 
 
@@ -292,7 +299,7 @@ async def test_concurrent_commit_reserves_signed_jti_before_durable_write(monkey
 
     assert sorted(status for status, _body in results) == [200, 403]
     rejected = next(body for status, body in results if status == 403)
-    assert rejected["detail"]["reason"] == "receipt_already_consumed"
+    assert rejected["detail"]["reason"] == "receipt_commit_in_progress"
     assert len(recorder.calls) == 1
 
 
@@ -315,7 +322,38 @@ def test_receipt_reservation_is_atomic_across_worker_processes(tmp_path):
         worker.join(timeout=10)
         assert worker.exitcode == 0
 
-    assert sorted(outcomes) == ["receipt_already_consumed", "reserved"]
+    assert sorted(outcomes) == ["receipt_commit_in_progress", "reserved"]
+
+
+def test_expired_unknown_reservation_is_never_pruned_into_false_noncommit_proof(tmp_path):
+    state_path = tmp_path / "assurance-receipts.sqlite3"
+    scope = {
+        "tenant_id": "tenant",
+        "workspace_id": "workspace",
+        "user_id": "user",
+    }
+    reserve_assurance_receipt(
+        state_path,
+        scope=scope,
+        jti="a" * 32,
+        expires_at=100,
+        now=50,
+    )
+
+    # Reserving a later receipt after the first has expired must not erase the
+    # unknown outcome of a potentially committed durable L22 write.
+    reserve_assurance_receipt(
+        state_path,
+        scope=scope,
+        jti="b" * 32,
+        expires_at=300,
+        now=200,
+    )
+    assert assurance_receipt_status(
+        state_path,
+        scope=scope,
+        jti="a" * 32,
+    ) == "reserved"
 
 
 @pytest.mark.asyncio
@@ -345,9 +383,150 @@ async def test_consumed_receipt_survives_router_recreation(monkeypatch):
         )
 
     assert committed.status_code == 200
-    assert replay.status_code == 403
-    assert replay.json()["detail"]["reason"] == "receipt_already_consumed"
+    assert replay.status_code == 200
+    assert replay.json() == committed.json()
     assert len(recorder.calls) == 1
+
+
+def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_restart(
+    monkeypatch,
+    tmp_path,
+):
+    recorder = _Recorder()
+    app = _app(monkeypatch, recorder)
+    state_dir = tmp_path / "bridge-state"
+    scope_secret = "bridge-integration-scope-secret"
+    session_secret = "bridge-integration-session-secret"
+    monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY", "nexus-integration-assurance-signing-key")
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps(
+            {
+                "bridge-integration": {
+                    "secret": scope_secret,
+                    "allowed_scopes": [
+                        {
+                            "tenant_id": "tenant-integration",
+                            "workspace_id": "workspace-integration",
+                            "agent_id": "main",
+                            "user_id": "local-user",
+                            "channel_id": "local-channel",
+                            "session_id": {
+                                "type": "signed_dynamic",
+                                "prefix": "openclaw-",
+                                "max_length": 128,
+                            },
+                        }
+                    ],
+                }
+            }
+        ),
+    )
+
+    class DropFirstCommitResponse:
+        def __init__(self, downstream):
+            self.downstream = downstream
+            self.dropped = False
+
+        async def __call__(self, scope, receive, send):
+            if scope.get("path") == "/nexus/commit" and not self.dropped:
+                self.dropped = True
+
+                async def discard(_message):
+                    return None
+
+                await self.downstream(scope, receive, discard)
+                return
+            await self.downstream(scope, receive, send)
+
+    wrapped = DropFirstCommitResponse(app)
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(128)
+    port = listener.getsockname()[1]
+    server = uvicorn.Server(
+        uvicorn.Config(wrapped, log_level="critical", lifespan="off")
+    )
+    thread = threading.Thread(
+        target=server.run,
+        kwargs={"sockets": [listener]},
+        daemon=True,
+    )
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert server.started
+
+    plugin_url = (Path(__file__).resolve().parents[3] / "plugins" / "cortex-memory-bridge" / "index.ts").as_uri()
+    config = {
+        "baseUrl": f"http://127.0.0.1:{port}",
+        "stateDir": str(state_dir),
+        "tenantId": "tenant-integration",
+        "workspaceId": "workspace-integration",
+        "scopeCredentialId": "bridge-integration",
+        "scopeHmacSecret": scope_secret,
+        "sessionIdentityHmacSecret": session_secret,
+        "writeToken": "transport-token-unused-by-test-app",
+        "enabledWriteThrough": True,
+        "enabledCodecContinuity": False,
+        "minDurabilityScore": 0,
+        "retryCount": 0,
+        "timeoutMs": 2000,
+    }
+    first_script = f"""
+        import plugin from {json.dumps(plugin_url)};
+        const handlers = new Map();
+        plugin.register({{
+          pluginConfig: {json.dumps(config)}, logger: {{ info() {{}}, warn() {{}} }},
+          on(name, handler) {{ handlers.set(name, handler); }}, registerMemoryRuntime() {{}}, registerTool() {{}},
+        }});
+        const context = {{ sessionKey: 'integration-session' }};
+        handlers.get('llm_output')({{ content: 'We decided to use the safe rollback path and preserve the verified deployment.' }}, context);
+        try {{
+          await handlers.get('agent_end')({{ messages: [{{ role: 'user', content: 'Remember this verified deployment decision.' }}] }}, context);
+          process.exit(2);
+        }} catch (error) {{
+          if (!String(error).includes('output retained for retry')) process.exit(3);
+        }}
+    """
+    second_script = f"""
+        import fs from 'node:fs'; import path from 'node:path';
+        import plugin from {json.dumps(plugin_url)};
+        plugin.register({{
+          pluginConfig: {json.dumps(config)}, logger: {{ info() {{}}, warn() {{}} }},
+          on() {{}}, registerMemoryRuntime() {{}}, registerTool() {{}},
+        }});
+        const root = path.join({json.dumps(str(state_dir))}, 'lifecycle-principals-v2');
+        const pending = () => fs.existsSync(root) && fs.readdirSync(root).some((entry) => fs.existsSync(path.join(root, entry, 'lifecycle-spool.json')));
+        const deadline = Date.now() + 4000;
+        while (pending() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+        if (pending()) process.exit(4);
+    """
+    try:
+        first = subprocess.run(
+            ["node", "--input-type=module", "--eval", first_script],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        assert first.returncode == 0, first.stderr
+        second = subprocess.run(
+            ["node", "--input-type=module", "--eval", second_script],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        assert second.returncode == 0, second.stderr
+        assert wrapped.dropped is True
+        assert len(recorder.calls) == 1
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+        listener.close()
 
 
 @pytest.mark.asyncio

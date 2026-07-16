@@ -418,6 +418,8 @@ def test_default_database_path_is_absolute_and_independent_of_working_directory(
 
 
 def test_configured_graph_seed_is_copied_to_durable_database_once(tmp_path, monkeypatch):
+    from cortex_server.knowledge import graph as graph_module
+
     seed = tmp_path / "seed.db"
     target = tmp_path / "durable" / "knowledge" / "cortex_graph.db"
     with sqlite3.connect(seed) as connection:
@@ -425,10 +427,19 @@ def test_configured_graph_seed_is_copied_to_durable_database_once(tmp_path, monk
         connection.execute("INSERT INTO seed_marker(value) VALUES ('packaged-seed')")
     monkeypatch.setenv("CORTEX_DB_PATH", str(target))
     monkeypatch.setenv("CORTEX_DB_SEED_PATH", str(seed))
+    durable_directories = []
+    real_durable_mkdir = graph_module.durable_mkdir
+
+    def record_durable_mkdir(path):
+        durable_directories.append(Path(path))
+        return real_durable_mkdir(path)
+
+    monkeypatch.setattr(graph_module, "durable_mkdir", record_durable_mkdir)
 
     storage = SQLiteStorage()
     assert Path(storage.db_path) == target.resolve()
     assert storage._get_conn().execute("SELECT value FROM seed_marker").fetchone()[0] == "packaged-seed"
+    assert target.parent in durable_directories
 
     with sqlite3.connect(target) as connection:
         connection.execute("UPDATE seed_marker SET value = 'durable-write'")

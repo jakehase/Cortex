@@ -213,7 +213,7 @@ class ExpiringLruSet {
 }
 
 type LifecycleSpoolRecord = {
-  version: 2;
+  version: 3;
   key: string;
   createdAt: string;
   principal: LifecyclePrincipal;
@@ -227,6 +227,7 @@ type LifecycleSpoolRecord = {
     idempotencyKey: string;
   };
   fallbackText: string;
+  assuranceReceipt?: string;
 };
 
 type LifecyclePrincipal = {
@@ -265,7 +266,7 @@ function isLifecycleSpoolRecord(value: unknown): value is LifecycleSpoolRecord {
   const record = value as Record<string, any>;
   const event = record.event;
   const context = record.context;
-  return record.version === 2
+  return [2, 3].includes(Number(record.version))
     && typeof record.key === 'string' && record.key.length > 0 && record.key.length <= 2048
     && typeof record.createdAt === 'string' && record.createdAt.length <= 64
     && isLifecyclePrincipal(record.principal)
@@ -275,55 +276,144 @@ function isLifecycleSpoolRecord(value: unknown): value is LifecycleSpoolRecord {
     && event.messages.every((message: any) => message?.role === 'user' && typeof message.content === 'string' && message.content.length <= 2000)
     && context && typeof context === 'object'
     && ['sessionKey', 'sessionId', 'channelId', 'agentId', 'userId', 'idempotencyKey']
-      .every((field) => typeof context[field] === 'string' && context[field].length <= 2048);
+      .every((field) => typeof context[field] === 'string' && context[field].length <= 2048)
+    && (record.assuranceReceipt === undefined
+      || (typeof record.assuranceReceipt === 'string' && record.assuranceReceipt.length > 0 && record.assuranceReceipt.length <= 16_384));
 }
 
 class DurableLifecycleSpool {
   private readonly filePath: string;
+  private readonly lockPath: string;
   private readonly maxRecords: number;
   private readonly records = new Map<string, LifecycleSpoolRecord>();
 
   constructor(stateDir: string, maxRecords: number) {
     this.filePath = path.join(stateDir, 'lifecycle-spool.json');
+    this.lockPath = path.join(stateDir, '.lifecycle-spool.lock');
     this.maxRecords = maxRecords;
     fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
     try { fs.chmodSync(stateDir, 0o700); } catch {}
-    if (!fs.existsSync(this.filePath)) return;
-    const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-    if (!Array.isArray(parsed) || parsed.length > maxRecords || !parsed.every(isLifecycleSpoolRecord)) {
-      throw new Error('invalid Cortex lifecycle spool; refusing to discard pending persistence records');
-    }
-    for (const record of parsed) this.records.set(record.key, record);
+    this.withLock(() => this.reload());
   }
 
-  entries(): LifecycleSpoolRecord[] { return [...this.records.values()]; }
+  entries(): LifecycleSpoolRecord[] {
+    return this.withLock(() => {
+      this.reload();
+      return [...this.records.values()].map((record) => ({ ...record }));
+    });
+  }
 
-  has(key: string): boolean { return this.records.has(key); }
+  has(key: string): boolean { return this.withLock(() => { this.reload(); return this.records.has(key); }); }
 
-  get size(): number { return this.records.size; }
+  get size(): number { return this.withLock(() => { this.reload(); return this.records.size; }); }
 
-  put(record: LifecycleSpoolRecord): void {
-    if (!this.records.has(record.key) && this.records.size >= this.maxRecords) {
-      throw new Error(`lifecycle spool exhausted at ${this.maxRecords} records`);
-    }
-    this.records.set(record.key, record);
-    this.flush();
+  put(record: LifecycleSpoolRecord): LifecycleSpoolRecord {
+    return this.withLock(() => {
+      this.reload();
+      const existing = this.records.get(record.key);
+      if (existing) return { ...existing };
+      if (this.records.size >= this.maxRecords) {
+        throw new Error(`lifecycle spool exhausted at ${this.maxRecords} records`);
+      }
+      const persisted = { ...record, version: 3 } as LifecycleSpoolRecord;
+      this.records.set(record.key, persisted);
+      this.flush();
+      return { ...persisted };
+    });
+  }
+
+  retainReceipt(key: string, candidateReceipt: string, replaceReceipt = ''): string {
+    return this.withLock(() => {
+      this.reload();
+      const record = this.records.get(key);
+      if (!record) throw new Error('cannot retain an assurance receipt for a missing lifecycle record');
+      const existingReceipt = String(record.assuranceReceipt || '').trim();
+      const expectedReceipt = String(replaceReceipt || '').trim();
+      if (existingReceipt && (!expectedReceipt || existingReceipt !== expectedReceipt)) return existingReceipt;
+      const receipt = String(candidateReceipt || '').trim();
+      if (!receipt || receipt.length > 16_384) throw new Error('invalid assurance receipt for lifecycle spool');
+      record.assuranceReceipt = receipt;
+      this.records.set(key, record);
+      this.flush();
+      return receipt;
+    });
   }
 
   ack(key: string): void {
-    if (!this.records.delete(key)) return;
-    this.flush();
+    this.withLock(() => {
+      this.reload();
+      if (!this.records.delete(key)) return;
+      this.flush();
+    });
   }
 
   removeIfEmpty(): boolean {
-    if (this.records.size > 0) return false;
-    try { fs.unlinkSync(this.filePath); } catch (error: any) {
-      if (error?.code !== 'ENOENT') throw error;
+    return this.withLock(() => {
+      this.reload();
+      if (this.records.size > 0) return false;
+      try { fs.unlinkSync(this.filePath); } catch (error: any) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+      this.fsyncDirectory();
+      // Keep the namespace directory as the stable lock namespace. Removing it
+      // can let a concurrent process lock a different inode and lose records.
+      return true;
+    });
+  }
+
+  private withLock<T>(operation: () => T): T {
+    const deadline = Date.now() + 10_000;
+    while (true) {
+      try {
+        fs.mkdirSync(this.lockPath, { mode: 0o700 });
+        fs.writeFileSync(path.join(this.lockPath, 'owner.json'), JSON.stringify({ pid: process.pid, createdAt: Date.now() }), { mode: 0o600 });
+        break;
+      } catch (error: any) {
+        if (error?.code !== 'EEXIST') throw error;
+        let reclaim = false;
+        try {
+          const owner = JSON.parse(fs.readFileSync(path.join(this.lockPath, 'owner.json'), 'utf8'));
+          const ownerPid = Number(owner?.pid);
+          if (Number.isSafeInteger(ownerPid) && ownerPid > 0) {
+            try { process.kill(ownerPid, 0); } catch (signalError: any) { reclaim = signalError?.code === 'ESRCH'; }
+          }
+          const age = Date.now() - fs.statSync(this.lockPath).mtimeMs;
+          reclaim = reclaim && age >= 1_000;
+        } catch {
+          try { reclaim = Date.now() - fs.statSync(this.lockPath).mtimeMs >= 30_000; } catch {}
+        }
+        if (reclaim) {
+          try { fs.rmSync(this.lockPath, { recursive: true }); } catch {}
+          continue;
+        }
+        if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool lock');
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
     }
-    try { fs.rmdirSync(path.dirname(this.filePath)); } catch (error: any) {
-      if (!['ENOENT', 'ENOTEMPTY'].includes(String(error?.code || ''))) throw error;
+    try {
+      return operation();
+    } finally {
+      try { fs.rmSync(this.lockPath, { recursive: true }); } catch {}
     }
-    return true;
+  }
+
+  private reload(): void {
+    this.records.clear();
+    if (!fs.existsSync(this.filePath)) return;
+    const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
+    if (!Array.isArray(parsed) || parsed.length > this.maxRecords || !parsed.every(isLifecycleSpoolRecord)) {
+      throw new Error('invalid Cortex lifecycle spool; refusing to discard pending persistence records');
+    }
+    for (const rawRecord of parsed) {
+      const record = rawRecord as any;
+      this.records.set(record.key, { ...record, version: 3 });
+    }
+  }
+
+  private fsyncDirectory(): void {
+    if (process.platform === 'win32') return;
+    const dirFd = fs.openSync(path.dirname(this.filePath), 'r');
+    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
   }
 
   private flush(): void {
@@ -332,15 +422,12 @@ class DurableLifecycleSpool {
     let fd: number | undefined;
     try {
       fd = fs.openSync(temporary, 'wx', 0o600);
-      fs.writeFileSync(fd, JSON.stringify(this.entries()), 'utf8');
+      fs.writeFileSync(fd, JSON.stringify([...this.records.values()]), 'utf8');
       fs.fsyncSync(fd);
       fs.closeSync(fd);
       fd = undefined;
       fs.renameSync(temporary, this.filePath);
-      if (process.platform !== 'win32') {
-        const dirFd = fs.openSync(directory, 'r');
-        try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
-      }
+      this.fsyncDirectory();
     } finally {
       if (fd !== undefined) fs.closeSync(fd);
       try { fs.unlinkSync(temporary); } catch {}
@@ -1202,7 +1289,15 @@ async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType
     return 'failed' as const;
   }
 }
-async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
+async function maybeWriteThrough(
+  api: OpenClawPluginApi,
+  cfg: ReturnType<typeof resolveConfig>,
+  event: any,
+  ctx: any,
+  fallbackText?: string,
+  retainedReceipt?: string,
+  retainReceipt?: (receipt: string, replaceReceipt?: string) => string,
+) {
   if (!cfg.enabledWriteThrough) return 'disabled' as const;
   const text = [
     extractAssistantVisibleText(event?.messages),
@@ -1229,16 +1324,33 @@ async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof 
       levels_used: [7, 22],
     };
     const headers = scopedHeaders(cfg, scope);
-    const receiptResponse = await postJson(cfg.baseUrl, cfg.assurancePath || '/nexus/assurance/receipt', interaction,
-      cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
-    if (receiptResponse?.success !== true || typeof receiptResponse?.receipt !== 'string' || !receiptResponse.receipt) {
-      throw new Error('canonical memory assurance endpoint did not issue a receipt');
+    const issueReceipt = async (replaceReceipt = '') => {
+      const receiptResponse = await postJson(cfg.baseUrl, cfg.assurancePath || '/nexus/assurance/receipt', interaction,
+        cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+      if (receiptResponse?.success !== true || typeof receiptResponse?.receipt !== 'string' || !receiptResponse.receipt) {
+        throw new Error('canonical memory assurance endpoint did not issue a receipt');
+      }
+      const issuedReceipt = String(receiptResponse.receipt);
+      // The server receipt is the only durable-write identity. Persist it
+      // before commit so response loss and process restart retry the same JTI.
+      return retainReceipt?.(issuedReceipt, replaceReceipt) || issuedReceipt;
+    };
+    let assuranceReceipt = String(retainedReceipt || '').trim() || await issueReceipt();
+    const commit = () => postJson(cfg.baseUrl, cfg.storePath, {
+        ...interaction,
+        assurance_receipt: assuranceReceipt,
+        metadata: { ...senderScoped, scope },
+      }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+    let response: any;
+    try {
+      response = await commit();
+    } catch (error) {
+      if (!/assurance_receipt_expired_without_commit/.test(String((error as any)?.message || error || ''))) throw error;
+      // Nexus consulted its durable ledger and proved this expired receipt did
+      // not commit. Only that explicit proof permits a new server identity.
+      assuranceReceipt = await issueReceipt(assuranceReceipt);
+      response = await commit();
     }
-    const response = await postJson(cfg.baseUrl, cfg.storePath, {
-      ...interaction,
-      assurance_receipt: receiptResponse.receipt,
-      metadata: { ...senderScoped, scope, idempotency_key: ctx?.idempotencyKey },
-    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
     const committed = response?.success === true
       && response?.committed === true
       && response?.durable_write?.status === 'stored'
@@ -1354,6 +1466,7 @@ const plugin = {
       ctx: any,
       fallbackText?: string,
       storedPrincipal?: LifecyclePrincipal,
+      storedReceipt?: string,
     ) => {
       if (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity) {
         api.logger.warn?.('cortex-memory-bridge: lifecycle persistence is disabled; output remains unacknowledged');
@@ -1391,21 +1504,26 @@ const plugin = {
       const boundedEvent = boundedLifecycleEvent(event, cfg);
       const boundedFallback = String(fallbackText || '').slice(-cfg.recentOutputMaxChars);
       const boundedContext = context;
-      const spoolRecord: LifecycleSpoolRecord = {
-        version: 2,
+      const retainedSpoolRecord = principalSpool.entries().find((record) => record.key === persistenceKey);
+      const activeReceipt = String(storedReceipt || retainedSpoolRecord?.assuranceReceipt || '').trim();
+      let spoolRecord: LifecycleSpoolRecord = {
+        version: 3,
         key: persistenceKey,
         createdAt: new Date().toISOString(),
         principal,
         event: boundedEvent,
         context: boundedContext,
         fallbackText: boundedFallback,
+        ...(activeReceipt ? { assuranceReceipt: activeReceipt } : {}),
       };
       try {
         const totalSpoolRecords = [...spools.values()].reduce((total, current) => total + current.size, 0);
         if (!principalSpool.has(persistenceKey) && totalSpoolRecords >= cfg.lifecycleSpoolMaxRecords) {
           throw new Error(`lifecycle spool exhausted across principals at ${cfg.lifecycleSpoolMaxRecords} records`);
         }
-        principalSpool.put(spoolRecord);
+        // The first process to persist this lifecycle identity owns its
+        // canonical payload and any retained receipt. Later processes adopt it.
+        spoolRecord = principalSpool.put(spoolRecord);
       } catch (error) {
         try {
           if (principalSpool.removeIfEmpty()) spools.delete(principalNamespace);
@@ -1414,8 +1532,30 @@ const plugin = {
         return Promise.resolve(false);
       }
       const start = () => (async () => {
-        const writeThroughStatus = await maybeWriteThrough(api, cfg, boundedEvent, boundedContext, boundedFallback);
-        const codecStatus = await maybeWriteCodecContinuity(api, cfg, boundedEvent, boundedContext, boundedFallback);
+        const writeThroughStatus = await maybeWriteThrough(
+          api,
+          cfg,
+          spoolRecord.event,
+          spoolRecord.context,
+          spoolRecord.fallbackText,
+          spoolRecord.assuranceReceipt,
+          (receipt, replaceReceipt) => {
+            const canonicalReceipt = principalSpool.retainReceipt(
+              spoolRecord.key,
+              receipt,
+              replaceReceipt,
+            );
+            spoolRecord.assuranceReceipt = canonicalReceipt;
+            return canonicalReceipt;
+          },
+        );
+        const codecStatus = await maybeWriteCodecContinuity(
+          api,
+          cfg,
+          spoolRecord.event,
+          spoolRecord.context,
+          spoolRecord.fallbackText,
+        );
         const enabled = [writeThroughStatus, codecStatus].some((status) => status !== 'disabled');
         const succeeded = enabled && ![writeThroughStatus, codecStatus].includes('failed');
         if (!succeeded) return false;
@@ -1456,7 +1596,15 @@ const plugin = {
         for (const record of principalSpool.entries()) {
           if (inFlight.size + queued.size >= schedulingLimit) return;
           if (inFlight.has(record.key) || queued.has(record.key) || completed.has(record.key)) continue;
-          const replay = persistLifecycle(record.key, cfg, record.event, record.context, record.fallbackText, record.principal);
+          const replay = persistLifecycle(
+            record.key,
+            cfg,
+            record.event,
+            record.context,
+            record.fallbackText,
+            record.principal,
+            record.assuranceReceipt,
+          );
           void replay.then((succeeded) => {
             if (!succeeded) api.logger.warn?.(`cortex-memory-bridge: lifecycle spool replay remains pending key=${record.key.slice(0, 80)}`);
           });
@@ -1611,4 +1759,4 @@ const plugin = {
 };
 
 export default plugin;
-export { ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults };
+export { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults };
