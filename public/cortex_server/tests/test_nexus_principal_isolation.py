@@ -86,6 +86,7 @@ def test_all_adaptive_policy_state_and_rate_limits_are_principal_local(monkeypat
     monkeypatch.setenv("NEXUS_OUTCOME_ARTIFACT_DIR", str(tmp_path / "outcomes"))
     monkeypatch.setenv("NEXUS_AUTOTUNE_TUNE_EVERY", "20")
     nexus._ADAPTIVE_POLICY_STATES.clear()
+    nexus._ADAPTIVE_POLICY_RATE_KEYS.clear()
     nexus._PRINCIPAL_OUTCOME_TUNERS.clear()
     nexus._ADAPTIVE_OBSERVATION_RATES.clear()
 
@@ -150,17 +151,17 @@ def test_all_adaptive_policy_state_and_rate_limits_are_principal_local(monkeypat
     assert codec_b["totals"]["evaluations"] == 0
 
     monkeypatch.setenv("NEXUS_ADAPTIVE_OBSERVATION_RATE_LIMIT", "1")
-    assert nexus._adaptive_observation_allowed(policies_a.scope_key) is True
-    assert nexus._adaptive_observation_allowed(policies_a.scope_key) is False
-    assert nexus._adaptive_observation_allowed(policies_b.scope_key) is True
+    assert nexus._adaptive_observation_allowed(scope_a) is True
+    assert nexus._adaptive_observation_allowed(scope_a) is False
+    assert nexus._adaptive_observation_allowed(scope_b) is True
 
-    # A credential holder cannot mint fresh adaptive budgets or disk roots by
-    # rotating through allowed session identifiers for the same actor.
+    # Content state remains session-local, while the credential-scope parent
+    # budget prevents allowed session rotation from minting fresh admission.
     scope_a_rotated_session = _principal("tenant-a", "agent-a", "another-session").storage_metadata
     policies_a_rotated = nexus._adaptive_policies_for_scope(scope_a_rotated_session)
-    assert policies_a_rotated.scope_key == policies_a.scope_key
-    assert policies_a_rotated.root == policies_a.root
-    assert nexus._adaptive_observation_allowed(policies_a_rotated.scope_key) is False
+    assert policies_a_rotated.scope_key != policies_a.scope_key
+    assert policies_a_rotated.root != policies_a.root
+    assert nexus._adaptive_observation_allowed(scope_a_rotated_session) is False
 
 
 @pytest.mark.asyncio

@@ -398,6 +398,65 @@ def test_ledger_compacts_expired_consumed_results_and_enforces_multi_tenant_quot
     assert rows == [("b" * 32, "reserved"), ("c" * 32, "reserved")]
 
 
+@pytest.mark.parametrize("changed_field", ("session_id", "channel_id"))
+def test_adaptive_retrieval_state_isolated_by_full_principal_across_restart(
+    tmp_path,
+    monkeypatch,
+    changed_field,
+):
+    adaptive_root = tmp_path / "adaptive"
+    monkeypatch.setattr(nexus, "_ADAPTIVE_STATE_ROOT", adaptive_root)
+    monkeypatch.setattr(nexus, "_ADAPTIVE_POLICY_STATES", {})
+    scope_a = {
+        "scope_credential_id": "principal-reader-v1",
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "agent_id": "agent-a",
+        "user_id": "user-a",
+        "channel_id": "channel-a",
+        "session_id": "session-a",
+        "storage_workspace_id": "principal-a",
+    }
+    scope_b = {
+        **scope_a,
+        changed_field: f"{changed_field}-b",
+        "storage_workspace_id": "principal-b",
+    }
+    query = "private deployment rollback evidence"
+    private_retrieval = [{"content": "session A private retrieval"}]
+
+    legacy_key = nexus._legacy_adaptive_scope_key(scope_a)
+    assert legacy_key == nexus._legacy_adaptive_scope_key(scope_b)
+    legacy_policies = nexus._PrincipalAdaptivePolicies(legacy_key, adaptive_root)
+    legacy_policies.delta.update(query, private_retrieval)
+
+    policies_a = nexus._adaptive_policies_for_scope(scope_a)
+    policies_a.delta.update(query, private_retrieval)
+    policies_b = nexus._adaptive_policies_for_scope(scope_b)
+
+    assert policies_a.scope_key != policies_b.scope_key
+    assert policies_a.root != policies_b.root
+    assert policies_b.delta.maybe_reuse_retrieval(query, min_similarity=1.0) == []
+    assert not (adaptive_root / legacy_key).exists()
+    quarantine = adaptive_root / nexus._ADAPTIVE_LEGACY_QUARANTINE_DIR
+    assert any(quarantine.iterdir())
+
+    nexus._ADAPTIVE_POLICY_STATES.clear()
+    restarted_b = nexus._adaptive_policies_for_scope(scope_b)
+    restarted_a = nexus._adaptive_policies_for_scope(scope_a)
+    assert restarted_b.delta.maybe_reuse_retrieval(query, min_similarity=1.0) == []
+    assert restarted_a.delta.maybe_reuse_retrieval(query, min_similarity=1.0) == private_retrieval
+
+    rotated_scope_a = {**scope_a, "scope_credential_id": "principal-reader-v2"}
+    assert nexus._adaptive_scope_key(rotated_scope_a) == policies_a.scope_key
+
+    monkeypatch.setattr(nexus, "_ADAPTIVE_OBSERVATION_RATES", {})
+    monkeypatch.setenv("NEXUS_ADAPTIVE_OBSERVATION_RATE_LIMIT", "1")
+    monkeypatch.setenv("NEXUS_ADAPTIVE_GLOBAL_OBSERVATION_RATE_LIMIT", "100")
+    assert nexus._adaptive_observation_allowed(scope_a) is True
+    assert nexus._adaptive_observation_allowed(scope_b) is False
+
+
 def test_compacted_stale_reservation_can_restore_and_finalize_exact_durable_outcome(tmp_path, monkeypatch):
     state_path = tmp_path / "restored-assurance-receipts.sqlite3"
     scope = {"tenant_id": "tenant-restore", "workspace_id": "workspace", "user_id": "user"}

@@ -48,6 +48,7 @@ def _configure_production_credentials(monkeypatch):
         "CORTEX_WRITE_TOKEN": "write-token-000000000000000000000001",
         "CORTEX_ADMIN_TOKEN": "admin-token-000000000000000000000001",
         "CORTEX_CODEC_ADMIN_TOKEN": "codec-token-000000000000000000000001",
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN": "artifact-token-000000000000000000001",
         "NEXUS_ASSURANCE_SIGNING_KEY": "assurance-key-000000000000000000001",
         "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY": "outcome-key-00000000000000000000001",
         "NEXUS_OUTCOME_FEEDBACK_TOKEN": "outcome-token-0000000000000000000001",
@@ -92,6 +93,45 @@ def test_production_credentials_are_strong_and_pairwise_independent(monkeypatch)
         json.dumps({"independent-release-verifier": "short"}),
     )
     with pytest.raises(RuntimeError, match="at least 32 bytes"):
+        production_build_loop.validate_production_delivery_credentials()
+
+
+@pytest.mark.parametrize(
+    "credential_class",
+    (
+        "write",
+        "admin",
+        "codec_admin",
+        "assurance_signing",
+        "outcome_feedback_signing",
+        "outcome_feedback_control",
+        "principal_scope",
+        "release_verifier",
+        "release_recipient",
+    ),
+)
+def test_release_artifact_transport_credential_is_separate_from_every_authority(
+    monkeypatch,
+    credential_class,
+):
+    values = _configure_production_credentials(monkeypatch)
+    collision_secrets = {
+        "write": values["CORTEX_WRITE_TOKEN"],
+        "admin": values["CORTEX_ADMIN_TOKEN"],
+        "codec_admin": values["CORTEX_CODEC_ADMIN_TOKEN"],
+        "assurance_signing": values["NEXUS_ASSURANCE_SIGNING_KEY"],
+        "outcome_feedback_signing": values["NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY"],
+        "outcome_feedback_control": values["NEXUS_OUTCOME_FEEDBACK_TOKEN"],
+        "principal_scope": "principal-key-0000000000000000000001",
+        "release_verifier": "verifier-key-0000000000000000000001",
+        "release_recipient": "manager-recipient-0000000000000000001",
+    }
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+        collision_secrets[credential_class],
+    )
+
+    with pytest.raises(RuntimeError, match="strong and pairwise distinct"):
         production_build_loop.validate_production_delivery_credentials()
 
 
@@ -184,7 +224,7 @@ def test_rollback_readiness_uses_fencepost_artifact_revision_only_while_restored
 
 
 def test_production_readiness_requires_live_consumers_and_matching_reasoning_state(tmp_path, monkeypatch):
-    _configure_production_credentials(monkeypatch)
+    credential_values = _configure_production_credentials(monkeypatch)
     delivery_root = tmp_path / "runtime_delivery"
     delivery_root.mkdir()
     mount_id = "runtime-delivery-test-v1"
@@ -228,6 +268,27 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     assert rotated["checks"]["releaseVerifierTrust"]["activeVerifierIds"] == [rotated_verifier]
     assert rotated["checks"]["releaseVerifierTrust"]["historicalVerifierIds"] == ["independent-release-verifier"]
     assert restarted["checks"]["releaseVerifierTrust"]["trustedVerifierCount"] == 2
+
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+        "verifier-key-0000000000000000000001",
+    )
+    historical_collision = production_build_loop.probe_runtime_delivery_readiness(
+        delivery_root
+    )
+    assert historical_collision["ready"] is False
+    assert historical_collision["checks"]["credentialSeparation"]["ok"] is True
+    assert historical_collision["checks"]["historicalCredentialSeparation"]["ok"] is False
+    assert [
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+        "release-verifier:independent-release-verifier",
+    ] in historical_collision["checks"]["historicalCredentialSeparation"][
+        "reusedCredentialGroups"
+    ]
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+        credential_values["CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN"],
+    )
 
     release_root = delivery_root / "release_workflow"
     release_root.mkdir()

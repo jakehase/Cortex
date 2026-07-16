@@ -185,6 +185,8 @@ _ADAPTIVE_STATE_ROOT = Path(
 )
 _ADAPTIVE_POLICY_LOCK = threading.RLock()
 _ADAPTIVE_POLICY_STATES: Dict[str, Any] = {}
+_ADAPTIVE_POLICY_RATE_KEYS: Dict[str, tuple[str, str, str]] = {}
+_ADAPTIVE_LEGACY_QUARANTINE_DIR = ".legacy-partial-scope-quarantine"
 _ROUTING_AUTOTUNE_SCOPE_LOCK = threading.RLock()
 # Route every in-process module caller through the same re-entrant locks while
 # a principal-specific state path is installed. This prevents an Oracle or
@@ -423,14 +425,67 @@ def _principal_continuity_key(principal: AuthenticatedMemoryPrincipal, session_k
 
 
 def _adaptive_scope_key(scope: Mapping[str, Any]) -> str:
-    # Adaptive learning and its abuse budget belong to a stable authenticated
-    # actor, not a caller-mintable transport session or channel.
+    # Content-bearing adaptive state follows the complete authenticated
+    # principal identity. Excluding the credential id keeps the namespace
+    # stable across credential rotation without merging sessions or channels.
+    fields = ("tenant_id", "workspace_id", "agent_id", "user_id", "channel_id", "session_id")
+    canonical = "\0".join(("nexus-adaptive-policy-v2", *(str(scope.get(field) or "") for field in fields)))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _legacy_adaptive_scope_key(scope: Mapping[str, Any]) -> str:
     fields = ("scope_credential_id", "tenant_id", "workspace_id", "agent_id", "user_id")
     canonical = "\0".join(("nexus-adaptive-policy-v1", *(str(scope.get(field) or "") for field in fields)))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _prepare_adaptive_state_directory(root: Path, scope_key: str) -> None:
+def _adaptive_rate_scope_keys(scope: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        f"session:{_adaptive_scope_key(scope)}",
+        f"credential:{_legacy_adaptive_scope_key(scope)}",
+        "global",
+    )
+
+
+def _quarantine_legacy_adaptive_state_directory(
+    root: Path,
+    *,
+    legacy_scope_key: str,
+    scope_key: str,
+) -> None:
+    if not legacy_scope_key or legacy_scope_key == scope_key:
+        return
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    lock_path = root / ".adaptive-actors.lock"
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            legacy_path = root / legacy_scope_key
+            if not legacy_path.exists() and not legacy_path.is_symlink():
+                return
+            quarantine_root = root / _ADAPTIVE_LEGACY_QUARANTINE_DIR
+            quarantine_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(quarantine_root, 0o700)
+            target = quarantine_root / legacy_scope_key
+            if target.exists() or target.is_symlink():
+                target = quarantine_root / f"{legacy_scope_key}.{time.time_ns()}"
+            os.replace(legacy_path, target)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _prepare_adaptive_state_directory(
+    root: Path,
+    scope_key: str,
+    *,
+    legacy_scope_key: str = "",
+) -> None:
+    _quarantine_legacy_adaptive_state_directory(
+        root,
+        legacy_scope_key=legacy_scope_key,
+        scope_key=scope_key,
+    )
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
     try:
@@ -448,7 +503,11 @@ def _prepare_adaptive_state_directory(root: Path, scope_key: str) -> None:
         candidates = [
             path
             for path in root.iterdir()
-            if path.is_dir() and not path.is_symlink() and path.name != scope_key
+            if (
+                path.is_dir()
+                and not path.is_symlink()
+                and path.name not in {scope_key, _ADAPTIVE_LEGACY_QUARANTINE_DIR}
+            )
         ]
         for path in list(candidates):
             try:
@@ -466,9 +525,13 @@ def _prepare_adaptive_state_directory(root: Path, scope_key: str) -> None:
 
 
 class _PrincipalAdaptivePolicies:
-    def __init__(self, scope_key: str, root: Path):
+    def __init__(self, scope_key: str, root: Path, *, legacy_scope_key: str = ""):
         self.scope_key = scope_key
-        _prepare_adaptive_state_directory(root, scope_key)
+        _prepare_adaptive_state_directory(
+            root,
+            scope_key,
+            legacy_scope_key=legacy_scope_key,
+        )
         self.root = root / scope_key
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.root.is_symlink():
@@ -486,8 +549,11 @@ class _PrincipalAdaptivePolicies:
 
 def _adaptive_policies_for_scope(scope: Mapping[str, Any]) -> _PrincipalAdaptivePolicies:
     scope_key = _adaptive_scope_key(scope)
+    legacy_scope_key = _legacy_adaptive_scope_key(scope)
+    rate_scope_keys = _adaptive_rate_scope_keys(scope)
     cache_key = f"{_ADAPTIVE_STATE_ROOT}|{scope_key}"
     with _ADAPTIVE_POLICY_LOCK:
+        _ADAPTIVE_POLICY_RATE_KEYS[scope_key] = rate_scope_keys
         state = _ADAPTIVE_POLICY_STATES.get(cache_key)
         if state is not None:
             try:
@@ -496,8 +562,17 @@ def _adaptive_policies_for_scope(scope: Mapping[str, Any]) -> _PrincipalAdaptive
                 pass
             return state
         while len(_ADAPTIVE_POLICY_STATES) >= 512:
-            _ADAPTIVE_POLICY_STATES.pop(next(iter(_ADAPTIVE_POLICY_STATES)))
-        state = _PrincipalAdaptivePolicies(scope_key, _ADAPTIVE_STATE_ROOT)
+            evicted = _ADAPTIVE_POLICY_STATES.pop(next(iter(_ADAPTIVE_POLICY_STATES)))
+            if not any(
+                candidate.scope_key == evicted.scope_key
+                for candidate in _ADAPTIVE_POLICY_STATES.values()
+            ):
+                _ADAPTIVE_POLICY_RATE_KEYS.pop(evicted.scope_key, None)
+        state = _PrincipalAdaptivePolicies(
+            scope_key,
+            _ADAPTIVE_STATE_ROOT,
+            legacy_scope_key=legacy_scope_key,
+        )
         _ADAPTIVE_POLICY_STATES[cache_key] = state
         return state
 
@@ -552,22 +627,70 @@ def _scoped_codec_rollup_call(
             _cortex_codec_module._ROLLUP_AUTOTUNE_STATE = previous_state
 
 
-def _adaptive_observation_allowed(scope_key: str) -> bool:
+def _adaptive_observation_allowed(scope: Mapping[str, Any] | str) -> bool:
     try:
         limit = max(1, min(int(os.getenv("NEXUS_ADAPTIVE_OBSERVATION_RATE_LIMIT", "120")), 5000))
+        credential_limit = max(
+            1,
+            min(
+                int(os.getenv("NEXUS_ADAPTIVE_CREDENTIAL_OBSERVATION_RATE_LIMIT", str(limit))),
+                5000,
+            ),
+        )
+        global_limit = max(
+            1,
+            min(int(os.getenv("NEXUS_ADAPTIVE_GLOBAL_OBSERVATION_RATE_LIMIT", "5000")), 50000),
+        )
         window = max(1, min(int(os.getenv("NEXUS_ADAPTIVE_OBSERVATION_RATE_WINDOW_SECONDS", "60")), 3600))
     except ValueError:
-        limit, window = 120, 60
+        limit, credential_limit, global_limit, window = 120, 120, 5000, 60
+    rate_scope_keys = (
+        _adaptive_rate_scope_keys(scope)
+        if isinstance(scope, Mapping)
+        else _ADAPTIVE_POLICY_RATE_KEYS.get(
+            str(scope),
+            (f"session:{scope}", f"credential:{scope}", "global"),
+        )
+    )
+    rate_limits = dict(
+        zip(
+            rate_scope_keys,
+            (limit, credential_limit, global_limit),
+        )
+    )
     now = int(time.time())
     with _ADAPTIVE_RATE_LOCK:
-        while len(_ADAPTIVE_OBSERVATION_RATES) >= 1024 and scope_key not in _ADAPTIVE_OBSERVATION_RATES:
-            _ADAPTIVE_OBSERVATION_RATES.pop(next(iter(_ADAPTIVE_OBSERVATION_RATES)))
-        observations = _ADAPTIVE_OBSERVATION_RATES.setdefault(scope_key, deque(maxlen=limit))
-        while observations and int(observations[0]) <= now - window:
-            observations.popleft()
-        if len(observations) >= limit:
+        needed = sum(key not in _ADAPTIVE_OBSERVATION_RATES for key in rate_limits)
+        while len(_ADAPTIVE_OBSERVATION_RATES) + needed > 4096:
+            removable = next(
+                (
+                    key
+                    for key in _ADAPTIVE_OBSERVATION_RATES
+                    if key.startswith("session:") and key not in rate_limits
+                ),
+                None,
+            )
+            if removable is None:
+                return False
+            _ADAPTIVE_OBSERVATION_RATES.pop(removable)
+            needed = sum(key not in _ADAPTIVE_OBSERVATION_RATES for key in rate_limits)
+        observations_by_scope: Dict[str, deque] = {}
+        for key, scope_limit in rate_limits.items():
+            observations = deque(
+                _ADAPTIVE_OBSERVATION_RATES.get(key) or (),
+                maxlen=scope_limit,
+            )
+            while observations and int(observations[0]) <= now - window:
+                observations.popleft()
+            observations_by_scope[key] = observations
+        if any(
+            len(observations_by_scope[key]) >= scope_limit
+            for key, scope_limit in rate_limits.items()
+        ):
             return False
-        observations.append(now)
+        for key, observations in observations_by_scope.items():
+            observations.append(now)
+            _ADAPTIVE_OBSERVATION_RATES[key] = observations
         return True
 
 
@@ -3703,8 +3826,20 @@ def _consume_outcome_feedback_receipt(payload: Mapping[str, Any]) -> None:
     now = int(time.time())
     expires_at = int(payload.get("expires_at", 0) or 0)
     jti = str(payload.get("jti") or "")
-    principal_key = _adaptive_scope_key(payload.get("scope") or {})
     limit, window = _outcome_feedback_limits()
+    try:
+        global_limit = max(
+            1,
+            min(int(os.getenv("NEXUS_OUTCOME_FEEDBACK_GLOBAL_RATE_LIMIT", "1000")), 1000),
+        )
+    except ValueError:
+        global_limit = 1000
+    rate_limits = dict(
+        zip(
+            _adaptive_rate_scope_keys(payload.get("scope") or {}),
+            (limit, limit, global_limit),
+        )
+    )
     state_path = _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH
     lock_path = state_path.with_suffix(state_path.suffix + ".lock")
 
@@ -3755,12 +3890,20 @@ def _consume_outcome_feedback_receipt(payload: Mapping[str, Any]) -> None:
                     rates = {key: values for key, values in rates.items() if values}
                     if jti in consumed:
                         raise ValueError("receipt_already_consumed")
-                    recent = list(rates.get(principal_key) or [])
-                    if len(recent) >= limit:
+                    recent_by_scope = {
+                        key: list(rates.get(key) or [])[-scope_limit:]
+                        for key, scope_limit in rate_limits.items()
+                    }
+                    if any(
+                        len(recent_by_scope[key]) >= scope_limit
+                        for key, scope_limit in rate_limits.items()
+                    ):
                         raise ValueError("principal_rate_limit_exceeded")
                     consumed[jti] = expires_at
-                    recent.append(now)
-                    rates[principal_key] = recent[-limit:]
+                    for key, scope_limit in rate_limits.items():
+                        recent = recent_by_scope[key]
+                        recent.append(now)
+                        rates[key] = recent[-scope_limit:]
                     new_state = {"version": 1, "consumed": consumed, "rates": rates}
                     temp_path = state_path.with_name(
                         f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
@@ -3793,7 +3936,13 @@ def _outcome_tuner_for_scope(scope: Mapping[str, Any]) -> OutcomeTuner:
         while len(_PRINCIPAL_OUTCOME_TUNERS) >= 256:
             _PRINCIPAL_OUTCOME_TUNERS.pop(next(iter(_PRINCIPAL_OUTCOME_TUNERS)))
         root = Path(os.getenv("NEXUS_OUTCOME_ARTIFACT_DIR", str(_ADAPTIVE_STATE_ROOT / "outcomes")))
-        tuner = OutcomeTuner(artifact_dir=root / "tenants" / principal_key)
+        tenant_root = root / "tenants"
+        _quarantine_legacy_adaptive_state_directory(
+            tenant_root,
+            legacy_scope_key=_legacy_adaptive_scope_key(scope),
+            scope_key=principal_key,
+        )
+        tuner = OutcomeTuner(artifact_dir=tenant_root / principal_key)
         os.chmod(tuner.artifact_dir, 0o700)
         _PRINCIPAL_OUTCOME_TUNERS[principal_key] = tuner
         return tuner
@@ -4718,7 +4867,7 @@ async def get_nexus_codec_evaluate(
     principal, _ = _authenticated_nexus_principal(request, session_hint=resolved_session_key)
     policies = _adaptive_policies_for_scope(principal.storage_metadata)
     policy_session_key = _principal_continuity_key(principal, resolved_session_key)
-    if not _adaptive_observation_allowed(policies.scope_key):
+    if not _adaptive_observation_allowed(principal.storage_metadata):
         raise HTTPException(status_code=429, detail="principal adaptive observation rate limit exceeded")
 
     view = _codec_evaluation_view(
@@ -5072,7 +5221,7 @@ async def orchestrate_query(
                 },
                 "truthBoundary": "Probe mode proves the live orchestration endpoint hydrated and exposed this session's Codec packet without invoking downstream semantic/provider calls."
             }
-        adaptive_observation_allowed = _adaptive_observation_allowed(adaptive_policies.scope_key)
+        adaptive_observation_allowed = _adaptive_observation_allowed(principal.storage_metadata)
         routing_markers = {
             "cortex_first": True,
             "brainstorm_triggered": False,

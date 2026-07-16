@@ -1789,19 +1789,6 @@ def create_app() -> FastAPI:
                 "error": runtime_delivery_check.get("error"),
             },
         }
-        checks.update(getattr(app.state, "lifecycle_checks", {}))
-        scheduler_check = checks.get("scheduler")
-        if scheduler_check is not None and scheduler_check.get("ok"):
-            try:
-                from cortex_server.scheduler import scheduler
-
-                if not scheduler.running:
-                    raise RuntimeError("scheduler is not running")
-            except Exception as exc:
-                checks["scheduler"] = {
-                    "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
         ready = all(
             check["ok"]
             for check in checks.values()
@@ -1820,6 +1807,43 @@ def create_app() -> FastAPI:
             },
         }
 
+    def readiness_with_current_lifecycle(payload: Mapping[str, Any]) -> dict:
+        """Overlay uncached lifecycle truth onto one blocking-probe result."""
+
+        checks = {
+            name: dict(check)
+            for name, check in dict(payload.get("checks") or {}).items()
+        }
+        checks.update(
+            {
+                name: dict(check)
+                for name, check in getattr(app.state, "lifecycle_checks", {}).items()
+            }
+        )
+        scheduler_check = checks.get("scheduler")
+        if scheduler_check is not None and scheduler_check.get("ok"):
+            try:
+                from cortex_server.scheduler import scheduler
+
+                if not scheduler.running:
+                    raise RuntimeError("scheduler is not running")
+            except Exception as exc:
+                checks["scheduler"] = {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+        ready = all(
+            check["ok"]
+            for check in checks.values()
+            if check.get("required", True)
+        )
+        return {
+            **dict(payload),
+            "status": "ready" if ready else "not_ready",
+            "ready": ready,
+            "checks": checks,
+        }
+
     readiness_probe_task: Optional[asyncio.Task] = None
     readiness_probe_lock = asyncio.Lock()
     readiness_cache_payload: Optional[dict] = None
@@ -1835,7 +1859,7 @@ def create_app() -> FastAPI:
                 readiness_cache_payload is not None
                 and time.monotonic() - readiness_cache_recorded_at <= readiness_cache_ttl_seconds
             ):
-                return readiness_cache_payload
+                return readiness_with_current_lifecycle(readiness_cache_payload)
             if readiness_probe_task is not None and readiness_probe_task.done():
                 # A prior caller may have hit the aggregate deadline while the
                 # worker completed later. Never serve that potentially stale
@@ -1893,7 +1917,7 @@ def create_app() -> FastAPI:
                 readiness_probe_task = None
             readiness_cache_payload = payload
             readiness_cache_recorded_at = time.monotonic()
-        return payload
+        return readiness_with_current_lifecycle(payload)
 
     # Router-level readiness aliases reuse this exact single-flight worker.
     # Storing the callable on the application keeps the router free of a

@@ -17,6 +17,7 @@ from cortex_server.runtime.roadmap_executor import (
     RoadmapObjectiveContract,
     RoadmapPassBudget,
     RoadmapPhaseDefinition,
+    RoadmapPhaseState,
     RoadmapReportingPolicy,
     RoadmapSuccessCriterion,
     RoadmapTaskDefinition,
@@ -1267,6 +1268,41 @@ def test_roadmap_store_recovers_torn_projection_with_revisioned_fsynced_history(
     assert recovered.iteration_count == 2
     assert recovered.persistence_revision == 2
     assert [row.report_id for row in reopened.reports(state.process_id)] == [report.report_id]
+
+
+def test_roadmap_contract_merge_preserves_committed_persistence_revision():
+    contract = RoadmapObjectiveContract(
+        objective_id="objective-revision-propagation",
+        process_id="proc_revision_propagation",
+        objective="Preserve roadmap compare-and-swap authority",
+        phases=[RoadmapPhaseDefinition(phase_id="build", title="Build")],
+        tasks=[
+            RoadmapTaskDefinition(
+                task_id="build",
+                phase_id="build",
+                title="Build",
+                work_type="feature",
+            )
+        ],
+    )
+    previous = RoadmapExecutionState(
+        objective_id=contract.objective_id,
+        process_id=contract.process_id,
+        persistence_revision=7,
+        phase_states=[RoadmapPhaseState(phase_id="build", status="active")],
+        task_states=[
+            RoadmapTaskState(
+                task_id="build",
+                phase_id="build",
+                work_type="feature",
+                status="in_progress",
+            )
+        ],
+    )
+
+    merged = roadmap_executor._merge_state(contract, previous)
+
+    assert merged.persistence_revision == previous.persistence_revision
 
 
 def test_roadmap_store_preserves_previous_projection_when_atomic_replace_does_not_commit(tmp_path, monkeypatch):

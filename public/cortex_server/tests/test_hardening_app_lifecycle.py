@@ -408,6 +408,38 @@ async def test_scheduler_unexpected_stop_degrades_every_owner_readiness(
                 }
 
 
+@pytest.mark.asyncio
+async def test_every_health_surface_observes_current_lifecycle_state(
+    monkeypatch,
+    lifecycle_fakes,
+):
+    import cortex_server.runtime.production_build_loop as production_build_loop
+
+    monkeypatch.setattr(
+        production_build_loop,
+        "probe_runtime_delivery_readiness",
+        lambda _root: {"ready": True, "status": "ready", "checks": {}},
+    )
+    app = main.create_app()
+
+    async with app.router.lifespan_context(app):
+        for path in ("/ready", "/health", "/release-observation"):
+            assert (await _route(app, path)()).status_code == 200
+
+        lifecycle_fakes.scheduler_runtime.running = False
+
+        responses = await asyncio.gather(
+            *(_route(app, path)() for path in ("/ready", "/health", "/release-observation"))
+        )
+        assert [response.status_code for response in responses] == [503, 503, 503]
+        release_payload = json.loads(responses[-1].body)
+        assert release_payload == {
+            "status": "degraded",
+            "core_ready": False,
+            "release_binding": None,
+        }
+
+
 def test_parser_workspace_roots_are_immutable_and_app_scoped(monkeypatch, tmp_path):
     first_root = tmp_path / "first"
     second_root = tmp_path / "second"
