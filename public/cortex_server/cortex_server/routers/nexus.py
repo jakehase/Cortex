@@ -53,6 +53,12 @@ from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
+from cortex_server.runtime.assurance_receipt_ledger import (
+    AssuranceReceiptLedgerUnavailable,
+    finalize_assurance_receipt,
+    release_assurance_receipt,
+    reserve_assurance_receipt,
+)
 from services.routing.adaptive_router_policy import choose_route
 from services.routing.route_feature_pipeline import build_route_features
 
@@ -191,8 +197,12 @@ NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420
 _ASSURANCE_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
 _ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
 _ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
-_ASSURANCE_RECEIPT_LOCK = threading.Lock()
-_CONSUMED_ASSURANCE_RECEIPTS: Dict[str, int] = {}
+_ASSURANCE_RECEIPT_STATE_PATH = Path(
+    os.getenv(
+        "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
+        "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
+    )
+)
 _OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.outcome-feedback-receipt.v1"
 _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = max(
     30,
@@ -225,6 +235,8 @@ _ASSURANCE_RESERVED_METADATA = {
     "session_id",
     "scope_credential_id",
     "storage_workspace_id",
+    "idempotency_key",
+    "receipt_id",
     "world_grounding",
 }
 
@@ -3441,14 +3453,8 @@ def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[
     if payload.get("scope") != _assurance_scope(request):
         raise ValueError("scope_binding_mismatch")
     jti = str(payload.get("jti") or "")
-    if not jti:
+    if not re.fullmatch(r"[0-9a-f]{32}", jti):
         raise ValueError("missing_receipt_id")
-    with _ASSURANCE_RECEIPT_LOCK:
-        expired = [key for key, expires_at in _CONSUMED_ASSURANCE_RECEIPTS.items() if expires_at < now]
-        for key in expired:
-            _CONSUMED_ASSURANCE_RECEIPTS.pop(key, None)
-        if jti in _CONSUMED_ASSURANCE_RECEIPTS:
-            raise ValueError("receipt_already_consumed")
     return payload
 
 
@@ -6028,19 +6034,45 @@ async def commit_memory(interaction: InteractionData, request: Request):
             detail={"error": "interaction_no_longer_eligible_for_commit", "reasons": list(memory_decision.get("reasons") or [])},
         )
 
+    supplied_metadata = dict(interaction.metadata or {})
+    forbidden_receipt_identity_fields = {
+        field
+        for field in ("idempotency_key", "receipt_id")
+        if field in supplied_metadata
+    }
+    if forbidden_receipt_identity_fields:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "signed_receipt_identity_override_forbidden",
+                "fields": sorted(forbidden_receipt_identity_fields),
+            },
+        )
     caller_metadata = {
         str(key): value
-        for key, value in dict(interaction.metadata or {}).items()
+        for key, value in supplied_metadata.items()
         if str(key) not in _ASSURANCE_RESERVED_METADATA
     }
     scope = _assurance_scope(request)
     route_health = _adaptive_policies_for_scope(scope).health
-    caller_idempotency_key = str(caller_metadata.get("idempotency_key") or "").strip()
-    durable_idempotency_key = (
-        caller_idempotency_key
-        if 0 < len(caller_idempotency_key) <= 256
-        else str(receipt_payload.get("jti") or "")
-    )
+    signed_receipt_jti = str(receipt_payload["jti"])
+    try:
+        receipt_reservation = reserve_assurance_receipt(
+            _ASSURANCE_RECEIPT_STATE_PATH,
+            scope=scope,
+            jti=signed_receipt_jti,
+            expires_at=int(receipt_payload["expires_at"]),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "valid_server_assurance_receipt_required", "reason": str(exc)},
+        ) from exc
+    except AssuranceReceiptLedgerUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "assurance_receipt_ledger_unavailable", "reason": str(exc)},
+        ) from exc
 
     durable_write = None
     if memory_decision.get("eligible"):
@@ -6053,7 +6085,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
                 tags=["nexus_commit", "durable_memory"],
                 tenant_id=scope["tenant_id"],
                 workspace_id=scope["storage_workspace_id"],
-                idempotency_key=durable_idempotency_key,
+                idempotency_key=signed_receipt_jti,
                 metadata={
                     **caller_metadata,
                     "query": interaction.query,
@@ -6063,7 +6095,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
                     "workspace_id": scope["workspace_id"],
                     "assurance": {
                         "receipt_version": _ASSURANCE_RECEIPT_VERSION,
-                        "receipt_id": durable_idempotency_key,
+                        "receipt_id": signed_receipt_jti,
                         "validator_pass": bool(validator_summary.get("pass")),
                         "validator_reason_codes": validator_summary.get("reason_codes", []),
                         "risk_flags": risk_flags,
@@ -6071,12 +6103,33 @@ async def commit_memory(interaction: InteractionData, request: Request):
                     },
                 },
             )
-            route_health.record_success("l22")
         except Exception as exc:
             durable_write = {"status": "write_failed", "error": str(exc)}
             route_health.record_failure("l22", error=str(exc))
     else:
         durable_write = {"status": "skipped", "reason": "assurance_gate"}
+
+    durable_status = str((durable_write or {}).get("status") or "")
+    if durable_status in {"stored", "stored_below_threshold"}:
+        try:
+            finalize_assurance_receipt(_ASSURANCE_RECEIPT_STATE_PATH, receipt_reservation)
+        except AssuranceReceiptLedgerUnavailable as exc:
+            # Keep the durable reservation in place. The signed JTI is also the
+            # L22 idempotency identity, so a retry can never mint another record.
+            route_health.record_failure("l22", error=str(exc))
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "assurance_receipt_finalization_failed", "reason": str(exc)},
+            ) from exc
+        route_health.record_success("l22")
+    else:
+        try:
+            release_assurance_receipt(_ASSURANCE_RECEIPT_STATE_PATH, receipt_reservation)
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "assurance_receipt_release_failed", "reason": str(exc)},
+            ) from exc
 
     memory_decision = build_memory_commit_decision(
         query=interaction.query,
@@ -6086,10 +6139,6 @@ async def commit_memory(interaction: InteractionData, request: Request):
         world_grounding=world_grounding,
         durable_store_result=durable_write,
     )
-    if durable_write and durable_write.get("status") in {"stored", "stored_below_threshold"}:
-        with _ASSURANCE_RECEIPT_LOCK:
-            _CONSUMED_ASSURANCE_RECEIPTS[str(receipt_payload.get("jti"))] = int(receipt_payload.get("expires_at", int(time.time())))
-
     assurance = {
         "version": "nexus.assurance.v1",
         "verdict": "pass" if memory_decision.get("eligible") and durable_write and durable_write.get("status") == "stored" else ("degraded" if memory_decision.get("eligible") else "warn"),

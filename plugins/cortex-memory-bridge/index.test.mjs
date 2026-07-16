@@ -25,6 +25,14 @@ const successfulCommitResponse = () => new Response(JSON.stringify({
   durable_write: { status: 'stored' },
   assurance: { memory_commit: { eligible: true } },
 }));
+const lifecycleSpoolFiles = (stateDir) => {
+  const root = path.join(stateDir, 'lifecycle-principals-v2');
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root)
+    .filter((entry) => /^[0-9a-f]{64}$/.test(entry))
+    .map((entry) => path.join(root, entry, 'lifecycle-spool.json'))
+    .filter((entry) => fs.existsSync(entry));
+};
 
 test('registration rejects an unprovisioned shared session secret before hooks or lifecycle replay start', () => {
   for (const sessionIdentityHmacSecret of [undefined, '', '   ']) {
@@ -459,7 +467,30 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     const firstKey = requests[0].body.metadata.idempotency_key;
     assert.equal(requests[0].headers.get('x-cortex-scope-credential-id'), 'bridge-test');
     assert.match(requests[0].headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8')).length, 1);
+    const spoolFiles = lifecycleSpoolFiles(stateDir);
+    assert.equal(spoolFiles.length, 1);
+    assert.match(path.basename(path.dirname(spoolFiles[0])), /^[0-9a-f]{64}$/);
+    const pendingRecords = JSON.parse(fs.readFileSync(spoolFiles[0], 'utf8'));
+    assert.equal(pendingRecords.length, 1);
+    assert.equal(pendingRecords[0].version, 2);
+    assert.deepEqual(pendingRecords[0].principal, {
+      version: 1,
+      tenant_id: 'tenant-test',
+      workspace_id: 'workspace-test',
+      scope_credential_id: 'bridge-test',
+      agent_id: 'main',
+      user_id: 'local-user',
+      channel_id: 'local-channel',
+      session_id: `openclaw-${createHmac('sha256', 'session-test-secret').update('restart-session').digest('hex')}`,
+    });
+    assert.deepEqual(pendingRecords[0].context, {
+      sessionKey: 'restart-session',
+      sessionId: 'restart-session',
+      channelId: 'local-channel',
+      agentId: 'main',
+      userId: 'local-user',
+      idempotencyKey: firstKey,
+    });
 
     acceptCommit = true;
     plugin.register({
@@ -475,9 +506,184 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     assert.equal(requests[1].body.metadata.idempotency_key, firstKey);
     assert.equal(requests[1].headers.get('x-cortex-scope-credential-id'), 'bridge-test');
     assert.match(requests[1].headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8')).length, 0);
+    assert.equal(fs.existsSync(spoolFiles[0]), false, 'an acknowledged principal spool leaves no empty state directory behind');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('lifecycle replay quarantines every active-configuration principal mismatch', async () => {
+  const variants = [
+    { tenantId: 'tenant-other' },
+    { workspaceId: 'workspace-other' },
+    { scopeCredentialId: 'bridge-other' },
+    { scopeHmacSecret: 'scope-other-secret' },
+    { sessionIdentityHmacSecret: 'session-other-secret' },
+  ];
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const variant of variants) {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-scope-mismatch-'));
+      let commitRequests = 0;
+      globalThis.fetch = async (url) => {
+        if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+        commitRequests += 1;
+        return new Response(JSON.stringify({ success: false, committed: false, durable_write: { status: 'write_failed' } }));
+      };
+      try {
+        const firstHandlers = new Map();
+        const config = lifecycleConfig({ stateDir, enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 });
+        plugin.register({
+          pluginConfig: config,
+          logger: { info() {}, warn() {} },
+          on(name, handler) { firstHandlers.set(name, handler); },
+          registerMemoryRuntime() {},
+          registerTool() {},
+        });
+        const context = {
+          sessionKey: 'scope-mismatch-session',
+          userId: 'scope-user',
+          channelId: 'scope-channel',
+          agentId: 'scope-agent',
+        };
+        firstHandlers.get('llm_output')({ content: 'output that must never cross a principal boundary' }, context);
+        await assert.rejects(() => firstHandlers.get('agent_end')({}, context), /output retained for retry/);
+        const [spoolFile] = lifecycleSpoolFiles(stateDir);
+        assert.ok(spoolFile);
+
+        const warnings = [];
+        plugin.register({
+          pluginConfig: { ...config, ...variant },
+          logger: { info() {}, warn(message) { warnings.push(message); } },
+          on() {},
+          registerMemoryRuntime() {},
+          registerTool() {},
+        });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+
+        assert.equal(commitRequests, 1, `mismatched ${Object.keys(variant)[0]} must not replay`);
+        assert.equal(fs.existsSync(spoolFile), false);
+        assert.ok(
+          fs.readdirSync(path.dirname(spoolFile)).some((name) => name.includes('principal-scope-mismatch') && name.endsWith('.quarantine')),
+          `mismatched ${Object.keys(variant)[0]} spool is quarantined`,
+        );
+        assert.ok(warnings.some((message) => message.includes('inactive principal scope')));
+      } finally {
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('legacy unscoped lifecycle spool is quarantined without replay', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-legacy-spool-'));
+  fs.writeFileSync(path.join(stateDir, 'lifecycle-spool.json'), JSON.stringify([{ version: 1, fallbackText: 'foreign output' }]));
+  let fetched = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { fetched = true; return successfulCommitResponse(); };
+  try {
+    const warnings = [];
+    plugin.register({
+      pluginConfig: lifecycleConfig({ stateDir, enabledWriteThrough: true }),
+      logger: { info() {}, warn(message) { warnings.push(message); } },
+      on() {},
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fetched, false);
+    assert.equal(fs.existsSync(path.join(stateDir, 'lifecycle-spool.json')), false);
+    assert.ok(fs.readdirSync(stateDir).some((name) => name.includes('legacy-unscoped') && name.endsWith('.quarantine')));
+    assert.ok(warnings.some((message) => message.includes('unscoped lifecycle spool')));
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('recent output, dedupe, and persistence keys isolate colliding raw sessions by complete principal', async () => {
+  const handlers = new Map();
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    requests.push(JSON.parse(String(options?.body || '{}')));
+    return successfulCommitResponse();
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    const alpha = { sessionKey: 'colliding-session', userId: 'user-alpha', channelId: 'same-channel', agentId: 'same-agent' };
+    const beta = { sessionKey: 'colliding-session', userId: 'user-beta', channelId: 'same-channel', agentId: 'same-agent' };
+    handlers.get('llm_output')({ content: 'alpha principal private lifecycle output' }, alpha);
+    handlers.get('llm_output')({ content: 'beta principal private lifecycle output' }, beta);
+    await handlers.get('agent_end')({}, alpha);
+    await handlers.get('agent_end')({}, beta);
+
+    assert.equal(requests.length, 2);
+    assert.match(requests[0].response, /alpha principal/);
+    assert.doesNotMatch(requests[0].response, /beta principal/);
+    assert.match(requests[1].response, /beta principal/);
+    assert.doesNotMatch(requests[1].response, /alpha principal/);
+    assert.equal(requests[0].metadata.scope.user_id, 'user-alpha');
+    assert.equal(requests[1].metadata.scope.user_id, 'user-beta');
+    assert.notEqual(requests[0].metadata.idempotency_key, requests[1].metadata.idempotency_key);
+    assert.notEqual(
+      requests[0].metadata.idempotency_key.split(':')[0],
+      requests[1].metadata.idempotency_key.split(':')[0],
+      'cache, dedupe, and persistence namespaces bind the complete principal',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('principal namespaces preserve the global durable spool bound', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-global-spool-bound-'));
+  const handlers = new Map();
+  const requests = [];
+  const warnings = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    requests.push(JSON.parse(String(options?.body || '{}')));
+    return new Response(JSON.stringify({ success: false, committed: false, durable_write: { status: 'write_failed' } }));
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({
+        stateDir,
+        enabledWriteThrough: true,
+        minDurabilityScore: 0,
+        retryCount: 0,
+        lifecycleSpoolMaxRecords: 2,
+      }),
+      logger: { info() {}, warn(message) { warnings.push(message); } },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    for (const userId of ['principal-one', 'principal-two', 'principal-three']) {
+      const context = { sessionKey: 'shared-session', userId, channelId: 'shared-channel', agentId: 'shared-agent' };
+      handlers.get('llm_output')({ content: `pending output for ${userId}` }, context);
+      await assert.rejects(() => handlers.get('agent_end')({}, context), /output retained for retry/);
+    }
+
+    const retained = lifecycleSpoolFiles(stateDir)
+      .flatMap((spoolFile) => JSON.parse(fs.readFileSync(spoolFile, 'utf8')));
+    assert.equal(retained.length, 2);
+    assert.equal(requests.length, 2, 'the third principal cannot multiply the configured spool capacity');
+    assert.ok(warnings.some((message) => message.includes('exhausted across principals at 2 records')));
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
 
@@ -749,7 +955,7 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(requests.length, 1, 'concurrent hooks coalesce on the truncated payload key');
-    assert.equal(requests[0].metadata.idempotency_key, lifecyclePersistenceKey('bounded-session', `content:${expected}`));
+    assert.match(requests[0].metadata.idempotency_key, /^[0-9a-f]{64}:[0-9a-f]{64}$/);
     assert.match(requests[0].response, new RegExp(expected.slice(-20)));
     assert.doesNotMatch(requests[0].response, /attacker-prefix/);
     release();
