@@ -1,25 +1,32 @@
 import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 import cortex_server.routers.nexus as nexus
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
-def _client(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+def _client(monkeypatch, tmp_path):
+    original_transaction = nexus.ExecutionTransaction
+    monkeypatch.setattr(
+        nexus,
+        "ExecutionTransaction",
+        lambda **kwargs: original_transaction(**kwargs, journal_dir=tmp_path / "transactions"),
+    )
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    return TestClient(app)
+    return app
 
 
-def test_autotune_status_exposed(monkeypatch):
-    client = _client(monkeypatch)
-    r = client.get("/nexus/autotune/status")
-    assert r.status_code == 200
+@pytest.mark.asyncio
+async def test_autotune_status_exposed(monkeypatch, tmp_path):
+    transport = httpx.ASGITransport(app=_client(monkeypatch, tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get("/nexus/autotune/status")
+    assert r.status_code == 200, r.text
     body = r.json()
     assert body["success"] is True
     assert "policy" in body
@@ -27,19 +34,23 @@ def test_autotune_status_exposed(monkeypatch):
     assert "l9_auto_activation_threshold" in body["policy"]
 
 
-def test_orchestrate_returns_autotune_policy(monkeypatch):
-    client = _client(monkeypatch)
-    r = client.post("/nexus/orchestrate", json={}, params={"query": "Implement bug fix and add unit tests for the API"})
-    assert r.status_code == 200
+@pytest.mark.asyncio
+async def test_orchestrate_returns_autotune_policy(monkeypatch, tmp_path):
+    transport = httpx.ASGITransport(app=_client(monkeypatch, tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post("/nexus/orchestrate", json={}, params={"query": "Implement bug fix and add unit tests for the API"})
+    assert r.status_code == 200, r.text
     body = r.json()
     assert "autotune_policy" in body
     assert body["routing_markers"]["l9_triggered"] is True
 
 
-def test_complexity_query_auto_l9(monkeypatch):
-    client = _client(monkeypatch)
+@pytest.mark.asyncio
+async def test_complexity_query_auto_l9(monkeypatch, tmp_path):
+    transport = httpx.ASGITransport(app=_client(monkeypatch, tmp_path))
     q = "Optimize a multi-step strategy under budget with 5 constraints and tradeoff analysis versus baseline"
-    r = client.post("/nexus/orchestrate", json={}, params={"query": q})
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post("/nexus/orchestrate", json={}, params={"query": q})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["l9_triggered"] is True
@@ -103,9 +114,9 @@ async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch, tmp_path
     monkeypatch.setattr(
         nexus,
         "build_route_features",
-        lambda query, risk_flags=None: observed.update({"query": query, "risk_flags": list(risk_flags or [])}) or {"query": query, "intent": "qa"},
+        lambda query, risk_flags=None, **_kwargs: observed.update({"query": query, "risk_flags": list(risk_flags or [])}) or {"query": query, "intent": "qa"},
     )
-    monkeypatch.setattr(nexus, "choose_route", lambda features: {
+    monkeypatch.setattr(nexus, "choose_route", lambda features, **_kwargs: {
         "selected": {
             "chain_id": "deliberate_council",
             "levels": [5, 15, 32, 34],
@@ -116,8 +127,8 @@ async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch, tmp_path
         "candidates": [],
     })
 
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import threading
+import time
 
 from cortex_server.runtime import RuntimeSoakHarness
 from cortex_server.runtime.release_workflow import ReleaseWorkflowState
@@ -242,6 +244,56 @@ def _long_chain_contract(process_id: str) -> RoadmapObjectiveContract:
             ),
         ],
     )
+
+
+def test_roadmap_reconciliation_uses_the_release_process_transaction(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda _seconds: None)
+    process_id = "proc_roadmap_release_fence"
+    harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    roadmap_store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    completed = threading.Event()
+    errors = []
+
+    def hold_release_transaction():
+        with harness.release_store.release_transaction(process_id):
+            lock_held.set()
+            release_lock.wait(timeout=10)
+
+    def reconcile():
+        try:
+            reconcile_roadmap_execution(
+                _long_chain_contract(process_id),
+                roadmap_store=roadmap_store,
+                snapshot_store=harness.snapshot_store,
+                shared_state_store=harness.shared_state_store,
+                mailbox=harness.mailbox,
+                supervisor=harness.supervisor,
+                release_store=harness.release_store,
+                controller_id="roadmap-controller",
+                controller_session_id="roadmap-session",
+                journal=harness.journal,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    holder = threading.Thread(target=hold_release_transaction)
+    worker = threading.Thread(target=reconcile)
+    holder.start()
+    assert lock_held.wait(timeout=5)
+    worker.start()
+    time.sleep(0.1)
+    assert completed.is_set() is False
+    assert roadmap_store.load_state(process_id) is None
+    release_lock.set()
+    holder.join(timeout=5)
+    worker.join(timeout=10)
+    assert errors == []
+    assert completed.is_set() is True
+    assert roadmap_store.load_state(process_id) is not None
 
 
 

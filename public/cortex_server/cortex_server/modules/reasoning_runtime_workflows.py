@@ -255,6 +255,7 @@ def record_runtime_beliefs(
     node_id: str,
     step_result: JsonDict,
     upsert_belief_fn: UpsertBeliefFn,
+    scope: Optional[JsonDict] = None,
 ) -> List[JsonDict]:
     subject = f"process:{process_id}:node:{node_id}"
     created: List[JsonDict] = []
@@ -271,6 +272,7 @@ def record_runtime_beliefs(
             source_ref=node_id,
             note="node execution result",
             metadata={"process_id": process_id, "node_id": node_id, "source_execution": "runtime"},
+            scope=scope,
         )
     )
     if step_result.get("status_code") is not None:
@@ -287,6 +289,7 @@ def record_runtime_beliefs(
                 source_ref=node_id,
                 note="http status from node execution",
                 metadata={"process_id": process_id, "node_id": node_id, "source_execution": "runtime"},
+                scope=scope,
             )
         )
     if step_result.get("error"):
@@ -304,6 +307,7 @@ def record_runtime_beliefs(
                 note="execution error",
                 metadata={"process_id": process_id, "node_id": node_id, "source_execution": "runtime"},
                 conflict_mode="contradict",
+                scope=scope,
             )
         )
     return created
@@ -374,6 +378,7 @@ async def execute_runtime_batch(
                     task_id=(process.get("task_id") or refreshed.get("task_id")),
                     node_id=node_id,
                     step_result=step_result,
+                    workflow_metadata=workflow.get("metadata") or {},
                 )
                 step_result["produced_belief_ids"] = [
                     str(row.get("claim_id") or "") for row in produced_beliefs if str(row.get("claim_id") or "").strip()

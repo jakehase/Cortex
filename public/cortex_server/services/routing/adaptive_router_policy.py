@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict
 
-from services.routing._compat import optional_import
 from services.routing.chain_candidate_generator import generate_candidates
 
 
@@ -36,31 +34,6 @@ def scoring_policy_spec(*, weights: Dict[str, float] | None = None) -> Dict[str,
         ],
         "utility_formula": "quality*Wq - latency*Wl - cost*Wc - risk*Wr",
     }
-
-
-def _runtime_policy_snapshot() -> Dict[str, Any]:
-    module = optional_import("cortex_server.modules.routing_autotune")
-    snapshot = getattr(module, "get_policy_snapshot", None) if module else None
-    if callable(snapshot):
-        try:
-            result = snapshot()
-            return dict(result) if isinstance(result, dict) else {}
-        except Exception:
-            return {}
-    return {}
-
-
-def _runtime_policy_hint(features: Dict[str, Any]) -> Dict[str, Any]:
-    module = optional_import("cortex_server.modules.outcome_tuner")
-    tuner_cls = getattr(module, "OutcomeTuner", None) if module else None
-    if tuner_cls is None:
-        return {}
-    try:
-        tuner = tuner_cls(artifact_dir=Path("/opt/clawdbot/artifacts/nexus_orchestration"))
-        hint = tuner.get_policy_hint(archetype=str(features.get("archetype") or "simple_qa"), query=str(features.get("query") or ""))
-        return dict(hint) if isinstance(hint, dict) else {}
-    except Exception:
-        return {}
 
 
 def score_candidate(features: Dict[str, Any], candidate: Dict[str, Any], *, weights: Dict[str, float] | None = None, runtime_policy: Dict[str, Any] | None = None, policy_hint: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -139,9 +112,15 @@ def score_candidate(features: Dict[str, Any], candidate: Dict[str, Any], *, weig
     }
 
 
-def choose_route(features: Dict[str, Any], *, weights: Dict[str, float] | None = None) -> Dict[str, Any]:
-    runtime_policy = _runtime_policy_snapshot()
-    policy_hint = _runtime_policy_hint(features)
+def choose_route(
+    features: Dict[str, Any],
+    *,
+    weights: Dict[str, float] | None = None,
+    runtime_policy: Dict[str, Any] | None = None,
+    policy_hint: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    runtime_policy = dict(runtime_policy or {})
+    policy_hint = dict(policy_hint or {})
     scored = [
         score_candidate(features, row, weights=weights, runtime_policy=runtime_policy, policy_hint=policy_hint)
         for row in generate_candidates(features)
@@ -157,8 +136,8 @@ def choose_route(features: Dict[str, Any], *, weights: Dict[str, float] | None =
     }
 
 
-def explain_route_decision(features: Dict[str, Any], *, weights: Dict[str, float] | None = None) -> Dict[str, Any]:
-    decision = choose_route(features, weights=weights)
+def explain_route_decision(features: Dict[str, Any], *, weights: Dict[str, float] | None = None, runtime_policy: Dict[str, Any] | None = None, policy_hint: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    decision = choose_route(features, weights=weights, runtime_policy=runtime_policy, policy_hint=policy_hint)
     selected = decision["selected"]
     utility_gap = 0.0
     if len(decision["candidates"]) > 1:

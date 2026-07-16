@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import fcntl
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -78,45 +81,90 @@ def _model_dump_compat(model: AgentLease) -> Dict[str, Any]:
 class AgentSupervisor:
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self.lock_path = self.path.with_name(f"{self.path.name}.lock")
 
-    def _read_all(self) -> List[AgentLease]:
-        if not self.path.exists():
-            return []
-        data = json.loads(self.path.read_text(encoding="utf-8"))
-        rows = data if isinstance(data, list) else []
-        return [_model_validate_compat(dict(row)) for row in rows if isinstance(row, dict)]
-
-    def _write_all(self, rows: List[AgentLease]) -> None:
+    @contextmanager
+    def _locked(self, *, exclusive: bool):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = [_model_dump_compat(row) for row in rows]
-        self.path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        with self.lock_path.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def _read_envelope(self) -> tuple[int, List[AgentLease]]:
+        if not self.path.exists():
+            return 0, []
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            revision, rows = 0, data
+        elif isinstance(data, dict) and data.get("version") == "cortex.agent-leases.v2":
+            revision, rows = data.get("revision"), data.get("leases")
+            if type(revision) is not int or revision < 0 or not isinstance(rows, list):
+                raise ValueError("agent lease envelope is invalid")
+        else:
+            raise ValueError("agent lease state is invalid")
+        return int(revision), [_model_validate_compat(dict(row)) for row in rows if isinstance(row, dict)]
+
+    def _write_all(self, rows: List[AgentLease], *, expected_revision: int) -> int:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        current_revision, _ = self._read_envelope()
+        if current_revision != expected_revision:
+            raise RuntimeError("agent lease revision conflict")
+        next_revision = current_revision + 1
+        payload = {
+            "version": "cortex.agent-leases.v2",
+            "revision": next_revision,
+            "leases": [_model_dump_compat(row) for row in rows],
+        }
+        encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.path)
+            directory_fd = os.open(self.path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+        return next_revision
 
     def assign(self, *, process_id: str, scope: str, agent_id: str, lease_seconds: int, metadata: Optional[Dict[str, Any]] = None) -> AgentLease:
         if int(lease_seconds) <= 0:
             raise ValueError("lease_seconds must be positive")
-        rows = self._read_all()
-        for row in rows:
-            if row.process_id != process_id or row.scope != scope or row.status != "active":
-                continue
-            if row.agent_id == agent_id:
-                return row
-            raise ValueError(f"active claim exists for {process_id}:{scope} via {row.agent_id}")
-        now = _now()
-        record = AgentLease(
-            process_id=process_id,
-            scope=scope,
-            agent_id=agent_id,
-            assigned_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-            heartbeat_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-            expires_at=(now + timedelta(seconds=int(lease_seconds))).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-            metadata=dict(metadata or {}),
-        )
-        rows.append(record)
-        self._write_all(rows)
-        return record
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope()
+            for row in rows:
+                if row.process_id != process_id or row.scope != scope or row.status != "active":
+                    continue
+                if row.agent_id == agent_id:
+                    return row
+                raise ValueError(f"active claim exists for {process_id}:{scope} via {row.agent_id}")
+            now = _now()
+            record = AgentLease(
+                process_id=process_id,
+                scope=scope,
+                agent_id=agent_id,
+                assigned_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                heartbeat_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                expires_at=(now + timedelta(seconds=int(lease_seconds))).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                metadata=dict(metadata or {}),
+            )
+            rows.append(record)
+            self._write_all(rows, expected_revision=revision)
+            return record
 
     def list(self, *, process_id: Optional[str] = None, status: Optional[str] = None) -> List[AgentLease]:
-        rows = self._read_all()
+        _, rows = self.list_with_revision()
         filtered: List[AgentLease] = []
         for row in rows:
             if process_id and row.process_id != process_id:
@@ -126,13 +174,23 @@ class AgentSupervisor:
             filtered.append(row)
         return filtered
 
+    def list_with_revision(self) -> tuple[int, List[AgentLease]]:
+        with self._locked(exclusive=False):
+            revision, rows = self._read_envelope()
+            return revision, rows
+
+    def revision(self) -> int:
+        revision, _ = self.list_with_revision()
+        return revision
+
     def _mutate(self, lease_id: str, mutate_fn) -> AgentLease:
-        rows = self._read_all()
-        for row in rows:
-            if row.lease_id == lease_id:
-                mutate_fn(row)
-                self._write_all(rows)
-                return row
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope()
+            for row in rows:
+                if row.lease_id == lease_id:
+                    mutate_fn(row)
+                    self._write_all(rows, expected_revision=revision)
+                    return row
         raise KeyError(f"lease not found: {lease_id}")
 
     def heartbeat(self, lease_id: str, *, lease_seconds: Optional[int] = None) -> AgentLease:
@@ -161,17 +219,16 @@ class AgentSupervisor:
 
     def reclaim_stale(self, *, now: Optional[datetime] = None) -> List[AgentLease]:
         now_dt = now or _now()
-        rows = self._read_all()
-        reclaimed: List[AgentLease] = []
-        changed = False
-        for row in rows:
-            if row.status == "active" and _parse_ts(row.expires_at) <= now_dt:
-                row.status = "stale"
-                reclaimed.append(row)
-                changed = True
-        if changed:
-            self._write_all(rows)
-        return reclaimed
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope()
+            reclaimed: List[AgentLease] = []
+            for row in rows:
+                if row.status == "active" and _parse_ts(row.expires_at) <= now_dt:
+                    row.status = "stale"
+                    reclaimed.append(row)
+            if reclaimed:
+                self._write_all(rows, expected_revision=revision)
+            return reclaimed
 
 
 __all__ = ["AgentLease", "AgentSupervisor", "ValidationError"]

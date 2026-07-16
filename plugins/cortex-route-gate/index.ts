@@ -68,8 +68,20 @@ type PendingCreativitySuppression = {
 type LastGoodRoutePlan = {
   savedAt: string;
   provenance: string;
+  scopeTag: string;
   plan: RoutePlan;
   tag: string;
+};
+
+type PrincipalStatePaths = {
+  scopeTag: string;
+  root: string;
+  stats: string;
+  history: string;
+  promptHistory: string;
+  creativityRetry: string;
+  creativityMetrics: string;
+  lastGoodPlan: string;
 };
 
 const ALLOWED_CORTEX_LEVELS = new Set(Array.from({ length: 38 }, (_, index) => index + 1));
@@ -133,9 +145,11 @@ function isRoutePlan(value: unknown): value is RoutePlan {
 }
 function isLastGoodRoutePlan(value: unknown): value is LastGoodRoutePlan {
   return isRecord(value)
-    && hasOnlyKeys(value, new Set(['savedAt', 'provenance', 'plan', 'tag']))
+    && hasOnlyKeys(value, new Set(['savedAt', 'provenance', 'scopeTag', 'plan', 'tag']))
     && isBoundedString(value.savedAt, 64, false)
     && isBoundedString(value.provenance, 2_048, false)
+    && typeof value.scopeTag === 'string'
+    && /^[0-9a-f]{64}$/.test(value.scopeTag)
     && typeof value.tag === 'string'
     && /^[0-9a-f]{64}$/.test(value.tag)
     && isRoutePlan(value.plan);
@@ -148,11 +162,11 @@ function canonicalJson(value: unknown): string {
   return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
 }
 
-function cachePayload(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'plan'>): string {
-  return canonicalJson({ savedAt: cache.savedAt, provenance: cache.provenance, plan: cache.plan });
+function cachePayload(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'scopeTag' | 'plan'>): string {
+  return canonicalJson({ savedAt: cache.savedAt, provenance: cache.provenance, scopeTag: cache.scopeTag, plan: cache.plan });
 }
 
-function signRouteCache(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'plan'>, secret: string): string {
+function signRouteCache(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'scopeTag' | 'plan'>, secret: string): string {
   return crypto.createHmac('sha256', secret).update(cachePayload(cache), 'utf8').digest('hex');
 }
 
@@ -185,6 +199,7 @@ type RunState = {
   predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
   creativity?: CreativityProfile;
   creativityAudit?: CreativityAudit;
+  statePaths: PrincipalStatePaths;
 };
 
 function normalizeBaseUrl(value: unknown): string {
@@ -960,16 +975,17 @@ export default function register(api: any) {
   const writeToken = typeof cfg.writeToken === 'string' && cfg.writeToken.length > 0 ? String(cfg.writeToken) : null;
   const writeTokenHeader = normalizeWriteTokenHeader(cfg.writeTokenHeader);
   const writeHeaders = writeToken ? { [writeTokenHeader]: writeToken } : {};
-  const tenantId = typeof cfg.tenantId === 'string' && cfg.tenantId.trim() ? cfg.tenantId.trim() : 'cortex-local';
-  const workspaceId = typeof cfg.workspaceId === 'string' && cfg.workspaceId.trim() ? cfg.workspaceId.trim() : 'default';
-  const defaultAgentId = typeof cfg.agentId === 'string' && cfg.agentId.trim() ? cfg.agentId.trim() : 'main';
-  const defaultUserId = typeof cfg.userId === 'string' && cfg.userId.trim() ? cfg.userId.trim() : 'local-user';
-  const defaultChannelId = typeof cfg.channelId === 'string' && cfg.channelId.trim() ? cfg.channelId.trim() : 'local-channel';
+  const configuredTenantId = typeof cfg.tenantId === 'string' && cfg.tenantId.trim() ? cfg.tenantId.trim() : '';
+  const configuredWorkspaceId = typeof cfg.workspaceId === 'string' && cfg.workspaceId.trim() ? cfg.workspaceId.trim() : '';
   const scopeCredentialId = typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '';
   const scopeHmacSecret = typeof cfg.scopeHmacSecret === 'string' ? String(cfg.scopeHmacSecret) : '';
   const hasScopeCredentialId = scopeCredentialId.length > 0;
   const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
   const allowUnsignedLocalDevelopment = cfg.allowUnsignedLocalDevelopment === true;
+  // Tenant/workspace are instance configuration, while agent/user/channel and
+  // session are per-callback identities. Local instance defaults remain valid.
+  const tenantId = configuredTenantId || 'cortex-local';
+  const workspaceId = configuredWorkspaceId || 'default';
   const boundedOpaqueId = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
   if (hasScopeCredentialId !== hasScopeHmacSecret) {
     throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret together');
@@ -1005,29 +1021,43 @@ export default function register(api: any) {
     ? cfg.oracleSessionDir.trim()
     : path.join(process.env.HOME || '/root', '.openclaw', 'agents', 'main', 'sessions');
   const stateDir = typeof cfg.stateDir === 'string' && cfg.stateDir.trim() ? cfg.stateDir.trim() : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-route-gate');
-  const statsPath = path.join(stateDir, 'adaptive-routing-stats.json');
-  const historyPath = path.join(stateDir, 'prompt-fingerprints.json');
-  const promptHistoryPath = path.join(stateDir, 'prompt-history.json');
-  const creativityRetryPath = path.join(stateDir, 'creativity-retry.json');
-  const creativityMetricsPath = path.join(stateDir, 'creativity-metrics.json');
-  const lastGoodPlanPath = path.join(stateDir, 'last-good-plan.json');
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
 
-  function nexusPrincipalHeaders(ctx: any, sessionIdentity: string): Record<string, string> {
+  function principalState(ctx: any, rawSessionKey: string): { scope: Record<string, string>; sessionIdentity: string; statePaths: PrincipalStatePaths; stateKey: string } {
+    if (!rawSessionKey.trim()) throw new Error('routing requires a non-empty trusted session identity from the callback');
+    const sessionIdentity = opaqueSessionIdentity(rawSessionKey, sessionIdentityHmacSecret);
     const scope = {
       tenant_id: tenantId,
       workspace_id: workspaceId,
-      agent_id: String(ctx?.agentId || defaultAgentId).trim(),
-      user_id: String(ctx?.userId || ctx?.requesterSenderId || defaultUserId).trim(),
-      channel_id: String(ctx?.channelId || ctx?.messageChannel || defaultChannelId).trim(),
+      agent_id: String(ctx?.agentId || '').trim(),
+      user_id: String(ctx?.userId || ctx?.requesterSenderId || '').trim(),
+      channel_id: String(ctx?.channelId || ctx?.messageChannel || '').trim(),
       session_id: sessionIdentity,
     };
     if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {
       throw new Error('routing requires a complete bounded trusted Cortex principal');
     }
+    const canonicalScope = [scope.tenant_id, scope.workspace_id, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n');
+    const scopeTag = crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.state.v1\n${canonicalScope}`, 'utf8').digest('hex');
+    const root = path.join(stateDir, 'principals', scopeTag);
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    const statePaths: PrincipalStatePaths = {
+      scopeTag,
+      root,
+      stats: path.join(root, 'adaptive-routing-stats.json'),
+      history: path.join(root, 'prompt-fingerprints.json'),
+      promptHistory: path.join(root, 'prompt-history.json'),
+      creativityRetry: path.join(root, 'creativity-retry.json'),
+      creativityMetrics: path.join(root, 'creativity-metrics.json'),
+      lastGoodPlan: path.join(root, 'last-good-plan.json'),
+    };
+    return { scope, sessionIdentity, statePaths, stateKey: scopeTag };
+  }
+
+  function nexusPrincipalHeaders(scope: Record<string, string>, sessionIdentity: string): Record<string, string> {
     const headers: Record<string, string> = {
       ...writeHeaders,
       'x-session-id': sessionIdentity,
@@ -1057,6 +1087,16 @@ export default function register(api: any) {
     return headers;
   }
 
+  // Legacy unscoped files are never consumed. Move them aside so an upgrade
+  // cannot silently reuse cross-principal history or route plans.
+  for (const legacyName of ['adaptive-routing-stats.json', 'prompt-fingerprints.json', 'prompt-history.json', 'creativity-retry.json', 'creativity-metrics.json', 'last-good-plan.json']) {
+    const legacyPath = path.join(stateDir, legacyName);
+    if (!fs.existsSync(legacyPath)) continue;
+    const quarantine = path.join(stateDir, 'quarantine', 'legacy-global');
+    fs.mkdirSync(quarantine, { recursive: true, mode: 0o700 });
+    fs.renameSync(legacyPath, path.join(quarantine, `${Date.now()}-${legacyName}`));
+  }
+
   function archiveOversizedOracleSessions() {
     if (!oracleSessionQuarantineEnabled || !oracleSessionResetBytes || oracleSessionResetBytes < 1024) return;
     try {
@@ -1084,13 +1124,13 @@ export default function register(api: any) {
 
   archiveOversizedOracleSessions();
 
-  function loadPromptHistory(): PromptHistoryEntry[] {
+  function loadPromptHistory(promptHistoryPath: string): PromptHistoryEntry[] {
     try {
       const raw = JSON.parse(fs.readFileSync(promptHistoryPath, 'utf8'));
       return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') as PromptHistoryEntry[] : [];
     } catch { return []; }
   }
-  function updateCreativityMetrics(mutate: (metrics: any) => void) {
+  function updateCreativityMetrics(creativityMetricsPath: string, mutate: (metrics: any) => void) {
     updateJson(creativityMetricsPath, { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }, (metrics: any) => {
       mutate(metrics);
       metrics.updatedAt = nowIso();
@@ -1110,19 +1150,34 @@ export default function register(api: any) {
     }
   }
 
-  async function getPlan(prompt: string, messages: unknown[], sessionKey: string | undefined, trustedContext: any): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
+  function stateKeyForContext(ctx: any): string {
+    try {
+      return principalState(ctx, String(ctx?.sessionKey || ctx?.sessionId || '')).stateKey;
+    } catch {
+      return '';
+    }
+  }
+
+  function scopedDeliveryKey(value: string, stateKey: string): string {
+    return crypto.createHmac('sha256', sessionIdentityHmacSecret)
+      .update(`cortex.route-gate.delivery.v1\n${stateKey}\n${value}`, 'utf8')
+      .digest('hex');
+  }
+
+  async function getPlan(prompt: string, messages: unknown[], sessionKey: string | undefined, trustedContext: any): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string; statePaths: PrincipalStatePaths; stateKey: string }> {
+    const principal = principalState(trustedContext, String(sessionKey || ''));
+    const { statePaths } = principal;
     let plan: RoutePlan | null = null;
     try {
       if (Buffer.byteLength(prompt, 'utf8') > maxRoutingPromptBytes) {
         throw new Error(`routing prompt exceeds ${maxRoutingPromptBytes} bytes`);
       }
-      const sessionIdentity = opaqueSessionIdentity(String(sessionKey || ''), sessionIdentityHmacSecret);
       const data = await postJson(
         `${baseUrl}/nexus/orchestrate`,
         { query: prompt },
         timeoutMs,
         maxResponseBytes,
-        nexusPrincipalHeaders(trustedContext, sessionIdentity),
+        nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
       );
       const recommended = liveRouteLevels(data);
       if (!recommended) throw new Error('invalid live route response schema');
@@ -1143,10 +1198,10 @@ export default function register(api: any) {
       };
       if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
       if (routeCacheHmacSecret) {
-        const cache = { savedAt: nowIso(), provenance: baseUrl, plan };
+        const cache = { savedAt: nowIso(), provenance: baseUrl, scopeTag: statePaths.scopeTag, plan };
         const signedCache = { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan;
         try {
-          saveJson(lastGoodPlanPath, signedCache);
+          saveJson(statePaths.lastGoodPlan, signedCache);
         } catch (error) {
           api.logger.warn?.(`cortex-route-gate: failed to persist last-good route plan: ${String(error)}`);
         }
@@ -1154,10 +1209,10 @@ export default function register(api: any) {
     } catch (error) {
       const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
       api.logger.warn(message);
-      const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(lastGoodPlanPath, null);
+      const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(statePaths.lastGoodPlan, null);
       const savedAtMs = Date.parse(lastGoodPlan?.savedAt || '');
       const cachedAgeMs = Date.now() - savedAtMs;
-      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
+      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
       if (validCache && lastGoodPlan) {
         api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
         plan = {
@@ -1185,10 +1240,10 @@ export default function register(api: any) {
     const intentText = latestUserTurnText(messages) || tailIntentText(prompt);
     const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
     const taskClass = classifyTask(intentText || prompt);
-    const stats = loadStats(statsPath);
+    const stats = loadStats(statePaths.stats);
     const selfModel = loadJson<CapabilitySelfModel>(selfModelPath, { version: 1, capabilities: {}, confidence: {}, degraded: [], recommendations: [] });
     const predictedChecks = predictCapabilityUse(intentText || prompt, selfModel);
-    const priorPromptHistory = loadPromptHistory();
+    const priorPromptHistory = loadPromptHistory(statePaths.promptHistory);
     let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(intentText, priorPromptHistory, creativityQuarantineTerms, creativityEligible) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
     let routedPlan = plan!;
     if (creativity.requested) {
@@ -1203,7 +1258,7 @@ export default function register(api: any) {
     }
     const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxLevels, creativity);
     const fingerprint = fingerprintText(prompt);
-    const duplicateRisk = updateJson(historyPath, [] as string[], (history) => {
+    const duplicateRisk = updateJson(statePaths.history, [] as string[], (history) => {
       const duplicate = history.some((x) => similarity(x, fingerprint) >= 0.9);
       history.push(fingerprint);
       const compact: string[] = [];
@@ -1215,35 +1270,36 @@ export default function register(api: any) {
       history.splice(0, history.length, ...compact.slice(-100));
       return duplicate;
     });
-    updateJson(promptHistoryPath, [] as PromptHistoryEntry[], (history) => {
+    updateJson(statePaths.promptHistory, [] as PromptHistoryEntry[], (history) => {
       history.push({ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) });
       history.splice(0, Math.max(0, history.length - creativityHistorySize));
     });
-    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText };
+    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey: principal.stateKey };
   }
 
   api.on('before_prompt_build', async (event: any, ctx: any) => {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
-    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
-    if (shouldBypassRouteGate(stateKey)) {
-      if (stateKey) runStateByKey.delete(stateKey);
-      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${stateKey || 'unknown'}`);
+    const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    if (shouldBypassRouteGate(rawSessionKey)) {
+      const bypassStateKey = stateKeyForContext(ctx);
+      if (bypassStateKey) runStateByKey.delete(bypassStateKey);
+      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${rawSessionKey || 'unknown'}`);
       return;
     }
     let route;
     try {
-      route = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey, ctx);
+      route = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], rawSessionKey, ctx);
     } catch (error) {
       if (requireRouting) throw error;
       api.logger.warn?.(`cortex-route-gate: optional routing skipped: ${String(error)}`);
       return;
     }
-    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText } = route;
+    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey } = route;
     const retryAudit = stateKey && creativity.requested
-      ? updateJson(creativityRetryPath, {} as Record<string, CreativityAudit>, (state) => {
-          const audit = state[stateKey];
-          if (audit) delete state[stateKey];
+      ? updateJson(statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
+          const audit = state[rawSessionKey];
+          if (audit) delete state[rawSessionKey];
           return audit;
         })
       : undefined;
@@ -1260,15 +1316,16 @@ export default function register(api: any) {
         predictedChecks,
         creativity,
         creativityAudit: retryAudit,
+        statePaths,
       });
     }
-    if (stateKey && retryAudit && creativity.requested) updateCreativityMetrics((metrics) => { metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; });
-    api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
+    if (stateKey && retryAudit && creativity.requested) updateCreativityMetrics(statePaths.creativityMetrics, (metrics) => { metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; });
+    api.logger.info?.(`cortex-route-gate: appended self-model block principal=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
     return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
 
   api.on('before_tool_call', async (event: any, ctx: any) => {
-    const rs = runStateByKey.get(String(ctx?.sessionKey || ctx?.sessionId || ''));
+    const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     if ((event?.toolName === 'web_search' || event?.toolName === 'web_fetch') && !hasLevel(rs.plan, 2)) {
       rs.observedSignals.push('web_tool_without_l2');
@@ -1288,7 +1345,7 @@ export default function register(api: any) {
   });
 
   api.on('after_tool_call', async (event: any, ctx: any) => {
-    const rs = runStateByKey.get(String(ctx?.sessionKey || ctx?.sessionId || ''));
+    const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     rs.toolCalls.push({ toolName: String(event?.toolName || ''), ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined, error: event?.error ? String(event.error) : undefined });
     if (event?.error) rs.observedSignals.push(`tool_error:${String(event.toolName || 'unknown')}`);
@@ -1307,7 +1364,8 @@ export default function register(api: any) {
   });
 
   api.on('llm_output', async (event: any, ctx: any) => {
-    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs || !rs.creativity?.requested || !creativityAuditEnabled) return;
     cleanupPendingCreativitySuppressions();
@@ -1320,19 +1378,20 @@ export default function register(api: any) {
       audit.retryRecommended = !audit.passed;
     }
     rs.creativityAudit = audit;
-    updateCreativityMetrics((metrics) => {
+    updateCreativityMetrics(rs.statePaths.creativityMetrics, (metrics) => {
       metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
       if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
     });
-    if (stateKey) updateJson(creativityRetryPath, {} as Record<string, CreativityAudit>, (state) => {
-      if (audit.passed) delete state[stateKey];
-      else state[stateKey] = audit;
+    if (stateKey) updateJson(rs.statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
+      if (audit.passed) delete state[rawSessionKey];
+      else state[rawSessionKey] = audit;
     });
     if (!audit.passed && stateKey) {
       rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
       api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
 
-      const deliveryKey = extractDeliveryKeyFromSessionKey(stateKey);
+      const deliveryKeyRaw = extractDeliveryKeyFromSessionKey(rawSessionKey);
+      const deliveryKey = deliveryKeyRaw ? scopedDeliveryKey(deliveryKeyRaw, stateKey) : undefined;
       if (deliveryKey && typeof api.sendUserMessage === 'function') {
         pendingCreativitySuppressions.set(deliveryKey, {
           deliveryKey,
@@ -1341,7 +1400,7 @@ export default function register(api: any) {
           retryPrompt: buildCreativityAutoRetryPrompt(audit),
           sessionKey: stateKey,
         });
-        updateCreativityMetrics((metrics) => { metrics.counters.retryTriggered = Number(metrics.counters.retryTriggered || 0) + 1; });
+        updateCreativityMetrics(rs.statePaths.creativityMetrics, (metrics) => { metrics.counters.retryTriggered = Number(metrics.counters.retryTriggered || 0) + 1; });
         rs.observedSignals.push('creativity_retry_predelivery');
         api.logger.info?.(`cortex-route-gate: scheduled pre-delivery creativity retry session=${stateKey} delivery=${deliveryKey}`);
         api.sendUserMessage(buildCreativityAutoRetryPrompt(audit), { deliverAs: 'followUp' });
@@ -1351,7 +1410,12 @@ export default function register(api: any) {
 
   api.on('message_sending', async (event: any, ctx: any) => {
     cleanupPendingCreativitySuppressions();
-    const deliveryKey = `${String(ctx?.channelId || '').trim()}:${String(ctx?.accountId || 'default').trim() || 'default'}:${String(event?.to || '').trim()}`;
+    const stateKey = stateKeyForContext(ctx);
+    if (!stateKey) return;
+    const deliveryKey = scopedDeliveryKey(
+      `${String(ctx?.channelId || '').trim()}:${String(ctx?.accountId || 'default').trim() || 'default'}:${String(event?.to || '').trim()}`,
+      stateKey,
+    );
     const pending = pendingCreativitySuppressions.get(deliveryKey);
     if (!pending) return;
     const outgoing = typeof event?.content === 'string' ? event.content : '';
@@ -1363,12 +1427,12 @@ export default function register(api: any) {
   });
 
   api.on('agent_end', async (event: any, ctx: any) => {
-    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
     const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
     const success = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
-    updateStats(statsPath, (stats) => {
+    updateStats(rs.statePaths.stats, (stats) => {
       const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
       taskBucket.uses += 1;
       if (success) taskBucket.successes += 1; else taskBucket.failures += 1;

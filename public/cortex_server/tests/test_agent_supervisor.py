@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
+import multiprocessing
 from pathlib import Path
 
 import pytest
 
 from cortex_server.runtime import AgentSupervisor
 from cortex_server.runtime.agent_supervisor import ValidationError
+
+
+def _assign_concurrent_lease(path: str, index: int, start) -> None:
+    start.wait(timeout=10)
+    AgentSupervisor(path).assign(
+        process_id=f"proc_{index}",
+        scope=f"scope_{index}",
+        agent_id=f"agent_{index}",
+        lease_seconds=60,
+    )
 
 
 
@@ -82,3 +94,42 @@ def test_agent_supervisor_can_resolve_stale_leases_with_metadata(tmp_path: Path)
 
     assert resolved.status == "released"
     assert resolved.metadata["resolution"] == "watchdog_recovered"
+
+
+def test_agent_supervisor_multiprocess_updates_are_lossless_and_revisioned(tmp_path: Path):
+    path = tmp_path / "runtime" / "leases.json"
+    context = multiprocessing.get_context("fork")
+    start = context.Event()
+    processes = [context.Process(target=_assign_concurrent_lease, args=(str(path), index, start)) for index in range(12)]
+    for process in processes:
+        process.start()
+    start.set()
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    supervisor = AgentSupervisor(path)
+    revision, leases = supervisor.list_with_revision()
+    assert revision == 12
+    assert {lease.process_id for lease in leases} == {f"proc_{index}" for index in range(12)}
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    assert envelope["version"] == "cortex.agent-leases.v2"
+    assert envelope["revision"] == revision
+
+
+def test_agent_supervisor_failed_replace_preserves_previous_envelope(tmp_path: Path, monkeypatch):
+    path = tmp_path / "runtime" / "leases.json"
+    supervisor = AgentSupervisor(path)
+    supervisor.assign(process_id="proc_first", scope="scope", agent_id="first", lease_seconds=60)
+
+    import cortex_server.runtime.agent_supervisor as supervisor_module
+
+    monkeypatch.setattr(supervisor_module.os, "replace", lambda *_args: (_ for _ in ()).throw(OSError("replace failed")))
+    with pytest.raises(OSError, match="replace failed"):
+        supervisor.assign(process_id="proc_second", scope="scope", agent_id="second", lease_seconds=60)
+
+    reopened = AgentSupervisor(path)
+    revision, leases = reopened.list_with_revision()
+    assert revision == 1
+    assert [lease.process_id for lease in leases] == ["proc_first"]
+    assert list(path.parent.glob(f".{path.name}.*.tmp")) == []

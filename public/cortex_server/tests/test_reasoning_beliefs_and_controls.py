@@ -7,6 +7,7 @@ import cortex_server.modules.reasoning_approvals as approvals
 import cortex_server.modules.reasoning_beliefs as beliefs
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
+from cortex_server.modules.governance_compiler import compile_workflow_policy
 from cortex_server.modules.reasoning_planner import ReasoningPlanGraph
 from cortex_server.modules.reasoning_safety import evaluate_step_permission
 from cortex_server.modules.verification_contracts import evaluate_contracts
@@ -38,6 +39,46 @@ def test_belief_store_supersedes_stale_values(tmp_path, monkeypatch):
     assert second["value"] == 92
     assert any(row["status"] == "superseded" and row["value"] == 87 for row in all_beliefs)
     assert any(row["status"] == "active" and row["value"] == 92 for row in all_beliefs)
+
+
+def test_governance_beliefs_are_principal_scoped_and_metadata_is_nonextractive(tmp_path, monkeypatch):
+    monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
+    monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
+    scope_a = {
+        "tenant_id": "tenant-a", "workspace_id": "workspace-a", "agent_id": "agent-a",
+        "user_id": "user-a", "channel_id": "channel-a", "session_id": "session-a",
+    }
+    scope_b = {
+        "tenant_id": "tenant-b", "workspace_id": "workspace-b", "agent_id": "agent-b",
+        "user_id": "user-b", "channel_id": "channel-b", "session_id": "session-b",
+    }
+    secret = beliefs.upsert_belief(
+        subject="release-secret",
+        predicate="value",
+        value="tenant-a-only-secret",
+        source_type="runtime_execution",
+        source_ref="private-error-log",
+        note="tenant-a private provenance",
+        scope=scope_a,
+    )
+
+    policy_a = compile_workflow_policy(
+        name="Scoped plan",
+        metadata={"policy_belief_subjects": ["release-secret"]},
+        belief_scope=scope_a,
+    )
+    policy_b = compile_workflow_policy(
+        name="Scoped plan",
+        metadata={"policy_belief_subjects": ["release-secret"]},
+        belief_scope=scope_b,
+    )
+
+    assert policy_a["belief_influence_ids"] == [secret["claim_id"]]
+    assert policy_a["belief_influences"] == [{"claim_id": secret["claim_id"]}]
+    assert "tenant-a-only-secret" not in json.dumps(policy_a)
+    assert "private-error-log" not in json.dumps(policy_a)
+    assert policy_b["belief_influence_ids"] == []
+    assert beliefs.get_belief(secret["claim_id"], scope=scope_b) is None
 
 
 

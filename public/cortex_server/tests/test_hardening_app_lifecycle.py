@@ -237,18 +237,31 @@ async def test_cancelled_new_service_acquisition_rolls_back_spawned_task(monkeyp
 
 
 @pytest.fixture
-def lifecycle_fakes(monkeypatch):
+def lifecycle_fakes(monkeypatch, tmp_path):
     _install_minimal_routers(monkeypatch)
     monkeypatch.setenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "false")
+    monkeypatch.setenv("CORTEX_CHROMA_DIR", str(tmp_path / "chroma"))
     fakes = LifecycleFakes()
     monkeypatch.setattr(main.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0))
 
     import cortex_server.worker as worker
+    import cortex_server.middleware.event_ledger_middleware as event_ledger
+    import cortex_server.routers.librarian as librarian
     scheduler = _import_scheduler(monkeypatch)
     import cortex_server.modules.chronos as chronos
     import cortex_server.routers.awareness as awareness
 
     monkeypatch.setattr(worker, "check_redis_connection", lambda: True)
+    monkeypatch.setattr(
+        event_ledger,
+        "probe_event_ledger_durability",
+        lambda: {"ok": True, "status": "healthy"},
+    )
+    monkeypatch.setattr(
+        librarian,
+        "probe_memory_backend_readiness",
+        lambda: {"ok": True, "status": "healthy"},
+    )
     scheduler_runtime = SimpleNamespace(running=False)
     fakes.scheduler_runtime = scheduler_runtime
     monkeypatch.setattr(scheduler, "scheduler", scheduler_runtime)
@@ -318,7 +331,13 @@ async def test_readiness_is_false_before_startup_and_after_shutdown(lifecycle_fa
     assert {name: before_checks[name] for name in expected} == expected
 
     async with app.router.lifespan_context(app):
-        assert (await _route(app, "/ready")()).status_code == 200
+        running = await _route(app, "/ready")()
+        running_payload = json.loads(running.body)
+        failing_checks = {
+            name: check for name, check in running_payload["checks"].items()
+            if check.get("required", True) and not check.get("ok")
+        }
+        assert running.status_code == 200, failing_checks
 
     after = await _route(app, "/ready")()
     assert after.status_code == 503
@@ -883,6 +902,44 @@ async def test_required_router_import_failure_degrades_readiness(monkeypatch, li
 
 
 @pytest.mark.asyncio
+async def test_canonical_readiness_requires_runtime_delivery_probe_in_production(monkeypatch, lifecycle_fakes):
+    import cortex_server.runtime.production_build_loop as production_build_loop
+
+    monkeypatch.setattr(main, "_production_environment", lambda: True)
+    monkeypatch.setattr(production_build_loop, "validate_production_delivery_credentials", lambda: {"ok": True})
+    monkeypatch.setattr(
+        production_build_loop,
+        "probe_runtime_delivery_readiness",
+        lambda _root: {"ready": False, "status": "not_ready", "checks": {"durableMount": {"ok": False}}},
+    )
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps({
+            "reader": {
+                "secret": "principal-secret-00000000000000000001",
+                "allowed_scopes": [{
+                    "tenant_id": "tenant-a",
+                    "workspace_id": "workspace-a",
+                    "agent_id": "agent-a",
+                    "user_id": "user-a",
+                    "channel_id": "channel-a",
+                    "session_id": "session-a",
+                }],
+            }
+        }),
+    )
+    app = main.create_app()
+
+    async with app.router.lifespan_context(app):
+        response = await _route(app, "/ready")()
+        payload = json.loads(response.body)
+        assert response.status_code == 503
+        assert payload["checks"]["runtimeDelivery"]["required"] is True
+        assert payload["checks"]["runtimeDelivery"]["ok"] is False
+        assert payload["checks"]["runtimeDelivery"]["checks"]["durableMount"]["ok"] is False
+
+
+@pytest.mark.asyncio
 async def test_readiness_policy_is_immutable_per_factory(monkeypatch, lifecycle_fakes):
     _install_minimal_routers(monkeypatch)
     monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "/l22/store")
@@ -935,28 +992,30 @@ def test_websocket_authorization_ignores_post_construction_environment_mutation(
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", "captured-secret")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN_HEADER", "x-captured-token")
+    monkeypatch.setenv("CORTEX_ADMIN_TOKEN", "captured-admin-secret")
     monkeypatch.setenv("CORTEX_ALLOW_ORIGINS", "https://captured.example")
     app = main.create_app()
 
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "disabled")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", "mutated-secret")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN_HEADER", "x-mutated-token")
+    monkeypatch.setenv("CORTEX_ADMIN_TOKEN", "mutated-admin-secret")
     monkeypatch.setenv("CORTEX_ALLOW_ORIGINS", "https://mutated.example")
 
     def socket(*, origin, token):
         return SimpleNamespace(
             app=app,
-            headers={"origin": origin, "x-captured-token": token},
+            headers={"origin": origin, "x-cortex-admin-token": token},
             client=SimpleNamespace(host="203.0.113.10"),
         )
 
     authorized = socket(
-        origin="https://captured.example", token="captured-secret"
+        origin="https://captured.example", token="captured-admin-secret"
     )
     assert websockets._allowed_websocket_origin(authorized) is True
     assert websockets._log_websocket_authorized(authorized) is True
 
-    mutated = socket(origin="https://mutated.example", token="mutated-secret")
+    mutated = socket(origin="https://mutated.example", token="mutated-admin-secret")
     assert websockets._allowed_websocket_origin(mutated) is False
     assert websockets._log_websocket_authorized(mutated) is False
 

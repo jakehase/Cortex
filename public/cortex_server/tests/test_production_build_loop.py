@@ -63,6 +63,7 @@ def _configure_production_credentials(monkeypatch):
         "CORTEX_CODEC_ADMIN_TOKEN": "codec-token-000000000000000000000001",
         "NEXUS_ASSURANCE_SIGNING_KEY": "assurance-key-000000000000000000001",
         "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY": "outcome-key-00000000000000000000001",
+        "NEXUS_OUTCOME_FEEDBACK_TOKEN": "outcome-token-0000000000000000000001",
     }
     monkeypatch.setenv("CORTEX_ENV", "production")
     for name, value in values.items():
@@ -1254,10 +1255,12 @@ def test_loop_state_projection_survives_each_fsync_boundary(tmp_path, monkeypatc
         process_id=process_id,
         iteration_count=1,
     )
-    store.save_state(initial)
+    initial = store.save_state(initial)
     desired = ProductionBuildLoopState(
+        loop_id=initial.loop_id,
         contract_id="contract-fsync",
         process_id=process_id,
+        persistence_revision=initial.persistence_revision,
         iteration_count=2,
     )
     original_fsync = production_build_loop.os.fsync
@@ -1278,14 +1281,16 @@ def test_loop_state_projection_survives_each_fsync_boundary(tmp_path, monkeypatc
     assert recovered.iteration_count in {1, 2}
 
     monkeypatch.setattr(production_build_loop.os, "fsync", original_fsync)
-    store.save_state(desired)
+    if recovered.iteration_count == 1:
+        desired.persistence_revision = recovered.persistence_revision
+        store.save_state(desired)
     assert ProductionBuildLoopStore(tmp_path / "loop_store").load_state(process_id).iteration_count == 2
 
 
 def test_loop_state_projection_preserves_previous_file_when_replace_does_not_commit(tmp_path, monkeypatch):
     process_id = "proc_loop_replace_crash"
     store = ProductionBuildLoopStore(tmp_path / "loop_store")
-    store.save_state(
+    initial = store.save_state(
         ProductionBuildLoopState(
             contract_id="contract-replace",
             process_id=process_id,
@@ -1300,14 +1305,40 @@ def test_loop_state_projection_preserves_previous_file_when_replace_does_not_com
     with pytest.raises(OSError, match="before replace"):
         store.save_state(
             ProductionBuildLoopState(
+                loop_id=initial.loop_id,
                 contract_id="contract-replace",
                 process_id=process_id,
+                persistence_revision=initial.persistence_revision,
                 iteration_count=2,
             )
         )
 
     assert ProductionBuildLoopStore(tmp_path / "loop_store").load_state(process_id).iteration_count == 1
     assert list(store._state_target(process_id).parent.glob(f".{process_id}.json.*.tmp")) == []
+
+
+def test_loop_state_rejects_stale_whole_record_follow_up_write(tmp_path):
+    store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    current = store.save_state(
+        ProductionBuildLoopState(
+            contract_id="contract-follow-up-cas",
+            process_id="proc_follow_up_cas",
+            status="active",
+        )
+    )
+    stale_follow_up = current.model_copy(deep=True)
+    rollback_projection = current.model_copy(
+        update={"status": "blocked", "metadata": {"last_rollback_transaction_id": "rollback-1"}}
+    )
+    committed = store.save_state(rollback_projection)
+
+    stale_follow_up.status = "completed"
+    with pytest.raises(RuntimeError, match="persistence revision conflict"):
+        store.save_state(stale_follow_up)
+    reloaded = store.load_state("proc_follow_up_cas")
+    assert reloaded.persistence_revision == committed.persistence_revision
+    assert reloaded.status == "blocked"
+    assert reloaded.metadata["last_rollback_transaction_id"] == "rollback-1"
 
 
 @pytest.mark.parametrize(
@@ -1328,7 +1359,7 @@ def test_loop_state_remains_recoverable_after_process_termination_at_write_bound
     process_id = f"proc_loop_termination_{boundary}"
     root = tmp_path / "loop_store"
     store = ProductionBuildLoopStore(root)
-    store.save_state(
+    initial = store.save_state(
         ProductionBuildLoopState(
             contract_id="contract-termination",
             process_id=process_id,
@@ -1353,8 +1384,10 @@ def test_loop_state_remains_recoverable_after_process_termination_at_write_bound
             production_build_loop.os.replace = lambda source, target: production_build_loop.os._exit(91)
         child_store.save_state(
             ProductionBuildLoopState(
+                loop_id=initial.loop_id,
                 contract_id="contract-termination",
                 process_id=process_id,
+                persistence_revision=initial.persistence_revision,
                 iteration_count=2,
             )
         )

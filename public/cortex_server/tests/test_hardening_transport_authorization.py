@@ -29,6 +29,7 @@ def websocket_security_from_env():
         write_token_header=os.getenv(
             "CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token"
         ).strip().lower(),
+        admin_token=os.getenv("CORTEX_ADMIN_TOKEN", "").strip(),
         allowed_origins=allowed_origins,
     )
 
@@ -110,6 +111,7 @@ def configure_token(monkeypatch, mode="token_required"):
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", mode)
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", "correct-secret")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN_HEADER", "x-test-token")
+    monkeypatch.setenv("CORTEX_ADMIN_TOKEN", "admin-secret")
 
 
 @pytest.mark.asyncio
@@ -138,9 +140,9 @@ async def test_token_comparison_path_uses_constant_time_helper(monkeypatch):
         return False
 
     monkeypatch.setattr(websockets, "token_matches", compare)
-    socket = FakeWebSocket(headers={"x-test-token": "candidate"}, host="203.0.113.9")
+    socket = FakeWebSocket(headers={"x-cortex-admin-token": "candidate"}, host="203.0.113.9")
     await websockets.ws_logs(socket, "container")
-    assert calls == [("candidate", "correct-secret")]
+    assert calls == [("candidate", "admin-secret")]
     assert socket.closed[0][0] == 1008
 
 
@@ -168,7 +170,7 @@ async def test_correct_token_accepts_and_bounds_docker_log_request(monkeypatch):
     logs = FakeLogs(["one", "two"])
     factory = DockerFactory([logs])
     monkeypatch.setattr(docker_wrapper, "Docker", factory)
-    socket = FakeWebSocket(headers={"x-test-token": "correct-secret"}, host="203.0.113.9")
+    socket = FakeWebSocket(headers={"x-cortex-admin-token": "admin-secret"}, host="203.0.113.9")
 
     await websockets.ws_logs(socket, "api_1.prod")
 
@@ -179,7 +181,7 @@ async def test_correct_token_accepts_and_bounds_docker_log_request(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_forwarded_loopback_requires_token_but_direct_loopback_does_not(monkeypatch):
+async def test_loopback_and_forwarding_do_not_replace_administrator_authorization(monkeypatch):
     configure_token(monkeypatch, "token_or_loopback")
     direct_logs = FakeLogs()
     forwarded_logs = FakeLogs()
@@ -191,15 +193,15 @@ async def test_forwarded_loopback_requires_token_but_direct_loopback_does_not(mo
     forwarded = FakeWebSocket(headers={"x-forwarded-for": "127.0.0.1"})
     await websockets.ws_logs(forwarded, "container")
     authorized_forwarded = FakeWebSocket(
-        headers={"forwarded": "for=127.0.0.1", "x-test-token": "correct-secret"}
+        headers={"forwarded": "for=127.0.0.1", "x-cortex-admin-token": "admin-secret"}
     )
     await websockets.ws_logs(authorized_forwarded, "container")
 
-    assert direct.accepted is True
+    assert direct.accepted is False
     assert forwarded.accepted is False
     assert forwarded.closed == [(1008, "connection rejected")]
     assert authorized_forwarded.accepted is True
-    assert factory.constructed == 2
+    assert factory.constructed == 1
 
 
 @pytest.mark.asyncio
@@ -221,21 +223,26 @@ async def test_disabled_mode_still_protects_remote_log_streams(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_disabled_mode_retains_direct_loopback_and_token_compatibility(monkeypatch):
+async def test_disabled_write_mode_still_requires_log_administrator(monkeypatch):
     configure_token(monkeypatch, "disabled")
-    factory = DockerFactory([FakeLogs(), FakeLogs()])
+    factory = DockerFactory([FakeLogs()])
     monkeypatch.setattr(docker_wrapper, "Docker", factory)
     direct = FakeWebSocket(host="::1")
     remote = FakeWebSocket(
         headers={"x-test-token": "correct-secret"}, host="203.0.113.9"
     )
+    admin = FakeWebSocket(
+        headers={"x-cortex-admin-token": "admin-secret"}, host="203.0.113.9"
+    )
 
     await websockets.ws_logs(direct, "local-container")
     await websockets.ws_logs(remote, "remote-container")
+    await websockets.ws_logs(admin, "admin-container")
 
-    assert direct.accepted is True
-    assert remote.accepted is True
-    assert factory.constructed == 2
+    assert direct.accepted is False
+    assert remote.accepted is False
+    assert admin.accepted is True
+    assert factory.constructed == 1
 
 
 @pytest.mark.asyncio
@@ -268,7 +275,7 @@ async def test_configured_origin_and_missing_browser_origin_are_compatible(monke
     monkeypatch.setenv("CORTEX_ALLOW_ORIGINS", "https://console.example")
     factory = DockerFactory([FakeLogs(), FakeLogs()])
     monkeypatch.setattr(docker_wrapper, "Docker", factory)
-    for headers in ({"origin": "https://console.example"}, {}):
+    for headers in ({"origin": "https://console.example", "x-cortex-admin-token": "admin-secret"}, {"x-cortex-admin-token": "admin-secret"}):
         socket = FakeWebSocket(headers=headers)
         await websockets.ws_logs(socket, "container")
         assert socket.accepted is True
@@ -280,8 +287,8 @@ async def test_disconnect_and_concurrent_streams_close_each_resource(monkeypatch
     first, second = FakeLogs(["a"]), FakeLogs(["b"])
     factory = DockerFactory([first, second])
     monkeypatch.setattr(docker_wrapper, "Docker", factory)
-    disconnected = FakeWebSocket(fail_send=True)
-    healthy = FakeWebSocket()
+    disconnected = FakeWebSocket(headers={"x-cortex-admin-token": "admin-secret"}, fail_send=True)
+    healthy = FakeWebSocket(headers={"x-cortex-admin-token": "admin-secret"})
 
     await asyncio.gather(
         websockets.ws_logs(disconnected, "first"),
@@ -311,7 +318,8 @@ async def test_docker_failure_returns_only_sanitized_error_and_recovers(monkeypa
             return FakeLogs(["recovered"])
 
     monkeypatch.setattr(docker_wrapper, "Docker", BrokenThenHealthy)
-    failed, recovered = FakeWebSocket(), FakeWebSocket()
+    failed = FakeWebSocket(headers={"x-cortex-admin-token": "admin-secret"})
+    recovered = FakeWebSocket(headers={"x-cortex-admin-token": "admin-secret"})
     await websockets.ws_logs(failed, "container")
     await websockets.ws_logs(recovered, "container")
 

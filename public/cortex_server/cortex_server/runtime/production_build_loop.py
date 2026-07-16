@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import json
 import os
+import fcntl
+from contextlib import contextmanager
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -162,6 +164,7 @@ def validate_production_delivery_credentials() -> Dict[str, Any]:
         "CORTEX_CODEC_ADMIN_TOKEN",
         "NEXUS_ASSURANCE_SIGNING_KEY",
         "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
+        "NEXUS_OUTCOME_FEEDBACK_TOKEN",
     )
     missing_server = [name for name in required_server_credentials if not os.getenv(name, "").strip()]
     if missing_server:
@@ -333,6 +336,28 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         }
 
     delivery_root = Path(root)
+    handoff_receipt_root = delivery_root / "handoff_claim_receipts"
+    try:
+        handoff_receipt_retention = min(
+            max(int(os.getenv("CORTEX_HANDOFF_CLAIM_MAX_SKEW_SECONDS", "300")), 30),
+            900,
+        )
+    except ValueError:
+        handoff_receipt_retention = 300
+    try:
+        handoff_receipt_count = sum(1 for _ in handoff_receipt_root.glob("*.json")) if handoff_receipt_root.exists() else 0
+        handoff_receipt_error = None if handoff_receipt_count <= 4096 else "handoff claim receipt capacity exceeded"
+    except OSError as exc:
+        handoff_receipt_count = -1
+        handoff_receipt_error = f"{type(exc).__name__}: {exc}"
+    checks["handoffClaimReceiptCapacity"] = {
+        "ok": handoff_receipt_error is None,
+        "path": str(handoff_receipt_root),
+        "count": handoff_receipt_count,
+        "maximum": 4096,
+        "retentionSeconds": handoff_receipt_retention,
+        "error": handoff_receipt_error,
+    }
     mount_id = os.getenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", "").strip()
     marker_path = delivery_root / RUNTIME_DELIVERY_MOUNT_MARKER
     durable_error: Optional[str] = None
@@ -751,6 +776,7 @@ class ProductionBuildLoopState(BaseModel):
     loop_id: str = Field(default_factory=lambda: f"loop_{uuid4().hex[:16]}")
     contract_id: str
     process_id: str
+    persistence_revision: int = 0
     status: str = "active"
     liveness: str = "live"
     terminal_state: Optional[str] = None
@@ -789,7 +815,7 @@ class ProductionBuildLoopState(BaseModel):
             raise ValueError("must be non-empty")
         return text
 
-    @field_validator("iteration_count", "checkpoint_count", "recovery_count")
+    @field_validator("persistence_revision", "iteration_count", "checkpoint_count", "recovery_count")
     @classmethod
     def _validate_non_negative(cls, value: int) -> int:
         number = int(value or 0)
@@ -854,6 +880,20 @@ class ProductionBuildLoopStore:
     def _report_target(self, process_id: str) -> Path:
         return self._root() / "reports" / f"{process_id}.jsonl"
 
+    def _lock_target(self, process_id: str) -> Path:
+        return self._root() / "locks" / f"{process_id}.lock"
+
+    @contextmanager
+    def _locked(self, process_id: str, *, exclusive: bool):
+        target = self._lock_target(process_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def save_contract(self, contract: ProductionBuildContract | Dict[str, Any]) -> ProductionBuildContract:
         record = _contract_validate(contract if isinstance(contract, dict) else _contract_dump(contract))
         target = self._contract_target(record.process_id)
@@ -868,26 +908,40 @@ class ProductionBuildLoopStore:
 
     def save_state(self, state: ProductionBuildLoopState | Dict[str, Any]) -> ProductionBuildLoopState:
         record = _state_validate(state if isinstance(state, dict) else _state_dump(state))
-        target = self._state_target(record.process_id)
-        current = self.load_state(record.process_id)
-        _atomic_write_json(target, _state_dump(record))
-        history_row = {
-            "ts": _now_iso(),
-            "loop_id": record.loop_id,
-            "contract_id": record.contract_id,
-            "process_id": record.process_id,
-            "status": record.status,
-            "iteration_count": record.iteration_count,
-            "checkpoint_count": record.checkpoint_count,
-            "recovery_count": record.recovery_count,
-            "previous_status": current.status if current else None,
-            "state": _state_dump(record),
-        }
-        history_target = self._history_target(record.process_id)
-        _append_fsynced_jsonl(history_target, history_row)
-        return record
+        with self._locked(record.process_id, exclusive=True):
+            target = self._state_target(record.process_id)
+            current = self._load_state_unlocked(record.process_id)
+            expected_revision = int(record.persistence_revision or 0)
+            if current is None:
+                if expected_revision != 0:
+                    raise RuntimeError("production build loop persistence revision conflict")
+                next_revision = 1
+            else:
+                if current.loop_id != record.loop_id or current.contract_id != record.contract_id:
+                    raise RuntimeError("production build loop identity conflict")
+                if expected_revision != current.persistence_revision:
+                    raise RuntimeError("production build loop persistence revision conflict")
+                next_revision = current.persistence_revision + 1
+            record = _state_validate({**_state_dump(record), "persistence_revision": next_revision})
+            _atomic_write_json(target, _state_dump(record))
+            history_row = {
+                "ts": _now_iso(),
+                "loop_id": record.loop_id,
+                "contract_id": record.contract_id,
+                "process_id": record.process_id,
+                "persistence_revision": record.persistence_revision,
+                "status": record.status,
+                "iteration_count": record.iteration_count,
+                "checkpoint_count": record.checkpoint_count,
+                "recovery_count": record.recovery_count,
+                "previous_status": current.status if current else None,
+                "state": _state_dump(record),
+            }
+            history_target = self._history_target(record.process_id)
+            _append_fsynced_jsonl(history_target, history_row)
+            return record
 
-    def load_state(self, process_id: str) -> Optional[ProductionBuildLoopState]:
+    def _load_state_unlocked(self, process_id: str) -> Optional[ProductionBuildLoopState]:
         target = self._state_target(process_id)
         if not target.exists():
             return None
@@ -906,6 +960,10 @@ class ProductionBuildLoopStore:
                 except (ValidationError, ValueError, TypeError):
                     continue
             return None
+
+    def load_state(self, process_id: str) -> Optional[ProductionBuildLoopState]:
+        with self._locked(process_id, exclusive=False):
+            return self._load_state_unlocked(process_id)
 
     def append_report(self, report: ProductionBuildLoopReport | Dict[str, Any]) -> ProductionBuildLoopReport:
         record = _report_validate(report if isinstance(report, dict) else _report_dump(report))
@@ -994,6 +1052,16 @@ def _dedupe_rows(rows: Sequence[str]) -> List[str]:
         if text and text not in out:
             out.append(text)
     return out
+
+
+def _persistence_rows_digest(rows: Sequence[Any]) -> str:
+    payload = [
+        row.model_dump() if hasattr(row, "model_dump") else row.dict() if hasattr(row, "dict") else row
+        for row in rows
+    ]
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
 
 
 
@@ -2189,12 +2257,13 @@ def ingest_production_release_artifact(
 ) -> JsonDict:
     """Ingest an externally verified output without trusting its claimed hash."""
 
-    artifact_store = release_store.artifact_store()
-    artifact_ref, content_hash = artifact_store.put(payload)
     with release_store.release_transaction(process_id):
+        release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
         state = release_store.load(process_id)
         if state is None:
             raise KeyError(f"release workflow not found: {process_id}")
+        artifact_store = release_store.artifact_store()
+        artifact_ref, content_hash = artifact_store.put(payload)
         receipt = ReleaseArtifactReceipt(
             artifact_id=artifact_id,
             artifact_ref=artifact_ref,
@@ -2389,6 +2458,8 @@ def advance_production_release_loop(
     mailbox: AgentMailbox,
     supervisor: AgentSupervisor,
     release_store: ReleaseWorkflowStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
     controller_id: str,
     budget: Optional[ProductionPassBudget] = None,
 ) -> JsonDict:
@@ -2460,13 +2531,16 @@ def advance_production_release_loop(
             + list(snapshot.assigned_agents.values())
             + list(shared_state.agent_ownership.values())
         )
+        observed_mailbox = mailbox.list(process_id=contract.process_id)
+        observed_lease_revision, observed_leases = supervisor.list_with_revision()
+        observed_mailbox_digest = _persistence_rows_digest(observed_mailbox)
         gate = evaluate_release_promotion_gate(
             state=release_state,
             snapshot=snapshot,
             shared_state=shared_state,
             target_stage=next_stage,
-            mailbox_messages=mailbox.list(process_id=contract.process_id),
-            leases=supervisor.list(process_id=contract.process_id),
+            mailbox_messages=observed_mailbox,
+            leases=observed_leases,
             dependability_report=dependability_report,
             required_fencepost_stages=list(gate_spec.required_fencepost_stages),
             required_artifacts=list(gate_spec.required_artifacts),
@@ -2511,6 +2585,29 @@ def advance_production_release_loop(
             )
             if not bool((last_gate or {}).get("safe_push")):
                 break
+            # The repair path can mutate leases and mailbox state. Re-evaluate
+            # against a fresh, revision-bound view before promotion.
+            observed_mailbox = mailbox.list(process_id=contract.process_id)
+            observed_lease_revision, observed_leases = supervisor.list_with_revision()
+            observed_mailbox_digest = _persistence_rows_digest(observed_mailbox)
+            last_gate = evaluate_release_promotion_gate(
+                state=release_state,
+                snapshot=snapshot,
+                shared_state=shared_state,
+                target_stage=next_stage,
+                mailbox_messages=observed_mailbox,
+                leases=observed_leases,
+                dependability_report=dependability_report,
+                required_fencepost_stages=list(gate_spec.required_fencepost_stages),
+                required_artifacts=list(gate_spec.required_artifacts),
+                required_handoff_count=int(gate_spec.required_handoff_count or 0),
+                allowed_active_agents=allowed_active_agents,
+                allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
+                require_dependability=bool(gate_spec.require_dependability),
+                artifact_store=artifact_store,
+            )
+            if not bool(last_gate.get("safe_push")):
+                break
 
         if release_state.current_stage != "draft" and not captured_current_fencepost:
             pre_promotion_fencepost = capture_release_rollback_fencepost(
@@ -2538,6 +2635,24 @@ def advance_production_release_loop(
                 }
             )
 
+        release_store.assert_mutation_allowed(contract.process_id, operation="release promotion")
+        authoritative_release = release_store.load(contract.process_id)
+        authoritative_snapshot = snapshot_store.load(contract.process_id)
+        authoritative_shared = shared_state_store.load(contract.process_id)
+        current_mailbox_digest = _persistence_rows_digest(mailbox.list(process_id=contract.process_id))
+        stale_gate_inputs = bool(
+            authoritative_release is None
+            or authoritative_release.persistence_revision != release_state.persistence_revision
+            or authoritative_snapshot is None
+            or authoritative_snapshot.persistence_revision != snapshot.persistence_revision
+            or authoritative_shared is None
+            or authoritative_shared.revision_id != shared_state.revision_id
+            or supervisor.revision() != observed_lease_revision
+            or current_mailbox_digest != observed_mailbox_digest
+        )
+        if stale_gate_inputs:
+            actions_taken.append({"action": "abort_stale_promotion_inputs", "target_stage": next_stage})
+            break
         promoted = advance_release_workflow(
             release_state,
             gate=last_gate,
@@ -2687,6 +2802,8 @@ def _reconcile_production_build_loop_pass(
         mailbox=mailbox,
         supervisor=supervisor,
         release_store=release_store,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
         controller_id=controller_id,
         budget=budget,
     )
@@ -2937,6 +3054,7 @@ def _reconcile_production_build_loop_pass(
         loop_id=state.loop_id,
         contract_id=contract.contract_id,
         process_id=contract.process_id,
+        persistence_revision=state.persistence_revision,
         status=status,
         liveness=str(review_plan.get("liveness") or ("terminal" if status == "completed" else "live")),
         terminal_state=review_plan.get("terminal_state"),
@@ -3003,7 +3121,7 @@ def _reconcile_production_build_loop_pass(
             "watchdog": dict(watchdog_context or {}),
         },
     )
-    loop_store.save_state(updated_state)
+    updated_state = loop_store.save_state(updated_state)
 
     if status in {"blocked", "completed"}:
         supervisor.resolve(controller.lease_id, status="released", metadata={"resolution": status})
@@ -3152,7 +3270,7 @@ def _reconcile_production_build_loop_transaction(
                     },
                 }
             )
-            loop_store.save_state(persisted_state)
+            persisted_state = loop_store.save_state(persisted_state)
             final_result["state"] = _state_dump(persisted_state)
             final_result["continuation"] = continuation
             final_result["next_action"] = next_action

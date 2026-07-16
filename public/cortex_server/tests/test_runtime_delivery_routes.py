@@ -4,9 +4,9 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
@@ -22,6 +22,34 @@ from cortex_server.runtime.release_workflow import (
     release_artifact_attestation_signature,
     release_canary_policy,
 )
+
+
+class _ASGIClient:
+    """Synchronous facade over HTTPX's supported ASGI transport."""
+
+    def __init__(self, app):
+        self.app = app
+        self.headers = {}
+
+    def request(self, method, path, **kwargs):
+        headers = {**self.headers, **dict(kwargs.pop("headers", {}) or {})}
+
+        async def send():
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                return await client.request(method, path, headers=headers, **kwargs)
+
+        return asyncio.run(send())
+
+    def get(self, path, **kwargs):
+        return self.request("GET", path, **kwargs)
+
+    def post(self, path, **kwargs):
+        return self.request("POST", path, **kwargs)
+
+
+def TestClient(app):
+    return _ASGIClient(app)
 
 
 def _install_fake_diplomat(monkeypatch):
@@ -461,6 +489,27 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
     assert production_body["state"]["status"] == "completed"
     assert production_body["delivery"]["release_state"]["current_stage"] == "production"
 
+    for index in range(50):
+        requested_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        request_id = f"empty-idle-poll-{index}"
+        empty_poll = client.post(
+            "/orchestrator/runtime/delivery/handoffs/claim-next",
+            json={
+                "recipient": "release-manager",
+                "request_id": request_id,
+                "requested_at": requested_at,
+                "recipient_signature": runtime_delivery_handoff_discovery_signature(
+                    recipient="release-manager",
+                    request_id=request_id,
+                    requested_at=requested_at,
+                    secret=manager_recipient_secret,
+                ),
+            },
+            headers={"x-cortex-write-token": ""},
+        )
+        assert empty_poll.status_code == 200, empty_poll.text
+        assert empty_poll.json()["messages"] == []
+
     reopened = orchestrator._runtime_delivery_stores()
     reopened_release = reopened["release_store"].load(process["process_id"])
     reopened_artifacts = reopened["release_store"].artifact_store()
@@ -744,6 +793,78 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert rolled_back["latest_report"]["metadata"]["rollback_reason"] == "post-push regression"
     assert rolled_back["process"]["workflow"]["metadata"]["runtime_delivery"]["release_stage"] == "canary_verified"
     assert rolled_back["process"]["workflow"]["metadata"]["last_runtime_delivery_rollback_transaction_id"] == committed_intent["transaction_id"]
+
+
+def test_pending_rollback_fences_release_handoff_claim_mutation(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+    recipient = "release-verifier"
+    secret = "release-verifier-test-secret"
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps({recipient: secret, "release-manager": "release-manager-test-secret"}),
+    )
+    process = scheduler.create_process_from_workflow(
+        _workflow(),
+        process_id="proc_pending_rollback_handoff",
+        owner="cortex",
+        session_key="session:pending-rollback",
+    )
+    stores = orchestrator._runtime_delivery_stores()
+    asyncio.run(
+        orchestrator.reconcile_runtime_delivery(
+            process["process_id"],
+            orchestrator.RuntimeDeliveryReconcileRequest(
+                controller_id="controller",
+                controller_session_id="session:controller",
+                dependability_profile=dict(MINIMAL_PROFILE),
+            ),
+        )
+    )
+    release_state = stores["release_store"].load(process["process_id"])
+    message = stores["mailbox"].send(
+        process_id=process["process_id"],
+        from_agent="controller",
+        to_agent=recipient,
+        revision_id=release_state.revision_id,
+        metadata={
+            "target_stage": "canary_verified",
+            "release_id": release_state.release_id,
+            "candidate_ref": release_state.candidate_ref,
+        },
+    )
+    stores["release_store"].save_rollback_intent(
+        process["process_id"],
+        {"status": "recovery_required", "phase": "snapshot_committed"},
+    )
+    requested_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    request_id = "pending-rollback-claim"
+    request = orchestrator.RuntimeDeliveryHandoffClaimRequest(
+        recipient=recipient,
+        process_id=process["process_id"],
+        expected_revision_id=release_state.revision_id,
+        request_id=request_id,
+        requested_at=requested_at,
+        recipient_signature=runtime_delivery_handoff_claim_signature(
+            recipient=recipient,
+            process_id=process["process_id"],
+            expected_revision_id=release_state.revision_id,
+            request_id=request_id,
+            requested_at=requested_at,
+            secret=secret,
+        ),
+    )
+
+    with pytest.raises(orchestrator.HTTPException) as exc_info:
+        asyncio.run(orchestrator.claim_runtime_delivery_handoffs(request))
+
+    assert exc_info.value.status_code == 409
+    persisted = next(row for row in stores["mailbox"].list() if row.message_id == message.message_id)
+    assert persisted.delivery_status == "queued"
+    assert not list((delivery_root / "handoff_claim_receipts").glob("*.json"))
 
 
 def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persists_ownership(tmp_path, monkeypatch):

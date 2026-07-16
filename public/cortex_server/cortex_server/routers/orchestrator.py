@@ -20,6 +20,7 @@ import json
 import asyncio
 import base64
 import httpx
+from functools import partial
 from uuid import uuid4
 
 from cortex_server.modules.diplomat import get_diplomat
@@ -324,6 +325,10 @@ def _clear_runtime_event_pending(*, stores: Dict[str, Any], process_id: str, eve
 
 
 def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
+    stores["release_store"].assert_mutation_allowed(
+        process_id,
+        operation="runtime session event ingestion",
+    )
     process = get_runtime_process(process_id)
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
@@ -1380,6 +1385,7 @@ def _checkpoint_runtime_delivery_rollback(
             loop_id=existing.loop_id,
             contract_id=contract.contract_id,
             process_id=process_id,
+            persistence_revision=(current or existing).persistence_revision,
             status=status,
             iteration_count=iteration,
             checkpoint_count=(
@@ -1804,7 +1810,7 @@ def _runtime_roadmap_status_payload(process_id: str, *, process: Dict[str, Any],
 
 
 
-def _bridge_runtime_delivery_follow_up(
+def _bridge_runtime_delivery_follow_up_locked(
     process_id: str,
     *,
     process: Dict[str, Any],
@@ -1852,8 +1858,29 @@ def _bridge_runtime_delivery_follow_up(
     return {"process": process, "dispatch": model_dump_compat(dispatch)}
 
 
+def _bridge_runtime_delivery_follow_up(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    with stores["release_store"].release_transaction(process_id):
+        stores["release_store"].assert_mutation_allowed(
+            process_id,
+            operation="runtime delivery follow-up projection",
+        )
+        latest_process = get_runtime_process(process_id) or process
+        return _bridge_runtime_delivery_follow_up_locked(
+            process_id,
+            process=latest_process,
+            stores=stores,
+            now=now,
+        )
 
-def _bridge_runtime_roadmap_follow_up(
+
+
+def _bridge_runtime_roadmap_follow_up_locked(
     process_id: str,
     *,
     process: Dict[str, Any],
@@ -1899,6 +1926,111 @@ def _bridge_runtime_roadmap_follow_up(
             },
         )
     return {"process": process, "dispatch": model_dump_compat(dispatch)}
+
+
+def _bridge_runtime_roadmap_follow_up(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    with stores["release_store"].release_transaction(process_id):
+        stores["release_store"].assert_mutation_allowed(
+            process_id,
+            operation="runtime roadmap follow-up projection",
+        )
+        latest_process = get_runtime_process(process_id) or process
+        return _bridge_runtime_roadmap_follow_up_locked(
+            process_id,
+            process=latest_process,
+            stores=stores,
+            now=now,
+        )
+
+
+def _reconcile_runtime_roadmap_sequence(
+    *,
+    process_id: str,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    contract: RoadmapObjectiveContract,
+    controller_id: str,
+    controller_session_id: str,
+    now: Optional[datetime],
+    bootstrap_runtime_state: bool,
+    bootstrap_session_plane: bool = False,
+    watchdog_context: Optional[Dict[str, Any]] = None,
+    event_kind: str,
+    event_payload: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Run roadmap bootstrap, repair, dispatch, projection, and follow-up atomically."""
+
+    with stores["release_store"].release_transaction(process_id):
+        stores["release_store"].assert_mutation_allowed(
+            process_id,
+            operation="runtime roadmap reconciliation sequence",
+        )
+        process = get_runtime_process(process_id) or process
+        if bootstrap_session_plane:
+            _ensure_runtime_session_plane_bootstrap(process_id, process=process, stores=stores)
+            if callable(progress_callback):
+                progress_callback()
+        if bootstrap_runtime_state:
+            _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+            if callable(progress_callback):
+                progress_callback()
+        snapshot = stores["snapshot_store"].load(process_id)
+        shared_state = stores["shared_state_store"].load(process_id)
+        if snapshot is None or shared_state is None:
+            raise ValueError(f"runtime roadmap state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
+        reconciled = reconcile_roadmap_execution(
+            contract,
+            roadmap_store=stores["roadmap_store"],
+            snapshot_store=stores["snapshot_store"],
+            shared_state_store=stores["shared_state_store"],
+            mailbox=stores["mailbox"],
+            supervisor=stores["supervisor"],
+            release_store=stores["release_store"],
+            controller_id=controller_id,
+            controller_session_id=controller_session_id,
+            journal=stores["journal"],
+            now=now,
+            watchdog_context=watchdog_context,
+        )
+        if callable(progress_callback):
+            progress_callback()
+        state = reconciled.get("state") if isinstance(reconciled.get("state"), dict) else {}
+        process = _sync_runtime_process_roadmap_state(
+            process_id,
+            process=get_runtime_process(process_id) or process,
+            stores=stores,
+            event_kind=event_kind,
+            event_payload={
+                **dict(event_payload or {}),
+                "controller_id": controller_id,
+                "controller_session_id": controller_session_id,
+                "status": state.get("status"),
+                "active_phase_id": state.get("active_phase_id"),
+            },
+        )
+        if callable(progress_callback):
+            progress_callback()
+        follow_up = _bridge_runtime_roadmap_follow_up_locked(
+            process_id,
+            process=process,
+            stores=stores,
+            now=now,
+        )
+        if callable(progress_callback):
+            progress_callback()
+        return {
+            "contract": contract,
+            "reconciled": reconciled,
+            "process": follow_up.get("process") or process,
+            "follow_up": follow_up,
+        }
 
 
 
@@ -2289,43 +2421,31 @@ def _runtime_maintenance_queue_sync(
                     _renew_maintenance_dispatch_or_raise(
                         queue_store, item_id=item.item_id, owner=dispatch_owner
                     )
-                    _ensure_runtime_session_plane_bootstrap(item.process_id, process=process, stores=stores)
-                    _renew_maintenance_dispatch_or_raise(
-                        queue_store, item_id=item.item_id, owner=dispatch_owner
-                    )
-                    _bootstrap_runtime_delivery_state(item.process_id, process=process, stores=stores)
                     contract = _maintenance_queue_contract_for_process(item, process_id=item.process_id)
                     _renew_maintenance_dispatch_or_raise(
                         queue_store, item_id=item.item_id, owner=dispatch_owner
                     )
-                    reconciled = reconcile_roadmap_execution(
-                        contract,
-                        roadmap_store=stores["roadmap_store"],
-                        snapshot_store=stores["snapshot_store"],
-                        shared_state_store=stores["shared_state_store"],
-                        mailbox=stores["mailbox"],
-                        supervisor=stores["supervisor"],
-                        release_store=stores["release_store"],
+                    sequence = _reconcile_runtime_roadmap_sequence(
+                        process_id=item.process_id,
+                        process=process,
+                        stores=stores,
+                        contract=contract,
                         controller_id="maintenance-queue",
                         controller_session_id=f"maintenance-queue:{item.item_id}",
-                        journal=stores["journal"],
                         now=current_time,
-                    )
-                    _renew_maintenance_dispatch_or_raise(
-                        queue_store, item_id=item.item_id, owner=dispatch_owner
-                    )
-                    process = _sync_runtime_process_roadmap_state(
-                        item.process_id,
-                        process=get_runtime_process(item.process_id) or process,
-                        stores=stores,
+                        bootstrap_runtime_state=True,
+                        bootstrap_session_plane=True,
                         event_kind="runtime_maintenance_queue_claimed",
-                        event_payload={"item_id": item.item_id, "queue_name": item.queue_name, "status": (reconciled.get("state") or {}).get("status")},
+                        event_payload={"item_id": item.item_id, "queue_name": item.queue_name},
+                        progress_callback=lambda: _renew_maintenance_dispatch_or_raise(
+                            queue_store,
+                            item_id=item.item_id,
+                            owner=dispatch_owner,
+                        ),
                     )
-                    _renew_maintenance_dispatch_or_raise(
-                        queue_store, item_id=item.item_id, owner=dispatch_owner
-                    )
-                    follow_up_bridge = _bridge_runtime_roadmap_follow_up(item.process_id, process=process, stores=stores, now=current_time)
-                    process = follow_up_bridge.get("process") or process
+                    reconciled = sequence["reconciled"]
+                    process = sequence["process"]
+                    follow_up_bridge = sequence["follow_up"]
                     latest_state_model = stores["roadmap_store"].load_state(item.process_id)
                     latest_reports = stores["roadmap_store"].reports(item.process_id)
                     latest_report_model = latest_reports[-1] if latest_reports else None
@@ -2725,6 +2845,50 @@ def _validate_endpoint(ep: str) -> None:
         raise HTTPException(status_code=400, detail='Invalid endpoint (path traversal)')
 
 
+def _belief_scope_from_http_request(request: Optional[Request]) -> Optional[Dict[str, str]]:
+    state = getattr(request, "state", None)
+    principal = getattr(state, "cortex_principal", None) or getattr(state, "cortex_read_principal", None)
+    if principal is None or getattr(principal, "role", "") != "principal":
+        return None
+    return {
+        "tenant_id": str(principal.tenant_id),
+        "workspace_id": str(principal.storage_workspace_id),
+        "agent_id": str(principal.agent_id),
+        "user_id": str(principal.user_id),
+        "channel_id": str(principal.channel_id),
+        "session_id": str(principal.session_id),
+    }
+
+
+def _belief_scope_from_workflow_metadata(metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
+    principal = (metadata or {}).get("principal")
+    if not isinstance(principal, dict):
+        return None
+    scope = {
+        "tenant_id": str(principal.get("tenant_id") or "").strip(),
+        "workspace_id": str(principal.get("storage_workspace_id") or "").strip(),
+        "agent_id": str(principal.get("agent_id") or "").strip(),
+        "user_id": str(principal.get("user_id") or "").strip(),
+        "channel_id": str(principal.get("channel_id") or "").strip(),
+        "session_id": str(principal.get("session_id") or "").strip(),
+    }
+    return scope if all(scope.values()) else None
+
+
+def _belief_scope_or_denied(scope: Optional[Dict[str, str]]) -> Dict[str, str]:
+    if scope is not None:
+        return scope
+    denied = "denied-no-auth-principal"
+    return {
+        "tenant_id": denied,
+        "workspace_id": denied,
+        "agent_id": denied,
+        "user_id": denied,
+        "channel_id": denied,
+        "session_id": denied,
+    }
+
+
 def _payload_size_ok(obj: Any) -> bool:
     try:
         b = len(json.dumps(obj).encode('utf-8'))
@@ -2778,7 +2942,15 @@ def _step_belief_context(step: Dict[str, Any], workflow_metadata: Optional[Dict[
     subjects = [str(x) for x in ((step_metadata or {}).get("belief_subjects") or []) if str(x).strip()]
     predicates = [str(x) for x in ((step_metadata or {}).get("belief_predicates") or []) if str(x).strip()]
     query = (step_metadata or {}).get("belief_query")
-    selected = select_influential_beliefs(task_id=task_id, subjects=subjects or None, predicates=predicates or None, query=query, limit=8)
+    scope = _belief_scope_from_workflow_metadata(metadata)
+    selected = [] if scope is None else select_influential_beliefs(
+        task_id=task_id,
+        subjects=subjects or None,
+        predicates=predicates or None,
+        query=query,
+        limit=8,
+        scope=scope,
+    )
     return {
         "task_id": task_id,
         "selected": selected,
@@ -2900,14 +3072,18 @@ async def _execute_workflow(workflow: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-def _store_workflow_from_plan(graph: ReasoningPlanGraph) -> Dict[str, Any]:
+def _store_workflow_from_plan(
+    graph: ReasoningPlanGraph,
+    *,
+    belief_scope: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     try:
         workflow = runtime_workflows.build_workflow_from_plan(
             graph,
             compile_plan_to_workflow_fn=compile_plan_to_workflow,
             compile_plan_to_reasoning_task_fn=compile_plan_to_reasoning_task,
             model_dump_compat_fn=model_dump_compat,
-            build_workflow_policy_fn=build_workflow_policy,
+            build_workflow_policy_fn=partial(build_workflow_policy, belief_scope=belief_scope),
         )
     except PlanGraphError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2922,13 +3098,24 @@ def _step_index_for_node(workflow: Dict[str, Any], node_id: str) -> int:
 
 
 
-def _record_runtime_beliefs(*, process_id: str, task_id: Optional[str], node_id: str, step_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _record_runtime_beliefs(
+    *,
+    process_id: str,
+    task_id: Optional[str],
+    node_id: str,
+    step_result: Dict[str, Any],
+    workflow_metadata: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    scope = _belief_scope_from_workflow_metadata(workflow_metadata)
+    if scope is None:
+        return []
     return runtime_workflows.record_runtime_beliefs(
         process_id=process_id,
         task_id=task_id,
         node_id=node_id,
         step_result=step_result,
         upsert_belief_fn=upsert_belief,
+        scope=scope,
     )
 
 
@@ -3317,35 +3504,30 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
         workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
         metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
         if (stores["roadmap_store"].load_contract(process_id) is not None or stores["roadmap_store"].load_state(process_id) is not None or isinstance(metadata.get("roadmap_executor"), dict)) and (snapshot is not None or shared_state is not None):
-            if snapshot is None or shared_state is None:
-                _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+            bootstrap_runtime_state = snapshot is None or shared_state is None
             contract = _resolve_runtime_roadmap_contract(process_id, process=process, stores=stores, request=RuntimeRoadmapReconcileRequest())
             state = stores["roadmap_store"].load_state(process_id)
             decision = _runtime_roadmap_watchdog_decision(process=process, contract=contract, state=state, now=now)
             if decision is not None:
-                reconciled = reconcile_roadmap_execution(
-                    contract,
-                    roadmap_store=stores["roadmap_store"],
-                    snapshot_store=stores["snapshot_store"],
-                    shared_state_store=stores["shared_state_store"],
-                    mailbox=stores["mailbox"],
-                    supervisor=stores["supervisor"],
-                    release_store=stores["release_store"],
+                sequence = _reconcile_runtime_roadmap_sequence(
+                    process_id=process_id,
+                    process=process,
+                    stores=stores,
+                    contract=contract,
                     controller_id="runtime-watchdog",
                     controller_session_id=f"runtime-watchdog:{process_id}",
-                    journal=stores["journal"],
                     now=now,
+                    bootstrap_runtime_state=bootstrap_runtime_state,
                     watchdog_context={**decision, "source": "runtime_tick", "process_id": process_id},
-                )
-                process = _sync_runtime_process_roadmap_state(
-                    process_id,
-                    process=get_runtime_process(process_id) or process,
-                    stores=stores,
                     event_kind="runtime_roadmap_watchdog",
-                    event_payload={"decision": decision.get("decision"), "classification": decision.get("classification"), "status": (reconciled.get("state") or {}).get("status")},
+                    event_payload={
+                        "decision": decision.get("decision"),
+                        "classification": decision.get("classification"),
+                    },
                 )
-                follow_up_bridge = _bridge_runtime_roadmap_follow_up(process_id, process=process, stores=stores, now=now)
-                process = follow_up_bridge.get("process") or process
+                reconciled = sequence["reconciled"]
+                process = sequence["process"]
+                follow_up_bridge = sequence["follow_up"]
                 actions.append({"kind": "roadmap", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None, "follow_up_dispatch": follow_up_bridge.get("dispatch")})
                 continue
         if (stores["loop_store"].load_contract(process_id) is not None or stores["loop_store"].load_state(process_id) is not None or isinstance(metadata.get("production_build_loop"), dict)) and (snapshot is not None or shared_state is not None):
@@ -3522,13 +3704,23 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
         }
         request.options.owner = principal.user_id
         request.options.session_key = principal.session_id
-    workflow = _store_workflow_from_plan(request.graph)
+    belief_scope = None
+    if principal is not None and getattr(principal, "role", "") == "principal":
+        belief_scope = {
+            "tenant_id": principal.tenant_id,
+            "workspace_id": principal.storage_workspace_id,
+            "agent_id": principal.agent_id,
+            "user_id": principal.user_id,
+            "channel_id": principal.channel_id,
+            "session_id": principal.session_id,
+        }
+    workflow = _store_workflow_from_plan(request.graph, belief_scope=belief_scope)
     try:
         scheduled = runtime_service.schedule_runtime_plan(
             request,
             workflow=workflow,
             create_approval_grant_fn=create_approval_grant,
-            build_workflow_policy_fn=build_workflow_policy,
+            build_workflow_policy_fn=partial(build_workflow_policy, belief_scope=belief_scope),
             create_process_from_workflow_fn=create_process_from_workflow,
         )
         stores = _runtime_delivery_stores()
@@ -3856,15 +4048,41 @@ def _runtime_delivery_handoff_claim_paths(
     return root / f"{request_digest}.json", root / f"{recipient_digest}.lock"
 
 
-def _validate_runtime_delivery_handoff_claim_freshness(requested_at: str) -> None:
-    requested = _parse_optional_dt(requested_at)
-    if requested is None or requested.tzinfo is None:
-        raise HTTPException(status_code=422, detail="requested_at must be an ISO-8601 timestamp with a timezone")
+def _runtime_delivery_handoff_claim_max_skew_seconds() -> int:
     try:
         configured_skew = int(os.getenv("CORTEX_HANDOFF_CLAIM_MAX_SKEW_SECONDS", "300"))
     except ValueError:
         configured_skew = 300
-    max_skew_seconds = min(max(configured_skew, 30), 900)
+    return min(max(configured_skew, 30), 900)
+
+
+def _prune_runtime_delivery_handoff_claim_receipts(*, stores: Dict[str, Any]) -> int:
+    root = Path(stores["root"]) / "handoff_claim_receipts"
+    if not root.exists():
+        return 0
+    now = datetime.now().timestamp()
+    retention_seconds = _runtime_delivery_handoff_claim_max_skew_seconds()
+    receipts = []
+    for target in root.glob("*.json"):
+        try:
+            stat = target.stat()
+        except FileNotFoundError:
+            continue
+        if now - stat.st_mtime > retention_seconds:
+            _unlink_fsynced(target)
+            continue
+        receipts.append((stat.st_mtime, target))
+    maximum = 4096
+    for _, target in sorted(receipts)[: max(0, len(receipts) - maximum)]:
+        _unlink_fsynced(target)
+    return min(len(receipts), maximum)
+
+
+def _validate_runtime_delivery_handoff_claim_freshness(requested_at: str) -> None:
+    requested = _parse_optional_dt(requested_at)
+    if requested is None or requested.tzinfo is None:
+        raise HTTPException(status_code=422, detail="requested_at must be an ISO-8601 timestamp with a timezone")
+    max_skew_seconds = _runtime_delivery_handoff_claim_max_skew_seconds()
     observed_skew = abs((datetime.now().astimezone() - requested).total_seconds())
     if observed_skew > max_skew_seconds:
         raise HTTPException(status_code=403, detail="handoff claim timestamp is outside the allowed window")
@@ -3928,32 +4146,34 @@ async def acknowledge_runtime_delivery_dlq(entry_id: str, request: Optional[Runt
     return {"success": True, "entry_id": entry_id, "acknowledgement": acknowledgement}
 
 
-async def explain_runtime_process(process_id: str):
+async def explain_runtime_process(process_id: str, *, belief_scope: Optional[Dict[str, str]] = None):
+    belief_scope = _belief_scope_or_denied(belief_scope)
     return await runtime_service.explain_runtime_process(
         process_id,
         get_runtime_process_fn=get_runtime_process,
         assemble_runtime_process_explain_fn=runtime_explain.assemble_runtime_process_explain,
-        beliefs_for_task_fn=beliefs_for_task,
-        summarize_beliefs_fn=summarize_beliefs,
-        explain_belief_fn=explain_belief,
-        get_belief_fn=get_belief,
-        select_influential_beliefs_fn=select_influential_beliefs,
+        beliefs_for_task_fn=partial(beliefs_for_task, scope=belief_scope),
+        summarize_beliefs_fn=partial(summarize_beliefs, scope=belief_scope),
+        explain_belief_fn=partial(explain_belief, scope=belief_scope),
+        get_belief_fn=partial(get_belief, scope=belief_scope),
+        select_influential_beliefs_fn=partial(select_influential_beliefs, scope=belief_scope),
     )
 
 
 @router.get("/runtime/process/{process_id}")
-async def get_runtime_process_view(process_id: str, events_limit: int = 25):
+async def get_runtime_process_view(process_id: str, http_request: Request = None, events_limit: int = 25):
+    belief_scope = _belief_scope_or_denied(_belief_scope_from_http_request(http_request))
     response = await runtime_service.runtime_process_view(
         process_id,
         events_limit=events_limit,
         get_runtime_process_fn=get_runtime_process,
         assemble_runtime_process_view_fn=runtime_explain.assemble_runtime_process_view,
         get_runtime_events_fn=get_runtime_events,
-        beliefs_for_task_fn=beliefs_for_task,
-        summarize_beliefs_fn=summarize_beliefs,
-        explain_belief_fn=explain_belief,
-        get_belief_fn=get_belief,
-        select_influential_beliefs_fn=select_influential_beliefs,
+        beliefs_for_task_fn=partial(beliefs_for_task, scope=belief_scope),
+        summarize_beliefs_fn=partial(summarize_beliefs, scope=belief_scope),
+        explain_belief_fn=partial(explain_belief, scope=belief_scope),
+        get_belief_fn=partial(get_belief, scope=belief_scope),
+        select_influential_beliefs_fn=partial(select_influential_beliefs, scope=belief_scope),
     )
     stores = _runtime_delivery_stores()
     response["session_plane"] = {
@@ -3972,7 +4192,7 @@ async def get_runtime_delivery_readiness():
     return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
 
 
-def _reconcile_acknowledged_release_handoff(message, *, stores: Dict[str, Any]) -> Dict[str, Any]:
+def _reconcile_acknowledged_release_handoff_locked(message, *, stores: Dict[str, Any]) -> Dict[str, Any]:
     """Advance durable release state after an authenticated external ack."""
 
     release_state = stores["release_store"].load(message.process_id)
@@ -4057,52 +4277,43 @@ def _reconcile_acknowledged_release_handoff(message, *, stores: Dict[str, Any]) 
     }
 
 
+def _reconcile_acknowledged_release_handoff(message, *, stores: Dict[str, Any]) -> Dict[str, Any]:
+    with stores["release_store"].release_transaction(message.process_id):
+        stores["release_store"].assert_mutation_allowed(
+            message.process_id,
+            operation="release handoff reconciliation",
+        )
+        return _reconcile_acknowledged_release_handoff_locked(message, stores=stores)
+
+
 def _recover_acknowledged_release_handoffs(recipient: str, *, stores: Dict[str, Any]) -> List[Dict[str, Any]]:
     recovered = []
     for message in stores["mailbox"].list(
         to_agent=recipient,
         delivery_statuses=["acked"],
     ):
+        intent = stores["release_store"].load_rollback_intent(message.process_id)
+        if intent and intent.get("status") in {"in_progress", "recovery_required"}:
+            continue
         result = _reconcile_acknowledged_release_handoff(message, stores=stores)
         if result.get("reconciled"):
             recovered.append(result)
     return recovered
 
 
-@router.post("/runtime/delivery/handoffs/claim")
-async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRequest):
-    recipient = str(request.recipient or "").strip()
-    process_id = str(request.process_id or "").strip()
-    expected_revision_id = str(request.expected_revision_id or "").strip()
-    request_id = str(request.request_id or "").strip()
-    requested_at = str(request.requested_at or "").strip()
-    if not all((recipient, process_id, expected_revision_id, request_id, requested_at, request.recipient_signature)):
-        raise HTTPException(status_code=422, detail="handoff claim fields must be non-empty")
-    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
-        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
-    credentials = _runtime_delivery_recipient_credentials_or_503()
-    expected_signature = runtime_delivery_handoff_claim_signature(
-        recipient=recipient,
-        process_id=process_id,
-        expected_revision_id=expected_revision_id,
-        request_id=request_id,
-        requested_at=requested_at,
-        secret=credentials[recipient],
-    )
-    if not hmac.compare_digest(str(request.recipient_signature or ""), expected_signature):
-        raise HTTPException(status_code=403, detail="authenticated recipient signature required")
-    _validate_runtime_delivery_handoff_claim_freshness(requested_at)
-
-    process = get_runtime_process(process_id)
-    if not process:
-        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
-    stores = _runtime_delivery_stores()
+def _claim_runtime_delivery_handoffs_locked(
+    *,
+    stores: Dict[str, Any],
+    recipient: str,
+    process_id: str,
+    expected_revision_id: str,
+    request_id: str,
+) -> Dict[str, Any]:
     release_state = stores["release_store"].load(process_id)
     if release_state is None:
         raise HTTPException(status_code=404, detail=f"Runtime delivery release state '{process_id}' not found")
     if not hmac.compare_digest(str(release_state.revision_id or ""), expected_revision_id):
         raise HTTPException(status_code=409, detail="handoff claim revision does not match the active release")
-
     receipt_path, lock_path = _runtime_delivery_handoff_claim_paths(
         stores=stores,
         recipient=recipient,
@@ -4111,6 +4322,7 @@ async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRe
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _prune_runtime_delivery_handoff_claim_receipts(stores=stores)
         if receipt_path.exists():
             raise HTTPException(status_code=409, detail="handoff claim request was already consumed")
         received = stores["mailbox"].receive(
@@ -4141,7 +4353,6 @@ async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRe
                 release_handoffs.append(message)
             else:
                 stores["mailbox"].retry(message.message_id)
-        claimed_at = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
         response = {
             "success": True,
             "authentication": "hmac-sha256",
@@ -4149,17 +4360,59 @@ async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRe
             "process_id": process_id,
             "expected_revision_id": expected_revision_id,
             "request_id": request_id,
-            "claimed_at": claimed_at,
+            "claimed_at": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
             "messages": [model_dump_compat(message) for message in release_handoffs],
         }
         _write_runtime_event_receipt(
             receipt_path,
-            {
-                "version": "cortex.runtime_delivery.handoff_claim_receipt.v1",
-                **response,
-            },
+            {"version": "cortex.runtime_delivery.handoff_claim_receipt.v1", **response},
         )
-    return response
+        return response
+
+
+@router.post("/runtime/delivery/handoffs/claim")
+async def claim_runtime_delivery_handoffs(request: RuntimeDeliveryHandoffClaimRequest):
+    recipient = str(request.recipient or "").strip()
+    process_id = str(request.process_id or "").strip()
+    expected_revision_id = str(request.expected_revision_id or "").strip()
+    request_id = str(request.request_id or "").strip()
+    requested_at = str(request.requested_at or "").strip()
+    if not all((recipient, process_id, expected_revision_id, request_id, requested_at, request.recipient_signature)):
+        raise HTTPException(status_code=422, detail="handoff claim fields must be non-empty")
+    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
+        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
+    credentials = _runtime_delivery_recipient_credentials_or_503()
+    expected_signature = runtime_delivery_handoff_claim_signature(
+        recipient=recipient,
+        process_id=process_id,
+        expected_revision_id=expected_revision_id,
+        request_id=request_id,
+        requested_at=requested_at,
+        secret=credentials[recipient],
+    )
+    if not hmac.compare_digest(str(request.recipient_signature or ""), expected_signature):
+        raise HTTPException(status_code=403, detail="authenticated recipient signature required")
+    _validate_runtime_delivery_handoff_claim_freshness(requested_at)
+
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+    stores = _runtime_delivery_stores()
+    try:
+        with stores["release_store"].release_transaction(process_id):
+            stores["release_store"].assert_mutation_allowed(
+                process_id,
+                operation="release handoff claim",
+            )
+            return _claim_runtime_delivery_handoffs_locked(
+                stores=stores,
+                recipient=recipient,
+                process_id=process_id,
+                expected_revision_id=expected_revision_id,
+                request_id=request_id,
+            )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/runtime/delivery/handoffs/claim-next")
@@ -4197,42 +4450,63 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _prune_runtime_delivery_handoff_claim_receipts(stores=stores)
         if receipt_path.exists():
             raise HTTPException(status_code=409, detail="handoff discovery request was already consumed")
-        # In-flight messages remain discoverable after a consumer restart or
-        # when evidence arrived after initial dispatch. Acknowledgement is the
-        # durable terminal fence and is itself idempotence-checked.
-        received = stores["mailbox"].receive(to_agent=recipient, include_inflight=True)
         release_handoffs = []
-        for message in received:
-            metadata = dict(message.metadata or {})
-            if not metadata.get("target_stage"):
-                stores["mailbox"].retry(message.message_id)
-                continue
-            state = stores["release_store"].load(message.process_id)
-            if (
-                state is None
-                or not hmac.compare_digest(str(state.release_id), str(metadata.get("release_id") or ""))
-                or not hmac.compare_digest(str(state.revision_id), str(message.revision_id or ""))
-            ):
-                stores["mailbox"].dead_letter(message.message_id)
-                continue
-            bound_payload = {
-                **dict(message.payload or {}),
-                "artifact_receipts": [
-                    dict(row)
-                    for row in (state.metadata.get("release_artifacts") or [])
-                    if isinstance(row, dict)
-                    and str(row.get("release_id") or "") == state.release_id
-                    and str(row.get("revision_id") or "") == state.revision_id
-                ],
-            }
-            message = stores["mailbox"].bind_claim_payload(
-                message.message_id,
-                payload=bound_payload,
-                expected_revision_id=state.revision_id,
+        candidate_process_ids = sorted({
+            message.process_id
+            for message in stores["mailbox"].list(
+                to_agent=recipient,
+                delivery_statuses=["queued", "inflight"],
             )
-            release_handoffs.append(message)
+        })
+        # Claim each process independently behind its release transaction.
+        # Pending rollback work remains queued and cannot perturb the mailbox
+        # revision that rollback recovery will reconcile.
+        for process_id in candidate_process_ids:
+            with stores["release_store"].release_transaction(process_id):
+                try:
+                    stores["release_store"].assert_mutation_allowed(
+                        process_id,
+                        operation="release handoff discovery",
+                    )
+                except RuntimeError:
+                    continue
+                received = stores["mailbox"].receive(
+                    to_agent=recipient,
+                    process_id=process_id,
+                    include_inflight=True,
+                )
+                for message in received:
+                    metadata = dict(message.metadata or {})
+                    if not metadata.get("target_stage"):
+                        stores["mailbox"].retry(message.message_id)
+                        continue
+                    state = stores["release_store"].load(message.process_id)
+                    if (
+                        state is None
+                        or not hmac.compare_digest(str(state.release_id), str(metadata.get("release_id") or ""))
+                        or not hmac.compare_digest(str(state.revision_id), str(message.revision_id or ""))
+                    ):
+                        stores["mailbox"].dead_letter(message.message_id)
+                        continue
+                    bound_payload = {
+                        **dict(message.payload or {}),
+                        "artifact_receipts": [
+                            dict(row)
+                            for row in (state.metadata.get("release_artifacts") or [])
+                            if isinstance(row, dict)
+                            and str(row.get("release_id") or "") == state.release_id
+                            and str(row.get("revision_id") or "") == state.revision_id
+                        ],
+                    }
+                    message = stores["mailbox"].bind_claim_payload(
+                        message.message_id,
+                        payload=bound_payload,
+                        expected_revision_id=state.revision_id,
+                    )
+                    release_handoffs.append(message)
         claimed_at = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
         response = {
             "success": True,
@@ -4243,10 +4517,14 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
             "recovered_release_progress": recovered_progress,
             "messages": [model_dump_compat(message) for message in release_handoffs],
         }
-        _write_runtime_event_receipt(
-            receipt_path,
-            {"version": "cortex.runtime_delivery.handoff_discovery_receipt.v1", **response},
-        )
+        # Empty polling is safe to repeat and must not create an unbounded
+        # durable-file stream. Persist only a response that carries work or a
+        # recovery side effect, and retain it no longer than request skew.
+        if release_handoffs or recovered_progress:
+            _write_runtime_event_receipt(
+                receipt_path,
+                {"version": "cortex.runtime_delivery.handoff_discovery_receipt.v1", **response},
+            )
     return response
 
 
@@ -4315,16 +4593,13 @@ async def resolve_runtime_delivery_handoff_artifact(request: RuntimeDeliveryArti
     }
 
 
-@router.post("/runtime/delivery/handoffs/{message_id}/acknowledge")
-async def acknowledge_runtime_delivery_handoff(
+def _acknowledge_runtime_delivery_handoff_locked(
+    *,
     message_id: str,
+    recipient: str,
     request: RuntimeDeliveryHandoffAcknowledgeRequest,
-):
-    recipient = str(request.recipient or "").strip()
-    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
-        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
-    _runtime_delivery_recipient_credentials_or_503()
-    stores = _runtime_delivery_stores()
+    stores: Dict[str, Any],
+) -> Dict[str, Any]:
     message = next((row for row in stores["mailbox"].list() if row.message_id == message_id), None)
     if message is None or not (message.metadata or {}).get("target_stage"):
         raise HTTPException(status_code=404, detail=f"Release handoff '{message_id}' not found")
@@ -4359,6 +4634,35 @@ async def acknowledge_runtime_delivery_handoff(
         "message": model_dump_compat(acknowledged),
         "release_progress": release_progress,
     }
+
+
+@router.post("/runtime/delivery/handoffs/{message_id}/acknowledge")
+async def acknowledge_runtime_delivery_handoff(
+    message_id: str,
+    request: RuntimeDeliveryHandoffAcknowledgeRequest,
+):
+    recipient = str(request.recipient or "").strip()
+    if recipient not in REQUIRED_RELEASE_HANDOFF_RECIPIENTS:
+        raise HTTPException(status_code=403, detail="recipient is not a release handoff consumer")
+    _runtime_delivery_recipient_credentials_or_503()
+    stores = _runtime_delivery_stores()
+    message = next((row for row in stores["mailbox"].list() if row.message_id == message_id), None)
+    if message is None or not (message.metadata or {}).get("target_stage"):
+        raise HTTPException(status_code=404, detail=f"Release handoff '{message_id}' not found")
+    try:
+        with stores["release_store"].release_transaction(message.process_id):
+            stores["release_store"].assert_mutation_allowed(
+                message.process_id,
+                operation="release handoff acknowledgement",
+            )
+            return _acknowledge_runtime_delivery_handoff_locked(
+                message_id=message_id,
+                recipient=recipient,
+                request=request,
+                stores=stores,
+            )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/runtime/delivery/{process_id}")
@@ -4465,6 +4769,8 @@ async def ingest_runtime_delivery_artifact(
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
@@ -4548,40 +4854,24 @@ async def reconcile_runtime_roadmap(process_id: str, request: Optional[RuntimeRo
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
     stores = _runtime_delivery_stores()
-    if request.bootstrap_runtime_state:
-        _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
-    snapshot = stores["snapshot_store"].load(process_id)
-    shared_state = stores["shared_state_store"].load(process_id)
-    if snapshot is None or shared_state is None:
-        raise HTTPException(status_code=400, detail=f"runtime roadmap state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
     contract = _resolve_runtime_roadmap_contract(process_id, process=process, stores=stores, request=request)
-    reconciled = reconcile_roadmap_execution(
-        contract,
-        roadmap_store=stores["roadmap_store"],
-        snapshot_store=stores["snapshot_store"],
-        shared_state_store=stores["shared_state_store"],
-        mailbox=stores["mailbox"],
-        supervisor=stores["supervisor"],
-        release_store=stores["release_store"],
-        controller_id=request.controller_id,
-        controller_session_id=request.controller_session_id or f"runtime-roadmap:{process_id}",
-        journal=stores["journal"],
-        now=_parse_optional_dt(request.now_iso),
-    )
-    process = _sync_runtime_process_roadmap_state(
-        process_id,
-        process=process,
-        stores=stores,
-        event_kind="runtime_roadmap_reconciled",
-        event_payload={
-            "controller_id": request.controller_id,
-            "controller_session_id": request.controller_session_id or f"runtime-roadmap:{process_id}",
-            "status": reconciled["state"].get("status") if isinstance(reconciled.get("state"), dict) else None,
-            "active_phase_id": reconciled["state"].get("active_phase_id") if isinstance(reconciled.get("state"), dict) else None,
-        },
-    )
-    follow_up_bridge = _bridge_runtime_roadmap_follow_up(process_id, process=process, stores=stores, now=_parse_optional_dt(request.now_iso))
-    process = follow_up_bridge.get("process") or process
+    try:
+        sequence = _reconcile_runtime_roadmap_sequence(
+            process_id=process_id,
+            process=process,
+            stores=stores,
+            contract=contract,
+            controller_id=request.controller_id,
+            controller_session_id=request.controller_session_id or f"runtime-roadmap:{process_id}",
+            now=_parse_optional_dt(request.now_iso),
+            bootstrap_runtime_state=request.bootstrap_runtime_state,
+            event_kind="runtime_roadmap_reconciled",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    reconciled = sequence["reconciled"]
+    process = sequence["process"]
+    follow_up_bridge = sequence["follow_up"]
     return {
         "success": True,
         "process_id": process_id,
@@ -4704,16 +4994,17 @@ async def get_runtime_process_traceability(process_id: str, limit: int = 120):
     return bundle
 
 @router.get("/runtime/policy-explain/{process_id}")
-async def explain_runtime_policy(process_id: str):
+async def explain_runtime_policy(process_id: str, http_request: Request = None):
+    belief_scope = _belief_scope_or_denied(_belief_scope_from_http_request(http_request))
     return await runtime_service.runtime_policy_explain(
         process_id,
         get_runtime_process_fn=get_runtime_process,
         get_runtime_events_fn=get_runtime_events,
-        explain_runtime_process_fn=explain_runtime_process,
+        explain_runtime_process_fn=partial(explain_runtime_process, belief_scope=belief_scope),
         assemble_runtime_policy_response_fn=runtime_explain.assemble_runtime_policy_response,
         policy_patch_history_fn=runtime_explain.policy_patch_history,
-        explain_belief_fn=explain_belief,
-        get_belief_fn=get_belief,
+        explain_belief_fn=partial(explain_belief, scope=belief_scope),
+        get_belief_fn=partial(get_belief, scope=belief_scope),
     )
 
 
@@ -4961,34 +5252,38 @@ async def resume_runtime_process_route(process_id: str):
 
 
 @router.get("/runtime/belief-conflicts")
-async def get_runtime_belief_conflicts(subject: Optional[str] = None, predicate: Optional[str] = None, limit: int = 50):
+async def get_runtime_belief_conflicts(http_request: Request = None, subject: Optional[str] = None, predicate: Optional[str] = None, limit: int = 50):
+    scope = _belief_scope_or_denied(_belief_scope_from_http_request(http_request))
     return runtime_service.runtime_belief_conflicts(
         subject=subject,
         predicate=predicate,
         limit=limit,
-        belief_conflicts_fn=belief_conflicts,
+        belief_conflicts_fn=partial(belief_conflicts, scope=scope),
     )
 
 
 @router.get("/runtime/belief-lineage/{claim_id}")
-async def get_runtime_belief_lineage(claim_id: str):
-    return runtime_service.runtime_belief_lineage(claim_id, trace_belief_lineage_fn=trace_belief_lineage)
+async def get_runtime_belief_lineage(claim_id: str, http_request: Request = None):
+    scope = _belief_scope_or_denied(_belief_scope_from_http_request(http_request))
+    return runtime_service.runtime_belief_lineage(claim_id, trace_belief_lineage_fn=partial(trace_belief_lineage, scope=scope))
 
 
 @router.get("/runtime/belief/{claim_id}")
-async def get_runtime_belief(claim_id: str):
-    return runtime_service.runtime_belief_detail(claim_id, explain_belief_fn=explain_belief)
+async def get_runtime_belief(claim_id: str, http_request: Request = None):
+    scope = _belief_scope_or_denied(_belief_scope_from_http_request(http_request))
+    return runtime_service.runtime_belief_detail(claim_id, explain_belief_fn=partial(explain_belief, scope=scope))
 
 
 @router.get("/runtime/beliefs")
-async def get_runtime_beliefs(query: Optional[str] = None, task_id: Optional[str] = None, limit: int = 50):
+async def get_runtime_beliefs(http_request: Request = None, query: Optional[str] = None, task_id: Optional[str] = None, limit: int = 50):
+    scope = _belief_scope_or_denied(_belief_scope_from_http_request(http_request))
     return runtime_service.runtime_beliefs(
         query=query,
         task_id=task_id,
         limit=limit,
-        search_beliefs_fn=search_beliefs,
-        beliefs_for_task_fn=beliefs_for_task,
-        list_beliefs_fn=list_beliefs,
+        search_beliefs_fn=partial(search_beliefs, scope=scope),
+        beliefs_for_task_fn=partial(beliefs_for_task, scope=scope),
+        list_beliefs_fn=partial(list_beliefs, scope=scope),
     )
 
 

@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import sqlite3
 from pathlib import Path
 import re
 from typing import Any, Dict, Mapping, Optional, Tuple
@@ -62,6 +63,7 @@ class WebSocketSecurityConfig:
     write_auth_mode: str
     write_token: str
     write_token_header: str
+    admin_token: str
     allowed_origins: frozenset[str]
 
 
@@ -1042,6 +1044,7 @@ def create_app() -> FastAPI:
         write_auth_mode=write_auth_mode,
         write_token=write_token,
         write_token_header=write_token_header,
+        admin_token=admin_token,
         allowed_origins=allowed_origins,
     )
 
@@ -1436,8 +1439,22 @@ def create_app() -> FastAPI:
         loaded_routers = set(router_load_report["loaded"])
         missing_paths = sorted(required_paths - route_paths)
         missing_routers = sorted(required_routers - loaded_routers)
-        graph_path = Path(__file__).resolve().parents[1] / "cortex_graph.db"
-        graph_available = graph_path.is_file()
+        configured_graph = os.getenv("CORTEX_DB_PATH", "").strip()
+        graph_path = Path(configured_graph or ("/opt/clawdbot/state/knowledge/cortex_graph.db" if production_environment else Path(__file__).resolve().parents[2] / "cortex_graph.db")).expanduser().resolve()
+        graph_error = None
+        graph_quick_check = None
+        try:
+            if not graph_path.is_file() or graph_path.is_symlink():
+                raise RuntimeError("configured graph database is not a regular file")
+            if production_environment and Path("/opt/clawdbot/state") not in graph_path.parents:
+                raise RuntimeError("production graph database is outside the durable state volume")
+            with sqlite3.connect(f"file:{graph_path}?mode=ro", uri=True, timeout=2.0) as connection:
+                row = connection.execute("PRAGMA quick_check").fetchone()
+            graph_quick_check = str(row[0] if row else "")
+            if graph_quick_check != "ok":
+                raise RuntimeError(f"graph database quick_check failed: {graph_quick_check}")
+        except (OSError, RuntimeError, sqlite3.Error) as exc:
+            graph_error = f"{type(exc).__name__}: {exc}"
         try:
             from cortex_server.middleware.event_ledger_middleware import probe_event_ledger_durability
 
@@ -1450,14 +1467,24 @@ def create_app() -> FastAPI:
             memory_backend_check = probe_memory_backend_readiness()
         except Exception as exc:
             memory_backend_check = {"ok": False, "status": "degraded", "error": f"{type(exc).__name__}: {exc}"}
+        try:
+            from cortex_server.runtime.production_build_loop import probe_runtime_delivery_readiness
+
+            runtime_delivery_check = probe_runtime_delivery_readiness(
+                Path(os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "/opt/clawdbot/state/runtime_delivery"))
+            )
+        except Exception as exc:
+            runtime_delivery_check = {"ready": False, "status": "not_ready", "error": f"{type(exc).__name__}: {exc}"}
         checks = {
             "requiredPaths": {"ok": not missing_paths, "missing": missing_paths},
             "requiredRouters": {"ok": not missing_routers, "missing": missing_routers},
             "structuralGraph": {
-                "ok": graph_available,
-                "required": False,
-                "degraded": not graph_available,
+                "ok": graph_error is None,
+                "required": production_environment,
+                "degraded": graph_error is not None,
                 "path": str(graph_path),
+                "quickCheck": graph_quick_check,
+                "error": graph_error,
             },
             "writeAuthorization": {
                 "ok": write_auth_mode == "token_or_loopback" or (write_auth_mode == "token_required" and bool(write_token)),
@@ -1479,6 +1506,13 @@ def create_app() -> FastAPI:
             },
             "eventLedgerDurability": event_ledger_check,
             "memoryBackendDurability": memory_backend_check,
+            "runtimeDelivery": {
+                "ok": bool(runtime_delivery_check.get("ready")),
+                "required": production_environment,
+                "status": runtime_delivery_check.get("status"),
+                "checks": runtime_delivery_check.get("checks", {}),
+                "error": runtime_delivery_check.get("error"),
+            },
         }
         checks.update(getattr(app.state, "lifecycle_checks", {}))
         scheduler_check = checks.get("scheduler")

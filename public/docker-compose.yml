@@ -11,7 +11,6 @@ services:
     volumes:
       - ./config:/app/config:rw
       - ./logs:/app/logs:rw
-      - ./knowledge:/app/cortex_server/knowledge:rw
       - ./extensions:/app/cortex_server/modules/extensions:rw
       - ./outputs:/app/outputs:rw
       - ./openclaw_state:/root/.openclaw:rw
@@ -23,6 +22,8 @@ services:
     environment:
       CORTEX_ENV: production
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
+      CORTEX_DB_PATH: /opt/clawdbot/state/knowledge/cortex_graph.db
+      CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
       ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery
       REASONING_STORE_DB_PATH: /opt/clawdbot/state/reasoning_runtime.db
@@ -38,6 +39,8 @@ services:
       CORTEX_AGENT_ACK_CREDENTIALS: '{"release-verifier":"${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set a distinct release-verifier recipient secret in .env}","release-manager":"${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET:?set a distinct release-manager recipient secret in .env}"}'
       # This server-only signing key must never reuse a write, admin, feedback-control, or principal credential.
       NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY: ${NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY:?set a distinct server-only feedback signing key in .env}
+      # Rotate this independent submission credential only after in-flight feedback receipts drain.
+      NEXUS_OUTCOME_FEEDBACK_TOKEN: ${NEXUS_OUTCOME_FEEDBACK_TOKEN:?set a distinct outcome-feedback submission token in .env}
       NEXUS_ASSURANCE_SIGNING_KEY: ${NEXUS_ASSURANCE_SIGNING_KEY:?set a distinct server-only assurance signing key in .env}
       CORTEX_RELEASE_VERIFIER_HEALTH_URL: http://release-verifier:8891/ready
       CORTEX_RELEASE_MANAGER_HEALTH_URL: http://release-manager:8892/ready

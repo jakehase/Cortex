@@ -7,7 +7,7 @@ from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
 def _client(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
 

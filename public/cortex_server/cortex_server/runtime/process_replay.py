@@ -111,7 +111,7 @@ def apply_event(state: JsonDict, event: ProcessEvent) -> JsonDict:
         state["lifecycle_state"] = "completed"
     elif kind == "process_cancelled":
         state["lifecycle_state"] = "cancelled"
-    elif kind == "process_rolled_back":
+    elif kind in {"process_rolled_back", "release_rolled_back"}:
         restore = payload.get("restore_state") if isinstance(payload.get("restore_state"), dict) else {}
         if restore:
             state["lifecycle_state"] = str(restore.get("lifecycle_state") or payload.get("lifecycle_state") or "rolled_back")

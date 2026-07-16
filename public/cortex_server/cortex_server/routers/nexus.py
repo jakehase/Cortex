@@ -42,7 +42,7 @@ from cortex_server.modules.execution_transaction import ExecutionTransaction, Re
 from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
 from cortex_server.modules.outcome_tuner import OutcomeTuner
 from cortex_server.modules.world_grounding import gather_live_evidence
-from cortex_server.modules.route_health import ROUTE_HEALTH
+from cortex_server.modules.route_health import RouteHealthMonitor
 from cortex_server.modules import codec_policy as _codec_policy_module
 from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
 from cortex_server.modules import cortex_codec as _cortex_codec_module
@@ -460,6 +460,7 @@ class _PrincipalAdaptivePolicies:
         self.bandit = ContextualBanditScheduler(state_path=self.root / "bandit.json")
         self.delta = SemanticDeltaCache(state_path=self.root / "semantic_delta.json")
         self.latency = LatencyBudgetGovernor(artifact_dir=self.root / "latency")
+        self.health = RouteHealthMonitor(state_path=self.root / "route_health.json")
         self.routing_state_path = self.root / "routing_autotune.json"
         self.codec_policy_state_path = self.root / "codec_policy.json"
         self.codec_rollup_state_path = self.root / "codec_rollup_policy.json"
@@ -3766,12 +3767,12 @@ class CodecEventsRequest(BaseModel):
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
-def analyze_intent_with_oracle(query: str) -> Dict[str, Any]:
+def analyze_intent_with_oracle(query: str, *, route_health: Optional[RouteHealthMonitor] = None) -> Dict[str, Any]:
     """Use L5 Oracle for semantic intent analysis."""
     if not OPENROUTER_API_KEY:
         return {"intents": [], "confidence": 0, "method": "fallback"}
 
-    gate = ROUTE_HEALTH.allow("oracle")
+    gate = route_health.allow("oracle") if route_health is not None else {"allowed": True}
     if not gate.get("allowed"):
         return {"intents": [], "confidence": 0, "method": "breaker_open", "reasoning": gate.get("reason")}
 
@@ -3834,7 +3835,8 @@ Intents to detect:
         # Parse JSON from response
         try:
             result = json.loads(content)
-            ROUTE_HEALTH.record_success("oracle", latency_ms=latency_ms)
+            if route_health is not None:
+                route_health.record_success("oracle", latency_ms=latency_ms)
             return {
                 "intents": result.get("intents", []),
                 "levels": result.get("levels", []),
@@ -3843,11 +3845,13 @@ Intents to detect:
                 "method": "oracle_semantic"
             }
         except json.JSONDecodeError:
-            ROUTE_HEALTH.record_failure("oracle", error="parse_error", latency_ms=latency_ms)
+            if route_health is not None:
+                route_health.record_failure("oracle", error="parse_error", latency_ms=latency_ms)
             return {"intents": [], "confidence": 0, "method": "parse_error"}
     except Exception as e:
         latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
-        ROUTE_HEALTH.record_failure("oracle", error=str(e), latency_ms=latency_ms)
+        if route_health is not None:
+            route_health.record_failure("oracle", error=str(e), latency_ms=latency_ms)
         return {"intents": [], "confidence": 0, "method": f"error: {str(e)}"}
 
 
@@ -3874,13 +3878,13 @@ def _fetch_kernel_online_levels() -> Optional[set]:
         return None
 
 
-def _architect_healthy() -> bool:
+def _architect_healthy(*, route_health: Optional[RouteHealthMonitor] = None) -> bool:
     # In SAFE_MODE, L9 is intentionally proxied by meta-conductor.
     # Avoid blocking self-HTTP calls back into the same 8888 worker.
     if str(os.getenv("CORTEX_SAFE_MODE", "")).lower() in {"1", "true", "yes", "on"}:
         return True
 
-    gate = ROUTE_HEALTH.allow("architect")
+    gate = route_health.allow("architect") if route_health is not None else {"allowed": True}
     if not gate.get("allowed"):
         return False
 
@@ -3890,23 +3894,29 @@ def _architect_healthy() -> bool:
             resp = requests.get(f"http://localhost:8888{path}", timeout=1.2)
             latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
             if resp.status_code != 200:
-                ROUTE_HEALTH.record_failure("architect", error=f"http_{resp.status_code}", latency_ms=latency_ms)
+                if route_health is not None:
+                    route_health.record_failure("architect", error=f"http_{resp.status_code}", latency_ms=latency_ms)
                 continue
             data = resp.json()
             if not isinstance(data, dict):
-                ROUTE_HEALTH.record_failure("architect", error="invalid_json", latency_ms=latency_ms)
+                if route_health is not None:
+                    route_health.record_failure("architect", error="invalid_json", latency_ms=latency_ms)
                 continue
             if data.get("success") is True:
-                ROUTE_HEALTH.record_success("architect", latency_ms=latency_ms)
+                if route_health is not None:
+                    route_health.record_success("architect", latency_ms=latency_ms)
                 return True
             status = str(((data.get("data") or {}).get("status") if isinstance(data.get("data"), dict) else data.get("status", ""))).lower()
             if status in {"active", "healthy", "online", "ok", ""}:
-                ROUTE_HEALTH.record_success("architect", latency_ms=latency_ms)
+                if route_health is not None:
+                    route_health.record_success("architect", latency_ms=latency_ms)
                 return True
-            ROUTE_HEALTH.record_failure("architect", error=f"status_{status or 'unknown'}", latency_ms=latency_ms)
+            if route_health is not None:
+                route_health.record_failure("architect", error=f"status_{status or 'unknown'}", latency_ms=latency_ms)
         except Exception as exc:
             latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
-            ROUTE_HEALTH.record_failure("architect", error=str(exc), latency_ms=latency_ms)
+            if route_health is not None:
+                route_health.record_failure("architect", error=str(exc), latency_ms=latency_ms)
             continue
     return False
 
@@ -5037,8 +5047,19 @@ async def orchestrate_query(
         }
         if adaptive_route["enabled"]:
             try:
-                adaptive_features = build_route_features(query, risk_flags=risk_flags)
-                adaptive_decision = choose_route(adaptive_features)
+                adaptive_features = build_route_features(
+                    query,
+                    risk_flags=risk_flags,
+                    latency_governor=adaptive_policies.latency,
+                    runtime_policy=autotune_policy,
+                    outcome_tuner=outcome_tuner,
+                    route_health=adaptive_policies.health,
+                )
+                adaptive_decision = choose_route(
+                    adaptive_features,
+                    runtime_policy=autotune_policy,
+                    policy_hint=policy_hint,
+                )
                 adaptive_selected = adaptive_decision.get("selected") if isinstance(adaptive_decision.get("selected"), dict) else {}
                 recommended_policy = str(policy_hint.get("recommended_policy") or "")
                 selected_chain = str(adaptive_selected.get("chain_id") or "")
@@ -5091,9 +5112,9 @@ async def orchestrate_query(
         }
         if bool(world_grounding.get("required", False)):
             if bool(world_grounding.get("degraded", False)):
-                ROUTE_HEALTH.record_failure("world_grounding", error="degraded")
+                adaptive_policies.health.record_failure("world_grounding", error="degraded")
             else:
-                ROUTE_HEALTH.record_success("world_grounding")
+                adaptive_policies.health.record_success("world_grounding")
         tx.preflight({
             "query_present": lambda: {"ok": bool((query or "").strip()), "chars": len(query or "")},
             "latency_budget": lambda: {"ok": int(latency_plan.get("max_latency_ms", 0)) >= 500, "max_latency_ms": latency_plan.get("max_latency_ms")},
@@ -5159,7 +5180,7 @@ async def orchestrate_query(
                 if lvl not in [r.get("level") for r in recommended]:
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "kernel_v2"})
             if kernel_intent in {"planning", "coding", "ops"}:
-                if _architect_healthy():
+                if _architect_healthy(route_health=adaptive_policies.health):
                     if 9 not in [r.get("level") for r in recommended]:
                         recommended.append({"level": 9, "name": "architect", "method": "kernel_v2"})
                 else:
@@ -5212,7 +5233,7 @@ async def orchestrate_query(
             routing_markers["l9_chain"] = ["architect", "council", "synthesist", "validator"]
             reasoning.append("Architecture trigger detected; forcing L9 Architect chain for design reasoning.")
             for lvl in [9, 15, 32, 34]:
-                if lvl == 9 and not _architect_healthy():
+                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for architecture-chain resilience.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -5227,7 +5248,7 @@ async def orchestrate_query(
             routing_markers["l9_chain"] = ["architect"]
             reasoning.append("Coding trigger detected; forcing Lab+Architect+Validator+Forge+Council chain.")
             for lvl in [4, 9, 34, 27, 15]:
-                if lvl == 9 and not _architect_healthy():
+                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for coding chain resilience.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -5403,7 +5424,7 @@ async def orchestrate_query(
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "complexity_gate"})
         if complexity_gate.get("l9_triggered"):
             routing_markers["l9_triggered"] = True
-            if _architect_healthy():
+            if _architect_healthy(route_health=adaptive_policies.health):
                 routing_markers["l9_chain"] = ["architect"]
                 if 9 not in [r.get("level") for r in recommended]:
                     recommended.append({"level": 9, "name": "architect", "method": "autotune_l9"})
@@ -5545,7 +5566,12 @@ async def orchestrate_query(
                 reasoning.append("Anytime early-exit confidence gate bypassed semantic oracle call.")
 
         if not semantic_result:
-            semantic_result = tx.run_step("semantic_analysis", lambda: analyze_intent_with_oracle(query), retry_policy=RetryPolicy.for_kind("transient_io"), verify=lambda x: isinstance(x, dict))
+            semantic_result = tx.run_step(
+                "semantic_analysis",
+                lambda: analyze_intent_with_oracle(query, route_health=adaptive_policies.health),
+                retry_policy=RetryPolicy.for_kind("transient_io"),
+                verify=lambda x: isinstance(x, dict),
+            )
         semantic_low_signal = not semantic_result.get("intents") or float(semantic_result.get("confidence", 0) or 0) <= 0.05
         if semantic_low_signal:
             heuristic = _simple_intent_heuristics(query)
@@ -5555,7 +5581,7 @@ async def orchestrate_query(
 
         if semantic_result.get("confidence", 0) > 0.3:
             for lvl in semantic_result.get("levels", []):
-                if lvl == 9 and not _architect_healthy():
+                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for resilient planning.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -5710,7 +5736,7 @@ async def orchestrate_query(
         quality_score = min(1.0, max(0.0, (0.4 * float(cognitive_quality.get("confidence", 0.0))) + (0.3 * float(cognitive_quality.get("evidence", 0.0))) + (0.3 * (1.0 if validator_result["pass"] else 0.0))))
         route_health_dependencies: Dict[str, Any] = {}
         for dep in ["oracle", "architect", "l22", "world_grounding"]:
-            snap = ROUTE_HEALTH.snapshot(dep)
+            snap = adaptive_policies.health.snapshot(dep)
             if isinstance(snap, dict) and (snap.get("successes") or snap.get("failures") or dep in {"architect"}):
                 route_health_dependencies[dep] = snap
         if bool(world_grounding.get("required", False)) and "world_grounding" not in route_health_dependencies:
@@ -6008,6 +6034,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
         if str(key) not in _ASSURANCE_RESERVED_METADATA
     }
     scope = _assurance_scope(request)
+    route_health = _adaptive_policies_for_scope(scope).health
     caller_idempotency_key = str(caller_metadata.get("idempotency_key") or "").strip()
     durable_idempotency_key = (
         caller_idempotency_key
@@ -6044,10 +6071,10 @@ async def commit_memory(interaction: InteractionData, request: Request):
                     },
                 },
             )
-            ROUTE_HEALTH.record_success("l22")
+            route_health.record_success("l22")
         except Exception as exc:
             durable_write = {"status": "write_failed", "error": str(exc)}
-            ROUTE_HEALTH.record_failure("l22", error=str(exc))
+            route_health.record_failure("l22", error=str(exc))
     else:
         durable_write = {"status": "skipped", "reason": "assurance_gate"}
 
@@ -6069,7 +6096,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
         "memory_commit": memory_decision,
         "validators": validator_summary,
         "receipt": {"version": _ASSURANCE_RECEIPT_VERSION, "id": receipt_payload.get("jti"), "scope": scope},
-        "route_health": {"version": "route_health.v1", "dependencies": {"l22": ROUTE_HEALTH.snapshot("l22")}},
+        "route_health": {"version": "route_health.v1", "dependencies": {"l22": route_health.snapshot("l22")}},
     }
 
     return {

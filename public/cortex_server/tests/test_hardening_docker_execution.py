@@ -11,7 +11,7 @@ def test_production_container_healthcheck_uses_readiness_not_liveness():
     dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(encoding="utf-8")
 
     assert "curl -fsS http://localhost:8888/ready >/dev/null" in dockerfile
-    assert "curl -fsS http://localhost:8888/orchestrator/runtime-delivery/readiness >/dev/null" in dockerfile
+    assert "runtime-delivery/readiness" not in dockerfile
     assert "http://localhost:8888/orchestrator/runtime/delivery/readiness" not in dockerfile
     assert "http://localhost:8888/health" not in dockerfile
 
@@ -36,6 +36,7 @@ def test_compose_mounts_and_identifies_durable_memory_volume():
     assert "CORTEX_AGENT_ACK_CREDENTIALS:" in compose
     assert "CORTEX_RELEASE_VERIFIER_CREDENTIALS:" in compose
     assert "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY:" in compose
+    assert "NEXUS_OUTCOME_FEEDBACK_TOKEN: ${NEXUS_OUTCOME_FEEDBACK_TOKEN:?" in compose
     assert "cortex-memory-volume-init:" in compose
 
 
@@ -45,6 +46,9 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "cortex-runtime-delivery:/opt/clawdbot/state:rw" in compose
     assert "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery" in compose
     assert "REASONING_STORE_DB_PATH: /opt/clawdbot/state/reasoning_runtime.db" in compose
+    assert "CORTEX_DB_PATH: /opt/clawdbot/state/knowledge/cortex_graph.db" in compose
+    assert "CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db" in compose
+    assert "./knowledge:/app/cortex_server/knowledge" not in compose
     assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:" in compose
     assert "cortex-runtime-delivery-volume-init:" in compose
     assert "marker=/state/runtime_delivery/.cortex-durable-runtime-delivery" in compose

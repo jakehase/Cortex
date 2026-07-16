@@ -6,10 +6,7 @@ from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
 def _client(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
-    monkeypatch.setattr(nexus.ROUTE_HEALTH, "snapshot", lambda dependency=None: {"version": "route_health.v1", "dependencies": {}} if dependency is None else {"state": "closed", "healthy": True, "successes": 0, "failures": 0})
-    monkeypatch.setattr(nexus.ROUTE_HEALTH, "record_success", lambda *a, **k: {"state": "closed", "healthy": True})
-    monkeypatch.setattr(nexus.ROUTE_HEALTH, "record_failure", lambda *a, **k: {"state": "open", "healthy": False})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")

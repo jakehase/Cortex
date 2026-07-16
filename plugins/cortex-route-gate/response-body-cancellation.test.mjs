@@ -14,6 +14,9 @@ function setupRouteGate() {
       enabled: true,
       requireRouting: true,
       sessionIdentityHmacSecret: 'session-identity-response-cancellation-test-secret',
+      agentId: 'test-agent',
+      userId: 'test-user',
+      channelId: 'test-channel',
       writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-response-cancellation-test',
       scopeHmacSecret: 'route-response-cancellation-scope-secret',
@@ -45,7 +48,7 @@ test('concurrent Content-Length rejections cancel every routing response body', 
   try {
     const attempts = Array.from({ length: 16 }, (_, index) => handler(
       { prompt: `Route request ${index}`, messages: [{ role: 'user', content: `Route request ${index}` }] },
-      { sessionKey: `agent:main:test:${index}` },
+      { sessionKey: `agent:main:test:${index}`, agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
     ));
     const results = await Promise.allSettled(attempts);
     assert.equal(cancellations, attempts.length);
@@ -71,7 +74,7 @@ test('a body cancellation failure does not mask the response size rejection', as
     await assert.rejects(
       () => handler(
         { prompt: 'Route request', messages: [{ role: 'user', content: 'Route request' }] },
-        { sessionKey: 'agent:main:test:cancel-failure' },
+        { sessionKey: 'agent:main:test:cancel-failure', agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
       ),
       /response exceeds 1024 bytes/,
     );
@@ -94,7 +97,7 @@ test('a stalled body cancellation does not hold the size rejection open', async 
     await assert.rejects(
       handler(
         { prompt: 'Route request', messages: [{ role: 'user', content: 'Route request' }] },
-        { sessionKey: 'agent:main:test:stalled-cancel' },
+        { sessionKey: 'agent:main:test:stalled-cancel', agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
       ),
       /response exceeds 1024 bytes/,
     );

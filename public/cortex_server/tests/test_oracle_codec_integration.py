@@ -1,13 +1,48 @@
+import asyncio
+
 import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 import cortex_server.routers.oracle as oracle
 import cortex_server.modules.codec_policy as codec_policy
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.modules.cortex_codec import update_codec_state_for_session
 from cortex_server.routers.oracle import _apply_codec_routing_priors, _best_effort_answer, _codec_prefix, _passive_followup_verifier, _record_oracle_turn
+
+
+class _ASGIClient:
+    """Synchronous facade over HTTPX's supported ASGI transport."""
+
+    def __init__(self, app, *, raise_server_exceptions=True):
+        self.app = app
+        self.raise_server_exceptions = raise_server_exceptions
+
+    def request(self, method, path, **kwargs):
+        async def send():
+            transport = httpx.ASGITransport(app=self.app, raise_app_exceptions=self.raise_server_exceptions)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                return await client.request(method, path, **kwargs)
+
+        return asyncio.run(send())
+
+    def get(self, path, **kwargs):
+        return self.request("GET", path, **kwargs)
+
+    def post(self, path, **kwargs):
+        return self.request("POST", path, **kwargs)
+
+
+def TestClient(app, *, raise_server_exceptions=True):
+    return _ASGIClient(app, raise_server_exceptions=raise_server_exceptions)
+
+
+@pytest.fixture(autouse=True)
+def _run_oracle_threadpool_inline(monkeypatch):
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(oracle, "run_in_threadpool", run_inline)
 
 
 def test_oracle_and_codec_session_registries_are_bounded(monkeypatch):
@@ -144,7 +179,7 @@ def test_oracle_applies_codec_routing_priors(monkeypatch):
 def test_best_effort_answer_respects_avoid_tinyllama_prior(monkeypatch):
     monkeypatch.setattr(oracle, "ORACLE_FALLBACKS_ENABLED", True)
     monkeypatch.setattr(oracle, "_is_frontend_prompt", lambda text: False)
-    monkeypatch.setattr(oracle, "_openclaw_rate_limited_active", lambda: True)
+    monkeypatch.setattr(oracle, "_openclaw_rate_limited_active", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(oracle, "_tinyllama_allowed", lambda *a, **k: True)
     monkeypatch.setattr(oracle, "_should_hedge_bridge", lambda *a, **k: False)
     monkeypatch.setattr(oracle, "call_bridge", lambda prompt: (_ for _ in ()).throw(RuntimeError("bridge down")))
@@ -190,7 +225,7 @@ def test_best_effort_answer_can_prefer_bridge_first_from_priors(monkeypatch):
 def test_best_effort_answer_can_avoid_bridge_fallback_from_priors(monkeypatch):
     monkeypatch.setattr(oracle, "ORACLE_FALLBACKS_ENABLED", True)
     monkeypatch.setattr(oracle, "_is_frontend_prompt", lambda text: False)
-    monkeypatch.setattr(oracle, "_openclaw_rate_limited_active", lambda: False)
+    monkeypatch.setattr(oracle, "_openclaw_rate_limited_active", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(oracle, "_should_hedge_bridge", lambda *a, **k: False)
     monkeypatch.setattr(oracle, "_solve_with_self_consistency", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("openclaw down")))
     monkeypatch.setattr(oracle, "call_bridge", lambda prompt: (_ for _ in ()).throw(AssertionError("bridge fallback should be skipped")))
@@ -237,7 +272,6 @@ def test_oracle_chat_failure_records_execution_outcome(monkeypatch):
     monkeypatch.setattr(oracle, "_best_effort_answer", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
 
     app = FastAPI()
-    app.add_middleware(HUDMiddleware)
     app.include_router(oracle.router, prefix="/oracle")
     client = TestClient(app, raise_server_exceptions=False)
 

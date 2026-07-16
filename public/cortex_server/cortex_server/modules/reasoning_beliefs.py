@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 import threading
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
+from cortex_server.modules.memory_scope import normalize_principal_scope
 from cortex_server.modules.reasoning_kernel import BeliefClaim, Provenance, model_dump_compat
 from cortex_server.modules.reasoning_store import list_docs, replace_namespace_docs
 
@@ -49,6 +51,16 @@ def _state_path() -> Path:
 
 def _db_path() -> Path:
     return Path(str(DEFAULT_DB_PATH))
+
+
+def _belief_namespace(scope: Optional[Mapping[str, object]]) -> str:
+    """Return a principal-local namespace; the default is local development only."""
+
+    normalized = normalize_principal_scope(scope)
+    canonical = "\0".join(normalized[key] for key in (
+        "tenant_id", "workspace_id", "agent_id", "user_id", "channel_id", "session_id"
+    ))
+    return f"{_NAMESPACE}:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
 
 
 
@@ -181,9 +193,10 @@ def _materialize_belief(row: Dict[str, Any], *, now: Optional[datetime] = None) 
 
 
 
-def load_state() -> Dict[str, Any]:
+def load_state(*, scope: Optional[Mapping[str, object]] = None) -> Dict[str, Any]:
     with _LOCK:
-        beliefs = [dict(row) for row in list_docs(_NAMESPACE, db_path=_db_path()) if isinstance(row, dict)]
+        namespace = _belief_namespace(scope)
+        beliefs = [dict(row) for row in list_docs(namespace, db_path=_db_path()) if isinstance(row, dict)]
         if beliefs:
             return {
                 "version": "cortex.reasoning.beliefs.v1",
@@ -194,23 +207,23 @@ def load_state() -> Dict[str, Any]:
             return _default_state()
         legacy = _legacy_state()
         if legacy:
-            save_state(legacy)
+            save_state(legacy, scope=scope)
             return legacy
         return _default_state()
 
 
 
-def save_state(state: Dict[str, Any]) -> Dict[str, Any]:
+def save_state(state: Dict[str, Any], *, scope: Optional[Mapping[str, object]] = None) -> Dict[str, Any]:
     beliefs = [dict(row) for row in (state.get("beliefs") or []) if isinstance(row, dict)]
     state["updated_at"] = _now_iso()
     with _LOCK:
-        replace_namespace_docs(_NAMESPACE, beliefs, id_field="claim_id", db_path=_db_path())
+        replace_namespace_docs(_belief_namespace(scope), beliefs, id_field="claim_id", db_path=_db_path())
     return state
 
 
 
-def list_beliefs(*, subject: Optional[str] = None, predicate: Optional[str] = None, task_id: Optional[str] = None, status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
-    beliefs = load_state().get("beliefs") or []
+def list_beliefs(*, subject: Optional[str] = None, predicate: Optional[str] = None, task_id: Optional[str] = None, status: Optional[str] = None, limit: int = 100, scope: Optional[Mapping[str, object]] = None) -> List[Dict[str, Any]]:
+    beliefs = load_state(scope=scope).get("beliefs") or []
     out: List[Dict[str, Any]] = []
     now_dt = _now()
     for row in beliefs:
@@ -231,16 +244,16 @@ def list_beliefs(*, subject: Optional[str] = None, predicate: Optional[str] = No
 
 
 
-def beliefs_for_task(task_id: str, *, limit: int = 100) -> List[Dict[str, Any]]:
-    return list_beliefs(task_id=task_id, limit=limit)
+def beliefs_for_task(task_id: str, *, limit: int = 100, scope: Optional[Mapping[str, object]] = None) -> List[Dict[str, Any]]:
+    return list_beliefs(task_id=task_id, limit=limit, scope=scope)
 
 
 
-def search_beliefs(query: str, *, limit: int = 50) -> List[Dict[str, Any]]:
+def search_beliefs(query: str, *, limit: int = 50, scope: Optional[Mapping[str, object]] = None) -> List[Dict[str, Any]]:
     q = str(query or "").strip().lower()
     if not q:
-        return list_beliefs(limit=limit)
-    beliefs = load_state().get("beliefs") or []
+        return list_beliefs(limit=limit, scope=scope)
+    beliefs = load_state(scope=scope).get("beliefs") or []
     out: List[Dict[str, Any]] = []
     now_dt = _now()
     for row in beliefs:
@@ -270,11 +283,12 @@ def select_influential_beliefs(
     predicates: Optional[List[str]] = None,
     query: Optional[str] = None,
     limit: int = 8,
+    scope: Optional[Mapping[str, object]] = None,
 ) -> List[Dict[str, Any]]:
     subject_filters = {str(x) for x in (subjects or []) if str(x).strip()}
     predicate_filters = {str(x) for x in (predicates or []) if str(x).strip()}
     query_text = str(query or "").strip().lower()
-    rows = list_beliefs(task_id=task_id, limit=2000)
+    rows = list_beliefs(task_id=task_id, limit=2000, scope=scope)
     scored: List[tuple[float, Dict[str, Any]]] = []
     for row in rows:
         score = 0.0
@@ -308,8 +322,8 @@ def select_influential_beliefs(
 
 
 
-def belief_conflicts(*, subject: Optional[str] = None, predicate: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
-    beliefs = list_beliefs(subject=subject, predicate=predicate, limit=max(limit, 500))
+def belief_conflicts(*, subject: Optional[str] = None, predicate: Optional[str] = None, limit: int = 100, scope: Optional[Mapping[str, object]] = None) -> List[Dict[str, Any]]:
+    beliefs = list_beliefs(subject=subject, predicate=predicate, limit=max(limit, 500), scope=scope)
     out: List[Dict[str, Any]] = []
     for row in beliefs:
         contradictions = [str(x) for x in (row.get("contradicts") or []) if str(x).strip()]
@@ -319,8 +333,8 @@ def belief_conflicts(*, subject: Optional[str] = None, predicate: Optional[str] 
 
 
 
-def summarize_beliefs(*, task_id: Optional[str] = None, subject: Optional[str] = None, predicate: Optional[str] = None) -> Dict[str, Any]:
-    rows = list_beliefs(task_id=task_id, subject=subject, predicate=predicate, limit=1000)
+def summarize_beliefs(*, task_id: Optional[str] = None, subject: Optional[str] = None, predicate: Optional[str] = None, scope: Optional[Mapping[str, object]] = None) -> Dict[str, Any]:
+    rows = list_beliefs(task_id=task_id, subject=subject, predicate=predicate, limit=1000, scope=scope)
     by_status: Dict[str, int] = {}
     by_predicate: Dict[str, int] = {}
     for row in rows:
@@ -341,8 +355,8 @@ def summarize_beliefs(*, task_id: Optional[str] = None, subject: Optional[str] =
 
 
 
-def get_belief(claim_id: str) -> Optional[Dict[str, Any]]:
-    for row in load_state().get("beliefs") or []:
+def get_belief(claim_id: str, *, scope: Optional[Mapping[str, object]] = None) -> Optional[Dict[str, Any]]:
+    for row in load_state(scope=scope).get("beliefs") or []:
         if isinstance(row, dict) and str(row.get("claim_id") or "") == str(claim_id):
             return _materialize_belief(row)
     return None
@@ -355,8 +369,8 @@ def source_weight(source_type: Optional[str]) -> float:
 
 
 
-def evidence_bundle(claim_id: str) -> Optional[Dict[str, Any]]:
-    belief = get_belief(claim_id)
+def evidence_bundle(claim_id: str, *, scope: Optional[Mapping[str, object]] = None) -> Optional[Dict[str, Any]]:
+    belief = get_belief(claim_id, scope=scope)
     if not belief:
         return None
     provenance_rows = [dict(row) for row in (belief.get("provenance") or []) if isinstance(row, dict)]
@@ -395,13 +409,13 @@ def evidence_bundle(claim_id: str) -> Optional[Dict[str, Any]]:
 
 
 
-def contradiction_cluster(claim_id: str) -> Optional[Dict[str, Any]]:
-    belief = get_belief(claim_id)
+def contradiction_cluster(claim_id: str, *, scope: Optional[Mapping[str, object]] = None) -> Optional[Dict[str, Any]]:
+    belief = get_belief(claim_id, scope=scope)
     if not belief:
         return None
     subject = str(belief.get("subject") or "")
     predicate = str(belief.get("predicate") or "")
-    rows = list_beliefs(subject=subject, predicate=predicate, limit=200)
+    rows = list_beliefs(subject=subject, predicate=predicate, limit=200, scope=scope)
     cluster_rows = [row for row in rows if str(row.get("claim_id") or "").strip()]
     values = [row.get("value") for row in cluster_rows]
     unique_values = []
@@ -445,12 +459,12 @@ def contradiction_cluster(claim_id: str) -> Optional[Dict[str, Any]]:
 
 
 
-def belief_epistemic_risk(claim_id: str) -> Optional[Dict[str, Any]]:
-    belief = get_belief(claim_id)
+def belief_epistemic_risk(claim_id: str, *, scope: Optional[Mapping[str, object]] = None) -> Optional[Dict[str, Any]]:
+    belief = get_belief(claim_id, scope=scope)
     if not belief:
         return None
-    bundle = evidence_bundle(claim_id) or {}
-    cluster = contradiction_cluster(claim_id) or {}
+    bundle = evidence_bundle(claim_id, scope=scope) or {}
+    cluster = contradiction_cluster(claim_id, scope=scope) or {}
     status = str(belief.get("status") or "unknown")
     status_penalty = 0.0
     if status == "contradicted":
@@ -480,11 +494,11 @@ def belief_epistemic_risk(claim_id: str) -> Optional[Dict[str, Any]]:
 
 
 
-def trace_belief_lineage(claim_id: str, *, max_depth: int = 12) -> Optional[Dict[str, Any]]:
-    target = get_belief(claim_id)
+def trace_belief_lineage(claim_id: str, *, max_depth: int = 12, scope: Optional[Mapping[str, object]] = None) -> Optional[Dict[str, Any]]:
+    target = get_belief(claim_id, scope=scope)
     if not target:
         return None
-    all_beliefs = {str(row.get("claim_id") or ""): row for row in list_beliefs(limit=2000) if str(row.get("claim_id") or "").strip()}
+    all_beliefs = {str(row.get("claim_id") or ""): row for row in list_beliefs(limit=2000, scope=scope) if str(row.get("claim_id") or "").strip()}
 
     def _walk(ids: List[str], forward_fields: List[str]) -> List[Dict[str, Any]]:
         chain: List[Dict[str, Any]] = []
@@ -554,11 +568,11 @@ def trace_belief_lineage(claim_id: str, *, max_depth: int = 12) -> Optional[Dict
 
 
 
-def explain_belief(claim_id: str) -> Optional[Dict[str, Any]]:
-    target = get_belief(claim_id)
+def explain_belief(claim_id: str, *, scope: Optional[Mapping[str, object]] = None) -> Optional[Dict[str, Any]]:
+    target = get_belief(claim_id, scope=scope)
     if not target:
         return None
-    beliefs = list_beliefs(limit=500)
+    beliefs = list_beliefs(limit=500, scope=scope)
     related: List[Dict[str, Any]] = []
     conflicts: List[Dict[str, Any]] = []
     for row in beliefs:
@@ -574,9 +588,9 @@ def explain_belief(claim_id: str) -> Optional[Dict[str, Any]]:
             row_links = {str(x) for x in (row.get("contradicts") or []) if str(x).strip()} | {str(x) for x in (row.get("supersedes") or []) if str(x).strip()}
             if rid in target_links or str(claim_id) in row_links or row.get("status") in {"contradicted", "superseded"}:
                 conflicts.append(row)
-    lineage = trace_belief_lineage(claim_id) or {"belief": target, "supersedes_chain": [], "contradicts_chain": [], "descendants": [], "graph": {"nodes": [], "edges": []}, "summary": {}}
-    bundle = evidence_bundle(claim_id) or {"items": [], "source_types": {}, "weighted_confidence": target.get("decayed_confidence", target.get("confidence")), "weighted_freshness": target.get("decayed_freshness", target.get("freshness")), "operator_summary": "no evidence bundle"}
-    cluster = contradiction_cluster(claim_id) or {"belief_ids": [], "value_count": 0, "values": [], "status_counts": {}, "active_ids": [], "contradicted_ids": [], "stale_ids": [], "contradiction_link_count": 0, "ambiguity_score": 0.0, "operator_summary": "no contradiction cluster"}
+    lineage = trace_belief_lineage(claim_id, scope=scope) or {"belief": target, "supersedes_chain": [], "contradicts_chain": [], "descendants": [], "graph": {"nodes": [], "edges": []}, "summary": {}}
+    bundle = evidence_bundle(claim_id, scope=scope) or {"items": [], "source_types": {}, "weighted_confidence": target.get("decayed_confidence", target.get("confidence")), "weighted_freshness": target.get("decayed_freshness", target.get("freshness")), "operator_summary": "no evidence bundle"}
+    cluster = contradiction_cluster(claim_id, scope=scope) or {"belief_ids": [], "value_count": 0, "values": [], "status_counts": {}, "active_ids": [], "contradicted_ids": [], "stale_ids": [], "contradiction_link_count": 0, "ambiguity_score": 0.0, "operator_summary": "no contradiction cluster"}
     contradiction_summary = {
         "conflict_count": len(conflicts),
         "active_conflict_count": sum(1 for row in conflicts if str(row.get("status") or "") == "active"),
@@ -584,7 +598,7 @@ def explain_belief(claim_id: str) -> Optional[Dict[str, Any]]:
         "ambiguity_score": float(cluster.get("ambiguity_score", 0.0) or 0.0),
         "operator_summary": f"{len(conflicts)} conflicting/related beliefs; weighted_conf={bundle.get('weighted_confidence')}; ambiguity={cluster.get('ambiguity_score')}",
     }
-    epistemic_risk = belief_epistemic_risk(claim_id) or {"risk_score": 0.0, "risk_level": "low", "operator_summary": "no epistemic risk"}
+    epistemic_risk = belief_epistemic_risk(claim_id, scope=scope) or {"risk_score": 0.0, "risk_level": "low", "operator_summary": "no epistemic risk"}
     return {
         "belief": target,
         "related": related,
@@ -616,9 +630,10 @@ def upsert_belief(
     note: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
     conflict_mode: str = "supersede",
+    scope: Optional[Mapping[str, object]] = None,
 ) -> Dict[str, Any]:
     with _LOCK:
-        state = load_state()
+        state = load_state(scope=scope)
         beliefs = state.setdefault("beliefs", [])
         active_matches: List[Dict[str, Any]] = []
         for row in beliefs:
@@ -647,7 +662,7 @@ def upsert_belief(
                 md = row.setdefault("metadata", {})
                 if isinstance(metadata, dict):
                     md.update(metadata)
-                save_state(state)
+                save_state(state, scope=scope)
                 return _materialize_belief(row)
 
         superseded_ids: List[str] = []
@@ -677,7 +692,7 @@ def upsert_belief(
         beliefs.append(row)
         if len(beliefs) > 2000:
             del beliefs[:-2000]
-        save_state(state)
+        save_state(state, scope=scope)
         return _materialize_belief(row)
 
 

@@ -533,6 +533,8 @@ def verify_release_artifact_receipt(
         policy = _release_canary_policy(str(receipt.target_stage or ""))
         if policy is None:
             raise ValueError(f"canary evidence target has no server release policy: {receipt.target_stage}")
+        if not _canary_claims_have_strict_schema(receipt.claims):
+            raise ValueError("canary evidence does not match the strict server evidence schema")
         if not _canary_evidence_echoes_policy(receipt.claims, policy=policy):
             raise ValueError("canary evidence does not echo the immutable server release policy")
         if receipt.validation_outcome == "passed" and not _canary_observations_satisfy_policy(
@@ -551,15 +553,61 @@ def _canary_evidence_echoes_policy(claims: Dict[str, Any], *, policy: ReleaseCan
     )
 
 
-def _canary_observations_satisfy_policy(claims: Dict[str, Any], *, policy: ReleaseCanaryPolicy) -> bool:
-    metrics = claims.get("metrics") if isinstance(claims.get("metrics"), dict) else {}
-    try:
-        traffic_volume = int(claims.get("traffic_volume", 0) or 0)
-        observation_window = int(claims.get("observation_window_seconds", 0) or 0)
-        availability = float(metrics["availability"])
-        error_rate = float(metrics["error_rate"])
-    except (KeyError, TypeError, ValueError, OverflowError):
+def _canary_claims_have_strict_schema(claims: Dict[str, Any]) -> bool:
+    if not isinstance(claims, dict) or set(claims) != {
+        "policy_id",
+        "deployment_id",
+        "cohort_id",
+        "traffic_volume",
+        "observation_window_seconds",
+        "artifact_hashes",
+        "metrics",
+        "thresholds",
+    }:
         return False
+    if type(claims.get("traffic_volume")) is not int or type(claims.get("observation_window_seconds")) is not int:
+        return False
+    if claims["traffic_volume"] < 0 or claims["observation_window_seconds"] < 0:
+        return False
+    if not all(isinstance(claims.get(field), str) and 0 < len(claims[field]) <= 512 for field in ("policy_id", "deployment_id", "cohort_id")):
+        return False
+    hashes = claims.get("artifact_hashes")
+    if not isinstance(hashes, list) or len(hashes) > 256 or not all(isinstance(row, str) and 0 < len(row) <= 256 for row in hashes):
+        return False
+    metrics = claims.get("metrics")
+    if not isinstance(metrics, dict) or set(metrics) != {"availability", "error_rate"}:
+        return False
+    for value in metrics.values():
+        if type(value) not in {int, float} or not math.isfinite(float(value)):
+            return False
+        if not 0.0 <= float(value) <= 1.0:
+            return False
+    thresholds = claims.get("thresholds")
+    if not isinstance(thresholds, dict) or set(thresholds) != {
+        "minimum_traffic",
+        "minimum_observation_seconds",
+        "minimum_availability",
+        "maximum_error_rate",
+        "rollback_error_rate",
+    }:
+        return False
+    if type(thresholds["minimum_traffic"]) is not int or type(thresholds["minimum_observation_seconds"]) is not int:
+        return False
+    for field in ("minimum_availability", "maximum_error_rate", "rollback_error_rate"):
+        value = thresholds[field]
+        if type(value) not in {int, float} or not math.isfinite(float(value)):
+            return False
+    return True
+
+
+def _canary_observations_satisfy_policy(claims: Dict[str, Any], *, policy: ReleaseCanaryPolicy) -> bool:
+    if not _canary_claims_have_strict_schema(claims):
+        return False
+    metrics = claims.get("metrics") if isinstance(claims.get("metrics"), dict) else {}
+    traffic_volume = claims["traffic_volume"]
+    observation_window = claims["observation_window_seconds"]
+    availability = float(metrics["availability"])
+    error_rate = float(metrics["error_rate"])
     return bool(
         math.isfinite(availability)
         and math.isfinite(error_rate)
@@ -829,6 +877,16 @@ class ReleaseWorkflowStore:
         if not isinstance(data, dict):
             raise ValueError(f"invalid rollback intent for {process_id}")
         return data
+
+    def assert_mutation_allowed(self, process_id: str, *, operation: str) -> None:
+        """Fence non-recovery writers while rollback intent is durable."""
+
+        intent = self.load_rollback_intent(process_id)
+        if intent is not None and intent.get("status") in {"in_progress", "recovery_required"}:
+            phase = str(intent.get("phase") or "unknown")
+            raise RuntimeError(
+                f"{operation} rejected while rollback recovery is pending for {process_id} at {phase}"
+            )
 
     def pending_rollback_process_ids(self) -> List[str]:
         root = self.path.parent if self.path.suffix else self.path
@@ -1934,6 +1992,7 @@ def apply_release_rollback_restore(
                                 "fencepost_id": target_fencepost_id,
                                 "reason": normalized_reason,
                                 "rollback_transaction_id": transaction_id,
+                                "restore_state": json.loads(json.dumps(restore_state)),
                             },
                         )
                     )

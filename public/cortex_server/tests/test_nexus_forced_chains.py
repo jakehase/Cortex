@@ -6,7 +6,7 @@ from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
 def _client(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
@@ -14,7 +14,7 @@ def _client(monkeypatch):
 
 
 def test_coding_chain_forced(monkeypatch):
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     client = _client(monkeypatch)
     r = client.post("/nexus/orchestrate", json={}, params={"query": "Implement bug fix and add unit tests for this API"})
     assert r.status_code == 200
@@ -54,7 +54,7 @@ def test_preference_prefix_query_does_not_trigger_coding_chain(monkeypatch):
 
 
 def test_architecture_chain_forced(monkeypatch):
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     client = _client(monkeypatch)
     r = client.post("/nexus/orchestrate", json={}, params={"query": "Draft a system design blueprint for multi-tenant API boundaries"})
     assert r.status_code == 200
@@ -65,7 +65,7 @@ def test_architecture_chain_forced(monkeypatch):
 
 
 def test_complexity_auto_activates_l9(monkeypatch):
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     client = _client(monkeypatch)
     q = "Optimize a multi-step strategy under budget with 5 constraints and tradeoff analysis versus baseline"
     r = client.post("/nexus/orchestrate", json={}, params={"query": q})

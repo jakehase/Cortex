@@ -21,9 +21,6 @@ def _app(monkeypatch, recorder):
     fake_l22 = types.ModuleType("cortex_server.routers.l22")
     fake_l22.store_memory_record = recorder
     monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", fake_l22)
-    monkeypatch.setattr(nexus.ROUTE_HEALTH, "snapshot", lambda dependency=None: {"state": "closed", "healthy": True, "successes": 1, "failures": 0})
-    monkeypatch.setattr(nexus.ROUTE_HEALTH, "record_success", lambda *a, **k: {"state": "closed", "healthy": True})
-    monkeypatch.setattr(nexus.ROUTE_HEALTH, "record_failure", lambda *a, **k: {"state": "open", "healthy": False})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")

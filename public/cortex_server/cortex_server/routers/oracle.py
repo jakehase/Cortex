@@ -83,8 +83,7 @@ def _openclaw_model_label() -> str:
     return f"{_get_base_model()} (base_model via Cortex config)"
 ROUTE_STATS = {"openclaw": 0, "bridge": 0, "tinyllama": 0, "frontend_local": 0, "frontend_fallback": 0, "total": 0}
 FRONTEND_CONTRACT_STATS = {"applied": 0}
-_OPENCLAW_RATE_LIMIT_UNTIL = 0.0
-_OPENCLAW_RATE_LIMIT_HITS = 0
+_OPENCLAW_RATE_LIMITS: Dict[str, Dict[str, float | int]] = {}
 _BRIDGE_CB_FAILS = 0
 _BRIDGE_CB_OPEN_UNTIL = 0.0
 _BRIDGE_CB_THRESHOLD = int(os.getenv("ORACLE_BRIDGE_CB_THRESHOLD", "3"))
@@ -721,7 +720,7 @@ def _make_candidate_prompt(prompt: str, k: int, n: int) -> str:
         + (prompt or "")
     )
 
-def _judge_and_select(prompt: str, candidates: list[str]) -> str:
+def _judge_and_select(prompt: str, candidates: list[str], *, principal_scope_key: str = "internal-system") -> str:
     # Ask the same base model to judge; returns a final answer.
     numbered = "\n\n".join([f"Candidate {i+1}:\n{c.strip()}" for i,c in enumerate(candidates)])
     judge_prompt = (
@@ -730,9 +729,9 @@ def _judge_and_select(prompt: str, candidates: list[str]) -> str:
         "Return ONLY the best final answer (do not mention candidates)."
     )
     # Use OpenClaw local (base model) with judge system prompt.
-    return call_openclaw_local(judge_prompt, system=_JUDGE_SYSTEM)
+    return call_openclaw_local(judge_prompt, system=_JUDGE_SYSTEM, principal_scope_key=principal_scope_key)
 
-def _solve_with_self_consistency(prompt: str, system: str | None = None, depth_mode: Optional[str] = None) -> str:
+def _solve_with_self_consistency(prompt: str, system: str | None = None, depth_mode: Optional[str] = None, principal_scope_key: str = "internal-system") -> str:
     """Single-model quality lift with depth-aware budgeting.
 
     depth_mode:
@@ -742,11 +741,11 @@ def _solve_with_self_consistency(prompt: str, system: str | None = None, depth_m
     """
     # skip self-consistency for strict-contract prompts (JSON-only / exact outputs)
     if _is_strict_contract_prompt(prompt) or _is_strict_contract_prompt(system or ''):
-        return call_openclaw_local(prompt, system=system)
+        return call_openclaw_local(prompt, system=system, principal_scope_key=principal_scope_key)
 
     dmode = (depth_mode or "auto").strip().lower()
     if dmode == "shallow":
-        return call_openclaw_local(prompt, system=system)
+        return call_openclaw_local(prompt, system=system, principal_scope_key=principal_scope_key)
 
     base_n = max(1, min(int(ORACLE_SELFCONSIST_N or 1), 7))
     if dmode == "deep":
@@ -759,28 +758,28 @@ def _solve_with_self_consistency(prompt: str, system: str | None = None, depth_m
     enabled = bool(ORACLE_SELFCONSIST_ENABLED or dmode == "deep")
     # For very short prompts, don't spend extra calls unless deep mode.
     if (not enabled) or (_is_ultra_basic_prompt(prompt) and dmode != "deep") or len((prompt or "").strip()) < 80:
-        return call_openclaw_local(prompt, system=system)
+        return call_openclaw_local(prompt, system=system, principal_scope_key=principal_scope_key)
 
     # Only spend extra calls when the prompt is likely to benefit (unless deep mode).
     t = (prompt or "").lower()
     benefit_markers = ["verify", "verification", "benchmark", "judge", "check", "proof", "counterexample", "validate", "unit test", "schema", "strict", "compare", "tradeoff", "root cause"]
     if dmode != "deep" and len(t) < 220 and not any(m in t for m in benefit_markers):
-        return call_openclaw_local(prompt, system=system)
+        return call_openclaw_local(prompt, system=system, principal_scope_key=principal_scope_key)
 
     cands = []
     for k in range(1, n + 1):
         try:
-            cands.append(call_openclaw_local(_make_candidate_prompt(prompt, k, n), system=system))
+            cands.append(call_openclaw_local(_make_candidate_prompt(prompt, k, n), system=system, principal_scope_key=principal_scope_key))
         except Exception:
             # If a candidate fails, keep going with what we have.
             pass
 
     if not cands:
-        return call_openclaw_local(prompt, system=system)
+        return call_openclaw_local(prompt, system=system, principal_scope_key=principal_scope_key)
     if not ORACLE_JUDGE_ENABLED or len(cands) == 1:
         return cands[0]
     try:
-        return _judge_and_select(prompt, cands)
+        return _judge_and_select(prompt, cands, principal_scope_key=principal_scope_key)
     except Exception:
         return cands[0]
 
@@ -1454,18 +1453,34 @@ def _extract_minutes_hint(text: str) -> int:
         return 0
 
 
-def _mark_openclaw_rate_limited(msg: str) -> None:
-    global _OPENCLAW_RATE_LIMIT_UNTIL, _OPENCLAW_RATE_LIMIT_HITS
+def _mark_openclaw_rate_limited(msg: str, *, principal_scope_key: str) -> None:
     mins = _extract_minutes_hint(msg)
     cooldown = float(ORACLE_OPENCLAW_RATELIMIT_COOLDOWN_S)
     if mins > 0:
         cooldown = max(cooldown, float(mins * 60))
-    _OPENCLAW_RATE_LIMIT_HITS = int(_OPENCLAW_RATE_LIMIT_HITS or 0) + 1
-    _OPENCLAW_RATE_LIMIT_UNTIL = max(float(_OPENCLAW_RATE_LIMIT_UNTIL or 0.0), time.time() + max(60.0, cooldown))
+    with _OPENCLAW_LOCK:
+        state = _OPENCLAW_RATE_LIMITS.setdefault(principal_scope_key, {"until": 0.0, "hits": 0})
+        state["hits"] = int(state.get("hits", 0) or 0) + 1
+        state["until"] = max(float(state.get("until", 0.0) or 0.0), time.time() + max(60.0, cooldown))
 
 
-def _openclaw_rate_limited_active() -> bool:
-    return time.time() < float(_OPENCLAW_RATE_LIMIT_UNTIL or 0.0)
+def _openclaw_rate_limited_active(principal_scope_key: str = "internal-system") -> bool:
+    with _OPENCLAW_LOCK:
+        state = dict(_OPENCLAW_RATE_LIMITS.get(principal_scope_key) or {})
+    return time.time() < float(state.get("until", 0.0) or 0.0)
+
+
+def _openclaw_rate_limit_status() -> Dict[str, Any]:
+    now = time.time()
+    with _OPENCLAW_LOCK:
+        states = [dict(row) for row in _OPENCLAW_RATE_LIMITS.values()]
+    active = [row for row in states if float(row.get("until", 0.0) or 0.0) > now]
+    return {
+        "active": bool(active),
+        "active_scope_count": len(active),
+        "until": max((float(row.get("until", 0.0) or 0.0) for row in active), default=0.0),
+        "hits": sum(int(row.get("hits", 0) or 0) for row in states),
+    }
 
 
 def _frontend_local_model(prompt: str, system: Optional[str] = None) -> str:
@@ -2143,8 +2158,10 @@ def _ledger_append(entry: dict) -> None:
         pass
 
 
-def _sf_key(prompt: str, system: Optional[str]) -> str:
+def _sf_key(prompt: str, system: Optional[str], principal_scope_key: str = "internal-system") -> str:
     h = hashlib.sha256()
+    h.update((principal_scope_key or "internal-system").encode("utf-8"))
+    h.update(b"\0")
     h.update((prompt or "").encode("utf-8"))
     h.update(b"\0")
     h.update((system or "").encode("utf-8"))
@@ -2231,7 +2248,7 @@ def _verify_contract(prompt: str, text: str) -> bool:
     return True
 
 
-def _repair_contract_with_verifier(prompt: str, draft: str) -> str:
+def _repair_contract_with_verifier(prompt: str, draft: str, principal_scope_key: str = "internal-system") -> str:
     verifier_prompt = (
         "You are a strict output verifier.\n"
         "TASK: Return a corrected final answer that strictly satisfies the user's output contract.\n"
@@ -2239,7 +2256,7 @@ def _repair_contract_with_verifier(prompt: str, draft: str) -> str:
         f"USER PROMPT:\n{prompt}\n\n"
         f"DRAFT ANSWER:\n{draft}\n"
     )
-    return call_openclaw_local(verifier_prompt)
+    return call_openclaw_local(verifier_prompt, principal_scope_key=principal_scope_key)
 
 
 def ensure_ollama_ready():
@@ -2350,26 +2367,27 @@ def _openclaw_session_id_for_key(key: str) -> str:
         mode = "per_key"
 
     if mode == "fixed":
-        return ORACLE_OPENCLAW_SESSION_ID
+        return f"{ORACLE_OPENCLAW_SESSION_ID}-{key[:12]}"
 
     # default: per_key
     prefix = (ORACLE_OPENCLAW_SESSION_PREFIX or "oracle").strip() or "oracle"
     return f"{prefix}-{key[:12]}"
 
 
-def call_openclaw_local(prompt: str, system: Optional[str] = None) -> str:
+def call_openclaw_local(prompt: str, system: Optional[str] = None, *, principal_scope_key: str = "internal-system") -> str:
     """Invoke local OpenClaw agent with reliability + single-flight.
 
     - Single-flight: identical (prompt, system) shares one in-flight call.
     - Retries: best-effort retry on transient failures.
     - Concurrency guard: small bounded semaphore (prevents head-of-line blocking).
     """
-    global _OPENCLAW_RATE_LIMIT_UNTIL
-    if _openclaw_rate_limited_active():
-        wait_s = max(1, int(float(_OPENCLAW_RATE_LIMIT_UNTIL or 0.0) - time.time()))
+    if _openclaw_rate_limited_active(principal_scope_key):
+        with _OPENCLAW_LOCK:
+            until = float((_OPENCLAW_RATE_LIMITS.get(principal_scope_key) or {}).get("until", 0.0) or 0.0)
+        wait_s = max(1, int(until - time.time()))
         raise HTTPException(status_code=503, detail=f"openclaw_rate_limited_cooldown_active:{wait_s}s")
 
-    key = _sf_key(prompt, system)
+    key = _sf_key(prompt, system, principal_scope_key)
 
     with _OPENCLAW_LOCK:
         inflight = _OPENCLAW_INFLIGHT.get(key)
@@ -2422,10 +2440,20 @@ def call_openclaw_local(prompt: str, system: Optional[str] = None) -> str:
                 with _OPENCLAW_SEM:
                     r = subprocess.run(cmd, capture_output=True, text=True, timeout=subprocess_timeout_s)
                 if r.returncode != 0:
-                    err = (r.stderr or r.stdout or "").strip()
+                    # stderr and the process status are trusted provider-control
+                    # signals. Assistant payload text is deliberately excluded.
+                    err = (r.stderr or "").strip() or (r.stdout or "").strip()
+                    if _looks_like_rate_limit_message(r.stderr or ""):
+                        _mark_openclaw_rate_limited(r.stderr or "", principal_scope_key=principal_scope_key)
                     raise RuntimeError(err[:600] or "openclaw nonzero exit")
 
                 data = json.loads((r.stdout or "").strip())
+                structured_status = " ".join(
+                    str(data.get(key_name) or "") for key_name in ("status", "error", "error_code")
+                ) if isinstance(data, dict) else ""
+                if _looks_like_rate_limit_message(structured_status):
+                    _mark_openclaw_rate_limited(structured_status, principal_scope_key=principal_scope_key)
+                    raise RuntimeError("openclaw structured rate-limit response")
                 payloads = data.get("payloads") or []
                 text = ""
                 if payloads and isinstance(payloads[0], dict):
@@ -2439,19 +2467,14 @@ def call_openclaw_local(prompt: str, system: Optional[str] = None) -> str:
 
                 if not text:
                     raise RuntimeError('openclaw_returned_empty')
-                if _looks_like_rate_limit_message(text):
-                    _mark_openclaw_rate_limited(text)
-                    raise RuntimeError('openclaw_rate_limited')
-
-                # successful OpenClaw result clears local cooldown window
-                _OPENCLAW_RATE_LIMIT_UNTIL = 0.0
+                # Successful assistant content is never interpreted as provider
+                # control metadata. It clears only this principal's cooldown.
                 with _OPENCLAW_LOCK:
+                    _OPENCLAW_RATE_LIMITS.pop(principal_scope_key, None)
                     inflight["result"] = text
                 return text
             except Exception as e:
                 err_detail = f"OpenClaw local invoke failed (attempt {attempt}/{max_attempts}): {e}"
-                if _looks_like_rate_limit_message(str(e)) or _looks_like_rate_limit_message(err_detail):
-                    _mark_openclaw_rate_limited(str(e) or err_detail)
                 # jittered backoff
                 time_s = min(2.5, 0.25 * (2 ** (attempt - 1))) + random.random() * 0.1
                 try:
@@ -2512,7 +2535,7 @@ def _hedge_delay_for_prompt(prompt: str) -> float:
     return max(0.05, ORACLE_HEDGE_DELAY_S)
 
 
-def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[Dict[str, Any]] = None, adaptive_policies=None, backend_policy_override: Optional[Dict[str, Any]] = None) -> Tuple[str, str, str]:
+def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[Dict[str, Any]] = None, adaptive_policies=None, backend_policy_override: Optional[Dict[str, Any]] = None, principal_scope_key: str = "internal-system") -> Tuple[str, str, str]:
     """Return (text, model_label, fallback_reason)."""
     # Frontend fast-path: keep UX stable and low-latency during backend turbulence.
     if _is_frontend_prompt((prompt or "") + "\n" + (system or "")):
@@ -2531,7 +2554,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
                 "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
                 "bridge_available": bool(BRIDGE_URL),
                 "bridge_cb_allows": bool(_bridge_cb_allows()),
-                "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
+                "openclaw_rate_limited": bool(_openclaw_rate_limited_active(principal_scope_key)),
             },
             priors_override=priors,
         )
@@ -2553,7 +2576,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
     # Fast path: OpenClaw only (fallbacks disabled)
     if not ORACLE_FALLBACKS_ENABLED:
         try:
-            text = _solve_with_self_consistency(prompt, system, depth_mode=depth_mode)
+            text = _solve_with_self_consistency(prompt, system, depth_mode=depth_mode, principal_scope_key=principal_scope_key)
             ROUTE_STATS['openclaw'] += 1
             return text, _openclaw_model_label(), "openclaw_only_fallbacks_disabled"
         except Exception as e:
@@ -2567,7 +2590,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
     # Degraded fast-path: if OpenClaw is on cooldown or bridge circuit is open,
     # avoid slow upstream waits and fail over quickly to local bounded fallback.
     degraded_fastpath = bool(backend_policy.get("degraded_fastpath_enabled", True)) and ((os.getenv("ORACLE_DEGRADED_FASTPATH") or "true").strip().lower() == "true")
-    if degraded_fastpath and _openclaw_rate_limited_active():
+    if degraded_fastpath and _openclaw_rate_limited_active(principal_scope_key):
         if (not avoid_tinyllama) and _tinyllama_allowed(prompt, system=system, priority=priority):
             try:
                 ensure_ollama_ready()
@@ -2587,7 +2610,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
     if should_hedge:
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         try:
-            oc_f = ex.submit(_solve_with_self_consistency, prompt, system, depth_mode)
+            oc_f = ex.submit(_solve_with_self_consistency, prompt, system, depth_mode, principal_scope_key)
             try:
                 text = oc_f.result(timeout=_hedge_delay_for_prompt(prompt))
                 ROUTE_STATS['openclaw'] += 1
@@ -2639,7 +2662,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
     else:
         # Non-hedged fallback mode: OpenClaw first, then fallbacks.
         try:
-            text = _solve_with_self_consistency(prompt, system, depth_mode=depth_mode)
+            text = _solve_with_self_consistency(prompt, system, depth_mode=depth_mode, principal_scope_key=principal_scope_key)
             ROUTE_STATS['openclaw'] += 1
             return text, _openclaw_model_label(), "openclaw_primary_nonhedged"
         except Exception as e:
@@ -2711,6 +2734,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         http_request,
         session_hint=transport_session,
     )
+    openclaw_scope_key = principal.isolation_key("oracle.openclaw.v1")
     session_key = _oracle_continuity_key(principal, resolved_session)
     adaptive_policies = _adaptive_policies_for_scope(principal.storage_metadata)
     observation_allowed = _adaptive_observation_allowed(adaptive_policies.scope_key)
@@ -2870,7 +2894,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
             "bridge_available": bool(BRIDGE_URL),
             "bridge_cb_allows": bool(_bridge_cb_allows()),
-            "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
+            "openclaw_rate_limited": bool(_openclaw_rate_limited_active(openclaw_scope_key)),
         },
         priors_override=codec_step_priors,
     )
@@ -3023,13 +3047,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         if alive.enabled() and os.getenv("ORACLE_DISABLE_ALIVE", "true").lower() != "true":
             # Benchmark-safe strict contract lane: keep exact output shape and skip HUD.
             if strict_contract:
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
                 text = _enforce_contract_output(contract_basis, text)
                 # Verifier lane: if contract still not satisfied, attempt repair.
                 if not _verify_contract(contract_basis, text):
                     for _ in range(2):
                         try:
-                            repaired = await run_in_threadpool(_repair_contract_with_verifier, contract_basis, text)
+                            repaired = await run_in_threadpool(_repair_contract_with_verifier, contract_basis, text, openclaw_scope_key)
                             repaired = _enforce_contract_output(contract_basis, repaired)
                             if _verify_contract(contract_basis, repaired):
                                 text = repaired
@@ -3073,7 +3097,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 )
 
             if not (force_orchestrate or _should_orchestrate(raw_prompt, priority=priority, strict_contract=strict_contract)):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
                 _ledger_append({
                     "lane": "gated_direct",
                     "alive": True,
@@ -3109,7 +3133,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             orchestration = await run_in_threadpool(
                 alive.orchestrate,
                 prompt=prompt,
-                call_oracle=lambda p: _solve_with_self_consistency(p, system=None, depth_mode=depth_mode),
+                call_oracle=lambda p: _solve_with_self_consistency(p, system=None, depth_mode=depth_mode, principal_scope_key=openclaw_scope_key),
                 call_council=_call_council,
                 call_ethicist=_call_ethicist,
                 call_validator=_call_validator,
@@ -3119,7 +3143,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             fallback_reason = "alive_orchestration"
 
             if _looks_like_hud_only(text):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
 
             hide_sig = final_only or alive.should_hide_hud_signature(raw_prompt)
             if not hide_sig:
@@ -3167,13 +3191,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             )
 
         if use_bridge:
-            text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
+            text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
             if strict_contract:
                 text = _enforce_contract_output(contract_basis, text)
                 if not _verify_contract(contract_basis, text):
                     for _ in range(2):
                         try:
-                            repaired = await run_in_threadpool(_repair_contract_with_verifier, contract_basis, text)
+                            repaired = await run_in_threadpool(_repair_contract_with_verifier, contract_basis, text, openclaw_scope_key)
                             repaired = _enforce_contract_output(contract_basis, repaired)
                             if _verify_contract(contract_basis, repaired):
                                 text = repaired
@@ -3220,13 +3244,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
 
         # Non-bridge/basic path: still use unified best-effort router so tinyllama
         # only appears as true last-resort fallback (never first-choice).
-        text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy)
+        text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
         if strict_contract:
             text = _enforce_contract_output(contract_basis, text)
             if not _verify_contract(contract_basis, text):
                 for _ in range(2):
                     try:
-                        repaired = await run_in_threadpool(_repair_contract_with_verifier, contract_basis, text)
+                        repaired = await run_in_threadpool(_repair_contract_with_verifier, contract_basis, text, openclaw_scope_key)
                         repaired = _enforce_contract_output(contract_basis, repaired)
                         if _verify_contract(contract_basis, repaired):
                             text = repaired
@@ -3494,11 +3518,7 @@ async def oracle_status():
         'local_error': local_err,
         'bridge_error': bridge_err,
         'bridge_cb': {'fails': _BRIDGE_CB_FAILS, 'open_until': _BRIDGE_CB_OPEN_UNTIL, 'allows': _bridge_cb_allows(), 'threshold': _BRIDGE_CB_THRESHOLD, 'cooldown_s': _BRIDGE_CB_COOLDOWN_S},
-        'openclaw_rate_limit': {
-            'active': _openclaw_rate_limited_active(),
-            'until': _OPENCLAW_RATE_LIMIT_UNTIL,
-            'hits': int(_OPENCLAW_RATE_LIMIT_HITS or 0),
-        },
+        'openclaw_rate_limit': _openclaw_rate_limit_status(),
         'openclaw_ok': openclaw_ok,
         'openclaw_error': openclaw_err,
         'ollama_enabled': bool(OLLAMA_ENABLED),

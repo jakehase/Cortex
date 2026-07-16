@@ -20,7 +20,7 @@ def test_risk_flags():
 
 @pytest.mark.asyncio
 async def test_cognitive_wave_slice_present(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
@@ -42,7 +42,7 @@ async def test_cognitive_wave_slice_present(monkeypatch):
 @pytest.mark.asyncio
 async def test_orchestrate_get_cannot_mutate_and_post_requires_write_authorization(monkeypatch):
     codec_updates = []
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False, "evidence": []})
     monkeypatch.setattr(nexus, "_update_codec_context", lambda *a, **k: codec_updates.append((a, k)) or {"enabled": True, "available": False, "packet": "", "summary": ""})
 

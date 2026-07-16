@@ -37,6 +37,7 @@ COPY cortex_server/cortex_server/ ./cortex_server/
 # Nexus imports the adaptive routing package at startup. Keep the production
 # image layout aligned with the source-tree PYTHONPATH used by tests.
 COPY cortex_server/services/ ./services/
+COPY cortex_graph.db /app/seed/cortex_graph.db
 
 # Explicitly copy knowledge files (ensure graph.py and __init__.py are present)
 COPY cortex_server/cortex_server/knowledge/*.py ./cortex_server/knowledge/
@@ -44,7 +45,7 @@ COPY cortex_server/cortex_server/knowledge/evolution/ ./cortex_server/knowledge/
 
 # Create necessary directories. The runtime delivery path is replaced by the
 # access-controlled durable volume in the production Compose deployment.
-RUN mkdir -p /app/config /app/logs /app/cortex_server/knowledge/evolution /opt/clawdbot/state/runtime_delivery
+RUN mkdir -p /app/config /app/logs /app/seed /app/cortex_server/knowledge/evolution /opt/clawdbot/state/runtime_delivery /opt/clawdbot/state/knowledge
 
 # Set environment variables
 ENV PYTHONPATH=/app
@@ -56,9 +57,7 @@ EXPOSE 8888
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -fsS http://localhost:8888/ready >/dev/null \
-    && curl -fsS http://localhost:8888/orchestrator/runtime-delivery/readiness >/dev/null \
-    || exit 1
+    CMD curl -fsS http://localhost:8888/ready >/dev/null || exit 1
 
 # Run the Cortex
 CMD python -m uvicorn cortex_server.main:app --host 0.0.0.0 --port 8888

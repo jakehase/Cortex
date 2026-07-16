@@ -12,6 +12,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 import threading
 import time
+from uuid import uuid4
 
 
 class NodeType(str, Enum):
@@ -75,7 +76,7 @@ class SQLiteStorage:
         "/root/clawd/public/cortex_server/cortex_graph.db",
         "/opt/clawdbot/cortex_server/cortex_graph.db",
         "/opt/clawdbot/cortex_graph.db",
-        str(Path(__file__).resolve().parents[3] / "cortex_graph.db"),
+        str(Path(__file__).resolve().parents[2] / "cortex_graph.db"),
     ]
 
     def __init__(self, db_path: Optional[str] = None):
@@ -83,21 +84,62 @@ class SQLiteStorage:
         if configured_db_path:
             self.db_path = str(Path(configured_db_path).expanduser().resolve())
         else:
-            chosen = None
-            for c in self.DEFAULT_DB_CANDIDATES:
-                try:
-                    if Path(c).exists():
-                        chosen = c
-                        break
-                except Exception:
-                    continue
-            self.db_path = str(Path(chosen or self.DEFAULT_DB_CANDIDATES[-1]).resolve())
+            production = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower() in {"production", "prod", "staging"}
+            if production:
+                self.db_path = "/opt/clawdbot/state/knowledge/cortex_graph.db"
+            else:
+                chosen = None
+                for c in self.DEFAULT_DB_CANDIDATES:
+                    try:
+                        if Path(c).exists():
+                            chosen = c
+                            break
+                    except Exception:
+                        continue
+                self.db_path = str(Path(chosen or self.DEFAULT_DB_CANDIDATES[-1]).resolve())
+
+        self._initialize_from_seed()
 
         self._local = threading.local()
         self._transaction_lock = threading.Lock()
         self._active_transactions = set()
         self._active_transactions_lock = threading.Lock()
         self._init_db()
+
+    def _initialize_from_seed(self) -> None:
+        target = Path(self.db_path)
+        if target.exists():
+            return
+        seed_value = os.getenv("CORTEX_DB_SEED_PATH", "").strip()
+        if not seed_value:
+            return
+        seed = Path(seed_value).expanduser().resolve()
+        if not seed.is_file() or seed.is_symlink():
+            raise RuntimeError("configured Cortex graph seed is not a regular file")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.parent.is_symlink():
+            raise RuntimeError("Cortex graph database directory cannot be a symbolic link")
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with seed.open("rb") as source, temporary.open("xb") as destination:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    destination.write(chunk)
+                destination.flush()
+                os.fsync(destination.fileno())
+            os.replace(temporary, target)
+            directory_fd = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
 
     def interrupt_transactions(self) -> None:
         """Interrupt every parser-owned transaction currently using this storage."""

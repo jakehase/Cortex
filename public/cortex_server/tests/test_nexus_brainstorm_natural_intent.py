@@ -9,7 +9,7 @@ def _client(monkeypatch):
     monkeypatch.setattr(
         nexus,
         "analyze_intent_with_oracle",
-        lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"},
+        lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"},
     )
     app = FastAPI()
     app.add_middleware(HUDMiddleware)

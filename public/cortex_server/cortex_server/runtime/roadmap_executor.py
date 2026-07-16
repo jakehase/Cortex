@@ -2723,7 +2723,7 @@ def _reconcile_roadmap_execution_pass(
     }
 
 
-def reconcile_roadmap_execution(
+def _reconcile_roadmap_execution_locked(
     contract: RoadmapObjectiveContract,
     *,
     roadmap_store: RoadmapExecutionStore,
@@ -3076,6 +3076,44 @@ def reconcile_roadmap_execution(
     final_state.setdefault("metadata", {})["chained_passes"] = chained_passes
     final_result["state"] = final_state
     return final_result
+
+
+def reconcile_roadmap_execution(
+    contract: RoadmapObjectiveContract,
+    *,
+    roadmap_store: RoadmapExecutionStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    release_store: Optional[ReleaseWorkflowStore],
+    controller_id: str,
+    controller_session_id: str,
+    journal: Any = None,
+    now: Optional[datetime] = None,
+    watchdog_context: Optional[Dict[str, Any]] = None,
+) -> JsonDict:
+    kwargs = {
+        "roadmap_store": roadmap_store,
+        "snapshot_store": snapshot_store,
+        "shared_state_store": shared_state_store,
+        "mailbox": mailbox,
+        "supervisor": supervisor,
+        "release_store": release_store,
+        "controller_id": controller_id,
+        "controller_session_id": controller_session_id,
+        "journal": journal,
+        "now": now,
+        "watchdog_context": watchdog_context,
+    }
+    if release_store is None:
+        return _reconcile_roadmap_execution_locked(contract, **kwargs)
+    with release_store.release_transaction(contract.process_id):
+        release_store.assert_mutation_allowed(
+            contract.process_id,
+            operation="roadmap reconciliation",
+        )
+        return _reconcile_roadmap_execution_locked(contract, **kwargs)
 
 
 __all__ = [

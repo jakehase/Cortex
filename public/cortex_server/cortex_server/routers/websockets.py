@@ -8,11 +8,7 @@ import inspect
 import json
 import re
 
-from cortex_server.middleware.write_authorization import (
-    authorization_mode,
-    is_trusted_direct_loopback,
-    token_matches,
-)
+from cortex_server.middleware.write_authorization import token_matches
 
 router = APIRouter()
 
@@ -28,15 +24,13 @@ def _allowed_websocket_origin(websocket: WebSocket) -> bool:
 
 def _log_websocket_authorized(websocket: WebSocket) -> bool:
     config = websocket.app.state.websocket_security
-    mode = authorization_mode(config.write_auth_mode)
-    client_host = websocket.client.host if websocket.client else ""
-    if mode in {"token_or_loopback", "disabled"} and is_trusted_direct_loopback(
-        client_host, websocket.headers
-    ):
-        return True
+    # Docker is an infrastructure-wide control plane. A generic write token,
+    # loopback origin, or signed tenant identity is not container ownership.
+    # Until an authoritative container-to-principal map exists this surface is
+    # deliberately administrator-only.
     return token_matches(
-        websocket.headers.get(config.write_token_header, ""),
-        config.write_token,
+        websocket.headers.get("x-cortex-admin-token", ""),
+        config.admin_token,
     )
 
 

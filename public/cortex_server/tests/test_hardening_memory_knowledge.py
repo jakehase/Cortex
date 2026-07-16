@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import sqlite3
 import threading
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -414,6 +415,26 @@ def test_default_database_path_is_absolute_and_independent_of_working_directory(
     path_two = SQLiteStorage().db_path
     assert os.path.isabs(path_one)
     assert path_one == path_two == str(tmp_path / "stable.db")
+
+
+def test_configured_graph_seed_is_copied_to_durable_database_once(tmp_path, monkeypatch):
+    seed = tmp_path / "seed.db"
+    target = tmp_path / "durable" / "knowledge" / "cortex_graph.db"
+    with sqlite3.connect(seed) as connection:
+        connection.execute("CREATE TABLE seed_marker (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO seed_marker(value) VALUES ('packaged-seed')")
+    monkeypatch.setenv("CORTEX_DB_PATH", str(target))
+    monkeypatch.setenv("CORTEX_DB_SEED_PATH", str(seed))
+
+    storage = SQLiteStorage()
+    assert Path(storage.db_path) == target.resolve()
+    assert storage._get_conn().execute("SELECT value FROM seed_marker").fetchone()[0] == "packaged-seed"
+
+    with sqlite3.connect(target) as connection:
+        connection.execute("UPDATE seed_marker SET value = 'durable-write'")
+    SQLiteStorage()
+    with sqlite3.connect(target) as connection:
+        assert connection.execute("SELECT value FROM seed_marker").fetchone()[0] == "durable-write"
 
 
 def test_high_degree_neighbors_are_limited_in_sql_without_per_neighbor_loading(tmp_path):

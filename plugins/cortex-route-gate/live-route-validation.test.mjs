@@ -24,7 +24,6 @@ function cachedPlan() {
 
 async function invoke({ requireRouting, cache, response, config = {}, context = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this' }) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-live-route-'));
-  if (cache) fs.writeFileSync(path.join(stateDir, 'last-good-plan.json'), JSON.stringify(cache));
   const handlers = new Map();
   register({
     config: {
@@ -33,6 +32,9 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
       baseUrl: 'http://127.0.0.1:18888',
       routeCacheHmacSecret: CACHE_SECRET,
       sessionIdentityHmacSecret: 'session-identity-default-test-secret',
+      agentId: 'test-agent',
+      userId: 'test-user',
+      channelId: 'test-channel',
       writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-default-test',
       scopeHmacSecret: 'route-default-scope-secret',
@@ -42,6 +44,31 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
     logger: { info() {}, warn() {} },
     on(name, handler) { handlers.set(name, handler); },
   });
+  const sessionSecret = config.sessionIdentityHmacSecret || 'session-identity-default-test-secret';
+  const sessionIdentity = `openclaw-${crypto.createHmac('sha256', sessionSecret).update(sessionKey).digest('hex')}`;
+  const trustedContext = {
+    agentId: 'test-agent',
+    userId: 'test-user',
+    channelId: 'test-channel',
+    ...context,
+  };
+  const scope = [
+    config.tenantId || 'cortex-local',
+    config.workspaceId || 'default',
+    trustedContext.agentId,
+    trustedContext.userId || trustedContext.requesterSenderId,
+    trustedContext.channelId || trustedContext.messageChannel,
+    sessionIdentity,
+  ].join('\n');
+  const scopeTag = crypto.createHmac('sha256', sessionSecret).update(`cortex.route-gate.state.v1\n${scope}`).digest('hex');
+  const principalDir = path.join(stateDir, 'principals', scopeTag);
+  fs.mkdirSync(principalDir, { recursive: true });
+  const cachePath = path.join(principalDir, 'last-good-plan.json');
+  if (cache) {
+    const boundCache = { ...cache, scopeTag };
+    boundCache.tag = crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson({ savedAt: boundCache.savedAt, provenance: boundCache.provenance, scopeTag, plan: boundCache.plan })).digest('hex');
+    fs.writeFileSync(cachePath, JSON.stringify(boundCache));
+  }
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     inspectRequest?.(url, init);
@@ -50,9 +77,9 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
   try {
     const result = await handlers.get('before_prompt_build')(
       { prompt, messages: [{ role: 'user', content: prompt }] },
-      { sessionKey, ...context },
+      { sessionKey, ...trustedContext },
     );
-    return { context: String(result?.appendSystemContext || ''), saved: fs.existsSync(path.join(stateDir, 'last-good-plan.json')) ? JSON.parse(fs.readFileSync(path.join(stateDir, 'last-good-plan.json'), 'utf8')) : null };
+    return { context: String(result?.appendSystemContext || ''), saved: fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, 'utf8')) : null };
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -65,12 +92,69 @@ for (const response of [{}, { recommended_levels: [] }, { recommended_levels: [{
   });
 }
 
+test('callback identity is mandatory and two users never share adaptive state', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-route-principal-isolation-'));
+  const handlers = new Map();
+  register({
+    config: {
+      enabled: true,
+      requireRouting: true,
+      baseUrl: 'http://127.0.0.1:18888',
+      routeCacheHmacSecret: CACHE_SECRET,
+      sessionIdentityHmacSecret: 'principal-isolation-session-secret',
+      // Provisioned defaults must not substitute for trusted callback identity.
+      agentId: 'unsafe-config-agent',
+      userId: 'unsafe-config-user',
+      channelId: 'unsafe-config-channel',
+      writeToken: 'route-gate-production-write-token',
+      scopeCredentialId: 'route-principal-isolation-test',
+      scopeHmacSecret: 'route-principal-isolation-scope-secret',
+      stateDir,
+    },
+    logger: { info() {}, warn() {} },
+    on(name, handler) { handlers.set(name, handler); },
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    recommended_levels: [{ level: 24, name: 'Nexus', reason: 'isolated' }],
+    routing_method: 'principal_isolation',
+    reasoning: ['principal local'],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const handler = handlers.get('before_prompt_build');
+  const sessionKey = 'agent:main:shared-session';
+  try {
+    await assert.rejects(
+      () => handler({ prompt: 'Route missing identity', messages: [] }, { sessionKey }),
+      /complete bounded trusted Cortex principal/,
+    );
+    await handler(
+      { prompt: 'Tenant A private blue ocean prompt', messages: [] },
+      { sessionKey, agentId: 'agent-a', userId: 'user-a', channelId: 'channel-a' },
+    );
+    await handler(
+      { prompt: 'Tenant B independent green field prompt', messages: [] },
+      { sessionKey, agentId: 'agent-b', userId: 'user-b', channelId: 'channel-b' },
+    );
+    const principalRoot = path.join(stateDir, 'principals');
+    const directories = fs.readdirSync(principalRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    assert.equal(directories.length, 2);
+    const histories = directories.map((entry) => JSON.parse(fs.readFileSync(path.join(principalRoot, entry.name, 'prompt-history.json'), 'utf8')));
+    assert.deepEqual(histories.map((rows) => rows.length).sort(), [1, 1]);
+    assert.notDeepEqual(histories[0][0].tokens, histories[1][0].tokens);
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('optional routing uses a separately validated last-good plan after malformed HTTP 200', async () => {
   const cache = cachedPlan();
   const { context, saved } = await invoke({ requireRouting: false, cache, response: {} });
   assert.match(context, /routing_method: cached_fallback/);
   assert.match(context, /L7 Mnemosyne/);
-  assert.deepEqual(saved, cache);
+  assert.deepEqual(saved.plan, cache.plan);
+  assert.equal(saved.provenance, cache.provenance);
+  assert.match(saved.scopeTag, /^[0-9a-f]{64}$/);
 });
 
 test('optional routing does not treat a malformed HTTP 200 as a live plan', async () => {
@@ -151,7 +235,9 @@ test('routing binds the opaque session to a complete signed trusted principal', 
     sessionKey,
     context: {
       agentId: 'agent-a',
+      userId: '',
       requesterSenderId: 'user-a',
+      channelId: '',
       messageChannel: 'channel-a',
     },
     config: {

@@ -3,15 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 import register from './index.ts';
 
 async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = false) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-cache-persistence-'));
-  const cachePath = path.join(stateDir, 'last-good-plan.json');
-  fs.mkdirSync(cachePath);
-  const crashTemporary = path.join(stateDir, 'prompt-history.json.999999.1.tmp');
-  if (seedCrashTemporary) fs.writeFileSync(crashTemporary, 'partial');
+  const sessionKey = `agent:main:test:cache-persistence-${requireRouting}`;
+  const sessionSecret = 'session-identity-cache-persistence-test-secret';
+  const sessionIdentity = `openclaw-${crypto.createHmac('sha256', sessionSecret).update(sessionKey).digest('hex')}`;
+  const scope = ['cortex-local', 'default', 'test-agent', 'test-user', 'test-channel', sessionIdentity].join('\n');
+  const scopeTag = crypto.createHmac('sha256', sessionSecret).update(`cortex.route-gate.state.v1\n${scope}`).digest('hex');
+  const principalDir = path.join(stateDir, 'principals', scopeTag);
+  const cachePath = path.join(principalDir, 'last-good-plan.json');
+  const crashTemporary = path.join(principalDir, 'prompt-history.json.999999.1.tmp');
   const handlers = new Map();
   const warnings = [];
   register({
@@ -19,6 +24,9 @@ async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = fa
       enabled: true,
       requireRouting,
       sessionIdentityHmacSecret: 'session-identity-cache-persistence-test-secret',
+      agentId: 'test-agent',
+      userId: 'test-user',
+      channelId: 'test-channel',
       writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-cache-persistence-test',
       scopeHmacSecret: 'route-cache-persistence-scope-secret',
@@ -33,6 +41,9 @@ async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = fa
     },
     on(name, handler) { handlers.set(name, handler); },
   });
+  fs.mkdirSync(principalDir, { recursive: true });
+  fs.mkdirSync(cachePath);
+  if (seedCrashTemporary) fs.writeFileSync(crashTemporary, 'partial');
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
@@ -44,7 +55,7 @@ async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = fa
   try {
     const result = await handlers.get('before_prompt_build')(
       { prompt: 'Route this request', messages: [{ role: 'user', content: 'Route this request' }] },
-      { sessionKey: `agent:main:test:cache-persistence-${requireRouting}` },
+      { sessionKey, agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
     );
     return { context: String(result?.appendSystemContext || ''), warnings, stateDir, crashTemporary };
   } catch (error) {

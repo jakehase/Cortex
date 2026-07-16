@@ -195,7 +195,7 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
     monkeypatch.setattr(
         nexus,
         "analyze_intent_with_oracle",
-        lambda _query: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"},
+        lambda _query, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"},
     )
     monkeypatch.setattr(
         nexus,
@@ -208,7 +208,7 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
         },
     )
     monkeypatch.setattr(nexus, "_fetch_kernel_online_levels", lambda: None)
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(nexus, "_persist_checkpoint", lambda _checkpoint: None)
     monkeypatch.setattr(nexus, "_refresh_context", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(nexus, "observe_outcome", lambda *_args, **_kwargs: {"autotune_enabled": True})

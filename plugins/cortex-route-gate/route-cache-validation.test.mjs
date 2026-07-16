@@ -46,13 +46,20 @@ function validCache(secret = CACHE_SECRET) {
 
 async function contextForCache(cache, secret = CACHE_SECRET) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-route-cache-'));
-  fs.writeFileSync(path.join(stateDir, 'last-good-plan.json'), JSON.stringify(cache));
+  const sessionKey = `agent:main:test:cache-${Math.random()}`;
+  const sessionSecret = 'session-identity-route-cache-test-secret';
+  const sessionIdentity = `openclaw-${crypto.createHmac('sha256', sessionSecret).update(sessionKey).digest('hex')}`;
+  const scope = ['cortex-local', 'default', 'test-agent', 'test-user', 'test-channel', sessionIdentity].join('\n');
+  const scopeTag = crypto.createHmac('sha256', sessionSecret).update(`cortex.route-gate.state.v1\n${scope}`).digest('hex');
   const handlers = new Map();
   register({
     config: {
       enabled: true,
       requireRouting: false,
       sessionIdentityHmacSecret: 'session-identity-route-cache-test-secret',
+      agentId: 'test-agent',
+      userId: 'test-user',
+      channelId: 'test-channel',
       writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-cache-validation-test',
       scopeHmacSecret: 'route-cache-validation-scope-secret',
@@ -65,13 +72,23 @@ async function contextForCache(cache, secret = CACHE_SECRET) {
     logger: { info() {}, warn() {} },
     on(name, handler) { handlers.set(name, handler); },
   });
+  const principalDir = path.join(stateDir, 'principals', scopeTag);
+  fs.mkdirSync(principalDir, { recursive: true });
+  const oldPayload = { savedAt: cache.savedAt, provenance: cache.provenance, plan: cache.plan };
+  const oldExpected = crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson(oldPayload)).digest('hex');
+  const boundCache = { ...cache, scopeTag };
+  if (cache.tag === oldExpected) {
+    const payload = { savedAt: cache.savedAt, provenance: cache.provenance, scopeTag, plan: cache.plan };
+    boundCache.tag = crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson(payload)).digest('hex');
+  }
+  fs.writeFileSync(path.join(principalDir, 'last-good-plan.json'), JSON.stringify(boundCache));
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new TypeError('routing offline'); };
   try {
     const result = await handlers.get('before_prompt_build')(
       { prompt: 'Status request', messages: [{ role: 'user', content: 'What is the status?' }] },
-      { sessionKey: `agent:main:test:cache-${Math.random()}` },
+      { sessionKey, agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
     );
     return String(result?.appendSystemContext || '');
   } finally {

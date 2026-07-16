@@ -21,6 +21,7 @@ from cortex_server.runtime import (
 )
 from cortex_server.runtime.session_registry import SessionRegistryStore
 from cortex_server.runtime.release_workflow import create_release_artifact_receipt, release_canary_policy
+from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
 from cortex_server.runtime.shared_process_state import SharedProcessState
 
 
@@ -177,6 +178,30 @@ def test_signed_canary_evidence_cannot_define_or_evade_server_thresholds(tmp_pat
             artifact_store=artifact_store,
             verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
         )
+
+    for artifact_id, malformed in (
+        ("evidence:boolean-metrics", {**unhealthy_claims, "traffic_volume": 1000, "observation_window_seconds": 900, "metrics": {"availability": True, "error_rate": False}}),
+        ("evidence:boolean-traffic", {**unhealthy_claims, "traffic_volume": True, "observation_window_seconds": 900, "metrics": {"availability": 1.0, "error_rate": 0.0}}),
+    ):
+        malformed_receipt = create_release_artifact_receipt(
+            state,
+            artifact_store=artifact_store,
+            artifact_id=artifact_id,
+            payload=malformed,
+            artifact_kind="canary_evidence",
+            target_stage="production",
+            claims=malformed,
+            producer="canary-runner",
+            verifier=VERIFIER_ID,
+            verifier_secret=VERIFIER_SECRET,
+        )
+        with pytest.raises(ValueError, match="strict server evidence schema"):
+            record_release_artifact_receipt(
+                state,
+                malformed_receipt,
+                artifact_store=artifact_store,
+                verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+            )
 
 
 def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
@@ -767,6 +792,25 @@ def test_apply_release_rollback_restore_rehydrates_runtime_state_and_audit_trail
     assert latest_shared.revision_id == restored["state"].revision_id
     assert latest_event.kind == "release_rolled_back"
 
+    # Dependability reconciliation checkpoints from journal replay. The
+    # release rollback event must be a reset barrier so the forward canary
+    # events cannot resurrect the state that was just restored.
+    replayed_snapshot = harness._checkpoint_from_journal(process_id="proc_release_apply_rollback")
+    restore_state = restored["restore_state"]
+    for field in (
+        "lifecycle_state",
+        "active_steps",
+        "waiting_steps",
+        "completed_steps",
+        "failed_steps",
+        "assigned_agents",
+        "runtime_policy",
+        "session_state",
+        "world_state",
+        "artifact_refs",
+    ):
+        assert getattr(replayed_snapshot, field) == restore_state[field]
+
 
 def test_release_rollback_restores_authoritative_session_state_and_registry(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
@@ -857,6 +901,21 @@ def test_release_rollback_recovers_from_partial_commit_without_duplicate_event(t
     pending_intent = harness.release_store.load_rollback_intent(process_id)
     assert pending_intent["status"] == "recovery_required"
     assert harness.shared_state_store.load(process_id).revision_id == pending_intent["rollback_revision_id"]
+    before_revision = harness.release_store.load(process_id).persistence_revision
+    before_artifacts = sorted(harness.release_store.artifact_store().path.glob("**/*"))
+    with pytest.raises(RuntimeError, match="rollback recovery is pending"):
+        ingest_production_release_artifact(
+            release_store=harness.release_store,
+            process_id=process_id,
+            artifact_id="artifact:must-wait-for-rollback",
+            payload={"must": "not commit"},
+            artifact_kind="release_bundle",
+            producer="builder",
+            verifier=VERIFIER_ID,
+            attestation_signature="invalid-but-must-not-be-reached",
+        )
+    assert harness.release_store.load(process_id).persistence_revision == before_revision
+    assert sorted(harness.release_store.artifact_store().path.glob("**/*")) == before_artifacts
 
     recovered = apply_release_rollback_restore(
         state,
