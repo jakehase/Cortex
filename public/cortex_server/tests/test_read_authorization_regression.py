@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ import cortex_server.routers.orchestrator as orchestrator
 SCOPE_SECRET = "read-scope-secret-00000000000000001"
 ADMIN_SECRET = "read-admin-secret-00000000000000001"
 WRITE_SECRET = "read-write-secret-00000000000000001"
+RELEASE_ARTIFACT_SECRET = "read-release-artifact-secret-0000000001"
 ALICE_SCOPE = {
     "tenant_id": "tenant-a",
     "workspace_id": "workspace-a",
@@ -81,12 +83,25 @@ def _configured_app(monkeypatch):
     return main.create_app()
 
 
-def _configured_production_app(monkeypatch):
+def _configured_production_app(monkeypatch, tmp_path):
     from cortex_server.runtime import production_build_loop
 
+    knowledge_root = tmp_path / "knowledge"
+    knowledge_root.mkdir()
+    database = knowledge_root / "cortex_graph.db"
+    with sqlite3.connect(database):
+        pass
+    mount_id = "read-test-knowledge-volume-id"
+    (knowledge_root / ".cortex-durable-knowledge").write_text(
+        f"{mount_id}\n", encoding="utf-8"
+    )
+
     monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_DB_PATH", str(database))
+    monkeypatch.setenv("CORTEX_KNOWLEDGE_MOUNT_ID", mount_id)
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", WRITE_SECRET)
+    monkeypatch.setenv("CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", RELEASE_ARTIFACT_SECRET)
     monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", _credential_registry())
     monkeypatch.setenv("CORTEX_ADMIN_TOKEN", ADMIN_SECRET)
     monkeypatch.setenv("CORTEX_CODEC_ADMIN_TOKEN", "codec-admin-secret-0000000000000001")
@@ -373,7 +388,7 @@ async def test_runtime_reads_require_exact_tenant_workspace_and_owner(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_production_mutations_require_exact_principal_ownership_or_admin(monkeypatch):
+async def test_production_mutations_require_exact_principal_ownership_or_admin(monkeypatch, tmp_path):
     processes = {
         "proc_alice": {
             "process_id": "proc_alice",
@@ -387,7 +402,7 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
         },
     }
     monkeypatch.setattr(main, "_runtime_process_for_read_authorization", processes.get)
-    app = _configured_production_app(monkeypatch)
+    app = _configured_production_app(monkeypatch, tmp_path)
     alice_headers = {**_principal_headers(ALICE_SCOPE), "x-cortex-write-token": WRITE_SECRET}
 
     transport = httpx.ASGITransport(app=app)
@@ -404,8 +419,8 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
         )
         assert cross_principal.status_code == 403
 
-        # Artifact verifier HMACs remain independent of memory principals, but
-        # neither compatibility alias may bypass the transport write token.
+        # Release-artifact transport credentials remain independent of memory
+        # principals, and neither compatibility alias may bypass that credential.
         for prefix in ("orchestrator", "conductor"):
             artifact_path = f"/{prefix}/runtime/delivery/artifacts/proc_alice"
             accepted_before = list(app.state.artifact_ingest_calls)
@@ -420,7 +435,7 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
                 artifact_path,
                 headers={
                     **_principal_headers(ALICE_SCOPE),
-                    "x-cortex-write-token": "forged-write-token-0000000000000001",
+                    "x-cortex-release-artifact-token": "forged-release-token-00000000000001",
                 },
             )
             assert forged_transport.status_code == 403
@@ -428,7 +443,7 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
 
             independently_authenticated_transport = await client.post(
                 artifact_path,
-                headers={"x-cortex-write-token": WRITE_SECRET},
+                headers={"x-cortex-release-artifact-token": RELEASE_ARTIFACT_SECRET},
             )
             assert independently_authenticated_transport.status_code == 200
 
