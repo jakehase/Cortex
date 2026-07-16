@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
 from cortex_server.runtime.runtime_delivery_quota import (
     assert_runtime_delivery_capacity,
+    assert_process_count,
     bounded_jsonl_payload,
     encoded_json,
     read_recoverable_jsonl,
@@ -360,6 +361,11 @@ class SharedProcessStateStore:
             store_root = self.path.parent if self.path.suffix else self.path
             delivery_root = self.path.parent
             with runtime_delivery_quota_transaction(delivery_root):
+                assert_process_count(
+                    store_root,
+                    record.process_id,
+                    delivery_root=delivery_root,
+                )
                 history_payload = self._history_payload(revision_record)
                 history_row_bytes = len(encoded_json(_revision_record_dump_compat(revision_record)))
                 assert_runtime_delivery_capacity(

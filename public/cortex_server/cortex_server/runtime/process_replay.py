@@ -226,7 +226,25 @@ def replay_events(process_id: str, events: Iterable[ProcessEvent], *, snapshot: 
 
 def replay_from_journal(journal: ProcessJournal, process_id: str, *, snapshot: Optional[ProcessSnapshot] = None) -> JsonDict:
     events = journal.load(process_id=process_id)
-    return replay_events(process_id, events, snapshot=snapshot)
+    checkpoint = journal.checkpoint_state(process_id)
+    if checkpoint is None:
+        return replay_events(process_id, events, snapshot=snapshot)
+
+    checkpoint_state = dict(checkpoint["state"])
+    checkpoint_count = int(checkpoint.get("cumulative_event_count", 0) or 0)
+    if snapshot is None or int(snapshot.event_count or 0) < checkpoint_count:
+        state = checkpoint_state
+        tail = events
+    else:
+        state = state_from_snapshot(snapshot)
+        # The retained suffix begins immediately after the sealed checkpoint.
+        # Event counts let a newer external snapshot skip the portion it has
+        # already incorporated even when its last event was compacted.
+        already_applied = max(0, int(snapshot.event_count or 0) - checkpoint_count)
+        tail = events[already_applied:]
+    for event in tail:
+        state = apply_event(state, event)
+    return state
 
 
 __all__ = [

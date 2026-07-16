@@ -20,6 +20,7 @@ MAX_RUNTIME_DELIVERY_PROCESS_BYTES = 64 * 1024 * 1024
 MAX_RUNTIME_DELIVERY_STORE_BYTES = 512 * 1024 * 1024
 MAX_RUNTIME_DELIVERY_VOLUME_BYTES = 1536 * 1024 * 1024
 RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES = 128 * 1024 * 1024
+RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES = 32 * 1024 * 1024
 MAX_RUNTIME_DELIVERY_PROCESSES = 4096
 MAX_HISTORY_RECORDS = 256
 MAX_HISTORY_BYTES = 32 * 1024 * 1024
@@ -30,6 +31,7 @@ RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS = 10 * 60
 
 _LOCKS: Dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
+_TRANSACTION_STATE = threading.local()
 
 
 class RuntimeDeliveryQuotaError(ValueError):
@@ -111,12 +113,137 @@ def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
     with _LOCKS_GUARD:
         thread_lock = _LOCKS.setdefault(lock_key, threading.RLock())
     with thread_lock:
-        with lock_target.open("a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        depths = dict(getattr(_TRANSACTION_STATE, "depths", {}))
+        if int(depths.get(lock_key, 0) or 0) > 0:
+            depths[lock_key] += 1
+            _TRANSACTION_STATE.depths = depths
             try:
                 yield
             finally:
+                depths[lock_key] -= 1
+                _TRANSACTION_STATE.depths = depths
+            return
+        with lock_target.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            depths[lock_key] = 1
+            _TRANSACTION_STATE.depths = depths
+            try:
+                yield
+            finally:
+                depths.pop(lock_key, None)
+                _TRANSACTION_STATE.depths = depths
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _pending_recovery_intent(
+    delivery_root: Path,
+    *,
+    process_id: str,
+    transaction_id: str,
+    intent_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    process = str(process_id or "").strip()
+    transaction = str(transaction_id or "").strip()
+    if not process or not transaction:
+        return None
+    candidates: List[Path] = []
+    if intent_path is not None:
+        candidates.append(Path(intent_path))
+    roots = (
+        delivery_root / "release_workflow",
+        delivery_root / "rollback_transactions",
+    )
+    for root in roots:
+        if not root.exists():
+            continue
+        candidates.extend(root.glob(".*.rollback-intent.json"))
+    for target in candidates:
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and str(payload.get("process_id") or "") == process
+            and str(payload.get("transaction_id") or "") == transaction
+            and payload.get("status") in {"in_progress", "recovery_required"}
+        ):
+            return payload
+    return None
+
+
+@contextmanager
+def runtime_delivery_recovery_transaction(
+    delivery_root: Path,
+    *,
+    process_id: str,
+    transaction_id: str,
+    intent_path: Optional[Path] = None,
+) -> Iterator[None]:
+    """Admit bounded reserve writes only for an already durable rollback."""
+
+    root = Path(delivery_root).resolve()
+    lock_key = str(root / ".runtime-delivery-volume-quota.lock")
+    with runtime_delivery_quota_transaction(root):
+        intent = _pending_recovery_intent(
+            root,
+            process_id=process_id,
+            transaction_id=transaction_id,
+            intent_path=intent_path,
+        )
+        if intent is None:
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery recovery reserve requires a durable pending rollback intent"
+            )
+        recoveries = dict(getattr(_TRANSACTION_STATE, "recoveries", {}))
+        existing = recoveries.get(lock_key)
+        if existing is not None and existing != (str(process_id), str(transaction_id)):
+            raise RuntimeDeliveryQuotaError("runtime delivery recovery transaction identity conflict")
+        recoveries[lock_key] = (str(process_id), str(transaction_id))
+        _TRANSACTION_STATE.recoveries = recoveries
+        try:
+            yield
+        finally:
+            if existing is None:
+                recoveries.pop(lock_key, None)
+            else:
+                recoveries[lock_key] = existing
+            _TRANSACTION_STATE.recoveries = recoveries
+
+
+def _recovery_admission(delivery_root: Path) -> bool:
+    lock_key = str(Path(delivery_root).resolve() / ".runtime-delivery-volume-quota.lock")
+    return lock_key in dict(getattr(_TRANSACTION_STATE, "recoveries", {}))
+
+
+def _assert_volume_projection(root: Path, *, additional_bytes: int) -> None:
+    reservations = _active_reservation_bytes_unlocked(root, prune_stale=True)
+    additional = max(0, int(additional_bytes))
+    projected_volume = _volume_usage(root) + reservations + additional
+    recovery = _recovery_admission(root)
+    operational_limit = MAX_RUNTIME_DELIVERY_VOLUME_BYTES - RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+    admission_limit = (
+        min(
+            MAX_RUNTIME_DELIVERY_VOLUME_BYTES,
+            operational_limit + RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES,
+        )
+        if recovery
+        else operational_limit
+    )
+    if projected_volume > admission_limit:
+        detail = "bounded rollback recovery capacity exceeded" if recovery else "recovery reserve preserved"
+        raise RuntimeDeliveryQuotaError(f"runtime delivery volume quota exceeded; {detail}")
+    required_filesystem_headroom = max(
+        0,
+        RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+        - (RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES if recovery else 0),
+    )
+    if _filesystem_available(root) - reservations - additional < required_filesystem_headroom:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery filesystem headroom is below the bounded recovery reserve"
+            if recovery
+            else "runtime delivery filesystem headroom is below the recovery reserve"
+        )
 
 
 def _active_reservation_bytes_unlocked(delivery_root: Path, *, prune_stale: bool) -> int:
@@ -243,47 +370,17 @@ def assert_runtime_delivery_capacity(
     if projected_process > MAX_RUNTIME_DELIVERY_PROCESS_BYTES:
         raise ValueError("runtime delivery process quota exceeded")
     # Atomic replacement temporarily needs the old and new object together.
-    projected_volume = (
-        _volume_usage(root)
-        + _active_reservation_bytes_unlocked(root, prune_stale=True)
-        + max(0, int(additional_bytes))
-    )
-    operational_limit = MAX_RUNTIME_DELIVERY_VOLUME_BYTES - RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
-    if projected_volume > operational_limit:
-        raise RuntimeDeliveryQuotaError("runtime delivery volume quota exceeded; recovery reserve preserved")
-    if (
-        _filesystem_available(root)
-        - _active_reservation_bytes_unlocked(root, prune_stale=True)
-        - max(0, int(additional_bytes))
-        < RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
-    ):
-        raise RuntimeDeliveryQuotaError("runtime delivery filesystem headroom is below the recovery reserve")
+    _assert_volume_projection(root, additional_bytes=additional_bytes)
 
 
 def assert_runtime_delivery_volume_capacity(delivery_root: Path, *, additional_bytes: int) -> None:
     root = Path(delivery_root).resolve()
-    projected_volume = (
-        _volume_usage(root)
-        + _active_reservation_bytes_unlocked(root, prune_stale=True)
-        + max(0, int(additional_bytes))
-    )
-    operational_limit = MAX_RUNTIME_DELIVERY_VOLUME_BYTES - RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
-    if projected_volume > operational_limit:
-        raise RuntimeDeliveryQuotaError("runtime delivery volume quota exceeded; recovery reserve preserved")
-    if (
-        _filesystem_available(root)
-        - _active_reservation_bytes_unlocked(root, prune_stale=True)
-        - max(0, int(additional_bytes))
-        < RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
-    ):
-        raise RuntimeDeliveryQuotaError("runtime delivery filesystem headroom is below the recovery reserve")
+    _assert_volume_projection(root, additional_bytes=additional_bytes)
 
 
 def assert_process_count(store_root: Path, process_id: str, *, delivery_root: Optional[Path] = None) -> None:
     contracts = Path(store_root) / "contracts"
     target = contracts / f"{process_id}.json"
-    if target.exists():
-        return
     root = Path(delivery_root).resolve() if delivery_root is not None else Path(store_root).resolve()
     process_ids = {
         candidate.stem
@@ -297,8 +394,36 @@ def assert_process_count(store_root: Path, process_id: str, *, delivery_root: Op
             for candidate in release_root.glob("*.json")
             if candidate.is_file() and not candidate.is_symlink() and not candidate.name.startswith(".")
         )
+    registry_target = root / ".runtime-delivery-processes.json"
+    if registry_target.exists():
+        try:
+            registry = json.loads(registry_target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("runtime delivery process registry is corrupt") from exc
+        if (
+            not isinstance(registry, dict)
+            or registry.get("version") != "cortex.runtime-delivery-processes.v1"
+            or not isinstance(registry.get("process_ids"), list)
+            or any(not isinstance(value, str) or not value for value in registry["process_ids"])
+        ):
+            raise ValueError("runtime delivery process registry is invalid")
+        process_ids.update(registry["process_ids"])
     if process_id not in process_ids and len(process_ids) >= MAX_RUNTIME_DELIVERY_PROCESSES:
         raise ValueError("runtime delivery process count exceeds immutable limit")
+    if process_id in process_ids and registry_target.exists():
+        return
+    process_ids.add(process_id)
+    encoded = encoded_json(
+        {
+            "version": "cortex.runtime-delivery-processes.v1",
+            "process_ids": sorted(process_ids),
+        },
+        pretty=True,
+    )
+    if len(encoded) > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+        raise ValueError("runtime delivery process registry exceeds immutable object quota")
+    _assert_volume_projection(root, additional_bytes=len(encoded))
+    _atomic_write_bytes(registry_target, encoded)
 
 
 def read_recoverable_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -384,6 +509,7 @@ __all__ = [
     "MAX_SESSION_EVENT_PROJECTION_BYTES",
     "MAX_RUNTIME_DELIVERY_OBJECT_BYTES",
     "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES",
+    "RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES",
     "RuntimeDeliveryQuotaError",
     "append_bounded_jsonl",
     "bounded_jsonl_payload",
@@ -395,4 +521,5 @@ __all__ = [
     "runtime_delivery_capacity",
     "runtime_delivery_capacity_reservation",
     "runtime_delivery_quota_transaction",
+    "runtime_delivery_recovery_transaction",
 ]

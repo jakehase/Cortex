@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/memory-core';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -281,43 +281,230 @@ function isLifecycleSpoolRecord(value: unknown): value is LifecycleSpoolRecord {
       || (typeof record.assuranceReceipt === 'string' && record.assuranceReceipt.length > 0 && record.assuranceReceipt.length <= 16_384));
 }
 
+type LifecycleLockOwner = {
+  version: 1;
+  pid: number;
+  startIdentity: string;
+  token: string;
+  createdAt: string;
+};
+type LifecycleLockContender = LifecycleLockOwner & { ticket: number | null };
+const LIFECYCLE_MALFORMED_LOCK_GRACE_MS = 30_000;
+
+function lifecycleProcessStartIdentity(pid: number): string | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    if (close < 0) return null;
+    // /proc/<pid>/stat field 22 is process start time. The tail begins at
+    // field 3, so zero-based tail index 19 is the stable boot-relative ID.
+    return stat.slice(close + 2).split(' ')[19] || null;
+  } catch { return null; }
+}
+
+function lifecycleProcessIsAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error: any) { return error?.code === 'EPERM'; }
+}
+
+function parseLifecycleLockOwner(text: string): LifecycleLockOwner | null {
+  try {
+    const owner = JSON.parse(text) as Record<string, unknown>;
+    return owner?.version === 1
+      && Number.isSafeInteger(owner.pid) && Number(owner.pid) > 0
+      && typeof owner.startIdentity === 'string' && owner.startIdentity.length > 0 && owner.startIdentity.length <= 256
+      && typeof owner.token === 'string' && owner.token.length > 0 && owner.token.length <= 256
+      && typeof owner.createdAt === 'string' && owner.createdAt.length > 0 && owner.createdAt.length <= 64
+      ? owner as LifecycleLockOwner
+      : null;
+  } catch { return null; }
+}
+
+function lifecycleOwnerIsDefinitelyStale(owner: LifecycleLockOwner): boolean {
+  if (!lifecycleProcessIsAlive(owner.pid)) return true;
+  const observed = lifecycleProcessStartIdentity(owner.pid);
+  return observed !== null && observed !== owner.startIdentity;
+}
+
+function unlinkLifecycleLockIfOwned(lockPath: string, token: string): boolean {
+  try {
+    const owner = parseLifecycleLockOwner(fs.readFileSync(lockPath, 'utf8'));
+    if (!owner || owner.token !== token) return false;
+    fs.unlinkSync(lockPath);
+    return true;
+  } catch { return false; }
+}
+
+function lifecycleMalformedEntryIsStale(entry: string): boolean {
+  try {
+    const first = fs.statSync(entry);
+    if (Date.now() - first.mtimeMs < LIFECYCLE_MALFORMED_LOCK_GRACE_MS) return false;
+    const second = fs.statSync(entry);
+    return first.dev === second.dev && first.ino === second.ino
+      && first.size === second.size && first.mtimeMs === second.mtimeMs;
+  } catch { return false; }
+}
+
+function createLifecycleLock(lockPath: string): { fd: number; owner: LifecycleLockOwner } {
+  const owner: LifecycleLockOwner = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: lifecycleProcessStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+  };
+  const temporary = `${lockPath}.${process.pid}.${owner.token}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(owner));
+    fs.fsyncSync(fd);
+    // A hard-link publish is exclusive and exposes only a complete owner.
+    fs.linkSync(temporary, lockPath);
+    try { fs.unlinkSync(temporary); } catch {}
+    return { fd, owner };
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+
+function lifecycleLockSleep(): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+}
+
+function publishLifecycleContender(guardPath: string, contender: LifecycleLockContender): string {
+  const entry = path.join(guardPath, `${contender.pid}-${contender.token}`);
+  const temporary = `${entry}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(contender));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(temporary, entry);
+    return entry;
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+
+function readLifecycleContenders(guardPath: string): Array<{
+  path: string;
+  owner: LifecycleLockContender | null;
+  staleMalformed: boolean;
+}> {
+  const contenders = [];
+  for (const name of fs.readdirSync(guardPath)) {
+    if (name.endsWith('.tmp')) continue;
+    const entry = path.join(guardPath, name);
+    let text = '';
+    try { text = fs.readFileSync(entry, 'utf8'); } catch { continue; }
+    const parsed = parseLifecycleLockOwner(text);
+    let ticket: unknown;
+    try { ticket = (JSON.parse(text) as Record<string, unknown>).ticket; } catch {}
+    const owner = parsed && (ticket === null || (Number.isSafeInteger(ticket) && Number(ticket) > 0))
+      ? { ...parsed, ticket: ticket as number | null }
+      : null;
+    contenders.push({
+      path: entry,
+      owner,
+      staleMalformed: !owner && lifecycleMalformedEntryIsStale(entry),
+    });
+  }
+  return contenders;
+}
+
+function acquireLifecycleReclamationGuard(
+  lockPath: string,
+  deadline: number,
+): { entry: string; owner: LifecycleLockContender } {
+  const guardPath = `${lockPath}.guard`;
+  fs.mkdirSync(guardPath, { recursive: true, mode: 0o700 });
+  const base: LifecycleLockContender = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: lifecycleProcessStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+    ticket: null,
+  };
+  const entry = publishLifecycleContender(guardPath, base);
+  try {
+    let maximumTicket = 0;
+    for (const contender of readLifecycleContenders(guardPath)) {
+      if (contender.path === entry) continue;
+      if (contender.owner && lifecycleOwnerIsDefinitelyStale(contender.owner)) {
+        unlinkLifecycleLockIfOwned(contender.path, contender.owner.token);
+      } else if (!contender.owner && contender.staleMalformed) {
+        try { fs.unlinkSync(contender.path); } catch {}
+      } else if (contender.owner?.ticket) {
+        maximumTicket = Math.max(maximumTicket, contender.owner.ticket);
+      }
+    }
+    const owner = { ...base, ticket: maximumTicket + 1 };
+    const replacement = `${entry}.ticket`;
+    fs.writeFileSync(replacement, JSON.stringify(owner), { flag: 'wx', mode: 0o600 });
+    fs.renameSync(replacement, entry);
+    while (true) {
+      let blocked = false;
+      for (const contender of readLifecycleContenders(guardPath)) {
+        if (contender.path === entry) continue;
+        if (contender.owner && lifecycleOwnerIsDefinitelyStale(contender.owner)) {
+          unlinkLifecycleLockIfOwned(contender.path, contender.owner.token);
+          continue;
+        }
+        if (!contender.owner && contender.staleMalformed) {
+          try { fs.unlinkSync(contender.path); } catch {}
+          continue;
+        }
+        if (!contender.owner || contender.owner.ticket === null
+          || contender.owner.ticket < owner.ticket
+          || (contender.owner.ticket === owner.ticket && contender.owner.token < owner.token)) blocked = true;
+      }
+      if (!blocked) return { entry, owner };
+      if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool reclamation guard');
+      lifecycleLockSleep();
+    }
+  } catch (error) {
+    unlinkLifecycleLockIfOwned(entry, base.token);
+    throw error;
+  }
+}
+
 function withLifecycleDirectoryLock<T>(lockPath: string, operation: () => T): T {
   const deadline = Date.now() + 10_000;
-  while (true) {
-    try {
-      fs.mkdirSync(lockPath, { mode: 0o700 });
-      fs.writeFileSync(
-        path.join(lockPath, 'owner.json'),
-        JSON.stringify({ pid: process.pid, createdAt: Date.now() }),
-        { mode: 0o600 },
-      );
-      break;
-    } catch (error: any) {
-      if (error?.code !== 'EEXIST') throw error;
-      let reclaim = false;
-      try {
-        const owner = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8'));
-        const ownerPid = Number(owner?.pid);
-        if (Number.isSafeInteger(ownerPid) && ownerPid > 0) {
-          try { process.kill(ownerPid, 0); } catch (signalError: any) { reclaim = signalError?.code === 'ESRCH'; }
-        }
-        const age = Date.now() - fs.statSync(lockPath).mtimeMs;
-        reclaim = reclaim && age >= 1_000;
-      } catch {
-        try { reclaim = Date.now() - fs.statSync(lockPath).mtimeMs >= 30_000; } catch {}
-      }
-      if (reclaim) {
-        try { fs.rmSync(lockPath, { recursive: true }); } catch {}
-        continue;
-      }
-      if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool lock');
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-    }
-  }
+  const guard = acquireLifecycleReclamationGuard(lockPath, deadline);
+  let lockFd: number | undefined;
+  let owner: LifecycleLockOwner | undefined;
   try {
+    while (lockFd === undefined) {
+      try {
+        ({ fd: lockFd, owner } = createLifecycleLock(lockPath));
+      } catch (error: any) {
+        if (error?.code !== 'EEXIST') throw error;
+        try {
+          const existing = parseLifecycleLockOwner(fs.readFileSync(lockPath, 'utf8'));
+          if (existing && lifecycleOwnerIsDefinitelyStale(existing)) {
+            unlinkLifecycleLockIfOwned(lockPath, existing.token);
+          } else if (!existing && lifecycleMalformedEntryIsStale(lockPath)) {
+            const first = fs.statSync(lockPath);
+            const second = fs.statSync(lockPath);
+            if (first.dev === second.dev && first.ino === second.ino) fs.unlinkSync(lockPath);
+          }
+        } catch {}
+        if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool lock');
+        lifecycleLockSleep();
+      }
+    }
     return operation();
   } finally {
-    try { fs.rmSync(lockPath, { recursive: true }); } catch {}
+    if (lockFd !== undefined) fs.closeSync(lockFd);
+    if (owner) unlinkLifecycleLockIfOwned(lockPath, owner.token);
+    unlinkLifecycleLockIfOwned(guard.entry, guard.owner.token);
   }
 }
 
@@ -1821,4 +2008,4 @@ const plugin = {
 };
 
 export default plugin;
-export { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults };
+export { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, lifecyclePersistenceKey, reconcileResults, withLifecycleDirectoryLock };

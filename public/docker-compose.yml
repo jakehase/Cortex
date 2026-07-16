@@ -27,10 +27,10 @@ services:
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
       CORTEX_DB_PATH: /opt/clawdbot/state/knowledge/cortex_graph.db
       CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db
-      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID and run the explicit volume bootstrap}
       ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/state/runtime_delivery
       REASONING_STORE_DB_PATH: /opt/clawdbot/state/reasoning_runtime.db
-      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-cortex-runtime-delivery-v1}
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID and run the explicit volume bootstrap}
       # Optional deployment requirements extend the non-removable production baseline.
       CORTEX_REQUIRED_PATHS: ${CORTEX_REQUIRED_PATHS:-}
       CORTEX_REQUIRED_ROUTERS: ${CORTEX_REQUIRED_ROUTERS:-}
@@ -73,32 +73,76 @@ services:
       release-manager:
         condition: service_healthy
 
+  cortex-volume-bootstrap:
+    image: alpine:3.20
+    profiles: ["bootstrap"]
+    environment:
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID}
+    volumes:
+      - ./continuity:/continuity:rw
+      - cortex-chroma:/memory:rw
+      - cortex-runtime-delivery:/state:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        if [ -e /continuity/cortex-chroma.volume-id ] || \
+           [ -e /continuity/cortex-runtime-delivery.volume-id ] || \
+           [ -e /memory/.cortex-durable-memory ] || \
+           [ -e /state/runtime_delivery/.cortex-durable-runtime-delivery ]; then
+          echo "Cortex volume bootstrap is one-time; continuity state already exists" >&2
+          exit 1
+        fi
+        if [ -n "$$(find /memory -mindepth 1 -print -quit)" ] || \
+           [ -n "$$(find /state -mindepth 1 -print -quit)" ]; then
+          echo "Cortex volume bootstrap requires blank named volumes" >&2
+          exit 1
+        fi
+        mkdir -p /state/runtime_delivery
+        for specification in \
+          "/continuity/cortex-chroma.volume-id:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/continuity/cortex-runtime-delivery.volume-id:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          "/memory/.cortex-durable-memory:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/state/runtime_delivery/.cortex-durable-runtime-delivery:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID"
+        do
+          target="$${specification%%:*}"
+          value="$${specification#*:}"
+          temporary="$$target.tmp.$$$$"
+          printf '%s\n' "$$value" > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv "$$temporary" "$$target"
+          sync "$${target%/*}"
+        done
+    restart: "no"
+
   cortex-memory-volume-init:
     image: alpine:3.20
     container_name: cortex-memory-volume-init
     environment:
-      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:-cortex-chroma-v1}
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
     volumes:
+      - ./continuity:/continuity:ro
       - cortex-chroma:/memory:rw
     command:
       - /bin/sh
       - -ec
       - |
         marker=/memory/.cortex-durable-memory
-        if [ -e "$$marker" ]; then
-          if [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
-            echo "Cortex memory volume identity mismatch" >&2
-            exit 1
-          fi
-        else
-          temporary="$$marker.tmp.$$$$"
-          trap 'rm -f "$$temporary"' EXIT HUP INT TERM
-          printf '%s\n' "$$CORTEX_CHROMA_MOUNT_ID" > "$$temporary"
-          chmod 0600 "$$temporary"
-          sync "$$temporary"
-          mv "$$temporary" "$$marker"
-          sync /memory
-          trap - EXIT HUP INT TERM
+        expected=/continuity/cortex-chroma.volume-id
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
+          echo "Cortex external memory continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex memory volume marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
+          echo "Cortex memory volume identity mismatch" >&2
+          exit 1
         fi
     restart: "no"
 
@@ -106,8 +150,9 @@ services:
     image: alpine:3.20
     container_name: cortex-runtime-delivery-volume-init
     environment:
-      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-cortex-runtime-delivery-v1}
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID}
     volumes:
+      - ./continuity:/continuity:ro
       - cortex-runtime-delivery:/state:rw
     command:
       - /bin/sh
@@ -119,6 +164,20 @@ services:
           mkdir "$${1}"
           sync "$${parent}"
         }
+        marker=/state/runtime_delivery/.cortex-durable-runtime-delivery
+        expected=/continuity/cortex-runtime-delivery.volume-id
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
+          echo "Cortex external runtime-delivery continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex runtime-delivery marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
+          echo "Cortex runtime delivery volume identity mismatch" >&2
+          exit 1
+        fi
         for directory in \
           /state/knowledge \
           /state/runtime_delivery \
@@ -149,22 +208,6 @@ services:
           chmod 0700 "$${directory}"
           sync "$${directory}"
         done
-        marker=/state/runtime_delivery/.cortex-durable-runtime-delivery
-        if [ -e "$$marker" ]; then
-          if [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
-            echo "Cortex runtime delivery volume identity mismatch" >&2
-            exit 1
-          fi
-        else
-          temporary="$$marker.tmp.$$$$"
-          trap 'rm -f "$$temporary"' EXIT HUP INT TERM
-          printf '%s\n' "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" > "$$temporary"
-          chmod 0600 "$$temporary"
-          sync "$$temporary"
-          mv "$$temporary" "$$marker"
-          sync /state/runtime_delivery
-          trap - EXIT HUP INT TERM
-        fi
         chmod 0700 /state /state/runtime_delivery
         chmod 0600 "$$marker"
         sync /state

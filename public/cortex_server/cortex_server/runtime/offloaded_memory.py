@@ -14,7 +14,10 @@ from typing import Dict, Iterable, Optional, Tuple
 from cortex_server.runtime.runtime_delivery_quota import (
     MAX_SESSION_EVENT_PROJECTION_BYTES,
     RuntimeDeliveryQuotaError,
+    assert_process_count,
+    assert_runtime_delivery_volume_capacity,
     runtime_delivery_capacity_reservation,
+    runtime_delivery_quota_transaction,
 )
 from cortex_server.runtime.session_contract import CanonicalSessionEvent
 
@@ -47,12 +50,14 @@ class RuntimeMemoryStore:
         max_total_bytes: Optional[int] = None,
         max_rotations: Optional[int] = None,
         retention_days: Optional[int] = None,
+        delivery_root: Optional[str | Path] = None,
     ):
         self.root = Path(root).expanduser().resolve()
         self.hot_path = self.root / "MEMORY.md"
         self.process_dir = self.root / "processes"
         self.session_dir = self.root / "sessions"
         self.daily_dir = self.root / "daily"
+        self.delivery_root = Path(delivery_root).resolve() if delivery_root is not None else self.root.parent
         self.max_event_bytes = max_event_bytes or int(os.getenv("CORTEX_RUNTIME_MEMORY_MAX_EVENT_BYTES", "65536"))
         self.max_shard_bytes = max_shard_bytes or int(os.getenv("CORTEX_RUNTIME_MEMORY_MAX_SHARD_BYTES", str(4 * 1024 * 1024)))
         self.max_total_bytes = max_total_bytes or int(os.getenv("CORTEX_RUNTIME_MEMORY_MAX_TOTAL_BYTES", str(64 * 1024 * 1024)))
@@ -80,23 +85,24 @@ class RuntimeMemoryStore:
                 finally:
                     self._transaction_local.depth -= 1
                 return
-            self.ensure_layout()
-            flags = os.O_WRONLY | os.O_CREAT
-            if hasattr(os, "O_CLOEXEC"):
-                flags |= os.O_CLOEXEC
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            descriptor = os.open(self._lock_path, flags, 0o600)
-            try:
-                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                    raise ValueError("runtime memory lock must be a regular file")
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
-                self._transaction_local.depth = 1
-                yield
-            finally:
-                self._transaction_local.depth = 0
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-                os.close(descriptor)
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                self.ensure_layout()
+                flags = os.O_WRONLY | os.O_CREAT
+                if hasattr(os, "O_CLOEXEC"):
+                    flags |= os.O_CLOEXEC
+                if hasattr(os, "O_NOFOLLOW"):
+                    flags |= os.O_NOFOLLOW
+                descriptor = os.open(self._lock_path, flags, 0o600)
+                try:
+                    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                        raise ValueError("runtime memory lock must be a regular file")
+                    fcntl.flock(descriptor, fcntl.LOCK_EX)
+                    self._transaction_local.depth = 1
+                    yield
+                finally:
+                    self._transaction_local.depth = 0
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    os.close(descriptor)
 
     def _assert_contained(self, path: Path, *, parent: Path) -> Path:
         resolved_parent = parent.resolve()
@@ -124,16 +130,20 @@ class RuntimeMemoryStore:
             if directory.is_symlink():
                 raise ValueError("runtime memory shard directories cannot be symlinks")
         if not self.hot_path.exists():
-            self.hot_path.write_text(
+            initial = (
                 "# Runtime Memory\n\n"
                 "> Non-authoritative runtime notes only.\n\n"
                 "Authoritative runtime state lives in snapshots, shared state, and the process journal.\n\n"
                 "Hot pointers only. Detailed runtime memory lives in:\n"
                 "- processes/\n"
                 "- sessions/\n"
-                "- daily/\n",
-                encoding="utf-8",
+                "- daily/\n"
             )
+            assert_runtime_delivery_volume_capacity(
+                self.delivery_root,
+                additional_bytes=len(initial.encode("utf-8")),
+            )
+            self.hot_path.write_text(initial, encoding="utf-8")
 
     def _append(self, path: Path, content: bytes) -> None:
         self._assert_contained(path, parent=path.parent)
@@ -231,6 +241,10 @@ class RuntimeMemoryStore:
     def _append_bounded(self, writes: Iterable[Tuple[Path, bytes]]) -> None:
         pending = list(writes)
         rotate_paths = self._validate_bounded(pending)
+        assert_runtime_delivery_volume_capacity(
+            self.delivery_root,
+            additional_bytes=sum(len(content) for _path, content in pending),
+        )
 
         for path in rotate_paths:
             self._rotate(path)
@@ -267,6 +281,7 @@ class RuntimeMemoryStore:
         path = self._process_path(process)
         daily = f"- process {process}: {title_text} — {note_text}\n"
         with self._transaction():
+            assert_process_count(self.root, process, delivery_root=self.delivery_root)
             self._prune_expired()
             self._append_bounded(((path, text.encode("utf-8")), (self._daily_path(), daily.encode("utf-8"))))
         return path
@@ -274,6 +289,7 @@ class RuntimeMemoryStore:
     def write_session_event(self, event: CanonicalSessionEvent) -> Path:
         path, writes = self._session_event_writes(event)
         with self._transaction():
+            assert_process_count(self.root, event.process_id, delivery_root=self.delivery_root)
             self._prune_expired()
             self._append_bounded(writes)
         return path
@@ -307,6 +323,7 @@ class RuntimeMemoryStore:
                 reserved_bytes=MAX_SESSION_EVENT_PROJECTION_BYTES,
             ):
                 with self._transaction():
+                    assert_process_count(self.root, event.process_id, delivery_root=self.delivery_root)
                     self._prune_expired()
                     self._validate_bounded(writes)
                     yield

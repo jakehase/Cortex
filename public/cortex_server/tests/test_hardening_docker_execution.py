@@ -77,15 +77,37 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "cortex-runtime-delivery:" in compose
 
 
-def test_volume_identity_markers_are_create_once_and_atomically_published():
+def test_volume_identity_markers_are_minted_only_by_explicit_bootstrap():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert compose.count('if [ -e "$$marker" ]; then') == 2
-    assert compose.count('temporary="$$marker.tmp.$$$$"') == 2
-    assert compose.count('sync "$$temporary"') == 2
-    assert compose.count('mv "$$temporary" "$$marker"') == 2
-    assert "printf '%s\\n' \"$$CORTEX_CHROMA_MOUNT_ID\" > \"$$marker\"" not in compose
-    assert "printf '%s\\n' \"$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID\" > \"$$marker\"" not in compose
+    assert 'profiles: ["bootstrap"]' in compose
+    assert "cortex-volume-bootstrap:" in compose
+    assert "./continuity:/continuity:rw" in compose
+    assert compose.count("./continuity:/continuity:ro") == 2
+    assert "CORTEX_CHROMA_MOUNT_ID:-" not in compose
+    assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-" not in compose
+    assert compose.count('if [ ! -e "$$marker" ]; then') == 2
+    assert compose.count("refusing blank replacement volume") == 2
+    assert compose.count("run explicit bootstrap or restore") == 2
+
+
+def test_blank_replacement_volumes_fail_before_ordinary_initialization_mutates_them():
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+    memory_init = compose.split("  cortex-memory-volume-init:", 1)[1].split(
+        "  cortex-runtime-delivery-volume-init:", 1
+    )[0]
+    runtime_init = compose.split("  cortex-runtime-delivery-volume-init:", 1)[1].split(
+        "  release-verifier:", 1
+    )[0]
+
+    assert memory_init.index('if [ ! -e "$$marker" ]; then') < memory_init.index(
+        'cat "$$marker"'
+    )
+    assert "mv \"$$temporary\" \"$$marker\"" not in memory_init
+    assert runtime_init.index('if [ ! -e "$$marker" ]; then') < runtime_init.index(
+        "for directory in"
+    )
+    assert "mv \"$$temporary\" \"$$marker\"" not in runtime_init
 
 
 def test_compose_enforces_allocator_and_cgroup_oom_boundaries():

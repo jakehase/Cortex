@@ -14,6 +14,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
+
 
 JsonDict = Dict[str, Any]
 ALLOWED_QUEUE_STATUSES = {"pending", "active", "completed", "blocked"}
@@ -181,13 +187,14 @@ def _item_dump(model: MaintenanceQueueItem) -> JsonDict:
 
 
 class MaintenanceQueueStore:
-    def __init__(self, path: str | Path, *, max_items: int = 1000, max_state_bytes: int = 4_000_000):
+    def __init__(self, path: str | Path, *, max_items: int = 1000, max_state_bytes: int = 4_000_000, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
         self.max_items = max(1, int(max_items))
         self.max_state_bytes = max(1024, int(max_state_bytes))
         self._mutex = threading.RLock()
         self._lock_depth = 0
         self._guarded_dispatches: set[tuple[str, str]] = set()
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
 
     @contextmanager
     def _lock(self):
@@ -269,16 +276,33 @@ class MaintenanceQueueStore:
             oldest = min(terminal, key=lambda row: (row.last_transition_at, row.item_id))
             state.items.remove(oldest)
             encoded = (json.dumps(_state_dump(state), sort_keys=True, indent=2) + "\n").encode("utf-8")
-        tmp = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
-        try:
-            with tmp.open("xb") as handle:
-                handle.write(encoded); handle.flush(); os.fsync(handle.fileno())
-            os.replace(tmp, self.path)
-            directory = os.open(self.path.parent, os.O_RDONLY)
-            try: os.fsync(directory)
-            finally: os.close(directory)
-        finally:
-            if tmp.exists(): tmp.unlink()
+        def commit() -> None:
+            tmp = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
+            try:
+                with tmp.open("xb") as handle:
+                    handle.write(encoded); handle.flush(); os.fsync(handle.fileno())
+                os.replace(tmp, self.path)
+                directory = os.open(self.path.parent, os.O_RDONLY)
+                try: os.fsync(directory)
+                finally: os.close(directory)
+            finally:
+                if tmp.exists(): tmp.unlink()
+        if self.delivery_root is None:
+            commit()
+        else:
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                process_ids = sorted({row.process_id for row in state.items})
+                for process_id in process_ids:
+                    assert_process_count(self.path, process_id, delivery_root=self.delivery_root)
+                assert_runtime_delivery_capacity(
+                    delivery_root=self.delivery_root,
+                    store_root=self.path,
+                    process_id=process_ids[0] if process_ids else "maintenance-system",
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=self.path,
+                )
+                commit()
 
     def get_state(self) -> MaintenanceQueueState:
         return self._load_state()

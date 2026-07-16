@@ -1190,3 +1190,84 @@ def test_release_rollback_recovers_from_partial_commit_without_duplicate_event(t
     assert recovered["applied"] is True
     assert recovered["rollback_transaction"]["status"] == "committed"
     assert len(rollback_events) == 1
+
+
+def test_committed_rollback_retry_returns_durable_response_without_rolling_back_again(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_idempotent_retry"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:idempotent-retry",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    for stage in ("build_verified", "canary_verified"):
+        state = record_release_fencepost(
+            state,
+            capture_release_rollback_fencepost(
+                snapshot=seeded["snapshot"],
+                shared_state=seeded["shared_state"],
+                stage=stage,
+            ),
+        )
+    stored = harness.release_store.save(state)
+
+    first = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="production_health_failure",
+        actor="release-manager",
+        idempotency_key="health-incident-001",
+    )
+    revision_after_first = harness.release_store.load(process_id).persistence_revision
+
+    # Simulate loss of the HTTP response after the committed-intent fsync.
+    retried = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="production_health_failure",
+        actor="release-manager",
+        idempotency_key="health-incident-001",
+    )
+
+    assert first["state"].current_stage == "canary_verified"
+    assert retried["state"].current_stage == "canary_verified"
+    assert retried["rollback_transaction"]["transaction_id"] == first["rollback_transaction"]["transaction_id"]
+    assert harness.release_store.load(process_id).persistence_revision == revision_after_first
+    assert len(harness.journal.load(process_id=process_id, kinds=["release_rolled_back"])) == 1
+
+    with pytest.raises(ValueError, match="different request"):
+        apply_release_rollback_restore(
+            harness.release_store.load(process_id),
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            release_store=harness.release_store,
+            journal=harness.journal,
+            reason="different failure",
+            actor="release-manager",
+            idempotency_key="health-incident-001",
+        )
+    with pytest.raises(ValueError, match="explicit target"):
+        apply_release_rollback_restore(
+            harness.release_store.load(process_id),
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            release_store=harness.release_store,
+            journal=harness.journal,
+            reason="second incident",
+            actor="release-manager",
+            idempotency_key="health-incident-002",
+        )

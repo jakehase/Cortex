@@ -26,6 +26,8 @@ DEFAULT_BODY_IDLE_TIMEOUT_SECONDS = 2.0
 DEFAULT_BODY_TOTAL_TIMEOUT_SECONDS = 10.0
 DEFAULT_MAX_CONCURRENT_BODY_READS = 32
 DEFAULT_MAX_BUFFERED_BODY_BYTES = 32 * 1024 * 1024
+DEFAULT_MAX_UNAUTHENTICATED_BODY_READS = 4
+DEFAULT_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES = 8 * 1024 * 1024
 
 
 def configured_max_request_body_bytes(raw: str | None) -> int:
@@ -52,6 +54,8 @@ class RequestBodyLimitMiddleware:
         total_timeout_seconds: float = DEFAULT_BODY_TOTAL_TIMEOUT_SECONDS,
         max_concurrent_body_reads: int = DEFAULT_MAX_CONCURRENT_BODY_READS,
         max_buffered_body_bytes: int = DEFAULT_MAX_BUFFERED_BODY_BYTES,
+        max_unauthenticated_body_reads: int = DEFAULT_MAX_UNAUTHENTICATED_BODY_READS,
+        max_unauthenticated_buffered_body_bytes: int = DEFAULT_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES,
         write_auth_mode: str = "disabled",
         write_token: str = "",
         write_token_header: str = "x-cortex-write-token",
@@ -64,6 +68,8 @@ class RequestBodyLimitMiddleware:
             raise ValueError("request body timeouts must be positive")
         if int(max_concurrent_body_reads) <= 0 or int(max_buffered_body_bytes) <= 0:
             raise ValueError("request body admission budgets must be positive")
+        if int(max_unauthenticated_body_reads) <= 0 or int(max_unauthenticated_buffered_body_bytes) <= 0:
+            raise ValueError("unauthenticated request body admission budgets must be positive")
         if int(max_buffered_body_bytes) < int(max_body_bytes):
             raise ValueError("aggregate request body budget must cover one maximum-sized body")
         self.app = app
@@ -72,6 +78,8 @@ class RequestBodyLimitMiddleware:
         self.total_timeout_seconds = float(total_timeout_seconds)
         self.max_concurrent_body_reads = int(max_concurrent_body_reads)
         self.max_buffered_body_bytes = int(max_buffered_body_bytes)
+        self.max_unauthenticated_body_reads = int(max_unauthenticated_body_reads)
+        self.max_unauthenticated_buffered_body_bytes = int(max_unauthenticated_buffered_body_bytes)
         self.write_auth_mode = str(write_auth_mode or "disabled").strip().lower()
         self.write_token = str(write_token or "").strip()
         self.write_token_header = str(write_token_header or "x-cortex-write-token").strip().lower()
@@ -82,6 +90,8 @@ class RequestBodyLimitMiddleware:
         self._budget_lock = threading.Lock()
         self._active_body_reads = 0
         self._buffered_body_bytes = 0
+        self._unauthenticated_active_body_reads = 0
+        self._unauthenticated_buffered_body_bytes = 0
 
     @staticmethod
     def _declared_content_length(scope: dict[str, Any]) -> int | None:
@@ -148,33 +158,72 @@ class RequestBodyLimitMiddleware:
             return True
         return token_matches(headers.get(self.write_token_header, ""), self.write_token)
 
-    def _acquire_admission(self) -> bool:
+    def _uses_unauthenticated_partition(self, scope: dict[str, Any]) -> bool:
+        method = str(scope.get("method") or "").upper()
+        path = str(scope.get("path") or "")
+        return method in MUTATING_METHODS and any(
+            path == prefix or path.startswith(f"{prefix}/")
+            for prefix in self.auth_exempt_prefixes
+        )
+
+    def _acquire_admission(self, *, unauthenticated: bool) -> bool:
         # Do not queue an unbounded number of request tasks behind this budget.
         # Capacity exhaustion is an immediate, fail-closed rejection.
         with self._budget_lock:
+            if unauthenticated:
+                if self._unauthenticated_active_body_reads >= self.max_unauthenticated_body_reads:
+                    return False
+                self._unauthenticated_active_body_reads += 1
+                return True
             if self._active_body_reads >= self.max_concurrent_body_reads:
                 return False
             self._active_body_reads += 1
             return True
 
-    def _reserve_buffer(self, amount: int) -> bool:
+    def _reserve_buffer(self, amount: int, *, unauthenticated: bool) -> bool:
         with self._budget_lock:
+            if unauthenticated:
+                if (
+                    self._unauthenticated_buffered_body_bytes + amount
+                    > self.max_unauthenticated_buffered_body_bytes
+                ):
+                    return False
+                self._unauthenticated_buffered_body_bytes += amount
+                return True
             if self._buffered_body_bytes + amount > self.max_buffered_body_bytes:
                 return False
             self._buffered_body_bytes += amount
             return True
 
-    def _release_admission(self, retained_bytes: int) -> None:
+    def _release_admission(self, retained_bytes: int, *, unauthenticated: bool) -> None:
         with self._budget_lock:
+            if unauthenticated:
+                self._unauthenticated_buffered_body_bytes = max(
+                    0, self._unauthenticated_buffered_body_bytes - retained_bytes
+                )
+                self._unauthenticated_active_body_reads = max(
+                    0, self._unauthenticated_active_body_reads - 1
+                )
+                return
             self._buffered_body_bytes = max(0, self._buffered_body_bytes - retained_bytes)
             self._active_body_reads = max(0, self._active_body_reads - 1)
 
-    def _release_reader(self) -> None:
+    def _release_reader(self, *, unauthenticated: bool) -> None:
         with self._budget_lock:
+            if unauthenticated:
+                self._unauthenticated_active_body_reads = max(
+                    0, self._unauthenticated_active_body_reads - 1
+                )
+                return
             self._active_body_reads = max(0, self._active_body_reads - 1)
 
-    def _release_buffer(self, retained_bytes: int) -> None:
+    def _release_buffer(self, retained_bytes: int, *, unauthenticated: bool) -> None:
         with self._budget_lock:
+            if unauthenticated:
+                self._unauthenticated_buffered_body_bytes = max(
+                    0, self._unauthenticated_buffered_body_bytes - retained_bytes
+                )
+                return
             self._buffered_body_bytes = max(0, self._buffered_body_bytes - retained_bytes)
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
@@ -232,7 +281,8 @@ class RequestBodyLimitMiddleware:
             )
             return
 
-        if not self._acquire_admission():
+        unauthenticated_partition = self._uses_unauthenticated_partition(scope)
+        if not self._acquire_admission(unauthenticated=unauthenticated_partition):
             await self._send_json(
                 send,
                 status=503,
@@ -265,16 +315,22 @@ class RequestBodyLimitMiddleware:
                         payload={"success": False, "error": "request body exceeds configured limit"},
                         head=head,
                     )
-                    self._release_admission(retained)
+                    self._release_admission(
+                        retained, unauthenticated=unauthenticated_partition
+                    )
                     return
-                if body and not self._reserve_buffer(len(body)):
+                if body and not self._reserve_buffer(
+                    len(body), unauthenticated=unauthenticated_partition
+                ):
                     await self._send_json(
                         send,
                         status=503,
                         payload={"success": False, "error": "aggregate request body buffer exhausted"},
                         head=head,
                     )
-                    self._release_admission(retained)
+                    self._release_admission(
+                        retained, unauthenticated=unauthenticated_partition
+                    )
                     return
                 retained += len(body)
                 buffered.append({**message, "body": body})
@@ -288,7 +344,9 @@ class RequestBodyLimitMiddleware:
                     payload={"success": False, "error": "Content-Length does not match request body"},
                     head=head,
                 )
-                self._release_admission(retained)
+                self._release_admission(
+                    retained, unauthenticated=unauthenticated_partition
+                )
                 return
         except asyncio.TimeoutError:
             try:
@@ -299,12 +357,16 @@ class RequestBodyLimitMiddleware:
                     head=head,
                 )
             finally:
-                self._release_admission(retained)
+                self._release_admission(
+                    retained, unauthenticated=unauthenticated_partition
+                )
             return
         except BaseException:
-            self._release_admission(retained)
+            self._release_admission(
+                retained, unauthenticated=unauthenticated_partition
+            )
             raise
-        self._release_reader()
+        self._release_reader(unauthenticated=unauthenticated_partition)
         try:
             state = scope.setdefault("state", {})
             state["cortex_request_body_bytes"] = observed
@@ -318,4 +380,6 @@ class RequestBodyLimitMiddleware:
 
             await self.app(scope, replay_receive, send)
         finally:
-            self._release_buffer(retained)
+            self._release_buffer(
+                retained, unauthenticated=unauthenticated_partition
+            )

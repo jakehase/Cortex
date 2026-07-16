@@ -13,6 +13,11 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
 
 
 
@@ -93,8 +98,9 @@ def _model_dump_compat(model: ProcessSnapshot) -> Dict[str, Any]:
 class ProcessSnapshotStore:
     _thread_state = threading.local()
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
 
     def _target(self, process_id: Optional[str] = None) -> Path:
         if self.path.suffix:
@@ -172,10 +178,27 @@ class ProcessSnapshotStore:
             payload = _model_dump_compat(record)
             payload["persistence_revision"] = observed + 1
             committed = _model_validate_compat(payload)
-            self._atomic_replace(
-                target,
-                (json.dumps(_model_dump_compat(committed), sort_keys=True, indent=2) + "\n").encode("utf-8"),
-            )
+            encoded = (
+                json.dumps(_model_dump_compat(committed), sort_keys=True, indent=2) + "\n"
+            ).encode("utf-8")
+            if self.delivery_root is None:
+                self._atomic_replace(target, encoded)
+            else:
+                with runtime_delivery_quota_transaction(self.delivery_root):
+                    assert_process_count(
+                        self.path,
+                        record.process_id,
+                        delivery_root=self.delivery_root,
+                    )
+                    assert_runtime_delivery_capacity(
+                        delivery_root=self.delivery_root,
+                        store_root=self.path if not self.path.suffix else self.path.parent,
+                        process_id=record.process_id,
+                        object_bytes=len(encoded),
+                        additional_bytes=len(encoded),
+                        replacing=target,
+                    )
+                    self._atomic_replace(target, encoded)
             return committed
 
     def load(self, process_id: Optional[str] = None) -> Optional[ProcessSnapshot]:

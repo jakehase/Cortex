@@ -158,12 +158,12 @@ class RuntimeSoakHarness:
         self.root = Path(root)
         self.sleep_fn = sleep_fn or time.sleep
         self.clock_fn = clock_fn or _utc_now
-        self.snapshot_store = ProcessSnapshotStore(self.root / "snapshots")
+        self.snapshot_store = ProcessSnapshotStore(self.root / "snapshots", delivery_root=self.root)
         self.shared_state_store = SharedProcessStateStore(self.root / "shared_state")
         self.release_store = ReleaseWorkflowStore(self.root / "release_state")
         self.journal = ProcessJournal(self.root / "runtime" / "processes.jsonl", delivery_root=self.root)
-        self.mailbox = AgentMailbox(self.root / "runtime" / "mailbox.json")
-        self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json", clock_fn=self.clock_fn)
+        self.mailbox = AgentMailbox(self.root / "runtime" / "mailbox.json", delivery_root=self.root)
+        self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json", clock_fn=self.clock_fn, delivery_root=self.root)
 
     def _reclaim_stale_at(self, process_id: str, observed_at: datetime) -> List[Any]:
         """Advance only the deterministic soak clock, never a product request clock."""
@@ -171,6 +171,7 @@ class RuntimeSoakHarness:
         supervisor = AgentSupervisor(
             self.root / "runtime" / "leases.json",
             clock_fn=lambda: observed_at,
+            delivery_root=self.root,
         )
         return supervisor.reclaim_stale(process_id=process_id)
 

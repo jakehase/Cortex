@@ -1032,7 +1032,7 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
         asyncio.run(
             orchestrator.rollback_runtime_delivery(
                 process["process_id"],
-                orchestrator.RuntimeDeliveryRollbackRequest(actor="controller", reason="post-push regression"),
+                orchestrator.RuntimeDeliveryRollbackRequest(idempotency_key="rollback-post-push-regression", actor="controller", reason="post-push regression"),
             )
         )
     pending_intent = stores["release_store"].load_rollback_intent(process["process_id"])

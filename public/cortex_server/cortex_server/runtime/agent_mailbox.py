@@ -14,6 +14,11 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
 
 
 
@@ -178,8 +183,9 @@ def _model_dump_compat(model: AgentMessage) -> Dict[str, Any]:
 
 
 class AgentMailbox:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
 
     @property
     def _lock_path(self) -> Path:
@@ -254,10 +260,27 @@ class AgentMailbox:
             "persistence_revision": next_revision,
             "messages": [_model_dump_compat(row) for row in rows],
         }
-        self._atomic_replace(
-            self.path,
-            (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"),
-        )
+        encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        if self.delivery_root is None:
+            self._atomic_replace(self.path, encoded)
+        else:
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                process_ids = sorted({row.process_id for row in rows})
+                for process_id in process_ids:
+                    assert_process_count(
+                        self.path,
+                        process_id,
+                        delivery_root=self.delivery_root,
+                    )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self.delivery_root,
+                    store_root=self.path,
+                    process_id=process_ids[0] if process_ids else "mailbox-system",
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=self.path,
+                )
+                self._atomic_replace(self.path, encoded)
         return next_revision
 
     def send(self, message: Optional[AgentMessage | Dict[str, Any]] = None, **kwargs: Any) -> AgentMessage:

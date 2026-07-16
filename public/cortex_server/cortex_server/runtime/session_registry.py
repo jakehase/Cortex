@@ -12,6 +12,11 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from cortex_server.runtime.session_contract import CanonicalSessionEvent
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
 
 
 JsonDict = Dict[str, Any]
@@ -63,11 +68,12 @@ class SessionRecord(BaseModel):
 
 
 class SessionRegistryStore:
-    def __init__(self, path: str | Path, *, max_sessions: int = 1000, max_questions: int = 50, max_question_bytes: int = 8192, max_metadata_bytes: int = 65536, max_state_bytes: int = 4_000_000):
+    def __init__(self, path: str | Path, *, max_sessions: int = 1000, max_questions: int = 50, max_question_bytes: int = 8192, max_metadata_bytes: int = 65536, max_state_bytes: int = 4_000_000, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
         self.max_sessions = max(1, int(max_sessions)); self.max_questions = max(1, int(max_questions))
         self.max_question_bytes = max(1, int(max_question_bytes)); self.max_metadata_bytes = max(2, int(max_metadata_bytes))
         self.max_state_bytes = max(1024, int(max_state_bytes)); self._mutex = threading.RLock(); self._lock_depth = 0
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
 
     @contextmanager
     def _transaction(self):
@@ -145,15 +151,32 @@ class SessionRegistryStore:
     def _write_all(self, rows: List[SessionRecord]) -> None:
         encoded = self._bounded_payload(rows)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        try:
-            with tmp.open("xb") as handle: handle.write(encoded); handle.flush(); os.fsync(handle.fileno())
-            os.replace(tmp, self.path)
-            directory = os.open(self.path.parent, os.O_RDONLY)
-            try: os.fsync(directory)
-            finally: os.close(directory)
-        finally:
-            if tmp.exists(): tmp.unlink()
+        def commit() -> None:
+            tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            try:
+                with tmp.open("xb") as handle: handle.write(encoded); handle.flush(); os.fsync(handle.fileno())
+                os.replace(tmp, self.path)
+                directory = os.open(self.path.parent, os.O_RDONLY)
+                try: os.fsync(directory)
+                finally: os.close(directory)
+            finally:
+                if tmp.exists(): tmp.unlink()
+        if self.delivery_root is None:
+            commit()
+        else:
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                process_ids = sorted({row.process_id for row in rows})
+                for process_id in process_ids:
+                    assert_process_count(self.path, process_id, delivery_root=self.delivery_root)
+                assert_runtime_delivery_capacity(
+                    delivery_root=self.delivery_root,
+                    store_root=self.path,
+                    process_id=process_ids[0] if process_ids else "session-system",
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=self.path,
+                )
+                commit()
 
     def _bounded_payload(self, rows: List[SessionRecord]) -> bytes:
         active = [r for r in rows if r.status not in {"finished", "failed"}]

@@ -10,7 +10,7 @@ from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
-from cortex_server.runtime.process_replay import replay_events
+from cortex_server.runtime.process_replay import replay_events, replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore, SharedStateRevisionRecord
 
@@ -282,6 +282,7 @@ def compile_dependability_report(
     profile: str | JsonDict = "24h",
     campaign_evidence: Optional[JsonDict] = None,
     evidence_binding: Optional[JsonDict] = None,
+    replayed_state: Optional[JsonDict] = None,
     now: Optional[datetime] = None,
 ) -> JsonDict:
     if snapshot.process_id != shared_state.process_id:
@@ -302,7 +303,7 @@ def compile_dependability_report(
     messages = [row for row in (mailbox_messages or []) if row.process_id == process_id]
     process_leases = [row for row in (leases or []) if row.process_id == process_id]
     revisions = [row for row in (revision_history or []) if row.process_id == process_id]
-    replay_state = replay_events(process_id, events)
+    replay_state = dict(replayed_state) if replayed_state is not None else replay_events(process_id, events)
 
     unique_agents = _dedupe_strs(
         list(snapshot.assigned_agents.values())
@@ -321,7 +322,10 @@ def compile_dependability_report(
     checkpoint_age_seconds = _age_seconds(snapshot.ts, now=current) or 0.0
     max_inflight_age_seconds = max((_age_seconds(row.last_attempt_at or row.created_at, now=current) or 0.0) for row in inflight_messages) if inflight_messages else 0.0
     max_lease_heartbeat_lag_seconds = max((_age_seconds(row.heartbeat_at, now=current) or 0.0) for row in active_leases) if active_leases else 0.0
-    snapshot_event_gap = max(0, len(events) - int(snapshot.event_count or 0))
+    snapshot_event_gap = max(
+        0,
+        int(replay_state.get("event_count", 0) or 0) - int(snapshot.event_count or 0),
+    )
     synthetic_revision_actions = {
         "refresh_shared_state_revision",
         "reconcile_shared_state_parity",
@@ -519,6 +523,7 @@ def load_dependability_report(
     if snapshot is None or shared_state is None:
         raise ValueError("snapshot and shared process state are required to load dependability report")
     events = journal.load(process_id=process_id) if journal else []
+    replayed_state = replay_from_journal(journal, process_id) if journal else None
     messages = mailbox.list(process_id=process_id) if mailbox else []
     leases = supervisor.list(process_id=process_id) if supervisor else []
     history = shared_state_store.history(process_id)
@@ -526,6 +531,7 @@ def load_dependability_report(
         snapshot=snapshot,
         shared_state=shared_state,
         recent_events=events,
+        replayed_state=replayed_state,
         mailbox_messages=messages,
         leases=leases,
         revision_history=history,

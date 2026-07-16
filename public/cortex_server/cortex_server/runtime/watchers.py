@@ -18,6 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from cortex_server.runtime.session_contract import CanonicalSessionEvent, normalize_session_event
 from cortex_server.runtime.session_registry import SessionRegistryStore
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    assert_runtime_delivery_volume_capacity,
+    runtime_delivery_quota_transaction,
+)
 
 
 JsonDict = Dict[str, Any]
@@ -62,8 +68,9 @@ class WatchRegistration(BaseModel):
 
 
 class WatcherRuntimeStore:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
         self._mutex = threading.RLock()
         self._lock_depth = 0
 
@@ -71,11 +78,11 @@ class WatcherRuntimeStore:
         target = self.path.with_suffix(self.path.suffix + ".attestation.key")
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
-            try:
-                descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            except FileExistsError:
-                pass
-            else:
+            def create_key() -> None:
+                try:
+                    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:
+                    return
                 try:
                     os.write(descriptor, secrets.token_bytes(32))
                     os.fsync(descriptor)
@@ -86,6 +93,12 @@ class WatcherRuntimeStore:
                     os.fsync(directory_fd)
                 finally:
                     os.close(directory_fd)
+            if self.delivery_root is None:
+                create_key()
+            else:
+                with runtime_delivery_quota_transaction(self.delivery_root):
+                    assert_runtime_delivery_volume_capacity(self.delivery_root, additional_bytes=32)
+                    create_key()
         key = target.read_bytes()
         if len(key) != 32:
             raise RuntimeError("watcher attestation key is invalid")
@@ -228,21 +241,43 @@ class WatcherRuntimeStore:
     def _write(self, data: Dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         encoded = (json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
-        temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        try:
-            with temporary.open("xb") as handle:
-                handle.write(encoded)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, self.path)
-            directory_fd = os.open(self.path.parent, os.O_RDONLY)
+        def commit() -> None:
+            temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
             try:
-                os.fsync(directory_fd)
+                with temporary.open("xb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self.path)
+                directory_fd = os.open(self.path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             finally:
-                os.close(directory_fd)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+                if temporary.exists():
+                    temporary.unlink()
+        if self.delivery_root is None:
+            commit()
+        else:
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                registrations = data.get("registrations") if isinstance(data.get("registrations"), list) else []
+                process_ids = sorted({
+                    str(row.get("process_id") or "")
+                    for row in registrations
+                    if isinstance(row, dict) and str(row.get("process_id") or "")
+                })
+                for process_id in process_ids:
+                    assert_process_count(self.path, process_id, delivery_root=self.delivery_root)
+                assert_runtime_delivery_capacity(
+                    delivery_root=self.delivery_root,
+                    store_root=self.path,
+                    process_id=process_ids[0] if process_ids else "watcher-system",
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=self.path,
+                )
+                commit()
 
     def register(self, registration: WatchRegistration | Dict[str, Any]) -> WatchRegistration:
         with self._transaction():

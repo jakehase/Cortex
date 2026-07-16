@@ -571,6 +571,109 @@ async def test_outer_body_limiter_bounds_concurrent_unauthenticated_partial_bodi
 
 
 @pytest.mark.asyncio
+async def test_slow_public_handoffs_cannot_consume_authenticated_mutation_capacity():
+    both_handoffs_entered = asyncio.Event()
+    release_handoffs = asyncio.Event()
+    entered = 0
+    dispatched = []
+
+    async def downstream(scope, receive, send):
+        dispatched.append(scope["path"])
+        message = await receive()
+        assert message["more_body"] is False
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    def stalled_receive():
+        calls = 0
+
+        async def receive():
+            nonlocal calls, entered
+            calls += 1
+            if calls == 1:
+                entered += 1
+                if entered == 2:
+                    both_handoffs_entered.set()
+                return {"type": "http.request", "body": b"{", "more_body": True}
+            await release_handoffs.wait()
+            return {"type": "http.request", "body": b"}", "more_body": False}
+
+        return receive
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=64,
+        idle_timeout_seconds=1,
+        total_timeout_seconds=2,
+        max_concurrent_body_reads=1,
+        max_buffered_body_bytes=64,
+        max_unauthenticated_body_reads=2,
+        max_unauthenticated_buffered_body_bytes=16,
+        write_auth_mode="token_required",
+        write_token="valid-write-token",
+        auth_exempt_prefixes=("/orchestrator/runtime/delivery/handoffs",),
+    )
+
+    async def run_handoff():
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await limiter(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/orchestrator/runtime/delivery/handoffs/claim-next",
+                "headers": [],
+            },
+            stalled_receive(),
+            send,
+        )
+        return sent
+
+    first = asyncio.create_task(run_handoff())
+    second = asyncio.create_task(run_handoff())
+    await both_handoffs_entered.wait()
+
+    messages = iter([{"type": "http.request", "body": b"{}", "more_body": False}])
+    authenticated_sent = []
+
+    async def authenticated_receive():
+        return next(messages)
+
+    async def authenticated_send(message):
+        authenticated_sent.append(message)
+
+    await asyncio.wait_for(
+        limiter(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/nexus/commit",
+                "headers": [
+                    (b"content-length", b"2"),
+                    (b"x-cortex-write-token", b"valid-write-token"),
+                ],
+            },
+            authenticated_receive,
+            authenticated_send,
+        ),
+        timeout=0.2,
+    )
+
+    assert authenticated_sent[0]["status"] == 204
+    assert "/nexus/commit" in dispatched
+    assert limiter._active_body_reads == 0
+    assert limiter._unauthenticated_active_body_reads == 2
+
+    release_handoffs.set()
+    await asyncio.gather(first, second)
+    assert limiter._unauthenticated_active_body_reads == 0
+    assert limiter._unauthenticated_buffered_body_bytes == 0
+
+
+@pytest.mark.asyncio
 async def test_outer_body_limiter_rejects_missing_write_token_without_receiving_body():
     receive_calls = []
     sent = []

@@ -31,6 +31,8 @@ from cortex_server.middleware.request_body_limit import (
     DEFAULT_BODY_TOTAL_TIMEOUT_SECONDS,
     DEFAULT_MAX_BUFFERED_BODY_BYTES,
     DEFAULT_MAX_CONCURRENT_BODY_READS,
+    DEFAULT_MAX_UNAUTHENTICATED_BODY_READS,
+    DEFAULT_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES,
     RequestBodyLimitMiddleware,
     configured_max_request_body_bytes,
 )
@@ -1064,6 +1066,16 @@ def create_app() -> FastAPI:
     max_buffered_body_bytes = _bounded_body_int(
         "CORTEX_MAX_BUFFERED_BODY_BYTES", DEFAULT_MAX_BUFFERED_BODY_BYTES, 256 * 1024 * 1024
     )
+    max_unauthenticated_body_reads = _bounded_body_int(
+        "CORTEX_MAX_UNAUTHENTICATED_BODY_READS",
+        DEFAULT_MAX_UNAUTHENTICATED_BODY_READS,
+        16,
+    )
+    max_unauthenticated_buffered_body_bytes = _bounded_body_int(
+        "CORTEX_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES",
+        DEFAULT_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES,
+        32 * 1024 * 1024,
+    )
     safe_mode = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
     admin_token = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
     codec_admin_token = os.getenv("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
@@ -1353,6 +1365,8 @@ def create_app() -> FastAPI:
         "total_timeout_seconds": body_total_timeout_seconds,
         "max_concurrent_body_reads": max_concurrent_body_reads,
         "max_buffered_body_bytes": max_buffered_body_bytes,
+        "max_unauthenticated_body_reads": max_unauthenticated_body_reads,
+        "max_unauthenticated_buffered_body_bytes": max_unauthenticated_buffered_body_bytes,
     }
     app.state.lifecycle_checks = _not_started_lifecycle_checks()
     app.state.parser_service = ParserService(workspace_roots=parser_workspace_roots)
@@ -1549,6 +1563,8 @@ def create_app() -> FastAPI:
         total_timeout_seconds=body_total_timeout_seconds,
         max_concurrent_body_reads=max_concurrent_body_reads,
         max_buffered_body_bytes=max_buffered_body_bytes,
+        max_unauthenticated_body_reads=max_unauthenticated_body_reads,
+        max_unauthenticated_buffered_body_bytes=max_unauthenticated_buffered_body_bytes,
         write_auth_mode=write_auth_mode,
         write_token=write_token,
         write_token_header=write_token_header,

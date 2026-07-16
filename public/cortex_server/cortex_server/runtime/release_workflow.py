@@ -25,8 +25,11 @@ from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
     assert_runtime_delivery_volume_capacity,
     runtime_delivery_quota_transaction,
+    runtime_delivery_recovery_transaction,
 )
 from cortex_server.runtime.session_registry import SessionRecord
 from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore
@@ -43,6 +46,7 @@ DEFAULT_RELEASE_ARTIFACT_STORE_QUOTA_BYTES = 1024 * 1024 * 1024
 DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS = 3600
 MAX_RELEASE_ARTIFACT_RECEIPTS = 128
 MAX_RELEASE_ARTIFACT_CLAIMS_BYTES = 64 * 1024
+MAX_RELEASE_ROLLBACK_IDEMPOTENCY_RESULTS = 64
 MAX_RELEASE_RECEIPT_METADATA_BYTES = 2 * 1024 * 1024
 MAX_RELEASE_STATE_BYTES = 4 * 1024 * 1024
 MAX_RELEASE_HISTORY_BYTES = 64 * 1024 * 1024
@@ -1232,6 +1236,15 @@ class ReleaseWorkflowStore:
         target = self._target(process_id)
         return target.with_name(f".{target.name}.rollback.lock")
 
+    def _rollback_result_root(self, process_id: str) -> Path:
+        store_root = self.path.parent if self.path.suffix else self.path
+        process_digest = hashlib.sha256(str(process_id).encode("utf-8")).hexdigest()
+        return store_root / "rollback_results" / process_digest
+
+    def _rollback_result_target(self, process_id: str, idempotency_key: str) -> Path:
+        key_digest = hashlib.sha256(str(idempotency_key).encode("utf-8")).hexdigest()
+        return self._rollback_result_root(process_id) / f"{key_digest}.json"
+
     def artifact_store(self) -> ReleaseArtifactStore:
         root = self.path.parent / f"{self.path.stem}_artifacts" if self.path.suffix else self.path / "artifacts"
         return ReleaseArtifactStore(root, delivery_root=self.path.parent)
@@ -1355,7 +1368,81 @@ class ReleaseWorkflowStore:
         payload = dict(intent)
         payload["process_id"] = process_id
         payload["updated_at"] = _now_iso()
-        _atomic_write_json(self._rollback_intent_target(process_id), payload)
+        target = self._rollback_intent_target(process_id)
+        encoded = self._encoded_json(payload, pretty=True)
+        delivery_root = self.path.parent
+        store_root = self.path.parent if self.path.suffix else self.path
+        with runtime_delivery_quota_transaction(delivery_root):
+            assert_process_count(store_root, process_id, delivery_root=delivery_root)
+            assert_runtime_delivery_capacity(
+                delivery_root=delivery_root,
+                store_root=store_root,
+                process_id=process_id,
+                object_bytes=len(encoded),
+                additional_bytes=len(encoded),
+                replacing=target,
+            )
+            _atomic_write_json(target, payload)
+        return payload
+
+    def load_rollback_result(
+        self,
+        process_id: str,
+        idempotency_key: str,
+    ) -> Optional[Dict[str, Any]]:
+        target = self._rollback_result_target(process_id, idempotency_key)
+        if not target.exists():
+            return None
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if (
+            not isinstance(payload, dict)
+            or payload.get("version") != "cortex.release-rollback-result.v1"
+            or str(payload.get("process_id") or "") != str(process_id)
+            or str(payload.get("idempotency_key") or "") != str(idempotency_key)
+            or not isinstance(payload.get("committed_response"), dict)
+        ):
+            raise ValueError(f"invalid committed rollback result for {process_id}")
+        return payload
+
+    def save_rollback_result(
+        self,
+        process_id: str,
+        *,
+        idempotency_key: str,
+        request_fingerprint: str,
+        committed_response: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        target = self._rollback_result_target(process_id, idempotency_key)
+        root = target.parent
+        if not target.exists() and root.exists():
+            existing = list(root.glob("*.json"))
+            if len(existing) >= MAX_RELEASE_ROLLBACK_IDEMPOTENCY_RESULTS:
+                raise ValueError("release rollback idempotency result quota exceeded")
+        payload = {
+            "version": "cortex.release-rollback-result.v1",
+            "process_id": process_id,
+            "idempotency_key": idempotency_key,
+            "request_fingerprint": request_fingerprint,
+            "committed_response": committed_response,
+            "committed_at": _now_iso(),
+        }
+        encoded = self._encoded_json(payload, pretty=True)
+        delivery_root = self.path.parent
+        with runtime_delivery_quota_transaction(delivery_root):
+            assert_process_count(
+                self.path.parent if self.path.suffix else self.path,
+                process_id,
+                delivery_root=delivery_root,
+            )
+            assert_runtime_delivery_capacity(
+                delivery_root=delivery_root,
+                store_root=root,
+                process_id=process_id,
+                object_bytes=len(encoded),
+                additional_bytes=len(encoded),
+                replacing=target,
+            )
+            _atomic_write_json(target, payload)
         return payload
 
     def load(self, process_id: Optional[str] = None) -> Optional[ReleaseWorkflowState]:
@@ -1431,6 +1518,11 @@ class ReleaseWorkflowStore:
                     (json.dumps(_history_dump_compat(history_record), sort_keys=True) + "\n").encode("utf-8")
                 )
                 with runtime_delivery_quota_transaction(delivery_root):
+                    assert_process_count(
+                        self.path.parent if self.path.suffix else self.path,
+                        record.process_id,
+                        delivery_root=delivery_root,
+                    )
                     self._assert_durable_metadata_capacity(persisted, history_record)
                     assert_runtime_delivery_volume_capacity(
                         delivery_root,
@@ -2286,6 +2378,67 @@ def _restore_release_watchers(watcher_store: Any, *, process_id: str, session_st
     watcher_store.replace_process(process_id=process_id, registrations=restored_rows)
 
 
+def _rollback_request_fingerprint(
+    *,
+    process_id: str,
+    release_id: str,
+    stage: Optional[str],
+    fencepost_id: Optional[str],
+    actor: Optional[str],
+    reason: str,
+    required_projections: Optional[Sequence[str]],
+) -> str:
+    canonical = json.dumps(
+        {
+            "version": "cortex.release-rollback-request.v1",
+            "process_id": str(process_id),
+            "release_id": str(release_id),
+            "stage": str(stage or "").strip() or None,
+            "fencepost_id": str(fencepost_id or "").strip() or None,
+            "actor": str(actor or "").strip() or None,
+            "reason": str(reason or "rollback").strip() or "rollback",
+            "required_projections": sorted(_dedupe_rows(list(required_projections or []))),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+
+
+def _rollback_jsonable(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return _rollback_jsonable(value.model_dump())
+    if hasattr(value, "dict"):
+        return _rollback_jsonable(value.dict())
+    if isinstance(value, dict):
+        return {str(key): _rollback_jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_rollback_jsonable(item) for item in value]
+    return value
+
+
+def _restore_committed_rollback_response(
+    payload: Dict[str, Any],
+    *,
+    intent: Optional[Dict[str, Any]] = None,
+) -> JsonDict:
+    response = dict(payload)
+    response["state"] = _workflow_validate_compat(dict(response["state"]))
+    response["snapshot"] = (
+        ProcessSnapshot.model_validate(dict(response["snapshot"]))
+        if hasattr(ProcessSnapshot, "model_validate")
+        else ProcessSnapshot.parse_obj(dict(response["snapshot"]))
+    )
+    response["shared_state"] = (
+        SharedProcessState.model_validate(dict(response["shared_state"]))
+        if hasattr(SharedProcessState, "model_validate")
+        else SharedProcessState.parse_obj(dict(response["shared_state"]))
+    )
+    if intent is not None:
+        response["rollback_transaction"] = dict(intent)
+    return response
+
+
 def apply_release_rollback_restore(
     state: ReleaseWorkflowState,
     *,
@@ -2302,6 +2455,7 @@ def apply_release_rollback_restore(
     new_revision_id: Optional[str] = None,
     required_projections: Optional[Sequence[str]] = None,
     projection_callback: Optional[Callable[..., Dict[str, Any]]] = None,
+    idempotency_key: Optional[str] = None,
 ) -> JsonDict:
     transaction_store = release_store or ReleaseWorkflowStore(Path(snapshot_store.path).parent / "rollback_transactions")
     normalized_reason = str(reason or "rollback").strip() or "rollback"
@@ -2329,10 +2483,84 @@ def apply_release_rollback_restore(
             # is authoritative after acquiring the same transaction fence.
             state = authoritative_state
         intent = transaction_store.load_rollback_intent(state.process_id)
-        resumable = bool(
-            intent
+        requested_idempotency_key = str(idempotency_key or "").strip()
+        caller_supplied_idempotency_key = bool(requested_idempotency_key)
+        if len(requested_idempotency_key) > 256:
+            raise ValueError("rollback idempotency key exceeds 256 characters")
+        if (
+            not requested_idempotency_key
+            and intent
             and intent.get("status") in {"in_progress", "recovery_required"}
+        ):
+            requested_idempotency_key = str(intent.get("idempotency_key") or "").strip()
+        if not requested_idempotency_key:
+            requested_idempotency_key = f"internal-{uuid4().hex}"
+        implicit_recovery = bool(
+            not caller_supplied_idempotency_key
+            and intent
+            and intent.get("status") in {"in_progress", "recovery_required"}
+            and str(intent.get("idempotency_key") or "") == requested_idempotency_key
+        )
+        request_fingerprint = (
+            str(intent.get("request_fingerprint") or "")
+            if implicit_recovery
+            else _rollback_request_fingerprint(
+                process_id=state.process_id,
+                release_id=state.release_id,
+                stage=stage,
+                fencepost_id=fencepost_id,
+                actor=actor,
+                reason=normalized_reason,
+                required_projections=required_projections,
+            )
+        )
+
+        archived_result = transaction_store.load_rollback_result(
+            state.process_id,
+            requested_idempotency_key,
+        )
+        if archived_result is not None:
+            if str(archived_result.get("request_fingerprint") or "") != request_fingerprint:
+                raise ValueError("rollback idempotency key was reused with a different request")
+            return _restore_committed_rollback_response(
+                dict(archived_result["committed_response"]),
+            )
+
+        same_intent_key = bool(
+            intent
+            and str(intent.get("idempotency_key") or "") == requested_idempotency_key
             and intent.get("release_id") == state.release_id
+        )
+        if same_intent_key and str(intent.get("request_fingerprint") or "") != request_fingerprint:
+            raise ValueError("rollback idempotency key was reused with a different request")
+        if same_intent_key and intent.get("status") == "committed":
+            committed_response = intent.get("committed_response")
+            if not isinstance(committed_response, dict):
+                raise RuntimeError("committed rollback intent is missing its response")
+            return _restore_committed_rollback_response(
+                committed_response,
+                intent=intent,
+            )
+        if intent and not same_intent_key and intent.get("status") in {"in_progress", "recovery_required"}:
+            raise RuntimeError("a different rollback idempotency key owns pending recovery")
+        if intent and not same_intent_key and intent.get("status") == "committed":
+            previous_response = intent.get("committed_response")
+            if isinstance(previous_response, dict) and intent.get("idempotency_key"):
+                transaction_store.save_rollback_result(
+                    state.process_id,
+                    idempotency_key=str(intent["idempotency_key"]),
+                    request_fingerprint=str(intent.get("request_fingerprint") or ""),
+                    committed_response=previous_response,
+                )
+            if not str(stage or "").strip() and not str(fencepost_id or "").strip():
+                raise ValueError(
+                    "a distinct rollback requires a new idempotency key and an explicit target"
+                )
+
+        resumable = bool(
+            same_intent_key
+            and intent
+            and intent.get("status") in {"in_progress", "recovery_required"}
         )
         if resumable:
             rolled_state = _workflow_validate_compat(dict(intent["rolled_state"]))
@@ -2353,9 +2581,19 @@ def apply_release_rollback_restore(
                     "transaction_id": transaction_id,
                     "status": "in_progress",
                     "phase": "planned",
+                    "idempotency_key": requested_idempotency_key,
+                    "request_fingerprint": request_fingerprint,
                     "release_id": state.release_id,
                     "source_stage": state.current_stage,
                     "source_revision_id": state.revision_id,
+                    "source_release_state": _workflow_dump_compat(state),
+                    "canonical_request": {
+                        "stage": str(stage or "").strip() or None,
+                        "fencepost_id": str(fencepost_id or "").strip() or None,
+                        "actor": str(actor or "").strip() or None,
+                        "reason": normalized_reason,
+                        "required_projections": _dedupe_rows(list(required_projections or [])),
+                    },
                     "target_revision_id": target_revision,
                     "restored_artifact_revision_id": target_revision,
                     # Preserve the established rollback revision type suffix
@@ -2368,6 +2606,7 @@ def apply_release_rollback_restore(
                     "actor": str(actor or "").strip() or None,
                     "rolled_state": _workflow_dump_compat(rolled_state),
                     "fencepost": target_fencepost,
+                    "selected_fencepost_id": str(target_fencepost.get("fencepost_id") or ""),
                     "restore_state": restore_state,
                     "required_projections": _dedupe_rows(list(required_projections or [])),
                     "completed_projections": [],
@@ -2391,6 +2630,13 @@ def apply_release_rollback_restore(
             "reason": normalized_reason,
         }
 
+        recovery_admission = runtime_delivery_recovery_transaction(
+            transaction_store.path.parent,
+            process_id=state.process_id,
+            transaction_id=transaction_id,
+            intent_path=transaction_store._rollback_intent_target(state.process_id),
+        )
+        recovery_admission.__enter__()
         try:
             current_shared = shared_state_store.load(state.process_id)
             current_provenance_matches = bool(
@@ -2599,10 +2845,43 @@ def apply_release_rollback_restore(
                         "completed_projections": completed_projection_names,
                     },
                 )
+            response = {
+                "rolled_back": True,
+                "state": applied_state,
+                "fencepost": target_fencepost,
+                "restore_state": restore_state,
+                "snapshot": restored_snapshot,
+                "shared_state": restored_shared,
+                "rollback_event": (rollback_event.model_dump() if hasattr(rollback_event, "model_dump") else rollback_event.dict()) if rollback_event is not None else None,
+                "rollback_transaction": intent,
+                "rollback_projections": projection_result,
+                "applied": True,
+                "operator_summary": (
+                    f"release rollback applied for {state.process_id}: {state.current_stage} -> {applied_state.current_stage} "
+                    f"via {target_fencepost_id or 'unknown_fencepost'}"
+                ),
+            }
+            committed_response = _rollback_jsonable(response)
             intent = transaction_store.save_rollback_intent(
                 state.process_id,
-                {**intent, "phase": "committed", "status": "committed"},
+                {
+                    **intent,
+                    "phase": "committed",
+                    "status": "committed",
+                    "committed_response": committed_response,
+                    "committed_response_digest": (
+                        "sha256:"
+                        + hashlib.sha256(
+                            json.dumps(
+                                committed_response,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode("utf-8")
+                        ).hexdigest()
+                    ),
+                },
             )
+            response["rollback_transaction"] = intent
         except BaseException as exc:
             latest_intent = transaction_store.load_rollback_intent(state.process_id) or intent
             transaction_store.save_rollback_intent(
@@ -2610,23 +2889,10 @@ def apply_release_rollback_restore(
                 {**latest_intent, "status": "recovery_required", "last_error": f"{type(exc).__name__}: {exc}"},
             )
             raise
+        finally:
+            recovery_admission.__exit__(None, None, None)
 
-        return {
-            "rolled_back": True,
-            "state": applied_state,
-            "fencepost": target_fencepost,
-            "restore_state": restore_state,
-            "snapshot": restored_snapshot,
-            "shared_state": restored_shared,
-            "rollback_event": (rollback_event.model_dump() if hasattr(rollback_event, "model_dump") else rollback_event.dict()) if rollback_event is not None else None,
-            "rollback_transaction": intent,
-            "rollback_projections": projection_result,
-            "applied": True,
-            "operator_summary": (
-                f"release rollback applied for {state.process_id}: {state.current_stage} -> {applied_state.current_stage} "
-                f"via {target_fencepost_id or 'unknown_fencepost'}"
-            ),
-        }
+        return response
 
 
 __all__ = [

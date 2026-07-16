@@ -164,7 +164,7 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
     root = _runtime_delivery_root()
     return {
         "root": root,
-        "snapshot_store": ProcessSnapshotStore(root / "snapshots"),
+        "snapshot_store": ProcessSnapshotStore(root / "snapshots", delivery_root=root),
         "shared_state_store": SharedProcessStateStore(root / "shared_state"),
         "journal": ProcessJournal(root / "journal.jsonl", delivery_root=root),
         "session_registry": SessionRegistryStore(
@@ -174,20 +174,22 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
             max_question_bytes=int(os.getenv("ORCHESTRATOR_MAX_SESSION_QUESTION_BYTES", "8192")),
             max_metadata_bytes=int(os.getenv("ORCHESTRATOR_MAX_SESSION_METADATA_BYTES", "65536")),
             max_state_bytes=int(os.getenv("ORCHESTRATOR_MAX_SESSION_STATE_BYTES", "4000000")),
+            delivery_root=root,
         ),
-        "watcher_store": WatcherRuntimeStore(root / "watchers.json"),
-        "runtime_memory_store": RuntimeMemoryStore(root / "memory"),
+        "watcher_store": WatcherRuntimeStore(root / "watchers.json", delivery_root=root),
+        "runtime_memory_store": RuntimeMemoryStore(root / "memory", delivery_root=root),
         "delivery_dlq": DeliveryDeadLetterStore(root / "delivery_dlq.jsonl", delivery_root=root),
-        "mailbox": AgentMailbox(root / "mailbox.json"),
-        "supervisor": AgentSupervisor(root / "leases.json"),
+        "mailbox": AgentMailbox(root / "mailbox.json", delivery_root=root),
+        "supervisor": AgentSupervisor(root / "leases.json", delivery_root=root),
         "release_store": ReleaseWorkflowStore(root / "release_workflow"),
         "loop_store": ProductionBuildLoopStore(root / "production_build_loop"),
         "roadmap_store": RoadmapExecutionStore(root / "roadmap_executor"),
-        "follow_up_store": RuntimeFollowUpStore(root / "runtime_follow_ups.json"),
+        "follow_up_store": RuntimeFollowUpStore(root / "runtime_follow_ups.json", delivery_root=root),
         "maintenance_queue_store": MaintenanceQueueStore(
             root / "maintenance_queue.json",
             max_items=int(os.getenv("ORCHESTRATOR_MAX_MAINTENANCE_ITEMS", "1000")),
             max_state_bytes=int(os.getenv("ORCHESTRATOR_MAX_MAINTENANCE_STATE_BYTES", "4000000")),
+            delivery_root=root,
         ),
     }
 
@@ -3240,6 +3242,7 @@ class RuntimeDeliveryReconcileRequest(BaseModel):
 class RuntimeDeliveryRollbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    idempotency_key: str = Field(min_length=1, max_length=256)
     stage: Optional[str] = None
     fencepost_id: Optional[str] = None
     reason: str = "operator_requested"
@@ -5658,8 +5661,7 @@ async def ingest_runtime_delivery_artifact(
 
 
 @router.post("/runtime/delivery/rollback/{process_id}")
-async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDeliveryRollbackRequest] = None):
-    request = request or RuntimeDeliveryRollbackRequest()
+async def rollback_runtime_delivery(process_id: str, request: RuntimeDeliveryRollbackRequest):
     process = get_runtime_process(process_id)
     if not process:
         raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
@@ -5695,6 +5697,7 @@ async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDe
         reason=request.reason,
         required_projections=["production_loop", "runtime_process"],
         projection_callback=_project_rollback,
+        idempotency_key=request.idempotency_key,
     )
     rollback_checkpoint = (rolled.get("rollback_projections") or {}).get("loop_checkpoint")
     process = (rolled.get("rollback_projections") or {}).get("process") or get_runtime_process(process_id) or process

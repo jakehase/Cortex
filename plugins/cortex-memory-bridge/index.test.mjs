@@ -843,6 +843,80 @@ test('two processes cannot lose concurrent spool puts or stale acknowledgements'
   }
 });
 
+test('lifecycle spool lock reclaims a reused live PID only when process start identity differs', () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-reused-pid-lock-'));
+  const lockPath = path.join(stateDir, '.lifecycle-spool.lock');
+  try {
+    fs.writeFileSync(lockPath, JSON.stringify({
+      version: 1,
+      pid: process.pid,
+      startIdentity: 'definitely-not-this-process-start',
+      token: 'predecessor-owner-token',
+      createdAt: new Date().toISOString(),
+    }));
+    const spool = new DurableLifecycleSpool(stateDir, 16);
+    assert.deepEqual(spool.entries(), []);
+    assert.equal(fs.existsSync(lockPath), false);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('SIGKILL releases lifecycle progress through restart-safe stale lock reclamation', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-sigkill-lock-'));
+  const marker = path.join(stateDir, 'lock-acquired');
+  const moduleUrl = new URL('./index.ts', import.meta.url).href;
+  const script = `
+    import fs from 'node:fs';
+    import { withLifecycleDirectoryLock } from ${JSON.stringify(moduleUrl)};
+    withLifecycleDirectoryLock(${JSON.stringify(path.join(stateDir, '.lifecycle-spool.lock'))}, () => {
+      fs.writeFileSync(${JSON.stringify(marker)}, 'acquired');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60_000);
+    });
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '--eval', script], { stdio: 'ignore' });
+  try {
+    const deadline = Date.now() + 5_000;
+    while (!fs.existsSync(marker) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(fs.existsSync(marker), true, 'child must own the lock before SIGKILL');
+    child.kill('SIGKILL');
+    await new Promise((resolve) => child.once('close', resolve));
+
+    const spool = new DurableLifecycleSpool(stateDir, 16);
+    const principal = { version: 1, tenant_id: 'tenant', workspace_id: 'workspace', scope_credential_id: 'credential', agent_id: 'agent', user_id: 'user', channel_id: 'channel', session_id: 'session' };
+    spool.put({ version: 3, key: 'after-sigkill', createdAt: new Date().toISOString(), principal, event: { result: 'restart', messages: [] }, context: { sessionKey: 'session', sessionId: 'session', channelId: 'channel', agentId: 'agent', userId: 'user', idempotencyKey: 'after-sigkill' }, fallbackText: 'restart' });
+    assert.equal(spool.has('after-sigkill'), true);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('concurrent stale reclaimers cannot delete the replacement lifecycle lock', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-concurrent-reclaim-'));
+  const lockPath = path.join(stateDir, '.lifecycle-spool.lock');
+  try {
+    fs.writeFileSync(lockPath, JSON.stringify({
+      version: 1,
+      pid: 2_147_483_647,
+      startIdentity: 'dead-process-start',
+      token: 'dead-owner-token',
+      createdAt: new Date().toISOString(),
+    }));
+    await Promise.all([
+      runSpoolWorker(stateDir, 'put', 'reclaimer-a-', 40),
+      runSpoolWorker(stateDir, 'put', 'reclaimer-b-', 40),
+    ]);
+    const records = JSON.parse(fs.readFileSync(path.join(stateDir, 'lifecycle-spool.json'), 'utf8'));
+    assert.equal(records.length, 80);
+    assert.equal(new Set(records.map((record) => record.key)).size, 80);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('lifecycle replay quarantines every active-configuration principal mismatch', async () => {
   const variants = [
     { tenantId: 'tenant-other' },

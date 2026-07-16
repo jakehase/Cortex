@@ -11,6 +11,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
+
 
 
 def _now() -> datetime:
@@ -88,10 +94,17 @@ def _model_dump_compat(model: AgentLease) -> Dict[str, Any]:
 
 
 class AgentSupervisor:
-    def __init__(self, path: str | Path, *, clock_fn: Optional[Callable[[], datetime]] = None):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        clock_fn: Optional[Callable[[], datetime]] = None,
+        delivery_root: Optional[str | Path] = None,
+    ):
         self.path = Path(path)
         self.lock_path = self.path.with_name(f"{self.path.name}.lock")
         self._clock_fn = clock_fn or _now
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
 
     def _trusted_now(self) -> datetime:
         observed = self._clock_fn()
@@ -135,23 +148,41 @@ class AgentSupervisor:
             "leases": [_model_dump_compat(row) for row in rows],
         }
         encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
-        temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{uuid4().hex}.tmp")
-        try:
-            with temporary.open("xb") as handle:
-                handle.write(encoded)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, self.path)
-            directory_fd = os.open(self.path.parent, os.O_RDONLY)
+        def commit() -> None:
+            temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{uuid4().hex}.tmp")
             try:
-                os.fsync(directory_fd)
+                with temporary.open("xb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self.path)
+                directory_fd = os.open(self.path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             finally:
-                os.close(directory_fd)
-        finally:
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
+                try:
+                    temporary.unlink()
+                except FileNotFoundError:
+                    pass
+
+        if self.delivery_root is None:
+            commit()
+        else:
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                process_ids = sorted({row.process_id for row in rows})
+                for process_id in process_ids:
+                    assert_process_count(self.path, process_id, delivery_root=self.delivery_root)
+                assert_runtime_delivery_capacity(
+                    delivery_root=self.delivery_root,
+                    store_root=self.path,
+                    process_id=process_ids[0] if process_ids else "lease-system",
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=self.path,
+                )
+                commit()
         return next_revision
 
     def assign(self, *, process_id: str, scope: str, agent_id: str, lease_seconds: int, metadata: Optional[Dict[str, Any]] = None) -> AgentLease:
