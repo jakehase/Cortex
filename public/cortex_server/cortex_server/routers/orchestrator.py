@@ -2971,6 +2971,7 @@ class RuntimeDeliveryRollbackRequest(BaseModel):
 
 
 RUNTIME_DELIVERY_METADATA_MAX_BYTES = 256 * 1024
+RUNTIME_DELIVERY_SIGNATURE_PATTERN = r"^[\x20-\x7e]+$"
 
 
 def _bounded_runtime_delivery_mapping(value: Dict[str, Any], *, field_name: str) -> Dict[str, Any]:
@@ -2993,7 +2994,13 @@ class RuntimeDeliveryArtifactIngestRequest(BaseModel):
     artifact_kind: str = Field(min_length=1, max_length=128)
     producer: str = Field(min_length=1, max_length=256)
     verifier: str = Field(min_length=1, max_length=256)
-    attestation_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    # Treat a bounded, printable signature as an opaque credential here.  Its
+    # exact HMAC shape and value are authenticated before durable publication.
+    attestation_signature: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
+    )
     validation_outcome: str = Field(default="passed", min_length=1, max_length=16)
     target_stage: Optional[str] = Field(default=None, min_length=1, max_length=64)
     claims: Dict[str, Any] = Field(default_factory=dict)
@@ -3024,7 +3031,11 @@ class RuntimeDeliveryHandoffClaimRequest(BaseModel):
     expected_revision_id: str = Field(min_length=1, max_length=256)
     request_id: str = Field(min_length=1, max_length=256)
     requested_at: str = Field(min_length=1, max_length=64)
-    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    recipient_signature: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
+    )
 
 
 class RuntimeDeliveryHandoffClaimNextRequest(BaseModel):
@@ -3033,7 +3044,11 @@ class RuntimeDeliveryHandoffClaimNextRequest(BaseModel):
     recipient: str = Field(min_length=1, max_length=256)
     request_id: str = Field(min_length=1, max_length=256)
     requested_at: str = Field(min_length=1, max_length=64)
-    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    recipient_signature: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
+    )
 
 
 class RuntimeDeliveryArtifactFetchRequest(BaseModel):
@@ -3046,7 +3061,11 @@ class RuntimeDeliveryArtifactFetchRequest(BaseModel):
     artifact_ref: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     request_id: str = Field(min_length=1, max_length=256)
     requested_at: str = Field(min_length=1, max_length=64)
-    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    recipient_signature: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
+    )
 
 
 class RuntimeDeliveryHandoffAcknowledgeRequest(BaseModel):
@@ -3054,7 +3073,11 @@ class RuntimeDeliveryHandoffAcknowledgeRequest(BaseModel):
 
     recipient: str = Field(min_length=1, max_length=256)
     result_receipt: Dict[str, Any]
-    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    recipient_signature: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=RUNTIME_DELIVERY_SIGNATURE_PATTERN,
+    )
 
     @field_validator("result_receipt")
     @classmethod
