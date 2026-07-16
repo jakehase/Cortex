@@ -3,6 +3,8 @@ from concurrent.futures import Future
 import json
 import logging
 import multiprocessing
+import os
+import stat
 import threading
 import time
 from types import SimpleNamespace
@@ -301,11 +303,45 @@ def test_url_value_detection_cannot_bypass_redaction_with_url_spelling(url):
     assert "%255BREDACTED%255D" in sanitized
 
 
+@pytest.mark.parametrize(
+    ("url", "secret"),
+    (
+        ("https://admin:basic-secret@example.test/callback", "basic-secret"),
+        ("https://example.test/callback#access_token=fragment-secret", "fragment-secret"),
+        ("postgresql://database:dsn-secret@example.test/cortex", "dsn-secret"),
+        (" //admin:space-secret@example.test/callback", "space-secret"),
+        ("\t//admin:tab-secret@example.test/callback", "tab-secret"),
+        ("http:////admin:four-slash-secret@example.test/callback", "four-slash-secret"),
+        ("https:///admin:three-slash-secret@example.test/callback", "three-slash-secret"),
+        (r"https:\\admin:backslash-secret@example.test/callback", "backslash-secret"),
+    ),
+)
+def test_url_valued_query_parameters_cannot_persist_userinfo_fragments_or_dsns(
+    url, secret
+):
+    sanitized = ledger._safe_query("next=" + url)
+
+    assert secret not in sanitized
+    assert "access_token" not in sanitized
+
+
+def test_encoded_leading_space_cannot_hide_protocol_relative_url_credentials():
+    sanitized = ledger._safe_query(
+        "next=+%2F%2Fadmin%3Aencoded-secret%40example.test%2Fcallback"
+    )
+
+    assert "encoded-secret" not in sanitized
+
+
 def test_append_failure_is_non_disruptive_and_event_stays_in_bounded_memory(
     monkeypatch, tmp_path
 ):
     monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(tmp_path / "unwritable" / "events.jsonl"))
-    monkeypatch.setattr(ledger.os, "makedirs", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(
+        ledger,
+        "_open_ledger_parent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
     ledger._recent_events.clear()
     with ledger._durable_health_lock:
         ledger._durable_outcomes.clear()
@@ -325,6 +361,208 @@ def test_append_failure_is_non_disruptive_and_event_stays_in_bounded_memory(
     assert failed_health["durable"]["write_failures"] == 1
     assert failed_health["durable"]["writes_succeeded"] == 0
     assert failed_health["durable"]["last_success_at"] is None
+
+
+def test_admitted_write_keeps_its_destination_and_cannot_contaminate_new_path_health(
+    monkeypatch, tmp_path
+):
+    original_path = tmp_path / "original" / "events.jsonl"
+    replacement_path = tmp_path / "replacement" / "events.jsonl"
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(original_path))
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_MAX_BYTES", 10_000)
+    with ledger._durable_health_lock:
+        ledger._durable_outcomes.clear()
+        ledger._durable_totals.update(
+            {"writes_succeeded": 0, "write_failures": 0, "records_dropped": 0}
+        )
+        ledger._last_durable_success_at = None
+
+    admission = ledger._DurableWriteAdmission(capacity=1, workers=1)
+    write_lock = ledger._write_lock_for_path(str(original_path))
+    write_lock_held = False
+    try:
+        write_lock.acquire()
+        write_lock_held = True
+        durable_write = admission.submit(
+            {"event_id": "original-destination", "ts_unix": time.time()}
+        )
+        assert durable_write is not None
+
+        monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(replacement_path))
+        write_lock.release()
+        write_lock_held = False
+
+        assert durable_write.result(timeout=2) is True
+        assert json.loads(original_path.read_text(encoding="utf-8"))["event_id"] == (
+            "original-destination"
+        )
+        assert not replacement_path.exists()
+
+        replacement_health = ledger.get_event_health(seconds=60)
+        assert replacement_health["status"] == "unknown"
+        assert replacement_health["durable"]["writes_succeeded"] == 0
+        assert replacement_health["durable"]["last_success_at"] is None
+
+        monkeypatch.setattr(
+            ledger,
+            "_open_ledger_parent",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("replacement disk full")),
+        )
+        ledger._append_event(
+            {"event_id": "replacement-failure", "ts_unix": time.time()}
+        )
+        failed_health = ledger.get_event_health(seconds=60)
+        assert failed_health["status"] == "degraded"
+        assert failed_health["durable"]["write_failures"] == 1
+        assert failed_health["durable"]["writes_succeeded"] == 0
+    finally:
+        if write_lock_held:
+            write_lock.release()
+        admission._executor.shutdown(wait=True)
+
+
+def test_ledger_rejects_symlinked_leaf_and_parent_paths(monkeypatch, tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("must remain unchanged\n", encoding="utf-8")
+    ledger_path = tmp_path / "events.jsonl"
+    ledger_path.symlink_to(victim)
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(ledger_path))
+
+    assert ledger._append_event({"event_id": "leaf-symlink"}) is False
+    assert victim.read_text(encoding="utf-8") == "must remain unchanged\n"
+    assert ledger_path.is_symlink()
+
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(linked_parent / "events.jsonl"))
+
+    assert ledger._append_event({"event_id": "parent-symlink"}) is False
+    assert not (real_parent / "events.jsonl").exists()
+
+
+def test_ledger_file_is_private_even_with_permissive_process_umask(monkeypatch, tmp_path):
+    ledger_path = tmp_path / "events.jsonl"
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(ledger_path))
+    previous_umask = os.umask(0o022)
+    try:
+        assert ledger._append_event({"event_id": "private-ledger"}) is True
+    finally:
+        os.umask(previous_umask)
+
+    assert ledger_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_rotation_hardens_preexisting_ledger_and_retained_generations(
+    monkeypatch, tmp_path
+):
+    ledger_path = tmp_path / "events.jsonl"
+    backup_path = tmp_path / "events.jsonl.1"
+    ledger_path.write_text("x" * 100, encoding="utf-8")
+    backup_path.write_text("legacy backup", encoding="utf-8")
+    ledger_path.chmod(0o644)
+    backup_path.chmod(0o644)
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(ledger_path))
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_MAX_BYTES", 160)
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_BACKUP_COUNT", 2)
+
+    assert ledger._append_event({"payload": "y" * 80}) is True
+
+    assert ledger_path.stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "events.jsonl.1").stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "events.jsonl.2").stat().st_mode & 0o777 == 0o600
+
+
+def test_append_hardens_and_fsyncs_legacy_backup_without_requiring_rotation(
+    monkeypatch, tmp_path
+):
+    ledger_path = tmp_path / "events.jsonl"
+    backup_path = tmp_path / "events.jsonl.1"
+    stale_backup_path = tmp_path / "events.jsonl.7"
+    ledger_path.write_text("small active ledger\n", encoding="utf-8")
+    backup_path.write_text("legacy backup\n", encoding="utf-8")
+    stale_backup_path.write_text("stale legacy backup\n", encoding="utf-8")
+    backup_path.chmod(0o644)
+    stale_backup_path.chmod(0o644)
+    backup_inode = backup_path.stat().st_ino
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(ledger_path))
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_MAX_BYTES", 10_000)
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_BACKUP_COUNT", 3)
+    real_fsync = ledger.os.fsync
+    fsynced_backup = False
+
+    def observe_fsync(file_descriptor):
+        nonlocal fsynced_backup
+        if os.fstat(file_descriptor).st_ino == backup_inode:
+            fsynced_backup = True
+        return real_fsync(file_descriptor)
+
+    monkeypatch.setattr(ledger.os, "fsync", observe_fsync)
+
+    assert ledger._append_event({"event_id": "no-rotation-upgrade"}) is True
+    assert not (tmp_path / "events.jsonl.2").exists()
+    assert backup_path.stat().st_mode & 0o777 == 0o600
+    assert not stale_backup_path.exists()
+    assert fsynced_backup is True
+
+
+def test_special_file_backup_is_rejected_without_blocking_ledger_worker(
+    monkeypatch, tmp_path
+):
+    ledger_path = tmp_path / "events.jsonl"
+    ledger_path.write_text("active ledger\n", encoding="utf-8")
+    os.mkfifo(tmp_path / "events.jsonl.1", mode=0o600)
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(ledger_path))
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_BACKUP_COUNT", 1)
+
+    started = time.perf_counter()
+    assert ledger._append_event({"event_id": "reject-fifo"}) is False
+
+    assert time.perf_counter() - started < 0.5
+    assert stat.S_ISFIFO((tmp_path / "events.jsonl.1").stat().st_mode)
+
+
+def test_ledger_success_fsyncs_file_and_parent_directory(monkeypatch, tmp_path):
+    ledger_path = tmp_path / "new-parent" / "events.jsonl"
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(ledger_path))
+    real_fsync = ledger.os.fsync
+    fsynced_types = []
+
+    def observe_fsync(file_descriptor):
+        mode = os.fstat(file_descriptor).st_mode
+        fsynced_types.append("directory" if stat.S_ISDIR(mode) else "file")
+        return real_fsync(file_descriptor)
+
+    monkeypatch.setattr(ledger.os, "fsync", observe_fsync)
+
+    assert ledger._append_event({"event_id": "fsynced-namespace"}) is True
+    assert "file" in fsynced_types
+    assert "directory" in fsynced_types
+
+
+def test_parent_replacement_cannot_separate_process_lock_from_ledger_write(
+    monkeypatch, tmp_path
+):
+    parent = tmp_path / "ledger-parent"
+    ledger_path = parent / "events.jsonl"
+    moved_parent = tmp_path / "original-parent"
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(ledger_path))
+    real_acquire = ledger._acquire_process_lock
+
+    def acquire_then_replace(directory_fd=None, ledger_name=None):
+        lock_fd = real_acquire(directory_fd, ledger_name)
+        parent.rename(moved_parent)
+        parent.mkdir()
+        return lock_fd
+
+    monkeypatch.setattr(ledger, "_acquire_process_lock", acquire_then_replace)
+
+    assert ledger._append_event({"event_id": "anchored-write"}) is True
+    assert json.loads((moved_parent / "events.jsonl").read_text(encoding="utf-8"))[
+        "event_id"
+    ] == "anchored-write"
+    assert not ledger_path.exists()
 
 
 def test_successful_fsynced_ledger_write_reports_durable_health(monkeypatch, tmp_path):
@@ -417,6 +655,16 @@ def test_event_ledger_unparseable_byte_limit_is_rejected(monkeypatch):
         ledger._positive_int_env("CORTEX_TEST_LEDGER_BYTES", 10_000)
 
 
+def test_event_ledger_backup_count_is_bounded_and_rejects_excess(monkeypatch):
+    monkeypatch.setenv(
+        "CORTEX_TEST_LEDGER_BACKUPS",
+        str(ledger.EVENT_LEDGER_MAX_BACKUP_COUNT + 1),
+    )
+
+    with pytest.raises(RuntimeError, match="must be <="):
+        ledger._bounded_backup_count_env("CORTEX_TEST_LEDGER_BACKUPS", 3)
+
+
 def test_event_ledger_rotates_before_actual_byte_limit_is_exceeded(monkeypatch, tmp_path):
     path = tmp_path / "events.jsonl"
     monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(path))
@@ -438,7 +686,7 @@ def test_process_lock_failure_is_fail_closed_and_observable(monkeypatch, tmp_pat
     path.write_text('{"existing":true}\n', encoding="utf-8")
     monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(path))
 
-    def fail_lock():
+    def fail_lock(*_args, **_kwargs):
         raise ledger._LedgerLockTimeout("contended ledger")
 
     monkeypatch.setattr(ledger, "_acquire_process_lock", fail_lock)

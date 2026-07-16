@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,9 +19,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import asyncio
 import errno
 import fcntl
+import hashlib
 import json
 import logging
 import os
+import stat
 import threading
 import time
 import uuid
@@ -31,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 
 EVENT_LEDGER_MIN_BYTES = 1024
+EVENT_LEDGER_MAX_BACKUP_COUNT = 32
+EVENT_LEDGER_DIRECTORY_SCAN_LIMIT = 1024
 
 
 def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
@@ -43,13 +48,24 @@ def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
     return max(minimum, value)
 
 
+def _bounded_backup_count_env(name: str, default: int) -> int:
+    value = _positive_int_env(name, default, minimum=0)
+    if value > EVENT_LEDGER_MAX_BACKUP_COUNT:
+        raise RuntimeError(
+            f"{name} must be <= {EVENT_LEDGER_MAX_BACKUP_COUNT}, got {value}"
+        )
+    return value
+
+
 EVENT_LEDGER_PATH = os.getenv("CORTEX_EVENT_LEDGER_PATH", "/app/logs/cortex_event_ledger.jsonl")
 EVENT_LEDGER_MAX_IN_MEMORY = max(1000, int(os.getenv("CORTEX_EVENT_LEDGER_MAX_IN_MEMORY", "20000")))
 EVENT_LEDGER_INCLUDE_DOCS = os.getenv("CORTEX_EVENT_LEDGER_INCLUDE_DOCS", "false").lower() in {"1", "true", "yes", "on"}
 EVENT_LEDGER_MAX_BYTES = _positive_int_env(
     "CORTEX_EVENT_LEDGER_MAX_BYTES", 10485760, EVENT_LEDGER_MIN_BYTES
 )
-EVENT_LEDGER_BACKUP_COUNT = max(0, int(os.getenv("CORTEX_EVENT_LEDGER_BACKUP_COUNT", "3")))
+EVENT_LEDGER_BACKUP_COUNT = _bounded_backup_count_env(
+    "CORTEX_EVENT_LEDGER_BACKUP_COUNT", 3
+)
 EVENT_LEDGER_LOCK_TIMEOUT_SECONDS = max(
     0.0, float(os.getenv("CORTEX_EVENT_LEDGER_LOCK_TIMEOUT_SECONDS", "2.0"))
 )
@@ -66,15 +82,52 @@ EVENT_LEDGER_TELEMETRY_DEADLINE_SECONDS = max(
 
 _recent_events: Deque[Dict[str, Any]] = deque(maxlen=EVENT_LEDGER_MAX_IN_MEMORY)
 _recent_events_lock = threading.Lock()
-_write_lock = threading.Lock()
+_WRITE_LOCK_STRIPES = tuple(threading.Lock() for _ in range(256))
 _durable_outcomes: Deque[Dict[str, Any]] = deque(maxlen=EVENT_LEDGER_MAX_IN_MEMORY)
 _durable_health_lock = threading.Lock()
 _durable_totals = {"writes_succeeded": 0, "write_failures": 0, "records_dropped": 0}
 _last_durable_success_at: str | None = None
+_last_durable_success_path: str | None = None
 
 
-def _record_durable_outcome(outcome: str, *, error: str | None = None) -> None:
-    global _last_durable_success_at
+@dataclass(frozen=True)
+class _LedgerWriteConfig:
+    """Immutable destination settings captured when a durable write is admitted."""
+
+    path: str
+    max_bytes: int
+    backup_count: int
+    lock_timeout_seconds: float
+
+
+_durable_write_context = threading.local()
+
+
+def _snapshot_write_config() -> _LedgerWriteConfig:
+    return _LedgerWriteConfig(
+        path=EVENT_LEDGER_PATH,
+        max_bytes=EVENT_LEDGER_MAX_BYTES,
+        backup_count=EVENT_LEDGER_BACKUP_COUNT,
+        lock_timeout_seconds=EVENT_LEDGER_LOCK_TIMEOUT_SECONDS,
+    )
+
+
+def _active_write_config() -> _LedgerWriteConfig:
+    return getattr(_durable_write_context, "config", None) or _snapshot_write_config()
+
+
+def _write_lock_for_path(path: str) -> threading.Lock:
+    digest = hashlib.blake2b(os.fsencode(os.path.abspath(path)), digest_size=2).digest()
+    return _WRITE_LOCK_STRIPES[int.from_bytes(digest, "big") % len(_WRITE_LOCK_STRIPES)]
+
+
+def _record_durable_outcome(
+    outcome: str,
+    *,
+    error: str | None = None,
+    ledger_path: str | None = None,
+) -> None:
+    global _last_durable_success_at, _last_durable_success_path
     key = {
         "success": "writes_succeeded",
         "failure": "write_failures",
@@ -82,13 +135,24 @@ def _record_durable_outcome(outcome: str, *, error: str | None = None) -> None:
     }.get(outcome)
     if key is None:
         raise ValueError(f"unknown durable ledger outcome: {outcome}")
+    if ledger_path is None:
+        ledger_path = _active_write_config().path
     now_unix = time.time()
     now_iso = _now_iso()
     with _durable_health_lock:
         _durable_totals[key] += 1
-        _durable_outcomes.append({"outcome": outcome, "ts_unix": now_unix, "ts": now_iso, "error": error})
+        _durable_outcomes.append(
+            {
+                "outcome": outcome,
+                "ts_unix": now_unix,
+                "ts": now_iso,
+                "error": error,
+                "ledger_path": ledger_path,
+            }
+        )
         if outcome == "success":
             _last_durable_success_at = now_iso
+            _last_durable_success_path = ledger_path
 
 
 class _DurableWriteAdmission:
@@ -101,14 +165,21 @@ class _DurableWriteAdmission:
             max_workers=workers, thread_name_prefix="cortex-event-ledger"
         )
 
-    def submit(self, entry: Dict[str, Any]) -> Future[None] | None:
+    def submit(self, entry: Dict[str, Any]) -> Future[bool] | None:
         if not self._slots.acquire(blocking=False):
             return None
+        config = _snapshot_write_config()
 
-        def write_and_release() -> None:
+        def write_and_release() -> bool:
+            previous_config = getattr(_durable_write_context, "config", None)
+            _durable_write_context.config = config
             try:
-                _append_event(entry)
+                return _append_event(entry)
             finally:
+                if previous_config is None:
+                    del _durable_write_context.config
+                else:
+                    _durable_write_context.config = previous_config
                 # BaseException and cancellation must never strand capacity.
                 self._slots.release()
 
@@ -128,14 +199,74 @@ class _LedgerLockTimeout(TimeoutError):
     pass
 
 
-def _acquire_process_lock() -> int:
+def _open_directory_no_symlinks(directory: str) -> int:
+    """Open/create an absolute directory chain without following symlinks."""
+
+    absolute = os.path.abspath(directory or ".")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = os.open(os.path.sep, flags)
+    try:
+        for component in (part for part in absolute.split(os.path.sep) if part):
+            try:
+                child_fd = os.open(component, flags, dir_fd=directory_fd)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=directory_fd)
+                    os.fsync(directory_fd)
+                except FileExistsError:
+                    pass
+                child_fd = os.open(component, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child_fd
+        return directory_fd
+    except BaseException:
+        os.close(directory_fd)
+        raise
+
+
+def _open_ledger_parent(path: str) -> tuple[int, str]:
+    absolute = os.path.abspath(path)
+    directory, ledger_name = os.path.split(absolute)
+    if not ledger_name or ledger_name in {".", ".."}:
+        raise ValueError(f"event ledger path must name a file: {path!r}")
+    return _open_directory_no_symlinks(directory), ledger_name
+
+
+def _require_regular_file(file_descriptor: int, path: str) -> os.stat_result:
+    file_stat = os.fstat(file_descriptor)
+    if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_nlink != 1:
+        raise OSError(f"event ledger must be a singly-linked regular file: {path!r}")
+    return file_stat
+
+
+def _acquire_process_lock(
+    directory_fd: int | None = None,
+    ledger_name: str | None = None,
+) -> int:
     """Acquire the stable sidecar lock without blocking a worker indefinitely."""
-    lock_path = f"{EVENT_LEDGER_PATH}.lock"
+    config = _active_write_config()
+    owns_directory_fd = directory_fd is None
+    if directory_fd is None or ledger_name is None:
+        directory_fd, ledger_name = _open_ledger_parent(config.path)
+    lock_name = f"{ledger_name}.lock"
     flags = os.O_CREAT | os.O_RDWR
     flags |= getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(lock_path, flags, 0o600)
-    deadline = time.monotonic() + EVENT_LEDGER_LOCK_TIMEOUT_SECONDS
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(lock_name, flags, 0o600, dir_fd=directory_fd)
+    finally:
+        if owns_directory_fd:
+            os.close(directory_fd)
+    lock_path = f"{config.path}.lock"
+    try:
+        _require_regular_file(fd, lock_path)
+        os.fchmod(fd, 0o600)
+    except BaseException:
+        os.close(fd)
+        raise
+    deadline = time.monotonic() + config.lock_timeout_seconds
     while True:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -163,43 +294,94 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _append_event(entry: Dict[str, Any]) -> None:
-    with _recent_events_lock:
-        _recent_events.append(entry)
-
+def _append_event(entry: Dict[str, Any]) -> bool:
+    owns_context = not hasattr(_durable_write_context, "config")
+    if owns_context:
+        _durable_write_context.config = _snapshot_write_config()
     try:
-        line = json.dumps(entry, ensure_ascii=False)
-        encoded_size = len((line + "\n").encode("utf-8"))
-        # A single pathological record must not defeat the configured disk cap.
-        # It remains available in the bounded in-memory window.
-        if encoded_size > EVENT_LEDGER_MAX_BYTES:
-            _record_durable_outcome("drop", error="record_exceeds_max_bytes")
-            record_event_ledger_durable_write_drop()
-            return
-        with _write_lock:
-            directory = os.path.dirname(EVENT_LEDGER_PATH)
-            if directory:
-                os.makedirs(directory, exist_ok=True)
-            process_lock_fd = _acquire_process_lock()
-            try:
-                if (
-                    os.path.exists(EVENT_LEDGER_PATH)
-                    and os.path.getsize(EVENT_LEDGER_PATH) + encoded_size > EVENT_LEDGER_MAX_BYTES
-                ):
-                    _rotate_ledger()
-                with open(EVENT_LEDGER_PATH, "a", encoding="utf-8") as f:
-                    f.write(line + "\n")
-                    f.flush()
-                    os.fsync(f.fileno())
-            finally:
-                _release_process_lock(process_lock_fd)
-        _record_durable_outcome("success")
-    except Exception as exc:
-        _record_durable_outcome("failure", error=f"{type(exc).__name__}: {exc}")
+        config = _active_write_config()
+        with _recent_events_lock:
+            _recent_events.append(entry)
+
         try:
-            logger.warning("event_ledger_append_failed: %s", exc)
-        except Exception:
-            pass
+            line = json.dumps(entry, ensure_ascii=False)
+            encoded_size = len((line + "\n").encode("utf-8"))
+            # A single pathological record must not defeat the configured disk cap.
+            # It remains available in the bounded in-memory window.
+            if encoded_size > config.max_bytes:
+                _record_durable_outcome("drop", error="record_exceeds_max_bytes")
+                record_event_ledger_durable_write_drop()
+                return False
+            with _write_lock_for_path(config.path):
+                directory_fd, ledger_name = _open_ledger_parent(config.path)
+                try:
+                    process_lock_fd = _acquire_process_lock(directory_fd, ledger_name)
+                    try:
+                        _reconcile_retained_generations(
+                            directory_fd,
+                            ledger_name,
+                            config.backup_count,
+                        )
+                        try:
+                            existing = os.stat(
+                                ledger_name,
+                                dir_fd=directory_fd,
+                                follow_symlinks=False,
+                            )
+                        except FileNotFoundError:
+                            existing = None
+                        if existing is not None:
+                            if not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1:
+                                raise OSError(
+                                    "event ledger must be a singly-linked regular file: "
+                                    f"{config.path!r}"
+                                )
+                            if existing.st_size + encoded_size > config.max_bytes:
+                                _rotate_ledger(directory_fd, ledger_name)
+
+                        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+                        flags |= getattr(os, "O_CLOEXEC", 0)
+                        flags |= getattr(os, "O_NOFOLLOW", 0)
+                        flags |= getattr(os, "O_NONBLOCK", 0)
+                        ledger_fd = os.open(
+                            ledger_name,
+                            flags,
+                            0o600,
+                            dir_fd=directory_fd,
+                        )
+                        try:
+                            _require_regular_file(ledger_fd, config.path)
+                            os.fchmod(ledger_fd, 0o600)
+                            with os.fdopen(
+                                ledger_fd,
+                                "a",
+                                encoding="utf-8",
+                                closefd=False,
+                            ) as ledger_file:
+                                ledger_file.write(line + "\n")
+                                ledger_file.flush()
+                                os.fsync(ledger_file.fileno())
+                        finally:
+                            os.close(ledger_fd)
+                        # Persist file creation and every rotation namespace
+                        # mutation before reporting authoritative durability.
+                        os.fsync(directory_fd)
+                    finally:
+                        _release_process_lock(process_lock_fd)
+                finally:
+                    os.close(directory_fd)
+            _record_durable_outcome("success")
+            return True
+        except Exception as exc:
+            _record_durable_outcome("failure", error=f"{type(exc).__name__}: {exc}")
+            try:
+                logger.warning("event_ledger_append_failed: %s", exc)
+            except Exception:
+                pass
+            return False
+    finally:
+        if owns_context:
+            del _durable_write_context.config
 
 
 def _retain_event(entry: Dict[str, Any]) -> None:
@@ -208,25 +390,100 @@ def _retain_event(entry: Dict[str, Any]) -> None:
         _recent_events.append(entry)
 
 
-def _rotate_ledger() -> None:
+def _rotate_ledger(directory_fd: int | None = None, ledger_name: str | None = None) -> None:
     """Rotate while holding both writer locks; os.replace makes each move atomic."""
-    if EVENT_LEDGER_BACKUP_COUNT <= 0:
+    config = _active_write_config()
+    owns_directory_fd = directory_fd is None
+    if directory_fd is None or ledger_name is None:
+        directory_fd, ledger_name = _open_ledger_parent(config.path)
+    try:
+        _rotate_ledger_at(directory_fd, ledger_name, config.backup_count)
+    finally:
+        if owns_directory_fd:
+            os.close(directory_fd)
+
+
+def _rotate_ledger_at(directory_fd: int, ledger_name: str, backup_count: int) -> None:
+    if backup_count <= 0:
         try:
-            os.remove(EVENT_LEDGER_PATH)
+            os.unlink(ledger_name, dir_fd=directory_fd)
         except FileNotFoundError:
             pass
         return
-    oldest = f"{EVENT_LEDGER_PATH}.{EVENT_LEDGER_BACKUP_COUNT}"
+    oldest = f"{ledger_name}.{backup_count}"
     try:
-        os.remove(oldest)
+        os.unlink(oldest, dir_fd=directory_fd)
     except FileNotFoundError:
         pass
-    for generation in range(EVENT_LEDGER_BACKUP_COUNT - 1, 0, -1):
-        source = f"{EVENT_LEDGER_PATH}.{generation}"
-        if os.path.exists(source):
-            os.replace(source, f"{EVENT_LEDGER_PATH}.{generation + 1}")
-    if os.path.exists(EVENT_LEDGER_PATH):
-        os.replace(EVENT_LEDGER_PATH, f"{EVENT_LEDGER_PATH}.1")
+    for generation in range(backup_count - 1, 0, -1):
+        source = f"{ledger_name}.{generation}"
+        try:
+            _secure_ledger_generation(directory_fd, source)
+        except FileNotFoundError:
+            continue
+        os.replace(
+            source,
+            f"{ledger_name}.{generation + 1}",
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+    try:
+        _secure_ledger_generation(directory_fd, ledger_name)
+    except FileNotFoundError:
+        return
+    os.replace(
+        ledger_name,
+        f"{ledger_name}.1",
+        src_dir_fd=directory_fd,
+        dst_dir_fd=directory_fd,
+    )
+
+
+def _secure_ledger_generation(directory_fd: int, name: str) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    generation_fd = os.open(name, flags, dir_fd=directory_fd)
+    try:
+        generation_stat = _require_regular_file(generation_fd, name)
+        if stat.S_IMODE(generation_stat.st_mode) != 0o600:
+            os.fchmod(generation_fd, 0o600)
+            os.fsync(generation_fd)
+    finally:
+        os.close(generation_fd)
+
+
+def _reconcile_retained_generations(
+    directory_fd: int,
+    ledger_name: str,
+    backup_count: int,
+) -> None:
+    prefix = f"{ledger_name}."
+    scanned = 0
+    with os.scandir(directory_fd) as entries:
+        for entry in entries:
+            scanned += 1
+            if scanned > EVENT_LEDGER_DIRECTORY_SCAN_LIMIT:
+                raise OSError(
+                    "event ledger directory exceeds bounded audit limit "
+                    f"{EVENT_LEDGER_DIRECTORY_SCAN_LIMIT}"
+                )
+            if not entry.name.startswith(prefix):
+                continue
+            suffix = entry.name[len(prefix):]
+            if not suffix.isdigit():
+                continue
+            generation = int(suffix)
+            if generation <= 0 or suffix != str(generation) or generation > backup_count:
+                try:
+                    os.unlink(entry.name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+                continue
+            try:
+                _secure_ledger_generation(directory_fd, entry.name)
+            except FileNotFoundError:
+                continue
 
 
 _SENSITIVE_QUERY_PARTS = (
@@ -237,6 +494,7 @@ EVENT_LEDGER_MAX_QUERY_FIELDS = _positive_int_env("CORTEX_EVENT_LEDGER_MAX_QUERY
 _QUERY_LIMIT_MARKER = "[TRUNCATED]"
 _QUERY_REDACTION_MARKER = "[REDACTED]"
 _MAX_NESTED_URL_DEPTH = 4
+_URL_LEADING_C0_AND_SPACE = "".join(chr(codepoint) for codepoint in range(0x21))
 
 
 def _is_sensitive_query_key(key: str) -> bool:
@@ -246,15 +504,52 @@ def _is_sensitive_query_key(key: str) -> bool:
 
 def _sanitize_url_value(value: str, depth: int) -> str:
     """Redact credentials in the query component of a URL-valued parameter."""
-    if not (value.lower().startswith(("http://", "https://")) or value.startswith("//")):
+    # Match urlsplit/browser preprocessing so leading controls or spaces cannot
+    # hide a credential-bearing URL from classification.
+    normalized_value = value.lstrip(_URL_LEADING_C0_AND_SPACE)
+    lowered_value = normalized_value.lower()
+    is_http_url = False
+    if lowered_value.startswith(("http:", "https:")):
+        expected_prefix = "https://" if lowered_value.startswith("https:") else "http://"
+        authority = normalized_value[len(expected_prefix):]
+        if (
+            not lowered_value.startswith(expected_prefix)
+            or not authority
+            or authority[0] in {"/", "\\"}
+        ):
+            return _QUERY_REDACTION_MARKER
+        is_http_url = True
+    elif normalized_value.startswith("//"):
+        if len(normalized_value) == 2 or normalized_value[2] in {"/", "\\"}:
+            return _QUERY_REDACTION_MARKER
+        is_http_url = True
+    if not is_http_url:
+        # Non-HTTP connection URLs commonly carry database/service credentials;
+        # they are not useful enough as request telemetry to risk persisting.
+        if "://" in normalized_value:
+            return _QUERY_REDACTION_MARKER
         return value
+    if "\\" in normalized_value or any(
+        ord(character) <= 0x20 for character in normalized_value
+    ):
+        return _QUERY_REDACTION_MARKER
     try:
-        parsed = urlsplit(value)
+        parsed = urlsplit(normalized_value)
     except ValueError:
         # A URL-like value that cannot be safely parsed is not useful telemetry.
         return _QUERY_REDACTION_MARKER
+    if (
+        not parsed.netloc
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return _QUERY_REDACTION_MARKER
+    # URL fragments are client-side state and can contain OAuth credentials;
+    # omit them entirely from server telemetry, including otherwise safe anchors.
+    fragment = ""
     if not parsed.query:
-        return value
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", fragment))
     if depth >= _MAX_NESTED_URL_DEPTH:
         return _QUERY_REDACTION_MARKER
     if (
@@ -263,7 +558,7 @@ def _sanitize_url_value(value: str, depth: int) -> str:
     ):
         return _QUERY_REDACTION_MARKER
     query = _sanitize_query(parsed.query, depth + 1)
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, fragment))
 
 
 def _sanitize_query(query: str, depth: int = 0) -> str:
@@ -332,10 +627,28 @@ def get_event_health(seconds: int = 300) -> Dict[str, Any]:
         }
 
     cutoff = time.time() - max(1, int(seconds))
+    ledger_path = EVENT_LEDGER_PATH
     with _durable_health_lock:
-        outcomes = [row for row in _durable_outcomes if float(row.get("ts_unix", 0) or 0) >= cutoff]
+        path_outcomes = [
+            row for row in _durable_outcomes if row.get("ledger_path") == ledger_path
+        ]
+        outcomes = [
+            row
+            for row in path_outcomes
+            if float(row.get("ts_unix", 0) or 0) >= cutoff
+        ]
         totals = dict(_durable_totals)
-        last_success_at = _last_durable_success_at
+        if _last_durable_success_path == ledger_path:
+            last_success_at = _last_durable_success_at
+        else:
+            last_success_at = next(
+                (
+                    row.get("ts")
+                    for row in reversed(path_outcomes)
+                    if row.get("outcome") == "success"
+                ),
+                None,
+            )
     writes_succeeded = sum(1 for row in outcomes if row.get("outcome") == "success")
     write_failures = sum(1 for row in outcomes if row.get("outcome") == "failure")
     records_dropped = sum(1 for row in outcomes if row.get("outcome") == "drop")
@@ -360,9 +673,7 @@ def get_event_health(seconds: int = 300) -> Dict[str, Any]:
 def probe_event_ledger_durability() -> Dict[str, Any]:
     """Perform an active fsynced write and report authoritative ledger readiness."""
 
-    with _durable_health_lock:
-        before = dict(_durable_totals)
-    _append_event(
+    ok = _append_event(
         {
             "event_id": f"readiness-{uuid.uuid4().hex[:16]}",
             "ts": _now_iso(),
@@ -377,8 +688,11 @@ def probe_event_ledger_durability() -> Dict[str, Any]:
     )
     with _durable_health_lock:
         after = dict(_durable_totals)
-        last_success_at = _last_durable_success_at
-    ok = after["writes_succeeded"] == before["writes_succeeded"] + 1
+        last_success_at = (
+            _last_durable_success_at
+            if _last_durable_success_path == EVENT_LEDGER_PATH
+            else None
+        )
     return {
         "ok": ok,
         "status": "healthy" if ok else "degraded",
