@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from cortex_server.runtime import (
     UNATTENDED_PROFILES,
     RuntimeSoakHarness,
@@ -21,7 +23,12 @@ def test_runtime_package_exports_dependability_helpers():
 
 
 def test_runtime_soak_harness_unattended_campaign_reports_dependability(tmp_path):
-    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    clock = [datetime(2026, 7, 1, tzinfo=timezone.utc)]
+
+    def advance(seconds: float) -> None:
+        clock[0] += timedelta(seconds=seconds)
+
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=advance, clock_fn=lambda: clock[0])
 
     report = harness.run_unattended_campaign("24h", process_prefix="campaign_24h")
 
@@ -52,7 +59,8 @@ def test_dependability_repair_plan_maps_failing_checks_to_actions():
     assert "checkpoint_from_journal" in actions
     assert "recover_dead_letters" in actions
     assert "resolve_stale_leases" in actions
-    assert "refresh_shared_state_revision" in actions
+    assert "review_shared_state_parity" in actions
+    assert "refresh_shared_state_revision" not in actions
 
 
 
@@ -97,7 +105,12 @@ def test_dependability_report_flags_dead_letters_and_checkpoint_drift(tmp_path):
 
 
 def test_runtime_soak_harness_self_heals_injected_unattended_failures(tmp_path):
-    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    clock = [datetime(2026, 7, 1, tzinfo=timezone.utc)]
+
+    def advance(seconds: float) -> None:
+        clock[0] += timedelta(seconds=seconds)
+
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=advance, clock_fn=lambda: clock[0])
 
     report = harness.run_self_healing_unattended_campaign("24h", process_prefix="campaign_self_heal")
 

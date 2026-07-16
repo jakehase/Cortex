@@ -11,8 +11,14 @@ from fastapi import FastAPI
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
+import cortex_server.runtime.production_build_loop as production_build_loop
 from cortex_server.middleware.write_authorization import WriteAuthorizationMiddleware
-from cortex_server.runtime import AgentMessage, AgentSupervisor, agent_acknowledgement_signature
+from cortex_server.runtime import (
+    AgentMessage,
+    AgentSupervisor,
+    SharedProcessState,
+    agent_acknowledgement_signature,
+)
 from cortex_server.runtime.production_build_loop import (
     RUNTIME_DELIVERY_MOUNT_MARKER,
     runtime_delivery_handoff_claim_signature,
@@ -65,22 +71,6 @@ def _install_fake_diplomat(monkeypatch):
     return sent
 
 
-MINIMAL_PROFILE = {
-    "profile": "runtime-delivery-test",
-    "intended_duration_hours": 1,
-    "campaign_cycles": 1,
-    "min_agent_count": 1,
-    "min_handoff_count": 0,
-    "max_checkpoint_age_seconds": 3600,
-    "max_snapshot_event_gap": 3,
-    "max_dead_letters": 0,
-    "max_stale_leases": 0,
-    "max_inflight_age_seconds": 120,
-    "max_lease_heartbeat_lag_seconds": 3600,
-    "required_revision_history": 1,
-    "watchdog": {"lease_seconds": 60, "heartbeat_grace_seconds": 60},
-    "checkpoint": {"snapshot_every_events": 4, "must_checkpoint_on_handoff": True},
-}
 VERIFIER_SECRET = "runtime-verifier-secret-0000000000000001"
 VERIFIER_RECIPIENT_SECRET = "verifier-recipient-secret-000000000001"
 MANAGER_RECIPIENT_SECRET = "manager-recipient-secret-0000000000001"
@@ -118,6 +108,67 @@ def _workflow() -> dict:
             }
         ],
     }
+
+
+def _prime_production_dependability_observations(process: dict, stores: dict) -> None:
+    """Persist genuine work history before starting the server-owned 24h campaign."""
+
+    process_id = process["process_id"]
+    bootstrapped = orchestrator._bootstrap_runtime_delivery_state(
+        process_id,
+        process=process,
+        stores=stores,
+    )
+    current = bootstrapped["shared_state"]
+    agents = ["builder", "reviewer", "operator"]
+    for revision_number in range(len(stores["shared_state_store"].history(process_id)) + 1, 7):
+        actor = agents[(revision_number - 1) % len(agents)]
+        current = stores["shared_state_store"].save(
+            SharedProcessState(
+                process_id=process_id,
+                revision_id=f"{process_id}.observed.{revision_number}",
+                goals=list(current.goals),
+                active_plan_node_ids=list(current.active_plan_node_ids),
+                runtime_constraints=dict(current.runtime_constraints),
+                world_state=dict(current.world_state),
+                belief_refs=list(current.belief_refs),
+                open_questions=list(current.open_questions),
+                agent_ownership={
+                    **dict(current.agent_ownership),
+                    "dependability-review": "reviewer",
+                    "dependability-operations": "operator",
+                },
+                metadata={
+                    **dict(current.metadata),
+                    "observed_work_revision": revision_number,
+                },
+            ),
+            expected_revision_id=current.revision_id,
+            actor=actor,
+            provenance={
+                "phase": "observed_dependability_work",
+                "revision": revision_number,
+            },
+        )
+    for cycle in range(5):
+        from_agent = agents[cycle % len(agents)]
+        to_agent = agents[(cycle + 1) % len(agents)]
+        message = stores["mailbox"].send(
+            process_id=process_id,
+            from_agent=from_agent,
+            to_agent=to_agent,
+            kind="handoff",
+            revision_id=current.revision_id,
+            dedupe_key=f"dependability-observation:{process_id}:{cycle}",
+            payload={"completed_observation": cycle + 1},
+        )
+        stores["mailbox"].receive(
+            to_agent=to_agent,
+            process_id=process_id,
+            expected_revision_id=current.revision_id,
+            reject_stale_revision=True,
+        )
+        stores["mailbox"].acknowledge(message.message_id, actor=to_agent)
 
 
 def _signed_artifact_request(
@@ -333,6 +384,16 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
     scheduler_state["processes"][process["process_id"]]["status"] = "waiting"
     scheduler_state["processes"][process["process_id"]]["nodes"]["build"]["status"] = "waiting"
     scheduler.save_state(scheduler_state)
+    process = scheduler.get_process(process["process_id"])
+    stores = orchestrator._runtime_delivery_stores()
+    _prime_production_dependability_observations(process, stores)
+    campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    campaign_clock = [campaign_start]
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_now",
+        lambda: campaign_clock[0],
+    )
 
     unauthorized = client.post(
         f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
@@ -356,7 +417,7 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
                     "stage": "production",
                 }
             ],
-            "dependability_profile": dict(MINIMAL_PROFILE),
+            "dependability_profile": "24h",
         },
     )
     assert initial.status_code == 200, initial.text
@@ -425,15 +486,20 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
         )
         assert ingested.status_code == 200, ingested.text
 
-    build = client.post(
-        f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
-        json={
-            "controller_id": "controller",
-            "controller_session_id": "sess-runtime-delivery-public",
-        },
-    )
+    build = None
+    for cycle in range(1, 7):
+        campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        build = client.post(
+            f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
+            json={
+                "controller_id": "controller",
+                "controller_session_id": "sess-runtime-delivery-public",
+            },
+        )
+        assert build.status_code == 200, build.text
+    assert build is not None
     assert build.status_code == 200, build.text
-    assert build.json()["delivery"]["release_state"]["current_stage"] == "build_verified"
+    assert build.json()["delivery"]["release_state"]["current_stage"] == "build_verified", build.json()
 
     def claim_and_ack(
         *,
@@ -610,7 +676,7 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
     assert all(
         message.ack_receipt.get("authentication") == "hmac-sha256"
         for message in reopened["mailbox"].list(process_id=process["process_id"])
-        if message.delivery_status == "acked"
+        if message.delivery_status == "acked" and (message.metadata or {}).get("target_stage")
     )
 
 
@@ -639,6 +705,15 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     scheduler_state["processes"][process["process_id"]]["nodes"]["build"]["status"] = "waiting"
     scheduler.save_state(scheduler_state)
     process = scheduler.get_process(process["process_id"])
+    stores = orchestrator._runtime_delivery_stores()
+    _prime_production_dependability_observations(process, stores)
+    campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    campaign_clock = [campaign_start]
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_now",
+        lambda: campaign_clock[0],
+    )
 
     reconciled = asyncio.run(
         orchestrator.reconcile_runtime_delivery(
@@ -673,12 +748,11 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
                         },
                     }
                 ],
-                dependability_profile=dict(MINIMAL_PROFILE),
+                dependability_profile="24h",
             ),
         )
     )
 
-    stores = orchestrator._runtime_delivery_stores()
     assert reconciled["state"]["status"] == "active"
     assert stores["release_store"].load(process["process_id"]).current_stage == "draft"
     mandatory_criterion_ids = {
@@ -755,16 +829,20 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
             },
         )
 
-    reconciled = asyncio.run(
-        orchestrator.reconcile_runtime_delivery(
-            process["process_id"],
-            orchestrator.RuntimeDeliveryReconcileRequest(
-                controller_id="controller",
-                controller_session_id="sess-runtime-delivery",
-            ),
+    for cycle in range(1, 7):
+        campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        reconciled = asyncio.run(
+            orchestrator.reconcile_runtime_delivery(
+                process["process_id"],
+                orchestrator.RuntimeDeliveryReconcileRequest(
+                    controller_id="controller",
+                    controller_session_id="sess-runtime-delivery",
+                ),
+            )
         )
-    )
-    assert reconciled["delivery"]["release_state"]["current_stage"] == "build_verified"
+    assert reconciled["delivery"]["release_state"]["current_stage"] == "build_verified", reconciled[
+        "dependability"
+    ]["after"]["failing_checks"]
     approve_stage("canary_verified", "release-verifier", "evidence:runtime-canary-verification")
 
     reconciled = asyncio.run(
@@ -902,7 +980,7 @@ def test_pending_rollback_fences_release_handoff_claim_mutation(tmp_path, monkey
             orchestrator.RuntimeDeliveryReconcileRequest(
                 controller_id="controller",
                 controller_session_id="session:controller",
-                dependability_profile=dict(MINIMAL_PROFILE),
+                dependability_profile="24h",
             ),
         )
     )
@@ -1107,7 +1185,7 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
                         "blocker_followup_seconds": 60,
                     }
                 },
-                dependability_profile=dict(MINIMAL_PROFILE),
+                dependability_profile="24h",
             ),
         )
     )
@@ -1210,7 +1288,7 @@ def test_runtime_delivery_reconcile_proactively_dispatches_true_human_blocker(tm
             orchestrator.RuntimeDeliveryReconcileRequest(
                 controller_id="controller",
                 controller_session_id="sess-runtime-delivery-blocker",
-                dependability_profile=dict(MINIMAL_PROFILE),
+                dependability_profile="24h",
                 completion_criteria=[
                     {
                         "criterion_id": "release-stage",

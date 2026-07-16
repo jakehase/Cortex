@@ -18,7 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
-from cortex_server.runtime.dependability import compile_dependability_repair_plan, load_dependability_report
+from cortex_server.runtime.dependability import (
+    build_unattended_profile,
+    compile_dependability_repair_plan,
+    load_dependability_report,
+    unattended_profile_digest,
+)
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
@@ -49,6 +54,15 @@ BUILTIN_BLOCKER_PREFIXES = ("BLOCKER:", "HUMAN:")
 REQUIRED_RELEASE_HANDOFF_RECIPIENTS = ("release-verifier", "release-manager")
 RUNTIME_DELIVERY_MOUNT_MARKER = ".cortex-durable-runtime-delivery"
 MIN_PRODUCTION_SECRET_BYTES = 32
+RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v1"
+RELEASE_VERIFIER_TRUST_FILE = ".release-verifier-trust.json"
+RELEASE_VERIFIER_TRUST_LIMIT = 4096
+
+
+def _dependability_server_now() -> datetime:
+    """Return the server clock used exclusively for production campaign evidence."""
+
+    return datetime.now(timezone.utc)
 
 
 def _production_environment() -> bool:
@@ -146,6 +160,91 @@ def _runtime_delivery_credential_map(environment_name: str) -> Dict[str, str]:
         if len(set(credentials.values())) != len(credentials):
             raise RuntimeError(f"{environment_name} identities must use distinct secrets")
     return credentials
+
+
+def _durable_release_verifier_credentials(
+    delivery_root: Path,
+    active_credentials: Dict[str, str],
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[Dict[str, str], JsonDict]:
+    """Merge active verifier keys into append-only durable historical trust."""
+
+    target = delivery_root / RELEASE_VERIFIER_TRUST_FILE
+    lock_target = delivery_root / f"{RELEASE_VERIFIER_TRUST_FILE}.lock"
+    current_iso = _now_iso(now)
+    delivery_root.mkdir(parents=True, exist_ok=True)
+    with lock_target.open("a+b") as lock_handle:
+        os.chmod(lock_target, 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            payload: JsonDict = {
+                "schema_version": RELEASE_VERIFIER_TRUST_SCHEMA,
+                "credentials": {},
+                "updated_at": current_iso,
+            }
+            if target.exists():
+                loaded = json.loads(target.read_text(encoding="utf-8"))
+                if not isinstance(loaded, dict) or loaded.get("schema_version") != RELEASE_VERIFIER_TRUST_SCHEMA:
+                    raise RuntimeError("durable release verifier trust has an invalid schema")
+                payload = dict(loaded)
+            raw_records = payload.get("credentials")
+            if not isinstance(raw_records, dict):
+                raise RuntimeError("durable release verifier trust credentials are invalid")
+            records: Dict[str, JsonDict] = {}
+            for identity, raw_record in raw_records.items():
+                verifier_id = str(identity or "").strip()
+                if not verifier_id or not isinstance(raw_record, dict):
+                    raise RuntimeError("durable release verifier trust contains an invalid identity")
+                secret = str(raw_record.get("secret") or "").strip()
+                digest = str(raw_record.get("secret_sha256") or "").strip()
+                expected_digest = hashlib.sha256(secret.encode("utf-8")).hexdigest() if secret else ""
+                if not secret or not hmac.compare_digest(digest, expected_digest):
+                    raise RuntimeError(f"durable release verifier trust is corrupt for {verifier_id}")
+                records[verifier_id] = dict(raw_record)
+
+            added: List[str] = []
+            for verifier_id, secret in active_credentials.items():
+                existing = records.get(verifier_id)
+                if existing is not None and not hmac.compare_digest(str(existing.get("secret") or ""), secret):
+                    raise RuntimeError(
+                        f"release verifier identity {verifier_id} cannot be reused with different key material"
+                    )
+                if existing is None:
+                    records[verifier_id] = {
+                        "secret": secret,
+                        "secret_sha256": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                        "first_trusted_at": current_iso,
+                    }
+                    added.append(verifier_id)
+            if len(records) > RELEASE_VERIFIER_TRUST_LIMIT:
+                raise RuntimeError("durable release verifier trust capacity exceeded")
+
+            trust_changed = not target.exists() or bool(added)
+            updated_payload = {
+                "schema_version": RELEASE_VERIFIER_TRUST_SCHEMA,
+                "credentials": records,
+                "updated_at": current_iso if trust_changed else str(payload.get("updated_at") or current_iso),
+            }
+            if trust_changed:
+                _atomic_write_json(target, updated_payload)
+                _fsync_directory(delivery_root)
+            os.chmod(target, 0o600)
+            trusted = {
+                verifier_id: str(record["secret"])
+                for verifier_id, record in records.items()
+            }
+            return trusted, {
+                "ok": True,
+                "path": str(target),
+                "activeVerifierIds": sorted(active_credentials),
+                "historicalVerifierIds": sorted(set(trusted) - set(active_credentials)),
+                "trustedVerifierCount": len(trusted),
+                "addedVerifierIds": sorted(added),
+                "error": None,
+            }
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def runtime_delivery_recipient_credentials() -> Dict[str, str]:
@@ -603,6 +702,36 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
     }
 
     if _production_environment():
+        try:
+            if durable_error is not None:
+                raise RuntimeError("durable runtime delivery root is unavailable")
+            verifier_credentials, trust_check = _durable_release_verifier_credentials(
+                delivery_root,
+                verifier_credentials,
+            )
+            checks["releaseVerifierTrust"] = trust_check
+            checks["historicalCredentialSeparation"] = _credential_separation_check(
+                verifier_credentials,
+                recipient_credentials,
+            )
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            checks["releaseVerifierTrust"] = {
+                "ok": False,
+                "path": str(delivery_root / RELEASE_VERIFIER_TRUST_FILE),
+                "activeVerifierIds": sorted(verifier_credentials),
+                "historicalVerifierIds": [],
+                "trustedVerifierCount": 0,
+                "addedVerifierIds": [],
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            checks["historicalCredentialSeparation"] = {
+                "ok": False,
+                "minimumSecretBytes": MIN_PRODUCTION_SECRET_BYTES,
+                "weakCredentials": [],
+                "reusedCredentialGroups": [],
+                "error": "durable release verifier trust is unavailable",
+            }
+
         reasoning_path = Path(
             os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db")
         )
@@ -700,6 +829,7 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
     try:
         with temporary.open("xb") as handle:
+            os.fchmod(handle.fileno(), 0o600)
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
@@ -945,7 +1075,7 @@ class ProductionBuildContract(BaseModel):
     stage_gates: List[ProductionStageGate] = Field(default_factory=list)
     completion_criteria: List[ProductionCompletionCriterion] = Field(default_factory=list)
     blocker_rules: List[ProductionBlockerRule] = Field(default_factory=list)
-    dependability_profile: str | JsonDict = "24h"
+    dependability_profile: str = "24h"
     controller_scope: str = "production_build_loop"
     controller_lease_seconds: int = 180
     worker_lease_seconds: int = 180
@@ -968,6 +1098,18 @@ class ProductionBuildContract(BaseModel):
         if any(not value for value in cleaned):
             raise ValueError("promotion_stages must not contain empty values")
         return cleaned
+
+    @field_validator("dependability_profile", mode="before")
+    @classmethod
+    def _validate_server_dependability_policy(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("production dependability_profile must be a server-owned policy identifier")
+        policy_id = value.strip().lower()
+        try:
+            build_unattended_profile(policy_id)
+        except KeyError as exc:
+            raise ValueError(f"unknown server-owned production dependability policy: {value}") from exc
+        return policy_id
 
     @field_validator("controller_lease_seconds", "worker_lease_seconds")
     @classmethod
@@ -1692,7 +1834,7 @@ def _production_progress_record(
         "assign_worker_lease",
         "dispatch_resume_handoff",
         "resume_process",
-        "refresh_shared_state_revision",
+        "record_dependability_cycle",
     }
     reasons: List[str] = []
     if previous_state is None:
@@ -2191,6 +2333,167 @@ def _claim_controller(
 
 
 
+_DEPENDABILITY_CAMPAIGN_CHECKS = {
+    "policy_binding_ok",
+    "campaign_binding_ok",
+    "campaign_timestamps_ok",
+    "elapsed_duration_ok",
+    "campaign_cycles_ok",
+}
+
+
+def _production_dependability_binding(
+    contract: ProductionBuildContract,
+    *,
+    shared_state: SharedProcessState,
+    release_state: Optional[ReleaseWorkflowState],
+) -> JsonDict:
+    binding: JsonDict = {
+        "contract_id": contract.contract_id,
+        "revision_id": shared_state.revision_id,
+    }
+    if release_state is not None:
+        binding.update(
+            {
+                "release_id": release_state.release_id,
+                "candidate_ref": release_state.candidate_ref,
+                "revision_id": release_state.revision_id,
+            }
+        )
+    return binding
+
+
+def _advance_production_dependability_campaign(
+    contract: ProductionBuildContract,
+    *,
+    existing: Optional[JsonDict],
+    binding: JsonDict,
+    preliminary_report: JsonDict,
+    snapshot: ProcessSnapshot,
+    now: Optional[datetime] = None,
+) -> tuple[JsonDict, List[JsonDict]]:
+    """Record at most one genuine, scheduled observation cycle per server pass."""
+
+    # `now` also drives deterministic watchdog/reconciliation behavior and can
+    # originate in an operator request. It must never timestamp release soak
+    # evidence; only the server clock may do that.
+    current = _dependability_server_now()
+    if current.tzinfo is None:
+        raise ValueError("dependability campaign server time must be timezone-aware")
+    current_iso = _now_iso(current)
+    profile_spec = build_unattended_profile(contract.dependability_profile)
+    policy_digest = unattended_profile_digest(contract.dependability_profile)
+    expected = {
+        "process_id": contract.process_id,
+        "policy_id": contract.dependability_profile,
+        "policy_digest": policy_digest,
+        **dict(binding),
+    }
+    campaign = dict(existing or {})
+    actions: List[JsonDict] = []
+    binding_matches = bool(campaign) and all(
+        str(campaign.get(key) or "") == str(value or "")
+        for key, value in expected.items()
+    )
+    static_healthy = all(
+        bool(value)
+        for name, value in dict(preliminary_report.get("checks") or {}).items()
+        if name not in _DEPENDABILITY_CAMPAIGN_CHECKS
+    )
+    existing_receipts = list(campaign.get("cycle_receipts") or []) if isinstance(campaign.get("cycle_receipts"), list) else []
+    campaign_complete = binding_matches and len(existing_receipts) >= int(profile_spec["campaign_cycles"])
+    recovered_from_unhealthy = bool(
+        binding_matches
+        and static_healthy
+        and not campaign_complete
+        and str(campaign.get("observation_status") or "") != "healthy"
+    )
+    if not binding_matches or (not static_healthy and not campaign_complete) or recovered_from_unhealthy:
+        previous_campaign_id = str(campaign.get("campaign_id") or "") or None
+        campaign = {
+            "schema_version": "cortex.production-dependability-campaign.v1",
+            "campaign_id": f"depcamp_{uuid4().hex[:20]}",
+            **expected,
+            "started_at": current_iso,
+            "observation_end_at": current_iso,
+            "observation_status": "healthy" if static_healthy else "unhealthy",
+            "cycle_receipts": [],
+        }
+        actions.append(
+            {
+                "action": "start_dependability_campaign",
+                "campaign_id": campaign["campaign_id"],
+                "replaced_campaign_id": previous_campaign_id,
+                "reason": (
+                    "release_binding_changed"
+                    if not binding_matches and existing
+                    else "static_dependability_recovered"
+                    if recovered_from_unhealthy
+                    else "static_dependability_not_ready"
+                    if not static_healthy
+                    else "initial_campaign"
+                ),
+            }
+        )
+        if not static_healthy:
+            return campaign, actions
+
+    if not static_healthy:
+        # A completed campaign is immutable historical evidence. A transient
+        # current-health failure still blocks the report, but cannot erase the
+        # genuine elapsed duration and cycle receipts already observed.
+        return campaign, actions
+
+    campaign["observation_end_at"] = current_iso
+    receipts = [dict(row) for row in list(campaign.get("cycle_receipts") or []) if isinstance(row, dict)]
+    started_at = datetime.fromisoformat(str(campaign["started_at"]).replace("Z", "+00:00"))
+    elapsed_seconds = max(0.0, (current - started_at).total_seconds())
+    required_cycles = int(profile_spec["campaign_cycles"])
+    duration_seconds = float(profile_spec["intended_duration_hours"]) * 3600.0
+    interval_seconds = duration_seconds / required_cycles
+    current_slot = min(required_cycles, int(elapsed_seconds // interval_seconds)) if interval_seconds > 0 else required_cycles
+    next_cycle = len(receipts) + 1
+    if next_cycle <= required_cycles and current_slot > next_cycle:
+        previous_campaign_id = str(campaign["campaign_id"])
+        campaign = {
+            "schema_version": "cortex.production-dependability-campaign.v1",
+            "campaign_id": f"depcamp_{uuid4().hex[:20]}",
+            **expected,
+            "started_at": current_iso,
+            "observation_end_at": current_iso,
+            "observation_status": "healthy",
+            "cycle_receipts": [],
+        }
+        actions.append(
+            {
+                "action": "start_dependability_campaign",
+                "campaign_id": campaign["campaign_id"],
+                "replaced_campaign_id": previous_campaign_id,
+                "reason": "missed_observation_window",
+            }
+        )
+        return campaign, actions
+    if next_cycle <= required_cycles and current_slot == next_cycle:
+        receipt = {
+            "receipt_id": f"depcycle_{uuid4().hex[:20]}",
+            "cycle_number": next_cycle,
+            "observed_at": current_iso,
+            "snapshot_id": snapshot.snapshot_id,
+            **expected,
+        }
+        receipts.append(receipt)
+        campaign["cycle_receipts"] = receipts
+        actions.append(
+            {
+                "action": "record_dependability_cycle",
+                "campaign_id": campaign["campaign_id"],
+                "receipt_id": receipt["receipt_id"],
+                "cycle_number": next_cycle,
+            }
+        )
+    return campaign, actions
+
+
 def repair_production_dependability(
     contract: ProductionBuildContract,
     *,
@@ -2200,8 +2503,11 @@ def repair_production_dependability(
     mailbox: AgentMailbox,
     supervisor: AgentSupervisor,
     controller_id: str,
+    campaign_evidence: Optional[JsonDict] = None,
+    evidence_binding: Optional[JsonDict] = None,
     now: Optional[datetime] = None,
 ) -> JsonDict:
+    effective_now = _dependability_server_now() if isinstance(contract, ProductionBuildContract) else now
     before = load_dependability_report(
         process_id=contract.process_id,
         snapshot_store=snapshot_store,
@@ -2210,7 +2516,9 @@ def repair_production_dependability(
         mailbox=mailbox,
         supervisor=supervisor,
         profile=contract.dependability_profile,
-        now=now,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=evidence_binding,
+        now=effective_now,
     )
     actions_taken: List[JsonDict] = []
     if before.get("success"):
@@ -2265,30 +2573,39 @@ def repair_production_dependability(
 
     snapshot = snapshot_store.load(contract.process_id)
     shared_state = shared_state_store.load(contract.process_id)
-    if snapshot and shared_state and any(check in before.get("failing_checks", []) for check in ["revision_history_ok", "revision_head_ok", "replay_matches_shared_state"]):
+    parity_failures = {"revision_head_ok", "replay_matches_shared_state"}.intersection(before.get("failing_checks", []))
+    if snapshot and shared_state and parity_failures:
         history_count = len(shared_state_store.history(contract.process_id)) + 1
-        refreshed_revision = f"{shared_state.revision_id}.repair{history_count}"
         refreshed = shared_state_store.save(
             SharedProcessState(
                 process_id=contract.process_id,
-                revision_id=refreshed_revision,
+                revision_id=f"{shared_state.revision_id}.parity{history_count}",
                 goals=list(shared_state.goals),
                 active_plan_node_ids=list(snapshot.active_steps or snapshot.waiting_steps or shared_state.active_plan_node_ids),
                 open_decisions=list(shared_state.open_decisions),
-                runtime_constraints={**dict(shared_state.runtime_constraints), "production_dependability_repaired": True},
-                world_state={**dict(shared_state.world_state), **dict(snapshot.world_state), "production_dependability_repaired": True},
+                runtime_constraints=dict(shared_state.runtime_constraints),
+                world_state={**dict(shared_state.world_state), **dict(snapshot.world_state)},
                 belief_refs=_dedupe_rows(list(shared_state.belief_refs) + list(snapshot.belief_refs)),
                 open_questions=list(shared_state.open_questions),
                 agent_ownership={**dict(shared_state.agent_ownership), **dict(snapshot.assigned_agents)},
                 operator_overrides=dict(shared_state.operator_overrides),
-                metadata={**dict(shared_state.metadata), "production_dependability_repaired": True, "repair_actor": controller_id},
+                metadata={**dict(shared_state.metadata), "parity_reconciled_by": controller_id},
             ),
             expected_revision_id=shared_state.revision_id,
             actor=controller_id,
-            provenance={"scenario": "production_build_loop", "action": "refresh_shared_state_revision"},
+            provenance={
+                "scenario": "production_build_loop",
+                "action": "reconcile_shared_state_parity",
+                "failing_checks": sorted(parity_failures),
+            },
         )
-        current_revision_id = refreshed.revision_id
-        actions_taken.append({"action": "refresh_shared_state_revision", "revision_id": refreshed.revision_id})
+        actions_taken.append(
+            {
+                "action": "reconcile_shared_state_parity",
+                "revision_id": refreshed.revision_id,
+                "failing_checks": sorted(parity_failures),
+            }
+        )
 
     after = load_dependability_report(
         process_id=contract.process_id,
@@ -2298,7 +2615,9 @@ def repair_production_dependability(
         mailbox=mailbox,
         supervisor=supervisor,
         profile=contract.dependability_profile,
-        now=now,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=evidence_binding,
+        now=effective_now,
     )
     return {
         "before": before,
@@ -2799,6 +3118,17 @@ def advance_production_release_loop(
     stage_advances = 0
     stage_advance_limit = max(1, int((budget.max_stage_advances_per_pass if budget is not None else 1) or 1))
     artifact_store = release_store.artifact_store()
+    verifier_credentials: Optional[Dict[str, str]] = None
+    if _production_environment():
+        active_verifier_credentials = _runtime_delivery_credential_map(
+            "CORTEX_RELEASE_VERIFIER_CREDENTIALS"
+        )
+        if not active_verifier_credentials:
+            raise RuntimeError("production requires release verifier credentials")
+        verifier_credentials, _ = _durable_release_verifier_credentials(
+            release_store.path.parent,
+            active_verifier_credentials,
+        )
 
     for _ in range(len(_stage_plan(contract)) + 1):
         captured_current_fencepost = False
@@ -2875,6 +3205,7 @@ def advance_production_release_loop(
             allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
             require_dependability=bool(gate_spec.require_dependability),
             artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
         last_gate = gate
         if not gate.get("safe_push"):
@@ -2894,6 +3225,7 @@ def advance_production_release_loop(
                 allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
                 require_dependability=bool(gate_spec.require_dependability),
                 artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
             )
             release_state = release_store.save(
                 repaired["state"],
@@ -2931,6 +3263,7 @@ def advance_production_release_loop(
                 allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
                 require_dependability=bool(gate_spec.require_dependability),
                 artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
             )
             if not bool(last_gate.get("safe_push")):
                 break
@@ -3038,6 +3371,11 @@ def advance_production_release_loop(
                 gate=last_gate,
                 next_stage=next_stage,
                 actor=controller_id,
+                metadata={
+                    "dependability_policy_id": str(dependability_report.get("policy_id") or ""),
+                    "dependability_policy_digest": str(dependability_report.get("policy_digest") or ""),
+                    "dependability_campaign_id": str(((dependability_report.get("campaign") or {}).get("campaign_id")) or ""),
+                },
             )
             if not promoted.get("promoted"):
                 break
@@ -3098,6 +3436,7 @@ def _reconcile_production_build_loop_pass(
     previous_state = loop_store.load_state(contract.process_id)
     state = previous_state or ProductionBuildLoopState(contract_id=contract.contract_id, process_id=contract.process_id)
     budget = contract.execution_budget
+    dependability_now = _dependability_server_now()
 
     ownership = _claim_controller(
         contract,
@@ -3120,6 +3459,17 @@ def _reconcile_production_build_loop_pass(
     shared_state = shared_state_store.load(contract.process_id)
     if snapshot is None or shared_state is None:
         raise ValueError("snapshot and shared state are required for production build loop")
+    release_state = release_store.load(contract.process_id)
+    dependability_binding = _production_dependability_binding(
+        contract,
+        shared_state=shared_state,
+        release_state=release_state,
+    )
+    campaign_evidence = (
+        dict((state.metadata or {}).get("dependability_campaign") or {})
+        if isinstance((state.metadata or {}).get("dependability_campaign"), dict)
+        else {}
+    )
 
     dependability = repair_production_dependability(
         contract,
@@ -3129,11 +3479,71 @@ def _reconcile_production_build_loop_pass(
         mailbox=mailbox,
         supervisor=supervisor,
         controller_id=controller_id,
-        now=now,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=dependability_binding,
+        now=dependability_now,
     )
     snapshot = snapshot_store.load(contract.process_id) or snapshot
     shared_state = shared_state_store.load(contract.process_id) or shared_state
     release_state = release_store.load(contract.process_id)
+    dependability_binding = _production_dependability_binding(
+        contract,
+        shared_state=shared_state,
+        release_state=release_state,
+    )
+    preliminary_dependability = load_dependability_report(
+        process_id=contract.process_id,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
+        journal=journal,
+        mailbox=mailbox,
+        supervisor=supervisor,
+        profile=contract.dependability_profile,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=dependability_binding,
+        now=dependability_now,
+    )
+    campaign_evidence, campaign_actions = _advance_production_dependability_campaign(
+        contract,
+        existing=campaign_evidence,
+        binding=dependability_binding,
+        preliminary_report=preliminary_dependability,
+        snapshot=snapshot,
+        now=dependability_now,
+    )
+    state = loop_store.save_state(
+        ProductionBuildLoopState(
+            **{
+                **_state_dump(state),
+                "controller": controller,
+                "current_revision_id": shared_state.revision_id,
+                "current_snapshot_id": snapshot.snapshot_id,
+                "current_stage": release_state.current_stage if release_state else state.current_stage,
+                "metadata": {
+                    **dict(state.metadata or {}),
+                    "dependability_policy_id": contract.dependability_profile,
+                    "dependability_policy_digest": unattended_profile_digest(contract.dependability_profile),
+                    "dependability_campaign": campaign_evidence,
+                },
+            }
+        )
+    )
+    dependability_after_now = _dependability_server_now()
+    dependable_after = load_dependability_report(
+        process_id=contract.process_id,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
+        journal=journal,
+        mailbox=mailbox,
+        supervisor=supervisor,
+        profile=contract.dependability_profile,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=dependability_binding,
+        now=dependability_after_now,
+    )
+    dependability["after"] = dependable_after
+    dependability["success"] = bool(dependable_after.get("success"))
+    dependability.setdefault("actions_taken", []).extend(campaign_actions)
 
     blockers_before_recovery = detect_true_blockers(
         contract,

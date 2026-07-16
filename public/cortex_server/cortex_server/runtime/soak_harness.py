@@ -7,7 +7,12 @@ from typing import Any, Callable, Dict, List, Optional
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentSupervisor
-from cortex_server.runtime.dependability import build_unattended_profile, compile_dependability_repair_plan, load_dependability_report
+from cortex_server.runtime.dependability import (
+    build_unattended_profile,
+    compile_dependability_repair_plan,
+    load_dependability_report,
+    unattended_profile_digest,
+)
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_resume import load_runtime_resume_state
@@ -769,6 +774,7 @@ class RuntimeSoakHarness:
         cycle_index: int,
         actor: str,
         final: bool = False,
+        dependability_campaign: Optional[JsonDict] = None,
     ) -> SharedProcessState:
         goals = [
             "sustain unattended multi-agent continuity",
@@ -799,6 +805,11 @@ class RuntimeSoakHarness:
                     "cycle_index": cycle_index,
                     "completed_nodes": list(completed_node_ids),
                     "final": final,
+                    **(
+                        {"dependability_campaign": dict(dependability_campaign)}
+                        if dependability_campaign is not None
+                        else {}
+                    ),
                 },
             ),
             expected_revision_id=expected_revision_id,
@@ -840,9 +851,24 @@ class RuntimeSoakHarness:
         belief_refs: List[str] = []
         owner_map: Dict[str, str] = {}
         timeline: List[JsonDict] = []
+        campaign_started_at = self.clock_fn()
+        required_cycles = int(profile_spec.get("campaign_cycles", 0) or 0)
+        interval_seconds = float(profile_spec.get("intended_duration_hours", 0) or 0) * 3600.0 / required_cycles
+        campaign_evidence: JsonDict = {
+            "schema_version": "cortex.production-dependability-campaign.v1",
+            "campaign_id": f"depcamp_{process_id}",
+            "process_id": process_id,
+            "policy_id": str(profile_spec["profile"]),
+            "policy_digest": unattended_profile_digest(profile),
+            "started_at": campaign_started_at.isoformat(),
+            "observation_end_at": campaign_started_at.isoformat(),
+            "observation_status": "healthy",
+            "cycle_receipts": [],
+        }
 
         for idx in range(total_cycles):
             cycle_number = idx + 1
+            self.sleep_fn(interval_seconds)
             node_id = nodes[idx % len(nodes)]
             agent_id = agents[idx % len(agents)]
             next_node = nodes[(idx + 1) % len(nodes)] if idx + 1 < total_cycles else None
@@ -972,6 +998,20 @@ class RuntimeSoakHarness:
             )
             next_revision_id = f"rev_{cycle_number + 1}"
             final_cycle = cycle_number == total_cycles
+            observed_at = self.clock_fn()
+            campaign_evidence["observation_end_at"] = observed_at.isoformat()
+            if cycle_number <= required_cycles:
+                campaign_evidence["cycle_receipts"].append(
+                    {
+                        "receipt_id": f"depcycle_{process_id}_{cycle_number}",
+                        "cycle_number": cycle_number,
+                        "observed_at": observed_at.isoformat(),
+                        "snapshot_id": snapshot.snapshot_id,
+                        "process_id": process_id,
+                        "policy_id": str(profile_spec["profile"]),
+                        "policy_digest": campaign_evidence["policy_digest"],
+                    }
+                )
             world_state = {
                 **dict(snapshot.world_state),
                 "campaign_cycle": cycle_number,
@@ -991,6 +1031,7 @@ class RuntimeSoakHarness:
                 cycle_index=cycle_number,
                 actor=agent_id,
                 final=final_cycle,
+                dependability_campaign=campaign_evidence,
             )
             self.supervisor.heartbeat(
                 lease.lease_id,
@@ -1020,7 +1061,8 @@ class RuntimeSoakHarness:
             journal=self.journal,
             mailbox=self.mailbox,
             supervisor=self.supervisor,
-            profile=profile_spec,
+            profile=profile,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         return {
@@ -1053,6 +1095,11 @@ class RuntimeSoakHarness:
         shared_state = self.shared_state_store.load(process_id)
         if snapshot is None or shared_state is None:
             raise ValueError("snapshot and shared state are required to inject unattended failures")
+        campaign_evidence = (
+            dict((shared_state.metadata or {}).get("dependability_campaign") or {})
+            if isinstance((shared_state.metadata or {}).get("dependability_campaign"), dict)
+            else {}
+        )
         stale_lease = self.supervisor.assign(
             process_id=process_id,
             scope=stale_scope,
@@ -1097,6 +1144,7 @@ class RuntimeSoakHarness:
             mailbox=self.mailbox,
             supervisor=self.supervisor,
             profile=profile_spec,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         return {
@@ -1115,6 +1163,12 @@ class RuntimeSoakHarness:
         profile: str | Dict[str, Any] = "24h",
     ) -> JsonDict:
         profile_spec = build_unattended_profile(profile) if isinstance(profile, str) else dict(profile or {})
+        shared_state = self.shared_state_store.load(process_id)
+        campaign_evidence = (
+            dict((shared_state.metadata or {}).get("dependability_campaign") or {})
+            if shared_state is not None and isinstance((shared_state.metadata or {}).get("dependability_campaign"), dict)
+            else {}
+        )
         before = load_dependability_report(
             process_id=process_id,
             snapshot_store=self.snapshot_store,
@@ -1123,11 +1177,11 @@ class RuntimeSoakHarness:
             mailbox=self.mailbox,
             supervisor=self.supervisor,
             profile=profile_spec,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         repair_plan = compile_dependability_repair_plan(before)
         actions_taken: List[JsonDict] = []
-        shared_state = self.shared_state_store.load(process_id)
         current_revision_id = shared_state.revision_id if shared_state else None
 
         active_leases = self.supervisor.list(process_id=process_id, status="active")
@@ -1179,27 +1233,6 @@ class RuntimeSoakHarness:
             )
             actions_taken.append({"action": "checkpoint_from_journal", "snapshot_id": checkpoint.snapshot_id})
 
-        snapshot = self.snapshot_store.load(process_id)
-        shared_state = self.shared_state_store.load(process_id)
-        if snapshot and shared_state and any(check in before.get("failing_checks", []) for check in ["revision_history_ok", "revision_head_ok", "replay_matches_shared_state"]):
-            next_revision_index = len(self.shared_state_store.history(process_id)) + 1
-            refreshed = self._campaign_shared_state(
-                process_id=process_id,
-                revision_id=f"rev_repair_{next_revision_index}",
-                expected_revision_id=shared_state.revision_id,
-                active_node_ids=list(snapshot.active_steps or snapshot.waiting_steps),
-                completed_node_ids=list(snapshot.completed_steps),
-                belief_refs=list(snapshot.belief_refs),
-                owner_map=dict(snapshot.assigned_agents),
-                world_state={**dict(snapshot.world_state), "watchdog_repaired": True},
-                profile_spec=profile_spec,
-                cycle_index=int((snapshot.metadata or {}).get("campaign_cycle", next_revision_index) or next_revision_index),
-                actor="watchdog",
-                final=snapshot.lifecycle_state == "completed",
-            )
-            current_revision_id = refreshed.revision_id
-            actions_taken.append({"action": "refresh_shared_state_revision", "revision_id": refreshed.revision_id})
-
         after = load_dependability_report(
             process_id=process_id,
             snapshot_store=self.snapshot_store,
@@ -1208,6 +1241,7 @@ class RuntimeSoakHarness:
             mailbox=self.mailbox,
             supervisor=self.supervisor,
             profile=profile_spec,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         return {

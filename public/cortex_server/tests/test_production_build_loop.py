@@ -7,7 +7,10 @@ import multiprocessing
 import pytest
 from pydantic import ValidationError
 
+import cortex_server.routers.orchestrator as orchestrator
+from cortex_server.routers.orchestrator import RuntimeDeliveryReconcileRequest
 from cortex_server.runtime import RuntimeSoakHarness
+from cortex_server.runtime.dependability import load_dependability_report, unattended_profile_digest
 import cortex_server.runtime.production_build_loop as production_build_loop
 from cortex_server.runtime.production_build_loop import (
     BuildLoopControllerOwner,
@@ -32,24 +35,6 @@ from cortex_server.runtime.release_workflow import (
     release_canary_policy,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState
-
-
-MINIMAL_PROFILE = {
-    "profile": "prod-loop-test",
-    "intended_duration_hours": 1,
-    "campaign_cycles": 1,
-    "min_agent_count": 1,
-    "min_handoff_count": 0,
-    "max_checkpoint_age_seconds": 3600,
-    "max_snapshot_event_gap": 3,
-    "max_dead_letters": 0,
-    "max_stale_leases": 0,
-    "max_inflight_age_seconds": 120,
-    "max_lease_heartbeat_lag_seconds": 3600,
-    "required_revision_history": 1,
-    "watchdog": {"lease_seconds": 60, "heartbeat_grace_seconds": 60},
-    "checkpoint": {"snapshot_every_events": 4, "must_checkpoint_on_handoff": True},
-}
 
 
 VERIFIER_ID = "independent-release-verifier"
@@ -139,6 +124,20 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     assert healthy["ready"] is True
     assert healthy["checks"]["releaseConsumers"]["ok"] is True
     assert healthy["checks"]["durableReasoningStore"]["quickCheck"] == "ok"
+
+    rotated_verifier = "independent-release-verifier-v2"
+    rotated_secret = "verifier-key-v2-000000000000000000001"
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({rotated_verifier: rotated_secret}),
+    )
+    rotated = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    restarted = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    assert rotated["ready"] is True
+    assert restarted["ready"] is True
+    assert rotated["checks"]["releaseVerifierTrust"]["activeVerifierIds"] == [rotated_verifier]
+    assert rotated["checks"]["releaseVerifierTrust"]["historicalVerifierIds"] == ["independent-release-verifier"]
+    assert restarted["checks"]["releaseVerifierTrust"]["trustedVerifierCount"] == 2
 
     release_root = delivery_root / "release_workflow"
     release_root.mkdir()
@@ -266,7 +265,7 @@ def test_empty_completion_contract_is_not_terminal_and_default_gates_require_evi
         objective="Ship safely",
         completion_criteria=[],
         stage_gates=[],
-        dependability_profile=dict(MINIMAL_PROFILE),
+        dependability_profile="24h",
     )
 
     completion = evaluate_production_completion(
@@ -303,6 +302,43 @@ def test_production_contract_rejects_plans_that_omit_mandatory_canary_predecesso
         )
 
 
+def test_production_contract_rejects_weakened_or_unknown_dependability_policy():
+    with pytest.raises(ValidationError, match="server-owned policy identifier"):
+        ProductionBuildContract(
+            process_id="proc_weakened_dependability",
+            objective="Bypass production soak",
+            dependability_profile={
+                "profile": "caller-bypass",
+                "intended_duration_hours": 0,
+                "campaign_cycles": 0,
+                "min_agent_count": 1,
+                "max_dead_letters": 999999,
+            },
+        )
+    with pytest.raises(ValidationError, match="unknown server-owned production dependability policy"):
+        ProductionBuildContract(
+            process_id="proc_unknown_dependability",
+            objective="Select an unowned policy",
+            dependability_profile="instant",
+        )
+    with pytest.raises(ValidationError, match="server-owned policy identifier"):
+        RuntimeDeliveryReconcileRequest(dependability_profile={"profile": "caller-bypass"})
+    with pytest.raises(ValidationError, match="server-owned policy identifier"):
+        RuntimeDeliveryReconcileRequest(
+            contract={"dependability_profile": {"profile": "nested-caller-bypass"}}
+        )
+    with pytest.raises(ValidationError, match="unknown server-owned production dependability policy"):
+        RuntimeDeliveryReconcileRequest(dependability_profile="instant")
+    with pytest.raises(ValidationError, match="unknown server-owned production dependability policy"):
+        RuntimeDeliveryReconcileRequest(contract={"dependability_profile": "instant"})
+
+    assert orchestrator._production_policy_does_not_weaken("24h", "24h") is True
+    assert orchestrator._production_policy_does_not_weaken("72h", "24h") is True
+    assert orchestrator._production_policy_does_not_weaken("168h", "72h") is True
+    assert orchestrator._production_policy_does_not_weaken("24h", "72h") is False
+    assert orchestrator._production_policy_does_not_weaken("72h", "168h") is False
+
+
 def _contract(
     process_id: str,
     *,
@@ -314,7 +350,7 @@ def _contract(
     return ProductionBuildContract(
         process_id=process_id,
         objective=objective,
-        dependability_profile=dict(MINIMAL_PROFILE),
+        dependability_profile="24h",
         metadata={"default_worker_id": "builder"},
         promotion_stages=list(promotion_stages or ["build_verified", "canary_verified", "production"]),
         stage_gates=list(stage_gates or []),
@@ -330,6 +366,246 @@ def _contract(
             ]
         ),
     )
+
+
+def _prime_genuine_dependability_observations(harness, shared_state):
+    """Create real revision and acknowledged-handoff history before the soak starts."""
+
+    process_id = shared_state.process_id
+    agents = ["builder", "reviewer", "operator"]
+    current = shared_state
+    for revision_number in range(len(harness.shared_state_store.history(process_id)) + 1, 7):
+        actor = agents[(revision_number - 1) % len(agents)]
+        current = harness.shared_state_store.save(
+            SharedProcessState(
+                process_id=process_id,
+                revision_id=f"rev_{revision_number}",
+                goals=list(current.goals),
+                active_plan_node_ids=list(current.active_plan_node_ids),
+                runtime_constraints=dict(current.runtime_constraints),
+                world_state=dict(current.world_state),
+                belief_refs=list(current.belief_refs),
+                open_questions=list(current.open_questions),
+                agent_ownership={
+                    **dict(current.agent_ownership),
+                    "dependability-review": "reviewer",
+                    "dependability-operations": "operator",
+                },
+                metadata={**dict(current.metadata), "observed_work_revision": revision_number},
+            ),
+            expected_revision_id=current.revision_id,
+            actor=actor,
+            provenance={"phase": "observed_dependability_work", "revision": revision_number},
+        )
+    for cycle in range(5):
+        from_agent = agents[cycle % len(agents)]
+        to_agent = agents[(cycle + 1) % len(agents)]
+        message = harness.mailbox.send(
+            process_id=process_id,
+            from_agent=from_agent,
+            to_agent=to_agent,
+            kind="handoff",
+            revision_id=current.revision_id,
+            dedupe_key=f"dependability-observation:{process_id}:{cycle}",
+            payload={"completed_observation": cycle + 1},
+        )
+        harness.mailbox.receive(
+            to_agent=to_agent,
+            process_id=process_id,
+            expected_revision_id=current.revision_id,
+            reject_stale_revision=True,
+        )
+        harness.mailbox.acknowledge(message.message_id, actor=to_agent)
+    return current
+
+
+def test_dependability_rejects_elapsed_claim_without_distinct_scheduled_cycle_receipts(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_temporal_evidence"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    shared_state = _prime_genuine_dependability_observations(harness, seeded["shared_state"])
+    harness._checkpoint_from_journal(process_id=process_id)
+    contract = ProductionBuildContract(
+        process_id=process_id,
+        objective="Require a genuine 24 hour campaign",
+        dependability_profile="24h",
+    )
+    now = datetime.now(timezone.utc)
+    started_at = now - timedelta(hours=24)
+    policy_digest = unattended_profile_digest("24h")
+    snapshot_id = harness.snapshot_store.load(process_id).snapshot_id
+    binding = {"contract_id": contract.contract_id, "revision_id": shared_state.revision_id}
+    campaign_base = {
+        "schema_version": "cortex.production-dependability-campaign.v1",
+        "campaign_id": "depcamp_adversarial",
+        "process_id": process_id,
+        "policy_id": "24h",
+        "policy_digest": policy_digest,
+        **binding,
+        "started_at": started_at.isoformat(),
+        "observation_end_at": now.isoformat(),
+        "observation_status": "healthy",
+    }
+    synthetic = {
+        **campaign_base,
+        "cycle_receipts": [
+            {
+                "receipt_id": f"synthetic_{cycle}",
+                "cycle_number": cycle,
+                "observed_at": now.isoformat(),
+                "snapshot_id": snapshot_id,
+                "process_id": process_id,
+                "policy_id": "24h",
+                "policy_digest": policy_digest,
+                **binding,
+            }
+            for cycle in range(1, 7)
+        ],
+    }
+    synthetic_report = load_dependability_report(
+        process_id=process_id,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        profile="24h",
+        campaign_evidence=synthetic,
+        evidence_binding=binding,
+        now=now,
+    )
+    assert synthetic_report["checks"]["elapsed_duration_ok"] is True
+    assert synthetic_report["checks"]["campaign_timestamps_ok"] is False
+    assert synthetic_report["checks"]["campaign_cycles_ok"] is False
+    assert synthetic_report["success"] is False
+
+    genuine = {
+        **campaign_base,
+        "cycle_receipts": [
+            {
+                "receipt_id": f"genuine_{cycle}",
+                "cycle_number": cycle,
+                "observed_at": (started_at + timedelta(hours=4 * cycle)).isoformat(),
+                "snapshot_id": snapshot_id,
+                "process_id": process_id,
+                "policy_id": "24h",
+                "policy_digest": policy_digest,
+                **binding,
+            }
+            for cycle in range(1, 7)
+        ],
+    }
+    genuine_report = load_dependability_report(
+        process_id=process_id,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        profile="24h",
+        campaign_evidence=genuine,
+        evidence_binding=binding,
+        now=now,
+    )
+    assert genuine_report["success"] is True, genuine_report["failing_checks"]
+    assert genuine_report["campaign"]["completed_cycle_count"] == 6
+
+
+def test_caller_supplied_reconciliation_time_cannot_advance_campaign_evidence(tmp_path, monkeypatch):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    seeded = harness._seed_waiting_process(
+        process_id="proc_untrusted_now",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    contract = ProductionBuildContract(
+        process_id="proc_untrusted_now",
+        objective="Ignore caller time for evidence",
+        dependability_profile="24h",
+    )
+    server_now = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(production_build_loop, "_dependability_server_now", lambda: server_now)
+    binding = {"contract_id": contract.contract_id, "revision_id": "rev_1"}
+    campaign, _ = production_build_loop._advance_production_dependability_campaign(
+        contract,
+        existing=None,
+        binding=binding,
+        preliminary_report={"checks": {"static_health": True}},
+        snapshot=seeded["snapshot"],
+        now=server_now,
+    )
+    attempted, _ = production_build_loop._advance_production_dependability_campaign(
+        contract,
+        existing=campaign,
+        binding=binding,
+        preliminary_report={"checks": {"static_health": True}},
+        snapshot=seeded["snapshot"],
+        now=server_now + timedelta(days=365),
+    )
+    assert attempted["started_at"] == server_now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    assert attempted["observation_end_at"] == attempted["started_at"]
+    assert attempted["cycle_receipts"] == []
+
+
+def test_dependability_revision_requirement_excludes_repair_generated_history(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    seeded = harness._seed_waiting_process(
+        process_id="proc_no_synthetic_revision_progress",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    current = seeded["shared_state"]
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=current.process_id,
+            revision_id="rev_synthetic_repair",
+            goals=list(current.goals),
+            active_plan_node_ids=list(current.active_plan_node_ids),
+            runtime_constraints=dict(current.runtime_constraints),
+            world_state=dict(current.world_state),
+            belief_refs=list(current.belief_refs),
+            open_questions=list(current.open_questions),
+            agent_ownership=dict(current.agent_ownership),
+            metadata={**dict(current.metadata), "production_dependability_repaired": True},
+        ),
+        expected_revision_id=current.revision_id,
+        actor="repair-controller",
+        provenance={
+            "scenario": "production_build_loop",
+            "action": "refresh_shared_state_revision",
+        },
+    )
+    profile = production_build_loop.build_unattended_profile("24h")
+    profile.update(
+        {
+            "profile": "revision-history-regression",
+            "min_agent_count": 1,
+            "min_handoff_count": 0,
+            "required_revision_history": 2,
+        }
+    )
+    report = load_dependability_report(
+        process_id=current.process_id,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        profile=profile,
+        now=datetime.now(timezone.utc),
+    )
+
+    assert report["checks"]["revision_history_ok"] is False
+    assert report["revisions"]["history_count"] == 1
+    assert report["revisions"]["total_history_count"] == 2
+    assert report["revisions"]["excluded_synthetic_count"] == 1
 
 
 
@@ -370,6 +646,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         metadata={"release_stage": "build_verified"},
         world_state_overrides={"release_stage": "build_verified"},
     )
+    shared_state = _prime_genuine_dependability_observations(harness, shared_state)
 
     release_state = ReleaseWorkflowState(
         process_id=process_id,
@@ -406,6 +683,9 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         ],
     )
 
+    campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    campaign_clock = [campaign_start]
+    monkeypatch.setattr(production_build_loop, "_dependability_server_now", lambda: campaign_clock[0])
     awaiting_canary = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -417,9 +697,27 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         release_store=harness.release_store,
         controller_id="controller",
         controller_session_id="sess-1",
+        now=campaign_start,
     )
     assert awaiting_canary["state"]["current_stage"] == "build_verified"
     _approve_pending_release_handoff(harness, process_id, "canary_verified")
+    for cycle in range(1, 6):
+        campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        observed = reconcile_production_build_loop(
+            contract,
+            loop_store=loop_store,
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            journal=harness.journal,
+            mailbox=harness.mailbox,
+            supervisor=harness.supervisor,
+            release_store=harness.release_store,
+            controller_id="controller",
+            controller_session_id="sess-1",
+            now=campaign_start + timedelta(hours=4 * cycle),
+        )
+        assert observed["state"]["current_stage"] == "build_verified"
+    campaign_clock[0] = campaign_start + timedelta(hours=24)
     first = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -431,6 +729,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         release_store=harness.release_store,
         controller_id="controller",
         controller_session_id="sess-1",
+        now=campaign_start + timedelta(hours=24),
     )
 
     assert first["state"]["status"] == "active"
@@ -471,6 +770,10 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         controller_session_id="sess-1",
     )
     assert awaiting_production["state"]["current_stage"] == "canary_verified"
+    assert awaiting_production["dependability"]["after"]["campaign"]["completed_cycle_count"] == 6, {
+        "before": awaiting_production["dependability"]["before"]["failing_checks"],
+        "actions": awaiting_production["dependability"]["actions_taken"],
+    }
     _approve_pending_release_handoff(harness, process_id, "production")
     second = reconcile_production_build_loop(
         contract,
@@ -487,8 +790,12 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
 
     reports = loop_store.reports(process_id)
 
-    assert second["state"]["status"] == "completed"
+    assert second["state"]["status"] == "completed", second["dependability"]["after"]["failing_checks"]
     assert second["state"]["current_stage"] == "production"
+    assert second["state"]["metadata"]["dependability_policy_id"] == "24h"
+    assert second["state"]["metadata"]["dependability_policy_digest"] == unattended_profile_digest("24h")
+    assert second["release"]["state"]["safe_push_criteria"]["dependability"]["policy_digest"] == unattended_profile_digest("24h")
+    assert second["release"]["state"]["promotion_history"][-1]["metadata"]["dependability_policy_digest"] == unattended_profile_digest("24h")
     assert second["report"]["kind"] == "completed"
     assert any(report.stage == "canary_verified" for report in reports)
     assert reports[-1].kind == "completed"
@@ -958,6 +1265,7 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
     )
 
     loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    revision_history_before_repair = len(harness.shared_state_store.history(process_id))
     contract = _contract(
         process_id,
         completion_criteria=[
@@ -999,6 +1307,8 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
     assert any(row.scope == "verify" for row in harness.supervisor.list(process_id=process_id, status="stale"))
     assert not any(row.scope == "verify" for row in harness.supervisor.list(process_id=process_id, status="active"))
     assert any(action["action"] == "checkpoint_from_journal" for action in result["actions_taken"])
+    assert len(harness.shared_state_store.history(process_id)) == revision_history_before_repair
+    assert not any(action.get("action") == "refresh_shared_state_revision" for action in result["actions_taken"])
 
 
 def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(tmp_path, monkeypatch):
@@ -1008,6 +1318,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
     snapshot = seeded["snapshot"]
     shared_state = seeded["shared_state"]
+    shared_state = _prime_genuine_dependability_observations(harness, shared_state)
 
     release_state = ReleaseWorkflowState(
         process_id=process_id,
@@ -1060,6 +1371,9 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
         ],
     )
 
+    campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    campaign_clock = [campaign_start]
+    monkeypatch.setattr(production_build_loop, "_dependability_server_now", lambda: campaign_clock[0])
     result = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -1071,6 +1385,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
         release_store=harness.release_store,
         controller_id="controller",
         controller_session_id="sess-release",
+        now=campaign_start,
     )
 
     pending_release = harness.release_store.load(process_id)
@@ -1091,6 +1406,23 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
 
     _approve_pending_release_handoff(harness, process_id, "canary_verified")
 
+    for cycle in range(1, 6):
+        campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        observed = reconcile_production_build_loop(
+            contract,
+            loop_store=loop_store,
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            journal=harness.journal,
+            mailbox=harness.mailbox,
+            supervisor=harness.supervisor,
+            release_store=harness.release_store,
+            controller_id="controller",
+            controller_session_id="sess-release",
+            now=campaign_start + timedelta(hours=4 * cycle),
+        )
+        assert observed["state"]["current_stage"] == "build_verified"
+    campaign_clock[0] = campaign_start + timedelta(hours=24)
     awaiting_production = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -1102,6 +1434,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
         release_store=harness.release_store,
         controller_id="controller",
         controller_session_id="sess-release",
+        now=campaign_start + timedelta(hours=24),
     )
     canary_release = harness.release_store.load(process_id)
     assert awaiting_production["state"]["status"] == "active"
@@ -1165,7 +1498,7 @@ def test_production_loop_keeps_non_human_rule_blockers_live_when_recovery_is_sti
     contract = ProductionBuildContract(
         process_id=process_id,
         objective="Keep shipping until a human is truly needed",
-        dependability_profile=dict(MINIMAL_PROFILE),
+        dependability_profile="24h",
         metadata={"owner": "cortex", "session_key": "session:delivery:followthrough", "channel": "whatsapp"},
         promotion_stages=[],
         completion_criteria=[

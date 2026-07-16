@@ -92,6 +92,7 @@ from cortex_server.runtime import (
     WatchRegistration,
     WatcherRuntimeStore,
     adapt_tool_event,
+    build_unattended_profile,
     compile_handoff_to_agent_work_spec,
     derive_session_plane,
     resolve_session_follow_up_policy,
@@ -1025,6 +1026,48 @@ def _validate_production_contract(payload: Dict[str, Any]) -> ProductionBuildCon
     return ProductionBuildContract.parse_obj(payload)
 
 
+def _production_policy_does_not_weaken(candidate_id: str, baseline_id: str) -> bool:
+    """Return whether one immutable server policy is at least as strict as another."""
+
+    candidate = build_unattended_profile(candidate_id)
+    baseline = build_unattended_profile(baseline_id)
+    minimum_fields = (
+        "intended_duration_hours",
+        "campaign_cycles",
+        "min_agent_count",
+        "min_handoff_count",
+        "required_revision_history",
+    )
+    maximum_fields = (
+        "max_checkpoint_age_seconds",
+        "max_snapshot_event_gap",
+        "max_dead_letters",
+        "max_stale_leases",
+        "max_inflight_age_seconds",
+        "max_lease_heartbeat_lag_seconds",
+    )
+    if any(float(candidate[field]) < float(baseline[field]) for field in minimum_fields):
+        return False
+    if any(float(candidate[field]) > float(baseline[field]) for field in maximum_fields):
+        return False
+    candidate_watchdog = dict(candidate.get("watchdog") or {})
+    baseline_watchdog = dict(baseline.get("watchdog") or {})
+    if any(
+        float(candidate_watchdog[field]) > float(baseline_watchdog[field])
+        for field in ("lease_seconds", "heartbeat_grace_seconds")
+    ):
+        return False
+    candidate_checkpoint = dict(candidate.get("checkpoint") or {})
+    baseline_checkpoint = dict(baseline.get("checkpoint") or {})
+    if float(candidate_checkpoint["snapshot_every_events"]) > float(
+        baseline_checkpoint["snapshot_every_events"]
+    ):
+        return False
+    return not bool(baseline_checkpoint.get("must_checkpoint_on_handoff")) or bool(
+        candidate_checkpoint.get("must_checkpoint_on_handoff")
+    )
+
+
 
 def _validate_roadmap_contract(payload: Dict[str, Any]) -> RoadmapObjectiveContract:
     if hasattr(RoadmapObjectiveContract, "model_validate"):
@@ -1280,6 +1323,7 @@ def _resolve_runtime_delivery_contract(
         payload.update(model_dump_compat(stored_contract))
     elif workflow_contract:
         payload.update(dict(workflow_contract))
+    baseline_policy_id = str(payload.get("dependability_profile") or "24h").strip().lower()
     if isinstance(request.contract, dict):
         payload.update(dict(request.contract))
 
@@ -1302,6 +1346,26 @@ def _resolve_runtime_delivery_contract(
     if request.execution_budget is not None:
         payload["execution_budget"] = dict(request.execution_budget)
     payload.setdefault("dependability_profile", "24h")
+    candidate_policy_id = str(payload["dependability_profile"]).strip().lower()
+    try:
+        policy_does_not_weaken = _production_policy_does_not_weaken(
+            candidate_policy_id,
+            baseline_policy_id,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="production dependability_profile must identify an immutable server policy",
+        ) from exc
+    if not policy_does_not_weaken:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "production dependability policy cannot be weakened: "
+                f"active={baseline_policy_id}, requested={candidate_policy_id}"
+            ),
+        )
+    payload["dependability_profile"] = candidate_policy_id
     target_environment = str(payload.get("target_environment") or "production").strip() or "production"
     mandatory_criteria = _mandatory_runtime_delivery_completion_criteria(process_id, target_environment)
     reserved_ids = {row["criterion_id"] for row in mandatory_criteria}
@@ -2939,7 +3003,7 @@ class RuntimeDeliveryReconcileRequest(BaseModel):
     stage_gates: Optional[List[Dict[str, Any]]] = None
     completion_criteria: Optional[List[Dict[str, Any]]] = None
     blocker_rules: Optional[List[Dict[str, Any]]] = None
-    dependability_profile: Optional[Any] = None
+    dependability_profile: Optional[str] = None
     execution_budget: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     candidate_ref: Optional[str] = None
@@ -2949,6 +3013,39 @@ class RuntimeDeliveryReconcileRequest(BaseModel):
     controller_id: str = "cortex"
     controller_session_id: Optional[str] = None
     now_iso: Optional[str] = None
+
+    @field_validator("dependability_profile", mode="before")
+    @classmethod
+    def _uses_server_dependability_policy(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("production dependability_profile must be a server-owned policy identifier")
+        policy_id = value.strip().lower()
+        try:
+            build_unattended_profile(policy_id)
+        except KeyError as exc:
+            raise ValueError(
+                f"unknown server-owned production dependability policy: {value}"
+            ) from exc
+        return policy_id
+
+    @field_validator("contract")
+    @classmethod
+    def _contract_uses_server_dependability_policy(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(value, dict) or "dependability_profile" not in value:
+            return value
+        policy = value.get("dependability_profile")
+        if not isinstance(policy, str):
+            raise ValueError("production dependability_profile must be a server-owned policy identifier")
+        policy_id = policy.strip().lower()
+        try:
+            build_unattended_profile(policy_id)
+        except KeyError as exc:
+            raise ValueError(
+                f"unknown server-owned production dependability policy: {policy}"
+            ) from exc
+        return {**value, "dependability_profile": policy_id}
 
     @field_validator("initial_release_stage")
     @classmethod

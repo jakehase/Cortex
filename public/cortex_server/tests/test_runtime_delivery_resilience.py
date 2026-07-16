@@ -6,12 +6,15 @@ import pytest
 
 from cortex_server.modules.route_health import RouteHealthMonitor
 from cortex_server.runtime.delivery_resilience import DeliveryDeadLetterStore, resilient_delivery_attempt
+import cortex_server.runtime.production_build_loop as production_build_loop
 from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
 from cortex_server.runtime.release_workflow import (
+    ReleaseArtifactReceipt,
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
     canonical_release_artifact_bytes,
     release_artifact_attestation_signature,
+    verify_release_artifact_receipt,
 )
 
 
@@ -230,3 +233,57 @@ def test_failed_receipt_persistence_removes_newly_published_orphan(tmp_path, mon
         )
 
     assert not list(store.artifact_store().path.glob("*/*.artifact"))
+
+
+def test_durable_verifier_trust_survives_add_drain_retire_restart_and_rejects_id_reuse(tmp_path, monkeypatch):
+    delivery_root = tmp_path / "runtime_delivery"
+    delivery_root.mkdir()
+    store = ReleaseWorkflowStore(delivery_root / "release_workflow")
+    process_id = "proc_verifier_rotation"
+    _release_state(store, process_id)
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({VERIFIER_ID: VERIFIER_SECRET}),
+    )
+    _ingest(
+        store,
+        process_id,
+        artifact_id="artifact:historical-verifier",
+        payload="historically-verified-release",
+    )
+    state = store.load(process_id)
+    historical_receipt = ReleaseArtifactReceipt.model_validate(state.metadata["release_artifacts"][0])
+
+    initial_trust, initial_check = production_build_loop._durable_release_verifier_credentials(
+        delivery_root,
+        {VERIFIER_ID: VERIFIER_SECRET},
+    )
+    new_verifier = "resilience-independent-verifier-v2"
+    new_secret = "resilience-verifier-secret-v2-00000000001"
+    rotated_trust, rotated_check = production_build_loop._durable_release_verifier_credentials(
+        delivery_root,
+        {VERIFIER_ID: VERIFIER_SECRET, new_verifier: new_secret},
+    )
+    restarted_trust, restarted_check = production_build_loop._durable_release_verifier_credentials(
+        delivery_root,
+        {new_verifier: new_secret},
+    )
+
+    assert initial_check["trustedVerifierCount"] == 1
+    assert rotated_check["trustedVerifierCount"] == 2
+    assert restarted_check["activeVerifierIds"] == [new_verifier]
+    assert restarted_check["historicalVerifierIds"] == [VERIFIER_ID]
+    assert (delivery_root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE).stat().st_mode & 0o077 == 0
+    assert initial_trust[VERIFIER_ID] == VERIFIER_SECRET
+    assert rotated_trust[new_verifier] == new_secret
+    verify_release_artifact_receipt(
+        historical_receipt,
+        artifact_store=store.artifact_store(),
+        verifier_credentials=restarted_trust,
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be reused with different key material"):
+        production_build_loop._durable_release_verifier_credentials(
+            delivery_root,
+            {VERIFIER_ID: "different-resilience-secret-000000000001"},
+        )
