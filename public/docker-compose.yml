@@ -140,6 +140,10 @@ services:
           echo "Cortex memory volume marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
           exit 1
         fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex memory volume marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
         if [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
           echo "Cortex memory volume identity mismatch" >&2
           exit 1
@@ -172,6 +176,10 @@ services:
         fi
         if [ ! -e "$$marker" ]; then
           echo "Cortex runtime-delivery marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex runtime-delivery marker must be a regular non-symlink file" >&2
           exit 1
         fi
         if [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then

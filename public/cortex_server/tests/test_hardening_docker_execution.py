@@ -1,10 +1,65 @@
 import asyncio
+import os
 from pathlib import Path
+import subprocess
+import textwrap
 from types import SimpleNamespace
 
 import pytest
 
 from cortex_server.tools import docker_wrapper
+
+
+def _compose_service_definition(compose: str, service: str) -> str:
+    marker = f"\n  {service}:\n"
+    section = compose.split(marker, 1)[1]
+    lines = []
+    for line in section.splitlines(keepends=True):
+        if line.startswith("  ") and len(line) > 2 and not line[2].isspace():
+            break
+        lines.append(line)
+    return "".join(lines)
+
+
+def _compose_init_script(compose: str, service: str, mounts: dict[str, Path]) -> str:
+    section = _compose_service_definition(compose, service)
+    script = section.split("      - |\n", 1)[1].split("\n    restart:", 1)[0]
+    script = textwrap.dedent(script).replace("$$", "$")
+    for container_path, host_path in mounts.items():
+        script = script.replace(container_path, str(host_path))
+    return script
+
+
+def _volume_tree(root: Path) -> list[tuple[str, bool, int, str]]:
+    snapshot = []
+    for path in sorted(root.rglob("*")):
+        snapshot.append(
+            (
+                path.relative_to(root).as_posix(),
+                path.is_symlink(),
+                path.lstat().st_mode,
+                os.readlink(path) if path.is_symlink() else "",
+            )
+        )
+    return snapshot
+
+
+VOLUME_INITIALIZERS = (
+    (
+        "cortex-memory-volume-init",
+        "CORTEX_CHROMA_MOUNT_ID",
+        "cortex-chroma.volume-id",
+        "/memory",
+        Path(".cortex-durable-memory"),
+    ),
+    (
+        "cortex-runtime-delivery-volume-init",
+        "CORTEX_RUNTIME_DELIVERY_MOUNT_ID",
+        "cortex-runtime-delivery.volume-id",
+        "/state",
+        Path("runtime_delivery/.cortex-durable-runtime-delivery"),
+    ),
+)
 
 
 def test_production_container_healthcheck_uses_readiness_not_liveness():
@@ -93,12 +148,10 @@ def test_volume_identity_markers_are_minted_only_by_explicit_bootstrap():
 
 def test_blank_replacement_volumes_fail_before_ordinary_initialization_mutates_them():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
-    memory_init = compose.split("  cortex-memory-volume-init:", 1)[1].split(
-        "  cortex-runtime-delivery-volume-init:", 1
-    )[0]
-    runtime_init = compose.split("  cortex-runtime-delivery-volume-init:", 1)[1].split(
-        "  release-verifier:", 1
-    )[0]
+    memory_init = _compose_service_definition(compose, "cortex-memory-volume-init")
+    runtime_init = _compose_service_definition(
+        compose, "cortex-runtime-delivery-volume-init"
+    )
 
     assert memory_init.index('if [ ! -e "$$marker" ]; then') < memory_init.index(
         'cat "$$marker"'
@@ -108,6 +161,92 @@ def test_blank_replacement_volumes_fail_before_ordinary_initialization_mutates_t
         "for directory in"
     )
     assert "mv \"$$temporary\" \"$$marker\"" not in runtime_init
+
+
+@pytest.mark.parametrize(
+    "service,credential,manifest_name,volume_mount,marker_relative",
+    VOLUME_INITIALIZERS,
+)
+def test_blank_replacement_volume_commands_exit_without_mutation(
+    tmp_path,
+    service,
+    credential,
+    manifest_name,
+    volume_mount,
+    marker_relative,
+):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    mounts = {
+        "/continuity": tmp_path / "continuity",
+        "/memory": tmp_path / "memory",
+        "/state": tmp_path / "state",
+    }
+    for path in mounts.values():
+        path.mkdir()
+    identity = "deployment-volume-id"
+    (mounts["/continuity"] / manifest_name).write_text(
+        identity + "\n", encoding="utf-8"
+    )
+    volume = mounts[volume_mount]
+    before = _volume_tree(volume)
+
+    completed = subprocess.run(
+        ["/bin/sh", "-ec", _compose_init_script(compose, service, mounts)],
+        capture_output=True,
+        check=False,
+        env={**os.environ, credential: identity},
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "refusing blank replacement volume" in completed.stderr
+    assert _volume_tree(volume) == before == []
+
+
+@pytest.mark.parametrize(
+    "service,credential,manifest_name,volume_mount,marker_relative",
+    VOLUME_INITIALIZERS,
+)
+def test_symlink_volume_identity_markers_are_rejected_before_initialization(
+    tmp_path,
+    service,
+    credential,
+    manifest_name,
+    volume_mount,
+    marker_relative,
+):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    mounts = {
+        "/continuity": tmp_path / "continuity",
+        "/memory": tmp_path / "memory",
+        "/state": tmp_path / "state",
+    }
+    for path in mounts.values():
+        path.mkdir()
+    identity = "deployment-volume-id"
+    manifest = mounts["/continuity"] / manifest_name
+    manifest.write_text(identity + "\n", encoding="utf-8")
+    marker = mounts[volume_mount] / marker_relative
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.symlink_to(manifest)
+    volume = mounts[volume_mount]
+    before = _volume_tree(volume)
+
+    completed = subprocess.run(
+        ["/bin/sh", "-ec", _compose_init_script(compose, service, mounts)],
+        capture_output=True,
+        check=False,
+        env={**os.environ, credential: identity},
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "regular non-symlink file" in completed.stderr
+    assert _volume_tree(volume) == before
 
 
 def test_compose_enforces_allocator_and_cgroup_oom_boundaries():

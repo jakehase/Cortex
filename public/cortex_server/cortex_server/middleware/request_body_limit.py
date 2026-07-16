@@ -8,6 +8,7 @@ has been proven to be within the configured bound.
 from __future__ import annotations
 
 import asyncio
+from io import BytesIO
 import json
 import threading
 import time
@@ -291,7 +292,7 @@ class RequestBodyLimitMiddleware:
             )
             return
         deadline = time.monotonic() + self.total_timeout_seconds
-        buffered: list[dict[str, Any]] = []
+        buffered = BytesIO()
         observed = 0
         retained = 0
         try:
@@ -304,8 +305,13 @@ class RequestBodyLimitMiddleware:
                     timeout=min(self.idle_timeout_seconds, remaining),
                 )
                 if message.get("type") != "http.request":
-                    buffered.append(message)
-                    break
+                    # A disconnect (the only other HTTP receive event) means
+                    # the body was never completed.  Never dispatch a partial
+                    # body merely because acquisition terminated.
+                    self._release_admission(
+                        retained, unauthenticated=unauthenticated_partition
+                    )
+                    return
                 body = bytes(message.get("body") or b"")
                 observed += len(body)
                 if observed > self.max_body_bytes:
@@ -333,7 +339,7 @@ class RequestBodyLimitMiddleware:
                     )
                     return
                 retained += len(body)
-                buffered.append({**message, "body": body})
+                buffered.write(body)
                 if not message.get("more_body", False):
                     break
 
@@ -348,6 +354,7 @@ class RequestBodyLimitMiddleware:
                     retained, unauthenticated=unauthenticated_partition
                 )
                 return
+            complete_body = buffered.getvalue()
         except asyncio.TimeoutError:
             try:
                 await self._send_json(
@@ -366,17 +373,24 @@ class RequestBodyLimitMiddleware:
                 retained, unauthenticated=unauthenticated_partition
             )
             raise
+        finally:
+            buffered.close()
         self._release_reader(unauthenticated=unauthenticated_partition)
         try:
             state = scope.setdefault("state", {})
             state["cortex_request_body_bytes"] = observed
-            iterator = iter(buffered)
+            replayed = False
 
             async def replay_receive() -> dict[str, Any]:
-                try:
-                    return next(iterator)
-                except StopIteration:
-                    return await receive()
+                nonlocal replayed
+                if not replayed:
+                    replayed = True
+                    return {
+                        "type": "http.request",
+                        "body": complete_body,
+                        "more_body": False,
+                    }
+                return await receive()
 
             await self.app(scope, replay_receive, send)
         finally:

@@ -580,6 +580,7 @@ async def test_slow_public_handoffs_cannot_consume_authenticated_mutation_capaci
     async def downstream(scope, receive, send):
         dispatched.append(scope["path"])
         message = await receive()
+        assert message["body"] == b"{}"
         assert message["more_body"] is False
         await send({"type": "http.response.start", "status": 204, "headers": []})
         await send({"type": "http.response.body", "body": b""})
@@ -671,6 +672,44 @@ async def test_slow_public_handoffs_cannot_consume_authenticated_mutation_capaci
     await asyncio.gather(first, second)
     assert limiter._unauthenticated_active_body_reads == 0
     assert limiter._unauthenticated_buffered_body_bytes == 0
+
+
+@pytest.mark.asyncio
+async def test_disconnected_partial_body_never_dispatches_or_retains_capacity():
+    dispatched = []
+    sent = []
+    messages = iter(
+        [
+            {"type": "http.request", "body": b'{"partial":', "more_body": True},
+            {"type": "http.disconnect"},
+        ]
+    )
+
+    async def downstream(*_args):
+        dispatched.append(True)
+
+    async def receive():
+        return next(messages)
+
+    async def send(message):
+        sent.append(message)
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=32,
+        max_concurrent_body_reads=1,
+        max_buffered_body_bytes=32,
+    )
+    await limiter(
+        {"type": "http", "method": "POST", "path": "/write", "headers": []},
+        receive,
+        send,
+    )
+
+    assert dispatched == []
+    assert sent == []
+    assert limiter._active_body_reads == 0
+    assert limiter._buffered_body_bytes == 0
 
 
 @pytest.mark.asyncio
