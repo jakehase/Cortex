@@ -97,6 +97,7 @@ def _configured_production_app(monkeypatch):
 
     def load_test_routes(app, *, safe_mode):
         del safe_mode
+        app.state.artifact_ingest_calls = []
 
         @app.post("/orchestrator/runtime/cancel/{process_id}")
         async def cancel(process_id: str):
@@ -107,6 +108,7 @@ def _configured_production_app(monkeypatch):
             return {"success": True}
 
         async def artifact_ingest(process_id: str):
+            app.state.artifact_ingest_calls.append(process_id)
             return {"success": True, "process_id": process_id}
 
         for prefix in ("orchestrator", "conductor"):
@@ -406,17 +408,31 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
         # neither compatibility alias may bypass the transport write token.
         for prefix in ("orchestrator", "conductor"):
             artifact_path = f"/{prefix}/runtime/delivery/artifacts/proc_alice"
+            accepted_before = list(app.state.artifact_ingest_calls)
             missing_transport = await client.post(
                 artifact_path,
                 headers=_principal_headers(ALICE_SCOPE),
             )
             assert missing_transport.status_code == 403
+            assert app.state.artifact_ingest_calls == accepted_before
+
+            forged_transport = await client.post(
+                artifact_path,
+                headers={
+                    **_principal_headers(ALICE_SCOPE),
+                    "x-cortex-write-token": "forged-write-token-0000000000000001",
+                },
+            )
+            assert forged_transport.status_code == 403
+            assert app.state.artifact_ingest_calls == accepted_before
 
             independently_authenticated_transport = await client.post(
                 artifact_path,
                 headers={"x-cortex-write-token": WRITE_SECRET},
             )
             assert independently_authenticated_transport.status_code == 200
+
+        assert app.state.artifact_ingest_calls == ["proc_alice", "proc_alice"]
 
         owned = await client.post(
             "/orchestrator/runtime/cancel/proc_alice",

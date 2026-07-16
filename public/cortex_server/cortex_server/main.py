@@ -442,14 +442,13 @@ _PRINCIPAL_MUTATION_PREFIXES = (
 _TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES = (
     "/orchestrator/runtime/delivery/handoffs/",
     "/conductor/runtime/delivery/handoffs/",
-    # Artifact ingestion authenticates the independent verifier's revision-
-    # bound HMAC inside the request. It must not also receive the broad write
-    # credential used by the Cortex application.
-    "/orchestrator/runtime/delivery/artifacts/",
-    "/conductor/runtime/delivery/artifacts/",
 )
 _INDEPENDENT_RELEASE_PRINCIPAL_AUTH_PREFIXES = (
     *_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
+    # Artifact ingestion uses its verifier HMAC instead of a memory principal,
+    # but remains protected by the independent transport write token.
+    "/orchestrator/runtime/delivery/artifacts/",
+    "/conductor/runtime/delivery/artifacts/",
 )
 _RUNTIME_MUTATION_RESOURCE_PATH = re.compile(
     rf"^/{_RUNTIME_ROUTE_PREFIX}/runtime/(?:delivery/(?:reconcile|rollback)|roadmap/reconcile|policy-(?:apply|rollback)|homeostasis/(?:freeze|rollback|resume)|(?:wake|cancel|pause|resume))/([^/]+)(?:/[^/]+)?$"
