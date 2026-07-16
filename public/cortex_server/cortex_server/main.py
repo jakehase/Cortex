@@ -443,12 +443,15 @@ _TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES = (
     "/orchestrator/runtime/delivery/handoffs/",
     "/conductor/runtime/delivery/handoffs/",
 )
-_INDEPENDENT_RELEASE_PRINCIPAL_AUTH_PREFIXES = (
-    *_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
-    # Artifact ingestion uses its verifier HMAC instead of a memory principal,
-    # but remains protected by the independent transport write token.
+_RELEASE_ARTIFACT_PREFIXES = (
     "/orchestrator/runtime/delivery/artifacts/",
     "/conductor/runtime/delivery/artifacts/",
+)
+_INDEPENDENT_RELEASE_PRINCIPAL_AUTH_PREFIXES = (
+    *_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
+    # Artifact ingestion uses both its verifier HMAC and a dedicated,
+    # least-privilege transport credential instead of a memory principal.
+    *_RELEASE_ARTIFACT_PREFIXES,
 )
 _RUNTIME_MUTATION_RESOURCE_PATH = re.compile(
     rf"^/{_RUNTIME_ROUTE_PREFIX}/runtime/(?:delivery/(?:reconcile|rollback)|roadmap/reconcile|policy-(?:apply|rollback)|homeostasis/(?:freeze|rollback|resume)|(?:wake|cancel|pause|resume))/([^/]+)(?:/[^/]+)?$"
@@ -461,6 +464,46 @@ def _production_environment() -> bool:
         "prod",
         "staging",
     }
+
+
+def _knowledge_volume_identity_check(*, production: bool) -> Dict[str, Any]:
+    configured_graph = os.getenv("CORTEX_DB_PATH", "").strip()
+    graph_path = Path(
+        configured_graph
+        or (
+            "/opt/clawdbot/knowledge/cortex_graph.db"
+            if production
+            else Path(__file__).resolve().parents[2] / "cortex_graph.db"
+        )
+    ).expanduser().resolve()
+    check: Dict[str, Any] = {
+        "ok": True,
+        "required": production,
+        "path": str(graph_path),
+        "marker": None,
+        "mountIdConfigured": False,
+        "error": None,
+    }
+    if not production:
+        return check
+    mount_id = os.getenv("CORTEX_KNOWLEDGE_MOUNT_ID", "").strip()
+    marker = graph_path.parent / ".cortex-durable-knowledge"
+    check.update(marker=str(marker), mountIdConfigured=bool(mount_id))
+    try:
+        if len(mount_id.encode("utf-8")) < 16:
+            raise RuntimeError("production knowledge volume ID must contain at least 16 bytes")
+        if graph_path.parent.is_symlink():
+            raise RuntimeError("production knowledge volume directory cannot be a symbolic link")
+        if not marker.is_file() or marker.is_symlink():
+            raise RuntimeError("production knowledge volume marker is missing or invalid")
+        if not hmac.compare_digest(marker.read_text(encoding="utf-8").strip(), mount_id):
+            raise RuntimeError("production knowledge volume identity mismatch")
+        if not graph_path.is_file() or graph_path.is_symlink():
+            raise RuntimeError("production knowledge database must be restored or explicitly bootstrapped")
+    except (OSError, RuntimeError) as exc:
+        check["ok"] = False
+        check["error"] = f"{type(exc).__name__}: {exc}"
+    return check
 
 
 def _principal_mutation_path_allowed(path: str) -> bool:
@@ -1084,6 +1127,35 @@ def create_app() -> FastAPI:
     safe_mode = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
     admin_token = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
     codec_admin_token = os.getenv("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
+    release_artifact_write_token = os.getenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", ""
+    ).strip()
+    release_artifact_write_header = os.getenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN_HEADER",
+        "x-cortex-release-artifact-token",
+    ).strip().lower()
+    transport_auth_exempt_prefixes = _TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES
+    if production_environment:
+        if len(release_artifact_write_token.encode("utf-8")) < 32:
+            raise RuntimeError(
+                "production requires a dedicated 32-byte release artifact transport credential"
+            )
+        if not release_artifact_write_header:
+            raise RuntimeError("release artifact transport credential header is required")
+        if release_artifact_write_header == write_token_header:
+            raise RuntimeError("release artifact and global write credential headers must differ")
+        if any(
+            hmac.compare_digest(release_artifact_write_token, credential)
+            for credential in (write_token, admin_token, codec_admin_token)
+            if credential
+        ):
+            raise RuntimeError(
+                "release artifact transport credential must not reuse a global control credential"
+            )
+        transport_auth_exempt_prefixes += _RELEASE_ARTIFACT_PREFIXES
+        knowledge_identity = _knowledge_volume_identity_check(production=True)
+        if not knowledge_identity["ok"]:
+            raise RuntimeError(str(knowledge_identity["error"]))
     read_configuration_error = None
     try:
         read_credentials = _parse_read_scope_credentials(
@@ -1382,6 +1454,11 @@ def create_app() -> FastAPI:
         "max_unauthenticated_body_reads": max_unauthenticated_body_reads,
         "max_unauthenticated_buffered_body_bytes": max_unauthenticated_buffered_body_bytes,
     }
+    app.state.release_artifact_transport = {
+        "required": production_environment,
+        "configured": bool(release_artifact_write_token),
+        "header": release_artifact_write_header,
+    }
     app.state.lifecycle_checks = _not_started_lifecycle_checks()
     app.state.parser_service = ParserService(workspace_roots=parser_workspace_roots)
 
@@ -1391,11 +1468,35 @@ def create_app() -> FastAPI:
         token=write_token,
         header_name=write_token_header,
         allowed_origins=allowed_origins,
-        exempt_prefixes=_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
+        exempt_prefixes=transport_auth_exempt_prefixes,
         sensitive_prefixes=("/nexus/codec",),
         sensitive_token=codec_admin_token,
         sensitive_exempt_paths=("/nexus/codec/events",),
     )
+
+    @app.middleware("http")
+    async def release_artifact_transport_guard(request, call_next):
+        path = str(request.url.path or "")
+        if (
+            production_environment
+            and request.method.upper() in MUTATING_METHODS
+            and any(path.startswith(prefix) for prefix in _RELEASE_ARTIFACT_PREFIXES)
+        ):
+            supplied = request.headers.get(release_artifact_write_header, "")
+            if not hmac.compare_digest(supplied, release_artifact_write_token):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "success": False,
+                        "error": "release artifact transport authorization required",
+                    },
+                )
+            request.state.cortex_release_artifact_transport_authorization = (
+                "release_artifact_token"
+            )
+        return await call_next(request)
 
     @app.middleware("http")
     async def admin_guard(request, call_next):
@@ -1583,7 +1684,7 @@ def create_app() -> FastAPI:
         write_token=write_token,
         write_token_header=write_token_header,
         allowed_origins=tuple(allowed_origins),
-        auth_exempt_prefixes=_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
+        auth_exempt_prefixes=transport_auth_exempt_prefixes,
     )
     register_exception_handlers(app)
 
@@ -1598,11 +1699,15 @@ def create_app() -> FastAPI:
         loaded_routers = set(router_load_report["loaded"])
         missing_paths = sorted(required_paths - route_paths)
         missing_routers = sorted(required_routers - loaded_routers)
-        configured_graph = os.getenv("CORTEX_DB_PATH", "").strip()
-        graph_path = Path(configured_graph or ("/opt/clawdbot/knowledge/cortex_graph.db" if production_environment else Path(__file__).resolve().parents[2] / "cortex_graph.db")).expanduser().resolve()
-        graph_error = None
+        knowledge_identity = _knowledge_volume_identity_check(
+            production=production_environment
+        )
+        graph_path = Path(str(knowledge_identity["path"]))
+        graph_error = knowledge_identity.get("error")
         graph_quick_check = None
         try:
+            if graph_error:
+                raise RuntimeError(str(graph_error))
             if not graph_path.is_file() or graph_path.is_symlink():
                 raise RuntimeError("configured graph database is not a regular file")
             if production_environment and not any(
@@ -1646,12 +1751,20 @@ def create_app() -> FastAPI:
                 "degraded": graph_error is not None,
                 "path": str(graph_path),
                 "quickCheck": graph_quick_check,
+                "volumeIdentity": knowledge_identity,
                 "error": graph_error,
             },
             "writeAuthorization": {
                 "ok": write_auth_mode == "token_or_loopback" or (write_auth_mode == "token_required" and bool(write_token)),
                 "mode": write_auth_mode,
                 "tokenConfigured": bool(write_token),
+            },
+            "releaseArtifactTransportAuthorization": {
+                "ok": not production_environment
+                or bool(release_artifact_write_token),
+                "required": production_environment,
+                "tokenConfigured": bool(release_artifact_write_token),
+                "header": release_artifact_write_header,
             },
             "readAuthorization": {
                 "ok": read_authorization.configured and not read_authorization.configuration_error,

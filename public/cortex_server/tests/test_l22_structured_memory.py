@@ -209,6 +209,117 @@ def test_l22_quota_reconciles_crash_after_chroma_publication(monkeypatch, tmp_pa
     assert statuses == {"crash-published": "committed", "next-write": "reserved"}
 
 
+def test_l22_expired_live_writer_lease_cannot_be_reclaimed_or_fenced(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "live-lease.sqlite3"))
+    monkeypatch.setenv("CORTEX_L22_WORKSPACE_RECORDS", "1")
+    clock = {"now": 0.0}
+    writer = {
+        "identity": {
+            "token": "writer-a",
+            "pid": 101,
+            "start_ticks": "1001",
+            "boot_id": "boot-a",
+        }
+    }
+    monkeypatch.setattr(l22.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(l22, "_quota_writer_identity", lambda: dict(writer["identity"]))
+    monkeypatch.setattr(l22, "_quota_owner_proven_dead", lambda _row: False)
+    monkeypatch.setattr(
+        l22.collection,
+        "get",
+        lambda **_kwargs: {"ids": [], "metadatas": []},
+    )
+
+    assert l22._reserve_memory_quota(
+        memory_id="writer-a-memory",
+        tenant="tenant",
+        workspace="workspace",
+        credential="credential",
+        charge_bytes=60,
+        payload_hash="a" * 64,
+    ) == "new"
+    clock["now"] = l22._L22_QUOTA_RESERVATION_TIMEOUT_SECONDS + 1
+    writer["identity"] = {
+        "token": "writer-b",
+        "pid": 202,
+        "start_ticks": "2002",
+        "boot_id": "boot-a",
+    }
+
+    with pytest.raises(HTTPException) as full:
+        l22._reserve_memory_quota(
+            memory_id="writer-b-memory",
+            tenant="tenant",
+            workspace="workspace",
+            credential="credential",
+            charge_bytes=60,
+            payload_hash="b" * 64,
+        )
+    assert full.value.status_code == 507
+    with pytest.raises(HTTPException, match="fenced"):
+        l22._fence_memory_quota("writer-a-memory", "a" * 64)
+    with pytest.raises(HTTPException, match="fenced"):
+        l22._finalize_memory_quota("writer-a-memory")
+
+    connection = l22._structured_memory_connection()
+    try:
+        row = connection.execute(
+            "SELECT status, owner_token FROM l22_quota_records WHERE memory_id = ?",
+            ("writer-a-memory",),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert (row["status"], row["owner_token"]) == ("reserved", "writer-a")
+
+
+def test_l22_reclaims_only_an_expired_kernel_proven_dead_owner(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "dead-lease.sqlite3"))
+    monkeypatch.setenv("CORTEX_L22_WORKSPACE_RECORDS", "1")
+    clock = {"now": 0.0}
+    writer = {
+        "identity": {
+            "token": "writer-a",
+            "pid": 101,
+            "start_ticks": "1001",
+            "boot_id": "boot-a",
+        }
+    }
+    monkeypatch.setattr(l22.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(l22, "_quota_writer_identity", lambda: dict(writer["identity"]))
+    monkeypatch.setattr(l22, "_quota_owner_proven_dead", lambda _row: True)
+    monkeypatch.setattr(
+        l22.collection,
+        "get",
+        lambda **_kwargs: {"ids": [], "metadatas": []},
+    )
+    l22._reserve_memory_quota(
+        memory_id="dead-writer-memory",
+        tenant="tenant",
+        workspace="workspace",
+        credential="credential",
+        charge_bytes=60,
+        payload_hash="a" * 64,
+    )
+    clock["now"] = l22._L22_QUOTA_RESERVATION_TIMEOUT_SECONDS + 1
+    writer["identity"] = {
+        "token": "writer-b",
+        "pid": 202,
+        "start_ticks": "2002",
+        "boot_id": "boot-a",
+    }
+
+    assert l22._reserve_memory_quota(
+        memory_id="replacement-memory",
+        tenant="tenant",
+        workspace="workspace",
+        credential="credential",
+        charge_bytes=60,
+        payload_hash="b" * 64,
+    ) == "new"
+
+
 def test_l22_preallocates_physical_recovery_capacity(monkeypatch, tmp_path):
     monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "quota.sqlite3"))
     monkeypatch.setenv("CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE", "true")

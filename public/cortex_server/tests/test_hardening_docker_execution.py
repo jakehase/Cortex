@@ -59,6 +59,13 @@ VOLUME_INITIALIZERS = (
         "/state",
         Path("runtime_delivery/.cortex-durable-runtime-delivery"),
     ),
+    (
+        "cortex-knowledge-volume-init",
+        "CORTEX_KNOWLEDGE_MOUNT_ID",
+        "cortex-knowledge.volume-id",
+        "/knowledge",
+        Path(".cortex-durable-knowledge"),
+    ),
 )
 
 
@@ -112,7 +119,8 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/runtime-volume/runtime_delivery" in compose
     assert "REASONING_STORE_DB_PATH: /opt/clawdbot/reasoning/reasoning_runtime.db" in compose
     assert "CORTEX_DB_PATH: /opt/clawdbot/knowledge/cortex_graph.db" in compose
-    assert "CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db" in compose
+    assert "CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db" not in compose
+    assert 'cp /seed/cortex_graph.db "$$knowledge_temporary"' in compose
     assert "./knowledge:/app/cortex_server/knowledge" not in compose
     assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:" in compose
     assert "CORTEX_REQUIRED_PATHS: ${CORTEX_REQUIRED_PATHS:-}" in compose
@@ -124,6 +132,8 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "/state/runtime_delivery/production_build_loop/locks" in compose
     assert "/state/runtime_delivery/session_event_inbox" in compose
     assert "cortex-knowledge:/opt/clawdbot/knowledge:rw" in compose
+    assert "CORTEX_KNOWLEDGE_MOUNT_ID:" in compose
+    assert "cortex-knowledge-volume-init:" in compose
     assert "chmod 0700 /state /state/runtime_delivery" in compose
     assert "release-verifier:" in compose
     assert "release-manager:" in compose
@@ -147,6 +157,7 @@ def test_compose_runs_distinct_capability_checked_release_controllers():
 
     assert "python -m cortex_server.runtime.release_verifier_worker" in verifier
     assert "CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:" in verifier
+    assert "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:" in verifier
     assert "CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation" in verifier
     assert "cortex-release-verifier-state:/controller-state:rw" in verifier
     assert "CORTEX_WRITE_TOKEN:" not in verifier
@@ -164,12 +175,13 @@ def test_volume_identity_markers_are_minted_only_by_explicit_bootstrap():
     assert 'profiles: ["bootstrap"]' in compose
     assert "cortex-volume-bootstrap:" in compose
     assert "./continuity:/continuity:rw" in compose
-    assert compose.count("./continuity:/continuity:ro") == 2
+    assert compose.count("./continuity:/continuity:ro") == 3
     assert "CORTEX_CHROMA_MOUNT_ID:-" not in compose
     assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:-" not in compose
-    assert compose.count('if [ ! -e "$$marker" ]; then') == 2
-    assert compose.count("refusing blank replacement volume") == 2
-    assert compose.count("run explicit bootstrap or restore") == 2
+    assert "CORTEX_KNOWLEDGE_MOUNT_ID:-" not in compose
+    assert compose.count('if [ ! -e "$$marker" ]; then') == 3
+    assert compose.count("refusing blank replacement volume") == 3
+    assert compose.count("run explicit bootstrap or restore") == 3
 
 
 def test_blank_replacement_volumes_fail_before_ordinary_initialization_mutates_them():
@@ -177,6 +189,9 @@ def test_blank_replacement_volumes_fail_before_ordinary_initialization_mutates_t
     memory_init = _compose_service_definition(compose, "cortex-memory-volume-init")
     runtime_init = _compose_service_definition(
         compose, "cortex-runtime-delivery-volume-init"
+    )
+    knowledge_init = _compose_service_definition(
+        compose, "cortex-knowledge-volume-init"
     )
 
     assert memory_init.index('if [ ! -e "$$marker" ]; then') < memory_init.index(
@@ -187,6 +202,10 @@ def test_blank_replacement_volumes_fail_before_ordinary_initialization_mutates_t
         "for directory in"
     )
     assert "mv \"$$temporary\" \"$$marker\"" not in runtime_init
+    assert knowledge_init.index('if [ ! -e "$$marker" ]; then') < knowledge_init.index(
+        'if [ ! -f "$$database" ]'
+    )
+    assert "CORTEX_DB_SEED_PATH" not in knowledge_init
 
 
 @pytest.mark.parametrize(
@@ -207,6 +226,7 @@ def test_blank_replacement_volume_commands_exit_without_mutation(
     mounts = {
         "/continuity": tmp_path / "continuity",
         "/memory": tmp_path / "memory",
+        "/knowledge": tmp_path / "knowledge",
         "/state": tmp_path / "state",
     }
     for path in mounts.values():
@@ -249,6 +269,7 @@ def test_symlink_volume_identity_markers_are_rejected_before_initialization(
     mounts = {
         "/continuity": tmp_path / "continuity",
         "/memory": tmp_path / "memory",
+        "/knowledge": tmp_path / "knowledge",
         "/state": tmp_path / "state",
     }
     for path in mounts.values():

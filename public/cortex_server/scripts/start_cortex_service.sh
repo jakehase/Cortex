@@ -15,8 +15,65 @@ export MALLOC_TOP_PAD_="${MALLOC_TOP_PAD_:-131072}"
 
 export CORTEX_HOST="${CORTEX_HOST:-0.0.0.0}"
 export CORTEX_PORT="${CORTEX_PORT:-8000}"
+export CORTEX_ENV="${CORTEX_ENV:-production}"
+if [[ "${CORTEX_ENV}" != "production" ]]; then
+  echo "The canonical Cortex host launcher requires CORTEX_ENV=production" >&2
+  exit 1
+fi
 
-exec /usr/bin/python3 -m uvicorn cortex_server.main:app \
+CORTEX_LIMIT_CONCURRENCY="${CORTEX_LIMIT_CONCURRENCY:-128}"
+if [[ ! "${CORTEX_LIMIT_CONCURRENCY}" =~ ^[0-9]+$ ]] || \
+   (( CORTEX_LIMIT_CONCURRENCY < 1 || CORTEX_LIMIT_CONCURRENCY > 128 )); then
+  echo "CORTEX_LIMIT_CONCURRENCY must be an integer between 1 and 128" >&2
+  exit 1
+fi
+
+: "${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set the verifier recipient secret}"
+: "${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET:?set the manager recipient secret}"
+: "${CORTEX_RELEASE_VERIFIER_ID:?set the verifier attestation ID}"
+: "${CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:?set the verifier attestation secret}"
+: "${CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:?set the verifier-only artifact transport token}"
+
+export CORTEX_BASE_URL="${CORTEX_BASE_URL:-http://127.0.0.1:${CORTEX_PORT}}"
+export CORTEX_RELEASE_MEASUREMENT_URL="${CORTEX_RELEASE_MEASUREMENT_URL:-${CORTEX_BASE_URL}/release-observation}"
+export CORTEX_RELEASE_VERIFIER_HEALTH_URL="${CORTEX_RELEASE_VERIFIER_HEALTH_URL:-http://127.0.0.1:8891/ready}"
+export CORTEX_RELEASE_MANAGER_HEALTH_URL="${CORTEX_RELEASE_MANAGER_HEALTH_URL:-http://127.0.0.1:8892/ready}"
+
+child_pids=()
+cleanup() {
+  if (( ${#child_pids[@]} )); then
+    kill -TERM "${child_pids[@]}" 2>/dev/null || true
+    wait "${child_pids[@]}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+CORTEX_RELEASE_CONTROLLER_ROLE=verifier \
+CORTEX_HANDOFF_RECIPIENT=release-verifier \
+CORTEX_HANDOFF_RECIPIENT_SECRET="${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET}" \
+CORTEX_HANDOFF_HEALTH_PORT="${CORTEX_RELEASE_VERIFIER_HEALTH_PORT:-8891}" \
+  /usr/bin/python3 -m cortex_server.runtime.release_verifier_worker &
+child_pids+=("$!")
+
+CORTEX_RELEASE_CONTROLLER_ROLE=manager \
+CORTEX_HANDOFF_RECIPIENT=release-manager \
+CORTEX_HANDOFF_RECIPIENT_SECRET="${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET}" \
+CORTEX_HANDOFF_HEALTH_PORT="${CORTEX_RELEASE_MANAGER_HEALTH_PORT:-8892}" \
+  /usr/bin/python3 -m cortex_server.runtime.release_manager_worker &
+child_pids+=("$!")
+
+/usr/bin/python3 -m uvicorn cortex_server.main:app \
   --host "${CORTEX_HOST}" \
   --port "${CORTEX_PORT}" \
-  --ws-max-size 4096
+  --limit-concurrency "${CORTEX_LIMIT_CONCURRENCY}" \
+  --timeout-keep-alive 5 \
+  --ws-max-size 4096 &
+child_pids+=("$!")
+
+set +e
+wait -n "${child_pids[@]}"
+status=$?
+set -e
+exit "${status}"

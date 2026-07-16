@@ -29,6 +29,7 @@ from cortex_server.runtime.runtime_delivery_quota import (
     assert_process_count,
     assert_runtime_delivery_capacity,
     assert_runtime_delivery_volume_capacity,
+    read_recoverable_jsonl,
     runtime_delivery_quota_transaction,
     runtime_delivery_recovery_transaction,
 )
@@ -180,8 +181,30 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 def _append_fsynced_jsonl(path: Path, payload: Dict[str, Any]) -> None:
     durable_mkdir(path.parent)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    if path.exists():
+        raw = path.read_bytes()
+        offset = 0
+        incomplete_offset: Optional[int] = None
+        for line in raw.splitlines(keepends=True):
+            if not line.endswith(b"\n"):
+                incomplete_offset = offset
+                break
+            try:
+                decoded = json.loads(line)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError("release history contains an invalid complete frame") from exc
+            if not isinstance(decoded, dict):
+                raise ValueError("release history frame must be an object")
+            offset += len(line)
+        if incomplete_offset is not None:
+            with path.open("r+b") as handle:
+                handle.truncate(incomplete_offset)
+                handle.flush()
+                os.fsync(handle.fileno())
+            fsync_directory(path.parent)
+    encoded = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+    with path.open("ab") as handle:
+        handle.write(encoded)
         handle.flush()
         os.fsync(handle.fileno())
     fsync_directory(path.parent)
@@ -1096,6 +1119,136 @@ class ReleaseWorkflowStore:
             return self.path.with_name(self.path.name + f".{process}.history.jsonl")
         return self.path / "history" / f"{process}.jsonl"
 
+    def _save_intent_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.save-intent.json")
+
+    def _save_stage_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.save-state.stage")
+
+    @staticmethod
+    def _remove_durable(path: Path) -> None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return
+        fsync_directory(path.parent)
+
+    @staticmethod
+    def _publish_stage(stage: Path, target: Path) -> None:
+        if not stage.is_file() or stage.is_symlink():
+            raise RuntimeError(f"release workflow recovery stage is missing: {stage}")
+        os.replace(stage, target)
+        fsync_directory(target.parent)
+
+    def _load_unlocked(self, process_id: str) -> Optional[ReleaseWorkflowState]:
+        target = self._target(process_id)
+        if not target.exists():
+            return None
+        return _workflow_validate_compat(json.loads(target.read_text(encoding="utf-8")))
+
+    def _history_unlocked(self, process_id: str) -> List[ReleaseWorkflowHistoryRecord]:
+        target = self._history_target(process_id)
+        if not target.exists():
+            return []
+        return [
+            _history_validate_compat(row)
+            for row in read_recoverable_jsonl(target)
+        ]
+
+    @staticmethod
+    def _history_persistence_revision(record: ReleaseWorkflowHistoryRecord) -> int:
+        value = (record.provenance or {}).get("persistence_revision")
+        if type(value) is not int or value <= 0:
+            raise RuntimeError("release history persistence revision is invalid")
+        return value
+
+    def _validate_history_projection(
+        self,
+        rows: List[ReleaseWorkflowHistoryRecord],
+        current: Optional[ReleaseWorkflowState],
+    ) -> None:
+        seen_ids: set[str] = set()
+        previous = 0
+        for row in rows:
+            revision = self._history_persistence_revision(row)
+            if row.history_id in seen_ids or revision != previous + 1:
+                raise RuntimeError("release workflow history revision chain is broken")
+            seen_ids.add(row.history_id)
+            previous = revision
+        if current is None:
+            if rows:
+                raise RuntimeError("release history exists without authoritative state")
+        elif not rows or previous != current.persistence_revision:
+            raise RuntimeError("authoritative release revision is missing from history")
+
+    def _recover_pending_save(self, process_id: str) -> None:
+        intent_target = self._save_intent_target(process_id)
+        stage_target = self._save_stage_target(process_id)
+        if not intent_target.exists():
+            self._remove_durable(stage_target)
+            return
+        intent = json.loads(intent_target.read_text(encoding="utf-8"))
+        if (
+            not isinstance(intent, dict)
+            or intent.get("version") != "cortex.release-workflow-save-intent.v1"
+            or str(intent.get("process_id") or "") != process_id
+        ):
+            raise RuntimeError("release workflow save intent is invalid")
+        intended_revision = int(intent.get("persistence_revision") or 0)
+        expected_hash = str(intent.get("state_sha256") or "")
+        target = self._target(process_id)
+        source = stage_target if stage_target.exists() else target
+        state_bytes = source.read_bytes()
+        if hashlib.sha256(state_bytes).hexdigest() != expected_hash:
+            raise RuntimeError("release workflow save intent payload hash mismatch")
+        persisted = _workflow_validate_compat(json.loads(state_bytes))
+        if (
+            persisted.process_id != process_id
+            or persisted.persistence_revision != intended_revision
+        ):
+            raise RuntimeError("release workflow save intent is not revision bound")
+        current = self._load_unlocked(process_id)
+        current_revision = current.persistence_revision if current else 0
+        if current_revision not in {intended_revision - 1, intended_revision}:
+            raise RuntimeError("release workflow advanced past an unresolved save intent")
+        history_record = ReleaseWorkflowHistoryRecord(
+            history_id=str(intent.get("history_id") or ""),
+            process_id=persisted.process_id,
+            release_id=persisted.release_id,
+            revision_id=persisted.revision_id,
+            current_stage=persisted.current_stage,
+            status=persisted.status,
+            actor=str(intent.get("actor") or "").strip() or None,
+            provenance=dict(intent.get("provenance") or {}),
+            change_set=(
+                dict(intent.get("change_set") or {})
+                if current_revision == intended_revision
+                else _state_change_set(current, persisted)
+            ),
+            state=self._history_state_payload(
+                persisted, dict(intent.get("source_provenance") or {})
+            ),
+            recorded_at=str(intent.get("recorded_at") or ""),
+        )
+        rows = self._history_unlocked(process_id)
+        existing = next(
+            (row for row in rows if row.history_id == history_record.history_id), None
+        )
+        if existing is None:
+            if current_revision == intended_revision:
+                raise RuntimeError("committed release state has no recoverable history frame")
+            self._append_history(history_record)
+        elif _history_dump_compat(existing) != _history_dump_compat(history_record):
+            raise RuntimeError("release workflow history conflicts with save intent")
+        if stage_target.exists():
+            self._publish_stage(stage_target, target)
+        self._remove_durable(intent_target)
+        self._validate_history_projection(
+            self._history_unlocked(process_id), self._load_unlocked(process_id)
+        )
+
     def _append_history(self, record: ReleaseWorkflowHistoryRecord) -> None:
         target = self._history_target(record.process_id)
         _append_fsynced_jsonl(target, _history_dump_compat(record))
@@ -1174,6 +1327,8 @@ class ReleaseWorkflowStore:
         self,
         state: ReleaseWorkflowState,
         history_record: ReleaseWorkflowHistoryRecord,
+        *,
+        save_intent_bytes: int = 0,
     ) -> None:
         state_payload = _workflow_dump_compat(state)
         receipts = list((state.metadata or {}).get("release_artifacts") or [])
@@ -1208,7 +1363,13 @@ class ReleaseWorkflowStore:
             )
         intent_target = self._rollback_intent_target(state.process_id)
         intent_bytes = intent_target.stat().st_size if intent_target.exists() else 0
-        projected_process_bytes = state_bytes + history_bytes + history_append_bytes + intent_bytes
+        projected_process_bytes = (
+            state_bytes
+            + history_bytes
+            + history_append_bytes
+            + intent_bytes
+            + save_intent_bytes
+        )
         if projected_process_bytes > MAX_RELEASE_PROCESS_DURABLE_BYTES:
             raise ValueError(
                 "release process durable quota exceeded: "
@@ -1222,7 +1383,9 @@ class ReleaseWorkflowStore:
                     global_usage += candidate.stat().st_size
         # Atomic publication temporarily retains the old state and the new
         # state together; count that temporary plus the pending history row.
-        projected_global = global_usage + state_bytes + history_append_bytes
+        projected_global = (
+            global_usage + state_bytes + history_append_bytes + save_intent_bytes
+        )
         if projected_global > MAX_RELEASE_GLOBAL_DURABLE_BYTES:
             raise ValueError(
                 "global release durable quota exceeded: "
@@ -1447,23 +1610,31 @@ class ReleaseWorkflowStore:
         return payload
 
     def load(self, process_id: Optional[str] = None) -> Optional[ReleaseWorkflowState]:
-        target = self._target(process_id)
-        if not target.exists():
-            return None
-        return _workflow_validate_compat(json.loads(target.read_text(encoding="utf-8")))
+        resolved_process = str(process_id or "").strip()
+        if not resolved_process:
+            target = self._target(process_id)
+            intent_target = target.with_name(f".{target.name}.save-intent.json")
+            source = intent_target if intent_target.exists() else target
+            if not source.exists():
+                return None
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            resolved_process = str(payload.get("process_id") or "").strip()
+            if not resolved_process:
+                raise RuntimeError("release workflow process identity is missing")
+        with self.release_transaction(resolved_process):
+            self._recover_pending_save(resolved_process)
+            current = self._load_unlocked(resolved_process)
+            self._validate_history_projection(
+                self._history_unlocked(resolved_process), current
+            )
+            return current
 
     def history(self, process_id: str) -> List[ReleaseWorkflowHistoryRecord]:
-        target = self._history_target(process_id)
-        if not target.exists():
-            return []
-        rows: List[ReleaseWorkflowHistoryRecord] = []
-        with target.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                rows.append(_history_validate_compat(json.loads(text)))
-        return rows
+        with self.release_transaction(process_id):
+            self._recover_pending_save(process_id)
+            rows = self._history_unlocked(process_id)
+            self._validate_history_projection(rows, self._load_unlocked(process_id))
+            return rows
 
     def save(
         self,
@@ -1474,7 +1645,11 @@ class ReleaseWorkflowStore:
     ) -> ReleaseWorkflowState:
         record = state if isinstance(state, ReleaseWorkflowState) else _workflow_validate_compat(dict(state))
         with self.release_transaction(record.process_id):
-            current = self.load(record.process_id)
+            self._recover_pending_save(record.process_id)
+            current = self._load_unlocked(record.process_id)
+            self._validate_history_projection(
+                self._history_unlocked(record.process_id), current
+            )
             expected_revision = int(record.persistence_revision or 0)
             if current is None:
                 if expected_revision != 0:
@@ -1514,29 +1689,53 @@ class ReleaseWorkflowStore:
             with self._metadata_quota_transaction():
                 delivery_root = self.path.parent
                 state_payload = _workflow_dump_compat(persisted)
-                state_bytes = len(self._encoded_json(state_payload, pretty=True))
+                state_encoded = self._encoded_json(state_payload, pretty=True)
+                state_bytes = len(state_encoded)
                 history_bytes = len(
                     (json.dumps(_history_dump_compat(history_record), sort_keys=True) + "\n").encode("utf-8")
                 )
+                intent_payload = {
+                    "version": "cortex.release-workflow-save-intent.v1",
+                    "process_id": persisted.process_id,
+                    "persistence_revision": next_revision,
+                    "state_sha256": hashlib.sha256(state_encoded).hexdigest(),
+                    "history_id": history_record.history_id,
+                    "actor": history_record.actor,
+                    "provenance": dict(history_record.provenance),
+                    "source_provenance": dict(provenance or {}),
+                    "change_set": dict(history_record.change_set),
+                    "recorded_at": history_record.recorded_at,
+                }
+                intent_encoded = self._encoded_json(intent_payload, pretty=True)
                 with runtime_delivery_quota_transaction(delivery_root):
                     assert_process_count(
                         self.path.parent if self.path.suffix else self.path,
                         record.process_id,
                         delivery_root=delivery_root,
                     )
-                    self._assert_durable_metadata_capacity(persisted, history_record)
+                    self._assert_durable_metadata_capacity(
+                        persisted,
+                        history_record,
+                        save_intent_bytes=len(intent_encoded),
+                    )
                     assert_runtime_delivery_volume_capacity(
                         delivery_root,
-                        additional_bytes=state_bytes + history_bytes,
+                        additional_bytes=state_bytes + history_bytes + len(intent_encoded),
                     )
                     target = self._target(record.process_id)
-                    _atomic_write_json(target, state_payload)
-                    # Most callers retain the model they supplied. Once the atomic
-                    # state replacement has committed, keep that model's fence in sync
-                    # even if a later history append reports an I/O error.
+                    stage_target = self._save_stage_target(record.process_id)
+                    intent_target = self._save_intent_target(record.process_id)
+                    _atomic_write_json(stage_target, state_payload)
+                    _atomic_write_json(intent_target, intent_payload)
+                    self._append_history(history_record)
+                    self._publish_stage(stage_target, target)
+                    self._remove_durable(intent_target)
                     if isinstance(state, ReleaseWorkflowState):
                         state.persistence_revision = next_revision
-                    self._append_history(history_record)
+                    self._validate_history_projection(
+                        self._history_unlocked(record.process_id),
+                        self._load_unlocked(record.process_id),
+                    )
             return persisted
 
 

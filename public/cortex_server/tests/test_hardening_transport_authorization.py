@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import sqlite3
 from types import SimpleNamespace
 
 import httpx
@@ -526,6 +527,93 @@ async def test_chunked_oversized_invalid_hmac_is_rejected_before_json_dispatch(p
     assert response.status_code == 413
     assert response.json()["error"] == "request body exceeds configured limit"
     assert dispatched == []
+
+
+@pytest.mark.asyncio
+async def test_production_artifact_transport_uses_dedicated_bounded_partition(
+    monkeypatch, tmp_path
+):
+    from cortex_server import main
+    from cortex_server.runtime import production_build_loop
+
+    knowledge = tmp_path / "knowledge"
+    knowledge.mkdir()
+    graph = knowledge / "cortex_graph.db"
+    with sqlite3.connect(graph) as connection:
+        connection.execute("CREATE TABLE restored (value TEXT NOT NULL)")
+    (knowledge / ".cortex-durable-knowledge").write_text(
+        "knowledge-volume-id\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_DB_PATH", str(graph))
+    monkeypatch.setenv("CORTEX_KNOWLEDGE_MOUNT_ID", "knowledge-volume-id")
+    monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", "global-" + "g" * 32)
+    monkeypatch.setenv("CORTEX_ADMIN_TOKEN", "admin-" + "a" * 32)
+    monkeypatch.setenv("CORTEX_CODEC_ADMIN_TOKEN", "codec-" + "c" * 32)
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", "artifact-" + "r" * 32
+    )
+    monkeypatch.setattr(
+        main,
+        "_parse_read_scope_credentials",
+        lambda _raw: (
+            main.ReadScopeCredential(
+                credential_id="reader",
+                secret="reader-secret",
+                allowed_scopes=("*",),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "validate_production_delivery_credentials",
+        lambda: {"ok": True},
+    )
+    dispatched = []
+
+    def load(app, *, safe_mode=True):
+        @app.post("/orchestrator/runtime/delivery/artifacts/proc_transport")
+        async def artifact_ingest(request: Request):
+            dispatched.append(
+                getattr(
+                    request.state,
+                    "cortex_release_artifact_transport_authorization",
+                    None,
+                )
+            )
+            return {"success": True}
+
+        return {
+            "loaded": ["knowledge", "l22", "nexus", "orchestrator"],
+            "safeModeSkipped": [],
+            "failed": [],
+            "missingRouter": [],
+        }
+
+    monkeypatch.setattr(main, "load_dynamic_routers", load)
+    app = main.create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        rejected_global = await client.post(
+            "/orchestrator/runtime/delivery/artifacts/proc_transport",
+            json={"attestation_signature": "0" * 64},
+            headers={"x-cortex-write-token": "global-" + "g" * 32},
+        )
+        accepted = await client.post(
+            "/orchestrator/runtime/delivery/artifacts/proc_transport",
+            json={"attestation_signature": "0" * 64},
+            headers={"x-cortex-release-artifact-token": "artifact-" + "r" * 32},
+        )
+
+    assert rejected_global.status_code == 403
+    assert accepted.status_code == 200
+    assert dispatched == ["release_artifact_token"]
+    limiter = app.user_middleware[0]
+    assert limiter.cls is RequestBodyLimitMiddleware
+    assert "/orchestrator/runtime/delivery/artifacts/" in limiter.kwargs[
+        "auth_exempt_prefixes"
+    ]
 
 
 @pytest.mark.asyncio

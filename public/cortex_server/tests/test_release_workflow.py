@@ -595,6 +595,69 @@ def test_release_save_rejects_history_growth_at_immutable_boundary(tmp_path):
         store.save(state, actor="release-manager")
 
 
+def test_release_history_repairs_only_a_torn_final_frame_before_append(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    state = store.save(
+        ReleaseWorkflowState(
+            process_id="proc_torn_history",
+            candidate_ref="build:torn-history",
+            target_environment="production",
+            revision_id="rev_torn_history",
+        ),
+        actor="release-manager",
+    )
+    history_target = store._history_target(state.process_id)
+    with history_target.open("ab") as handle:
+        handle.write(b'{"history_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    persisted = store.save(state, actor="release-manager")
+    rows = store.history(state.process_id)
+    assert persisted.persistence_revision == 2
+    assert [row.provenance["persistence_revision"] for row in rows] == [1, 2]
+    assert b'"history_id":"torn' not in history_target.read_bytes()
+
+
+def test_release_store_recovers_crash_after_history_before_state_publication(
+    tmp_path, monkeypatch
+):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    state = store.save(
+        ReleaseWorkflowState(
+            process_id="proc_release_crash_atomic",
+            candidate_ref="build:crash-atomic",
+            target_environment="production",
+            revision_id="rev_crash_atomic",
+        ),
+        actor="release-manager",
+    )
+    real_publish = store._publish_stage
+    injected = {"raised": False}
+
+    def crash_before_state(stage, target):
+        if target == store._target(state.process_id) and not injected["raised"]:
+            injected["raised"] = True
+            raise OSError("injected crash after release history")
+        return real_publish(stage, target)
+
+    monkeypatch.setattr(store, "_publish_stage", crash_before_state)
+    with pytest.raises(OSError, match="injected crash"):
+        store.save(state, actor="release-manager")
+
+    recovered_store = ReleaseWorkflowStore(
+        tmp_path / "runtime_delivery" / "release_workflow"
+    )
+    recovered = recovered_store.load(state.process_id)
+    assert recovered.persistence_revision == 2
+    assert [
+        row.provenance["persistence_revision"]
+        for row in recovered_store.history(state.process_id)
+    ] == [1, 2]
+    assert not recovered_store._save_intent_target(state.process_id).exists()
+    assert not recovered_store._save_stage_target(state.process_id).exists()
+
+
 def test_repeated_rollback_never_selects_a_retained_forward_fencepost(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     seeded = harness._seed_waiting_process(

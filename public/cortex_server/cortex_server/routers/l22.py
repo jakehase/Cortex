@@ -60,6 +60,8 @@ _L22_QUOTA_LIMIT_DEFAULTS = {
     "global_records": 1_000_000,
     "global_bytes": 8 * 1024 * 1024 * 1024,
 }
+_QUOTA_WRITER_IDENTITY_LOCK = threading.Lock()
+_QUOTA_WRITER_IDENTITY: dict[str, object] = {}
 
 
 @router.on_event("startup")
@@ -135,8 +137,27 @@ def _structured_memory_connection() -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS l22_quota_records ("
         "memory_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, "
         "credential_id TEXT NOT NULL, charge_bytes INTEGER NOT NULL, payload_hash TEXT NOT NULL, "
-        "status TEXT NOT NULL CHECK(status IN ('reserved', 'committed')), created_at REAL NOT NULL)"
+        "status TEXT NOT NULL CHECK(status IN ('reserved', 'committed')), created_at REAL NOT NULL, "
+        "owner_token TEXT NOT NULL DEFAULT '', writer_pid INTEGER NOT NULL DEFAULT 0, "
+        "writer_start_ticks TEXT NOT NULL DEFAULT '', writer_boot_id TEXT NOT NULL DEFAULT '', "
+        "lease_expires_at REAL NOT NULL DEFAULT 0)"
     )
+    quota_columns = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info(l22_quota_records)").fetchall()
+    }
+    quota_column_migrations = {
+        "owner_token": "TEXT NOT NULL DEFAULT ''",
+        "writer_pid": "INTEGER NOT NULL DEFAULT 0",
+        "writer_start_ticks": "TEXT NOT NULL DEFAULT ''",
+        "writer_boot_id": "TEXT NOT NULL DEFAULT ''",
+        "lease_expires_at": "REAL NOT NULL DEFAULT 0",
+    }
+    for column, definition in quota_column_migrations.items():
+        if column not in quota_columns:
+            connection.execute(
+                f"ALTER TABLE l22_quota_records ADD COLUMN {column} {definition}"
+            )
     connection.execute(
         "CREATE TABLE IF NOT EXISTS l22_quota_usage ("
         "scope_type TEXT NOT NULL, scope_id TEXT NOT NULL, record_count INTEGER NOT NULL, "
@@ -475,11 +496,67 @@ def _assert_l22_quota_backfill_ready(connection: sqlite3.Connection) -> None:
         raise HTTPException(status_code=503, detail="L22 legacy quota reconciliation is incomplete")
 
 
+def _process_start_ticks(pid: int) -> str:
+    raw = Path(f"/proc/{int(pid)}/stat").read_text(encoding="utf-8")
+    fields = raw.rsplit(")", 1)[1].strip().split()
+    if len(fields) <= 19:
+        raise RuntimeError("process identity stat is incomplete")
+    return str(fields[19])
+
+
+def _boot_id() -> str:
+    return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+
+
+def _quota_writer_identity() -> dict[str, object]:
+    """Return an immutable per-process identity that survives PID reuse checks."""
+
+    pid = os.getpid()
+    with _QUOTA_WRITER_IDENTITY_LOCK:
+        if int(_QUOTA_WRITER_IDENTITY.get("pid", 0) or 0) != pid:
+            _QUOTA_WRITER_IDENTITY.clear()
+            _QUOTA_WRITER_IDENTITY.update(
+                {
+                    "token": uuid.uuid4().hex,
+                    "pid": pid,
+                    "start_ticks": _process_start_ticks(pid),
+                    "boot_id": _boot_id(),
+                }
+            )
+        return dict(_QUOTA_WRITER_IDENTITY)
+
+
+def _quota_owner_proven_dead(row: sqlite3.Row) -> bool:
+    """Return true only when kernel process identity proves the owner is gone."""
+
+    owner_boot_id = str(row["writer_boot_id"] or "")
+    owner_start_ticks = str(row["writer_start_ticks"] or "")
+    owner_pid = int(row["writer_pid"] or 0)
+    if not owner_boot_id or not owner_start_ticks or owner_pid <= 0:
+        # Legacy or foreign reservations without a complete identity are kept;
+        # quota leakage is safer than admitting an unaccounted durable write.
+        return False
+    try:
+        current_boot_id = _boot_id()
+    except OSError:
+        return False
+    if owner_boot_id != current_boot_id:
+        return True
+    try:
+        observed_start_ticks = _process_start_ticks(owner_pid)
+    except FileNotFoundError:
+        return True
+    except (OSError, RuntimeError):
+        return False
+    return observed_start_ticks != owner_start_ticks
+
+
 def _reconcile_stale_quota_reservations(connection: sqlite3.Connection) -> None:
-    cutoff = time.time() - _L22_QUOTA_RESERVATION_TIMEOUT_SECONDS
+    now = time.time()
     rows = connection.execute(
-        "SELECT * FROM l22_quota_records WHERE status = 'reserved' AND created_at <= ? ORDER BY created_at LIMIT 256",
-        (cutoff,),
+        "SELECT * FROM l22_quota_records WHERE status = 'reserved' "
+        "AND lease_expires_at <= ? ORDER BY lease_expires_at LIMIT 256",
+        (now,),
     ).fetchall()
     if not rows:
         return
@@ -504,7 +581,7 @@ def _reconcile_stale_quota_reservations(connection: sqlite3.Connection) -> None:
                 "UPDATE l22_quota_records SET status = 'committed' WHERE memory_id = ?",
                 (row["memory_id"],),
             )
-        else:
+        elif _quota_owner_proven_dead(row):
             _quota_release_row(connection, row)
 
 
@@ -518,6 +595,9 @@ def _reserve_memory_quota(
     payload_hash: str,
 ) -> str:
     limits = _l22_quota_limits()
+    writer = _quota_writer_identity()
+    now = time.time()
+    lease_expires_at = now + _L22_QUOTA_RESERVATION_TIMEOUT_SECONDS
     with _STRUCTURED_MEMORY_LOCK:
         connection = _structured_memory_connection()
         try:
@@ -530,6 +610,19 @@ def _reserve_memory_quota(
             if existing is not None:
                 if not hmac_compare(str(existing["payload_hash"]), payload_hash):
                     raise HTTPException(status_code=409, detail="memory identity conflicts with quota reservation")
+                if (
+                    str(existing["status"]) == "reserved"
+                    and str(existing["owner_token"] or "") == str(writer["token"])
+                ):
+                    updated = connection.execute(
+                        "UPDATE l22_quota_records SET lease_expires_at = ? "
+                        "WHERE memory_id = ? AND status = 'reserved' AND owner_token = ?",
+                        (lease_expires_at, memory_id, writer["token"]),
+                    )
+                    if updated.rowcount != 1:
+                        raise HTTPException(status_code=409, detail="memory quota lease was fenced")
+                    connection.commit()
+                    return "new"
                 connection.commit()
                 return str(existing["status"])
             scopes = _quota_scopes(tenant, workspace, credential)
@@ -559,8 +652,23 @@ def _reserve_memory_quota(
                 )
             connection.execute(
                 "INSERT INTO l22_quota_records(memory_id, tenant_id, workspace_id, credential_id, "
-                "charge_bytes, payload_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?)",
-                (memory_id, tenant, workspace, credential, charge_bytes, payload_hash, time.time()),
+                "charge_bytes, payload_hash, status, created_at, owner_token, writer_pid, "
+                "writer_start_ticks, writer_boot_id, lease_expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?, ?, ?)",
+                (
+                    memory_id,
+                    tenant,
+                    workspace,
+                    credential,
+                    charge_bytes,
+                    payload_hash,
+                    now,
+                    writer["token"],
+                    writer["pid"],
+                    writer["start_ticks"],
+                    writer["boot_id"],
+                    lease_expires_at,
+                ),
             )
             _quota_adjust_usage(connection, scopes, records=1, bytes_delta=charge_bytes)
             connection.commit()
@@ -579,15 +687,54 @@ def hmac_compare(left: str, right: str) -> bool:
     return hmac.compare_digest(left, right)
 
 
-def _finalize_memory_quota(memory_id: str) -> None:
+def _fence_memory_quota(memory_id: str, payload_hash: str) -> None:
+    """Renew and compare-and-swap the owned lease immediately before publication."""
+
+    writer = _quota_writer_identity()
     with _STRUCTURED_MEMORY_LOCK:
         connection = _structured_memory_connection()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                "UPDATE l22_quota_records SET status = 'committed' WHERE memory_id = ?",
-                (memory_id,),
+            updated = connection.execute(
+                "UPDATE l22_quota_records SET lease_expires_at = ? "
+                "WHERE memory_id = ? AND payload_hash = ? AND status = 'reserved' AND owner_token = ?",
+                (
+                    time.time() + _L22_QUOTA_RESERVATION_TIMEOUT_SECONDS,
+                    memory_id,
+                    payload_hash,
+                    writer["token"],
+                ),
             )
+            if updated.rowcount != 1:
+                raise HTTPException(status_code=409, detail="memory quota publication lease was fenced")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+
+def _finalize_memory_quota(memory_id: str, *, require_owner: bool = True) -> None:
+    writer = _quota_writer_identity()
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            updated = connection.execute(
+                "UPDATE l22_quota_records SET status = 'committed' "
+                "WHERE memory_id = ? AND status = 'reserved'"
+                + (" AND owner_token = ?" if require_owner else ""),
+                (memory_id, writer["token"]) if require_owner else (memory_id,),
+            )
+            if updated.rowcount != 1:
+                existing = connection.execute(
+                    "SELECT status FROM l22_quota_records WHERE memory_id = ?", (memory_id,)
+                ).fetchone()
+                if existing is None:
+                    raise HTTPException(status_code=503, detail="memory quota reservation is missing")
+                if str(existing["status"]) != "committed":
+                    raise HTTPException(status_code=409, detail="memory quota finalization lease was fenced")
             connection.commit()
         except Exception:
             connection.rollback()
@@ -597,6 +744,7 @@ def _finalize_memory_quota(memory_id: str) -> None:
 
 
 def _release_memory_quota(memory_id: str, *, committed: bool = False) -> None:
+    writer = _quota_writer_identity()
     with _STRUCTURED_MEMORY_LOCK:
         connection = _structured_memory_connection()
         try:
@@ -604,7 +752,13 @@ def _release_memory_quota(memory_id: str, *, committed: bool = False) -> None:
             row = connection.execute(
                 "SELECT * FROM l22_quota_records WHERE memory_id = ?", (memory_id,)
             ).fetchone()
-            if row is not None and (committed or str(row["status"]) == "reserved"):
+            if row is not None and (
+                committed
+                or (
+                    str(row["status"]) == "reserved"
+                    and str(row["owner_token"] or "") == str(writer["token"])
+                )
+            ):
                 _quota_release_row(connection, row)
             connection.commit()
         except Exception:
@@ -629,7 +783,7 @@ def _settle_failed_memory_write(memory_id: str) -> None:
         return
     if structured_exists:
         try:
-            _finalize_memory_quota(memory_id)
+            _finalize_memory_quota(memory_id, require_owner=False)
         except Exception:
             pass
         return
@@ -641,7 +795,7 @@ def _settle_failed_memory_write(memory_id: str) -> None:
         return
     if memory_id in set(existing.get("ids") or []):
         try:
-            _finalize_memory_quota(memory_id)
+            _finalize_memory_quota(memory_id, require_owner=False)
         except Exception:
             pass
     else:
@@ -697,6 +851,7 @@ def store_structured_memory_record(
         payload_hash=payload_hash,
     )
     try:
+        _fence_memory_quota(memory_id, payload_hash)
         with _STRUCTURED_MEMORY_LOCK:
             connection = _structured_memory_connection()
             try:
@@ -917,6 +1072,7 @@ def store_memory_record(
                 )
             else:
                 try:
+                    _fence_memory_quota(memory_id, request_hash)
                     _add_memory_with_supersession(
                         memory_id,
                         content,
@@ -951,7 +1107,7 @@ def store_memory_record(
                         replay = json.loads(prior["record_json"])
                         replay["idempotent_replay"] = True
                         connection.rollback()
-                        _finalize_memory_quota(memory_id)
+                        _finalize_memory_quota(memory_id, require_owner=False)
                         return replay
                     connection.execute(
                         "INSERT INTO memory_idempotency(tenant_id, workspace_id, idempotency_key, request_hash, record_json, created_at) "
@@ -975,7 +1131,7 @@ def store_memory_record(
             return result
         except Exception:
             if durable_record:
-                _finalize_memory_quota(memory_id)
+                _finalize_memory_quota(memory_id, require_owner=False)
             else:
                 _settle_failed_memory_write(memory_id)
             raise
@@ -990,6 +1146,7 @@ def store_memory_record(
         payload_hash=request_hash,
     )
     try:
+        _fence_memory_quota(memory_id, request_hash)
         _add_memory_with_supersession(
             memory_id,
             content,
@@ -1230,6 +1387,7 @@ async def l22_store_novel(request: L22NovelStoreRequest):
         payload_hash=payload_hash,
     )
     try:
+        _fence_memory_quota(memory_id, payload_hash)
         result = index_with_novelty(
             text=request.content,
             metadata=metadata,

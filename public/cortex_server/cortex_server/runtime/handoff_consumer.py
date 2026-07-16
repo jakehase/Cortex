@@ -140,10 +140,26 @@ def _now_iso() -> str:
 
 
 def _post_json(base_url: str, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    headers = {"content-type": "application/json"}
+    if path.startswith((
+        "/orchestrator/runtime/delivery/artifacts/",
+        "/conductor/runtime/delivery/artifacts/",
+    )):
+        token = os.getenv("CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", "").strip()
+        header_name = os.getenv(
+            "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN_HEADER",
+            "x-cortex-release-artifact-token",
+        ).strip().lower()
+        if _production_environment() and (len(token.encode("utf-8")) < 32 or not header_name):
+            raise RuntimeError(
+                "production release verifier requires a dedicated artifact transport credential"
+            )
+        if token and header_name:
+            headers[header_name] = token
     request = Request(
         f"{base_url.rstrip('/')}{path}",
         data=json.dumps(payload, sort_keys=True).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urlopen(request, timeout=15) as response:
@@ -627,6 +643,63 @@ class _HealthHandler(BaseHTTPRequestHandler):
         return
 
 
+class _BoundedHealthServer(ThreadingHTTPServer):
+    """Bound health sockets before thread creation and deadline all I/O."""
+
+    daemon_threads = True
+    request_queue_size = 16
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler: type[BaseHTTPRequestHandler],
+        *,
+        max_connections: int,
+        socket_timeout_seconds: float,
+    ):
+        self._connection_slots = threading.BoundedSemaphore(max_connections)
+        self._socket_timeout_seconds = socket_timeout_seconds
+        super().__init__(server_address, handler)
+
+    def get_request(self):
+        request, client_address = super().get_request()
+        request.settimeout(self._socket_timeout_seconds)
+        return request, client_address
+
+    def process_request(self, request, client_address) -> None:
+        if not self._connection_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connection_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connection_slots.release()
+
+
+def _bounded_health_int(name: str, default: int, maximum: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    if not raw.isdecimal() or int(raw) <= 0:
+        raise RuntimeError(f"{name} must be a positive integer")
+    return min(int(raw), maximum)
+
+
+def _bounded_health_float(name: str, default: float, maximum: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive number") from exc
+    if not 0 < value <= maximum:
+        raise RuntimeError(f"{name} must be between zero and {maximum}")
+    return value
+
+
 def main() -> None:
     recipient = os.getenv("CORTEX_HANDOFF_RECIPIENT", "").strip()
     secret = os.getenv("CORTEX_HANDOFF_RECIPIENT_SECRET", "").strip()
@@ -646,7 +719,16 @@ def main() -> None:
                 "release verifier requires CORTEX_RELEASE_VERIFIER_ID and a dedicated 32-byte attestation secret"
             )
     health_port = int(os.getenv("CORTEX_HANDOFF_HEALTH_PORT", "8891"))
-    server = ThreadingHTTPServer(("0.0.0.0", health_port), _HealthHandler)
+    server = _BoundedHealthServer(
+        ("0.0.0.0", health_port),
+        _HealthHandler,
+        max_connections=_bounded_health_int(
+            "CORTEX_HANDOFF_HEALTH_MAX_CONNECTIONS", 16, 64
+        ),
+        socket_timeout_seconds=_bounded_health_float(
+            "CORTEX_HANDOFF_HEALTH_SOCKET_TIMEOUT_SECONDS", 2.0, 5.0
+        ),
+    )
     threading.Thread(target=server.serve_forever, name="handoff-health", daemon=True).start()
     interval = max(1.0, float(os.getenv("CORTEX_HANDOFF_POLL_SECONDS", "3")))
     while True:

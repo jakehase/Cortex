@@ -30,8 +30,8 @@ services:
       CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
       CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE: "true"
       CORTEX_DB_PATH: /opt/clawdbot/knowledge/cortex_graph.db
-      CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID and run the explicit volume bootstrap}
+      CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID and run the explicit volume bootstrap}
       ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/runtime-volume/runtime_delivery
       REASONING_STORE_DB_PATH: /opt/clawdbot/reasoning/reasoning_runtime.db
       CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE: "true"
@@ -41,6 +41,7 @@ services:
       CORTEX_REQUIRED_ROUTERS: ${CORTEX_REQUIRED_ROUTERS:-}
       CORTEX_WRITE_AUTH_MODE: token_required
       CORTEX_WRITE_TOKEN: ${CORTEX_WRITE_TOKEN:?set the external production write token in .env}
+      CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN: ${CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:?set a verifier-only artifact transport token in .env}
       CORTEX_ADMIN_TOKEN: ${CORTEX_ADMIN_TOKEN:?set an independent production administrator token in .env}
       CORTEX_MEMORY_SCOPE_CREDENTIALS: ${CORTEX_MEMORY_SCOPE_CREDENTIALS:?set principal-scoped credentials in .env}
       CORTEX_CODEC_ADMIN_TOKEN: ${CORTEX_CODEC_ADMIN_TOKEN:?set CORTEX_CODEC_ADMIN_TOKEN in .env}
@@ -73,6 +74,8 @@ services:
         condition: service_started
       cortex-memory-volume-init:
         condition: service_completed_successfully
+      cortex-knowledge-volume-init:
+        condition: service_completed_successfully
       cortex-runtime-delivery-volume-init:
         condition: service_completed_successfully
       release-verifier:
@@ -85,10 +88,13 @@ services:
     profiles: ["bootstrap"]
     environment:
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
+      CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID}
       CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID}
     volumes:
       - ./continuity:/continuity:rw
+      - ./cortex_graph.db:/seed/cortex_graph.db:ro
       - cortex-chroma:/memory:rw
+      - cortex-knowledge:/knowledge:rw
       - cortex-runtime-delivery:/state:rw
     command:
       - /bin/sh
@@ -96,22 +102,33 @@ services:
       - |
         umask 077
         if [ -e /continuity/cortex-chroma.volume-id ] || \
+           [ -e /continuity/cortex-knowledge.volume-id ] || \
            [ -e /continuity/cortex-runtime-delivery.volume-id ] || \
            [ -e /memory/.cortex-durable-memory ] || \
+           [ -e /knowledge/.cortex-durable-knowledge ] || \
            [ -e /state/runtime_delivery/.cortex-durable-runtime-delivery ]; then
           echo "Cortex volume bootstrap is one-time; continuity state already exists" >&2
           exit 1
         fi
         if [ -n "$$(find /memory -mindepth 1 -print -quit)" ] || \
+           [ -n "$$(find /knowledge -mindepth 1 -print -quit)" ] || \
            [ -n "$$(find /state -mindepth 1 -print -quit)" ]; then
           echo "Cortex volume bootstrap requires blank named volumes" >&2
           exit 1
         fi
         mkdir -p /state/runtime_delivery
+        knowledge_temporary=/knowledge/.cortex_graph.db.bootstrap.$$$$
+        cp /seed/cortex_graph.db "$$knowledge_temporary"
+        chmod 0600 "$$knowledge_temporary"
+        sync "$$knowledge_temporary"
+        mv "$$knowledge_temporary" /knowledge/cortex_graph.db
+        sync /knowledge
         for specification in \
           "/continuity/cortex-chroma.volume-id:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/continuity/cortex-knowledge.volume-id:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
           "/continuity/cortex-runtime-delivery.volume-id:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
           "/memory/.cortex-durable-memory:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/knowledge/.cortex-durable-knowledge:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
           "/state/runtime_delivery/.cortex-durable-runtime-delivery:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID"
         do
           target="$${specification%%:*}"
@@ -228,6 +245,45 @@ services:
         sync /state/runtime_delivery
     restart: "no"
 
+  cortex-knowledge-volume-init:
+    image: alpine:3.20
+    container_name: cortex-knowledge-volume-init
+    environment:
+      CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-knowledge:/knowledge:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/knowledge/.cortex-durable-knowledge
+        expected=/continuity/cortex-knowledge.volume-id
+        database=/knowledge/cortex_graph.db
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_KNOWLEDGE_MOUNT_ID" ]; then
+          echo "Cortex external knowledge continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex knowledge volume marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex knowledge volume marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_KNOWLEDGE_MOUNT_ID" ]; then
+          echo "Cortex knowledge volume identity mismatch" >&2
+          exit 1
+        fi
+        if [ ! -f "$$database" ] || [ -L "$$database" ]; then
+          echo "Cortex knowledge database is missing; restore it instead of seeding during startup" >&2
+          exit 1
+        fi
+        chmod 0700 /knowledge
+        chmod 0600 "$$marker" "$$database"
+    restart: "no"
+
   release-verifier:
     build:
       context: .
@@ -239,6 +295,7 @@ services:
       CORTEX_HANDOFF_RECIPIENT_SECRET: ${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set a distinct release-verifier recipient secret in .env}
       CORTEX_RELEASE_VERIFIER_ID: ${CORTEX_RELEASE_VERIFIER_ATTESTATION_ID:?set the verifier ID present in CORTEX_RELEASE_VERIFIER_CREDENTIALS}
       CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET: ${CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:?set the verifier-only attestation secret present in CORTEX_RELEASE_VERIFIER_CREDENTIALS}
+      CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN: ${CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:?set the verifier-only artifact transport token in .env}
       CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation
       CORTEX_RELEASE_CONTROLLER_STATE_DIR: /controller-state
       CORTEX_HANDOFF_HEALTH_PORT: 8891

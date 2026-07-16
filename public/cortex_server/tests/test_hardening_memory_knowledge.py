@@ -448,6 +448,42 @@ def test_configured_graph_seed_is_copied_to_durable_database_once(tmp_path, monk
         assert connection.execute("SELECT value FROM seed_marker").fetchone()[0] == "durable-write"
 
 
+def test_production_graph_never_seeds_a_blank_replacement_volume(tmp_path, monkeypatch):
+    seed = tmp_path / "seed.db"
+    target = tmp_path / "replacement" / "cortex_graph.db"
+    with sqlite3.connect(seed) as connection:
+        connection.execute("CREATE TABLE seed_marker (value TEXT NOT NULL)")
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_DB_PATH", str(target))
+    monkeypatch.setenv("CORTEX_DB_SEED_PATH", str(seed))
+
+    with pytest.raises(RuntimeError, match="explicit volume bootstrap or restore"):
+        SQLiteStorage()
+    assert not target.exists()
+
+
+def test_production_knowledge_identity_binds_marker_database_and_mount_id(
+    tmp_path, monkeypatch
+):
+    from cortex_server import main as cortex_main
+
+    knowledge_root = tmp_path / "knowledge"
+    knowledge_root.mkdir()
+    database = knowledge_root / "cortex_graph.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE durable (value TEXT NOT NULL)")
+    marker = knowledge_root / ".cortex-durable-knowledge"
+    marker.write_text("knowledge-volume-identity\n", encoding="utf-8")
+    monkeypatch.setenv("CORTEX_DB_PATH", str(database))
+    monkeypatch.setenv("CORTEX_KNOWLEDGE_MOUNT_ID", "knowledge-volume-identity")
+
+    assert cortex_main._knowledge_volume_identity_check(production=True)["ok"] is True
+    marker.write_text("replacement-volume\n", encoding="utf-8")
+    mismatch = cortex_main._knowledge_volume_identity_check(production=True)
+    assert mismatch["ok"] is False
+    assert "identity mismatch" in mismatch["error"]
+
+
 def test_high_degree_neighbors_are_limited_in_sql_without_per_neighbor_loading(tmp_path):
     storage = SQLiteStorage(str(tmp_path / "graph.db"))
     storage.insert_nodes([_node("root"), *[_node(f"n{i}") for i in range(80)]])

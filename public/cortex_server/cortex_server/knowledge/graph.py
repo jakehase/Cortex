@@ -112,6 +112,13 @@ class SQLiteStorage:
         target = Path(self.db_path)
         if target.exists():
             return
+        production = os.getenv(
+            "CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")
+        ).strip().lower() in {"production", "prod", "staging"}
+        if production:
+            raise RuntimeError(
+                "production graph database is missing; run explicit volume bootstrap or restore it"
+            )
         seed_value = os.getenv("CORTEX_DB_SEED_PATH", "").strip()
         if not seed_value:
             return

@@ -930,6 +930,16 @@ async def test_production_nexus_baseline_cannot_be_removed_by_configuration(
         "validate_production_delivery_credentials",
         lambda: {"ok": True},
     )
+    development_knowledge_check = main._knowledge_volume_identity_check
+    monkeypatch.setattr(
+        main,
+        "_knowledge_volume_identity_check",
+        lambda *, production: development_knowledge_check(production=False),
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+        "test-release-artifact-transport-token-00000001",
+    )
     monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "")
     monkeypatch.setenv("CORTEX_REQUIRED_ROUTERS", "")
     monkeypatch.setenv(
@@ -994,6 +1004,16 @@ async def test_canonical_readiness_requires_runtime_delivery_probe_in_production
 
     monkeypatch.setattr(main, "_production_environment", lambda: True)
     monkeypatch.setattr(production_build_loop, "validate_production_delivery_credentials", lambda: {"ok": True})
+    development_knowledge_check = main._knowledge_volume_identity_check
+    monkeypatch.setattr(
+        main,
+        "_knowledge_volume_identity_check",
+        lambda *, production: development_knowledge_check(production=False),
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+        "test-release-artifact-transport-token-00000001",
+    )
     monkeypatch.setattr(
         production_build_loop,
         "probe_runtime_delivery_readiness",
