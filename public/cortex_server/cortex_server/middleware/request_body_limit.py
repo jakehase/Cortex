@@ -169,6 +169,14 @@ class RequestBodyLimitMiddleware:
             self._buffered_body_bytes = max(0, self._buffered_body_bytes - retained_bytes)
             self._active_body_reads = max(0, self._active_body_reads - 1)
 
+    def _release_reader(self) -> None:
+        with self._budget_lock:
+            self._active_body_reads = max(0, self._active_body_reads - 1)
+
+    def _release_buffer(self, retained_bytes: int) -> None:
+        with self._budget_lock:
+            self._buffered_body_bytes = max(0, self._buffered_body_bytes - retained_bytes)
+
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
@@ -184,6 +192,23 @@ class RequestBodyLimitMiddleware:
                 payload={"success": False, "error": str(exc)},
                 head=head,
             )
+            return
+
+        method = str(scope.get("method") or "").upper()
+        headers = self._headers(scope)
+        if method in {"GET", "HEAD"}:
+            if (declared or 0) > 0 or headers.get("transfer-encoding", "").strip():
+                await self._send_json(
+                    send,
+                    status=400,
+                    payload={"success": False, "error": f"{method} request bodies are not accepted"},
+                    head=head,
+                )
+                return
+            # Read-only bodyless traffic is not a body-acquisition consumer.
+            # In particular, health checks must remain reachable while slow
+            # unauthenticated writers occupy the bounded reader pool.
+            await self.app(scope, receive, send)
             return
         if declared is not None and declared > self.max_body_bytes:
             await self._send_json(
@@ -279,6 +304,7 @@ class RequestBodyLimitMiddleware:
         except BaseException:
             self._release_admission(retained)
             raise
+        self._release_reader()
         try:
             state = scope.setdefault("state", {})
             state["cortex_request_body_bytes"] = observed
@@ -292,4 +318,4 @@ class RequestBodyLimitMiddleware:
 
             await self.app(scope, replay_receive, send)
         finally:
-            self._release_admission(retained)
+            self._release_buffer(retained)

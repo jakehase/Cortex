@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_SESSION_EVENT_PROJECTION_BYTES,
+    RuntimeDeliveryQuotaError,
+    runtime_delivery_capacity_reservation,
+)
 from cortex_server.runtime.session_contract import CanonicalSessionEvent
 
 
@@ -53,6 +58,7 @@ class RuntimeMemoryStore:
         self.max_total_bytes = max_total_bytes or int(os.getenv("CORTEX_RUNTIME_MEMORY_MAX_TOTAL_BYTES", str(64 * 1024 * 1024)))
         self.max_rotations = max_rotations if max_rotations is not None else int(os.getenv("CORTEX_RUNTIME_MEMORY_MAX_ROTATIONS", "3"))
         self.retention_days = retention_days if retention_days is not None else int(os.getenv("CORTEX_RUNTIME_MEMORY_RETENTION_DAYS", "30"))
+        self._transaction_local = threading.local()
         if min(self.max_event_bytes, self.max_shard_bytes, self.max_total_bytes) <= 0:
             raise ValueError("runtime memory byte limits must be positive")
         if self.max_event_bytes > self.max_shard_bytes or self.max_shard_bytes > self.max_total_bytes:
@@ -67,6 +73,13 @@ class RuntimeMemoryStore:
     @contextmanager
     def _transaction(self):
         with _MEMORY_STORE_LOCK:
+            if int(getattr(self._transaction_local, "depth", 0)) > 0:
+                self._transaction_local.depth += 1
+                try:
+                    yield
+                finally:
+                    self._transaction_local.depth -= 1
+                return
             self.ensure_layout()
             flags = os.O_WRONLY | os.O_CREAT
             if hasattr(os, "O_CLOEXEC"):
@@ -78,8 +91,10 @@ class RuntimeMemoryStore:
                 if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                     raise ValueError("runtime memory lock must be a regular file")
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
+                self._transaction_local.depth = 1
                 yield
             finally:
+                self._transaction_local.depth = 0
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
                 os.close(descriptor)
 
@@ -186,26 +201,36 @@ class RuntimeMemoryStore:
                     continue
         return total
 
-    def _append_bounded(self, writes: Iterable[Tuple[Path, bytes]]) -> None:
-        pending = list(writes)
+    def _validate_write_shapes(self, pending: list[Tuple[Path, bytes]]) -> None:
         if not pending:
             return
         if any(len(content) > self.max_event_bytes for _, content in pending):
             raise RuntimeMemoryLimitError("runtime memory event exceeds the configured byte limit")
-
-        rotate_paths = []
         for path, content in pending:
             self._assert_contained(path, parent=path.parent)
-            current = path.stat().st_size if path.exists() else 0
-            if current + len(content) > self.max_shard_bytes:
-                rotate_paths.append(path)
             if len(content) > self.max_shard_bytes:
                 raise RuntimeMemoryLimitError("runtime memory event exceeds the shard byte limit")
 
+    def _validate_bounded(self, pending: list[Tuple[Path, bytes]]) -> list[Path]:
+        """Validate an exact write set without creating any durable side effect."""
+
+        self._validate_write_shapes(pending)
+        if not pending:
+            return []
+        rotate_paths = []
+        for path, content in pending:
+            current = path.stat().st_size if path.exists() else 0
+            if current + len(content) > self.max_shard_bytes:
+                rotate_paths.append(path)
         projected = self._stored_bytes() + sum(len(content) for _, content in pending)
         projected -= sum(self._rotation_drop_bytes(path) for path in rotate_paths)
         if projected > self.max_total_bytes:
             raise RuntimeMemoryLimitError("runtime memory store exceeds the configured total byte quota")
+        return rotate_paths
+
+    def _append_bounded(self, writes: Iterable[Tuple[Path, bytes]]) -> None:
+        pending = list(writes)
+        rotate_paths = self._validate_bounded(pending)
 
         for path in rotate_paths:
             self._rotate(path)
@@ -247,6 +272,13 @@ class RuntimeMemoryStore:
         return path
 
     def write_session_event(self, event: CanonicalSessionEvent) -> Path:
+        path, writes = self._session_event_writes(event)
+        with self._transaction():
+            self._prune_expired()
+            self._append_bounded(writes)
+        return path
+
+    def _session_event_writes(self, event: CanonicalSessionEvent) -> Tuple[Path, list[Tuple[Path, bytes]]]:
         process_id = self._identifier(event.process_id, field="process_id")
         session_id = self._identifier(event.session_id or event.process_id, field="session_id")
         payload = json.dumps(event.payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
@@ -260,10 +292,26 @@ class RuntimeMemoryStore:
         )
         path = self._session_path(process_id, session_id)
         daily = f"- session {session_id} ({process_id}): {event.operator_summary}\n"
-        with self._transaction():
-            self._prune_expired()
-            self._append_bounded(((path, text.encode("utf-8")), (self._daily_path(), daily.encode("utf-8"))))
-        return path
+        return path, [(path, text.encode("utf-8")), (self._daily_path(), daily.encode("utf-8"))]
+
+    @contextmanager
+    def session_event_admission(self, event: CanonicalSessionEvent):
+        """Hold total-store admission from validation through all projections."""
+
+        _path, writes = self._session_event_writes(event)
+        # Deterministic request-shape failures leave no durable trace.
+        self._validate_write_shapes(writes)
+        try:
+            with runtime_delivery_capacity_reservation(
+                self.root.parent,
+                reserved_bytes=MAX_SESSION_EVENT_PROJECTION_BYTES,
+            ):
+                with self._transaction():
+                    self._prune_expired()
+                    self._validate_bounded(writes)
+                    yield
+        except RuntimeDeliveryQuotaError as exc:
+            raise RuntimeMemoryLimitError(str(exc)) from exc
 
 
 __all__ = ["RuntimeMemoryLimitError", "RuntimeMemoryStore"]

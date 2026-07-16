@@ -381,6 +381,78 @@ def store_memory_record(
     return {"id": memory_id, "status": "stored", "metadata": record_metadata}
 
 
+def lookup_idempotent_memory_record(
+    *,
+    content: str,
+    memory_type: Optional[str] = "memory",
+    tags: Optional[List[str]] = None,
+    metadata: Optional[dict] = None,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    idempotency_key: str,
+) -> Optional[dict]:
+    """Return only an exact, already-durable idempotency outcome."""
+
+    tenant, workspace = _memory_scope(tenant_id, workspace_id)
+    normalized_key = str(idempotency_key or "").strip()
+    if not normalized_key or len(normalized_key) > 256:
+        return None
+    raw_metadata = dict(metadata or {})
+    request_hash = sha256(json.dumps(
+        {
+            "content": content,
+            "memory_type": memory_type or "memory",
+            "tags": list(tags or []),
+            "metadata": raw_metadata,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    memory_id = str(uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"cortex:l22:{tenant}:{workspace}:{normalized_key}",
+    ))
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            prior = connection.execute(
+                "SELECT request_hash, record_json FROM memory_idempotency "
+                "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
+                (tenant, workspace, normalized_key),
+            ).fetchone()
+            if prior is not None:
+                if str(prior["request_hash"]) != request_hash:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="idempotency_key was already used for a different memory write",
+                    )
+                replay = json.loads(prior["record_json"])
+                replay["idempotent_replay"] = True
+                return replay
+            existing = collection.get(ids=[memory_id], include=["metadatas"])
+            existing_ids = existing.get("ids") or []
+            existing_metas = existing.get("metadatas") or []
+            if memory_id not in existing_ids:
+                return None
+            index = existing_ids.index(memory_id)
+            existing_metadata = existing_metas[index] if index < len(existing_metas) else {}
+            if str((existing_metadata or {}).get("idempotency_hash") or "") != request_hash:
+                raise HTTPException(
+                    status_code=409,
+                    detail="deterministic memory id conflicts with another write",
+                )
+            return {
+                "id": memory_id,
+                "status": "stored",
+                "metadata": existing_metadata or {},
+                "idempotent_replay": True,
+            }
+        finally:
+            connection.close()
+
+
 class L22StoreRequest(BaseModel):
     type: Optional[str] = Field("memory", max_length=128)
     content: str = Field(..., max_length=1_000_000)

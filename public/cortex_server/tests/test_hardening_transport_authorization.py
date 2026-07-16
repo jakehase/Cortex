@@ -596,3 +596,129 @@ async def test_outer_body_limiter_rejects_missing_write_token_without_receiving_
 
     assert sent[0]["status"] == 403
     assert receive_calls == []
+
+
+@pytest.mark.asyncio
+async def test_bodyless_reads_and_ready_bypass_saturated_body_reader_pool():
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    dispatched = []
+
+    async def downstream(scope, _receive, send):
+        dispatched.append(scope["path"])
+        if scope["path"].startswith("/slow"):
+            entered.set()
+            await release.wait()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=32,
+        max_concurrent_body_reads=2,
+        max_buffered_body_bytes=64,
+    )
+
+    async def bodyless(path):
+        sent = []
+
+        async def receive():
+            raise AssertionError("bodyless GET must not consume receive")
+
+        async def send(message):
+            sent.append(message)
+
+        await limiter(
+            {"type": "http", "method": "GET", "path": path, "headers": []},
+            receive,
+            send,
+        )
+        return sent
+
+    first = asyncio.create_task(bodyless("/slow/one"))
+    second = asyncio.create_task(bodyless("/slow/two"))
+    await entered.wait()
+    ready = await asyncio.wait_for(bodyless("/ready"), timeout=0.2)
+    assert ready[0]["status"] == 200
+    assert limiter._active_body_reads == 0
+    release.set()
+    await asyncio.gather(first, second)
+    assert "/ready" in dispatched
+
+
+@pytest.mark.asyncio
+async def test_reader_slot_is_released_after_acquisition_while_buffer_remains_accounted():
+    first_dispatched = asyncio.Event()
+    release = asyncio.Event()
+
+    async def downstream(scope, _receive, send):
+        if scope["path"] == "/first":
+            first_dispatched.set()
+            await release.wait()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=32,
+        max_concurrent_body_reads=1,
+        max_buffered_body_bytes=64,
+    )
+
+    async def post(path, body):
+        messages = iter([{"type": "http.request", "body": body, "more_body": False}])
+
+        async def receive():
+            return next(messages)
+
+        sent = []
+        async def send(message):
+            sent.append(message)
+        await limiter(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": path,
+                "headers": [(b"content-length", str(len(body)).encode("ascii"))],
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    first = asyncio.create_task(post("/first", b"12345678"))
+    await first_dispatched.wait()
+    assert limiter._active_body_reads == 0
+    assert limiter._buffered_body_bytes == 8
+    second = await asyncio.wait_for(post("/second", b"abcdefgh"), timeout=0.2)
+    assert second[0]["status"] == 200
+    assert limiter._buffered_body_bytes == 8
+    release.set()
+    await first
+    assert limiter._buffered_body_bytes == 0
+
+
+@pytest.mark.asyncio
+async def test_get_with_declared_body_is_rejected_without_reader_admission():
+    sent = []
+    receive_calls = []
+    limiter = RequestBodyLimitMiddleware(
+        lambda *_args: (_ for _ in ()).throw(AssertionError("must not dispatch")),
+        max_body_bytes=32,
+    )
+
+    async def receive():
+        receive_calls.append(True)
+        return {"type": "http.request", "body": b"x", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    await limiter(
+        {"type": "http", "method": "GET", "path": "/read", "headers": [(b"content-length", b"1")]},
+        receive,
+        send,
+    )
+    assert sent[0]["status"] == 400
+    assert receive_calls == []
+    assert limiter._active_body_reads == 0

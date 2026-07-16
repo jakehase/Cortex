@@ -85,12 +85,21 @@ services:
       - -ec
       - |
         marker=/memory/.cortex-durable-memory
-        if [ -e "$$marker" ] && [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
-          echo "Cortex memory volume identity mismatch" >&2
-          exit 1
+        if [ -e "$$marker" ]; then
+          if [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
+            echo "Cortex memory volume identity mismatch" >&2
+            exit 1
+          fi
+        else
+          temporary="$$marker.tmp.$$$$"
+          trap 'rm -f "$$temporary"' EXIT HUP INT TERM
+          printf '%s\n' "$$CORTEX_CHROMA_MOUNT_ID" > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv "$$temporary" "$$marker"
+          sync /memory
+          trap - EXIT HUP INT TERM
         fi
-        printf '%s\n' "$$CORTEX_CHROMA_MOUNT_ID" > "$$marker"
-        sync "$$marker"
     restart: "no"
 
   cortex-runtime-delivery-volume-init:
@@ -141,14 +150,23 @@ services:
           sync "$${directory}"
         done
         marker=/state/runtime_delivery/.cortex-durable-runtime-delivery
-        if [ -e "$$marker" ] && [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
-          echo "Cortex runtime delivery volume identity mismatch" >&2
-          exit 1
+        if [ -e "$$marker" ]; then
+          if [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
+            echo "Cortex runtime delivery volume identity mismatch" >&2
+            exit 1
+          fi
+        else
+          temporary="$$marker.tmp.$$$$"
+          trap 'rm -f "$$temporary"' EXIT HUP INT TERM
+          printf '%s\n' "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv "$$temporary" "$$marker"
+          sync /state/runtime_delivery
+          trap - EXIT HUP INT TERM
         fi
-        printf '%s\n' "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" > "$$marker"
         chmod 0700 /state /state/runtime_delivery
         chmod 0600 "$$marker"
-        sync "$$marker"
         sync /state
         sync /state/runtime_delivery
     restart: "no"

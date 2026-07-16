@@ -25,6 +25,20 @@ from cortex_server.runtime.dependability import (
     unattended_profile_digest,
 )
 from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_HISTORY_BYTES,
+    MAX_HISTORY_RECORDS,
+    MAX_REPORT_BYTES,
+    MAX_REPORT_RECORDS,
+    append_bounded_jsonl,
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    bounded_jsonl_payload,
+    encoded_json,
+    read_recoverable_jsonl,
+    runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
@@ -374,6 +388,7 @@ def _probe_runtime_delivery_state_consistency(
     shared_state_store = SharedProcessStateStore(delivery_root / "shared_state")
     loop_store = ProductionBuildLoopStore(delivery_root / "production_build_loop")
     pending: List[str] = []
+    pending_bootstraps: List[str] = []
     errors: List[JsonDict] = []
 
     from cortex_server.runtime.watchers import WatcherRuntimeStore
@@ -387,6 +402,47 @@ def _probe_runtime_delivery_state_consistency(
                 "error": "unattested file watchers require safe migration: " + ", ".join(sorted(invalid_watcher_ids)),
             }
         )
+
+    # Roadmap execution is an acknowledged production projection too. Validate
+    # every surviving authority, including framed histories and reports, even
+    # when no release workflow has been initialized for that roadmap.
+    from cortex_server.runtime.roadmap_executor import RoadmapExecutionStore
+
+    roadmap_root = delivery_root / "roadmap_executor"
+    roadmap_store = RoadmapExecutionStore(roadmap_root)
+    roadmap_sources: Dict[str, set[str]] = {}
+    for directory, suffix, source in (
+        ("contracts", ".json", "contract"),
+        ("state", ".json", "state"),
+        ("history", ".jsonl", "history"),
+        ("reports", ".jsonl", "reports"),
+    ):
+        for target in (roadmap_root / directory).glob(f"*{suffix}"):
+            roadmap_sources.setdefault(target.name.removesuffix(suffix), set()).add(source)
+    for process_id, sources in sorted(roadmap_sources.items()):
+        try:
+            contract = roadmap_store.load_contract(process_id)
+            state = roadmap_store.load_state(process_id)
+            if contract is None or state is None:
+                raise ValueError(
+                    "roadmap authoritative projection is incomplete: " + ", ".join(sorted(sources))
+                )
+            if contract.process_id != process_id or state.process_id != process_id:
+                raise ValueError("roadmap process identity mismatch")
+            if state.objective_id != contract.objective_id:
+                raise ValueError("roadmap state objective does not match its contract")
+            if state.persistence_revision < 1:
+                raise ValueError("roadmap state lacks a committed persistence revision")
+            read_recoverable_jsonl(roadmap_store._history_target(process_id))
+            roadmap_store.reports(process_id)
+        except (OSError, RuntimeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+            errors.append(
+                {
+                    "process_id": process_id,
+                    "check": "roadmap_projection_integrity",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
 
     for intent_path in sorted(release_root.glob(".*.json.rollback-intent.json")):
         try:
@@ -413,6 +469,26 @@ def _probe_runtime_delivery_state_consistency(
         if not path.name.startswith(".")
     ]
     release_state_ids = {path.stem for path in state_paths}
+    bootstrap_root = delivery_root / "release_bootstrap_intents"
+    for intent_path in sorted(bootstrap_root.glob("*.json")):
+        try:
+            payload = json.loads(intent_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or payload.get("version") != "cortex.runtime-delivery.release-bootstrap.v1":
+                raise ValueError("bootstrap intent has an invalid schema")
+            process_id = str(payload.get("process_id") or "").strip()
+            if not process_id or not isinstance(payload.get("request"), dict) or not isinstance(payload.get("contract"), dict):
+                raise ValueError("bootstrap intent is incomplete")
+            if str((payload.get("contract") or {}).get("process_id") or "") != process_id:
+                raise ValueError("bootstrap intent contract identity mismatch")
+            pending_bootstraps.append(process_id)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(
+                {
+                    "process_id": None,
+                    "check": "release_bootstrap_intent_integrity",
+                    "error": f"{intent_path.name}: {type(exc).__name__}: {exc}",
+                }
+            )
     projection_sources = _runtime_delivery_projection_sources(
         delivery_root,
         reasoning_processes=reasoning_processes,
@@ -428,7 +504,11 @@ def _probe_runtime_delivery_state_consistency(
         "reasoning_runtime_delivery",
     }
     for orphan_process_id, sources in sorted(projection_sources.items()):
-        if orphan_process_id in release_state_ids or not (sources & release_owned_sources):
+        if (
+            orphan_process_id in release_state_ids
+            or orphan_process_id in pending_bootstraps
+            or not (sources & release_owned_sources)
+        ):
             continue
         errors.append(
             {
@@ -584,6 +664,15 @@ def _probe_runtime_delivery_state_consistency(
             )
 
     pending = sorted(set(pending))
+    pending_bootstraps = sorted(set(pending_bootstraps))
+    for process_id in pending_bootstraps:
+        errors.append(
+            {
+                "process_id": process_id,
+                "check": "release_bootstrap_recovery_pending",
+                "error": "durable release bootstrap intent requires startup recovery",
+            }
+        )
     for process_id in pending:
         errors.append(
             {
@@ -596,6 +685,7 @@ def _probe_runtime_delivery_state_consistency(
         "ok": not errors,
         "releaseCount": len(release_state_ids),
         "pendingRollbackProcessIds": pending,
+        "pendingBootstrapProcessIds": pending_bootstraps,
         "inconsistencies": errors,
         "error": None if not errors else "runtime delivery projections require recovery",
     }
@@ -828,6 +918,17 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         "observedMountId": observed_mount_id,
         "error": durable_error,
     }
+    try:
+        capacity = runtime_delivery_capacity(delivery_root)
+        checks["runtimeDeliveryCapacity"] = {
+            **capacity,
+            "error": None if capacity["ok"] else "runtime delivery operational quota exhausted",
+        }
+    except OSError as exc:
+        checks["runtimeDeliveryCapacity"] = {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
     if _production_environment():
         try:
@@ -1146,6 +1247,8 @@ class ProductionPassBudget(BaseModel):
         number = int(value or 0)
         if number <= 0:
             raise ValueError("budget values must be positive")
+        if number > 32:
+            raise ValueError("budget values must not exceed the immutable limit of 32")
         return number
 
     @field_validator("validation_mode")
@@ -1417,7 +1520,23 @@ class ProductionBuildLoopStore:
                     "production build contract identity conflict: "
                     f"stored={current.contract_id}, received={record.contract_id}"
                 )
-            _atomic_write_json(target, _contract_dump(record))
+            payload = _contract_dump(record)
+            encoded = encoded_json(payload, pretty=True)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                assert_process_count(
+                    self._root(),
+                    record.process_id,
+                    delivery_root=self._root().parent,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=target,
+                )
+                _atomic_write_json(target, payload)
             return record
 
     def load_contract(self, process_id: str) -> Optional[ProductionBuildContract]:
@@ -1443,7 +1562,7 @@ class ProductionBuildLoopStore:
                     raise RuntimeError("production build loop persistence revision conflict")
                 next_revision = current.persistence_revision + 1
             record = _state_validate({**_state_dump(record), "persistence_revision": next_revision})
-            _atomic_write_json(target, _state_dump(record))
+            state_payload = _state_dump(record)
             history_row = {
                 "ts": _now_iso(),
                 "loop_id": record.loop_id,
@@ -1455,10 +1574,36 @@ class ProductionBuildLoopStore:
                 "checkpoint_count": record.checkpoint_count,
                 "recovery_count": record.recovery_count,
                 "previous_status": current.status if current else None,
-                "state": _state_dump(record),
+                "state": state_payload,
             }
             history_target = self._history_target(record.process_id)
-            _append_fsynced_jsonl(history_target, history_row)
+            state_encoded = encoded_json(state_payload, pretty=True)
+            history_encoded = encoded_json(history_row)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                history_payload = bounded_jsonl_payload(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=max(len(state_encoded), len(history_encoded)),
+                    additional_bytes=len(state_encoded) + len(history_payload),
+                    replacements=(
+                        (target, len(state_encoded)),
+                        (history_target, len(history_payload)),
+                    ),
+                )
+                _atomic_write_json(target, state_payload)
+                append_bounded_jsonl(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
             return record
 
     def _load_state_unlocked(self, process_id: str) -> Optional[ProductionBuildLoopState]:
@@ -1487,8 +1632,31 @@ class ProductionBuildLoopStore:
 
     def append_report(self, report: ProductionBuildLoopReport | Dict[str, Any]) -> ProductionBuildLoopReport:
         record = _report_validate(report if isinstance(report, dict) else _report_dump(report))
-        target = self._report_target(record.process_id)
-        _append_fsynced_jsonl(target, _report_dump(record))
+        with self._locked(record.process_id, exclusive=True):
+            target = self._report_target(record.process_id)
+            payload = _report_dump(record)
+            encoded = encoded_json(payload)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                report_payload = bounded_jsonl_payload(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(report_payload),
+                    replacements=((target, len(report_payload)),),
+                )
+                append_bounded_jsonl(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
         return record
 
     def reports(self, process_id: str) -> List[ProductionBuildLoopReport]:
@@ -3509,6 +3677,7 @@ def advance_production_release_loop(
                 allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
                 require_dependability=bool(gate_spec.require_dependability),
                 artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
             )
             if not bool(last_gate.get("safe_push")):
                 actions_taken.append({"action": "abort_unhealthy_commit_leases", "target_stage": next_stage})

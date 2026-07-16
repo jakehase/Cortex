@@ -281,6 +281,46 @@ function isLifecycleSpoolRecord(value: unknown): value is LifecycleSpoolRecord {
       || (typeof record.assuranceReceipt === 'string' && record.assuranceReceipt.length > 0 && record.assuranceReceipt.length <= 16_384));
 }
 
+function withLifecycleDirectoryLock<T>(lockPath: string, operation: () => T): T {
+  const deadline = Date.now() + 10_000;
+  while (true) {
+    try {
+      fs.mkdirSync(lockPath, { mode: 0o700 });
+      fs.writeFileSync(
+        path.join(lockPath, 'owner.json'),
+        JSON.stringify({ pid: process.pid, createdAt: Date.now() }),
+        { mode: 0o600 },
+      );
+      break;
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      let reclaim = false;
+      try {
+        const owner = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8'));
+        const ownerPid = Number(owner?.pid);
+        if (Number.isSafeInteger(ownerPid) && ownerPid > 0) {
+          try { process.kill(ownerPid, 0); } catch (signalError: any) { reclaim = signalError?.code === 'ESRCH'; }
+        }
+        const age = Date.now() - fs.statSync(lockPath).mtimeMs;
+        reclaim = reclaim && age >= 1_000;
+      } catch {
+        try { reclaim = Date.now() - fs.statSync(lockPath).mtimeMs >= 30_000; } catch {}
+      }
+      if (reclaim) {
+        try { fs.rmSync(lockPath, { recursive: true }); } catch {}
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool lock');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    return operation();
+  } finally {
+    try { fs.rmSync(lockPath, { recursive: true }); } catch {}
+  }
+}
+
 class DurableLifecycleSpool {
   private readonly filePath: string;
   private readonly lockPath: string;
@@ -362,39 +402,7 @@ class DurableLifecycleSpool {
   }
 
   private withLock<T>(operation: () => T): T {
-    const deadline = Date.now() + 10_000;
-    while (true) {
-      try {
-        fs.mkdirSync(this.lockPath, { mode: 0o700 });
-        fs.writeFileSync(path.join(this.lockPath, 'owner.json'), JSON.stringify({ pid: process.pid, createdAt: Date.now() }), { mode: 0o600 });
-        break;
-      } catch (error: any) {
-        if (error?.code !== 'EEXIST') throw error;
-        let reclaim = false;
-        try {
-          const owner = JSON.parse(fs.readFileSync(path.join(this.lockPath, 'owner.json'), 'utf8'));
-          const ownerPid = Number(owner?.pid);
-          if (Number.isSafeInteger(ownerPid) && ownerPid > 0) {
-            try { process.kill(ownerPid, 0); } catch (signalError: any) { reclaim = signalError?.code === 'ESRCH'; }
-          }
-          const age = Date.now() - fs.statSync(this.lockPath).mtimeMs;
-          reclaim = reclaim && age >= 1_000;
-        } catch {
-          try { reclaim = Date.now() - fs.statSync(this.lockPath).mtimeMs >= 30_000; } catch {}
-        }
-        if (reclaim) {
-          try { fs.rmSync(this.lockPath, { recursive: true }); } catch {}
-          continue;
-        }
-        if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool lock');
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-      }
-    }
-    try {
-      return operation();
-    } finally {
-      try { fs.rmSync(this.lockPath, { recursive: true }); } catch {}
-    }
+    return withLifecycleDirectoryLock(this.lockPath, operation);
   }
 
   private reload(): void {
@@ -432,6 +440,46 @@ class DurableLifecycleSpool {
       if (fd !== undefined) fs.closeSync(fd);
       try { fs.unlinkSync(temporary); } catch {}
     }
+  }
+}
+
+class DurableLifecycleQuota {
+  private readonly root: string;
+  private readonly maxRecords: number;
+  private readonly lockPath: string;
+
+  constructor(root: string, maxRecords: number) {
+    this.root = root;
+    this.maxRecords = maxRecords;
+    this.lockPath = path.join(root, '.lifecycle-spool-global.lock');
+  }
+
+  runExclusive<T>(operation: () => T): T {
+    return withLifecycleDirectoryLock(this.lockPath, operation);
+  }
+
+  private recordCount(): number {
+    let total = 0;
+    for (const entry of fs.readdirSync(this.root, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
+      const spoolFile = path.join(this.root, entry.name, 'lifecycle-spool.json');
+      if (!fs.existsSync(spoolFile)) continue;
+      const parsed = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
+      if (!Array.isArray(parsed) || !parsed.every(isLifecycleSpoolRecord)) {
+        throw new Error('invalid Cortex lifecycle spool during global quota reconciliation');
+      }
+      total += parsed.length;
+    }
+    return total;
+  }
+
+  put(spool: DurableLifecycleSpool, record: LifecycleSpoolRecord): LifecycleSpoolRecord {
+    return this.runExclusive(() => {
+      if (!spool.has(record.key) && this.recordCount() >= this.maxRecords) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
+      }
+      return spool.put(record);
+    });
   }
 }
 
@@ -994,16 +1042,16 @@ function boundedLifecycleIdentity(value: unknown, field: string, maxLength: numb
 }
 function canonicalLifecycleContext(cfg: BridgeConfig, ctx: any = {}, idempotencyKey = ''): LifecycleSpoolRecord['context'] {
   const session = boundedLifecycleIdentity(
-    ctx?.sessionKey || ctx?.sessionId || cfg.sessionId,
+    ctx?.sessionKey || ctx?.sessionId,
     'session identity',
     512,
   );
   return {
     sessionKey: session,
     sessionId: session,
-    channelId: boundedLifecycleIdentity(ctx?.channelId || ctx?.messageChannel || cfg.channelId, 'channel identity', 256),
-    agentId: boundedLifecycleIdentity(ctx?.agentId || cfg.agentId, 'agent identity', 256),
-    userId: boundedLifecycleIdentity(ctx?.userId || ctx?.requesterSenderId || cfg.userId, 'user identity', 256),
+    channelId: boundedLifecycleIdentity(ctx?.channelId || ctx?.messageChannel, 'channel identity', 256),
+    agentId: boundedLifecycleIdentity(ctx?.agentId, 'agent identity', 256),
+    userId: boundedLifecycleIdentity(ctx?.userId || ctx?.requesterSenderId, 'user identity', 256),
     idempotencyKey,
   };
 }
@@ -1037,7 +1085,7 @@ function lifecyclePrincipalsEqual(left: LifecyclePrincipal, right: LifecyclePrin
 function loadLifecycleSpools(
   cfg: ReturnType<typeof resolveConfig>,
   logger: { warn?: (message: string) => void },
-): { root: string; spools: Map<string, DurableLifecycleSpool> } {
+): { root: string; spools: Map<string, DurableLifecycleSpool>; quota: DurableLifecycleQuota } {
   const stateRoot = cfg.stateDir;
   fs.mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
   try { fs.chmodSync(stateRoot, 0o700); } catch {}
@@ -1051,56 +1099,68 @@ function loadLifecycleSpools(
   const principalRoot = path.join(stateRoot, 'lifecycle-principals-v2');
   fs.mkdirSync(principalRoot, { recursive: true, mode: 0o700 });
   try { fs.chmodSync(principalRoot, 0o700); } catch {}
-  const spools = new Map<string, DurableLifecycleSpool>();
-  let loadedRecords = 0;
-  for (const entry of fs.readdirSync(principalRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
-    const namespaceDir = path.join(principalRoot, entry.name);
-    const spoolFile = path.join(namespaceDir, 'lifecycle-spool.json');
-    if (!fs.existsSync(spoolFile)) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
-    } catch (error) {
-      throw new Error(`invalid Cortex lifecycle spool; refusing replay: ${String(error)}`);
-    }
-    if (!Array.isArray(parsed) || parsed.length > cfg.lifecycleSpoolMaxRecords) {
-      throw new Error('invalid Cortex lifecycle spool; refusing replay');
-    }
-    if (parsed.length === 0) continue;
-    if (parsed.every((record: any) => record?.version === 1 && !record?.principal)) {
-      const quarantined = quarantineLifecycleFile(spoolFile, 'legacy-unscoped');
-      logger.warn?.(`cortex-memory-bridge: quarantined unscoped lifecycle spool at ${quarantined}`);
-      continue;
-    }
-    if (!parsed.every(isLifecycleSpoolRecord)) {
-      throw new Error('invalid Cortex lifecycle spool; refusing replay');
-    }
-    const records = parsed as LifecycleSpoolRecord[];
-    const matchesActivePrincipal = records.every((record) => {
+  const quota = new DurableLifecycleQuota(principalRoot, cfg.lifecycleSpoolMaxRecords);
+  return quota.runExclusive(() => {
+    const spools = new Map<string, DurableLifecycleSpool>();
+    let loadedRecords = 0;
+    const entries = fs.readdirSync(principalRoot, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
+      const namespaceDir = path.join(principalRoot, entry.name);
+      const spoolFile = path.join(namespaceDir, 'lifecycle-spool.json');
+      if (!fs.existsSync(spoolFile)) continue;
+      let parsed: unknown;
       try {
-        const currentContext = canonicalLifecycleContext(cfg, record.context, record.key);
-        const currentPrincipal = lifecyclePrincipal(cfg, currentContext);
-        const currentNamespace = lifecyclePrincipalNamespace(cfg, currentPrincipal);
-        return currentNamespace === entry.name
-          && record.key.startsWith(`${currentNamespace}:`)
-          && lifecyclePrincipalsEqual(record.principal, currentPrincipal);
-      } catch {
-        return false;
+        parsed = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
+      } catch (error) {
+        throw new Error(`invalid Cortex lifecycle spool; refusing replay: ${String(error)}`);
       }
-    });
-    if (!matchesActivePrincipal) {
-      const quarantined = quarantineLifecycleFile(spoolFile, 'principal-scope-mismatch');
-      logger.warn?.(`cortex-memory-bridge: quarantined lifecycle spool with inactive principal scope at ${quarantined}`);
-      continue;
+      if (!Array.isArray(parsed)) {
+        throw new Error('invalid Cortex lifecycle spool; refusing replay');
+      }
+      if (parsed.length > cfg.lifecycleSpoolMaxRecords) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'global-quota-overflow');
+        logger.warn?.(`cortex-memory-bridge: quarantined oversized lifecycle spool for bounded recovery at ${quarantined}`);
+        continue;
+      }
+      if (parsed.length === 0) continue;
+      if (parsed.every((record: any) => record?.version === 1 && !record?.principal)) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'legacy-unscoped');
+        logger.warn?.(`cortex-memory-bridge: quarantined unscoped lifecycle spool at ${quarantined}`);
+        continue;
+      }
+      if (!parsed.every(isLifecycleSpoolRecord)) {
+        throw new Error('invalid Cortex lifecycle spool; refusing replay');
+      }
+      const records = parsed as LifecycleSpoolRecord[];
+      const matchesActivePrincipal = records.every((record) => {
+        try {
+          const currentContext = canonicalLifecycleContext(cfg, record.context, record.key);
+          const currentPrincipal = lifecyclePrincipal(cfg, currentContext);
+          const currentNamespace = lifecyclePrincipalNamespace(cfg, currentPrincipal);
+          return currentNamespace === entry.name
+            && record.key.startsWith(`${currentNamespace}:`)
+            && lifecyclePrincipalsEqual(record.principal, currentPrincipal);
+        } catch {
+          return false;
+        }
+      });
+      if (!matchesActivePrincipal) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'principal-scope-mismatch');
+        logger.warn?.(`cortex-memory-bridge: quarantined lifecycle spool with inactive principal scope at ${quarantined}`);
+        continue;
+      }
+      if (loadedRecords + records.length > cfg.lifecycleSpoolMaxRecords) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'global-quota-overflow');
+        logger.warn?.(`cortex-memory-bridge: quarantined overflow lifecycle spool for bounded recovery at ${quarantined}`);
+        continue;
+      }
+      loadedRecords += records.length;
+      spools.set(entry.name, new DurableLifecycleSpool(namespaceDir, cfg.lifecycleSpoolMaxRecords));
     }
-    loadedRecords += records.length;
-    if (loadedRecords > cfg.lifecycleSpoolMaxRecords) {
-      throw new Error(`lifecycle spool exhausted across principals at ${cfg.lifecycleSpoolMaxRecords} records`);
-    }
-    spools.set(entry.name, new DurableLifecycleSpool(namespaceDir, cfg.lifecycleSpoolMaxRecords));
-  }
-  return { root: principalRoot, spools };
+    return { root: principalRoot, spools, quota };
+  });
 }
 function searchResponseUnavailable(response: any): string | null {
   if (!response || typeof response !== 'object') return 'invalid search response';
@@ -1517,13 +1577,9 @@ const plugin = {
         ...(activeReceipt ? { assuranceReceipt: activeReceipt } : {}),
       };
       try {
-        const totalSpoolRecords = [...spools.values()].reduce((total, current) => total + current.size, 0);
-        if (!principalSpool.has(persistenceKey) && totalSpoolRecords >= cfg.lifecycleSpoolMaxRecords) {
-          throw new Error(`lifecycle spool exhausted across principals at ${cfg.lifecycleSpoolMaxRecords} records`);
-        }
         // The first process to persist this lifecycle identity owns its
         // canonical payload and any retained receipt. Later processes adopt it.
-        spoolRecord = principalSpool.put(spoolRecord);
+        spoolRecord = lifecycleState!.quota.put(principalSpool, spoolRecord);
       } catch (error) {
         try {
           if (principalSpool.removeIfEmpty()) spools.delete(principalNamespace);
@@ -1726,6 +1782,7 @@ const plugin = {
         recentOutputByPrincipal.set(binding.namespace, text.slice(-recentOutputMaxChars));
       } catch (error) {
         api.logger.warn?.(`cortex-memory-bridge: refused recent output with incomplete principal: ${String(error)}`);
+        throw error;
       }
     });
 

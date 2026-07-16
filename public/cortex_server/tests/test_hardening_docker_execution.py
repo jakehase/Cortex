@@ -77,6 +77,17 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "cortex-runtime-delivery:" in compose
 
 
+def test_volume_identity_markers_are_create_once_and_atomically_published():
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert compose.count('if [ -e "$$marker" ]; then') == 2
+    assert compose.count('temporary="$$marker.tmp.$$$$"') == 2
+    assert compose.count('sync "$$temporary"') == 2
+    assert compose.count('mv "$$temporary" "$$marker"') == 2
+    assert "printf '%s\\n' \"$$CORTEX_CHROMA_MOUNT_ID\" > \"$$marker\"" not in compose
+    assert "printf '%s\\n' \"$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID\" > \"$$marker\"" not in compose
+
+
 def test_compose_enforces_allocator_and_cgroup_oom_boundaries():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
 

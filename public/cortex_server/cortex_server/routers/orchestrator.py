@@ -106,6 +106,13 @@ from cortex_server.runtime import (
     reconcile_roadmap_execution,
     resilient_delivery_attempt,
 )
+from cortex_server.runtime.offloaded_memory import RuntimeMemoryLimitError
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_RUNTIME_DELIVERY_OBJECT_BYTES,
+    RuntimeDeliveryQuotaError,
+    assert_runtime_delivery_volume_capacity,
+    runtime_delivery_quota_transaction,
+)
 from cortex_server.runtime.production_build_loop import (
     REQUIRED_RELEASE_HANDOFF_RECIPIENTS,
     ingest_production_release_artifact,
@@ -159,7 +166,7 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "root": root,
         "snapshot_store": ProcessSnapshotStore(root / "snapshots"),
         "shared_state_store": SharedProcessStateStore(root / "shared_state"),
-        "journal": ProcessJournal(root / "journal.jsonl"),
+        "journal": ProcessJournal(root / "journal.jsonl", delivery_root=root),
         "session_registry": SessionRegistryStore(
             root / "session_registry.json",
             max_sessions=int(os.getenv("ORCHESTRATOR_MAX_SESSIONS", "1000")),
@@ -170,7 +177,7 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         ),
         "watcher_store": WatcherRuntimeStore(root / "watchers.json"),
         "runtime_memory_store": RuntimeMemoryStore(root / "memory"),
-        "delivery_dlq": DeliveryDeadLetterStore(root / "delivery_dlq.jsonl"),
+        "delivery_dlq": DeliveryDeadLetterStore(root / "delivery_dlq.jsonl", delivery_root=root),
         "mailbox": AgentMailbox(root / "mailbox.json"),
         "supervisor": AgentSupervisor(root / "leases.json"),
         "release_store": ReleaseWorkflowStore(root / "release_workflow"),
@@ -266,6 +273,49 @@ def _runtime_event_receipt_paths(*, stores: Dict[str, Any], process_id: str, eve
     process_digest = hashlib.sha256(str(process_id).encode("utf-8")).hexdigest()
     root = Path(stores["root"]) / "session_event_inbox"
     return root / f"{event_digest}.json", root / f"{process_digest}.lock", root / f"{process_digest}.pending.json"
+
+
+def _release_bootstrap_intent_target(*, stores: Dict[str, Any], process_id: str) -> Path:
+    digest = hashlib.sha256(str(process_id).encode("utf-8")).hexdigest()
+    return Path(stores["root"]) / "release_bootstrap_intents" / f"{digest}.json"
+
+
+def _save_release_bootstrap_intent(
+    *,
+    stores: Dict[str, Any],
+    process_id: str,
+    request: Any,
+    contract: ProductionBuildContract,
+) -> Path:
+    target = _release_bootstrap_intent_target(stores=stores, process_id=process_id)
+    payload = {
+        "version": "cortex.runtime-delivery.release-bootstrap.v1",
+        "process_id": process_id,
+        "request": model_dump_compat(request),
+        "contract": model_dump_compat(contract),
+        "created_at": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+    }
+    encoded_size = len(
+        (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    )
+    if encoded_size > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+        raise HTTPException(status_code=413, detail="runtime delivery bootstrap intent exceeds immutable object quota")
+    try:
+        with runtime_delivery_quota_transaction(Path(stores["root"])):
+            assert_runtime_delivery_volume_capacity(
+                Path(stores["root"]),
+                additional_bytes=encoded_size,
+            )
+            _write_runtime_event_receipt(target, payload)
+    except RuntimeDeliveryQuotaError as exc:
+        raise HTTPException(status_code=507, detail=str(exc)) from exc
+    return target
+
+
+def _clear_release_bootstrap_intent(*, stores: Dict[str, Any], process_id: str) -> None:
+    target = _release_bootstrap_intent_target(stores=stores, process_id=process_id)
+    if target.exists():
+        _unlink_fsynced(target)
 
 
 def _write_runtime_event_receipt(path: Path, receipt: Dict[str, Any]) -> None:
@@ -555,6 +605,44 @@ def _record_runtime_session_event(*, process_id: str, event: Any, stores: Dict[s
             event=event,
             stores=stores,
         )
+
+
+def _preflight_runtime_session_event(event: Any, *, stores: Dict[str, Any]) -> None:
+    """Validate deterministic downstream projections before inbox publication."""
+
+    try:
+        stores["session_registry"].validate_event_admission(event)
+        event_bytes = len(
+            json.dumps(
+                model_dump_compat(event),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        )
+        for name, model in (
+            ("shared state", stores["shared_state_store"].load(event.process_id)),
+            ("snapshot", stores["snapshot_store"].load(event.process_id)),
+        ):
+            if model is None:
+                continue
+            current_bytes = len(
+                json.dumps(
+                    model_dump_compat(model),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            )
+            # Session-plane derivation adds bounded summaries and identifiers
+            # in several nested projections. This conservative margin ensures
+            # their complete replacement and history row remain admissible.
+            if current_bytes + (4 * event_bytes) + 64 * 1024 > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+                raise ValueError(f"runtime session {name} projection exceeds immutable object quota")
+    except (TypeError, ValueError) as exc:
+        raise RuntimeMemoryLimitError(str(exc)) from exc
 
 
 def _runtime_workspace_targets_from_process(process: Dict[str, Any]) -> List[str]:
@@ -1872,10 +1960,33 @@ def _recover_runtime_delivery_rollbacks(*, stores: Optional[Dict[str, Any]] = No
     return recovered
 
 
+def _recover_runtime_delivery_bootstraps(*, stores: Optional[Dict[str, Any]] = None) -> List[str]:
+    active_stores = stores or _runtime_delivery_stores()
+    root = Path(active_stores["root"]) / "release_bootstrap_intents"
+    recovered: List[str] = []
+    if not root.exists():
+        return recovered
+    for target in sorted(root.glob("*.json")):
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("version") != "cortex.runtime-delivery.release-bootstrap.v1":
+            raise RuntimeError(f"invalid runtime delivery bootstrap intent: {target.name}")
+        process_id = str(payload.get("process_id") or "").strip()
+        request_payload = payload.get("request")
+        contract_payload = payload.get("contract")
+        if not process_id or not isinstance(request_payload, dict) or not isinstance(contract_payload, dict):
+            raise RuntimeError(f"incomplete runtime delivery bootstrap intent: {target.name}")
+        request_payload = {**request_payload, "contract": contract_payload, "initialize_release": True}
+        request = RuntimeDeliveryReconcileRequest.model_validate(request_payload)
+        _reconcile_runtime_delivery_sequence(process_id, request=request, stores=active_stores)
+        recovered.append(process_id)
+    return recovered
+
+
 @router.on_event("startup")
 async def recover_runtime_delivery_rollbacks_on_startup() -> None:
-    _recover_runtime_delivery_rollbacks()
     stores = _runtime_delivery_stores()
+    _recover_runtime_delivery_bootstraps(stores=stores)
+    _recover_runtime_delivery_rollbacks(stores=stores)
     for process in list_runtime_processes():
         process_id = str(process.get("process_id") or "").strip()
         if not process_id:
@@ -2937,16 +3048,35 @@ class RuntimeSessionRegisterRequest(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+RUNTIME_SESSION_EVENT_PAYLOAD_MAX_BYTES = 48 * 1024
+
+
+def _bounded_runtime_session_payload(value: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("runtime session payload must be canonically JSON serializable") from exc
+    if len(encoded) > RUNTIME_SESSION_EVENT_PAYLOAD_MAX_BYTES:
+        raise ValueError(
+            f"runtime session payload exceeds {RUNTIME_SESSION_EVENT_PAYLOAD_MAX_BYTES} bytes"
+        )
+    return value
+
+
 class RuntimeSessionEventRequest(BaseModel):
-    process_id: str
-    event: str
-    event_id: Optional[str] = None
-    session_id: Optional[str] = None
-    session_name: Optional[str] = None
-    tool: Optional[str] = None
-    summary: Optional[str] = None
-    status: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    process_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    event: str = Field(min_length=1, max_length=256)
+    event_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    session_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    session_name: Optional[str] = Field(None, max_length=256)
+    tool: Optional[str] = Field(None, max_length=256)
+    summary: Optional[str] = Field(None, max_length=4096)
+    status: Optional[str] = Field(None, max_length=256)
     payload: Dict[str, Any] = Field(default_factory=dict)
+
+    _bounded_payload = field_validator("payload")(_bounded_runtime_session_payload)
 
 
 class RuntimeSessionHeartbeatRequest(BaseModel):
@@ -2981,13 +3111,17 @@ class RuntimeMemoryNoteRequest(BaseModel):
 
 
 class RuntimeToolIngestRequest(BaseModel):
-    process_id: str
-    tool: str
-    event: str
-    event_id: Optional[str] = None
-    session_id: Optional[str] = None
-    session_name: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    process_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    tool: str = Field(min_length=1, max_length=256)
+    event: str = Field(min_length=1, max_length=256)
+    event_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    session_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    session_name: Optional[str] = Field(None, max_length=256)
     payload: Dict[str, Any] = Field(default_factory=dict)
+
+    _bounded_payload = field_validator("payload")(_bounded_runtime_session_payload)
 
 
 class RuntimePolicyApplyRequest(BaseModel):
@@ -4353,6 +4487,8 @@ async def list_runtime_sessions(process_id: Optional[str] = None):
 @router.post("/runtime/session/event")
 async def record_runtime_session_event(request: RuntimeSessionEventRequest):
     stores = _runtime_delivery_stores()
+    if get_runtime_process(request.process_id) is None:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
     event = normalize_session_event(
         request.process_id,
         request.event,
@@ -4368,14 +4504,29 @@ async def record_runtime_session_event(request: RuntimeSessionEventRequest):
         if not event_id:
             raise HTTPException(status_code=422, detail="event_id must be non-empty when supplied")
         event.event_id = event_id
-    delivery = resilient_delivery_attempt(
-        "runtime_session_event_ingest",
-        lambda: _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores),
-        process_id=request.process_id,
-        event_kind=event.kind,
-        payload=model_dump_compat(event),
-        dlq_store=stores["delivery_dlq"],
-    )
+    try:
+        with (
+            _runtime_session_mutation(
+                stores=stores,
+                process_id=request.process_id,
+                operation="runtime session event ingestion",
+            ),
+            stores["session_registry"]._transaction(),
+        ):
+            _preflight_runtime_session_event(event, stores=stores)
+            with stores["runtime_memory_store"].session_event_admission(event):
+                delivery = resilient_delivery_attempt(
+                    "runtime_session_event_ingest",
+                    lambda: _record_runtime_session_event_locked(process_id=request.process_id, event=event, stores=stores),
+                    process_id=request.process_id,
+                    event_kind=event.kind,
+                    payload=model_dump_compat(event),
+                    dlq_store=stores["delivery_dlq"],
+                )
+    except RuntimeMemoryLimitError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except (PermissionError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not delivery.get("success"):
         raise HTTPException(status_code=409, detail=delivery)
     result = dict(delivery.get("result") or {})
@@ -4520,6 +4671,8 @@ async def write_runtime_memory_note(request: RuntimeMemoryNoteRequest):
 @router.post("/runtime/tools/ingest")
 async def ingest_runtime_tool_event(request: RuntimeToolIngestRequest):
     stores = _runtime_delivery_stores()
+    if get_runtime_process(request.process_id) is None:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
     event = adapt_tool_event(
         request.process_id,
         tool=request.tool,
@@ -4533,14 +4686,29 @@ async def ingest_runtime_tool_event(request: RuntimeToolIngestRequest):
         if not event_id:
             raise HTTPException(status_code=422, detail="event_id must be non-empty when supplied")
         event.event_id = event_id
-    delivery = resilient_delivery_attempt(
-        "runtime_tool_event_ingest",
-        lambda: _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores),
-        process_id=request.process_id,
-        event_kind=event.kind,
-        payload=model_dump_compat(event),
-        dlq_store=stores["delivery_dlq"],
-    )
+    try:
+        with (
+            _runtime_session_mutation(
+                stores=stores,
+                process_id=request.process_id,
+                operation="runtime tool event ingestion",
+            ),
+            stores["session_registry"]._transaction(),
+        ):
+            _preflight_runtime_session_event(event, stores=stores)
+            with stores["runtime_memory_store"].session_event_admission(event):
+                delivery = resilient_delivery_attempt(
+                    "runtime_tool_event_ingest",
+                    lambda: _record_runtime_session_event_locked(process_id=request.process_id, event=event, stores=stores),
+                    process_id=request.process_id,
+                    event_kind=event.kind,
+                    payload=model_dump_compat(event),
+                    dlq_store=stores["delivery_dlq"],
+                )
+    except RuntimeMemoryLimitError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except (PermissionError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not delivery.get("success"):
         raise HTTPException(status_code=409, detail=delivery)
     result = dict(delivery.get("result") or {})
@@ -4812,10 +4980,35 @@ async def get_runtime_process_view(process_id: str, http_request: Request = None
 
 
 @router.get("/runtime-delivery/readiness")
-async def get_runtime_delivery_readiness():
+async def get_runtime_delivery_readiness(http_request: Request = None):
     from fastapi.responses import JSONResponse
 
-    payload = probe_runtime_delivery_readiness(_runtime_delivery_root())
+    shared_probe = getattr(getattr(http_request, "app", None), "state", None)
+    shared_probe = getattr(shared_probe, "async_readiness_payload", None)
+    if callable(shared_probe):
+        service_payload = await shared_probe()
+        runtime_check = dict((service_payload.get("checks") or {}).get("runtimeDelivery") or {})
+        payload = {
+            "status": runtime_check.get("status") or "not_ready",
+            "ready": bool(runtime_check.get("ok")),
+            "service": "cortex-runtime-delivery",
+            "checks": runtime_check.get("checks") or {},
+            **({"error": runtime_check.get("error")} if runtime_check.get("error") else {}),
+        }
+    else:
+        try:
+            payload = await asyncio.wait_for(
+                asyncio.to_thread(probe_runtime_delivery_readiness, _runtime_delivery_root()),
+                timeout=5.0,
+            )
+        except Exception as exc:
+            payload = {
+                "status": "not_ready",
+                "ready": False,
+                "service": "cortex-runtime-delivery",
+                "checks": {},
+                "error": f"{type(exc).__name__}: {exc}",
+            }
     return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
 
 
@@ -5342,7 +5535,25 @@ def _reconcile_runtime_delivery_sequence(
         shared_state = stores["shared_state_store"].load(process_id)
         if snapshot is None or shared_state is None:
             raise HTTPException(status_code=400, detail=f"runtime delivery state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
+        release_state = release_store.load(process_id)
+        if not request.initialize_release and release_state is None:
+            raise HTTPException(
+                status_code=400,
+                detail="initialize_release=false is invalid before durable release workflow initialization",
+            )
         contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=request)
+        bootstrap_intent = _release_bootstrap_intent_target(
+            stores=stores,
+            process_id=process_id,
+        ).exists()
+        if release_state is None:
+            _save_release_bootstrap_intent(
+                stores=stores,
+                process_id=process_id,
+                request=request,
+                contract=contract,
+            )
+            bootstrap_intent = True
         # Establish the immutable contract identity before release creation,
         # dependability campaigns, promotion, or any other side effect.
         contract = stores["loop_store"].save_contract(contract)
@@ -5380,6 +5591,8 @@ def _reconcile_runtime_delivery_sequence(
             now=_parse_optional_dt(request.now_iso),
         )
         process = follow_up_bridge.get("process") or process
+        if bootstrap_intent:
+            _clear_release_bootstrap_intent(stores=stores, process_id=process_id)
         return {
             "success": True,
             "process_id": process_id,

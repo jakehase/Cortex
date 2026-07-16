@@ -143,7 +143,19 @@ class SessionRegistryStore:
             raise ValueError("session metadata exceeds size limit")
 
     def _write_all(self, rows: List[SessionRecord]) -> None:
+        encoded = self._bounded_payload(rows)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            with tmp.open("xb") as handle: handle.write(encoded); handle.flush(); os.fsync(handle.fileno())
+            os.replace(tmp, self.path)
+            directory = os.open(self.path.parent, os.O_RDONLY)
+            try: os.fsync(directory)
+            finally: os.close(directory)
+        finally:
+            if tmp.exists(): tmp.unlink()
+
+    def _bounded_payload(self, rows: List[SessionRecord]) -> bytes:
         active = [r for r in rows if r.status not in {"finished", "failed"}]
         terminal = sorted((r for r in rows if r.status in {"finished", "failed"}), key=lambda r: (r.last_event_at or r.registered_at, r.process_id, r.session_id), reverse=True)
         if len(active) > self.max_sessions: raise ValueError("active session count exceeds limit")
@@ -162,15 +174,7 @@ class SessionRegistryStore:
             oldest = min(terminal, key=lambda r: (r.last_event_at or r.registered_at, r.process_id, r.session_id))
             rows.remove(oldest)
             encoded = serialize()
-        tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        try:
-            with tmp.open("xb") as handle: handle.write(encoded); handle.flush(); os.fsync(handle.fileno())
-            os.replace(tmp, self.path)
-            directory = os.open(self.path.parent, os.O_RDONLY)
-            try: os.fsync(directory)
-            finally: os.close(directory)
-        finally:
-            if tmp.exists(): tmp.unlink()
+        return encoded
 
     def _find(self, rows: List[SessionRecord], *, process_id: str, session_id: str) -> Optional[SessionRecord]:
         for row in rows:
@@ -260,9 +264,8 @@ class SessionRegistryStore:
         self._write_all(rows)
         return record
 
-    def apply_event(self, event: CanonicalSessionEvent) -> SessionRecord:
+    def _project_event(self, rows: List[SessionRecord], event: CanonicalSessionEvent) -> SessionRecord:
         session_id = str(event.session_id or event.process_id).strip()
-        rows = self._load_all()
         current = self._find(rows, process_id=event.process_id, session_id=session_id)
         if current is None:
             current = SessionRecord(
@@ -321,6 +324,19 @@ class SessionRegistryStore:
             if current.status == "registered":
                 current.status = "running"
         current.metadata = {**dict(current.metadata or {}), "last_operator_summary": event.operator_summary}
+        return current
+
+    def validate_event_admission(self, event: CanonicalSessionEvent) -> None:
+        """Validate the exact registry projection without publishing it."""
+
+        with self._transaction():
+            rows = self._load_all()
+            self._project_event(rows, event)
+            self._bounded_payload(rows)
+
+    def apply_event(self, event: CanonicalSessionEvent) -> SessionRecord:
+        rows = self._load_all()
+        current = self._project_event(rows, event)
         self._write_all(rows)
         return current
 

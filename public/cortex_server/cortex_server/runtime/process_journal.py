@@ -6,11 +6,22 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+from uuid import uuid4
 
 from cortex_server.runtime.process_event import ProcessEvent
+from cortex_server.runtime.durable_files import fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_RUNTIME_DELIVERY_OBJECT_BYTES,
+    assert_runtime_delivery_volume_capacity,
+    runtime_delivery_quota_transaction,
+)
 
 
 JsonDict = Dict[str, Any]
+MAX_PROCESS_JOURNAL_RECORDS = 65_536
+MAX_PROCESS_JOURNAL_BYTES = 256 * 1024 * 1024
+MAX_PROCESS_JOURNAL_RECORDS_PER_PROCESS = 4096
+MAX_PROCESS_JOURNAL_BYTES_PER_PROCESS = 64 * 1024 * 1024
 
 
 
@@ -43,8 +54,9 @@ def _coerce_event(event: Optional[ProcessEvent | JsonDict] = None, **kwargs: Any
 
 
 class ProcessJournal:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else self.path.parent
 
     @property
     def _lock_path(self) -> Path:
@@ -107,26 +119,100 @@ class ProcessJournal:
             os.fsync(handle.fileno())
 
     def _append_payloads_unlocked(self, payloads: List[JsonDict]) -> None:
-        self._repair_torn_tail_unlocked()
-        created = not self.path.exists()
-        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
-        fd = os.open(self.path, flags, 0o600)
+        committed = self._committed_payloads_unlocked()
+        new_encoded_rows = [(json.dumps(payload, sort_keys=True) + "\n").encode("utf-8") for payload in payloads]
+        if any(len(row) > MAX_RUNTIME_DELIVERY_OBJECT_BYTES for row in new_encoded_rows):
+            raise ValueError("process journal record exceeds immutable object quota")
+        if (
+            len(new_encoded_rows) > MAX_PROCESS_JOURNAL_RECORDS
+            or sum(len(row) for row in new_encoded_rows) > MAX_PROCESS_JOURNAL_BYTES
+        ):
+            raise ValueError("process journal append exceeds immutable journal quota")
+        for process_id in {str(payload.get("process_id") or "") for payload in payloads}:
+            process_rows = [
+                row
+                for payload, row in zip(payloads, new_encoded_rows)
+                if str(payload.get("process_id") or "") == process_id
+            ]
+            if (
+                len(process_rows) > MAX_PROCESS_JOURNAL_RECORDS_PER_PROCESS
+                or sum(len(row) for row in process_rows) > MAX_PROCESS_JOURNAL_BYTES_PER_PROCESS
+            ):
+                raise ValueError("process journal append exceeds per-process quota")
+        combined = [
+            (payload, (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
+            for payload in committed
+        ] + list(zip(payloads, new_encoded_rows))
+        compact = False
+        for process_id in {str(payload.get("process_id") or "") for payload in payloads}:
+            process_indexes = [
+                index
+                for index, (payload, _row) in enumerate(combined)
+                if str(payload.get("process_id") or "") == process_id
+            ]
+            process_bytes = sum(len(combined[index][1]) for index in process_indexes)
+            while (
+                len(process_indexes) > MAX_PROCESS_JOURNAL_RECORDS_PER_PROCESS
+                or process_bytes > MAX_PROCESS_JOURNAL_BYTES_PER_PROCESS
+            ):
+                removed_index = process_indexes.pop(0)
+                process_bytes -= len(combined[removed_index][1])
+                combined[removed_index] = ({}, b"")
+                compact = True
+        combined = [(payload, row) for payload, row in combined if row]
+        encoded_rows = [row for _payload, row in combined]
+        compact = compact or len(encoded_rows) > MAX_PROCESS_JOURNAL_RECORDS or sum(
+            len(row) for row in encoded_rows
+        ) > MAX_PROCESS_JOURNAL_BYTES
+        if not compact:
+            encoded = b"".join(new_encoded_rows)
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                assert_runtime_delivery_volume_capacity(
+                    self.delivery_root,
+                    additional_bytes=len(encoded),
+                )
+                self._repair_torn_tail_unlocked()
+                created = not self.path.exists()
+                fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+                try:
+                    view = memoryview(encoded)
+                    while view:
+                        written = os.write(fd, view)
+                        if written <= 0:
+                            raise OSError("process journal append made no progress")
+                        view = view[written:]
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                if created:
+                    self._fsync_directory(self.path.parent)
+            return
+        encoded_rows = encoded_rows[-MAX_PROCESS_JOURNAL_RECORDS:]
+        total_bytes = sum(len(row) for row in encoded_rows)
+        while encoded_rows and total_bytes > MAX_PROCESS_JOURNAL_BYTES:
+            total_bytes -= len(encoded_rows[0])
+            encoded_rows.pop(0)
+        if not encoded_rows or len(encoded_rows) < len(payloads):
+            raise ValueError("process journal append exceeds immutable journal quota")
+        encoded = b"".join(encoded_rows)
+        temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            encoded = b"".join(
-                (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
-                for payload in payloads
-            )
-            view = memoryview(encoded)
-            while view:
-                written = os.write(fd, view)
-                if written <= 0:
-                    raise OSError("process journal append made no progress")
-                view = view[written:]
-            os.fsync(fd)
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                assert_runtime_delivery_volume_capacity(
+                    self.delivery_root,
+                    additional_bytes=len(encoded),
+                )
+                with temporary.open("xb") as handle:
+                    os.fchmod(handle.fileno(), 0o600)
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self.path)
+                fsync_directory(self.path.parent)
         finally:
-            os.close(fd)
-        if created:
-            self._fsync_directory(self.path.parent)
+            if temporary.exists():
+                temporary.unlink()
 
     def append(self, event: Optional[ProcessEvent | JsonDict] = None, **kwargs: Any) -> ProcessEvent:
         record = _coerce_event(event, **kwargs)

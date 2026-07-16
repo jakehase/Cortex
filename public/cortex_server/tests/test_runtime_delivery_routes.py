@@ -95,6 +95,45 @@ def _public_runtime_delivery_client() -> TestClient:
     return client
 
 
+@pytest.mark.asyncio
+async def test_both_public_readiness_aliases_use_application_off_thread_probe(monkeypatch):
+    app = FastAPI()
+    app.include_router(orchestrator.router, prefix="/orchestrator")
+    app.include_router(orchestrator.router, prefix="/conductor")
+    calls = []
+
+    async def shared_probe():
+        calls.append(True)
+        await asyncio.sleep(0)
+        return {
+            "ready": True,
+            "checks": {
+                "runtimeDelivery": {
+                    "ok": True,
+                    "status": "ready",
+                    "checks": {"durableRuntimeDeliveryRoot": {"ok": True}},
+                    "error": None,
+                }
+            },
+        }
+
+    app.state.async_readiness_payload = shared_probe
+    monkeypatch.setattr(
+        orchestrator,
+        "probe_runtime_delivery_readiness",
+        lambda _root: (_ for _ in ()).throw(AssertionError("synchronous fallback must not run")),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        responses = await asyncio.gather(
+            client.get("/orchestrator/runtime-delivery/readiness"),
+            client.get("/conductor/runtime-delivery/readiness"),
+        )
+    assert [response.status_code for response in responses] == [200, 200]
+    assert all(response.json()["service"] == "cortex-runtime-delivery" for response in responses)
+    assert len(calls) == 2
+
+
 def _workflow() -> dict:
     return {
         "name": "runtime_delivery_route",
@@ -108,6 +147,101 @@ def _workflow() -> dict:
             }
         ],
     }
+
+
+def test_release_bootstrap_rejects_disabled_initialization_without_orphaning_contract(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    process = scheduler.create_process_from_workflow(_workflow())
+    stores = orchestrator._runtime_delivery_stores()
+
+    with pytest.raises(orchestrator.HTTPException) as rejected:
+        orchestrator._reconcile_runtime_delivery_sequence(
+            process["process_id"],
+            request=orchestrator.RuntimeDeliveryReconcileRequest(
+                bootstrap_runtime_state=True,
+                initialize_release=False,
+            ),
+            stores=stores,
+        )
+
+    assert rejected.value.status_code == 400
+    assert stores["loop_store"].load_contract(process["process_id"]) is None
+    assert stores["release_store"].load(process["process_id"]) is None
+    assert not list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
+
+
+def test_release_bootstrap_intent_recovers_crash_between_contract_and_release(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    process = scheduler.create_process_from_workflow(_workflow())
+    stores = orchestrator._runtime_delivery_stores()
+    original_ensure = orchestrator._ensure_runtime_release_state
+    crashes = {"remaining": 1}
+
+    def crash_before_release(*args, **kwargs):
+        if crashes["remaining"]:
+            crashes["remaining"] -= 1
+            raise OSError("simulated crash before release initialization")
+        return original_ensure(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "_ensure_runtime_release_state", crash_before_release)
+    request = orchestrator.RuntimeDeliveryReconcileRequest(bootstrap_runtime_state=True)
+    with pytest.raises(OSError, match="simulated crash"):
+        orchestrator._reconcile_runtime_delivery_sequence(
+            process["process_id"],
+            request=request,
+            stores=stores,
+        )
+    intents = list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
+    assert len(intents) == 1
+    assert stores["loop_store"].load_contract(process["process_id"]) is not None
+    assert stores["release_store"].load(process["process_id"]) is None
+
+    recovered = orchestrator._recover_runtime_delivery_bootstraps(stores=stores)
+    assert recovered == [process["process_id"]]
+    assert stores["release_store"].load(process["process_id"]) is not None
+    assert stores["loop_store"].load_state(process["process_id"]) is not None
+    assert not list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
+
+
+def test_release_bootstrap_recovery_clears_intent_if_release_publish_already_committed(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    process = scheduler.create_process_from_workflow(_workflow())
+    stores = orchestrator._runtime_delivery_stores()
+    request = orchestrator.RuntimeDeliveryReconcileRequest(bootstrap_runtime_state=True)
+    orchestrator._bootstrap_runtime_delivery_state(
+        process["process_id"],
+        process=process,
+        stores=stores,
+    )
+    contract = orchestrator._resolve_runtime_delivery_contract(
+        process["process_id"],
+        process=process,
+        stores=stores,
+        request=request,
+    )
+    orchestrator._save_release_bootstrap_intent(
+        stores=stores,
+        process_id=process["process_id"],
+        request=request,
+        contract=contract,
+    )
+    stores["loop_store"].save_contract(contract)
+    orchestrator._ensure_runtime_release_state(
+        process["process_id"],
+        process=process,
+        contract=contract,
+        stores=stores,
+        request=request,
+    )
+
+    assert orchestrator._recover_runtime_delivery_bootstraps(stores=stores) == [process["process_id"]]
+    assert not list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
 
 
 def _prime_production_dependability_observations(process: dict, stores: dict) -> None:

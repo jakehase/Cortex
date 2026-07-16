@@ -1,8 +1,10 @@
 import asyncio
+import httpx
 import shutil
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
@@ -98,6 +100,82 @@ def test_tool_ingest_enqueues_follow_up_when_explicit_policy_allows_it(tmp_path,
     assert result["follow_up_dispatch"]["runtime_kind"] == "session"
     assert result["follow_up_dispatch"]["summary"] == "need API key"
     assert result["follow_up_dispatch"]["metadata"]["policy_source"] == "session_follow_up_policy"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/orchestrator", "/conductor"])
+async def test_oversized_tool_event_has_no_durable_projection_or_dead_letter_side_effects(
+    tmp_path,
+    monkeypatch,
+    prefix,
+):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    delivery_root = tmp_path / "runtime_delivery"
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setenv("CORTEX_RUNTIME_MEMORY_MAX_EVENT_BYTES", "1024")
+    process = scheduler.create_process_from_workflow(_workflow())
+    app = FastAPI()
+    app.include_router(orchestrator.router, prefix="/orchestrator")
+    app.include_router(orchestrator.router, prefix="/conductor")
+    payload = {
+        "process_id": process["process_id"],
+        "tool": "codex",
+        "event": "task.blocked",
+        "event_id": f"oversized-{prefix.rsplit('/', 1)[-1]}",
+        "session_id": "bounded-session",
+        "payload": {"reason": "x" * 4096},
+    }
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(f"{prefix}/runtime/tools/ingest", json=payload)
+
+    assert response.status_code == 413
+    stores = orchestrator._runtime_delivery_stores()
+    assert stores["journal"].load(process_id=process["process_id"]) == []
+    assert stores["delivery_dlq"].list() == []
+    assert not list((delivery_root / "session_event_inbox").glob("*.json"))
+    assert not any(
+        (row.get("payload") or {}).get("canonical_event_id") == payload["event_id"]
+        for row in scheduler.process_events(process["process_id"], limit=1000)
+    )
+    assert stores["shared_state_store"].load(process["process_id"]) is None
+    assert stores["snapshot_store"].load(process["process_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_session_registry_quota_is_preflighted_before_any_event_projection(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    delivery_root = tmp_path / "runtime_delivery"
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setenv("ORCHESTRATOR_MAX_SESSIONS", "1")
+    process = scheduler.create_process_from_workflow(_workflow())
+    stores = orchestrator._runtime_delivery_stores()
+    stores["session_registry"].register(
+        process_id=process["process_id"],
+        session_id="already-active",
+    )
+    app = FastAPI()
+    app.include_router(orchestrator.router, prefix="/orchestrator")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/orchestrator/runtime/tools/ingest",
+            json={
+                "process_id": process["process_id"],
+                "tool": "codex",
+                "event": "task.progress",
+                "event_id": "event-registry-quota",
+                "session_id": "new-active-session",
+                "payload": {"summary": "must be rejected before projection"},
+            },
+        )
+
+    assert response.status_code == 413
+    assert not list((delivery_root / "session_event_inbox").glob("*.json"))
+    assert stores["journal"].load(process_id=process["process_id"]) == []
+    assert not (delivery_root / "delivery_dlq.jsonl").exists()
 
 
 def test_tool_event_id_is_an_end_to_end_idempotency_boundary_and_dlq_is_replayable(tmp_path, monkeypatch):

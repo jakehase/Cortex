@@ -6,6 +6,7 @@ import pytest
 
 from cortex_server.runtime import OpenDecision, SharedProcessState, SharedProcessStateStore, SharedStateConflictError
 from cortex_server.runtime.shared_process_state import ValidationError
+import cortex_server.runtime.shared_process_state as shared_process_state
 
 
 
@@ -112,3 +113,21 @@ def test_shared_process_state_store_can_rollback_to_prior_revision(tmp_path: Pat
     assert rolled.metadata["rollback_from_revision_id"] == "rev_2"
     assert rolled.metadata["rollback_to_revision_id"] == "rev_1"
     assert store.load_revision("proc_123", "rev_1").revision_id == "rev_1"
+
+
+def test_shared_process_state_history_is_bounded_and_current_state_remains_authoritative(tmp_path, monkeypatch):
+    monkeypatch.setattr(shared_process_state, "MAX_SHARED_STATE_HISTORY_RECORDS", 3)
+    store = SharedProcessStateStore(tmp_path / "shared_state")
+    current = None
+    for revision in range(1, 7):
+        current = store.save(
+            SharedProcessState(
+                process_id="proc_bounded_history",
+                revision_id=f"rev_{revision}",
+                world_state={"revision": revision},
+            ),
+            expected_revision_id=current.revision_id if current else None,
+        )
+
+    assert [row.revision_id for row in store.history("proc_bounded_history")] == ["rev_4", "rev_5", "rev_6"]
+    assert store.load("proc_bounded_history").world_state == {"revision": 6}

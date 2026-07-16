@@ -1032,8 +1032,10 @@ async def test_public_readiness_probe_never_blocks_the_event_loop(monkeypatch, l
 
     entered = threading.Event()
     release = threading.Event()
+    probe_calls = []
 
     def blocking_probe(_root):
+        probe_calls.append(True)
         entered.set()
         assert release.wait(1)
         return {"ready": True, "status": "ready", "checks": {}}
@@ -1053,6 +1055,9 @@ async def test_public_readiness_probe_never_blocks_the_event_loop(monkeypatch, l
     release.set()
     response = await asyncio.wait_for(readiness, timeout=1)
     assert response.status_code in {200, 503}
+    cached = await asyncio.wait_for(_route(app, "/ready")(), timeout=0.2)
+    assert cached.status_code == response.status_code
+    assert len(probe_calls) == 1
 
 
 @pytest.mark.asyncio

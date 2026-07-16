@@ -40,6 +40,7 @@ import asyncio
 import subprocess
 from dataclasses import dataclass
 import threading
+import time
 import weakref
 
 
@@ -1675,12 +1676,20 @@ def create_app() -> FastAPI:
 
     readiness_probe_task: Optional[asyncio.Task] = None
     readiness_probe_lock = asyncio.Lock()
+    readiness_cache_payload: Optional[dict] = None
+    readiness_cache_recorded_at = 0.0
+    readiness_cache_ttl_seconds = 1.0
 
     async def async_readiness_payload() -> dict:
         """Single-flight blocking probes off the event loop with a hard deadline."""
 
-        nonlocal readiness_probe_task
+        nonlocal readiness_probe_task, readiness_cache_payload, readiness_cache_recorded_at
         async with readiness_probe_lock:
+            if (
+                readiness_cache_payload is not None
+                and time.monotonic() - readiness_cache_recorded_at <= readiness_cache_ttl_seconds
+            ):
+                return readiness_cache_payload
             if readiness_probe_task is not None and readiness_probe_task.done():
                 # A prior caller may have hit the aggregate deadline while the
                 # worker completed later. Never serve that potentially stale
@@ -1736,7 +1745,14 @@ def create_app() -> FastAPI:
         async with readiness_probe_lock:
             if readiness_probe_task is probe:
                 readiness_probe_task = None
+            readiness_cache_payload = payload
+            readiness_cache_recorded_at = time.monotonic()
         return payload
+
+    # Router-level readiness aliases reuse this exact single-flight worker.
+    # Storing the callable on the application keeps the router free of a
+    # dependency on create_app's closure while preserving one admission path.
+    app.state.async_readiness_payload = async_readiness_payload
 
     @app.get("/ready")
     async def readiness_check():

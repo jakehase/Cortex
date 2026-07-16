@@ -13,6 +13,17 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_runtime_delivery_capacity,
+    bounded_jsonl_payload,
+    encoded_json,
+    read_recoverable_jsonl,
+    runtime_delivery_quota_transaction,
+)
+
+
+MAX_SHARED_STATE_HISTORY_RECORDS = 4096
+MAX_SHARED_STATE_HISTORY_BYTES = 128 * 1024 * 1024
 
 
 
@@ -273,24 +284,23 @@ class SharedProcessStateStore:
             except FileNotFoundError:
                 pass
 
-    def _append_history(self, record: SharedStateRevisionRecord) -> None:
+    def _history_payload(self, record: SharedStateRevisionRecord) -> bytes:
         target = self._history_target(record.process_id)
-        existing = target.read_bytes() if target.exists() else b""
-        row = (json.dumps(_revision_record_dump_compat(record), sort_keys=True) + "\n").encode("utf-8")
-        self._atomic_replace(target, existing + row)
+        return bounded_jsonl_payload(
+            target,
+            _revision_record_dump_compat(record),
+            max_records=MAX_SHARED_STATE_HISTORY_RECORDS,
+            max_bytes=MAX_SHARED_STATE_HISTORY_BYTES,
+        )
 
     def history(self, process_id: str) -> List[SharedStateRevisionRecord]:
         target = self._history_target(process_id)
         if not target.exists():
             return []
-        rows: List[SharedStateRevisionRecord] = []
-        with target.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                rows.append(_revision_record_validate_compat(json.loads(text)))
-        return rows
+        return [
+            _revision_record_validate_compat(row)
+            for row in read_recoverable_jsonl(target)
+        ]
 
     def load(self, process_id: Optional[str] = None) -> Optional[SharedProcessState]:
         target = self._target(process_id)
@@ -335,21 +345,36 @@ class SharedProcessStateStore:
                     observed_revision_id=observed,
                 )
             target = self._target(record.process_id)
-            self._atomic_replace(
-                target,
-                (json.dumps(_model_dump_compat(record), sort_keys=True, indent=2) + "\n").encode("utf-8"),
+            state_payload = _model_dump_compat(record)
+            revision_record = SharedStateRevisionRecord(
+                process_id=record.process_id,
+                revision_id=record.revision_id,
+                parent_revision_id=current.revision_id if current else None,
+                actor=str(actor or "").strip() or None,
+                provenance=dict(provenance or {}),
+                change_set=_state_change_set(current, record),
+                state=state_payload,
             )
-            self._append_history(
-                SharedStateRevisionRecord(
+            state_encoded = encoded_json(state_payload, pretty=True)
+            history_target = self._history_target(record.process_id)
+            store_root = self.path.parent if self.path.suffix else self.path
+            delivery_root = self.path.parent
+            with runtime_delivery_quota_transaction(delivery_root):
+                history_payload = self._history_payload(revision_record)
+                history_row_bytes = len(encoded_json(_revision_record_dump_compat(revision_record)))
+                assert_runtime_delivery_capacity(
+                    delivery_root=delivery_root,
+                    store_root=store_root,
                     process_id=record.process_id,
-                    revision_id=record.revision_id,
-                    parent_revision_id=current.revision_id if current else None,
-                    actor=str(actor or "").strip() or None,
-                    provenance=dict(provenance or {}),
-                    change_set=_state_change_set(current, record),
-                    state=_model_dump_compat(record),
+                    object_bytes=max(len(state_encoded), history_row_bytes),
+                    additional_bytes=len(state_encoded) + len(history_payload),
+                    replacements=(
+                        (target, len(state_encoded)),
+                        (history_target, len(history_payload)),
+                    ),
                 )
-            )
+                self._atomic_replace(target, state_encoded)
+                self._atomic_replace(history_target, history_payload)
         return record
 
     def load_revision(self, process_id: str, revision_id: str) -> Optional[SharedProcessState]:

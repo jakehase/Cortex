@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import fcntl
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -12,7 +14,21 @@ from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.dependability import load_dependability_report
-from cortex_server.runtime.production_build_loop import repair_production_dependability
+from cortex_server.runtime.production_build_loop import _atomic_write_json, repair_production_dependability
+from cortex_server.runtime.durable_files import durable_mkdir
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_HISTORY_BYTES,
+    MAX_HISTORY_RECORDS,
+    MAX_REPORT_BYTES,
+    MAX_REPORT_RECORDS,
+    append_bounded_jsonl,
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    bounded_jsonl_payload,
+    encoded_json,
+    read_recoverable_jsonl,
+    runtime_delivery_quota_transaction,
+)
 from cortex_server.runtime.release_workflow import ReleaseWorkflowState, ReleaseWorkflowStore
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
 
@@ -711,6 +727,8 @@ class RoadmapPassBudget(BaseModel):
         number = int(value or 0)
         if number <= 0:
             raise ValueError("budget values must be positive")
+        if number > 32:
+            raise ValueError("budget values must not exceed the immutable limit of 32")
         return number
 
     @field_validator("validation_mode")
@@ -859,6 +877,7 @@ class RoadmapExecutionState(BaseModel):
     iteration_count: int = 0
     checkpoint_count: int = 0
     recovery_count: int = 0
+    persistence_revision: int = 0
     controller: Optional[RoadmapControllerOwner] = None
     active_phase_id: Optional[str] = None
     active_task_ids: List[str] = Field(default_factory=list)
@@ -895,7 +914,7 @@ class RoadmapExecutionState(BaseModel):
             raise ValueError("must be non-empty")
         return text
 
-    @field_validator("iteration_count", "checkpoint_count", "recovery_count")
+    @field_validator("iteration_count", "checkpoint_count", "recovery_count", "persistence_revision")
     @classmethod
     def _validate_non_negative(cls, value: int) -> int:
         number = int(value or 0)
@@ -961,69 +980,170 @@ class RoadmapExecutionStore:
     def _report_target(self, process_id: str) -> Path:
         return self._root() / "reports" / f"{process_id}.jsonl"
 
+    def _lock_target(self, process_id: str) -> Path:
+        return self._root() / "locks" / f"{process_id}.lock"
+
+    @contextmanager
+    def _locked(self, process_id: str, *, exclusive: bool):
+        target = self._lock_target(process_id)
+        durable_mkdir(target.parent)
+        with target.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def save_contract(self, contract: RoadmapObjectiveContract | Dict[str, Any]) -> RoadmapObjectiveContract:
         record = _contract_validate(contract if isinstance(contract, dict) else _contract_dump(contract))
-        target = self._contract_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_contract_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        with self._locked(record.process_id, exclusive=True):
+            target = self._contract_target(record.process_id)
+            current = None
+            if target.exists():
+                current = _contract_validate(json.loads(target.read_text(encoding="utf-8")))
+            if current is not None and current.objective_id != record.objective_id:
+                raise RuntimeError("roadmap objective contract identity conflict")
+            payload = _contract_dump(record)
+            encoded = encoded_json(payload, pretty=True)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                assert_process_count(
+                    self._root(),
+                    record.process_id,
+                    delivery_root=self._root().parent,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=target,
+                )
+                _atomic_write_json(target, payload)
         return record
 
     def load_contract(self, process_id: str) -> Optional[RoadmapObjectiveContract]:
-        target = self._contract_target(process_id)
-        if not target.exists():
-            return None
-        return _contract_validate(json.loads(target.read_text(encoding="utf-8")))
+        with self._locked(process_id, exclusive=False):
+            target = self._contract_target(process_id)
+            if not target.exists():
+                return None
+            return _contract_validate(json.loads(target.read_text(encoding="utf-8")))
 
     def save_state(self, state: RoadmapExecutionState | Dict[str, Any]) -> RoadmapExecutionState:
         record = _state_validate(state if isinstance(state, dict) else _state_dump(state))
-        target = self._state_target(record.process_id)
-        current = self.load_state(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_state_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        history_row = {
-            "ts": _now_iso(),
-            "execution_id": record.execution_id,
-            "objective_id": record.objective_id,
-            "process_id": record.process_id,
-            "status": record.status,
-            "iteration_count": record.iteration_count,
-            "checkpoint_count": record.checkpoint_count,
-            "recovery_count": record.recovery_count,
-            "previous_status": current.status if current else None,
-            "state": _state_dump(record),
-        }
-        history_target = self._history_target(record.process_id)
-        history_target.parent.mkdir(parents=True, exist_ok=True)
-        with history_target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(history_row, sort_keys=True) + "\n")
+        with self._locked(record.process_id, exclusive=True):
+            target = self._state_target(record.process_id)
+            current = self._load_state_unlocked(record.process_id)
+            if current is None:
+                if record.persistence_revision != 0:
+                    raise RuntimeError("roadmap execution persistence revision conflict")
+                next_revision = 1
+            else:
+                if current.execution_id != record.execution_id or current.objective_id != record.objective_id:
+                    raise RuntimeError("roadmap execution identity conflict")
+                if record.persistence_revision != current.persistence_revision:
+                    raise RuntimeError("roadmap execution persistence revision conflict")
+                next_revision = current.persistence_revision + 1
+            record = _state_validate({**_state_dump(record), "persistence_revision": next_revision})
+            payload = _state_dump(record)
+            history_row = {
+                "ts": _now_iso(),
+                "execution_id": record.execution_id,
+                "objective_id": record.objective_id,
+                "process_id": record.process_id,
+                "persistence_revision": record.persistence_revision,
+                "status": record.status,
+                "iteration_count": record.iteration_count,
+                "checkpoint_count": record.checkpoint_count,
+                "recovery_count": record.recovery_count,
+                "previous_status": current.status if current else None,
+                "state": payload,
+            }
+            state_encoded = encoded_json(payload, pretty=True)
+            history_encoded = encoded_json(history_row)
+            history_target = self._history_target(record.process_id)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                history_payload = bounded_jsonl_payload(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=max(len(state_encoded), len(history_encoded)),
+                    additional_bytes=len(state_encoded) + len(history_payload),
+                    replacements=(
+                        (target, len(state_encoded)),
+                        (history_target, len(history_payload)),
+                    ),
+                )
+                _atomic_write_json(target, payload)
+                append_bounded_jsonl(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
         return record
 
-    def load_state(self, process_id: str) -> Optional[RoadmapExecutionState]:
+    def _load_state_unlocked(self, process_id: str) -> Optional[RoadmapExecutionState]:
         target = self._state_target(process_id)
-        if not target.exists():
-            return None
-        return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+        if target.exists():
+            try:
+                return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError, ValueError):
+                pass
+        for row in reversed(read_recoverable_jsonl(self._history_target(process_id))):
+            state = row.get("state")
+            if isinstance(state, dict):
+                try:
+                    return _state_validate(state)
+                except (ValidationError, ValueError, TypeError):
+                    continue
+        return None
+
+    def load_state(self, process_id: str) -> Optional[RoadmapExecutionState]:
+        with self._locked(process_id, exclusive=False):
+            return self._load_state_unlocked(process_id)
 
     def append_report(self, report: RoadmapExecutionReport | Dict[str, Any]) -> RoadmapExecutionReport:
         record = _report_validate(report if isinstance(report, dict) else _report_dump(report))
-        target = self._report_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_report_dump(record), sort_keys=True) + "\n")
+        with self._locked(record.process_id, exclusive=True):
+            target = self._report_target(record.process_id)
+            payload = _report_dump(record)
+            encoded = encoded_json(payload)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                report_payload = bounded_jsonl_payload(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(report_payload),
+                    replacements=((target, len(report_payload)),),
+                )
+                append_bounded_jsonl(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
         return record
 
     def reports(self, process_id: str) -> List[RoadmapExecutionReport]:
-        target = self._report_target(process_id)
-        if not target.exists():
-            return []
-        rows: List[RoadmapExecutionReport] = []
-        with target.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                rows.append(_report_validate(json.loads(text)))
-        return rows
+        with self._locked(process_id, exclusive=False):
+            return [
+                _report_validate(row)
+                for row in read_recoverable_jsonl(self._report_target(process_id))
+            ]
 
 
 
@@ -2733,7 +2853,7 @@ def _reconcile_roadmap_execution_pass(
             "watchdog": dict(watchdog_context or {}),
         },
     )
-    roadmap_store.save_state(updated_state)
+    updated_state = roadmap_store.save_state(updated_state)
 
     if status in {"blocked", "completed"}:
         supervisor.resolve(controller.lease_id, status="released", metadata={"resolution": status})
@@ -3089,7 +3209,7 @@ def _reconcile_roadmap_execution_locked(
                     },
                 }
             )
-            roadmap_store.save_state(persisted_state)
+            persisted_state = roadmap_store.save_state(persisted_state)
             if status == "completed" and persisted_state.controller is not None:
                 supervisor.resolve(persisted_state.controller.lease_id, status="released", metadata={"resolution": status})
             final_result["state"] = _state_dump(persisted_state)

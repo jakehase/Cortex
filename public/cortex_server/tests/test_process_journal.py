@@ -6,6 +6,7 @@ import pytest
 
 from cortex_server.runtime import ProcessEvent, ProcessJournal
 from cortex_server.runtime.process_event import ValidationError
+import cortex_server.runtime.process_journal as process_journal
 
 
 
@@ -95,3 +96,13 @@ def test_process_journal_rejects_corrupt_committed_frames(tmp_path: Path):
 
     with pytest.raises(ValueError, match="corrupt committed process journal record"):
         journal.load()
+
+
+def test_process_journal_compacts_to_a_bounded_fsynced_window(tmp_path, monkeypatch):
+    monkeypatch.setattr(process_journal, "MAX_PROCESS_JOURNAL_RECORDS", 3)
+    journal = ProcessJournal(tmp_path / "runtime" / "processes.jsonl")
+    for sequence in range(6):
+        journal.append(process_id="proc_bounded", kind="step_progress", payload={"sequence": sequence})
+
+    assert [row.payload["sequence"] for row in journal.load()] == [3, 4, 5]
+    assert journal.path.read_bytes().endswith(b"\n")

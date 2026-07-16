@@ -24,6 +24,10 @@ from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffCo
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_runtime_delivery_volume_capacity,
+    runtime_delivery_quota_transaction,
+)
 from cortex_server.runtime.session_registry import SessionRecord
 from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore
 
@@ -283,8 +287,9 @@ _RELEASE_METADATA_LOCKS: Dict[str, threading.RLock] = {}
 class ReleaseArtifactStore:
     """Content-addressed immutable release outputs used by signed attestations."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else self.path.parent
 
     def _target(self, content_hash: str) -> Path:
         digest = str(content_hash or "").removeprefix("sha256:")
@@ -356,27 +361,32 @@ class ReleaseArtifactStore:
         if not hmac.compare_digest(actual_hash, str(content_hash or "")):
             raise ValueError("prepared release artifact hash does not match its content")
         target = self._target(content_hash)
-        if target.exists():
-            if target.read_bytes() != encoded:
-                raise ValueError("immutable artifact digest collision")
-            return content_hash, content_hash, False
-        projected_usage = self.storage_usage_bytes() + len(encoded)
-        if projected_usage > int(store_quota_bytes):
-            raise ValueError(
-                f"release artifact store quota exceeded: {projected_usage} > {int(store_quota_bytes)} bytes"
+        with runtime_delivery_quota_transaction(self.delivery_root):
+            if target.exists():
+                if target.read_bytes() != encoded:
+                    raise ValueError("immutable artifact digest collision")
+                return content_hash, content_hash, False
+            projected_usage = self.storage_usage_bytes() + len(encoded)
+            if projected_usage > int(store_quota_bytes):
+                raise ValueError(
+                    f"release artifact store quota exceeded: {projected_usage} > {int(store_quota_bytes)} bytes"
+                )
+            assert_runtime_delivery_volume_capacity(
+                self.delivery_root,
+                additional_bytes=len(encoded),
             )
-        durable_mkdir(target.parent)
-        temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
-        try:
-            with temporary.open("xb") as handle:
-                handle.write(encoded)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, target)
-            fsync_directory(target.parent)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+            durable_mkdir(target.parent)
+            temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+            try:
+                with temporary.open("xb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, target)
+                fsync_directory(target.parent)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
         return content_hash, content_hash, True
 
     def put(self, payload: Any) -> tuple[str, str]:
@@ -1224,7 +1234,7 @@ class ReleaseWorkflowStore:
 
     def artifact_store(self) -> ReleaseArtifactStore:
         root = self.path.parent / f"{self.path.stem}_artifacts" if self.path.suffix else self.path / "artifacts"
-        return ReleaseArtifactStore(root)
+        return ReleaseArtifactStore(root, delivery_root=self.path.parent)
 
     def referenced_artifact_refs(self) -> List[str]:
         """Return the fail-closed durable reference set used by orphan cleanup."""
@@ -1414,15 +1424,26 @@ class ReleaseWorkflowStore:
                 state=self._history_state_payload(persisted, dict(provenance or {})),
             )
             with self._metadata_quota_transaction():
-                self._assert_durable_metadata_capacity(persisted, history_record)
-                target = self._target(record.process_id)
-                _atomic_write_json(target, _workflow_dump_compat(persisted))
-                # Most callers retain the model they supplied. Once the atomic
-                # state replacement has committed, keep that model's fence in sync
-                # even if a later history append reports an I/O error.
-                if isinstance(state, ReleaseWorkflowState):
-                    state.persistence_revision = next_revision
-                self._append_history(history_record)
+                delivery_root = self.path.parent
+                state_payload = _workflow_dump_compat(persisted)
+                state_bytes = len(self._encoded_json(state_payload, pretty=True))
+                history_bytes = len(
+                    (json.dumps(_history_dump_compat(history_record), sort_keys=True) + "\n").encode("utf-8")
+                )
+                with runtime_delivery_quota_transaction(delivery_root):
+                    self._assert_durable_metadata_capacity(persisted, history_record)
+                    assert_runtime_delivery_volume_capacity(
+                        delivery_root,
+                        additional_bytes=state_bytes + history_bytes,
+                    )
+                    target = self._target(record.process_id)
+                    _atomic_write_json(target, state_payload)
+                    # Most callers retain the model they supplied. Once the atomic
+                    # state replacement has committed, keep that model's fence in sync
+                    # even if a later history append reports an I/O error.
+                    if isinstance(state, ReleaseWorkflowState):
+                        state.persistence_revision = next_revision
+                    self._append_history(history_record)
             return persisted
 
 

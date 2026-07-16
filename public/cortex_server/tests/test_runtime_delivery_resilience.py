@@ -6,6 +6,7 @@ import pytest
 
 from cortex_server.modules.route_health import RouteHealthMonitor
 from cortex_server.runtime.delivery_resilience import DeliveryDeadLetterStore, resilient_delivery_attempt
+import cortex_server.runtime.delivery_resilience as delivery_resilience
 import cortex_server.runtime.production_build_loop as production_build_loop
 from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
 from cortex_server.runtime.release_workflow import (
@@ -108,6 +109,33 @@ def test_resilient_delivery_attempt_records_failures_and_breaker_state(tmp_path:
     assert blocked["success"] is False
     assert blocked["reason"] in {"breaker_open", "half_open_probe_limit"}
     assert len(dlq.list()) == 2
+
+
+def test_delivery_dead_letters_are_bounded_and_torn_tail_recoverable(tmp_path, monkeypatch):
+    monkeypatch.setattr(delivery_resilience, "MAX_DELIVERY_DEAD_LETTERS", 2)
+    store = DeliveryDeadLetterStore(tmp_path / "delivery_dlq.jsonl")
+    for sequence in range(4):
+        store.append(
+            {
+                "dependency": "runtime_session_event_ingest",
+                "process_id": "proc_bounded_dlq",
+                "error": f"failure-{sequence}",
+                "payload": {"sequence": sequence},
+            }
+        )
+    with store.path.open("ab") as handle:
+        handle.write(b'{"entry_id":')
+
+    assert [entry.payload["sequence"] for entry in store.list()] == [2, 3]
+    store.append(
+        {
+            "dependency": "runtime_session_event_ingest",
+            "process_id": "proc_bounded_dlq",
+            "error": "failure-4",
+            "payload": {"sequence": 4},
+        }
+    )
+    assert [entry.payload["sequence"] for entry in store.list()] == [3, 4]
 
 
 def test_invalid_and_oversized_artifacts_have_zero_durable_side_effects(tmp_path, monkeypatch):

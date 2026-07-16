@@ -13,6 +13,7 @@ from cortex_server.routers.orchestrator import RuntimeDeliveryReconcileRequest
 from cortex_server.runtime import RuntimeSoakHarness
 from cortex_server.runtime.dependability import load_dependability_report, unattended_profile_digest
 import cortex_server.runtime.production_build_loop as production_build_loop
+import cortex_server.runtime.runtime_delivery_quota as runtime_delivery_quota
 from cortex_server.runtime.production_build_loop import (
     BuildLoopControllerOwner,
     ProductionBuildContract,
@@ -39,7 +40,7 @@ from cortex_server.runtime.shared_process_state import OpenDecision, SharedProce
 
 
 VERIFIER_ID = "independent-release-verifier"
-VERIFIER_SECRET = "test-release-verifier-secret"
+VERIFIER_SECRET = "test-release-verifier-secret-material-0001"
 
 
 def _configure_production_credentials(monkeypatch):
@@ -1413,6 +1414,7 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
 
 
 def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(tmp_path, monkeypatch):
+    monkeypatch.setattr(production_build_loop, "_production_environment", lambda: True)
     monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_CREDENTIALS", json.dumps({VERIFIER_ID: VERIFIER_SECRET}))
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
     process_id = "proc_release_handoff_loop"
@@ -1554,6 +1556,28 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
 
     _approve_pending_release_handoff(harness, process_id, "production")
 
+    # Rotate the active environment credential after the old verifier signed
+    # the already-durable handoff evidence.  Historical trust must be used by
+    # every evaluation, including the final commit-time gate.
+    rotated_verifier_id = "release-verifier-rotated"
+    rotated_verifier_secret = "rotated-release-verifier-secret-material-0123456789"
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({rotated_verifier_id: rotated_verifier_secret}),
+    )
+    observed_verifier_maps = []
+    original_evaluate_gate = production_build_loop.evaluate_release_promotion_gate
+
+    def capture_verifier_map(*args, **kwargs):
+        observed_verifier_maps.append(dict(kwargs.get("verifier_credentials") or {}))
+        return original_evaluate_gate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        production_build_loop,
+        "evaluate_release_promotion_gate",
+        capture_verifier_map,
+    )
+
     completed = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -1571,6 +1595,9 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     assert completed["state"]["status"] == "completed"
     assert final_release.current_stage == "production"
     assert any(fencepost.stage == "production" for fencepost in final_release.rollback_fenceposts)
+    assert observed_verifier_maps
+    assert all(VERIFIER_ID in credentials for credentials in observed_verifier_maps)
+    assert all(rotated_verifier_id in credentials for credentials in observed_verifier_maps)
 
 
 def test_production_loop_keeps_non_human_rule_blockers_live_when_recovery_is_still_possible(tmp_path):
@@ -1981,3 +2008,75 @@ def test_loop_projection_recovers_torn_state_and_report_tail(tmp_path):
         "report-before-crash",
         "report-after-recovery",
     ]
+
+
+def test_loop_store_bounds_full_snapshot_history_and_reports(tmp_path, monkeypatch):
+    monkeypatch.setattr(production_build_loop, "MAX_HISTORY_RECORDS", 3)
+    monkeypatch.setattr(production_build_loop, "MAX_REPORT_RECORDS", 2)
+    store = ProductionBuildLoopStore(tmp_path / "production_build_loop")
+    state = store.save_state(
+        ProductionBuildLoopState(contract_id="contract-bounded", process_id="proc_bounded")
+    )
+    for iteration in range(1, 7):
+        state = store.save_state(state.model_copy(update={"iteration_count": iteration}))
+        store.append_report(
+            ProductionBuildLoopReport(
+                loop_id=state.loop_id,
+                contract_id=state.contract_id,
+                process_id=state.process_id,
+                iteration=iteration,
+                kind="checkpoint",
+                status="active",
+                summary=f"bounded report {iteration}",
+            )
+        )
+
+    history_rows = production_build_loop._read_recoverable_jsonl(
+        store._history_target(state.process_id)
+    )
+    assert len(history_rows) == 3
+    assert [row["persistence_revision"] for row in history_rows] == [5, 6, 7]
+    assert len(store.reports(state.process_id)) == 2
+    assert store.load_state(state.process_id).iteration_count == 6
+
+
+def test_loop_store_preserves_whole_volume_recovery_headroom(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime_delivery_quota, "MAX_RUNTIME_DELIVERY_VOLUME_BYTES", 4096)
+    monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES", 1024)
+    (tmp_path / "unrelated-runtime-authority.bin").write_bytes(b"x" * 3000)
+    store = ProductionBuildLoopStore(tmp_path / "production_build_loop")
+    contract = ProductionBuildContract(
+        process_id="proc_volume_quota",
+        objective="Do not consume rollback recovery headroom",
+    )
+
+    with pytest.raises(ValueError, match="recovery reserve"):
+        store.save_contract(contract)
+    assert store.load_contract(contract.process_id) is None
+
+
+def test_whole_volume_reservations_serialize_cross_worker_admission(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime_delivery_quota, "MAX_RUNTIME_DELIVERY_VOLUME_BYTES", 1000)
+    monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES", 100)
+    root = tmp_path / "runtime_delivery"
+    root.mkdir()
+    (root / "existing.bin").write_bytes(b"x" * 300)
+
+    with runtime_delivery_quota.runtime_delivery_capacity_reservation(
+        root,
+        reserved_bytes=500,
+    ):
+        with pytest.raises(ValueError, match="recovery reserve"):
+            with runtime_delivery_quota.runtime_delivery_capacity_reservation(
+                root,
+                reserved_bytes=200,
+            ):
+                pass
+        assert runtime_delivery_quota.runtime_delivery_capacity(root)["reservedBytes"] == 500
+
+    assert runtime_delivery_quota.runtime_delivery_capacity(root)["reservedBytes"] == 0
+
+
+def test_auto_chain_budget_has_an_immutable_upper_bound():
+    with pytest.raises(ValidationError, match="immutable limit"):
+        ProductionPassBudget(max_auto_chain_passes=33)

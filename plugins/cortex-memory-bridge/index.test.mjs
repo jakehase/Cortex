@@ -19,6 +19,13 @@ const lifecycleConfig = (overrides = {}) => ({
   enabledCodecContinuity: false,
   ...overrides,
 });
+const lifecycleContext = (sessionKey, overrides = {}) => ({
+  sessionKey,
+  userId: 'local-user',
+  channelId: 'local-channel',
+  agentId: 'main',
+  ...overrides,
+});
 const successfulCommitResponse = () => new Response(JSON.stringify({
   success: true,
   receipt: 'test-assurance-receipt',
@@ -288,6 +295,55 @@ test('lifecycle writes and memory_search recall remain isolated across trusted i
   }
 });
 
+test('every lifecycle hook rejects each missing invocation principal dimension without configured fallback', async () => {
+  const handlers = new Map();
+  let fetchCalls = 0;
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-missing-principal-'));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return successfulCommitResponse();
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({
+        stateDir,
+        enabledWriteThrough: true,
+        minDurabilityScore: 0,
+        sessionId: 'configured-session-must-not-be-used',
+        userId: 'configured-user-must-not-be-used',
+        channelId: 'configured-channel-must-not-be-used',
+        agentId: 'configured-agent-must-not-be-used',
+      }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    for (const field of ['sessionKey', 'userId', 'channelId', 'agentId']) {
+      const context = lifecycleContext('complete-session');
+      delete context[field];
+      assert.throws(
+        () => handlers.get('llm_output')({ content: 'must not cross principal scope' }, context),
+        /lifecycle callback requires trusted/,
+      );
+      await assert.rejects(
+        () => handlers.get('subagent_ended')({ result: 'must not persist' }, context),
+        /lifecycle callback requires trusted/,
+      );
+      await assert.rejects(
+        () => handlers.get('agent_end')({ result: 'must not persist' }, context),
+        /lifecycle callback requires trusted/,
+      );
+    }
+    assert.equal(fetchCalls, 0);
+    assert.deepEqual(lifecycleSpoolFiles(stateDir), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('memory_search fails closed without complete trusted factory identity and never contacts Cortex', async () => {
   let searchFactory;
   let fetched = false;
@@ -373,8 +429,8 @@ test('memory POSTs attach the configured write-token header', async () => {
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'durable authorized lifecycle output' }, { sessionKey: 'authorized-session' });
-    await handlers.get('agent_end')({}, { sessionKey: 'authorized-session' });
+    handlers.get('llm_output')({ content: 'durable authorized lifecycle output' }, lifecycleContext('authorized-session'));
+    await handlers.get('agent_end')({}, lifecycleContext('authorized-session'));
     assert.equal(headers.get('x-memory-token'), 'memory-secret');
   } finally {
     globalThis.fetch = originalFetch;
@@ -414,10 +470,11 @@ test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec co
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'default mode durable lifecycle output' }, { sessionKey: 'default-session', channelId: 'test-channel' });
+    const context = lifecycleContext('default-session', { channelId: 'test-channel' });
+    handlers.get('llm_output')({ content: 'default mode durable lifecycle output' }, context);
     await handlers.get('agent_end')({
       messages: [{ role: 'user', content: 'Remember the verified deployment decision.' }],
-    }, { sessionKey: 'default-session', channelId: 'test-channel' });
+    }, context);
 
     assert.deepEqual(requests.map(({ url }) => new URL(url).pathname), ['/nexus/assurance/receipt', '/nexus/commit', '/nexus/codec/events']);
     const commit = requests[1];
@@ -468,10 +525,11 @@ test('write-through requires canonical durable-write confirmation and retains ou
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'durable output awaiting a truthful commit acknowledgment' }, { sessionKey: 'truth-session' });
+    const context = lifecycleContext('truth-session');
+    handlers.get('llm_output')({ content: 'durable output awaiting a truthful commit acknowledgment' }, context);
 
-    await assert.rejects(() => handlers.get('agent_end')({}, { sessionKey: 'truth-session' }), /output retained for retry/);
-    await assert.rejects(() => handlers.get('agent_end')({}, { sessionKey: 'truth-session' }), /output retained for retry/);
+    await assert.rejects(() => handlers.get('agent_end')({}, context), /output retained for retry/);
+    await assert.rejects(() => handlers.get('agent_end')({}, context), /output retained for retry/);
     assert.equal(requests, 2, 'a false acknowledgment is not deduplicated as completed');
   } finally {
     globalThis.fetch = originalFetch;
@@ -506,8 +564,9 @@ test('write-through requests a new receipt only after Nexus proves expiry withou
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'durable output with an expired uncommitted receipt' }, { sessionKey: 'expired-session' });
-    await handlers.get('agent_end')({}, { sessionKey: 'expired-session' });
+    const context = lifecycleContext('expired-session');
+    handlers.get('llm_output')({ content: 'durable output with an expired uncommitted receipt' }, context);
+    await handlers.get('agent_end')({}, context);
 
     assert.equal(receiptRequests, 2);
     assert.deepEqual(commits.map((body) => body.assurance_receipt), ['server-receipt-1', 'server-receipt-2']);
@@ -539,8 +598,9 @@ test('write-through retains an expired receipt while Nexus reports unknown commi
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'durable output whose commit outcome remains unknown' }, { sessionKey: 'unknown-session' });
-    await assert.rejects(() => handlers.get('agent_end')({}, { sessionKey: 'unknown-session' }), /output retained for retry/);
+    const context = lifecycleContext('unknown-session');
+    handlers.get('llm_output')({ content: 'durable output whose commit outcome remains unknown' }, context);
+    await assert.rejects(() => handlers.get('agent_end')({}, context), /output retained for retry/);
     const [spoolFile] = lifecycleSpoolFiles(stateDir);
     const [record] = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
     assert.equal(receiptRequests, 1);
@@ -581,8 +641,9 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    firstHandlers.get('llm_output')({ content: 'restart-safe durable lifecycle output' }, { sessionKey: 'restart-session' });
-    await assert.rejects(() => firstHandlers.get('agent_end')({}, { sessionKey: 'restart-session' }), /output retained for retry/);
+    const context = lifecycleContext('restart-session');
+    firstHandlers.get('llm_output')({ content: 'restart-safe durable lifecycle output' }, context);
+    await assert.rejects(() => firstHandlers.get('agent_end')({}, context), /output retained for retry/);
     assert.equal('idempotency_key' in requests[0].body.metadata, false);
     assert.equal(requests[0].headers.get('x-cortex-scope-credential-id'), 'bridge-test');
     assert.match(requests[0].headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
@@ -844,6 +905,62 @@ test('principal namespaces preserve the global durable spool bound', async () =>
   }
 });
 
+test('separate workers serialize global admission across distinct principal namespaces', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-worker-global-quota-'));
+  const startPath = path.join(stateDir, 'start');
+  const moduleUrl = new URL('./index.ts', import.meta.url).href;
+  const workers = ['worker-user-a', 'worker-user-b'].map((userId, index) => {
+    const readyPath = path.join(stateDir, `ready-${index}`);
+    const script = `
+      import fs from 'node:fs';
+      import plugin from ${JSON.stringify(moduleUrl)};
+      const handlers = new Map();
+      globalThis.fetch = async (url) => String(url).endsWith('/nexus/assurance/receipt')
+        ? new Response(JSON.stringify({ success: true, receipt: 'worker-receipt' }))
+        : new Response(JSON.stringify({ success: false, committed: false, durable_write: { status: 'write_failed' } }));
+      plugin.register({
+        pluginConfig: {
+          stateDir: ${JSON.stringify(stateDir)}, tenantId: 'tenant-test', workspaceId: 'workspace-test',
+          scopeCredentialId: 'bridge-test', scopeHmacSecret: 'scope-test-secret',
+          sessionIdentityHmacSecret: 'session-test-secret', writeToken: 'worker-write-token',
+          enabledWriteThrough: true, enabledCodecContinuity: false, minDurabilityScore: 0,
+          retryCount: 0, lifecycleSpoolMaxRecords: 1,
+        },
+        logger: { info() {}, warn() {} },
+        on(name, handler) { handlers.set(name, handler); }, registerMemoryRuntime() {}, registerTool() {},
+      });
+      fs.writeFileSync(${JSON.stringify(readyPath)}, 'ready');
+      while (!fs.existsSync(${JSON.stringify(startPath)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+      const context = { sessionKey: 'shared-session', userId: ${JSON.stringify(userId)}, channelId: 'shared-channel', agentId: 'shared-agent' };
+      handlers.get('llm_output')({ content: 'pending output for ' + ${JSON.stringify(userId)} }, context);
+      try { await handlers.get('agent_end')({}, context); } catch {}
+    `;
+    const child = spawn(process.execPath, ['--input-type=module', '--eval', script], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    const completion = new Promise((resolve, reject) => {
+      child.on('error', reject);
+      child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`quota worker exited ${code}: ${stderr}`)));
+    });
+    return { readyPath, completion };
+  });
+  try {
+    const deadline = Date.now() + 5_000;
+    while (!workers.every(({ readyPath }) => fs.existsSync(readyPath))) {
+      if (Date.now() >= deadline) throw new Error('quota workers did not reach the admission barrier');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    fs.writeFileSync(startPath, 'start');
+    await Promise.all(workers.map(({ completion }) => completion));
+    const retained = lifecycleSpoolFiles(stateDir)
+      .flatMap((spoolFile) => JSON.parse(fs.readFileSync(spoolFile, 'utf8')));
+    assert.equal(retained.length, 1);
+    assert.equal(new Set(retained.map((record) => record.principal.user_id)).size, 1);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('explicitly disabling every persistence mode fails acknowledgement and retains output', async () => {
   const handlers = new Map();
   plugin.register({
@@ -853,9 +970,10 @@ test('explicitly disabling every persistence mode fails acknowledgement and reta
     registerMemoryRuntime() {},
     registerTool() {},
   });
-  handlers.get('llm_output')({ content: 'output cannot be called persisted while every writer is disabled' }, { sessionKey: 'disabled-session' });
+  const context = lifecycleContext('disabled-session');
+  handlers.get('llm_output')({ content: 'output cannot be called persisted while every writer is disabled' }, context);
   await assert.rejects(
-    () => handlers.get('agent_end')({}, { sessionKey: 'disabled-session' }),
+    () => handlers.get('agent_end')({}, context),
     /output retained for retry/,
   );
 });
@@ -907,9 +1025,10 @@ test('agent_end eagerly deletes recent output lifecycle state', async () => {
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'durable first lifecycle output' }, { sessionKey: 'session-ended' });
-    await handlers.get('agent_end')({}, { sessionKey: 'session-ended' });
-    await handlers.get('subagent_ended')({}, { sessionKey: 'session-ended' });
+    const context = lifecycleContext('session-ended');
+    handlers.get('llm_output')({ content: 'durable first lifecycle output' }, context);
+    await handlers.get('agent_end')({}, context);
+    await handlers.get('subagent_ended')({}, context);
 
     assert.equal(requests.length, 1);
     assert.match(requests[0].response, /durable first lifecycle output/);
@@ -941,9 +1060,10 @@ test('failed subagent persistence is retried by agent_end with the same server r
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'durable lifecycle output that must survive a transient failure' }, { sessionKey: 'retry-session' });
-    await handlers.get('subagent_ended')({}, { sessionKey: 'retry-session' });
-    await handlers.get('agent_end')({}, { sessionKey: 'retry-session' });
+    const context = lifecycleContext('retry-session');
+    handlers.get('llm_output')({ content: 'durable lifecycle output that must survive a transient failure' }, context);
+    await handlers.get('subagent_ended')({}, context);
+    await handlers.get('agent_end')({}, context);
 
     assert.equal(requests.length, 2);
     assert.equal(receiptRequests, 1);
@@ -977,10 +1097,11 @@ test('lifecycle writes distinguish bounded outputs that share a long suffix', as
       registerTool() {},
     });
     const sharedSuffix = 'x'.repeat(3_000);
-    handlers.get('llm_output')({ content: `first:${sharedSuffix}` }, { sessionKey: 'same-session' });
-    await handlers.get('agent_end')({}, { sessionKey: 'same-session' });
-    handlers.get('llm_output')({ content: `second:${sharedSuffix}` }, { sessionKey: 'same-session' });
-    await handlers.get('agent_end')({}, { sessionKey: 'same-session' });
+    const context = lifecycleContext('same-session');
+    handlers.get('llm_output')({ content: `first:${sharedSuffix}` }, context);
+    await handlers.get('agent_end')({}, context);
+    handlers.get('llm_output')({ content: `second:${sharedSuffix}` }, context);
+    await handlers.get('agent_end')({}, context);
 
     assert.equal(requests.length, 2);
     assert.notEqual(requests[0].assurance_receipt, requests[1].assurance_receipt);
@@ -1009,9 +1130,10 @@ test('concurrent lifecycle hooks coalesce into one persistence write', async () 
       registerMemoryRuntime() {},
       registerTool() {},
     });
-    handlers.get('llm_output')({ content: 'one durable output shared by concurrent lifecycle hooks' }, { sessionKey: 'concurrent-session' });
-    const first = handlers.get('subagent_ended')({}, { sessionKey: 'concurrent-session' });
-    const second = handlers.get('agent_end')({}, { sessionKey: 'concurrent-session' });
+    const context = lifecycleContext('concurrent-session');
+    handlers.get('llm_output')({ content: 'one durable output shared by concurrent lifecycle hooks' }, context);
+    const first = handlers.get('subagent_ended')({}, context);
+    const second = handlers.get('agent_end')({}, context);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(requests.length, 1);
     release();
@@ -1045,10 +1167,10 @@ test('distinct lifecycle runs persist identical output in the same session', asy
     });
     const output = handlers.get('llm_output');
     const end = handlers.get('agent_end');
-    output({ content: 'the same legitimate durable completion' }, { sessionKey: 'repeat-session' });
-    await end({}, { sessionKey: 'repeat-session', runId: 'run-one' });
-    output({ content: 'the same legitimate durable completion' }, { sessionKey: 'repeat-session' });
-    await end({}, { sessionKey: 'repeat-session', runId: 'run-two' });
+    output({ content: 'the same legitimate durable completion' }, lifecycleContext('repeat-session'));
+    await end({}, lifecycleContext('repeat-session', { runId: 'run-one' }));
+    output({ content: 'the same legitimate durable completion' }, lifecycleContext('repeat-session'));
+    await end({}, lifecycleContext('repeat-session', { runId: 'run-two' }));
 
     assert.equal(requests.length, 2);
     assert.notEqual(requests[0].assurance_receipt, requests[1].assurance_receipt);
@@ -1079,11 +1201,11 @@ test('concurrent hooks with the same lifecycle run coalesce despite differing ou
     });
     const first = handlers.get('subagent_ended')(
       { result: 'durable completion from the subagent hook', runId: 'shared-run' },
-      { sessionKey: 'shared-run-session' },
+      lifecycleContext('shared-run-session'),
     );
     const second = handlers.get('agent_end')(
       { result: 'durable completion with slightly different agent hook text' },
-      { sessionKey: 'shared-run-session', run_id: 'shared-run' },
+      lifecycleContext('shared-run-session', { run_id: 'shared-run' }),
     );
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -1120,10 +1242,11 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
     const retainedTail = 'TAIL-' + '🛡️'.repeat(20);
     assert.equal(retainedTail.length, 65);
     const expected = retainedTail.slice(-64);
-    handlers.get('llm_output')({ content: `${'attacker-prefix-'.repeat(100_000)}${retainedTail}` }, { sessionKey: 'bounded-session' });
+    const context = lifecycleContext('bounded-session');
+    handlers.get('llm_output')({ content: `${'attacker-prefix-'.repeat(100_000)}${retainedTail}` }, context);
 
-    const first = handlers.get('subagent_ended')({}, { sessionKey: 'bounded-session' });
-    const second = handlers.get('agent_end')({}, { sessionKey: 'bounded-session' });
+    const first = handlers.get('subagent_ended')({}, context);
+    const second = handlers.get('agent_end')({}, context);
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(requests.length, 1, 'concurrent hooks coalesce on the truncated payload key');
@@ -1162,13 +1285,16 @@ test('lifecycle persistence applies bounded backpressure and drains queued outpu
     });
     const output = handlers.get('llm_output');
     const end = handlers.get('agent_end');
-    output({ content: 'slow payload one' }, { sessionKey: 'one' });
-    output({ content: 'slow payload two' }, { sessionKey: 'two' });
-    output({ content: 'overflow payload must not be retained' }, { sessionKey: 'three' });
-    const first = end({}, { sessionKey: 'one' });
-    const coalesced = end({ result: 'slow payload one' }, { sessionKey: 'one' });
-    const second = end({}, { sessionKey: 'two' });
-    const backpressured = end({}, { sessionKey: 'three' });
+    const firstContext = lifecycleContext('one');
+    const secondContext = lifecycleContext('two');
+    const thirdContext = lifecycleContext('three');
+    output({ content: 'slow payload one' }, firstContext);
+    output({ content: 'slow payload two' }, secondContext);
+    output({ content: 'overflow payload must not be retained' }, thirdContext);
+    const first = end({}, firstContext);
+    const coalesced = end({ result: 'slow payload one' }, firstContext);
+    const second = end({}, secondContext);
+    const backpressured = end({}, thirdContext);
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(requests.length, 2, 'exactly the configured unique-work cap starts');

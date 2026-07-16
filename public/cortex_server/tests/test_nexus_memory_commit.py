@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -17,9 +18,14 @@ import uvicorn
 import cortex_server.routers.nexus as nexus
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.runtime.assurance_receipt_ledger import (
+    AssuranceReceiptLedgerUnavailable,
     assurance_receipt_status,
+    consumed_assurance_receipt_result,
+    finalize_assurance_receipt,
+    recover_assurance_receipt,
     reserve_assurance_receipt,
 )
+import cortex_server.runtime.assurance_receipt_ledger as assurance_ledger
 
 
 class _Recorder:
@@ -76,7 +82,24 @@ def _reserve_in_worker(state_path, start_event, results):
 
 def _app(monkeypatch, recorder):
     fake_l22 = types.ModuleType("cortex_server.routers.l22")
-    fake_l22.store_memory_record = recorder
+    committed = {}
+
+    def store_memory_record(**kwargs):
+        result = recorder(**kwargs)
+        if str((result or {}).get("status") or "") in {"stored", "stored_below_threshold"}:
+            committed[str(kwargs.get("idempotency_key") or "")] = (kwargs, dict(result))
+        return result
+
+    def lookup_idempotent_memory_record(**kwargs):
+        prior = committed.get(str(kwargs.get("idempotency_key") or ""))
+        if prior is None:
+            return None
+        prior_request, prior_result = prior
+        assert prior_request == kwargs
+        return {**prior_result, "idempotent_replay": True}
+
+    fake_l22.store_memory_record = store_memory_record
+    fake_l22.lookup_idempotent_memory_record = lookup_idempotent_memory_record
     monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", fake_l22)
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
@@ -247,10 +270,16 @@ async def test_finalization_failure_retains_reservation_after_durable_write(
         "levels_used": [7, 22],
     }
 
-    def fail_finalization(*_args, **_kwargs):
-        raise nexus.AssuranceReceiptLedgerUnavailable("simulated_finalization_failure")
+    original_finalize = nexus.finalize_assurance_receipt
+    failures = {"remaining": 1}
 
-    monkeypatch.setattr(nexus, "finalize_assurance_receipt", fail_finalization)
+    def fail_finalization_once(*args, **kwargs):
+        if failures["remaining"]:
+            failures["remaining"] -= 1
+            raise nexus.AssuranceReceiptLedgerUnavailable("simulated_finalization_failure")
+        return original_finalize(*args, **kwargs)
+
+    monkeypatch.setattr(nexus, "finalize_assurance_receipt", fail_finalization_once)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         receipt = await _receipt(client, interaction)
@@ -263,8 +292,9 @@ async def test_finalization_failure_retains_reservation_after_durable_write(
 
     assert first.status_code == 503
     assert first.json()["detail"]["error"] == "assurance_receipt_finalization_failed"
-    assert replay.status_code == 403
-    assert replay.json()["detail"]["reason"] == "receipt_commit_in_progress"
+    assert replay.status_code == 200
+    assert replay.json()["committed"] is True
+    assert replay.json()["durable_write"]["idempotent_replay"] is False
     assert len(recorder.calls) == 1
 
 
@@ -297,8 +327,8 @@ async def test_concurrent_commit_reserves_signed_jti_before_durable_write(monkey
             pool.map(lambda _: _concurrent_commit(app, payload, barrier), range(2))
         )
 
-    assert sorted(status for status, _body in results) == [200, 403]
-    rejected = next(body for status, body in results if status == 403)
+    assert sorted(status for status, _body in results) == [200, 409]
+    rejected = next(body for status, body in results if status == 409)
     assert rejected["detail"]["reason"] == "receipt_commit_in_progress"
     assert len(recorder.calls) == 1
 
@@ -323,6 +353,81 @@ def test_receipt_reservation_is_atomic_across_worker_processes(tmp_path):
         assert worker.exitcode == 0
 
     assert sorted(outcomes) == ["receipt_commit_in_progress", "reserved"]
+
+
+def test_ledger_compacts_expired_consumed_results_and_enforces_multi_tenant_quota(tmp_path, monkeypatch):
+    state_path = tmp_path / "bounded-assurance-receipts.sqlite3"
+    scope_a = {"tenant_id": "tenant-a", "workspace_id": "workspace", "user_id": "user"}
+    scope_b = {"tenant_id": "tenant-b", "workspace_id": "workspace", "user_id": "user"}
+    first = reserve_assurance_receipt(
+        state_path,
+        scope=scope_a,
+        jti="a" * 32,
+        expires_at=100,
+        now=90,
+    )
+    finalize_assurance_receipt(state_path, first, result={"committed": True}, now=91)
+    monkeypatch.setattr(assurance_ledger, "_CONSUMED_RETENTION_AFTER_EXPIRY_SECONDS", 0)
+    monkeypatch.setattr(assurance_ledger, "_MAX_LEDGER_ROWS", 2)
+    reserve_assurance_receipt(
+        state_path,
+        scope=scope_a,
+        jti="b" * 32,
+        expires_at=1_000,
+        now=101,
+    )
+    reserve_assurance_receipt(
+        state_path,
+        scope=scope_b,
+        jti="c" * 32,
+        expires_at=1_000,
+        now=101,
+    )
+    with pytest.raises(AssuranceReceiptLedgerUnavailable, match="global_quota"):
+        reserve_assurance_receipt(
+            state_path,
+            scope={"tenant_id": "tenant-c", "workspace_id": "workspace", "user_id": "user"},
+            jti="d" * 32,
+            expires_at=1_000,
+            now=101,
+        )
+    with sqlite3.connect(state_path) as connection:
+        rows = connection.execute(
+            "SELECT jti, status FROM assurance_receipt_ledger ORDER BY jti"
+        ).fetchall()
+    assert rows == [("b" * 32, "reserved"), ("c" * 32, "reserved")]
+
+
+def test_compacted_stale_reservation_can_restore_and_finalize_exact_durable_outcome(tmp_path, monkeypatch):
+    state_path = tmp_path / "restored-assurance-receipts.sqlite3"
+    scope = {"tenant_id": "tenant-restore", "workspace_id": "workspace", "user_id": "user"}
+    reserve_assurance_receipt(
+        state_path,
+        scope=scope,
+        jti="restore-jti",
+        expires_at=100,
+        now=90,
+    )
+    monkeypatch.setattr(assurance_ledger, "_ABANDONED_RETENTION_AFTER_EXPIRY_SECONDS", 0)
+    reserve_assurance_receipt(
+        state_path,
+        scope={"tenant_id": "maintenance", "workspace_id": "workspace", "user_id": "user"},
+        jti="maintenance-jti",
+        expires_at=1000,
+        now=101,
+    )
+    assert assurance_receipt_status(state_path, scope=scope, jti="restore-jti") is None
+
+    restored = recover_assurance_receipt(
+        state_path,
+        scope=scope,
+        jti="restore-jti",
+        restore_expires_at=100,
+        now=102,
+    )
+    exact_result = {"committed": True, "durable_write": {"id": "memory-restored", "status": "stored"}}
+    finalize_assurance_receipt(state_path, restored, result=exact_result, now=103)
+    assert consumed_assurance_receipt_result(state_path, scope=scope, jti="restore-jti") == exact_result
 
 
 def test_expired_unknown_reservation_is_never_pruned_into_false_noncommit_proof(tmp_path):

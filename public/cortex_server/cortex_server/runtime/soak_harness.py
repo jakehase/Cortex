@@ -161,7 +161,7 @@ class RuntimeSoakHarness:
         self.snapshot_store = ProcessSnapshotStore(self.root / "snapshots")
         self.shared_state_store = SharedProcessStateStore(self.root / "shared_state")
         self.release_store = ReleaseWorkflowStore(self.root / "release_state")
-        self.journal = ProcessJournal(self.root / "runtime" / "processes.jsonl")
+        self.journal = ProcessJournal(self.root / "runtime" / "processes.jsonl", delivery_root=self.root)
         self.mailbox = AgentMailbox(self.root / "runtime" / "mailbox.json")
         self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json", clock_fn=self.clock_fn)
 
