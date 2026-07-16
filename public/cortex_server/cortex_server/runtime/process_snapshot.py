@@ -12,6 +12,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+
 
 
 def _now_iso() -> str:
@@ -122,7 +124,7 @@ class ProcessSnapshotStore:
                 active[key] -= 1
                 self._thread_state.active = active
             return
-        lock_target.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(lock_target.parent)
         with lock_target.open("a+b") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             active[key] = 1
@@ -136,7 +138,7 @@ class ProcessSnapshotStore:
 
     @staticmethod
     def _atomic_replace(path: Path, payload: bytes) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(path.parent)
         temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
         try:
             with temporary.open("xb") as handle:
@@ -144,11 +146,7 @@ class ProcessSnapshotStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, path)
-            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            fsync_directory(path.parent)
         finally:
             try:
                 temporary.unlink()

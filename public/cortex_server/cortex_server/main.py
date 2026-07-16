@@ -52,6 +52,15 @@ DANGEROUS_ROUTERS = {
 
 LIFECYCLE_SERVICES = ("redis", "scheduler", "chronos", "awareness")
 
+DEFAULT_REQUIRED_PATHS = frozenset({"/l22/store", "/knowledge/search"})
+DEFAULT_REQUIRED_ROUTERS = frozenset({"l22", "knowledge"})
+PRODUCTION_REQUIRED_PATHS = DEFAULT_REQUIRED_PATHS | frozenset(
+    {"/nexus/orchestrate", "/orchestrator/runtime-delivery/readiness"}
+)
+PRODUCTION_REQUIRED_ROUTERS = DEFAULT_REQUIRED_ROUTERS | frozenset(
+    {"nexus", "orchestrator"}
+)
+
 
 def _not_started_lifecycle_checks():
     return {
@@ -1048,15 +1057,23 @@ def create_app() -> FastAPI:
         from cortex_server.runtime.production_build_loop import validate_production_delivery_credentials
 
         validate_production_delivery_credentials()
+    baseline_required_paths = (
+        PRODUCTION_REQUIRED_PATHS if production_environment else DEFAULT_REQUIRED_PATHS
+    )
+    baseline_required_routers = (
+        PRODUCTION_REQUIRED_ROUTERS if production_environment else DEFAULT_REQUIRED_ROUTERS
+    )
     readiness_config = ReadinessConfig(
-        required_paths=frozenset(
+        required_paths=baseline_required_paths
+        | frozenset(
             value.strip()
-            for value in os.getenv("CORTEX_REQUIRED_PATHS", "/l22/store,/knowledge/search").split(",")
+            for value in os.getenv("CORTEX_REQUIRED_PATHS", "").split(",")
             if value.strip()
         ),
-        required_routers=frozenset(
+        required_routers=baseline_required_routers
+        | frozenset(
             value.strip()
-            for value in os.getenv("CORTEX_REQUIRED_ROUTERS", "l22,knowledge").split(",")
+            for value in os.getenv("CORTEX_REQUIRED_ROUTERS", "").split(",")
             if value.strip()
         ),
     )

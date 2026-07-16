@@ -24,6 +24,7 @@ from cortex_server.runtime.dependability import (
     load_dependability_report,
     unattended_profile_digest,
 )
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
@@ -173,7 +174,7 @@ def _durable_release_verifier_credentials(
     target = delivery_root / RELEASE_VERIFIER_TRUST_FILE
     lock_target = delivery_root / f"{RELEASE_VERIFIER_TRUST_FILE}.lock"
     current_iso = _now_iso(now)
-    delivery_root.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(delivery_root)
     with lock_target.open("a+b") as lock_handle:
         os.chmod(lock_target, 0o600)
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
@@ -816,15 +817,11 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
 
 
 def _fsync_directory(path: Path) -> None:
-    directory_fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)
+    fsync_directory(path)
 
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(path.parent)
     encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
     try:
@@ -870,7 +867,7 @@ def _read_recoverable_jsonl(path: Path) -> List[Dict[str, Any]]:
 
 
 def _append_fsynced_jsonl(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(path.parent)
     if path.exists():
         encoded = path.read_bytes()
         if encoded and not encoded.endswith(b"\n"):
@@ -1259,7 +1256,7 @@ class ProductionBuildLoopStore:
     @contextmanager
     def _locked(self, process_id: str, *, exclusive: bool):
         target = self._lock_target(process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(target.parent)
         with target.open("a+b") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
             try:

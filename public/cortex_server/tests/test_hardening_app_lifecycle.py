@@ -21,11 +21,28 @@ def _install_minimal_routers(monkeypatch, *, failed=()):
         async def search():
             return {"results": []}
 
-        app.add_api_route("/l22/store", store, methods=["POST"])
-        app.add_api_route("/knowledge/search", search, methods=["GET"])
+        async def orchestrate():
+            return {"success": True}
+
+        async def runtime_delivery_readiness():
+            return {"ready": True}
+
+        routes = {
+            "l22": ("/l22/store", store, ["POST"]),
+            "knowledge": ("/knowledge/search", search, ["GET"]),
+            "nexus": ("/nexus/orchestrate", orchestrate, ["POST"]),
+            "orchestrator": (
+                "/orchestrator/runtime-delivery/readiness",
+                runtime_delivery_readiness,
+                ["GET"],
+            ),
+        }
+        for name, (path, endpoint, methods) in routes.items():
+            if name not in failed:
+                app.add_api_route(path, endpoint, methods=methods)
 
         report = {
-            "loaded": [name for name in ("l22", "knowledge") if name not in failed],
+            "loaded": [name for name in routes if name not in failed],
             "safeModeSkipped": [],
             "failed": [
                 {"router": name, "error": "ImportError: required dependency missing"}
@@ -899,6 +916,76 @@ async def test_required_router_import_failure_degrades_readiness(monkeypatch, li
         assert payload["checks"]["requiredRouters"] == {"ok": False, "missing": ["knowledge"]}
         assert payload["checks"]["routerImports"]["ok"] is False
         assert payload["checks"]["routerImports"]["failed"][0]["router"] == "knowledge"
+
+
+@pytest.mark.asyncio
+async def test_production_nexus_baseline_cannot_be_removed_by_configuration(
+    monkeypatch, lifecycle_fakes
+):
+    import cortex_server.runtime.production_build_loop as production_build_loop
+
+    monkeypatch.setattr(main, "_production_environment", lambda: True)
+    monkeypatch.setattr(
+        production_build_loop,
+        "validate_production_delivery_credentials",
+        lambda: {"ok": True},
+    )
+    monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "")
+    monkeypatch.setenv("CORTEX_REQUIRED_ROUTERS", "")
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps(
+            {
+                "reader": {
+                    "secret": "principal-secret-00000000000000000001",
+                    "allowed_scopes": [
+                        {
+                            "tenant_id": "tenant-a",
+                            "workspace_id": "workspace-a",
+                            "agent_id": "agent-a",
+                            "user_id": "user-a",
+                            "channel_id": "channel-a",
+                            "session_id": "session-a",
+                        }
+                    ],
+                }
+            }
+        ),
+    )
+    _install_minimal_routers(monkeypatch, failed=("nexus",))
+    app = main.create_app()
+
+    assert "/nexus/orchestrate" in app.state.readiness_config.required_paths
+    assert (
+        "/orchestrator/runtime-delivery/readiness"
+        in app.state.readiness_config.required_paths
+    )
+    assert {"nexus", "orchestrator"}.issubset(
+        app.state.readiness_config.required_routers
+    )
+
+    async with app.router.lifespan_context(app):
+        response = await _route(app, "/ready")()
+        payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["checks"]["requiredPaths"] == {
+        "ok": False,
+        "missing": ["/nexus/orchestrate"],
+    }
+    assert payload["checks"]["requiredRouters"] == {
+        "ok": False,
+        "missing": ["nexus"],
+    }
+    assert payload["checks"]["routerImports"] == {
+        "ok": False,
+        "failed": [
+            {
+                "router": "nexus",
+                "error": "ImportError: required dependency missing",
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio

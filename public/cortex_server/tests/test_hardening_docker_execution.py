@@ -50,8 +50,13 @@ def test_compose_mounts_and_identifies_durable_runtime_delivery_volume():
     assert "CORTEX_DB_SEED_PATH: /app/seed/cortex_graph.db" in compose
     assert "./knowledge:/app/cortex_server/knowledge" not in compose
     assert "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:" in compose
+    assert "CORTEX_REQUIRED_PATHS: ${CORTEX_REQUIRED_PATHS:-}" in compose
+    assert "CORTEX_REQUIRED_ROUTERS: ${CORTEX_REQUIRED_ROUTERS:-}" in compose
     assert "cortex-runtime-delivery-volume-init:" in compose
     assert "marker=/state/runtime_delivery/.cortex-durable-runtime-delivery" in compose
+    assert "sync \"$${parent}\"" in compose
+    assert "/state/runtime_delivery/release_workflow/artifacts" in compose
+    assert "/state/runtime_delivery/production_build_loop/locks" in compose
     assert "chmod 0700 /state /state/runtime_delivery" in compose
     assert "release-verifier:" in compose
     assert "release-manager:" in compose

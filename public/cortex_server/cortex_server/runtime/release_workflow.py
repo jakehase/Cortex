@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage, release_ack_authentication_required
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
@@ -146,7 +147,7 @@ def release_canary_policy(target_stage: str) -> JsonDict:
 
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(path.parent)
     encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
     try:
@@ -155,22 +156,19 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        directory_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        fsync_directory(path.parent)
     finally:
         if temporary.exists():
             temporary.unlink()
 
 
 def _append_fsynced_jsonl(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(path.parent)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
+    fsync_directory(path.parent)
 
 
 
@@ -297,7 +295,7 @@ class ReleaseArtifactStore:
             thread_lock = _ARTIFACT_STORE_LOCKS.setdefault(lock_key, threading.RLock())
         with thread_lock:
             lock_target = self._lock_target()
-            lock_target.parent.mkdir(parents=True, exist_ok=True)
+            durable_mkdir(lock_target.parent)
             with lock_target.open("a+b") as handle:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
                 try:
@@ -358,7 +356,7 @@ class ReleaseArtifactStore:
             raise ValueError(
                 f"release artifact store quota exceeded: {projected_usage} > {int(store_quota_bytes)} bytes"
             )
-        target.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(target.parent)
         temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
         try:
             with temporary.open("xb") as handle:
@@ -366,11 +364,7 @@ class ReleaseArtifactStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, target)
-            directory_fd = os.open(target.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            fsync_directory(target.parent)
         finally:
             if temporary.exists():
                 temporary.unlink()
@@ -397,21 +391,13 @@ class ReleaseArtifactStore:
     def _unlink_target(self, target: Path) -> None:
         parent = target.parent
         target.unlink()
-        directory_fd = os.open(parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        fsync_directory(parent)
         try:
             parent.rmdir()
         except OSError:
             return
         if self.path.exists():
-            root_fd = os.open(self.path, os.O_RDONLY)
-            try:
-                os.fsync(root_fd)
-            finally:
-                os.close(root_fd)
+            fsync_directory(self.path)
 
     def prune_orphans(
         self,
@@ -1138,7 +1124,7 @@ class ReleaseWorkflowStore:
             return
 
         lock_target = self._rollback_lock_target(process_id)
-        lock_target.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(lock_target.parent)
         with lock_target.open("a+b") as handle:
             flags = fcntl.LOCK_EX
             try:

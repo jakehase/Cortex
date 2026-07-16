@@ -13,6 +13,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+
 
 
 def _now_iso() -> str:
@@ -185,7 +187,7 @@ class AgentMailbox:
 
     @contextmanager
     def _locked(self, *, exclusive: bool):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(self.path.parent)
         with self._lock_path.open("a+b") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
             try:
@@ -195,7 +197,7 @@ class AgentMailbox:
 
     @staticmethod
     def _atomic_replace(path: Path, payload: bytes) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(path.parent)
         temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
         try:
             with temporary.open("xb") as handle:
@@ -203,11 +205,7 @@ class AgentMailbox:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, path)
-            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            fsync_directory(path.parent)
         finally:
             try:
                 temporary.unlink()

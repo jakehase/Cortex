@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import stat
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
+import cortex_server.runtime.durable_files as durable_files
 from cortex_server.runtime import (
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
@@ -29,6 +33,118 @@ from cortex_server.runtime.shared_process_state import SharedProcessState
 
 VERIFIER_ID = "independent-release-verifier"
 VERIFIER_SECRET = "release-workflow-test-secret"
+
+
+def _directory_for_fd(fd: int) -> tuple[int, int]:
+    descriptor = os.fstat(fd)
+    return descriptor.st_dev, descriptor.st_ino
+
+
+def _directory_identity(path: Path) -> tuple[int, int]:
+    descriptor = path.stat()
+    return descriptor.st_dev, descriptor.st_ino
+
+
+def test_first_release_write_fsyncs_each_new_ancestor_and_linked_store_entry(
+    tmp_path, monkeypatch
+):
+    store = ReleaseWorkflowStore(
+        tmp_path / "volume" / "runtime_delivery" / "release_workflow"
+    )
+    real_fsync = os.fsync
+    synced_directories = []
+
+    def recording_fsync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            synced_directories.append(_directory_for_fd(fd))
+        return real_fsync(fd)
+
+    monkeypatch.setattr(durable_files.os, "fsync", recording_fsync)
+    state = ReleaseWorkflowState(
+        process_id="proc_first_write_durability",
+        candidate_ref="build:first-write",
+        target_environment="production",
+        revision_id="rev_1",
+    )
+    store.save(state, actor="release-coordinator")
+
+    release_root = store.path.resolve()
+    history_root = (store.path / "history").resolve()
+    assert [
+        _directory_identity(tmp_path),
+        _directory_identity(tmp_path / "volume"),
+        _directory_identity(tmp_path / "volume" / "runtime_delivery"),
+    ] == synced_directories[:3]
+    assert _directory_identity(release_root) in synced_directories
+    assert _directory_identity(history_root) in synced_directories
+
+    artifact_store = store.artifact_store()
+    artifact_ref, _content_hash = artifact_store.put(b"first publication")
+    artifact_target = artifact_store._target(artifact_ref)
+    assert artifact_target.exists()
+    assert _directory_identity(release_root) in synced_directories
+    assert _directory_identity(artifact_store.path) in synced_directories
+    assert _directory_identity(artifact_target.parent) in synced_directories
+
+
+@pytest.mark.parametrize("failed_directory_sync", [1, 2, 3])
+def test_first_release_write_never_descends_past_an_unsynced_ancestor(
+    tmp_path, monkeypatch, failed_directory_sync
+):
+    store = ReleaseWorkflowStore(
+        tmp_path / "volume" / "runtime_delivery" / "release_workflow"
+    )
+    real_fsync = os.fsync
+    directory_sync_count = 0
+
+    def fail_selected_directory_sync(fd):
+        nonlocal directory_sync_count
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            directory_sync_count += 1
+            if directory_sync_count == failed_directory_sync:
+                raise OSError("injected ancestor fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(durable_files.os, "fsync", fail_selected_directory_sync)
+    state = ReleaseWorkflowState(
+        process_id=f"proc_sync_failure_{failed_directory_sync}",
+        candidate_ref="build:must-not-ack",
+        target_environment="production",
+        revision_id="rev_1",
+    )
+
+    with pytest.raises(OSError, match="injected ancestor fsync failure"):
+        store.save(state, actor="release-coordinator")
+
+    assert directory_sync_count == failed_directory_sync
+    assert not store._target(state.process_id).exists()
+
+
+@pytest.mark.parametrize("failed_directory_sync", [1, 2])
+def test_first_artifact_publication_never_acks_unsynced_store_topology(
+    tmp_path, monkeypatch, failed_directory_sync
+):
+    release_root = tmp_path / "release_workflow"
+    durable_files.durable_mkdir(release_root)
+    artifact_store = ReleaseWorkflowStore(release_root).artifact_store()
+    real_fsync = os.fsync
+    directory_sync_count = 0
+
+    def fail_selected_directory_sync(fd):
+        nonlocal directory_sync_count
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            directory_sync_count += 1
+            if directory_sync_count == failed_directory_sync:
+                raise OSError("injected artifact topology fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(durable_files.os, "fsync", fail_selected_directory_sync)
+
+    with pytest.raises(OSError, match="injected artifact topology fsync failure"):
+        artifact_store.put(b"must not be acknowledged")
+
+    assert directory_sync_count == failed_directory_sync
+    assert not list(artifact_store.path.glob("*/*.artifact"))
 
 
 def test_event_loop_release_lock_contention_fails_fast_without_deadlock(tmp_path):
