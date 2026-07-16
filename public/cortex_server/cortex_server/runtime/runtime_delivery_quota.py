@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -57,6 +58,11 @@ def _usage(root: Path) -> int:
     total = 0
     if not root.exists():
         return 0
+    try:
+        if root.is_file() and not root.is_symlink():
+            return int(root.stat().st_size)
+    except FileNotFoundError:
+        return 0
     for candidate in root.rglob("*"):
         try:
             if ".runtime-delivery-reservations" in candidate.parts:
@@ -68,6 +74,60 @@ def _usage(root: Path) -> int:
         except FileNotFoundError:
             continue
     return total
+
+
+def _process_owned_paths(delivery_root: Path, process_id: str) -> List[Path]:
+    """Return exact durable paths owned by one immutable process identity."""
+
+    if not delivery_root.exists():
+        return []
+    process_digest = hashlib.sha256(process_id.encode("utf-8")).hexdigest()
+    canonical_names = {
+        f"{process_id}.json",
+        f"{process_id}.jsonl",
+        f".{process_id}.json.rollback-intent.json",
+        f".{process_id}.json.save-intent.json",
+    }
+    owned: List[Path] = []
+    for candidate in delivery_root.rglob("*"):
+        try:
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+            relative_parts = candidate.relative_to(delivery_root).parts
+            canonical = candidate.name in canonical_names
+            hashed_rollback_result = (
+                len(relative_parts) >= 3
+                and relative_parts[-3] == "rollback_results"
+                and relative_parts[-2] == process_digest
+                and candidate.suffix == ".json"
+            )
+            if canonical or hashed_rollback_result:
+                owned.append(candidate)
+        except FileNotFoundError:
+            continue
+    return owned
+
+
+def _resolved_replacements(
+    delivery_root: Path,
+    replacements: Sequence[Tuple[Path, int]],
+) -> List[Tuple[Path, int]]:
+    resolved: List[Tuple[Path, int]] = []
+    seen: set[Path] = set()
+    for raw_path, raw_size in replacements:
+        target = Path(raw_path).resolve()
+        try:
+            target.relative_to(delivery_root)
+        except ValueError as exc:
+            raise ValueError("runtime delivery replacement must be inside delivery_root") from exc
+        if target in seen:
+            raise ValueError("runtime delivery replacement paths must be unique")
+        size = int(raw_size)
+        if size < 0:
+            raise ValueError("runtime delivery replacement size must be non-negative")
+        seen.add(target)
+        resolved.append((target, size))
+    return resolved
 
 
 def _volume_usage(delivery_root: Path) -> int:
@@ -459,6 +519,7 @@ def assert_runtime_delivery_capacity(
     projected_replacements = list(replacements or [])
     if replacing is not None:
         projected_replacements.append((replacing, int(additional_bytes)))
+    projected_replacements = _resolved_replacements(root, projected_replacements)
     current_replaced = sum(
         path.stat().st_size
         for path, _new_size in projected_replacements
@@ -470,23 +531,26 @@ def assert_runtime_delivery_capacity(
     projected_store = store_usage - current_replaced + final_added
     if projected_store > MAX_RUNTIME_DELIVERY_STORE_BYTES:
         raise ValueError("runtime delivery store quota exceeded")
-    process_usage = 0
-    if store.exists():
-        for candidate in store.rglob(f"{process}.*"):
-            try:
-                if candidate.is_file() and not candidate.is_symlink():
-                    process_usage += candidate.stat().st_size
-            except FileNotFoundError:
-                continue
+    # Process ownership is derived from exact server-owned layouts across the
+    # complete delivery root.  Canonical projections use an exact basename;
+    # rollback idempotency results use the exact SHA-256 process namespace.
+    # Explicit replacement targets cover suffix-style stores and are projected
+    # atomically even when their basename does not embed the process identity.
+    process_paths = set(_process_owned_paths(root, process))
+    process_paths.update(path for path, _new_size in projected_replacements if path.exists())
+    process_usage = sum(
+        path.stat().st_size
+        for path in process_paths
+        if path.exists() and path.is_file() and not path.is_symlink()
+    )
     process_replaced = sum(
         path.stat().st_size
         for path, _new_size in projected_replacements
-        if path.exists() and process in path.name
+        if path.exists() and path.is_file() and not path.is_symlink()
     )
     process_added = sum(
         new_size
-        for path, new_size in projected_replacements
-        if process in path.name
+        for _path, new_size in projected_replacements
     ) if projected_replacements else int(additional_bytes)
     projected_process = process_usage - process_replaced + process_added
     if projected_process > MAX_RUNTIME_DELIVERY_PROCESS_BYTES:

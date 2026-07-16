@@ -33,6 +33,35 @@ fi
 : "${CORTEX_RELEASE_VERIFIER_ID:?set the verifier attestation ID}"
 : "${CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:?set the verifier attestation secret}"
 : "${CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:?set the verifier-only artifact transport token}"
+: "${CORTEX_RELEASE_VERIFIER_STATE_DIR:?set the durable verifier controller state directory}"
+: "${CORTEX_RELEASE_MANAGER_STATE_DIR:?set the durable manager controller state directory}"
+
+normalize_controller_state_dir() {
+  local variable_name="$1"
+  local configured="$2"
+  local normalized
+  if [[ "${configured}" != /* ]]; then
+    echo "${variable_name} must be an absolute path" >&2
+    return 1
+  fi
+  normalized="$(/usr/bin/realpath -m -- "${configured}")"
+  case "${normalized}" in
+    /tmp|/tmp/*|/var/tmp|/var/tmp/*|/run|/run/*|/dev/shm|/dev/shm/*)
+      echo "${variable_name} must use durable storage, not ${normalized}" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "${normalized}"
+}
+
+CORTEX_RELEASE_VERIFIER_STATE_DIR="$(normalize_controller_state_dir \
+  CORTEX_RELEASE_VERIFIER_STATE_DIR "${CORTEX_RELEASE_VERIFIER_STATE_DIR}")"
+CORTEX_RELEASE_MANAGER_STATE_DIR="$(normalize_controller_state_dir \
+  CORTEX_RELEASE_MANAGER_STATE_DIR "${CORTEX_RELEASE_MANAGER_STATE_DIR}")"
+if [[ "${CORTEX_RELEASE_VERIFIER_STATE_DIR}" == "${CORTEX_RELEASE_MANAGER_STATE_DIR}" ]]; then
+  echo "release verifier and manager state directories must be distinct" >&2
+  exit 1
+fi
 
 export CORTEX_BASE_URL="${CORTEX_BASE_URL:-http://127.0.0.1:${CORTEX_PORT}}"
 export CORTEX_RELEASE_MEASUREMENT_URL="${CORTEX_RELEASE_MEASUREMENT_URL:-${CORTEX_BASE_URL}/release-observation}"
@@ -51,6 +80,7 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 
 CORTEX_RELEASE_CONTROLLER_ROLE=verifier \
+CORTEX_RELEASE_CONTROLLER_STATE_DIR="${CORTEX_RELEASE_VERIFIER_STATE_DIR}" \
 CORTEX_HANDOFF_RECIPIENT=release-verifier \
 CORTEX_HANDOFF_RECIPIENT_SECRET="${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET}" \
 CORTEX_HANDOFF_HEALTH_PORT="${CORTEX_RELEASE_VERIFIER_HEALTH_PORT:-8891}" \
@@ -58,6 +88,7 @@ CORTEX_HANDOFF_HEALTH_PORT="${CORTEX_RELEASE_VERIFIER_HEALTH_PORT:-8891}" \
 child_pids+=("$!")
 
 CORTEX_RELEASE_CONTROLLER_ROLE=manager \
+CORTEX_RELEASE_CONTROLLER_STATE_DIR="${CORTEX_RELEASE_MANAGER_STATE_DIR}" \
 CORTEX_HANDOFF_RECIPIENT=release-manager \
 CORTEX_HANDOFF_RECIPIENT_SECRET="${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET}" \
 CORTEX_HANDOFF_HEALTH_PORT="${CORTEX_RELEASE_MANAGER_HEALTH_PORT:-8892}" \
