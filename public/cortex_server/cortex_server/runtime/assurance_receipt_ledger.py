@@ -16,6 +16,8 @@ from typing import Any, Mapping, Optional
 
 _SCHEMA_VERSION = 1
 _LEDGER_LOCK = threading.RLock()
+_LOCK_RETRY_SECONDS = 10.0
+_LOCK_RETRY_INTERVAL_SECONDS = 0.01
 
 
 class AssuranceReceiptLedgerUnavailable(RuntimeError):
@@ -44,6 +46,33 @@ def _canonical_scope(scope: Mapping[str, Any]) -> tuple[str, str]:
     return digest, scope_json
 
 
+def _is_sqlite_lock_contention(exc: sqlite3.OperationalError) -> bool:
+    error_code = getattr(exc, "sqlite_errorcode", None)
+    if not isinstance(error_code, int):
+        return False
+    primary_error_code = error_code & 0xFF
+    return primary_error_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+
+
+def _enable_wal(connection: sqlite3.Connection) -> None:
+    """Enable WAL even when another process is initializing the same ledger."""
+
+    deadline = time.monotonic() + _LOCK_RETRY_SECONDS
+    while True:
+        try:
+            current_mode = connection.execute("PRAGMA journal_mode").fetchone()
+            if current_mode is not None and str(current_mode[0]).lower() == "wal":
+                return
+            configured_mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()
+            if configured_mode is None or str(configured_mode[0]).lower() != "wal":
+                raise sqlite3.OperationalError("unable to enable WAL journal mode")
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_sqlite_lock_contention(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(_LOCK_RETRY_INTERVAL_SECONDS)
+
+
 def _connect(state_path: Path) -> sqlite3.Connection:
     state_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
@@ -55,7 +84,7 @@ def _connect(state_path: Path) -> sqlite3.Connection:
         connection = sqlite3.connect(str(state_path), timeout=10, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA busy_timeout=10000")
-        connection.execute("PRAGMA journal_mode=WAL")
+        _enable_wal(connection)
         connection.execute("PRAGMA synchronous=FULL")
         connection.execute(
             """
