@@ -4,9 +4,10 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from fastapi import FastAPI, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocketDisconnect
 from starlette.datastructures import Headers
 
+from cortex_server.middleware.request_body_limit import RequestBodyLimitMiddleware
 from cortex_server.middleware.write_authorization import WriteAuthorizationMiddleware
 from cortex_server.routers import websockets
 from cortex_server.tools import docker_wrapper
@@ -391,3 +392,85 @@ async def test_log_websocket_sanitizes_docker_constructor_failure(monkeypatch):
     assert socket.accepted is True
     assert socket.sent == [{"type": "error", "message": "log stream unavailable"}]
     assert socket.closed == [{"code": 1011, "reason": "log stream unavailable"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/orchestrator/runtime/delivery/artifacts/proc_body_limit",
+        "/conductor/runtime/delivery/artifacts/proc_body_limit",
+    ),
+)
+async def test_chunked_oversized_invalid_hmac_is_rejected_before_json_dispatch(path):
+    dispatched = []
+    app = FastAPI()
+
+    @app.post(path)
+    async def artifact_ingest(request: Request):
+        dispatched.append(await request.json())
+        return {"success": True}
+
+    app.add_middleware(RequestBodyLimitMiddleware, max_body_bytes=96)
+
+    async def invalid_hmac_chunks():
+        yield b'{"attestation_signature":"' + (b"0" * 64) + b'","payload":"'
+        yield b"x" * 64
+        yield b'"}'
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            path,
+            content=invalid_hmac_chunks(),
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["error"] == "request body exceeds configured limit"
+    assert dispatched == []
+
+
+@pytest.mark.asyncio
+async def test_oversized_content_length_is_rejected_without_reading_or_dispatching():
+    receive_calls = []
+    downstream_calls = []
+    sent = []
+
+    async def downstream(_scope, _receive, _send):
+        downstream_calls.append(True)
+
+    async def receive():
+        receive_calls.append(True)
+        raise AssertionError("declared oversized bodies must be rejected before receive")
+
+    async def send(message):
+        sent.append(message)
+
+    limiter = RequestBodyLimitMiddleware(downstream, max_body_bytes=32)
+    await limiter(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/orchestrator/runtime/delivery/artifacts/proc_declared",
+            "headers": [(b"content-length", b"33")],
+        },
+        receive,
+        send,
+    )
+
+    assert sent[0]["status"] == 413
+    assert receive_calls == []
+    assert downstream_calls == []
+
+
+def test_global_request_body_limiter_is_outermost_and_configured(monkeypatch):
+    monkeypatch.setenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "false")
+    monkeypatch.setenv("CORTEX_MAX_REQUEST_BODY_BYTES", "12345")
+    from cortex_server import main
+
+    app = main.create_app()
+
+    assert app.state.max_request_body_bytes == 12345
+    assert app.user_middleware[0].cls is RequestBodyLimitMiddleware
+    assert app.user_middleware[0].kwargs["max_body_bytes"] == 12345

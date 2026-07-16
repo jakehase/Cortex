@@ -106,6 +106,17 @@ def _configured_production_app(monkeypatch):
         async def global_maintenance():
             return {"success": True}
 
+        async def artifact_ingest(process_id: str):
+            return {"success": True, "process_id": process_id}
+
+        for prefix in ("orchestrator", "conductor"):
+            app.add_api_route(
+                f"/{prefix}/runtime/delivery/artifacts/{{process_id}}",
+                artifact_ingest,
+                methods=["POST"],
+                name=f"{prefix}_artifact_ingest",
+            )
+
         @app.post("/nexus/codec/corpus-replay")
         async def codec_control():
             return {"success": True}
@@ -390,6 +401,22 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
             headers=alice_headers,
         )
         assert cross_principal.status_code == 403
+
+        # Artifact verifier HMACs remain independent of memory principals, but
+        # neither compatibility alias may bypass the transport write token.
+        for prefix in ("orchestrator", "conductor"):
+            artifact_path = f"/{prefix}/runtime/delivery/artifacts/proc_alice"
+            missing_transport = await client.post(
+                artifact_path,
+                headers=_principal_headers(ALICE_SCOPE),
+            )
+            assert missing_transport.status_code == 403
+
+            independently_authenticated_transport = await client.post(
+                artifact_path,
+                headers={"x-cortex-write-token": WRITE_SECRET},
+            )
+            assert independently_authenticated_transport.status_code == 200
 
         owned = await client.post(
             "/orchestrator/runtime/cancel/proc_alice",

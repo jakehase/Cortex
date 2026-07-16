@@ -89,12 +89,16 @@ MANAGER_RECIPIENT_SECRET = "manager-recipient-secret-0000000000001"
 def _public_runtime_delivery_client() -> TestClient:
     app = FastAPI()
     app.include_router(orchestrator.router, prefix="/orchestrator")
+    app.include_router(orchestrator.router, prefix="/conductor")
     app.add_middleware(
         WriteAuthorizationMiddleware,
         mode="token_required",
         token="runtime-delivery-write-token",
         header_name="x-cortex-write-token",
-        exempt_prefixes=("/orchestrator/runtime/delivery/handoffs",),
+        exempt_prefixes=(
+            "/orchestrator/runtime/delivery/handoffs",
+            "/conductor/runtime/delivery/handoffs",
+        ),
     )
     client = TestClient(app)
     client.headers["x-cortex-write-token"] = "runtime-delivery-write-token"
@@ -162,6 +166,83 @@ def _signed_artifact_request(
 def test_runtime_delivery_ordinary_initialization_rejects_non_draft_stage():
     with pytest.raises(ValueError, match="ordinary runtime release initialization is restricted to draft"):
         orchestrator.RuntimeDeliveryReconcileRequest(initial_release_stage="production")
+
+
+def test_runtime_delivery_ingest_and_handoff_models_enforce_strict_bounds(monkeypatch):
+    monkeypatch.setenv("CORTEX_RELEASE_ARTIFACT_MAX_BYTES", "8")
+    monkeypatch.setenv("CORTEX_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES", "16")
+    monkeypatch.setenv("CORTEX_RELEASE_ARTIFACT_STORE_QUOTA_BYTES", "32")
+
+    with pytest.raises(ValueError, match="maximum artifact size"):
+        orchestrator.RuntimeDeliveryArtifactIngestRequest(
+            artifact_id="artifact:oversized-model",
+            payload="x" * 9,
+            artifact_kind="release_bundle",
+            producer="builder",
+            verifier="verifier",
+            attestation_signature="0" * 64,
+            created_at="2026-07-16T05:00:00.000Z",
+        )
+
+    with pytest.raises(ValueError, match="256"):
+        orchestrator.RuntimeDeliveryHandoffClaimRequest(
+            recipient="r" * 257,
+            process_id="proc_bounded_handoff",
+            expected_revision_id="rev_1",
+            request_id="request-bounded-handoff",
+            requested_at="2026-07-16T05:00:00.000Z",
+            recipient_signature="0" * 64,
+        )
+
+
+def test_invalid_artifact_signature_has_no_side_effect_for_compatibility_aliases(
+    tmp_path,
+    monkeypatch,
+):
+    process_id = "proc_invalid_alias_artifact"
+    release_store = orchestrator.ReleaseWorkflowStore(tmp_path / "release")
+    release_state = release_store.save(
+        orchestrator.ReleaseWorkflowState(
+            process_id=process_id,
+            candidate_ref="build:invalid-alias-artifact",
+            target_environment="production",
+            revision_id="rev_1",
+        )
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({"runtime-independent-verifier": VERIFIER_SECRET}),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "get_runtime_process",
+        lambda requested: {"process_id": requested} if requested == process_id else None,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_runtime_delivery_stores",
+        lambda: {"release_store": release_store},
+    )
+    client = _public_runtime_delivery_client()
+    request = _signed_artifact_request(
+        release_state,
+        artifact_id="artifact:invalid-alias",
+        payload={"result": "must-not-persist"},
+        artifact_kind="release_bundle",
+    ).model_copy(update={"attestation_signature": "0" * 64})
+    before_state = release_store.load(process_id).model_dump()
+    before_history = [row.model_dump() for row in release_store.history(process_id)]
+
+    for prefix in ("orchestrator", "conductor"):
+        rejected = client.post(
+            f"/{prefix}/runtime/delivery/artifacts/{process_id}",
+            json=request.model_dump(),
+        )
+        assert rejected.status_code == 403
+
+    assert release_store.load(process_id).model_dump() == before_state
+    assert [row.model_dump() for row in release_store.history(process_id)] == before_history
+    assert not release_store.artifact_store().path.exists()
 
 
 def test_runtime_delivery_readiness_requires_credentials_and_durable_mount(tmp_path, monkeypatch):

@@ -114,7 +114,11 @@ from cortex_server.runtime.production_build_loop import (
     runtime_delivery_handoff_discovery_signature,
     runtime_delivery_recipient_credentials,
 )
-from cortex_server.runtime.release_workflow import RELEASE_STAGE_TOPOLOGY
+from cortex_server.runtime.release_workflow import (
+    RELEASE_STAGE_TOPOLOGY,
+    canonical_release_artifact_bytes,
+    release_artifact_storage_limits,
+)
 
 router = APIRouter()
 
@@ -2966,50 +2970,96 @@ class RuntimeDeliveryRollbackRequest(BaseModel):
     actor: str = "cortex"
 
 
+RUNTIME_DELIVERY_METADATA_MAX_BYTES = 256 * 1024
+
+
+def _bounded_runtime_delivery_mapping(value: Dict[str, Any], *, field_name: str) -> Dict[str, Any]:
+    try:
+        encoded = canonical_release_artifact_bytes(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be canonically JSON serializable") from exc
+    if len(encoded) > RUNTIME_DELIVERY_METADATA_MAX_BYTES:
+        raise ValueError(
+            f"{field_name} exceeds maximum size of {RUNTIME_DELIVERY_METADATA_MAX_BYTES} bytes"
+        )
+    return value
+
+
 class RuntimeDeliveryArtifactIngestRequest(BaseModel):
-    artifact_id: str
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str = Field(min_length=1, max_length=256)
     payload: Any
-    artifact_kind: str
-    producer: str
-    verifier: str
-    attestation_signature: str
-    validation_outcome: str = "passed"
-    target_stage: Optional[str] = None
+    artifact_kind: str = Field(min_length=1, max_length=128)
+    producer: str = Field(min_length=1, max_length=256)
+    verifier: str = Field(min_length=1, max_length=256)
+    attestation_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    validation_outcome: str = Field(default="passed", min_length=1, max_length=16)
+    target_stage: Optional[str] = Field(default=None, min_length=1, max_length=64)
     claims: Dict[str, Any] = Field(default_factory=dict)
-    created_at: str
+    created_at: str = Field(min_length=1, max_length=64)
+
+    @field_validator("payload")
+    @classmethod
+    def _bounded_payload(cls, value: Any) -> Any:
+        limits = release_artifact_storage_limits()
+        encoded = canonical_release_artifact_bytes(value)
+        if len(encoded) > limits.max_artifact_bytes:
+            raise ValueError(
+                f"payload exceeds maximum artifact size of {limits.max_artifact_bytes} bytes"
+            )
+        return value
+
+    @field_validator("claims")
+    @classmethod
+    def _bounded_claims(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        return _bounded_runtime_delivery_mapping(value, field_name="claims")
 
 
 class RuntimeDeliveryHandoffClaimRequest(BaseModel):
-    recipient: str
-    process_id: str
-    expected_revision_id: str
-    request_id: str
-    requested_at: str
-    recipient_signature: str
+    model_config = ConfigDict(extra="forbid")
+
+    recipient: str = Field(min_length=1, max_length=256)
+    process_id: str = Field(min_length=1, max_length=256)
+    expected_revision_id: str = Field(min_length=1, max_length=256)
+    request_id: str = Field(min_length=1, max_length=256)
+    requested_at: str = Field(min_length=1, max_length=64)
+    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class RuntimeDeliveryHandoffClaimNextRequest(BaseModel):
-    recipient: str
-    request_id: str
-    requested_at: str
-    recipient_signature: str
+    model_config = ConfigDict(extra="forbid")
+
+    recipient: str = Field(min_length=1, max_length=256)
+    request_id: str = Field(min_length=1, max_length=256)
+    requested_at: str = Field(min_length=1, max_length=64)
+    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class RuntimeDeliveryArtifactFetchRequest(BaseModel):
-    recipient: str
-    process_id: str
-    release_id: str
-    revision_id: str
-    artifact_ref: str
-    request_id: str
-    requested_at: str
-    recipient_signature: str
+    model_config = ConfigDict(extra="forbid")
+
+    recipient: str = Field(min_length=1, max_length=256)
+    process_id: str = Field(min_length=1, max_length=256)
+    release_id: str = Field(min_length=1, max_length=256)
+    revision_id: str = Field(min_length=1, max_length=256)
+    artifact_ref: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    request_id: str = Field(min_length=1, max_length=256)
+    requested_at: str = Field(min_length=1, max_length=64)
+    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class RuntimeDeliveryHandoffAcknowledgeRequest(BaseModel):
-    recipient: str
+    model_config = ConfigDict(extra="forbid")
+
+    recipient: str = Field(min_length=1, max_length=256)
     result_receipt: Dict[str, Any]
-    recipient_signature: str
+    recipient_signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("result_receipt")
+    @classmethod
+    def _bounded_result_receipt(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        return _bounded_runtime_delivery_mapping(value, field_name="result_receipt")
 
 
 class RuntimeRoadmapReconcileRequest(BaseModel):

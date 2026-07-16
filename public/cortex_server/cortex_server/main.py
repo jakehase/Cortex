@@ -26,6 +26,10 @@ from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.middleware.event_ledger_middleware import EventLedgerMiddleware
 from cortex_server.middleware.observability import ObservabilityMiddleware
+from cortex_server.middleware.request_body_limit import (
+    RequestBodyLimitMiddleware,
+    configured_max_request_body_bytes,
+)
 from cortex_server.middleware.write_authorization import MUTATING_METHODS, WriteAuthorizationMiddleware
 from cortex_server.routers import websockets
 import asyncio
@@ -417,9 +421,12 @@ _PRINCIPAL_MUTATION_PREFIXES = (
     "/orchestrator/runtime/resume/",
     "/conductor/runtime/resume/",
 )
-_INDEPENDENT_RELEASE_AUTH_PREFIXES = (
+_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES = (
     "/orchestrator/runtime/delivery/handoffs/",
     "/conductor/runtime/delivery/handoffs/",
+)
+_INDEPENDENT_RELEASE_PRINCIPAL_AUTH_PREFIXES = (
+    *_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
     "/orchestrator/runtime/delivery/artifacts/",
     "/conductor/runtime/delivery/artifacts/",
 )
@@ -1013,6 +1020,9 @@ def create_app() -> FastAPI:
     write_auth_mode = os.getenv("CORTEX_WRITE_AUTH_MODE", "token_or_loopback").strip().lower()
     write_token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
     write_token_header = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower()
+    max_request_body_bytes = configured_max_request_body_bytes(
+        os.getenv("CORTEX_MAX_REQUEST_BODY_BYTES")
+    )
     safe_mode = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
     admin_token = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
     codec_admin_token = os.getenv("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
@@ -1288,6 +1298,7 @@ def create_app() -> FastAPI:
     app.state.websocket_security = websocket_security
     app.state.readiness_config = readiness_config
     app.state.read_authorization = read_authorization
+    app.state.max_request_body_bytes = max_request_body_bytes
     app.state.lifecycle_checks = _not_started_lifecycle_checks()
     app.state.parser_service = ParserService(workspace_roots=parser_workspace_roots)
 
@@ -1297,7 +1308,7 @@ def create_app() -> FastAPI:
         token=write_token,
         header_name=write_token_header,
         allowed_origins=allowed_origins,
-        exempt_prefixes=_INDEPENDENT_RELEASE_AUTH_PREFIXES,
+        exempt_prefixes=_TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES,
         sensitive_prefixes=("/nexus/codec",),
         sensitive_token=codec_admin_token,
         sensitive_exempt_paths=("/nexus/codec/events",),
@@ -1313,9 +1324,11 @@ def create_app() -> FastAPI:
                     return JSONResponse(status_code=403, content={"success": False, "error": "admin token required"})
         if production_environment and request.method.upper() in MUTATING_METHODS:
             path = str(request.url.path or "")
-            if any(path.startswith(prefix) for prefix in _INDEPENDENT_RELEASE_AUTH_PREFIXES):
-                # These endpoints verify independent verifier/recipient HMACs
-                # in their handlers in addition to the transport write token.
+            if any(path.startswith(prefix) for prefix in _INDEPENDENT_RELEASE_PRINCIPAL_AUTH_PREFIXES):
+                # Release consumers use revision-bound recipient/verifier
+                # HMACs. Artifact ingestion still passes through the separate
+                # transport write-token middleware; public handoff claims do
+                # not because their recipient credential is the transport.
                 return await call_next(request)
             principal, error = _authenticate_sensitive_read(request, read_authorization)
             if principal is None:
@@ -1472,6 +1485,12 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=30, exclude_paths=["/health", "/", "/oracle/chat", "/oracle/status", "/oracle/ledger", "/augmenter/chat", "/bard/speak", "/homeassistant/voice/assist_tts"])
     app.add_middleware(EventLedgerMiddleware)
     app.add_middleware(HUDMiddleware)
+    # This must remain the last added user middleware: Starlette places the
+    # most recently added middleware outermost, before auth and body parsing.
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=max_request_body_bytes,
+    )
     register_exception_handlers(app)
 
     # API Routers

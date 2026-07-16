@@ -9,6 +9,7 @@ import math
 import os
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -30,6 +31,58 @@ JsonDict = Dict[str, Any]
 
 
 RELEASE_STAGE_TOPOLOGY = ("draft", "build_verified", "canary_verified", "production")
+
+DEFAULT_RELEASE_ARTIFACT_MAX_BYTES = 4 * 1024 * 1024
+DEFAULT_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES = 64 * 1024 * 1024
+DEFAULT_RELEASE_ARTIFACT_STORE_QUOTA_BYTES = 1024 * 1024 * 1024
+DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS = 3600
+
+
+@dataclass(frozen=True)
+class ReleaseArtifactStorageLimits:
+    max_artifact_bytes: int
+    release_quota_bytes: int
+    store_quota_bytes: int
+    orphan_grace_seconds: int
+
+
+def _artifact_limit_from_env(name: str, default: int, *, allow_zero: bool = False) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    if not raw.isdecimal():
+        raise RuntimeError(f"{name} must be {'a non-negative' if allow_zero else 'a positive'} integer")
+    value = int(raw)
+    if value < 0 or (value == 0 and not allow_zero):
+        raise RuntimeError(f"{name} must be {'a non-negative' if allow_zero else 'a positive'} integer")
+    return value
+
+
+def release_artifact_storage_limits() -> ReleaseArtifactStorageLimits:
+    limits = ReleaseArtifactStorageLimits(
+        max_artifact_bytes=_artifact_limit_from_env(
+            "CORTEX_RELEASE_ARTIFACT_MAX_BYTES",
+            DEFAULT_RELEASE_ARTIFACT_MAX_BYTES,
+        ),
+        release_quota_bytes=_artifact_limit_from_env(
+            "CORTEX_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES",
+            DEFAULT_RELEASE_ARTIFACT_RELEASE_QUOTA_BYTES,
+        ),
+        store_quota_bytes=_artifact_limit_from_env(
+            "CORTEX_RELEASE_ARTIFACT_STORE_QUOTA_BYTES",
+            DEFAULT_RELEASE_ARTIFACT_STORE_QUOTA_BYTES,
+        ),
+        orphan_grace_seconds=_artifact_limit_from_env(
+            "CORTEX_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS",
+            DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS,
+            allow_zero=True,
+        ),
+    )
+    if limits.max_artifact_bytes > limits.release_quota_bytes:
+        raise RuntimeError("release artifact maximum must not exceed the per-release quota")
+    if limits.release_quota_bytes > limits.store_quota_bytes:
+        raise RuntimeError("release artifact per-release quota must not exceed the store quota")
+    return limits
 
 
 class ReleaseCanaryPolicy(BaseModel):
@@ -192,6 +245,34 @@ def _artifact_payload_bytes(payload: Any) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def canonical_release_artifact_bytes(payload: Any) -> bytes:
+    """Return the exact bounded representation covered by an artifact digest."""
+
+    return _artifact_payload_bytes(payload)
+
+
+def prepare_release_artifact(
+    payload: Any,
+    *,
+    max_bytes: Optional[int] = None,
+) -> tuple[bytes, str]:
+    effective_max = (
+        release_artifact_storage_limits().max_artifact_bytes
+        if max_bytes is None
+        else int(max_bytes)
+    )
+    if effective_max <= 0:
+        raise ValueError("release artifact maximum must be positive")
+    encoded = canonical_release_artifact_bytes(payload)
+    if len(encoded) > effective_max:
+        raise ValueError(f"release artifact exceeds maximum size of {effective_max} bytes")
+    return encoded, f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+_ARTIFACT_STORE_LOCKS_GUARD = threading.Lock()
+_ARTIFACT_STORE_LOCKS: Dict[str, threading.RLock] = {}
+
+
 class ReleaseArtifactStore:
     """Content-addressed immutable release outputs used by signed attestations."""
 
@@ -204,31 +285,166 @@ class ReleaseArtifactStore:
             raise ValueError("content_hash must be a lowercase SHA-256 digest")
         return self.path / digest[:2] / f"{digest}.artifact"
 
-    def put(self, payload: Any) -> tuple[str, str]:
-        encoded = _artifact_payload_bytes(payload)
-        content_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+    def _lock_target(self) -> Path:
+        return self.path.parent / f".{self.path.name}.publication.lock"
+
+    @contextmanager
+    def publication_transaction(self):
+        """Serialize quota admission, publication, and receipt persistence."""
+
+        lock_key = str(self.path.resolve())
+        with _ARTIFACT_STORE_LOCKS_GUARD:
+            thread_lock = _ARTIFACT_STORE_LOCKS.setdefault(lock_key, threading.RLock())
+        with thread_lock:
+            lock_target = self._lock_target()
+            lock_target.parent.mkdir(parents=True, exist_ok=True)
+            with lock_target.open("a+b") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def _artifact_targets(self) -> List[Path]:
+        if not self.path.exists():
+            return []
+        return sorted(self.path.glob("*/*.artifact"))
+
+    def storage_usage_bytes(self) -> int:
+        return sum(target.stat().st_size for target in self._artifact_targets())
+
+    def release_usage_bytes(self, artifact_refs: Sequence[str]) -> int:
+        total = 0
+        for artifact_ref in _dedupe_rows(artifact_refs):
+            target = self._target(artifact_ref)
+            if not target.exists():
+                raise FileNotFoundError(f"immutable release artifact not found: {artifact_ref}")
+            total += target.stat().st_size
+        return total
+
+    def assert_release_capacity(
+        self,
+        artifact_refs: Sequence[str],
+        *,
+        content_hash: str,
+        encoded_size: int,
+        release_quota_bytes: int,
+    ) -> None:
+        references = set(_dedupe_rows(artifact_refs))
+        usage = self.release_usage_bytes(sorted(references))
+        additional = 0 if content_hash in references else int(encoded_size)
+        if usage + additional > int(release_quota_bytes):
+            raise ValueError(
+                f"release artifact quota exceeded: {usage + additional} > {int(release_quota_bytes)} bytes"
+            )
+
+    def publish_prepared(
+        self,
+        encoded: bytes,
+        content_hash: str,
+        *,
+        store_quota_bytes: int,
+    ) -> tuple[str, str, bool]:
+        actual_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+        if not hmac.compare_digest(actual_hash, str(content_hash or "")):
+            raise ValueError("prepared release artifact hash does not match its content")
         target = self._target(content_hash)
-        target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             if target.read_bytes() != encoded:
                 raise ValueError("immutable artifact digest collision")
-        else:
-            temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+            return content_hash, content_hash, False
+        projected_usage = self.storage_usage_bytes() + len(encoded)
+        if projected_usage > int(store_quota_bytes):
+            raise ValueError(
+                f"release artifact store quota exceeded: {projected_usage} > {int(store_quota_bytes)} bytes"
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+            directory_fd = os.open(target.parent, os.O_RDONLY)
             try:
-                with temporary.open("xb") as handle:
-                    handle.write(encoded)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temporary, target)
-                directory_fd = os.open(target.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+                os.fsync(directory_fd)
             finally:
-                if temporary.exists():
-                    temporary.unlink()
-        return content_hash, content_hash
+                os.close(directory_fd)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+        return content_hash, content_hash, True
+
+    def put(self, payload: Any) -> tuple[str, str]:
+        limits = release_artifact_storage_limits()
+        encoded, content_hash = prepare_release_artifact(
+            payload,
+            max_bytes=limits.max_artifact_bytes,
+        )
+        with self.publication_transaction():
+            artifact_ref, content_hash, _created = self.publish_prepared(
+                encoded,
+                content_hash,
+                store_quota_bytes=limits.store_quota_bytes,
+            )
+        return artifact_ref, content_hash
+
+    @staticmethod
+    def _old_enough(target: Path, *, grace_seconds: int) -> bool:
+        return (_now().timestamp() - target.stat().st_mtime) >= int(grace_seconds)
+
+    def _unlink_target(self, target: Path) -> None:
+        parent = target.parent
+        target.unlink()
+        directory_fd = os.open(parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        try:
+            parent.rmdir()
+        except OSError:
+            return
+        if self.path.exists():
+            root_fd = os.open(self.path, os.O_RDONLY)
+            try:
+                os.fsync(root_fd)
+            finally:
+                os.close(root_fd)
+
+    def prune_orphans(
+        self,
+        referenced_artifact_refs: Sequence[str],
+        *,
+        grace_seconds: int,
+    ) -> List[str]:
+        """Remove aged unpublished temporaries and unreferenced artifacts."""
+
+        if not self.path.exists():
+            return []
+        referenced = set(_dedupe_rows(referenced_artifact_refs))
+        removed: List[str] = []
+        candidates = list(self.path.glob("*/.*.tmp"))
+        candidates.extend(self._artifact_targets())
+        for target in candidates:
+            if not target.exists() or not self._old_enough(target, grace_seconds=grace_seconds):
+                continue
+            if target.suffix == ".artifact":
+                artifact_ref = f"sha256:{target.stem}"
+                if artifact_ref in referenced:
+                    continue
+                removed.append(artifact_ref)
+            else:
+                removed.append(target.name)
+            self._unlink_target(target)
+        return removed
+
+    def remove_publication(self, artifact_ref: str) -> None:
+        target = self._target(artifact_ref)
+        if not target.exists():
+            return
+        self._unlink_target(target)
 
     def resolve(self, artifact_ref: str) -> bytes:
         target = self._target(artifact_ref)
@@ -511,6 +727,23 @@ def verify_release_artifact_receipt(
     artifact_store: ReleaseArtifactStore,
     verifier_credentials: Optional[Dict[str, str]] = None,
 ) -> None:
+    _verify_release_artifact_authorization(
+        receipt,
+        verifier_credentials=verifier_credentials,
+    )
+    encoded = artifact_store.resolve(receipt.artifact_ref)
+    verify_release_artifact_receipt_payload(
+        receipt,
+        encoded=encoded,
+        verifier_credentials=verifier_credentials,
+    )
+
+
+def _verify_release_artifact_authorization(
+    receipt: ReleaseArtifactReceipt,
+    *,
+    verifier_credentials: Optional[Dict[str, str]] = None,
+) -> None:
     if receipt.producer == receipt.verifier:
         raise PermissionError("release artifact producer cannot self-verify")
     credentials = dict(verifier_credentials) if verifier_credentials is not None else _release_verifier_credentials()
@@ -520,8 +753,23 @@ def verify_release_artifact_receipt(
     expected_signature = release_artifact_attestation_signature(receipt.model_dump(), secret=secret)
     if not hmac.compare_digest(receipt.attestation_signature, expected_signature):
         raise PermissionError("release artifact attestation signature is invalid")
-    encoded = artifact_store.resolve(receipt.artifact_ref)
+
+
+def verify_release_artifact_receipt_payload(
+    receipt: ReleaseArtifactReceipt,
+    *,
+    encoded: bytes,
+    verifier_credentials: Optional[Dict[str, str]] = None,
+) -> None:
+    """Verify identity, HMAC, digest, and claims without publishing content."""
+
+    _verify_release_artifact_authorization(
+        receipt,
+        verifier_credentials=verifier_credentials,
+    )
     actual_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+    if not hmac.compare_digest(receipt.artifact_ref, actual_hash):
+        raise ValueError("release artifact receipt reference does not match artifact content")
     if not hmac.compare_digest(receipt.content_hash, actual_hash):
         raise ValueError("release artifact receipt content hash does not match immutable artifact")
     if receipt.artifact_kind == "canary_evidence":
@@ -657,7 +905,8 @@ def record_release_artifact_receipt(
     state: ReleaseWorkflowState,
     receipt: ReleaseArtifactReceipt | Dict[str, Any],
     *,
-    artifact_store: ReleaseArtifactStore,
+    artifact_store: Optional[ReleaseArtifactStore] = None,
+    encoded_artifact: Optional[bytes] = None,
     verifier_credentials: Optional[Dict[str, str]] = None,
 ) -> ReleaseWorkflowState:
     record = receipt if isinstance(receipt, ReleaseArtifactReceipt) else ReleaseArtifactReceipt.model_validate(receipt)
@@ -667,11 +916,20 @@ def record_release_artifact_receipt(
         or record.revision_id != state.revision_id
     ):
         raise ValueError("artifact receipt is not bound to the active release candidate and revision")
-    verify_release_artifact_receipt(
-        record,
-        artifact_store=artifact_store,
-        verifier_credentials=verifier_credentials,
-    )
+    if encoded_artifact is not None:
+        verify_release_artifact_receipt_payload(
+            record,
+            encoded=bytes(encoded_artifact),
+            verifier_credentials=verifier_credentials,
+        )
+    elif artifact_store is not None:
+        verify_release_artifact_receipt(
+            record,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
+        )
+    else:
+        raise ValueError("artifact_store or encoded_artifact is required")
     receipt_identity = (record.release_id, record.revision_id, record.artifact_id)
     existing = next(
         (
@@ -829,6 +1087,32 @@ class ReleaseWorkflowStore:
     def artifact_store(self) -> ReleaseArtifactStore:
         root = self.path.parent / f"{self.path.stem}_artifacts" if self.path.suffix else self.path / "artifacts"
         return ReleaseArtifactStore(root)
+
+    def referenced_artifact_refs(self) -> List[str]:
+        """Return the fail-closed durable reference set used by orphan cleanup."""
+
+        if self.path.suffix:
+            targets = [self.path] if self.path.exists() else []
+        elif self.path.exists():
+            targets = [
+                target
+                for target in sorted(self.path.glob("*.json"))
+                if not target.name.startswith(".")
+            ]
+        else:
+            targets = []
+        references: List[str] = []
+        for target in targets:
+            state = _workflow_validate_compat(json.loads(target.read_text(encoding="utf-8")))
+            for receipt in list((state.metadata or {}).get("release_artifacts") or []):
+                if not isinstance(receipt, dict):
+                    raise ValueError(f"invalid release artifact receipt in {target}")
+                artifact_ref = str(receipt.get("artifact_ref") or "").strip()
+                if not artifact_ref:
+                    raise ValueError(f"release artifact receipt missing reference in {target}")
+                self.artifact_store()._target(artifact_ref)
+                references.append(artifact_ref)
+        return _dedupe_rows(references)
 
     @contextmanager
     def release_transaction(self, process_id: str, *, nonblocking: bool = False):
@@ -2178,6 +2462,7 @@ __all__ = [
     "RELEASE_STAGE_TOPOLOGY",
     "ReleaseCanaryPolicy",
     "ReleaseArtifactReceipt",
+    "ReleaseArtifactStorageLimits",
     "ReleaseArtifactStore",
     "ReleaseRollbackFencepost",
     "ReleaseWorkflowHistoryRecord",
@@ -2188,15 +2473,19 @@ __all__ = [
     "capture_release_rollback_fencepost",
     "compile_release_handoff",
     "compile_release_repair_plan",
+    "canonical_release_artifact_bytes",
     "create_release_artifact_receipt",
     "evaluate_release_promotion_gate",
     "record_release_fencepost",
     "record_release_artifact_receipt",
     "record_release_handoff",
+    "prepare_release_artifact",
     "release_canary_policy",
     "release_artifact_attestation_signature",
+    "release_artifact_storage_limits",
     "repair_release_workflow",
     "rollback_release_workflow",
     "verify_release_artifact_receipt",
+    "verify_release_artifact_receipt_payload",
     "ValidationError",
 ]

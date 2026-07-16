@@ -31,10 +31,12 @@ from cortex_server.runtime.release_workflow import (
     capture_release_rollback_fencepost,
     compile_release_handoff,
     evaluate_release_promotion_gate,
+    prepare_release_artifact,
     record_release_artifact_receipt,
     record_release_fencepost,
     record_release_handoff,
     repair_release_workflow,
+    release_artifact_storage_limits,
     verify_release_artifact_receipt,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
@@ -155,6 +157,7 @@ def runtime_delivery_recipient_credentials() -> Dict[str, str]:
 def validate_production_delivery_credentials() -> Dict[str, Any]:
     """Validate all independent production signing authorities before serving."""
 
+    release_artifact_storage_limits()
     verifier_credentials = _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
     recipient_credentials = runtime_delivery_recipient_credentials()
     if not verifier_credentials:
@@ -2523,16 +2526,21 @@ def ingest_production_release_artifact(
 ) -> JsonDict:
     """Ingest an externally verified output without trusting its claimed hash."""
 
-    with release_store.release_transaction(process_id):
-        release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
-        state = release_store.load(process_id)
-        if state is None:
-            raise KeyError(f"release workflow not found: {process_id}")
-        artifact_store = release_store.artifact_store()
-        artifact_ref, content_hash = artifact_store.put(payload)
-        receipt = ReleaseArtifactReceipt(
+    limits = release_artifact_storage_limits()
+    encoded, content_hash = prepare_release_artifact(
+        payload,
+        max_bytes=limits.max_artifact_bytes,
+    )
+    release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
+    preflight_state = release_store.load(process_id)
+    if preflight_state is None:
+        raise KeyError(f"release workflow not found: {process_id}")
+    receipt_created_at = str(created_at or _now_iso())
+
+    def _receipt_for_state(state: ReleaseWorkflowState) -> ReleaseArtifactReceipt:
+        return ReleaseArtifactReceipt(
             artifact_id=artifact_id,
-            artifact_ref=artifact_ref,
+            artifact_ref=content_hash,
             content_hash=content_hash,
             artifact_kind=artifact_kind,
             target_stage=target_stage,
@@ -2543,24 +2551,71 @@ def ingest_production_release_artifact(
             verifier=verifier,
             validation_outcome=validation_outcome,
             claims=dict(claims or {}),
-            created_at=str(created_at or _now_iso()),
+            created_at=receipt_created_at,
             attestation_signature=attestation_signature,
         )
+
+    # Authenticate against a read-only snapshot before even opening mutation
+    # or publication locks. State and immutable-receipt checks are repeated
+    # under the release transaction to close the snapshot race.
+    record_release_artifact_receipt(
+        preflight_state,
+        _receipt_for_state(preflight_state),
+        encoded_artifact=encoded,
+    )
+    with release_store.release_transaction(process_id):
+        release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
+        state = release_store.load(process_id)
+        if state is None:
+            raise KeyError(f"release workflow not found: {process_id}")
+        artifact_store = release_store.artifact_store()
+        artifact_ref = content_hash
+        receipt = _receipt_for_state(state)
         updated = record_release_artifact_receipt(
             state,
             receipt,
-            artifact_store=artifact_store,
+            encoded_artifact=encoded,
         )
-        persisted = release_store.save(
-            updated,
-            actor=verifier,
-            provenance={
-                "scenario": "production_artifact_ingestion",
-                "artifact_id": artifact_id,
-                "content_hash": content_hash,
-                "verifier": verifier,
-            },
-        )
+        current_refs = [
+            str(row.get("artifact_ref") or "")
+            for row in list((state.metadata or {}).get("release_artifacts") or [])
+            if isinstance(row, dict)
+        ]
+        with artifact_store.publication_transaction():
+            artifact_store.prune_orphans(
+                release_store.referenced_artifact_refs(),
+                grace_seconds=limits.orphan_grace_seconds,
+            )
+            artifact_store.assert_release_capacity(
+                current_refs,
+                content_hash=content_hash,
+                encoded_size=len(encoded),
+                release_quota_bytes=limits.release_quota_bytes,
+            )
+            artifact_ref, content_hash, created = artifact_store.publish_prepared(
+                encoded,
+                content_hash,
+                store_quota_bytes=limits.store_quota_bytes,
+            )
+            try:
+                persisted = release_store.save(
+                    updated,
+                    actor=verifier,
+                    provenance={
+                        "scenario": "production_artifact_ingestion",
+                        "artifact_id": artifact_id,
+                        "content_hash": content_hash,
+                        "verifier": verifier,
+                    },
+                )
+            except BaseException:
+                try:
+                    durable_refs = release_store.referenced_artifact_refs()
+                except Exception:
+                    durable_refs = []
+                if created and artifact_ref not in durable_refs:
+                    artifact_store.remove_publication(artifact_ref)
+                raise
     return {
         "state": persisted,
         "receipt": receipt,
