@@ -78,7 +78,12 @@ async def _close_log_stream(logs) -> None:
     close = getattr(logs, "aclose", None) or getattr(logs, "close", None)
     if close is None:
         return
-    result = close()
+    if inspect.iscoroutinefunction(close):
+        result = close()
+    else:
+        # Docker SDK close methods may be synchronous. Keep them outside the
+        # event loop so the handler's cleanup timeout can restore admission.
+        result = await asyncio.to_thread(close)
     if inspect.isawaitable(result):
         await result
 
@@ -152,15 +157,50 @@ async def ws_logs(websocket: WebSocket, container_id: str):
         await websocket.close(code=1008, reason="connection rejected")
         return
 
-    from cortex_server.tools.docker_wrapper import Docker
-
-    await websocket.accept()
+    admission = websocket.app.state.websocket_log_admission
+    if not admission.acquire():
+        await websocket.close(code=1013, reason="connection capacity exhausted")
+        return
+    security = websocket.app.state.websocket_security
+    send_timeout = float(security.log_send_timeout_seconds)
+    lifetime_deadline = time.monotonic() + float(security.log_lifetime_seconds)
     logs = None
     try:
+        from cortex_server.tools.docker_wrapper import Docker
+
+        await asyncio.wait_for(websocket.accept(), timeout=send_timeout)
         docker = Docker()
         logs = docker.containers.logs(container_id, follow=True, tail=100)
-        async for line in logs:
-            await websocket.send_text(line)
+        iterator = logs.__aiter__()
+        while True:
+            remaining = lifetime_deadline - time.monotonic()
+            if remaining <= 0:
+                await asyncio.wait_for(
+                    websocket.close(code=1000, reason="connection lifetime complete"),
+                    timeout=send_timeout,
+                )
+                return
+            try:
+                line = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
+            except StopAsyncIteration:
+                return
+            except asyncio.TimeoutError:
+                await asyncio.wait_for(
+                    websocket.close(code=1000, reason="connection lifetime complete"),
+                    timeout=send_timeout,
+                )
+                return
+            try:
+                await asyncio.wait_for(
+                    websocket.send_text(line),
+                    timeout=min(send_timeout, max(0.001, lifetime_deadline - time.monotonic())),
+                )
+            except asyncio.TimeoutError:
+                await asyncio.wait_for(
+                    websocket.close(code=1013, reason="client backpressure timeout"),
+                    timeout=send_timeout,
+                )
+                return
             # Small delay to prevent overwhelming the client
             await asyncio.sleep(0.01)
             
@@ -168,15 +208,26 @@ async def ws_logs(websocket: WebSocket, container_id: str):
         pass
     except Exception:
         try:
-            await websocket.send_json({
-                "type": "error",
-                "message": "log stream unavailable"
-            })
-            await websocket.close(code=1011, reason="log stream unavailable")
-        except (WebSocketDisconnect, RuntimeError):
+            await asyncio.wait_for(
+                websocket.send_json({
+                    "type": "error",
+                    "message": "log stream unavailable"
+                }),
+                timeout=send_timeout,
+            )
+            await asyncio.wait_for(
+                websocket.close(code=1011, reason="log stream unavailable"),
+                timeout=send_timeout,
+            )
+        except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError):
             pass
     finally:
-        await _close_log_stream(logs)
+        try:
+            await asyncio.wait_for(_close_log_stream(logs), timeout=send_timeout)
+        except Exception:
+            pass
+        finally:
+            admission.release()
 
 
 @router.get("/ws/health")

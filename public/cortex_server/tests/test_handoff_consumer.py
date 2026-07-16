@@ -8,6 +8,10 @@ import pytest
 from cortex_server.runtime import handoff_consumer
 
 
+BOOT_A = "11111111-1111-4111-8111-111111111111"
+BOOT_B = "22222222-2222-4222-8222-222222222222"
+
+
 def test_consumer_readiness_requires_a_fresh_authenticated_poll(monkeypatch):
     clock = {"now": 1000.0}
     monkeypatch.setattr(handoff_consumer.time, "time", lambda: clock["now"])
@@ -106,6 +110,7 @@ def test_permanent_message_failure_does_not_refresh_readiness(monkeypatch):
 
 
 def test_verifier_generates_revision_bound_signed_evidence_from_real_window(monkeypatch):
+    monkeypatch.setattr(handoff_consumer, "_current_boot_id", lambda: BOOT_A)
     monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_ID", "compose-release-verifier")
     monkeypatch.setenv(
         "CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET",
@@ -129,8 +134,11 @@ def test_verifier_generates_revision_bound_signed_evidence_from_real_window(monk
         ],
     }
     window = {
+        "boot_id": BOOT_A,
         "first_epoch": 1000.0,
         "last_epoch": 1900.0,
+        "first_monotonic": 100.0,
+        "last_monotonic": 1000.0,
         "total": 1000,
         "succeeded": 1000,
     }
@@ -150,7 +158,14 @@ def test_verifier_generates_revision_bound_signed_evidence_from_real_window(monk
     assert evidence["claims"]["traffic_volume"] == 1000
     assert len(evidence["attestation_signature"]) == 64
 
-    changed_window = {**window, "first_epoch": 2000.0, "last_epoch": 2900.0, "succeeded": 999}
+    changed_window = {
+        **window,
+        "first_epoch": 2000.0,
+        "last_epoch": 2900.0,
+        "first_monotonic": 1100.0,
+        "last_monotonic": 2000.0,
+        "succeeded": 999,
+    }
     handoff_consumer._submit_verifier_evidence("http://cortex", release, changed_window)
     assert submissions[1][2]["artifact_id"] != evidence["artifact_id"]
 
@@ -261,12 +276,16 @@ def test_health_listener_bounds_slow_connections_before_thread_creation(monkeypa
 
 def test_manager_invokes_signed_idempotent_rollback_after_full_failure_window(monkeypatch, tmp_path):
     requests = []
+    monkeypatch.setattr(handoff_consumer, "_current_boot_id", lambda: BOOT_A)
     monkeypatch.setattr(
         handoff_consumer,
         "_record_measurement_burst",
         lambda *_args, **_kwargs: {
+            "boot_id": BOOT_A,
             "first_epoch": 1000.0,
             "last_epoch": 1900.0,
+            "first_monotonic": 100.0,
+            "last_monotonic": 1000.0,
             "total": 1000,
             "succeeded": 970,
         },
@@ -354,8 +373,11 @@ def test_manager_restart_preserves_qualified_rollback_window(monkeypatch, tmp_pa
             "version": "cortex.release-controller-observations.v1",
             "windows": {
                 key: {
+                    "boot_id": BOOT_A,
                     "first_epoch": 1000.0,
                     "last_epoch": 1899.0,
+                    "first_monotonic": 100.0,
+                    "last_monotonic": 999.0,
                     "total": 999,
                     "succeeded": 0,
                 }
@@ -365,6 +387,8 @@ def test_manager_restart_preserves_qualified_rollback_window(monkeypatch, tmp_pa
     monkeypatch.setenv("CORTEX_RELEASE_CONTROLLER_REQUIRE_EXISTING_STATE", "true")
     reopened = handoff_consumer._ObservationStore(controller_root)
     monkeypatch.setattr(handoff_consumer.time, "time", lambda: 1900.0)
+    monkeypatch.setattr(handoff_consumer.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr(handoff_consumer, "_current_boot_id", lambda: BOOT_A)
     monkeypatch.setattr(handoff_consumer, "_probe_measurement", lambda _url: False)
     requests = []
     monkeypatch.setattr(
@@ -389,6 +413,59 @@ def test_manager_restart_preserves_qualified_rollback_window(monkeypatch, tmp_pa
     assert len(requests) == 1
     assert requests[0][1].endswith("/manager-rollback/proc-preserved")
     assert key not in reopened.path.read_text(encoding="utf-8")
+
+
+def test_observation_window_restarts_after_clock_step_or_reboot(monkeypatch, tmp_path):
+    store = handoff_consumer._ObservationStore(tmp_path / "controller")
+    first = store.record(
+        "verifier:release:revision:canary",
+        success=True,
+        observed_at=1000.0,
+        monotonic_at=100.0,
+        boot_id=BOOT_A,
+    )
+    assert first["total"] == 1
+
+    stepped = store.record(
+        "verifier:release:revision:canary",
+        success=True,
+        observed_at=1900.0,
+        monotonic_at=100.0,
+        boot_id=BOOT_A,
+    )
+    assert stepped["total"] == 1
+    assert stepped["first_epoch"] == stepped["last_epoch"] == 1900.0
+    assert stepped["first_monotonic"] == stepped["last_monotonic"] == 100.0
+
+    rebooted = store.record(
+        "verifier:release:revision:canary",
+        success=True,
+        observed_at=1910.0,
+        monotonic_at=2.0,
+        boot_id=BOOT_B,
+    )
+    assert rebooted["total"] == 1
+    assert rebooted["boot_id"] == BOOT_B
+    monkeypatch.setattr(handoff_consumer, "_current_boot_id", lambda: BOOT_B)
+    assert handoff_consumer._window_metrics(rebooted)[1] == 0
+
+
+def test_wall_epoch_only_or_prior_boot_window_cannot_qualify(monkeypatch):
+    monkeypatch.setattr(handoff_consumer, "_current_boot_id", lambda: BOOT_B)
+    wall_only = {
+        "first_epoch": 1000.0,
+        "last_epoch": 1900.0,
+        "total": 1000,
+        "succeeded": 1000,
+    }
+    prior_boot = {
+        **wall_only,
+        "boot_id": BOOT_A,
+        "first_monotonic": 100.0,
+        "last_monotonic": 1000.0,
+    }
+    assert handoff_consumer._window_metrics(wall_only)[1] == 0
+    assert handoff_consumer._window_metrics(prior_boot)[1] == 0
 
 
 def test_manager_capability_challenge_uses_rollback_route_and_signature(monkeypatch):

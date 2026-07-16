@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -352,8 +353,11 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
     monkeypatch.setattr(nexus, "_outcome_tuner_for_scope", lambda _scope: _Tuner())
     monkeypatch.setattr(
         nexus,
-        "apply_codec_outcome_feedback_for_session",
-        lambda *args, **kwargs: codec_calls.append((args, kwargs)) or {"state_revision": 7},
+        "_apply_codec_outcome_projection",
+        lambda scope, event, receipt_id: codec_calls.append(
+            (dict(scope), dict(event), receipt_id)
+        )
+        or {"state_revision": 7},
     )
 
     issued = nexus._issue_outcome_feedback_receipt(
@@ -409,15 +413,16 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
     assert result["codec_policy"]["variant"] == "referents_plus_codec"
     assert observed[0]["policy_label"] == "server-observed-policy"
     assert observed[0]["validator_result"] == {"pass": True, "source": "nexus.orchestrate.receipt"}
-    assert codec_calls[0][1] == {
-        "tenant_id": principal.tenant_id,
-        "workspace_id": principal.storage_workspace_id,
-    }
+    assert codec_calls[0][0]["tenant_id"] == principal.tenant_id
+    assert codec_calls[0][0]["storage_workspace_id"] == principal.storage_workspace_id
+    assert codec_calls[0][2] == issued["payload"]["jti"]
 
-    with pytest.raises(HTTPException) as replay:
-        await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]), request)
-    assert replay.value.status_code == 409
-    assert replay.value.detail["reason"] == "receipt_already_consumed"
+    replay = await nexus.outcome_feedback(
+        nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]), request
+    )
+    assert replay == result
+    assert len(observed) == 1
+    assert len(codec_calls) == 1
 
     second = nexus._issue_outcome_feedback_receipt(
         scope=principal.storage_metadata,
@@ -436,6 +441,161 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
         await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=second["receipt"]), request)
     assert rate_limited.value.status_code == 429
     assert rate_limited.value.detail["reason"] == "principal_rate_limit_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_outcome_feedback_resumes_partial_projection_and_replays_exact_result(
+    monkeypatch, tmp_path
+):
+    now = int(nexus.time.time())
+    receipt = {
+        "version": nexus._OUTCOME_FEEDBACK_RECEIPT_VERSION,
+        "jti": "a" * 32,
+        "issued_at": now,
+        "expires_at": now + 300,
+        "execution_id": "execution-partial",
+        "query_hash": "b" * 64,
+        "task_archetype": "planning",
+        "policy_label": "server-policy",
+        "codec_variant": "referents_plus_codec",
+        "validator_pass": True,
+        "execution_success": True,
+        "recovery_needed": False,
+        "latency_ms": 123,
+        "outcome_confidence": 0.9,
+        "scope": {
+            "tenant_id": "tenant-partial",
+            "workspace_id": "workspace-partial",
+            "agent_id": "agent-partial",
+            "user_id": "user-partial",
+            "channel_id": "channel-partial",
+            "session_id": "session-partial",
+            "scope_credential_id": "credential-partial",
+            "storage_workspace_id": "workspace-partial",
+        },
+    }
+    monkeypatch.setattr(
+        nexus, "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH", tmp_path / "receipts.json"
+    )
+    monkeypatch.setattr(nexus, "_require_outcome_feedback_control", lambda _request: None)
+    monkeypatch.setattr(
+        nexus,
+        "_verify_outcome_feedback_receipt",
+        lambda _receipt, _request: dict(receipt),
+    )
+    tuner_calls = []
+    codec_calls = []
+
+    def project_tuner(scope, record, receipt_id):
+        tuner_calls.append((dict(scope), dict(record), receipt_id))
+        return {"decision": {"stage": "shadow"}, "state_path": "state"}
+
+    def project_codec(scope, event, receipt_id):
+        codec_calls.append((dict(scope), dict(event), receipt_id))
+        if len(codec_calls) == 1:
+            raise OSError("injected failure after tuner projection")
+        return {"state_revision": 9}
+
+    monkeypatch.setattr(nexus, "_apply_outcome_tuner_projection", project_tuner)
+    monkeypatch.setattr(nexus, "_apply_codec_outcome_projection", project_codec)
+    payload = nexus.OutcomeFeedbackReceiptRequest(receipt="r" * 32)
+
+    with pytest.raises(HTTPException) as interrupted:
+        await nexus.outcome_feedback(payload, object())
+    assert interrupted.value.status_code == 503
+    partial = json.loads((tmp_path / "receipts.json").read_text(encoding="utf-8"))
+    assert partial["entries"][receipt["jti"]]["status"] == "reserved"
+    assert set(partial["entries"][receipt["jti"]]["projections"]) == {"tuner"}
+
+    # An incomplete durable reservation remains recoverable after the signed
+    # receipt's ordinary admission lifetime; it cannot be re-admitted fresh.
+    monkeypatch.setattr(nexus.time, "time", lambda: now + 301)
+    recovered = await nexus.outcome_feedback(payload, object())
+    replayed = await nexus.outcome_feedback(payload, object())
+
+    assert recovered == replayed
+    assert recovered["codec_policy"]["state_revision"] == 9
+    assert len(tuner_calls) == 1
+    assert len(codec_calls) == 2
+    completed = json.loads((tmp_path / "receipts.json").read_text(encoding="utf-8"))
+    assert completed["entries"][receipt["jti"]]["status"] == "completed"
+    assert completed["entries"][receipt["jti"]]["result"] == recovered
+
+
+def test_outcome_tuner_projection_is_idempotent_at_target(monkeypatch, tmp_path):
+    tuner = nexus.OutcomeTuner(artifact_dir=tmp_path / "tuner")
+    monkeypatch.setattr(nexus, "_outcome_tuner_for_scope", lambda _scope: tuner)
+    record = {
+        "receipt_id": "c" * 32,
+        "query": "",
+        "task_archetype": "planning",
+        "policy_label": "server-policy",
+        "execution_success": True,
+        "validator_result": {"pass": True},
+        "latency_ms": 100,
+    }
+
+    first = nexus._apply_outcome_tuner_projection({}, record, record["receipt_id"])
+    second = nexus._apply_outcome_tuner_projection({}, record, record["receipt_id"])
+
+    assert second == first
+    assert tuner.state["count"] == 1
+    assert tuner.state["outcome_feedback_receipt_ids"] == [record["receipt_id"]]
+    assert (tmp_path / "tuner/latest.json").is_file()
+
+
+def test_codec_projection_persists_idempotency_marker_with_outcome(
+    monkeypatch, tmp_path
+):
+    codec = nexus._cortex_codec_module
+    durable = {}
+    apply_calls = []
+    monkeypatch.setattr(
+        nexus, "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH", tmp_path / "receipts.json"
+    )
+    monkeypatch.setattr(codec, "_scoped_codec_session_key", lambda *_args, **_kwargs: "scoped")
+    monkeypatch.setattr(codec, "_codec_session_update_lock", lambda _key: threading.RLock())
+    monkeypatch.setattr(codec, "get_codec_state", lambda *_args, **_kwargs: dict(durable))
+
+    def apply(previous, event):
+        apply_calls.append(dict(event))
+        return {**previous, "outcome_state": {"success_count": 1}}
+
+    monkeypatch.setattr(codec, "apply_codec_outcome_feedback", apply)
+    monkeypatch.setattr(
+        codec, "_enrich_codec_state_with_rollups", lambda _key, state, **_kwargs: state
+    )
+    session_persist = {}
+    monkeypatch.setattr(codec, "_SESSION_CODEC_PERSIST", session_persist)
+
+    def persist(_key, state, **_kwargs):
+        durable.clear()
+        durable.update(state)
+        session_persist["scoped"] = {
+            "fingerprint": codec._state_fingerprint(state)
+        }
+        return {"status": "stored", "id": "codec-snapshot"}
+
+    monkeypatch.setattr(codec, "_persist_codec_state_to_l22", persist)
+    monkeypatch.setattr(codec, "_touch_codec_session_locked", lambda _key: None)
+    monkeypatch.setattr(codec, "_SESSION_CODEC_STATE", {})
+    scope = {
+        "session_id": "session",
+        "tenant_id": "tenant",
+        "storage_workspace_id": "workspace",
+    }
+    receipt_id = "d" * 32
+
+    first = nexus._apply_codec_outcome_projection(
+        scope, {"status": "success", "text": "observed"}, receipt_id
+    )
+    second = nexus._apply_codec_outcome_projection(
+        scope, {"status": "success", "text": "observed"}, receipt_id
+    )
+
+    assert first["state_revision"] == second["state_revision"] == 1
+    assert apply_calls == [{"status": "success", "text": "observed"}]
+    assert durable["outcome_feedback_receipt_ids"] == [receipt_id]
 
 
 def test_outcome_tuner_cache_is_principal_scoped(monkeypatch, tmp_path):

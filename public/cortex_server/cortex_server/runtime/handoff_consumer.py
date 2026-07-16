@@ -5,8 +5,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -43,9 +45,36 @@ _POLL_STATUS: Dict[str, Any] = {
     "last_measurement_at": None,
 }
 
+_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
+_BOOT_ID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
 
 class _EvidencePending(RuntimeError):
     """A claimed handoff is healthy but its stage evidence is not ready yet."""
+
+
+def _current_boot_id() -> str:
+    """Return the kernel boot identity used to bind monotonic checkpoints."""
+
+    try:
+        boot_id = _BOOT_ID_PATH.read_text(encoding="ascii").strip().lower()
+    except OSError as exc:
+        raise RuntimeError("release controller boot identity is unavailable") from exc
+    if not _BOOT_ID_PATTERN.fullmatch(boot_id):
+        raise RuntimeError("release controller boot identity is invalid")
+    return boot_id
+
+
+def _maximum_wall_clock_divergence_seconds() -> float:
+    try:
+        value = float(os.getenv("CORTEX_RELEASE_CLOCK_DIVERGENCE_SECONDS", "5"))
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise RuntimeError(
+            "CORTEX_RELEASE_CLOCK_DIVERGENCE_SECONDS must be a positive finite number"
+        ) from exc
+    return min(value, 30.0)
 
 
 class _ObservationStore:
@@ -106,17 +135,61 @@ class _ObservationStore:
             except FileNotFoundError:
                 pass
 
-    def record(self, key: str, *, success: bool, observed_at: float) -> Dict[str, Any]:
+    def record(
+        self,
+        key: str,
+        *,
+        success: bool,
+        observed_at: float,
+        monotonic_at: float,
+        boot_id: str,
+    ) -> Dict[str, Any]:
         with self._lock:
             payload = self._load()
             windows = payload["windows"]
             current = dict(windows.get(key) or {})
-            first = float(current.get("first_epoch", observed_at))
+            wall_now = float(observed_at)
+            monotonic_now = float(monotonic_at)
+            if not math.isfinite(wall_now) or not math.isfinite(monotonic_now):
+                raise RuntimeError("release controller observation clock is invalid")
+            normalized_boot_id = str(boot_id or "")
+            if not _BOOT_ID_PATTERN.fullmatch(normalized_boot_id):
+                raise RuntimeError("release controller boot identity is invalid")
+
+            continuous = False
+            if current:
+                try:
+                    previous_wall = float(current["last_epoch"])
+                    previous_monotonic = float(current["last_monotonic"])
+                    first_wall = float(current["first_epoch"])
+                    first_monotonic = float(current["first_monotonic"])
+                    monotonic_delta = monotonic_now - previous_monotonic
+                    wall_delta = wall_now - previous_wall
+                    total_monotonic = monotonic_now - first_monotonic
+                    total_wall = wall_now - first_wall
+                    maximum_divergence = _maximum_wall_clock_divergence_seconds()
+                    continuous = bool(
+                        current.get("boot_id") == normalized_boot_id
+                        and monotonic_delta >= 0
+                        and total_monotonic >= 0
+                        and abs(wall_delta - monotonic_delta) <= maximum_divergence
+                        and abs(total_wall - total_monotonic) <= maximum_divergence
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continuous = False
+            if not continuous:
+                current = {}
+
+            first_wall = float(current.get("first_epoch", wall_now))
+            first_monotonic = float(current.get("first_monotonic", monotonic_now))
             total = int(current.get("total", 0)) + 1
             succeeded = int(current.get("succeeded", 0)) + (1 if success else 0)
             current = {
-                "first_epoch": min(first, observed_at),
-                "last_epoch": max(float(current.get("last_epoch", observed_at)), observed_at),
+                "boot_id": normalized_boot_id,
+                "first_epoch": first_wall,
+                "last_epoch": wall_now,
+                "first_monotonic": first_monotonic,
+                "last_monotonic": monotonic_now,
                 "total": total,
                 "succeeded": succeeded,
             }
@@ -319,10 +392,13 @@ def _record_measurement_burst(
     window: Dict[str, Any] = {}
     for _index in range(max(1, min(int(count), 8))):
         observed_at = time.time()
+        monotonic_at = time.monotonic()
         window = store.record(
             key,
             success=_probe_measurement(measurement_url),
             observed_at=observed_at,
+            monotonic_at=monotonic_at,
+            boot_id=_current_boot_id(),
         )
     return window
 
@@ -330,7 +406,24 @@ def _record_measurement_burst(
 def _window_metrics(window: Dict[str, Any]) -> tuple[int, int, float, float]:
     total = int(window.get("total", 0))
     succeeded = int(window.get("succeeded", 0))
-    elapsed = max(0, int(float(window.get("last_epoch", 0)) - float(window.get("first_epoch", 0))))
+    elapsed = 0
+    try:
+        boot_matches = str(window.get("boot_id") or "") == _current_boot_id()
+        first_monotonic = float(window["first_monotonic"])
+        last_monotonic = float(window["last_monotonic"])
+        first_wall = float(window["first_epoch"])
+        last_wall = float(window["last_epoch"])
+        monotonic_elapsed = last_monotonic - first_monotonic
+        wall_elapsed = last_wall - first_wall
+        if (
+            boot_matches
+            and monotonic_elapsed >= 0
+            and abs(wall_elapsed - monotonic_elapsed)
+            <= _maximum_wall_clock_divergence_seconds()
+        ):
+            elapsed = int(monotonic_elapsed)
+    except (KeyError, TypeError, ValueError):
+        elapsed = 0
     availability = (succeeded / total) if total else 0.0
     return total, elapsed, availability, 1.0 - availability
 

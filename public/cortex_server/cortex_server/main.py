@@ -87,6 +87,8 @@ class WebSocketSecurityConfig:
     allowed_origins: frozenset[str]
     progress_idle_timeout_seconds: float
     progress_lifetime_seconds: float
+    log_send_timeout_seconds: float
+    log_lifetime_seconds: float
 
 
 @dataclass(frozen=True)
@@ -1235,6 +1237,12 @@ def create_app() -> FastAPI:
         progress_lifetime_seconds=_bounded_body_float(
             "CORTEX_PROGRESS_WEBSOCKET_LIFETIME_SECONDS", 300.0, 900.0
         ),
+        log_send_timeout_seconds=_bounded_body_float(
+            "CORTEX_LOG_WEBSOCKET_SEND_TIMEOUT_SECONDS", 5.0, 30.0
+        ),
+        log_lifetime_seconds=_bounded_body_float(
+            "CORTEX_LOG_WEBSOCKET_LIFETIME_SECONDS", 300.0, 900.0
+        ),
     )
 
     @asynccontextmanager
@@ -1442,6 +1450,9 @@ def create_app() -> FastAPI:
     app.state.websocket_security = websocket_security
     app.state.websocket_progress_admission = websockets.WebSocketAdmission(
         _bounded_body_int("CORTEX_MAX_PROGRESS_WEBSOCKETS", 32, 128)
+    )
+    app.state.websocket_log_admission = websockets.WebSocketAdmission(
+        _bounded_body_int("CORTEX_MAX_LOG_WEBSOCKETS", 16, 64)
     )
     app.state.readiness_config = readiness_config
     app.state.read_authorization = read_authorization

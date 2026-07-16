@@ -311,6 +311,132 @@ def test_explicit_bootstrap_initializes_every_identity_and_controller_ledger(tmp
         }
 
 
+def test_interrupted_volume_bootstrap_resumes_matching_transaction(tmp_path):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    mounts = {
+        "/continuity": tmp_path / "continuity",
+        "/seed": tmp_path / "seed",
+        "/memory": tmp_path / "memory",
+        "/knowledge": tmp_path / "knowledge",
+        "/state": tmp_path / "state",
+        "/application": tmp_path / "application",
+        "/reasoning": tmp_path / "reasoning",
+        "/verifier-controller": tmp_path / "verifier-controller",
+        "/manager-controller": tmp_path / "manager-controller",
+    }
+    for path in mounts.values():
+        path.mkdir()
+    (mounts["/seed"] / "cortex_graph.db").write_text(
+        "seed-graph", encoding="utf-8"
+    )
+    identities = {
+        "CORTEX_CHROMA_MOUNT_ID": "resume-chroma-id",
+        "CORTEX_KNOWLEDGE_MOUNT_ID": "resume-knowledge-id",
+        "CORTEX_RUNTIME_DELIVERY_MOUNT_ID": "resume-runtime-id",
+        "CORTEX_APP_STATE_MOUNT_ID": "resume-application-id",
+        "CORTEX_REASONING_MOUNT_ID": "resume-reasoning-id",
+        "CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID": "resume-verifier-id",
+        "CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID": "resume-manager-id",
+    }
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    real_mv = shutil.which("mv")
+    assert real_mv is not None
+    fake_mv = fake_bin / "mv"
+    fake_mv.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/bin/sh
+            {real_mv} "$@"
+            status=$?
+            [ "$status" -eq 0 ] || exit "$status"
+            case "$*" in
+              *cortex-chroma.volume-id*) exit 97 ;;
+            esac
+            """
+        ),
+        encoding="utf-8",
+    )
+    fake_mv.chmod(0o755)
+    script = _compose_init_script(compose, "cortex-volume-bootstrap", mounts)
+
+    interrupted = subprocess.run(
+        ["/bin/sh", "-ec", script],
+        capture_output=True,
+        check=False,
+        env={
+            **os.environ,
+            **identities,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        text=True,
+    )
+
+    assert interrupted.returncode == 97
+    journal = mounts["/continuity"] / "cortex-volume-bootstrap.journal"
+    assert journal.is_file()
+    assert (mounts["/continuity"] / "cortex-chroma.volume-id").is_file()
+    assert not (mounts["/continuity"] / "cortex-volume-set.complete").exists()
+
+    mismatched = subprocess.run(
+        ["/bin/sh", "-ec", script],
+        capture_output=True,
+        check=False,
+        env={
+            **os.environ,
+            **identities,
+            "CORTEX_CHROMA_MOUNT_ID": "different-chroma-id",
+        },
+        text=True,
+    )
+    assert mismatched.returncode != 0
+    assert "another revision or volume set" in mismatched.stderr
+
+    recovered = subprocess.run(
+        ["/bin/sh", "-ec", script],
+        capture_output=True,
+        check=False,
+        env={**os.environ, **identities},
+        text=True,
+    )
+
+    assert recovered.returncode == 0, recovered.stderr
+    assert "complete" in journal.read_text(encoding="utf-8").splitlines()
+    assert len(list(mounts["/continuity"].glob("*.volume-id"))) == 7
+    assert (mounts["/continuity"] / "cortex-volume-set.complete").read_text(
+        encoding="utf-8"
+    ).strip() == "cortex.volume-set.v1"
+
+    initialized = subprocess.run(
+        [
+            "/bin/sh",
+            "-ec",
+            _compose_init_script(
+                compose,
+                "cortex-memory-volume-init",
+                {"/continuity": mounts["/continuity"], "/memory": mounts["/memory"]},
+            ),
+        ],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "CORTEX_CHROMA_MOUNT_ID": identities["CORTEX_CHROMA_MOUNT_ID"]},
+        text=True,
+    )
+    assert initialized.returncode == 0, initialized.stderr
+
+    rerun = subprocess.run(
+        ["/bin/sh", "-ec", script],
+        capture_output=True,
+        check=False,
+        env={**os.environ, **identities},
+        text=True,
+    )
+    assert rerun.returncode == 0, rerun.stderr
+    assert len(list(mounts["/continuity"].glob("*.volume-id"))) == 7
+
+
 @pytest.mark.parametrize(
     "service,credential,manifest_name,volume_mount,marker_relative",
     VOLUME_INITIALIZERS,

@@ -8,7 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Mapping, Optional
 import base64
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 import fcntl
 import os
 import json
@@ -46,7 +46,7 @@ from cortex_server.modules.route_health import RouteHealthMonitor
 from cortex_server.modules import codec_policy as _codec_policy_module
 from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
 from cortex_server.modules import cortex_codec as _cortex_codec_module
-from cortex_server.modules.cortex_codec import apply_codec_outcome_feedback_for_session, get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
+from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, MemoryScopeAuthError, authenticate_memory_principal
 from cortex_server.modules.evidence_governance import capability_matrix
@@ -224,6 +224,11 @@ _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = Path(
 )
 _OUTCOME_FEEDBACK_RECEIPT_LOCK = threading.Lock()
 _OUTCOME_FEEDBACK_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
+_OUTCOME_FEEDBACK_LEDGER_VERSION = 2
+_OUTCOME_FEEDBACK_LEDGER_MAX_ENTRIES = 16_384
+_OUTCOME_FEEDBACK_LEDGER_MAX_BYTES = 16 * 1024 * 1024
+_OUTCOME_FEEDBACK_CLAIM_SECONDS = 30
+_OUTCOME_FEEDBACK_COMPLETED_RETENTION_SECONDS = 60
 _PRINCIPAL_OUTCOME_TUNER_LOCK = threading.RLock()
 _PRINCIPAL_OUTCOME_TUNERS: Dict[str, OutcomeTuner] = {}
 _ASSURANCE_RESERVED_METADATA = {
@@ -3797,7 +3802,10 @@ def _verify_outcome_feedback_receipt(receipt: str, request: Optional[Request]) -
     now = int(time.time())
     if payload.get("version") != _OUTCOME_FEEDBACK_RECEIPT_VERSION:
         raise ValueError("unsupported_receipt_version")
-    if int(payload.get("issued_at", 0)) > now + 5 or int(payload.get("expires_at", 0)) < now:
+    if (
+        int(payload.get("issued_at", 0)) > now + 5
+        or int(payload.get("expires_at", 0)) <= int(payload.get("issued_at", 0))
+    ):
         raise ValueError("expired_receipt")
     if not str(payload.get("jti") or "") or not str(payload.get("execution_id") or ""):
         raise ValueError("missing_receipt_identity")
@@ -3820,12 +3828,174 @@ def _outcome_feedback_limits() -> tuple[int, int]:
     return max(1, min(limit, 1000)), max(1, min(window, 3600))
 
 
-def _consume_outcome_feedback_receipt(payload: Mapping[str, Any]) -> None:
-    """Persist replay and principal rate-limit state under an inter-process file lock."""
+def _outcome_feedback_receipt_fingerprint(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        dict(payload), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(b"nexus.outcome-feedback.projection.v2\0" + encoded).hexdigest()
+
+
+def _durable_replace_bytes(path: Path, encoded: bytes, *, maximum_bytes: int) -> None:
+    if len(encoded) > maximum_bytes:
+        raise RuntimeError("outcome_feedback_replay_store_quota_exceeded")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
+    temporary = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(8)}.tmp"
+    )
+    try:
+        with temporary.open("xb") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _load_outcome_feedback_ledger(state_path: Path) -> Dict[str, Any]:
+    if not state_path.exists():
+        if state_path.is_symlink():
+            raise RuntimeError("outcome_feedback_replay_store_invalid")
+        return {"version": _OUTCOME_FEEDBACK_LEDGER_VERSION, "entries": {}, "rates": {}}
+    if state_path.is_symlink() or not state_path.is_file():
+        raise RuntimeError("outcome_feedback_replay_store_invalid")
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
+    if not isinstance(state, dict) or not isinstance(state.get("rates"), dict):
+        raise RuntimeError("outcome_feedback_replay_store_invalid")
+    if state.get("version") == 1 and isinstance(state.get("consumed"), dict):
+        try:
+            entries = {
+                str(jti): {
+                    "expires_at": int(expires_at),
+                    "status": "legacy_consumed",
+                }
+                for jti, expires_at in state["consumed"].items()
+                if str(jti)
+            }
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
+        state = {
+            "version": _OUTCOME_FEEDBACK_LEDGER_VERSION,
+            "entries": entries,
+            "rates": state["rates"],
+        }
+    if (
+        state.get("version") != _OUTCOME_FEEDBACK_LEDGER_VERSION
+        or not isinstance(state.get("entries"), dict)
+        or len(state["entries"]) > _OUTCOME_FEEDBACK_LEDGER_MAX_ENTRIES
+    ):
+        raise RuntimeError("outcome_feedback_replay_store_invalid")
+    if any(
+        not str(key)
+        or not isinstance(values, list)
+        or any(
+            not isinstance(value, (int, float)) or not math.isfinite(float(value))
+            for value in values
+        )
+        for key, values in state["rates"].items()
+    ):
+        raise RuntimeError("outcome_feedback_replay_store_invalid")
+    for jti, entry in state["entries"].items():
+        status = entry.get("status") if isinstance(entry, dict) else None
+        if (
+            not str(jti)
+            or not isinstance(entry, dict)
+            or status not in {"reserved", "completed", "legacy_consumed"}
+        ):
+            raise RuntimeError("outcome_feedback_replay_store_invalid")
+        try:
+            int(entry["expires_at"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
+        if status == "legacy_consumed":
+            continue
+        fingerprint = str(entry.get("fingerprint") or "")
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            raise RuntimeError("outcome_feedback_replay_store_invalid")
+        if status == "completed":
+            if not isinstance(entry.get("result"), dict):
+                raise RuntimeError("outcome_feedback_replay_store_invalid")
+            try:
+                int(entry.get("retain_until", entry["expires_at"]))
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
+            continue
+        projections = entry.get("projections")
+        if (
+            not isinstance(projections, dict)
+            or set(projections) - {"tuner", "codec"}
+            or any(not isinstance(value, dict) for value in projections.values())
+        ):
+            raise RuntimeError("outcome_feedback_replay_store_invalid")
+        try:
+            int(entry.get("claim_until", 0) or 0)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
+    return state
+
+
+def _save_outcome_feedback_ledger(state_path: Path, state: Mapping[str, Any]) -> None:
+    encoded = (
+        json.dumps(dict(state), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    _durable_replace_bytes(
+        state_path,
+        encoded,
+        maximum_bytes=_OUTCOME_FEEDBACK_LEDGER_MAX_BYTES,
+    )
+
+
+@contextmanager
+def _exclusive_outcome_feedback_file_lock(lock_path: Path):
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(lock_path, flags, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def _locked_outcome_feedback_ledger():
+    state_path = _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH
+    lock_path = state_path.with_suffix(state_path.suffix + ".lock")
+    with _OUTCOME_FEEDBACK_RECEIPT_LOCK:
+        state_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(state_path.parent, 0o700)
+        with _exclusive_outcome_feedback_file_lock(lock_path):
+            yield state_path, _load_outcome_feedback_ledger(state_path)
+
+
+def _reserve_outcome_feedback_receipt(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    """Durably reserve a receipt and resume only its missing projections."""
 
     now = int(time.time())
     expires_at = int(payload.get("expires_at", 0) or 0)
     jti = str(payload.get("jti") or "")
+    fingerprint = _outcome_feedback_receipt_fingerprint(payload)
+    claim_token = secrets.token_hex(32)
     limit, window = _outcome_feedback_limits()
     try:
         global_limit = max(
@@ -3840,82 +4010,205 @@ def _consume_outcome_feedback_receipt(payload: Mapping[str, Any]) -> None:
             (limit, limit, global_limit),
         )
     )
-    state_path = _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH
-    lock_path = state_path.with_suffix(state_path.suffix + ".lock")
 
     try:
-        with _OUTCOME_FEEDBACK_RECEIPT_LOCK:
-            state_path.parent.mkdir(parents=True, exist_ok=True)
-            with lock_path.open("a+", encoding="utf-8") as lock_file:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-                try:
-                    if state_path.exists():
-                        try:
-                            state = json.loads(state_path.read_text(encoding="utf-8"))
-                        except (json.JSONDecodeError, OSError) as exc:
-                            raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
-                    else:
-                        state = {"version": 1, "consumed": {}, "rates": {}}
-                    if (
-                        not isinstance(state, dict)
-                        or state.get("version") != 1
-                        or not isinstance(state.get("consumed"), dict)
-                        or not isinstance(state.get("rates"), dict)
-                    ):
-                        raise RuntimeError("outcome_feedback_replay_store_invalid")
-                    if any(
-                        not str(key)
-                        or not isinstance(values, list)
-                        or any(not isinstance(value, (int, float)) for value in values)
-                        for key, values in state["rates"].items()
-                    ):
-                        raise RuntimeError("outcome_feedback_replay_store_invalid")
-                    try:
-                        consumed = {
-                            str(key): int(value)
-                            for key, value in state["consumed"].items()
-                            if str(key) and int(value or 0) >= now
-                        }
-                        rates = {
-                            str(key): [
-                                int(value)
-                                for value in values
-                                if isinstance(value, (int, float)) and int(value) > now - window
-                            ][-1000:]
-                            for key, values in state["rates"].items()
-                            if str(key) and isinstance(values, list)
-                        }
-                    except (TypeError, ValueError) as exc:
-                        raise RuntimeError("outcome_feedback_replay_store_invalid") from exc
-                    rates = {key: values for key, values in rates.items() if values}
-                    if jti in consumed:
-                        raise ValueError("receipt_already_consumed")
-                    recent_by_scope = {
-                        key: list(rates.get(key) or [])[-scope_limit:]
-                        for key, scope_limit in rate_limits.items()
-                    }
-                    if any(
-                        len(recent_by_scope[key]) >= scope_limit
-                        for key, scope_limit in rate_limits.items()
-                    ):
-                        raise ValueError("principal_rate_limit_exceeded")
-                    consumed[jti] = expires_at
-                    for key, scope_limit in rate_limits.items():
-                        recent = recent_by_scope[key]
-                        recent.append(now)
-                        rates[key] = recent[-scope_limit:]
-                    new_state = {"version": 1, "consumed": consumed, "rates": rates}
-                    temp_path = state_path.with_name(
-                        f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
+        with _locked_outcome_feedback_ledger() as (state_path, state):
+            entries = state["entries"]
+            rates = {
+                str(key): [
+                    int(value)
+                    for value in values
+                    if isinstance(value, (int, float)) and int(value) > now - window
+                ][-1000:]
+                for key, values in state["rates"].items()
+                if str(key) and isinstance(values, list)
+            }
+            rates = {key: values for key, values in rates.items() if values}
+            for expired_jti, entry in list(entries.items()):
+                if (
+                    entry.get("status") == "legacy_consumed"
+                    and int(entry.get("expires_at", 0) or 0) < now
+                ) or (
+                    entry.get("status") == "completed"
+                    and int(
+                        entry.get("retain_until", entry.get("expires_at", 0)) or 0
                     )
-                    temp_path.write_text(json.dumps(new_state, sort_keys=True), encoding="utf-8")
-                    os.replace(temp_path, state_path)
-                finally:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                    < now
+                ):
+                    entries.pop(expired_jti, None)
+
+            existing = entries.get(jti)
+            if existing is not None:
+                if existing.get("status") == "legacy_consumed":
+                    raise ValueError("receipt_already_consumed")
+                if not hmac.compare_digest(
+                    str(existing.get("fingerprint") or ""), fingerprint
+                ):
+                    raise RuntimeError("outcome_feedback_receipt_collision")
+                if existing.get("status") == "completed":
+                    result = existing.get("result")
+                    if not isinstance(result, dict):
+                        raise RuntimeError("outcome_feedback_completed_result_invalid")
+                    return {"completed": True, "result": dict(result)}
+                if (
+                    str(existing.get("claim_token") or "")
+                    and int(existing.get("claim_until", 0) or 0) > now
+                ):
+                    raise ValueError("receipt_processing_in_progress")
+                existing["claim_token"] = claim_token
+                existing["claim_until"] = now + _OUTCOME_FEEDBACK_CLAIM_SECONDS
+                existing["updated_at"] = now
+                state["rates"] = rates
+                _save_outcome_feedback_ledger(state_path, state)
+                return {
+                    "completed": False,
+                    "jti": jti,
+                    "fingerprint": fingerprint,
+                    "claim_token": claim_token,
+                    "projections": dict(existing.get("projections") or {}),
+                }
+
+            if expires_at < now:
+                raise ValueError("expired_receipt")
+            if len(entries) >= _OUTCOME_FEEDBACK_LEDGER_MAX_ENTRIES:
+                raise RuntimeError("outcome_feedback_replay_store_quota_exceeded")
+            recent_by_scope = {
+                key: list(rates.get(key) or [])[-scope_limit:]
+                for key, scope_limit in rate_limits.items()
+            }
+            if any(
+                len(recent_by_scope[key]) >= scope_limit
+                for key, scope_limit in rate_limits.items()
+            ):
+                raise ValueError("principal_rate_limit_exceeded")
+            for key, scope_limit in rate_limits.items():
+                recent = recent_by_scope[key]
+                recent.append(now)
+                rates[key] = recent[-scope_limit:]
+            entries[jti] = {
+                "expires_at": expires_at,
+                "fingerprint": fingerprint,
+                "status": "reserved",
+                "claim_token": claim_token,
+                "claim_until": now + _OUTCOME_FEEDBACK_CLAIM_SECONDS,
+                "projections": {},
+                "created_at": now,
+                "updated_at": now,
+            }
+            state["rates"] = rates
+            _save_outcome_feedback_ledger(state_path, state)
+            return {
+                "completed": False,
+                "jti": jti,
+                "fingerprint": fingerprint,
+                "claim_token": claim_token,
+                "projections": {},
+            }
     except ValueError:
+        raise
+    except RuntimeError:
         raise
     except OSError as exc:
         raise RuntimeError("outcome_feedback_replay_store_unavailable") from exc
+
+
+def _record_outcome_feedback_projection(
+    reservation: Mapping[str, Any],
+    projection: str,
+    result: Mapping[str, Any],
+) -> None:
+    if projection not in {"tuner", "codec"}:
+        raise RuntimeError("outcome_feedback_projection_invalid")
+    try:
+        with _locked_outcome_feedback_ledger() as (state_path, state):
+            entry = state["entries"].get(str(reservation.get("jti") or ""))
+            if (
+                not isinstance(entry, dict)
+                or entry.get("status") != "reserved"
+                or not hmac.compare_digest(
+                    str(entry.get("fingerprint") or ""),
+                    str(reservation.get("fingerprint") or ""),
+                )
+                or not hmac.compare_digest(
+                    str(entry.get("claim_token") or ""),
+                    str(reservation.get("claim_token") or ""),
+                )
+            ):
+                raise RuntimeError("outcome_feedback_reservation_lost")
+            projections = entry.setdefault("projections", {})
+            prior = projections.get(projection)
+            if prior is not None and prior != dict(result):
+                raise RuntimeError("outcome_feedback_projection_result_mismatch")
+            projections[projection] = dict(result)
+            entry["updated_at"] = int(time.time())
+            _save_outcome_feedback_ledger(state_path, state)
+    except RuntimeError:
+        raise
+    except OSError as exc:
+        raise RuntimeError("outcome_feedback_replay_store_unavailable") from exc
+
+
+def _complete_outcome_feedback_receipt(
+    reservation: Mapping[str, Any], result: Mapping[str, Any]
+) -> None:
+    try:
+        with _locked_outcome_feedback_ledger() as (state_path, state):
+            entry = state["entries"].get(str(reservation.get("jti") or ""))
+            if (
+                not isinstance(entry, dict)
+                or entry.get("status") != "reserved"
+                or set(entry.get("projections") or {}) != {"tuner", "codec"}
+                or not hmac.compare_digest(
+                    str(entry.get("fingerprint") or ""),
+                    str(reservation.get("fingerprint") or ""),
+                )
+                or not hmac.compare_digest(
+                    str(entry.get("claim_token") or ""),
+                    str(reservation.get("claim_token") or ""),
+                )
+            ):
+                raise RuntimeError("outcome_feedback_reservation_lost")
+            entry.update(
+                {
+                    "status": "completed",
+                    "result": dict(result),
+                    "claim_token": "",
+                    "claim_until": 0,
+                    "retain_until": max(
+                        int(entry.get("expires_at", 0) or 0), int(time.time())
+                    )
+                    + _OUTCOME_FEEDBACK_COMPLETED_RETENTION_SECONDS,
+                    "updated_at": int(time.time()),
+                }
+            )
+            _save_outcome_feedback_ledger(state_path, state)
+    except RuntimeError:
+        raise
+    except OSError as exc:
+        raise RuntimeError("outcome_feedback_replay_store_unavailable") from exc
+
+
+def _release_outcome_feedback_claim(reservation: Mapping[str, Any]) -> None:
+    if reservation.get("completed"):
+        return
+    try:
+        with _locked_outcome_feedback_ledger() as (state_path, state):
+            entry = state["entries"].get(str(reservation.get("jti") or ""))
+            if not isinstance(entry, dict) or entry.get("status") != "reserved":
+                return
+            if not hmac.compare_digest(
+                str(entry.get("claim_token") or ""),
+                str(reservation.get("claim_token") or ""),
+            ):
+                return
+            entry["claim_token"] = ""
+            entry["claim_until"] = 0
+            entry["updated_at"] = int(time.time())
+            _save_outcome_feedback_ledger(state_path, state)
+    except (OSError, RuntimeError):
+        # The bounded claim expires automatically. Never mask the projection
+        # failure that brought the handler through this recovery path.
+        return
 
 
 def _require_outcome_feedback_control(request: Optional[Request]) -> None:
@@ -3946,6 +4239,274 @@ def _outcome_tuner_for_scope(scope: Mapping[str, Any]) -> OutcomeTuner:
         os.chmod(tuner.artifact_dir, 0o700)
         _PRINCIPAL_OUTCOME_TUNERS[principal_key] = tuner
         return tuner
+
+
+def _outcome_tuner_projection_from_state(
+    tuner: OutcomeTuner, receipt_id: str
+) -> Optional[Dict[str, Any]]:
+    state = tuner.state if isinstance(getattr(tuner, "state", None), dict) else {}
+    applied = [
+        str(value)
+        for value in (state.get("outcome_feedback_receipt_ids") or [])
+        if str(value)
+    ]
+    last = state.get("last") if isinstance(state.get("last"), dict) else {}
+    if str(last.get("receipt_id") or ""):
+        applied.append(str(last["receipt_id"]))
+    if receipt_id not in applied:
+        return None
+    projection_results = (
+        state.get("outcome_feedback_projection_results")
+        if isinstance(state.get("outcome_feedback_projection_results"), dict)
+        else {}
+    )
+    saved_result = projection_results.get(receipt_id)
+    if isinstance(saved_result, dict):
+        return dict(saved_result)
+    archetype = str(last.get("task_archetype") or "simple_qa")
+    archetype_state = (state.get("archetypes") or {}).get(archetype) or {}
+    return {
+        "decision": dict(archetype_state.get("decisions") or {}),
+        "state_path": str(tuner.state_path),
+        "report_path": str(tuner.report_path),
+    }
+
+
+def _append_outcome_log_once(path: Path, encoded: bytes, receipt_id: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    marker = receipt_id.encode("ascii")
+    already_recorded = False
+    if path.exists() and path.is_file() and not path.is_symlink():
+        with path.open("rb") as existing:
+            try:
+                existing.seek(-min(path.stat().st_size, 1024 * 1024), os.SEEK_END)
+            except OSError:
+                existing.seek(0)
+            already_recorded = marker in existing.read()
+    elif path.exists() or path.is_symlink():
+        raise RuntimeError("outcome_tuner_log_is_unsafe")
+    if already_recorded:
+        return
+    with path.open("ab") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _apply_outcome_tuner_projection(
+    scope: Mapping[str, Any], record: Mapping[str, Any], receipt_id: str
+) -> Dict[str, Any]:
+    """Publish one tuner mutation atomically with its receipt idempotency marker."""
+
+    with _PRINCIPAL_OUTCOME_TUNER_LOCK:
+        tuner = _outcome_tuner_for_scope(scope)
+        required = ("state_path", "report_path", "log_path", "state", "_load_state")
+        if any(not hasattr(tuner, attribute) for attribute in required):
+            return dict(tuner.observe(dict(record)))
+        lock_path = Path(tuner.artifact_dir) / ".outcome-feedback.lock"
+        with _exclusive_outcome_feedback_file_lock(lock_path):
+            # A cached tuner in another worker may be older than the state
+            # published by the previous lock holder.
+            tuner.state = tuner._load_state()
+            return _apply_outcome_tuner_projection_locked(
+                tuner, record, receipt_id
+            )
+
+
+def _apply_outcome_tuner_projection_locked(
+    tuner: OutcomeTuner, record: Mapping[str, Any], receipt_id: str
+) -> Dict[str, Any]:
+    existing = _outcome_tuner_projection_from_state(tuner, receipt_id)
+    if existing is not None:
+        return existing
+
+    real_state_path = Path(tuner.state_path)
+    real_report_path = Path(tuner.report_path)
+    real_log_path = Path(tuner.log_path)
+    staging_token = f"{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(8)}"
+    staged_state_path = real_state_path.with_name(f".{real_state_path.name}.{staging_token}.stage")
+    staged_report_path = real_report_path.with_name(f".{real_report_path.name}.{staging_token}.stage")
+    staged_log_path = real_log_path.with_name(f".{real_log_path.name}.{staging_token}.stage")
+    staged_paths = (staged_state_path, staged_report_path, staged_log_path)
+    tuner.state_path = staged_state_path
+    tuner.report_path = staged_report_path
+    tuner.log_path = staged_log_path
+    try:
+        result = dict(tuner.observe(dict(record)))
+        applied = [
+            str(value)
+            for value in (tuner.state.get("outcome_feedback_receipt_ids") or [])
+            if str(value)
+        ]
+        previous_last = (
+            tuner.state.get("last")
+            if isinstance(tuner.state.get("last"), dict)
+            else {}
+        )
+        previous_receipt_id = str(previous_last.get("receipt_id") or "")
+        for value in (previous_receipt_id, receipt_id):
+            if value and value not in applied:
+                applied.append(value)
+        tuner.state["outcome_feedback_receipt_ids"] = applied[
+            -_OUTCOME_FEEDBACK_LEDGER_MAX_ENTRIES:
+        ]
+        result["state_path"] = str(real_state_path)
+        result["report_path"] = str(real_report_path)
+        saved_results = (
+            dict(tuner.state.get("outcome_feedback_projection_results") or {})
+            if isinstance(tuner.state.get("outcome_feedback_projection_results"), dict)
+            else {}
+        )
+        saved_results[receipt_id] = dict(result)
+        retained_receipts = set(tuner.state["outcome_feedback_receipt_ids"])
+        tuner.state["outcome_feedback_projection_results"] = {
+            key: value
+            for key, value in saved_results.items()
+            if key in retained_receipts and isinstance(value, dict)
+        }
+
+        log_bytes = staged_log_path.read_bytes()
+        report_bytes = staged_report_path.read_bytes()
+        state_bytes = (
+            json.dumps(
+                tuner.state,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        _append_outcome_log_once(real_log_path, log_bytes, receipt_id)
+        _durable_replace_bytes(real_report_path, report_bytes, maximum_bytes=4 * 1024 * 1024)
+        # Publish the marker-bearing policy state last. Its presence proves
+        # the projection is complete after a crash before ledger phase ACK.
+        _durable_replace_bytes(
+            real_state_path,
+            state_bytes,
+            maximum_bytes=_OUTCOME_FEEDBACK_LEDGER_MAX_BYTES,
+        )
+        return result
+    except Exception:
+        tuner.state_path = real_state_path
+        tuner.report_path = real_report_path
+        tuner.log_path = real_log_path
+        tuner.state = tuner._load_state()
+        raise
+    finally:
+        tuner.state_path = real_state_path
+        tuner.report_path = real_report_path
+        tuner.log_path = real_log_path
+        for staged_path in staged_paths:
+            try:
+                staged_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _apply_codec_outcome_projection(
+    scope: Mapping[str, Any],
+    outcome_event: Mapping[str, Any],
+    receipt_id: str,
+) -> Dict[str, Any]:
+    """Apply one Codec outcome with a marker in the same durable snapshot."""
+
+    original_session_key = str(scope.get("session_id") or "")
+    tenant_id = str(scope.get("tenant_id") or "")
+    workspace_id = str(scope.get("storage_workspace_id") or "")
+    scoped_session_key = _cortex_codec_module._scoped_codec_session_key(
+        original_session_key,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
+    if not scoped_session_key:
+        raise RuntimeError("outcome_feedback_codec_scope_missing")
+
+    lock_root = _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH.parent / ".codec-outcome-locks"
+    lock_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(lock_root, 0o700)
+    lock_bucket = hashlib.sha256(scoped_session_key.encode("utf-8")).hexdigest()[:2]
+    lock_path = lock_root / f"{lock_bucket}.lock"
+    with _exclusive_outcome_feedback_file_lock(lock_path):
+        # Discard process-local state so the marker check observes the
+        # durable snapshot published by the prior process lock holder.
+        with _cortex_codec_module._SESSION_CODEC_LOCK:
+            cached = _cortex_codec_module._SESSION_CODEC_STATE.get(scoped_session_key)
+            persisted = _cortex_codec_module._SESSION_CODEC_PERSIST.get(
+                scoped_session_key
+            )
+            if isinstance(cached, dict) and (
+                not isinstance(persisted, dict)
+                or str(persisted.get("fingerprint") or "")
+                != _cortex_codec_module._state_fingerprint(cached)
+            ):
+                raise RuntimeError("outcome_feedback_codec_projection_unavailable")
+            _cortex_codec_module._evict_codec_session_locked(
+                scoped_session_key, "outcome_feedback_durable_reload"
+            )
+        return _apply_codec_outcome_projection_locked(
+            original_session_key=original_session_key,
+            scoped_session_key=scoped_session_key,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            outcome_event=outcome_event,
+            receipt_id=receipt_id,
+        )
+
+
+def _apply_codec_outcome_projection_locked(
+    *,
+    original_session_key: str,
+    scoped_session_key: str,
+    tenant_id: str,
+    workspace_id: str,
+    outcome_event: Mapping[str, Any],
+    receipt_id: str,
+) -> Dict[str, Any]:
+    with _cortex_codec_module._codec_session_update_lock(scoped_session_key):
+        previous = _cortex_codec_module.get_codec_state(
+            original_session_key,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        applied = [
+            str(value)
+            for value in (previous.get("outcome_feedback_receipt_ids") or [])
+            if str(value)
+        ]
+        if receipt_id in applied:
+            return dict(previous)
+        updated = _cortex_codec_module.apply_codec_outcome_feedback(
+            previous,
+            dict(outcome_event),
+        )
+        updated["state_revision"] = int(previous.get("state_revision", 0) or 0) + 1
+        updated["outcome_feedback_receipt_ids"] = (applied + [receipt_id])[
+            -_OUTCOME_FEEDBACK_LEDGER_MAX_ENTRIES:
+        ]
+        updated = _cortex_codec_module._enrich_codec_state_with_rollups(
+            scoped_session_key,
+            updated,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        persist = _cortex_codec_module._persist_codec_state_to_l22(
+            scoped_session_key,
+            updated,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        if persist.get("status") in {"write_failed", "skipped"}:
+            with _cortex_codec_module._SESSION_CODEC_LOCK:
+                _cortex_codec_module._evict_codec_session_locked(
+                    scoped_session_key, "outcome_feedback_persist_failure"
+                )
+            raise RuntimeError("outcome_feedback_codec_projection_unavailable")
+        with _cortex_codec_module._SESSION_CODEC_LOCK:
+            _cortex_codec_module._SESSION_CODEC_STATE[scoped_session_key] = updated
+            _cortex_codec_module._touch_codec_session_locked(scoped_session_key)
+        updated["durable_write"] = persist
+        return dict(updated)
 
 
 
@@ -5091,15 +5652,24 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
     _require_outcome_feedback_control(request)
     try:
         receipt = _verify_outcome_feedback_receipt(payload.receipt, request)
-        _consume_outcome_feedback_receipt(receipt)
+        reservation = _reserve_outcome_feedback_receipt(receipt)
     except ValueError as exc:
-        status_code = 429 if str(exc) == "principal_rate_limit_exceeded" else 409 if str(exc) == "receipt_already_consumed" else 403
+        status_code = (
+            429
+            if str(exc) == "principal_rate_limit_exceeded"
+            else 409
+            if str(exc) in {"receipt_already_consumed", "receipt_processing_in_progress"}
+            else 403
+        )
         raise HTTPException(
             status_code=status_code,
             detail={"error": "valid_execution_outcome_receipt_required", "reason": str(exc)},
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if reservation.get("completed"):
+        return dict(reservation["result"])
 
     scope = dict(receipt.get("scope") or {})
     record = {
@@ -5118,31 +5688,61 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
         "storage_workspace_id": scope.get("storage_workspace_id"),
         "source": "signed_execution_receipt",
     }
-    with _PRINCIPAL_OUTCOME_TUNER_LOCK:
-        out = _outcome_tuner_for_scope(scope).observe(record)
-    codec_state = apply_codec_outcome_feedback_for_session(
-        str(scope.get("session_id") or ""),
-        {
-            "status": "success" if receipt["execution_success"] and receipt["validator_pass"] and not receipt["recovery_needed"] else "failure",
-            "text": f"Server-observed {receipt['codec_variant']} execution {receipt['execution_id']}",
-        },
-        tenant_id=str(scope.get("tenant_id") or ""),
-        workspace_id=str(scope.get("storage_workspace_id") or ""),
-    )
-    return {
-        "success": True,
-        "recorded": True,
-        "receipt_id": receipt["jti"],
-        "execution_id": receipt["execution_id"],
-        "tenant_id": scope.get("tenant_id"),
-        "artifact": out,
-        "codec_policy": {
+    completed = False
+    try:
+        projections = dict(reservation.get("projections") or {})
+        out = projections.get("tuner")
+        if not isinstance(out, dict):
+            out = _apply_outcome_tuner_projection(scope, record, receipt["jti"])
+            _record_outcome_feedback_projection(reservation, "tuner", out)
+            projections["tuner"] = dict(out)
+
+        codec_projection = projections.get("codec")
+        if not isinstance(codec_projection, dict):
+            codec_state = _apply_codec_outcome_projection(
+                scope,
+                {
+                    "status": "success"
+                    if receipt["execution_success"]
+                    and receipt["validator_pass"]
+                    and not receipt["recovery_needed"]
+                    else "failure",
+                    "text": (
+                        f"Server-observed {receipt['codec_variant']} execution "
+                        f"{receipt['execution_id']}"
+                    ),
+                },
+                receipt["jti"],
+            )
+            codec_projection = {"state_revision": codec_state.get("state_revision")}
+            _record_outcome_feedback_projection(
+                reservation, "codec", codec_projection
+            )
+
+        result = {
+            "success": True,
             "recorded": True,
-            "variant": receipt["codec_variant"],
-            "scope": "authenticated_principal_session",
-            "state_revision": codec_state.get("state_revision"),
-        },
-    }
+            "receipt_id": receipt["jti"],
+            "execution_id": receipt["execution_id"],
+            "tenant_id": scope.get("tenant_id"),
+            "artifact": out,
+            "codec_policy": {
+                "recorded": True,
+                "variant": receipt["codec_variant"],
+                "scope": "authenticated_principal_session",
+                "state_revision": codec_projection.get("state_revision"),
+            },
+        }
+        _complete_outcome_feedback_receipt(reservation, result)
+        completed = True
+        return result
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=503, detail="outcome feedback projection is temporarily unavailable"
+        ) from exc
+    finally:
+        if not completed:
+            _release_outcome_feedback_claim(reservation)
 
 
 @router.get("/orchestrate")

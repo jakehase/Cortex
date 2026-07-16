@@ -34,6 +34,8 @@ def websocket_security_from_env():
         ).strip().lower(),
         admin_token=os.getenv("CORTEX_ADMIN_TOKEN", "").strip(),
         allowed_origins=allowed_origins,
+        log_send_timeout_seconds=0.1,
+        log_lifetime_seconds=1.0,
     )
 
 
@@ -45,12 +47,16 @@ class FakeWebSocket:
         host="127.0.0.1",
         fail_send=False,
         security=None,
+        log_admission=None,
     ):
         self.headers = Headers(headers=headers or {})
         self.client = SimpleNamespace(host=host) if host is not None else None
         self.app = SimpleNamespace(
             state=SimpleNamespace(
-                websocket_security=security or websocket_security_from_env()
+                websocket_security=security or websocket_security_from_env(),
+                websocket_log_admission=(
+                    log_admission or websockets.WebSocketAdmission(8)
+                ),
             )
         )
         self.fail_send = fail_send
@@ -113,6 +119,25 @@ class FakeLogs:
 
     async def aclose(self):
         self.closed = True
+
+
+class ControlledLogs:
+    def __init__(self):
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        self.entered.set()
+        await self.release.wait()
+        raise StopAsyncIteration
+
+    async def aclose(self):
+        self.closed = True
+        self.release.set()
 
 
 class DockerFactory:
@@ -397,6 +422,15 @@ async def test_log_websocket_sanitizes_docker_constructor_failure(monkeypatch):
         accepted = False
         sent = []
         closed = []
+        app = SimpleNamespace(
+            state=SimpleNamespace(
+                websocket_log_admission=ws_router.WebSocketAdmission(1),
+                websocket_security=SimpleNamespace(
+                    log_send_timeout_seconds=0.1,
+                    log_lifetime_seconds=1.0,
+                ),
+            )
+        )
 
         async def accept(self):
             self.accepted = True
@@ -417,6 +451,83 @@ async def test_log_websocket_sanitizes_docker_constructor_failure(monkeypatch):
     assert socket.accepted is True
     assert socket.sent == [{"type": "error", "message": "log stream unavailable"}]
     assert socket.closed == [{"code": 1011, "reason": "log stream unavailable"}]
+
+
+@pytest.mark.asyncio
+async def test_log_websocket_admission_rejects_before_docker_and_restores_capacity(monkeypatch):
+    configure_token(monkeypatch)
+    admission = websockets.WebSocketAdmission(1)
+    blocking = ControlledLogs()
+    recovered_logs = FakeLogs(["recovered"])
+    factory = DockerFactory([blocking, recovered_logs])
+    monkeypatch.setattr(docker_wrapper, "Docker", factory)
+    headers = {"x-cortex-admin-token": "admin-secret"}
+    first = FakeWebSocket(headers=headers, log_admission=admission)
+    saturated = FakeWebSocket(headers=headers, log_admission=admission)
+
+    first_task = asyncio.create_task(websockets.ws_logs(first, "first"))
+    await asyncio.wait_for(blocking.entered.wait(), timeout=1)
+    await websockets.ws_logs(saturated, "saturated")
+
+    assert first.accepted is True
+    assert saturated.accepted is False
+    assert saturated.closed == [(1013, "connection capacity exhausted")]
+    assert factory.constructed == 1
+    assert admission.active == 1
+
+    blocking.release.set()
+    await asyncio.wait_for(first_task, timeout=1)
+    assert blocking.closed is True
+    assert admission.active == 0
+
+    recovered = FakeWebSocket(headers=headers, log_admission=admission)
+    await websockets.ws_logs(recovered, "recovered")
+    assert recovered.text == ["recovered"]
+    assert factory.constructed == 2
+    assert admission.active == 0
+
+
+@pytest.mark.asyncio
+async def test_log_websocket_bounds_backpressure_and_absolute_lifetime(monkeypatch):
+    configure_token(monkeypatch)
+    admission = websockets.WebSocketAdmission(1)
+    headers = {"x-cortex-admin-token": "admin-secret"}
+    short_security = SimpleNamespace(
+        **{
+            **websocket_security_from_env().__dict__,
+            "log_send_timeout_seconds": 0.01,
+            "log_lifetime_seconds": 0.03,
+        }
+    )
+
+    class BackpressuredSocket(FakeWebSocket):
+        async def send_text(self, value):
+            await asyncio.Event().wait()
+
+    backpressure_logs = FakeLogs(["blocked"])
+    lifetime_logs = ControlledLogs()
+    factory = DockerFactory([backpressure_logs, lifetime_logs])
+    monkeypatch.setattr(docker_wrapper, "Docker", factory)
+
+    backpressured = BackpressuredSocket(
+        headers=headers,
+        security=short_security,
+        log_admission=admission,
+    )
+    await websockets.ws_logs(backpressured, "backpressured")
+    assert backpressured.closed == [(1013, "client backpressure timeout")]
+    assert backpressure_logs.closed is True
+    assert admission.active == 0
+
+    lifetime = FakeWebSocket(
+        headers=headers,
+        security=short_security,
+        log_admission=admission,
+    )
+    await websockets.ws_logs(lifetime, "lifetime")
+    assert lifetime.closed == [(1000, "connection lifetime complete")]
+    assert lifetime_logs.closed is True
+    assert admission.active == 0
 
 
 @pytest.mark.asyncio
@@ -456,6 +567,20 @@ def test_websocket_health_is_bodyless_http_not_a_long_lived_socket():
     assert len(health_routes) == 1
     assert "GET" in health_routes[0].methods
     assert health_routes[0].__class__.__name__ != "APIWebSocketRoute"
+
+
+def test_log_websocket_configuration_has_immutable_hard_caps(monkeypatch):
+    monkeypatch.setenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "false")
+    monkeypatch.setenv("CORTEX_MAX_LOG_WEBSOCKETS", "999999")
+    monkeypatch.setenv("CORTEX_LOG_WEBSOCKET_SEND_TIMEOUT_SECONDS", "999999")
+    monkeypatch.setenv("CORTEX_LOG_WEBSOCKET_LIFETIME_SECONDS", "999999")
+    from cortex_server import main
+
+    app = main.create_app()
+
+    assert app.state.websocket_log_admission.limit == 64
+    assert app.state.websocket_security.log_send_timeout_seconds == 30.0
+    assert app.state.websocket_security.log_lifetime_seconds == 900.0
 
 
 @pytest.mark.asyncio
