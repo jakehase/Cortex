@@ -93,6 +93,9 @@ const LIFECYCLE_DEDUP_TTL_MS = 10 * 60 * 1000;
 const LIFECYCLE_MAX_IN_FLIGHT = 64;
 const LIFECYCLE_MAX_PENDING = 256;
 const LIFECYCLE_SPOOL_MAX_RECORDS = 4096;
+const LIFECYCLE_SPOOL_MAX_RECORD_BYTES = 256 * 1024;
+const LIFECYCLE_NAMESPACE_INODE_BUDGET = 8;
+const LIFECYCLE_ROOT_INODE_RESERVE = 16;
 const RECENT_OUTPUT_MAX_ENTRIES = 1024;
 const RECENT_OUTPUT_TTL_MS = 10 * 60 * 1000;
 const RECENT_OUTPUT_MAX_CHARS = 4096;
@@ -328,6 +331,24 @@ function durableLifecycleMkdir(directory: string): void {
   }
   if (!fs.statSync(target).isDirectory()) throw new Error(`lifecycle state path is not a directory: ${target}`);
   try { fs.chmodSync(target, 0o700); } catch {}
+}
+
+function boundedLifecycleDirectoryEntries(directory: string, maximum: number): fs.Dirent[] {
+  const entries: fs.Dirent[] = [];
+  const handle = fs.opendirSync(directory);
+  try {
+    while (true) {
+      const entry = handle.readSync();
+      if (!entry) break;
+      if (entries.length >= maximum) {
+        throw new Error(`Cortex lifecycle directory exceeds bounded enumeration limit ${maximum}: ${directory}`);
+      }
+      entries.push(entry);
+    }
+  } finally {
+    handle.closeSync();
+  }
+  return entries;
 }
 
 function lifecycleProcessStartIdentity(pid: number): string | null {
@@ -677,11 +698,18 @@ class DurableLifecycleSpool {
 class DurableLifecycleQuota {
   private readonly root: string;
   private readonly maxRecords: number;
+  private readonly maxNamespaces: number;
+  private readonly maxInodes: number;
+  private readonly maxBytes: number;
   private readonly lockPath: string;
 
   constructor(root: string, maxRecords: number) {
     this.root = root;
     this.maxRecords = maxRecords;
+    this.maxNamespaces = Math.max(1, maxRecords);
+    this.maxInodes = (this.maxNamespaces * LIFECYCLE_NAMESPACE_INODE_BUDGET)
+      + LIFECYCLE_ROOT_INODE_RESERVE;
+    this.maxBytes = Math.max(LIFECYCLE_SPOOL_MAX_RECORD_BYTES, maxRecords * LIFECYCLE_SPOOL_MAX_RECORD_BYTES);
     this.lockPath = path.join(root, '.lifecycle-spool-global.lock');
   }
 
@@ -689,28 +717,194 @@ class DurableLifecycleQuota {
     return withLifecycleDirectoryLock(this.lockPath, operation);
   }
 
-  private recordCount(): number {
-    let total = 0;
-    for (const entry of fs.readdirSync(this.root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
-      const spoolFile = path.join(this.root, entry.name, 'lifecycle-spool.json');
+  private usage(): { namespaces: number; inodes: number; records: number; bytes: number } {
+    let namespaces = 0;
+    let inodes = 0;
+    let records = 0;
+    let bytes = 0;
+    const rootEntries = boundedLifecycleDirectoryEntries(
+      this.root,
+      this.maxNamespaces + LIFECYCLE_ROOT_INODE_RESERVE,
+    );
+    for (const entry of rootEntries) {
+      const entryPath = path.join(this.root, entry.name);
+      inodes += 1;
+      if (entry.isFile()) {
+        bytes += fs.statSync(entryPath).size;
+        continue;
+      }
+      if (!entry.isDirectory()) continue;
+      const principalNamespace = /^[0-9a-f]{64}$/.test(entry.name);
+      if (principalNamespace) namespaces += 1;
+      const pending = [{ directory: entryPath, maximum: principalNamespace
+        ? LIFECYCLE_NAMESPACE_INODE_BUDGET
+        : this.maxInodes }];
+      while (pending.length > 0) {
+        const { directory, maximum } = pending.pop()!;
+        const children = boundedLifecycleDirectoryEntries(directory, maximum);
+        for (const child of children) {
+          const childPath = path.join(directory, child.name);
+          inodes += 1;
+          if (inodes > this.maxInodes) {
+            throw new Error(`lifecycle spool exhausted across principals at ${this.maxInodes} inodes`);
+          }
+          if (child.isDirectory()) {
+            pending.push({ directory: childPath, maximum });
+          } else if (child.isFile()) {
+            bytes += fs.statSync(childPath).size;
+          }
+        }
+      }
+      if (!principalNamespace) continue;
+      const spoolFile = path.join(entryPath, 'lifecycle-spool.json');
       if (!fs.existsSync(spoolFile)) continue;
-      const parsed = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
+      const raw = fs.readFileSync(spoolFile, 'utf8');
+      const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed) || !parsed.every(isLifecycleSpoolRecord)) {
         throw new Error('invalid Cortex lifecycle spool during global quota reconciliation');
       }
-      total += parsed.length;
+      records += parsed.length;
     }
-    return total;
+    if (namespaces > this.maxNamespaces) {
+      throw new Error(`lifecycle spool exhausted across principals at ${this.maxNamespaces} namespaces`);
+    }
+    if (records > this.maxRecords) {
+      throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
+    }
+    if (bytes > this.maxBytes) {
+      throw new Error(`lifecycle spool exhausted across principals at ${this.maxBytes} bytes`);
+    }
+    return { namespaces, inodes, records, bytes };
   }
 
-  put(spool: DurableLifecycleSpool, record: LifecycleSpoolRecord): LifecycleSpoolRecord {
+  restartEntries(): fs.Dirent[] {
+    this.usage();
+    return boundedLifecycleDirectoryEntries(
+      this.root,
+      this.maxNamespaces + LIFECYCLE_ROOT_INODE_RESERVE,
+    );
+  }
+
+  spoolForNamespace(namespace: string): DurableLifecycleSpool {
+    if (!/^[0-9a-f]{64}$/.test(namespace)) throw new Error('invalid lifecycle principal namespace');
     return this.runExclusive(() => {
-      if (!spool.has(record.key) && this.recordCount() >= this.maxRecords) {
+      const namespaceDir = path.join(this.root, namespace);
+      if (fs.existsSync(namespaceDir)) {
+        if (!fs.statSync(namespaceDir).isDirectory()) throw new Error('lifecycle principal namespace is not a directory');
+        this.usage();
+        return new DurableLifecycleSpool(namespaceDir, this.maxRecords);
+      }
+      const usage = this.usage();
+      if (usage.records >= this.maxRecords) {
         throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
+      }
+      if (usage.namespaces >= this.maxNamespaces) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxNamespaces} namespaces`);
+      }
+      if (usage.inodes + 2 > this.maxInodes) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxInodes} inodes`);
+      }
+      durableLifecycleMkdir(namespaceDir);
+      try {
+        return new DurableLifecycleSpool(namespaceDir, this.maxRecords);
+      } catch (error) {
+        this.reapNamespace(namespace);
+        throw error;
+      }
+    });
+  }
+
+  entries(namespace: string, spool: DurableLifecycleSpool): LifecycleSpoolRecord[] {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      return spool.entries();
+    });
+  }
+
+  put(namespace: string, spool: DurableLifecycleSpool, record: LifecycleSpoolRecord): LifecycleSpoolRecord {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      const existing = spool.has(record.key);
+      const usage = this.usage();
+      if (!existing && usage.records >= this.maxRecords) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
+      }
+      const persisted = { ...record, version: 3 } as LifecycleSpoolRecord;
+      const encodedRecordBytes = Buffer.byteLength(JSON.stringify(persisted), 'utf8');
+      if (encodedRecordBytes > LIFECYCLE_SPOOL_MAX_RECORD_BYTES) {
+        throw new Error(`lifecycle spool record exceeds ${LIFECYCLE_SPOOL_MAX_RECORD_BYTES} bytes`);
+      }
+      if (!existing) {
+        const spoolFile = path.join(this.root, namespace, 'lifecycle-spool.json');
+        const currentBytes = fs.existsSync(spoolFile) ? fs.statSync(spoolFile).size : 0;
+        const projectedBytes = usage.bytes - currentBytes
+          + Buffer.byteLength(JSON.stringify([...spool.entries(), persisted]), 'utf8');
+        if (projectedBytes > this.maxBytes) {
+          throw new Error(`lifecycle spool exhausted across principals at ${this.maxBytes} bytes`);
+        }
       }
       return spool.put(record);
     });
+  }
+
+  retainReceipt(
+    namespace: string,
+    spool: DurableLifecycleSpool,
+    key: string,
+    receipt: string,
+    replaceReceipt = '',
+  ): string {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      return spool.retainReceipt(key, receipt, replaceReceipt);
+    });
+  }
+
+  acknowledge(namespace: string, spool: DurableLifecycleSpool, key: string): boolean {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      spool.ack(key);
+      return this.removeIfEmptyLocked(namespace, spool);
+    });
+  }
+
+  removeIfEmpty(namespace: string, spool: DurableLifecycleSpool): boolean {
+    return this.runExclusive(() => {
+      if (!fs.existsSync(path.join(this.root, namespace))) return true;
+      this.assertNamespace(namespace);
+      return this.removeIfEmptyLocked(namespace, spool);
+    });
+  }
+
+  reapNamespace(namespace: string): boolean {
+    if (!/^[0-9a-f]{64}$/.test(namespace)) return false;
+    const namespaceDir = path.join(this.root, namespace);
+    const guardDir = path.join(namespaceDir, '.lifecycle-spool.lock.guard');
+    try { fs.rmdirSync(guardDir); } catch (error: any) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTEMPTY') throw error;
+    }
+    try {
+      fs.rmdirSync(namespaceDir);
+      fsyncLifecycleDirectory(this.root);
+      return true;
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return true;
+      if (error?.code === 'ENOTEMPTY') return false;
+      throw error;
+    }
+  }
+
+  private assertNamespace(namespace: string): void {
+    if (!/^[0-9a-f]{64}$/.test(namespace)) throw new Error('invalid lifecycle principal namespace');
+    const namespaceDir = path.join(this.root, namespace);
+    if (!fs.existsSync(namespaceDir) || !fs.statSync(namespaceDir).isDirectory()) {
+      throw new Error('lifecycle principal namespace is no longer admitted');
+    }
+  }
+
+  private removeIfEmptyLocked(namespace: string, spool: DurableLifecycleSpool): boolean {
+    if (!spool.removeIfEmpty()) return false;
+    return this.reapNamespace(namespace);
   }
 }
 
@@ -1338,13 +1532,16 @@ function loadLifecycleSpools(
   return quota.runExclusive(() => {
     const spools = new Map<string, DurableLifecycleSpool>();
     let loadedRecords = 0;
-    const entries = fs.readdirSync(principalRoot, { withFileTypes: true })
+    const entries = quota.restartEntries()
       .sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
       if (!entry.isDirectory() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
       const namespaceDir = path.join(principalRoot, entry.name);
       const spoolFile = path.join(namespaceDir, 'lifecycle-spool.json');
-      if (!fs.existsSync(spoolFile)) continue;
+      if (!fs.existsSync(spoolFile)) {
+        quota.reapNamespace(entry.name);
+        continue;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
@@ -1359,7 +1556,11 @@ function loadLifecycleSpools(
         logger.warn?.(`cortex-memory-bridge: quarantined oversized lifecycle spool for bounded recovery at ${quarantined}`);
         continue;
       }
-      if (parsed.length === 0) continue;
+      if (parsed.length === 0) {
+        try { fs.unlinkSync(spoolFile); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+        quota.reapNamespace(entry.name);
+        continue;
+      }
       if (parsed.every((record: any) => record?.version === 1 && !record?.principal)) {
         const quarantined = quarantineLifecycleFile(spoolFile, 'legacy-unscoped');
         logger.warn?.(`cortex-memory-bridge: quarantined unscoped lifecycle spool at ${quarantined}`);
@@ -1703,18 +1904,17 @@ const plugin = {
     const spools = lifecycleState?.spools ?? new Map<string, DurableLifecycleSpool>();
     const spoolForPrincipal = (principalNamespace: string) => {
       const existing = spools.get(principalNamespace);
-      if (existing) return existing;
+      if (existing && fs.existsSync(path.join(lifecycleState!.root, principalNamespace))) return existing;
+      if (existing) spools.delete(principalNamespace);
       if (!lifecycleState) throw new Error('lifecycle spool is unavailable while persistence is disabled');
-      const created = new DurableLifecycleSpool(
-        path.join(lifecycleState.root, principalNamespace),
-        initialConfig.lifecycleSpoolMaxRecords,
-      );
+      const created = lifecycleState.quota.spoolForNamespace(principalNamespace);
       spools.set(principalNamespace, created);
       return created;
     };
     const acknowledgeSpoolRecord = (principalNamespace: string, principalSpool: DurableLifecycleSpool, key: string) => {
-      principalSpool.ack(key);
-      if (principalSpool.removeIfEmpty()) spools.delete(principalNamespace);
+      if (lifecycleState!.quota.acknowledge(principalNamespace, principalSpool, key)) {
+        spools.delete(principalNamespace);
+      }
     };
     const principalBinding = (ctx: any) => {
       const context = canonicalLifecycleContext(initialConfig, ctx);
@@ -1784,7 +1984,13 @@ const plugin = {
         api.logger.warn?.(`cortex-memory-bridge: refused lifecycle persistence with incomplete or mismatched principal: ${String(error)}`);
         return Promise.resolve(false);
       }
-      const principalSpool = spoolForPrincipal(principalNamespace);
+      let principalSpool: DurableLifecycleSpool;
+      try {
+        principalSpool = spoolForPrincipal(principalNamespace);
+      } catch (error) {
+        api.logger.warn?.(`cortex-memory-bridge: lifecycle namespace admission failed: ${String(error)}`);
+        return Promise.resolve(false);
+      }
       if (completed.has(persistenceKey)) {
         try { acknowledgeSpoolRecord(principalNamespace, principalSpool, persistenceKey); } catch (error) {
           api.logger.warn?.(`cortex-memory-bridge: failed to acknowledge completed lifecycle spool record: ${String(error)}`);
@@ -1799,7 +2005,8 @@ const plugin = {
       const boundedEvent = boundedLifecycleEvent(event, cfg);
       const boundedFallback = String(fallbackText || '').slice(-cfg.recentOutputMaxChars);
       const boundedContext = context;
-      const retainedSpoolRecord = principalSpool.entries().find((record) => record.key === persistenceKey);
+      const retainedSpoolRecord = lifecycleState!.quota.entries(principalNamespace, principalSpool)
+        .find((record) => record.key === persistenceKey);
       const activeReceipt = String(storedReceipt || retainedSpoolRecord?.assuranceReceipt || '').trim();
       let spoolRecord: LifecycleSpoolRecord = {
         version: 3,
@@ -1814,10 +2021,10 @@ const plugin = {
       try {
         // The first process to persist this lifecycle identity owns its
         // canonical payload and any retained receipt. Later processes adopt it.
-        spoolRecord = lifecycleState!.quota.put(principalSpool, spoolRecord);
+        spoolRecord = lifecycleState!.quota.put(principalNamespace, principalSpool, spoolRecord);
       } catch (error) {
         try {
-          if (principalSpool.removeIfEmpty()) spools.delete(principalNamespace);
+          if (lifecycleState!.quota.removeIfEmpty(principalNamespace, principalSpool)) spools.delete(principalNamespace);
         } catch {}
         api.logger.warn?.(`cortex-memory-bridge: failed to durably spool lifecycle output: ${String(error)}`);
         return Promise.resolve(false);
@@ -1831,7 +2038,9 @@ const plugin = {
           spoolRecord.fallbackText,
           spoolRecord.assuranceReceipt,
           (receipt, replaceReceipt) => {
-            const canonicalReceipt = principalSpool.retainReceipt(
+            const canonicalReceipt = lifecycleState!.quota.retainReceipt(
+              principalNamespace,
+              principalSpool,
               spoolRecord.key,
               receipt,
               replaceReceipt,
@@ -1883,8 +2092,16 @@ const plugin = {
       const cfg = initialConfig;
       if (!lifecycleState || (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity)) return;
       const schedulingLimit = cfg.lifecycleMaxInFlight + cfg.lifecycleMaxPending;
-      for (const principalSpool of spools.values()) {
-        for (const record of principalSpool.entries()) {
+      for (const [principalNamespace, principalSpool] of spools.entries()) {
+        let records: LifecycleSpoolRecord[];
+        try {
+          records = lifecycleState.quota.entries(principalNamespace, principalSpool);
+        } catch (error) {
+          spools.delete(principalNamespace);
+          api.logger.warn?.(`cortex-memory-bridge: skipped stale lifecycle namespace during replay: ${String(error)}`);
+          continue;
+        }
+        for (const record of records) {
           if (inFlight.size + queued.size >= schedulingLimit) return;
           if (inFlight.has(record.key) || queued.has(record.key) || completed.has(record.key)) continue;
           const replay = persistLifecycle(
@@ -2051,4 +2268,4 @@ const plugin = {
 };
 
 export default plugin;
-export { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults, withLifecycleDirectoryLock };
+export { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults, withLifecycleDirectoryLock };

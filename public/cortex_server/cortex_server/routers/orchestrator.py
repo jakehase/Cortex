@@ -17,9 +17,13 @@ import fcntl
 import hashlib
 import hmac
 import json
+import re
 import asyncio
 import base64
 import httpx
+import sqlite3
+import threading
+import time
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from functools import partial
 from uuid import uuid4
@@ -139,7 +143,32 @@ router = APIRouter()
 # ── In-memory state ────────────────────────────────────────────────────────
 DEFAULT_DB_PATH = Path(os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/state/reasoning_runtime.db"))
 RUNTIME_DELIVERY_ROOT = Path(os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "/opt/clawdbot/state/runtime_delivery"))
-workflows: Dict[str, Dict[str, Any]] = {}
+MAX_REASONING_WORKFLOW_CACHE_ENTRIES = 512
+MAX_REASONING_PLAN_OBJECT_BYTES = 2 * 1024 * 1024
+MAX_REASONING_PLAN_RESERVATION_BYTES = 4 * 1024 * 1024
+MAX_REASONING_PRINCIPAL_WORKFLOWS = 64
+MAX_REASONING_PRINCIPAL_PROCESSES = 64
+MAX_REASONING_PRINCIPAL_EVENTS = 1024
+MAX_REASONING_PRINCIPAL_BYTES = 64 * 1024 * 1024
+MAX_REASONING_WORKFLOWS = 4096
+MAX_REASONING_PROCESSES = 4096
+MAX_REASONING_EVENTS = 16_384
+MAX_REASONING_BYTES = 512 * 1024 * 1024
+REASONING_RECOVERY_RESERVE_BYTES = 64 * 1024 * 1024
+MAX_REASONING_PLAN_RESERVATIONS = 256
+MAX_REASONING_PRINCIPAL_RESERVATIONS = 16
+REASONING_PLAN_RESERVATION_TTL_SECONDS = 10 * 60
+_REASONING_QUOTA_THREAD_LOCK = threading.RLock()
+
+
+class _BoundedWorkflowCache(dict):
+    def __setitem__(self, key, value):
+        if key not in self and len(self) >= MAX_REASONING_WORKFLOW_CACHE_ENTRIES:
+            self.pop(next(iter(self)))
+        super().__setitem__(key, value)
+
+
+workflows: Dict[str, Dict[str, Any]] = _BoundedWorkflowCache()
 _stats = {
     "workflows_created": 0,
     "workflows_executed": 0,
@@ -157,6 +186,383 @@ SENTINEL_SCAN_URL = "http://127.0.0.1:8888/sentinel/scan"
 
 def _db_path() -> Path:
     return runtime_workflows.db_path(DEFAULT_DB_PATH)
+
+
+class ReasoningPlanQuotaError(RuntimeError):
+    """A reasoning workflow/process would consume protected recovery capacity."""
+
+
+def _reasoning_quota_principal_key(principal: Any) -> str:
+    # Dynamic session identities share the quota of their stable authenticated
+    # principal, preventing session rotation from multiplying durable capacity.
+    canonical = "\0".join(
+        (
+            "cortex-reasoning-plan-quota-v1",
+            str(principal.tenant_id),
+            str(principal.workspace_id),
+            str(principal.agent_id),
+            str(principal.user_id),
+            str(principal.channel_id),
+        )
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _reasoning_reservation_root(db_path: Path) -> Path:
+    return db_path.with_name(f"{db_path.name}.plan-reservations")
+
+
+def _fsync_reasoning_directory(directory: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def _reasoning_quota_lock():
+    db_path = _db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(db_path.parent, 0o700)
+    lock_path = db_path.with_name(f"{db_path.name}.plan-quota.lock")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    with _REASONING_QUOTA_THREAD_LOCK:
+        descriptor = os.open(lock_path, flags, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            try:
+                yield db_path
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def _bounded_reasoning_reservations(db_path: Path, *, now: float) -> List[Dict[str, Any]]:
+    root = _reasoning_reservation_root(db_path)
+    if not root.exists():
+        return []
+    rows: List[Dict[str, Any]] = []
+    removed = False
+    enumerated = 0
+    with os.scandir(root) as iterator:
+        for entry in iterator:
+            enumerated += 1
+            if enumerated > MAX_REASONING_PLAN_RESERVATIONS + 8:
+                raise ReasoningPlanQuotaError("reasoning plan reservation enumeration is exhausted")
+            candidate = Path(entry.path)
+            if not re.fullmatch(r"[0-9a-f]{48}\.json", candidate.name) or candidate.is_symlink():
+                continue
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+                expires_at = float(data.get("expires_at", 0) or 0) if isinstance(data, dict) else 0.0
+                if expires_at <= now:
+                    candidate.unlink(missing_ok=True)
+                    removed = True
+                    continue
+                if (
+                    data.get("version") != 1
+                    or str(data.get("token") or "") != candidate.stem
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(data.get("principal_hash") or ""))
+                    or not str(data.get("workflow_id") or "").strip()
+                    or not 0 < int(data.get("reserved_bytes", 0) or 0) <= MAX_REASONING_PLAN_RESERVATION_BYTES
+                    or int(data.get("workflow_objects", 0) or 0) != 1
+                    or int(data.get("process_objects", 0) or 0) != 1
+                    or int(data.get("event_objects", 0) or 0) != 2
+                    or expires_at - float(data.get("created_at", 0) or 0) > REASONING_PLAN_RESERVATION_TTL_SECONDS
+                ):
+                    raise ValueError("invalid reasoning plan reservation")
+                rows.append({**data, "path": candidate})
+            except FileNotFoundError:
+                continue
+            except Exception as exc:
+                try:
+                    stale = now - candidate.stat().st_mtime > REASONING_PLAN_RESERVATION_TTL_SECONDS
+                except FileNotFoundError:
+                    continue
+                if stale:
+                    candidate.unlink(missing_ok=True)
+                    removed = True
+                    continue
+                raise ReasoningPlanQuotaError("invalid active reasoning plan reservation") from exc
+    if len(rows) > MAX_REASONING_PLAN_RESERVATIONS:
+        raise ReasoningPlanQuotaError("reasoning plan reservation quota is exhausted")
+    if removed:
+        _fsync_reasoning_directory(root)
+    return rows
+
+
+def _reasoning_db_usage(db_path: Path, principal_hash: str) -> Dict[str, int]:
+    empty = {
+        "workflows": 0,
+        "processes": 0,
+        "events": 0,
+        "bytes": 0,
+        "principal_workflows": 0,
+        "principal_processes": 0,
+        "principal_events": 0,
+        "principal_bytes": 0,
+        "physical_bytes": 0,
+    }
+    if not db_path.exists():
+        return empty
+    physical_bytes = sum(
+        candidate.stat().st_size
+        for candidate in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm"))
+        if candidate.exists() and candidate.is_file()
+    )
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.5)
+    try:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('reasoning_documents','reasoning_events')"
+            )
+        }
+        if "reasoning_documents" not in tables:
+            return {**empty, "physical_bytes": int(physical_bytes)}
+        document_rows = connection.execute(
+            """
+            SELECT namespace, COUNT(*), COALESCE(SUM(LENGTH(payload)), 0)
+            FROM reasoning_documents
+            WHERE namespace IN ('workflows', 'reasoning_processes', 'approval_grants')
+            GROUP BY namespace
+            """
+        ).fetchall()
+        by_namespace = {str(row[0]): (int(row[1]), int(row[2])) for row in document_rows}
+        event_count = 0
+        event_bytes = 0
+        principal_event_count = 0
+        principal_event_bytes = 0
+        if "reasoning_events" in tables:
+            event_count, event_bytes = connection.execute(
+                "SELECT COUNT(*), COALESCE(SUM(LENGTH(payload)), 0) FROM reasoning_events WHERE namespace = 'reasoning_process_events'"
+            ).fetchone()
+            principal_event_count, principal_event_bytes = connection.execute(
+                """
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(event.payload)), 0)
+                FROM reasoning_events AS event
+                JOIN reasoning_documents AS process
+                  ON process.namespace = 'reasoning_processes'
+                 AND process.doc_id = event.parent_id
+                WHERE event.namespace = 'reasoning_process_events'
+                  AND json_extract(process.payload, '$.workflow.metadata._reasoning_quota_principal_hash') = ?
+                """,
+                (principal_hash,),
+            ).fetchone()
+        principal_workflows, principal_workflow_bytes = connection.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(LENGTH(payload)), 0)
+            FROM reasoning_documents
+            WHERE namespace = 'workflows'
+              AND json_extract(payload, '$.metadata._reasoning_quota_principal_hash') = ?
+            """,
+            (principal_hash,),
+        ).fetchone()
+        principal_processes, principal_process_bytes = connection.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(LENGTH(payload)), 0)
+            FROM reasoning_documents
+            WHERE namespace = 'reasoning_processes'
+              AND json_extract(payload, '$.workflow.metadata._reasoning_quota_principal_hash') = ?
+            """,
+            (principal_hash,),
+        ).fetchone()
+        principal_approval_bytes = connection.execute(
+            """
+            SELECT COALESCE(SUM(LENGTH(payload)), 0)
+            FROM reasoning_documents
+            WHERE namespace = 'approval_grants'
+              AND json_extract(payload, '$.metadata._reasoning_quota_principal_hash') = ?
+            """,
+            (principal_hash,),
+        ).fetchone()[0]
+        workflow_count, workflow_bytes = by_namespace.get("workflows", (0, 0))
+        process_count, process_bytes = by_namespace.get("reasoning_processes", (0, 0))
+        _approval_count, approval_bytes = by_namespace.get("approval_grants", (0, 0))
+        return {
+            "workflows": workflow_count,
+            "processes": process_count,
+            "events": int(event_count),
+            "bytes": workflow_bytes + process_bytes + approval_bytes + int(event_bytes),
+            "principal_workflows": int(principal_workflows),
+            "principal_processes": int(principal_processes),
+            "principal_events": int(principal_event_count),
+            "principal_bytes": int(principal_workflow_bytes) + int(principal_process_bytes) + int(principal_approval_bytes) + int(principal_event_bytes),
+            "physical_bytes": int(physical_bytes),
+        }
+    except sqlite3.OperationalError as exc:
+        if "malformed JSON" in str(exc):
+            raise ReasoningPlanQuotaError("reasoning quota cannot reconcile malformed durable rows") from exc
+        raise
+    finally:
+        connection.close()
+
+
+def _reserve_reasoning_plan(
+    *,
+    principal_hash: str,
+    workflow: Mapping[str, Any],
+    approval_count: int,
+    approval_bytes: int = 0,
+) -> Dict[str, Any]:
+    encoded_workflow = json.dumps(
+        dict(workflow),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    if len(encoded_workflow) > MAX_REASONING_PLAN_OBJECT_BYTES:
+        raise ReasoningPlanQuotaError("reasoning workflow exceeds its per-object byte quota")
+    estimated_bytes = max(
+        256 * 1024,
+        (3 * len(encoded_workflow))
+        + max(
+            max(0, int(approval_count)) * 64 * 1024,
+            2 * max(0, int(approval_bytes)),
+        ),
+    )
+    if estimated_bytes > MAX_REASONING_PLAN_RESERVATION_BYTES:
+        raise ReasoningPlanQuotaError("reasoning workflow/process transaction exceeds its byte quota")
+    reservation_bytes = estimated_bytes
+    now = time.time()
+    with _reasoning_quota_lock() as db_path:
+        reservations = _bounded_reasoning_reservations(db_path, now=now)
+        usage = _reasoning_db_usage(db_path, principal_hash)
+        principal_reservations = [
+            row for row in reservations if str(row.get("principal_hash") or "") == principal_hash
+        ]
+        if len(reservations) >= MAX_REASONING_PLAN_RESERVATIONS:
+            raise ReasoningPlanQuotaError("reasoning plan reservation quota is exhausted")
+        if len(principal_reservations) >= MAX_REASONING_PRINCIPAL_RESERVATIONS:
+            raise ReasoningPlanQuotaError("reasoning principal reservation quota is exhausted")
+        if usage["workflows"] + len(reservations) >= MAX_REASONING_WORKFLOWS:
+            raise ReasoningPlanQuotaError("reasoning workflow aggregate object quota is exhausted")
+        if usage["processes"] + len(reservations) >= MAX_REASONING_PROCESSES:
+            raise ReasoningPlanQuotaError("reasoning process aggregate object quota is exhausted")
+        if usage["events"] + (2 * (len(reservations) + 1)) > MAX_REASONING_EVENTS:
+            raise ReasoningPlanQuotaError("reasoning event aggregate object quota is exhausted")
+        if usage["principal_workflows"] + len(principal_reservations) >= MAX_REASONING_PRINCIPAL_WORKFLOWS:
+            raise ReasoningPlanQuotaError("reasoning principal workflow quota is exhausted")
+        if usage["principal_processes"] + len(principal_reservations) >= MAX_REASONING_PRINCIPAL_PROCESSES:
+            raise ReasoningPlanQuotaError("reasoning principal process quota is exhausted")
+        if usage["principal_events"] + (2 * (len(principal_reservations) + 1)) > MAX_REASONING_PRINCIPAL_EVENTS:
+            raise ReasoningPlanQuotaError("reasoning principal event quota is exhausted")
+        reserved_bytes = sum(int(row.get("reserved_bytes", 0) or 0) for row in reservations)
+        principal_reserved_bytes = sum(
+            int(row.get("reserved_bytes", 0) or 0) for row in principal_reservations
+        )
+        if usage["principal_bytes"] + principal_reserved_bytes + reservation_bytes > MAX_REASONING_PRINCIPAL_BYTES:
+            raise ReasoningPlanQuotaError("reasoning principal byte quota is exhausted")
+        operational_limit = MAX_REASONING_BYTES - REASONING_RECOVERY_RESERVE_BYTES
+        if max(usage["bytes"], usage["physical_bytes"]) + reserved_bytes + reservation_bytes > operational_limit:
+            raise ReasoningPlanQuotaError("reasoning aggregate byte quota is exhausted")
+        filesystem = os.statvfs(db_path.parent)
+        available = int(filesystem.f_bavail) * int(filesystem.f_frsize)
+        if available - reserved_bytes - reservation_bytes < REASONING_RECOVERY_RESERVE_BYTES:
+            raise ReasoningPlanQuotaError("reasoning filesystem recovery reserve is unavailable")
+
+        root = _reasoning_reservation_root(db_path)
+        root.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(root, 0o700)
+        token = uuid4().hex + uuid4().hex[:16]
+        reservation = {
+            "version": 1,
+            "token": token,
+            "principal_hash": principal_hash,
+            "workflow_id": str(workflow.get("workflow_id") or ""),
+            "reserved_bytes": reservation_bytes,
+            "workflow_objects": 1,
+            "process_objects": 1,
+            "event_objects": 2,
+            "created_at": now,
+            "expires_at": now + REASONING_PLAN_RESERVATION_TTL_SECONDS,
+        }
+        target = root / f"{token}.json"
+        temporary = root / f".{token}.{os.getpid()}.{uuid4().hex[:8]}.tmp"
+        try:
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            try:
+                os.write(
+                    descriptor,
+                    (json.dumps(reservation, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"),
+                )
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.replace(temporary, target)
+            _fsync_reasoning_directory(root)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return reservation
+
+
+def _assert_reasoning_workflow_object_quota(workflow: Mapping[str, Any]) -> None:
+    try:
+        encoded = json.dumps(
+            dict(workflow),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ReasoningPlanQuotaError("reasoning workflow is not canonically serializable") from exc
+    if len(encoded) > MAX_REASONING_PLAN_OBJECT_BYTES:
+        raise ReasoningPlanQuotaError("reasoning workflow exceeds its per-object byte quota")
+
+
+def _release_reasoning_plan_reservation(reservation: Optional[Mapping[str, Any]]) -> None:
+    token = str((reservation or {}).get("token") or "")
+    if not re.fullmatch(r"[0-9a-f]{48}", token):
+        return
+    with _reasoning_quota_lock() as db_path:
+        root = _reasoning_reservation_root(db_path)
+        target = root / f"{token}.json"
+        if target.exists():
+            target.unlink()
+            _fsync_reasoning_directory(root)
+
+
+def _rollback_reasoning_plan_creation(*, workflow_id: str, process_id: str = "") -> None:
+    workflows.pop(str(workflow_id or ""), None)
+    db_path = _db_path()
+    if not db_path.exists():
+        return
+    with _reasoning_quota_lock():
+        connection = sqlite3.connect(str(db_path), timeout=2.5)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "DELETE FROM reasoning_documents WHERE namespace = 'workflows' AND doc_id = ?",
+                (str(workflow_id),),
+            )
+            connection.execute(
+                "DELETE FROM reasoning_documents WHERE namespace = 'approval_grants' AND json_extract(payload, '$.workflow_id') = ?",
+                (str(workflow_id),),
+            )
+            if process_id:
+                connection.execute(
+                    "DELETE FROM reasoning_documents WHERE namespace = 'reasoning_processes' AND doc_id = ?",
+                    (str(process_id),),
+                )
+                connection.execute(
+                    "DELETE FROM reasoning_events WHERE namespace = 'reasoning_process_events' AND parent_id = ?",
+                    (str(process_id),),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
 
 
@@ -3726,7 +4132,7 @@ async def _execute_workflow(workflow: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-def _store_workflow_from_plan(
+def _build_workflow_from_plan(
     graph: ReasoningPlanGraph,
     *,
     belief_scope: Optional[Dict[str, str]] = None,
@@ -3741,6 +4147,15 @@ def _store_workflow_from_plan(
         )
     except PlanGraphError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return workflow
+
+
+def _store_workflow_from_plan(
+    graph: ReasoningPlanGraph,
+    *,
+    belief_scope: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    workflow = _build_workflow_from_plan(graph, belief_scope=belief_scope)
     _stats["workflows_created"] += 1
     _persist_workflow(workflow)
     return workflow
@@ -4414,7 +4829,9 @@ async def create_and_run_plan(graph: ReasoningPlanGraph):
 async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Request = None):
     """Store a plan graph as a managed reasoning process without executing it yet."""
     principal = getattr(getattr(http_request, "state", None), "cortex_principal", None)
+    quota_principal_hash = hashlib.sha256(b"cortex-reasoning-plan-quota:unbound").hexdigest()
     if principal is not None and getattr(principal, "role", "") == "principal":
+        quota_principal_hash = _reasoning_quota_principal_key(principal)
         principal_metadata = {
             "tenant_id": principal.tenant_id,
             "workspace_id": principal.workspace_id,
@@ -4425,6 +4842,7 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
             "session_id": principal.session_id,
             "scope_credential_id": principal.credential_id,
             "owner": principal.user_id,
+            "_reasoning_quota_principal_hash": quota_principal_hash,
         }
         supplied_metadata = dict(request.graph.metadata or {})
         for physical_root_field in ("workspace_path", "workspace_root", "repo_root", "repo_path", "target_path", "workspace_paths"):
@@ -4436,6 +4854,17 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
         }
         request.options.owner = principal.user_id
         request.options.session_key = principal.session_id
+    else:
+        request.graph.metadata = {
+            **dict(request.graph.metadata or {}),
+            "_reasoning_quota_principal_hash": quota_principal_hash,
+        }
+    for approval in request.options.approval_grants or []:
+        if isinstance(approval, dict):
+            approval["metadata"] = {
+                **dict(approval.get("metadata") or {}),
+                "_reasoning_quota_principal_hash": quota_principal_hash,
+            }
     belief_scope = None
     if principal is not None and getattr(principal, "role", "") == "principal":
         belief_scope = {
@@ -4446,8 +4875,36 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
             "channel_id": principal.channel_id,
             "session_id": principal.session_id,
         }
-    workflow = _store_workflow_from_plan(request.graph, belief_scope=belief_scope)
+    reservation: Optional[Dict[str, Any]] = None
+    workflow: Dict[str, Any] = {}
+    scheduled: Dict[str, Any] = {}
+    mutation_started = False
     try:
+        reservation_projection = {
+            "workflow_id": f"reserved_{uuid4().hex}",
+            "metadata": {
+                "_reasoning_quota_principal_hash": quota_principal_hash,
+            },
+            "plan_graph": model_dump_compat(request.graph),
+        }
+        reservation = _reserve_reasoning_plan(
+            principal_hash=quota_principal_hash,
+            workflow=reservation_projection,
+            approval_count=len(request.options.approval_grants or []),
+            approval_bytes=len(
+                json.dumps(
+                    request.options.approval_grants or [],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            ),
+        )
+        workflow = _build_workflow_from_plan(request.graph, belief_scope=belief_scope)
+        _assert_reasoning_workflow_object_quota(workflow)
+        mutation_started = True
+        _persist_workflow(workflow)
         scheduled = runtime_service.schedule_runtime_plan(
             request,
             workflow=workflow,
@@ -4461,9 +4918,37 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
         bootstrap = _ensure_runtime_session_plane_bootstrap(process_id, process=process, stores=stores) if process_id and process else None
         if bootstrap is not None:
             scheduled["session_plane"] = bootstrap
+        _stats["workflows_created"] += 1
         return scheduled
+    except ReasoningPlanQuotaError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=f"reasoning workflow capacity unavailable: {exc}",
+        ) from exc
     except ReasoningSchedulerError as exc:
+        if mutation_started:
+            process_id = str(((scheduled.get("process") or {}).get("process_id")) or "")
+            try:
+                _rollback_reasoning_plan_creation(
+                    workflow_id=str(workflow.get("workflow_id") or ""),
+                    process_id=process_id,
+                )
+            except Exception as rollback_exc:
+                raise RuntimeError("reasoning plan rollback failed after scheduler rejection") from rollback_exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        if mutation_started:
+            process_id = str(((scheduled.get("process") or {}).get("process_id")) or "")
+            try:
+                _rollback_reasoning_plan_creation(
+                    workflow_id=str(workflow.get("workflow_id") or ""),
+                    process_id=process_id,
+                )
+            except Exception as rollback_exc:
+                raise RuntimeError("reasoning plan rollback failed after creation error") from rollback_exc
+        raise
+    finally:
+        _release_reasoning_plan_reservation(reservation)
 
 
 @router.post("/runtime/tick")

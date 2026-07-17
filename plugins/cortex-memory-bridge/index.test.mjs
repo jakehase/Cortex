@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
-import plugin, { DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults } from './index.ts';
+import plugin, { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
 const lifecycleConfig = (overrides = {}) => ({
   stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-test-')),
@@ -1122,6 +1122,43 @@ test('principal namespaces preserve the global durable spool bound', async () =>
     assert.ok(warnings.some((message) => message.includes('exhausted across principals at 2 records')));
   } finally {
     globalThis.fetch = originalFetch;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('global lifecycle admission reaps empty namespace and lock-guard inodes', () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-namespace-reap-'));
+  const root = path.join(stateDir, 'lifecycle-principals-v2');
+  durableLifecycleMkdir(root);
+  const namespace = 'a'.repeat(64);
+  const principal = { version: 1, tenant_id: 'tenant', workspace_id: 'workspace', scope_credential_id: 'credential', agent_id: 'agent', user_id: 'user', channel_id: 'channel', session_id: 'session' };
+  const record = { version: 3, key: `${namespace}:record`, createdAt: new Date().toISOString(), principal, event: { result: 'bounded', messages: [] }, context: { sessionKey: 'session', sessionId: 'session', channelId: 'channel', agentId: 'agent', userId: 'user', idempotencyKey: `${namespace}:record` }, fallbackText: 'bounded' };
+  try {
+    const quota = new DurableLifecycleQuota(root, 2);
+    const spool = quota.spoolForNamespace(namespace);
+    quota.put(namespace, spool, record);
+    assert.equal(quota.acknowledge(namespace, spool, record.key), true);
+    assert.equal(fs.existsSync(path.join(root, namespace)), false);
+    assert.equal(fs.existsSync(path.join(root, namespace, '.lifecycle-spool.lock.guard')), false);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('restart lifecycle enumeration fails bounded before collecting attacker inode fanout', () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-restart-bound-'));
+  const root = path.join(stateDir, 'lifecycle-principals-v2');
+  durableLifecycleMkdir(root);
+  try {
+    for (let index = 0; index < 19; index += 1) {
+      fs.mkdirSync(path.join(root, `junk-${String(index).padStart(2, '0')}`));
+    }
+    const quota = new DurableLifecycleQuota(root, 2);
+    assert.throws(
+      () => quota.runExclusive(() => quota.restartEntries()),
+      /bounded enumeration limit/,
+    );
+  } finally {
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });

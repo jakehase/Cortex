@@ -162,7 +162,21 @@ _CODEC_REPLAY_SCHEDULER_STATE: Dict[str, Any] = {
 _CONTEXT_LOCK = threading.RLock()
 _CONTEXT_TTL_SECONDS = 1800
 _RECENT_TURNS_MAX = 24
-_CONTEXT_STATE_VERSION = "nexus.referent.principal.v1"
+_CONTEXT_STATE_VERSION = "nexus.referent.principal.v2"
+_CONTEXT_STATE_LEGACY_VERSION = "nexus.referent.principal.v1"
+_REFERENT_TURN_QUERY_MAX_CHARS = 2048
+_REFERENT_TURN_ANSWER_MAX_CHARS = 4096
+_REFERENT_FIX_PLAN_MAX_CHARS = 4096
+_REFERENT_STATE_MAX_OBJECT_BYTES = 256 * 1024
+_REFERENT_STATE_MAX_PRINCIPAL_OBJECTS = 64
+_REFERENT_STATE_MAX_PRINCIPAL_BYTES = 8 * 1024 * 1024
+_REFERENT_STATE_MAX_OBJECTS = 4096
+_REFERENT_STATE_MAX_BYTES = 64 * 1024 * 1024
+_REFERENT_STATE_RECOVERY_RESERVE_BYTES = 16 * 1024 * 1024
+_REFERENT_STATE_MAX_RESERVATIONS = 256
+_REFERENT_STATE_MAX_PRINCIPAL_RESERVATIONS = 16
+_REFERENT_STATE_RESERVATION_TTL_SECONDS = 10 * 60
+_REFERENT_QUOTA_LOCK = threading.RLock()
 _CONTEXT_STATES: Dict[str, Dict[str, Any]] = {}
 _CONTEXT_QUARANTINE_CHECKED: set[str] = set()
 _REFERENT_STATE_PATH = Path(os.getenv("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
@@ -268,8 +282,277 @@ def _referent_scope_digest(continuity_key: str) -> str:
 
 
 def _referent_state_path(continuity_key: str) -> Path:
-    root = _REFERENT_STATE_PATH.with_name(f"{_REFERENT_STATE_PATH.name}.principals")
-    return root / f"{_referent_scope_digest(continuity_key)}.json"
+    return _referent_state_root() / f"{_referent_scope_digest(continuity_key)}.json"
+
+
+def _referent_state_root() -> Path:
+    return _REFERENT_STATE_PATH.with_name(f"{_REFERENT_STATE_PATH.name}.principals")
+
+
+class ReferentStateQuotaError(RuntimeError):
+    """Referent persistence cannot preserve its bounded recovery reserve."""
+
+
+def _bounded_referent_entries(directory: Path, maximum: int) -> List[Path]:
+    if not directory.exists():
+        return []
+    entries: List[Path] = []
+    with os.scandir(directory) as iterator:
+        for entry in iterator:
+            if len(entries) >= maximum:
+                raise ReferentStateQuotaError(
+                    f"referent state exceeds bounded enumeration limit {maximum}"
+                )
+            entries.append(Path(entry.path))
+    return entries
+
+
+@contextmanager
+def _referent_quota_lock():
+    root = _referent_state_root()
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    lock_path = root / ".referent-quota.lock"
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    with _REFERENT_QUOTA_LOCK:
+        descriptor = os.open(lock_path, flags, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            try:
+                yield root
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def _referent_principal_quota_key(principal: AuthenticatedMemoryPrincipal) -> str:
+    # Session rotation is intentionally excluded: one signed dynamic-session
+    # credential must share a finite referent budget across all of its sessions.
+    canonical = "\0".join(
+        (
+            "nexus-referent-principal-quota-v1",
+            principal.tenant_id,
+            principal.workspace_id,
+            principal.agent_id,
+            principal.user_id,
+            principal.channel_id,
+        )
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _referent_reservation_root(root: Path) -> Path:
+    return root / ".reservations"
+
+
+def _referent_state_rows_locked(root: Path, *, now: float) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    removed = False
+    for candidate in _bounded_referent_entries(root, _REFERENT_STATE_MAX_OBJECTS + 8):
+        if not re.fullmatch(r"[0-9a-f]{64}\.json", candidate.name) or candidate.is_symlink():
+            continue
+        try:
+            stat = candidate.stat()
+            size = int(stat.st_size)
+            if size > _REFERENT_STATE_MAX_OBJECT_BYTES:
+                raise ReferentStateQuotaError("referent state object exceeds its byte quota")
+            data = json.loads(candidate.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("invalid referent state")
+            updated = _parse_iso_datetime(data.get("updated_at"))
+            updated_timestamp = (
+                now - max(0.0, (datetime.utcnow() - updated).total_seconds())
+                if updated is not None
+                else float(stat.st_mtime)
+            )
+            if now - updated_timestamp > _CONTEXT_TTL_SECONDS:
+                candidate.unlink(missing_ok=True)
+                removed = True
+                continue
+            rows.append(
+                {
+                    "path": candidate,
+                    "size": size,
+                    "updated": updated_timestamp,
+                    "principal_hash": str(
+                        data.get("quota_principal_hash")
+                        or data.get("scope_key_hash")
+                        or candidate.stem
+                    ),
+                }
+            )
+        except FileNotFoundError:
+            continue
+        except ReferentStateQuotaError:
+            raise
+        except Exception:
+            # Invalid state is never hydrated, but still consumes the aggregate
+            # quota until an operator can inspect it.
+            rows.append(
+                {
+                    "path": candidate,
+                    "size": int(candidate.stat().st_size),
+                    "updated": float(candidate.stat().st_mtime),
+                    "principal_hash": candidate.stem,
+                }
+            )
+    if len(rows) > _REFERENT_STATE_MAX_OBJECTS:
+        raise ReferentStateQuotaError("referent state object quota is exhausted")
+    if removed:
+        _fsync_referent_directory(root)
+    return rows
+
+
+def _referent_reservations_locked(root: Path, *, now: float) -> List[Dict[str, Any]]:
+    reservation_root = _referent_reservation_root(root)
+    if not reservation_root.exists():
+        return []
+    rows: List[Dict[str, Any]] = []
+    removed = False
+    for candidate in _bounded_referent_entries(
+        reservation_root,
+        _REFERENT_STATE_MAX_RESERVATIONS + 8,
+    ):
+        if not re.fullmatch(r"[0-9a-f]{48}\.json", candidate.name) or candidate.is_symlink():
+            continue
+        try:
+            data = json.loads(candidate.read_text(encoding="utf-8"))
+            expires_at = float(data.get("expires_at", 0) or 0) if isinstance(data, dict) else 0.0
+            if expires_at <= now:
+                candidate.unlink(missing_ok=True)
+                removed = True
+                continue
+            if (
+                data.get("version") != 1
+                or str(data.get("token") or "") != candidate.stem
+                or not re.fullmatch(r"[0-9a-f]{64}", str(data.get("scope_hash") or ""))
+                or not re.fullmatch(r"[0-9a-f]{64}", str(data.get("principal_hash") or ""))
+                or int(data.get("reserved_bytes", 0) or 0) != _REFERENT_STATE_MAX_OBJECT_BYTES
+                or expires_at - float(data.get("created_at", 0) or 0) > _REFERENT_STATE_RESERVATION_TTL_SECONDS
+            ):
+                raise ValueError("invalid referent reservation")
+            rows.append({**data, "path": candidate})
+        except FileNotFoundError:
+            continue
+        except Exception:
+            try:
+                if now - candidate.stat().st_mtime > _REFERENT_STATE_RESERVATION_TTL_SECONDS:
+                    candidate.unlink(missing_ok=True)
+                    removed = True
+                    continue
+            except FileNotFoundError:
+                continue
+            raise ReferentStateQuotaError("invalid active referent quota reservation")
+    if len(rows) > _REFERENT_STATE_MAX_RESERVATIONS:
+        raise ReferentStateQuotaError("referent state reservation quota is exhausted")
+    if removed:
+        _fsync_referent_directory(reservation_root)
+    return rows
+
+
+def _fsync_referent_directory(directory: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _reserve_referent_state(
+    continuity_key: str,
+    quota_principal_key: str = "",
+) -> Dict[str, Any]:
+    if not continuity_key:
+        raise ReferentStateQuotaError("referent continuity identity is required")
+    scope_hash = _referent_scope_digest(continuity_key)
+    principal_hash = str(quota_principal_key or scope_hash)
+    now = time.time()
+    with _referent_quota_lock() as root:
+        states = _referent_state_rows_locked(root, now=now)
+        reservations = _referent_reservations_locked(root, now=now)
+        state_path = root / f"{scope_hash}.json"
+        current = next((row for row in states if row["path"] == state_path), None)
+        principal_states = [row for row in states if row["principal_hash"] == principal_hash]
+        principal_reservations = [
+            row for row in reservations if str(row.get("principal_hash") or "") == principal_hash
+        ]
+
+        if current is None and len(principal_states) >= _REFERENT_STATE_MAX_PRINCIPAL_OBJECTS:
+            oldest = min(principal_states, key=lambda row: (row["updated"], row["path"].name))
+            oldest["path"].unlink(missing_ok=True)
+            states.remove(oldest)
+            principal_states.remove(oldest)
+            _fsync_referent_directory(root)
+        if current is None and len(states) + len(reservations) >= _REFERENT_STATE_MAX_OBJECTS:
+            raise ReferentStateQuotaError("referent state aggregate object quota is exhausted")
+        if len(reservations) >= _REFERENT_STATE_MAX_RESERVATIONS:
+            raise ReferentStateQuotaError("referent state reservation quota is exhausted")
+        if len(principal_reservations) >= _REFERENT_STATE_MAX_PRINCIPAL_RESERVATIONS:
+            raise ReferentStateQuotaError("referent state principal reservation quota is exhausted")
+
+        principal_bytes = sum(int(row["size"]) for row in principal_states)
+        principal_reserved = sum(int(row.get("reserved_bytes", 0) or 0) for row in principal_reservations)
+        current_bytes = int(current["size"]) if current is not None else 0
+        if principal_bytes - current_bytes + principal_reserved + _REFERENT_STATE_MAX_OBJECT_BYTES > _REFERENT_STATE_MAX_PRINCIPAL_BYTES:
+            raise ReferentStateQuotaError("referent state principal byte quota is exhausted")
+        aggregate_bytes = sum(int(row["size"]) for row in states)
+        aggregate_reserved = sum(int(row.get("reserved_bytes", 0) or 0) for row in reservations)
+        operational_limit = _REFERENT_STATE_MAX_BYTES - _REFERENT_STATE_RECOVERY_RESERVE_BYTES
+        if aggregate_bytes - current_bytes + aggregate_reserved + _REFERENT_STATE_MAX_OBJECT_BYTES > operational_limit:
+            raise ReferentStateQuotaError("referent state aggregate byte quota is exhausted")
+        filesystem = os.statvfs(root)
+        available = int(filesystem.f_bavail) * int(filesystem.f_frsize)
+        if available - aggregate_reserved - _REFERENT_STATE_MAX_OBJECT_BYTES < _REFERENT_STATE_RECOVERY_RESERVE_BYTES:
+            raise ReferentStateQuotaError("referent state filesystem recovery reserve is unavailable")
+
+        reservation_root = _referent_reservation_root(root)
+        reservation_root.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(reservation_root, 0o700)
+        token = secrets.token_hex(24)
+        reservation = {
+            "version": 1,
+            "token": token,
+            "scope_hash": scope_hash,
+            "principal_hash": principal_hash,
+            "reserved_bytes": _REFERENT_STATE_MAX_OBJECT_BYTES,
+            "created_at": now,
+            "expires_at": now + _REFERENT_STATE_RESERVATION_TTL_SECONDS,
+        }
+        target = reservation_root / f"{token}.json"
+        temporary = reservation_root / f".{token}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+        try:
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            try:
+                os.write(
+                    descriptor,
+                    (json.dumps(reservation, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"),
+                )
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.replace(temporary, target)
+            _fsync_referent_directory(reservation_root)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return reservation
+
+
+def _release_referent_reservation(reservation: Optional[Mapping[str, Any]]) -> None:
+    token = str((reservation or {}).get("token") or "")
+    if not re.fullmatch(r"[0-9a-f]{48}", token):
+        return
+    with _referent_quota_lock() as root:
+        reservation_root = _referent_reservation_root(root)
+        target = reservation_root / f"{token}.json"
+        if target.exists():
+            target.unlink()
+            _fsync_referent_directory(reservation_root)
 
 
 def _quarantine_legacy_context_state() -> None:
@@ -295,14 +578,48 @@ def _quarantine_legacy_context_state() -> None:
         return
 
 
-def _context_for_disk(continuity_key: str, state: Mapping[str, Any]) -> Dict[str, Any]:
+def _bounded_referent_utf8_tail(value: Any, maximum_bytes: int) -> str:
+    encoded = str(value or "").encode("utf-8")
+    if len(encoded) <= maximum_bytes:
+        return encoded.decode("utf-8")
+    return encoded[-maximum_bytes:].decode("utf-8", errors="ignore")
+
+
+def _bounded_referent_turn(value: Any) -> Dict[str, str]:
+    row = value if isinstance(value, Mapping) else {}
+    return {
+        "query": _bounded_referent_utf8_tail(
+            row.get("query", ""),
+            _REFERENT_TURN_QUERY_MAX_CHARS,
+        ),
+        "answer": _bounded_referent_utf8_tail(
+            row.get("answer", ""),
+            _REFERENT_TURN_ANSWER_MAX_CHARS,
+        ),
+        "ts": str(row.get("ts", "") or "")[:64],
+    }
+
+
+def _context_for_disk(
+    continuity_key: str,
+    state: Mapping[str, Any],
+    *,
+    quota_principal_key: str = "",
+) -> Dict[str, Any]:
     return {
         "version": _CONTEXT_STATE_VERSION,
         "scope_key_hash": _referent_scope_digest(continuity_key),
+        "quota_principal_hash": str(quota_principal_key or _referent_scope_digest(continuity_key)),
         "updated_at": str(state.get("updated_at", "") or ""),
-        "last_fix_plan": str(state.get("last_fix_plan", "") or ""),
-        "last_codeword": str(state.get("last_codeword", "") or ""),
-        "recent_turns": list(state.get("recent_turns", []))[-_RECENT_TURNS_MAX:],
+        "last_fix_plan": _bounded_referent_utf8_tail(
+            state.get("last_fix_plan", ""),
+            _REFERENT_FIX_PLAN_MAX_CHARS,
+        ),
+        "last_codeword": str(state.get("last_codeword", "") or "")[-64:],
+        "recent_turns": [
+            _bounded_referent_turn(row)
+            for row in list(state.get("recent_turns", []))[-_RECENT_TURNS_MAX:]
+        ],
     }
 
 
@@ -315,10 +632,12 @@ def _load_context_state(continuity_key: str) -> Dict[str, Any]:
         state_path = _referent_state_path(continuity_key)
         if not state_path.exists():
             return state
+        if state_path.stat().st_size > _REFERENT_STATE_MAX_OBJECT_BYTES:
+            return state
         data = json.loads(state_path.read_text(encoding="utf-8"))
         if (
             not isinstance(data, dict)
-            or data.get("version") != _CONTEXT_STATE_VERSION
+            or data.get("version") not in {_CONTEXT_STATE_VERSION, _CONTEXT_STATE_LEGACY_VERSION}
             or not hmac.compare_digest(
                 str(data.get("scope_key_hash") or ""),
                 _referent_scope_digest(continuity_key),
@@ -327,9 +646,15 @@ def _load_context_state(continuity_key: str) -> Dict[str, Any]:
             return state
         turns = data.get("recent_turns") if isinstance(data.get("recent_turns"), list) else []
         state["updated_at"] = str(data.get("updated_at", "") or "")
-        state["last_fix_plan"] = str(data.get("last_fix_plan", "") or "")
-        state["last_codeword"] = str(data.get("last_codeword", "") or "")
-        state["recent_turns"] = deque(turns[-_RECENT_TURNS_MAX:], maxlen=_RECENT_TURNS_MAX)
+        state["last_fix_plan"] = _bounded_referent_utf8_tail(
+            data.get("last_fix_plan", ""),
+            _REFERENT_FIX_PLAN_MAX_CHARS,
+        )
+        state["last_codeword"] = str(data.get("last_codeword", "") or "")[-64:]
+        state["recent_turns"] = deque(
+            (_bounded_referent_turn(row) for row in turns[-_RECENT_TURNS_MAX:]),
+            maxlen=_RECENT_TURNS_MAX,
+        )
     except Exception:
         return _new_context_state()
     return state
@@ -348,30 +673,76 @@ def _context_state_for_key(continuity_key: str) -> Optional[Dict[str, Any]]:
     return state
 
 
-def _persist_context_state(continuity_key: str, state: Mapping[str, Any]) -> None:
+def _persist_context_state(
+    continuity_key: str,
+    state: Mapping[str, Any],
+    *,
+    quota_principal_key: str = "",
+    reservation: Optional[Mapping[str, Any]] = None,
+) -> None:
     if not continuity_key:
         return
+    owned_reservation = reservation is None
+    active_reservation = dict(
+        reservation or _reserve_referent_state(continuity_key, quota_principal_key)
+    )
+    encoded = (
+        json.dumps(
+            _context_for_disk(
+                continuity_key,
+                state,
+                quota_principal_key=quota_principal_key,
+            ),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+    if len(encoded) > _REFERENT_STATE_MAX_OBJECT_BYTES:
+        if owned_reservation:
+            _release_referent_reservation(active_reservation)
+        raise ReferentStateQuotaError("referent state object exceeds its byte quota")
     temporary: Optional[Path] = None
     try:
-        state_path = _referent_state_path(continuity_key)
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = state_path.with_name(
-            f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
-        )
-        temporary.write_text(
-            json.dumps(_context_for_disk(continuity_key, state), ensure_ascii=False, sort_keys=True),
-            encoding="utf-8",
-        )
-        os.chmod(temporary, 0o600)
-        os.replace(temporary, state_path)
-    except Exception:
-        pass
+        with _referent_quota_lock() as root:
+            token = str(active_reservation.get("token") or "")
+            reservation_path = _referent_reservation_root(root) / f"{token}.json"
+            if (
+                not re.fullmatch(r"[0-9a-f]{48}", token)
+                or not reservation_path.is_file()
+                or not hmac.compare_digest(
+                    str(active_reservation.get("scope_hash") or ""),
+                    _referent_scope_digest(continuity_key),
+                )
+                or not hmac.compare_digest(
+                    str(active_reservation.get("principal_hash") or ""),
+                    str(quota_principal_key or _referent_scope_digest(continuity_key)),
+                )
+            ):
+                raise ReferentStateQuotaError("referent state reservation is missing or mismatched")
+            state_path = root / f"{_referent_scope_digest(continuity_key)}.json"
+            temporary = state_path.with_name(
+                f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
+            )
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            try:
+                os.write(descriptor, encoded)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.replace(temporary, state_path)
+            _fsync_referent_directory(root)
+            reservation_path.unlink(missing_ok=True)
+            _fsync_referent_directory(reservation_path.parent)
     finally:
         if temporary is not None:
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:
                 pass
+        if owned_reservation:
+            _release_referent_reservation(active_reservation)
 
 _REFERENT_PATTERNS = [
     r"\bthat one\b",
@@ -1367,21 +1738,52 @@ def _simple_intent_heuristics(query: str) -> Dict[str, Any]:
     }
 
 
-def _refresh_context(query: str, answer: Optional[str] = None, *, continuity_key: str = "") -> None:
+def _refresh_context(
+    query: str,
+    answer: Optional[str] = None,
+    *,
+    continuity_key: str = "",
+    quota_principal_key: str = "",
+    reservation: Optional[Mapping[str, Any]] = None,
+) -> None:
     if not continuity_key:
         return
     codeword = _extract_codeword(query)
     with _CONTEXT_LOCK:
-        state = _context_state_for_key(continuity_key)
-        if state is None:
+        current = _context_state_for_key(continuity_key)
+        if current is None:
             return
-        state["updated_at"] = _now_iso()
-        state["recent_turns"].append({"query": query, "answer": answer or "", "ts": state["updated_at"]})
+        state = {
+            "updated_at": _now_iso(),
+            "recent_turns": deque(
+                (_bounded_referent_turn(row) for row in current.get("recent_turns", [])),
+                maxlen=_RECENT_TURNS_MAX,
+            ),
+            "last_fix_plan": _bounded_referent_utf8_tail(
+                current.get("last_fix_plan", ""),
+                _REFERENT_FIX_PLAN_MAX_CHARS,
+            ),
+            "last_codeword": str(current.get("last_codeword", "") or "")[-64:],
+        }
+        state["recent_turns"].append(
+            _bounded_referent_turn(
+                {"query": query, "answer": answer or "", "ts": state["updated_at"]}
+            )
+        )
         if "fix plan" in (query or "").lower() or "flaky ci" in (query or "").lower():
-            state["last_fix_plan"] = query
+            state["last_fix_plan"] = _bounded_referent_utf8_tail(
+                query,
+                _REFERENT_FIX_PLAN_MAX_CHARS,
+            )
         if codeword:
-            state["last_codeword"] = codeword
-        _persist_context_state(continuity_key, state)
+            state["last_codeword"] = codeword[-64:]
+        _persist_context_state(
+            continuity_key,
+            state,
+            quota_principal_key=quota_principal_key,
+            reservation=reservation,
+        )
+        _CONTEXT_STATES[continuity_key] = state
 
 
 def _resolve_referent_context(query: str, *, continuity_key: str = "") -> Dict[str, Any]:
@@ -5779,21 +6181,33 @@ async def orchestrate_query(
     )
     continuity_session_key = _principal_continuity_key(principal, session_key)
     principal_scope = principal.storage_metadata
-    adaptive_policies = _adaptive_policies_for_scope(principal_scope)
-    outcome_tuner = _outcome_tuner_for_scope(principal_scope)
+    quota_principal_key = _referent_principal_quota_key(principal)
+    referent_reservation: Optional[Dict[str, Any]] = None
+    adaptive_policies = None
+    outcome_tuner = None
     started = datetime.utcnow()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
     tx_id = (request_id or hashlib.sha256(f"{query}|{started.isoformat()}".encode("utf-8")).hexdigest()[:16])
-    tx = ExecutionTransaction(
-        tx_id=tx_id,
-        tx_type="nexus_orchestrate",
-        metadata={
-            "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
-            "tenant_id": principal.tenant_id,
-            "storage_workspace_id": principal.storage_workspace_id,
-        },
-    )
+    tx: Optional[ExecutionTransaction] = None
     try:
+        if not codec_probe:
+            # Reserve referent objects and bytes before adaptive-policy caches,
+            # provider calls, workflows, or any other orchestration side effect.
+            referent_reservation = _reserve_referent_state(
+                continuity_session_key,
+                quota_principal_key,
+            )
+        tx = ExecutionTransaction(
+            tx_id=tx_id,
+            tx_type="nexus_orchestrate",
+            metadata={
+                "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
+                "tenant_id": principal.tenant_id,
+                "storage_workspace_id": principal.storage_workspace_id,
+            },
+        )
+        adaptive_policies = _adaptive_policies_for_scope(principal_scope)
+        outcome_tuner = _outcome_tuner_for_scope(principal_scope)
         recommended = []
         reasoning = []
         routing_method = "semantic_orchestration"
@@ -6537,7 +6951,10 @@ async def orchestrate_query(
             query,
             fastlane.get("answer") if isinstance(fastlane, dict) else None,
             continuity_key=continuity_session_key,
+            quota_principal_key=quota_principal_key,
+            reservation=referent_reservation,
         )
+        referent_reservation = None
         codec_context = _update_codec_context(
             session_key,
             query,
@@ -6770,9 +7187,16 @@ async def orchestrate_query(
             "hud": hud_line,
             "autonomous": True
         }
+    except ReferentStateQuotaError as e:
+        if tx is not None:
+            tx.rollback()
+        raise HTTPException(status_code=429, detail=f"Nexus referent-state capacity unavailable: {e}") from e
     except Exception as e:
-        tx.rollback()
-        failed_tx = tx.fail(e)
+        if tx is not None:
+            tx.rollback()
+            failed_tx = tx.fail(e)
+        else:
+            failed_tx = {"status": "failed", "error": str(e)[:160]}
         if locals().get("adaptive_observation_allowed", True):
             try:
                 _observe_codec_execution_outcome(
@@ -6803,6 +7227,8 @@ async def orchestrate_query(
         except Exception:
             pass
         raise HTTPException(status_code=500, detail=f"Orchestration error: {str(e)}")
+    finally:
+        _release_referent_reservation(referent_reservation)
 
 
 @router.post("/policy/replay")
