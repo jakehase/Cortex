@@ -376,6 +376,10 @@ _RUNTIME_COLLECTION_PATHS = frozenset(
     for prefix in ("orchestrator", "conductor")
     for resource in ("processes", "sessions", "watchers")
 )
+_MAX_RUNTIME_COLLECTION_ROWS = 4096
+_MAX_RUNTIME_COLLECTION_SOURCE_BYTES = 64 * 1024 * 1024
+_MAX_RUNTIME_COLLECTION_RESPONSE_BYTES = 16 * 1024 * 1024
+_MAX_RUNTIME_IDENTITY_VALUE_BYTES = 512
 _RUNTIME_STATUS_PATHS = frozenset(
     f"/{prefix}/runtime/status" for prefix in ("orchestrator", "conductor")
 )
@@ -874,11 +878,118 @@ def _codec_admin_read_path_allowed(
 
 
 def _runtime_process_for_read_authorization(process_id: str) -> Optional[Dict[str, Any]]:
-    """Resolve a runtime resource at the authorization boundary."""
-    from cortex_server.modules.reasoning_scheduler import load_state
+    """Resolve exactly one runtime resource at the authorization boundary."""
+    from cortex_server.modules.reasoning_scheduler import (
+        ENABLE_LEGACY_JSON_FALLBACK,
+        _PROCESSES_NAMESPACE,
+        _db_path,
+        load_state,
+    )
+    from cortex_server.modules.reasoning_store import get_doc
 
-    process = (load_state().get("processes") or {}).get(str(process_id or ""))
+    normalized = str(process_id or "").strip()
+    if not normalized:
+        return None
+    process = get_doc(_PROCESSES_NAMESPACE, normalized, db_path=_db_path())
+    if process is None and ENABLE_LEGACY_JSON_FALLBACK:
+        # The fallback migrates the legacy file into the indexed store. It is
+        # disabled on the production default path and is never used per row.
+        process = (load_state().get("processes") or {}).get(normalized)
     return dict(process) if isinstance(process, dict) else None
+
+
+def _runtime_process_ownership_snapshot(
+    process_ids,
+) -> Dict[str, Dict[str, Any]]:
+    """Load one bounded, identity-only SQLite snapshot for collection auth."""
+    from cortex_server.modules.reasoning_scheduler import (
+        ENABLE_LEGACY_JSON_FALLBACK,
+        _PROCESSES_NAMESPACE,
+        _db_path,
+        load_state,
+    )
+
+    normalized_ids = tuple(
+        dict.fromkeys(
+            str(process_id or "").strip()
+            for process_id in process_ids
+            if str(process_id or "").strip()
+        )
+    )
+    if len(normalized_ids) > _MAX_RUNTIME_COLLECTION_ROWS:
+        raise ValueError("runtime collection exceeds authorization row limit")
+    if not normalized_ids:
+        return {}
+
+    fields = ("tenant_id", "storage_workspace_id", "owner", "user_id", "agent_id")
+    projections = []
+    for container_name, container_path in (
+        ("process", "$"),
+        ("metadata", "$.workflow.metadata"),
+    ):
+        for scope_name in ("", "principal", "principal_scope", "scope"):
+            scope_path = container_path + (f".{scope_name}" if scope_name else "")
+            for field in fields:
+                projections.append((container_name, scope_name, field, f"{scope_path}.{field}"))
+    selected = ", ".join(
+        f"substr(CAST(json_extract(payload, '{path}') AS TEXT), 1, {_MAX_RUNTIME_IDENTITY_VALUE_BYTES + 1})"
+        for _container, _scope, _field, path in projections
+    )
+
+    db_path = Path(str(_db_path()))
+    snapshot: Dict[str, Dict[str, Any]] = {}
+    try:
+        connection = sqlite3.connect(
+            f"file:{db_path}?mode=ro",
+            uri=True,
+            timeout=2.0,
+        )
+        connection.execute("BEGIN")
+        try:
+            for offset in range(0, len(normalized_ids), 400):
+                batch = normalized_ids[offset : offset + 400]
+                placeholders = ",".join("?" for _ in batch)
+                rows = connection.execute(
+                    f"SELECT doc_id, {selected} FROM reasoning_documents "
+                    f"WHERE namespace = ? AND doc_id IN ({placeholders})",
+                    (_PROCESSES_NAMESPACE, *batch),
+                ).fetchall()
+                for row in rows:
+                    process_id = str(row[0] or "").strip()
+                    process: Dict[str, Any] = {"process_id": process_id}
+                    metadata: Dict[str, Any] = {}
+                    process["workflow"] = {"metadata": metadata}
+                    for index, (container_name, scope_name, field, _path) in enumerate(
+                        projections,
+                        start=1,
+                    ):
+                        value = row[index]
+                        if value is None:
+                            continue
+                        text = str(value).strip()
+                        if not text:
+                            continue
+                        if len(text.encode("utf-8")) > _MAX_RUNTIME_IDENTITY_VALUE_BYTES:
+                            text = "__invalid_oversized_runtime_identity__"
+                        container = process if container_name == "process" else metadata
+                        target = container.setdefault(scope_name, {}) if scope_name else container
+                        target[field] = text
+                    snapshot[process_id] = process
+        finally:
+            connection.rollback()
+            connection.close()
+    except (OSError, sqlite3.Error):
+        if not ENABLE_LEGACY_JSON_FALLBACK:
+            raise
+        # A single migration load is acceptable only for the explicitly
+        # enabled compatibility path; select only admitted identities from it.
+        processes = load_state().get("processes") or {}
+        snapshot = {
+            process_id: dict(processes[process_id])
+            for process_id in normalized_ids
+            if isinstance(processes.get(process_id), dict)
+        }
+    return snapshot
 
 
 def _resource_identity_values(
@@ -985,7 +1096,12 @@ def _redact_operational_payload(value: Any) -> Any:
     return redacted
 
 
-def _filter_runtime_collection(payload: Any, principal: ReadPrincipal) -> Any:
+def _filter_runtime_collection(
+    payload: Any,
+    principal: ReadPrincipal,
+    *,
+    ownership_snapshot: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> Any:
     if principal.role == "admin" or not isinstance(payload, dict):
         return payload
     collection_key = next(
@@ -994,13 +1110,24 @@ def _filter_runtime_collection(payload: Any, principal: ReadPrincipal) -> Any:
     )
     if collection_key is None:
         return payload
+    if len(payload[collection_key]) > _MAX_RUNTIME_COLLECTION_ROWS:
+        raise ValueError("runtime collection exceeds authorization row limit")
+
+    snapshot = ownership_snapshot
+    if collection_key != "processes" and snapshot is None:
+        process_ids = (
+            str(row.get("process_id") or "").strip()
+            for row in payload[collection_key]
+            if isinstance(row, Mapping)
+        )
+        snapshot = _runtime_process_ownership_snapshot(process_ids)
 
     authorized = []
     for row in payload[collection_key]:
         if not isinstance(row, Mapping):
             continue
         process_id = str(row.get("process_id") or "").strip()
-        process = row if collection_key == "processes" else _runtime_process_for_read_authorization(process_id)
+        process = row if collection_key == "processes" else (snapshot or {}).get(process_id)
         if process_id and _principal_can_read_process(principal, process):
             authorized.append(row)
     filtered = dict(payload)
@@ -1011,14 +1138,55 @@ def _filter_runtime_collection(payload: Any, principal: ReadPrincipal) -> Any:
     return filtered
 
 
-async def _transform_sensitive_json_response(response, *, principal: Optional[ReadPrincipal], policy: str):
+def _runtime_collection_admission_response(response, message: str):
+    from starlette.responses import Response
+
+    content = json.dumps(
+        {"success": False, "error": message},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    headers["content-type"] = "application/json"
+    return Response(
+        content=content,
+        status_code=413,
+        headers=headers,
+        background=response.background,
+    )
+
+
+async def _transform_sensitive_json_response(
+    response,
+    *,
+    principal: Optional[ReadPrincipal],
+    policy: str,
+    ownership_snapshot: Optional[Mapping[str, Mapping[str, Any]]] = None,
+):
     """Transform only JSON reads while preserving status, headers, and background work."""
     from starlette.responses import Response
 
     content_type = str(response.headers.get("content-type") or "").lower()
     if "application/json" not in content_type:
         return response
-    body = b"".join([chunk async for chunk in response.body_iterator])
+    body_parts = []
+    body_bytes = 0
+    async for chunk in response.body_iterator:
+        body_bytes += len(chunk)
+        if (
+            policy == "runtime_collection"
+            and body_bytes > _MAX_RUNTIME_COLLECTION_SOURCE_BYTES
+        ):
+            close_iterator = getattr(response.body_iterator, "aclose", None)
+            if callable(close_iterator):
+                await close_iterator()
+            return _runtime_collection_admission_response(
+                response,
+                "runtime collection source response exceeds authorization byte limit",
+            )
+        body_parts.append(chunk)
+    body = b"".join(body_parts)
     try:
         payload = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -1030,10 +1198,53 @@ async def _transform_sensitive_json_response(response, *, principal: Optional[Re
         )
 
     if policy == "runtime_collection" and principal is not None:
-        payload = _filter_runtime_collection(payload, principal)
+        collection_key = next(
+            (
+                key
+                for key in ("processes", "sessions", "watchers")
+                if isinstance(payload.get(key), list)
+            ),
+            None,
+        ) if isinstance(payload, dict) else None
+        if (
+            collection_key is not None
+            and len(payload[collection_key]) > _MAX_RUNTIME_COLLECTION_ROWS
+        ):
+            return _runtime_collection_admission_response(
+                response,
+                "runtime collection exceeds authorization row limit",
+            )
+        resolved_snapshot = ownership_snapshot
+        if (
+            principal.role != "admin"
+            and collection_key in {"sessions", "watchers"}
+            and resolved_snapshot is None
+        ):
+            process_ids = (
+                str(row.get("process_id") or "").strip()
+                for row in payload[collection_key]
+                if isinstance(row, Mapping)
+            )
+            resolved_snapshot = await asyncio.to_thread(
+                _runtime_process_ownership_snapshot,
+                process_ids,
+            )
+        payload = _filter_runtime_collection(
+            payload,
+            principal,
+            ownership_snapshot=resolved_snapshot,
+        )
     if policy.endswith("_redacted"):
         payload = _redact_operational_payload(payload)
     transformed = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if (
+        policy == "runtime_collection"
+        and len(transformed) > _MAX_RUNTIME_COLLECTION_RESPONSE_BYTES
+    ):
+        return _runtime_collection_admission_response(
+            response,
+            "runtime collection response exceeds authorization byte limit",
+        )
     headers = dict(response.headers)
     headers.pop("content-length", None)
     return Response(
@@ -1574,7 +1785,10 @@ def create_app() -> FastAPI:
                     )
                 process_id = await _runtime_mutation_resource_id(request)
                 if process_id:
-                    process = _runtime_process_for_read_authorization(process_id)
+                    process = await asyncio.to_thread(
+                        _runtime_process_for_read_authorization,
+                        process_id,
+                    )
                     if not _principal_can_read_process(principal, process):
                         from fastapi.responses import JSONResponse
 
@@ -1593,6 +1807,7 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
         principal = None
+        runtime_ownership_snapshot = None
         if policy != "public_redacted":
             principal, error = _authenticate_sensitive_read(request, read_authorization)
             if principal is None:
@@ -1626,7 +1841,10 @@ def create_app() -> FastAPI:
             if policy in {"runtime_resource", "mission_control_resource"}:
                 if policy == "mission_control_resource":
                     resource_id = str(request.url.path.split("/objectives/", 1)[1].split("/", 1)[0]).strip()
-                process = _runtime_process_for_read_authorization(resource_id or "")
+                process = await asyncio.to_thread(
+                    _runtime_process_for_read_authorization,
+                    resource_id or "",
+                )
                 if process is not None and not _principal_can_read_process(principal, process):
                     from fastapi.responses import JSONResponse
 
@@ -1644,7 +1862,10 @@ def create_app() -> FastAPI:
                         content={"success": False, "error": "resource not found"},
                     )
             elif policy == "runtime_collection" and resource_id:
-                process = _runtime_process_for_read_authorization(resource_id)
+                process = await asyncio.to_thread(
+                    _runtime_process_for_read_authorization,
+                    resource_id,
+                )
                 if process is None:
                     from fastapi.responses import JSONResponse
 
@@ -1659,6 +1880,7 @@ def create_app() -> FastAPI:
                         status_code=403,
                         content={"success": False, "error": "principal is not authorized for this resource"},
                     )
+                runtime_ownership_snapshot = {resource_id: process}
             request.state.cortex_read_principal = principal
 
         response = await call_next(request)
@@ -1668,6 +1890,7 @@ def create_app() -> FastAPI:
             response,
             principal=principal,
             policy=policy,
+            ownership_snapshot=runtime_ownership_snapshot,
         )
 
     # CORS middleware (tightened default; configurable via env)

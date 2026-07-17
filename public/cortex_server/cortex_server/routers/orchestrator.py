@@ -901,7 +901,13 @@ def _record_runtime_session_event_locked(*, process_id: str, event: Any, stores:
             and session.last_event_at == event.ts
         )
         if not projections.get("session_registry") and not session_already_applied:
-            session = session_registry.apply_event(event)
+            session = session_registry.apply_event(
+                event,
+                server_principal_id=SessionRegistryStore.server_bound_principal_id(
+                    process_id=process_id,
+                    process=process,
+                ),
+            )
         else:
             session = session or session_registry.get(process_id=process_id, session_id=str(event.session_id or process_id))
         projections["session_registry"] = True
@@ -1024,7 +1030,16 @@ def _preflight_runtime_session_event(event: Any, *, stores: Dict[str, Any]) -> N
     """Validate deterministic downstream projections before inbox publication."""
 
     try:
-        stores["session_registry"].validate_event_admission(event)
+        process = get_runtime_process(event.process_id)
+        if process is None:
+            raise ValueError(f"unknown runtime process: {event.process_id}")
+        stores["session_registry"].validate_event_admission(
+            event,
+            server_principal_id=SessionRegistryStore.server_bound_principal_id(
+                process_id=event.process_id,
+                process=process,
+            ),
+        )
         event_bytes = len(
             json.dumps(
                 model_dump_compat(event),
@@ -1100,6 +1115,10 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
     session = stores["session_registry"].register(
         process_id=process_id,
         session_id=session_id,
+        server_principal_id=SessionRegistryStore.server_bound_principal_id(
+            process_id=process_id,
+            process=process,
+        ),
         session_name=session_name,
         tool=tool,
         source="runtime_bootstrap",
@@ -5013,6 +5032,10 @@ async def register_runtime_session(request: RuntimeSessionRegisterRequest):
             record = stores["session_registry"].register(
                 process_id=request.process_id,
                 session_id=request.session_id,
+                server_principal_id=SessionRegistryStore.server_bound_principal_id(
+                    process_id=request.process_id,
+                    process=process,
+                ),
                 session_name=request.session_name,
                 tool=request.tool,
                 source=request.source,

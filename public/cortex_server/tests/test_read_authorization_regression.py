@@ -318,6 +318,15 @@ async def test_runtime_reads_require_exact_tenant_workspace_and_owner(monkeypatc
             return []
 
     monkeypatch.setattr(main, "_runtime_process_for_read_authorization", processes.get)
+    monkeypatch.setattr(
+        main,
+        "_runtime_process_ownership_snapshot",
+        lambda process_ids: {
+            process_id: processes[process_id]
+            for process_id in process_ids
+            if process_id in processes
+        },
+    )
     monkeypatch.setattr(orchestrator, "list_runtime_processes", lambda: list(processes.values()))
     monkeypatch.setattr(
         orchestrator,
@@ -494,6 +503,196 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
             },
         )
         assert codec_admin_control.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_runtime_collection_authorization_uses_one_bounded_ownership_snapshot(
+    monkeypatch,
+):
+    from starlette.responses import StreamingResponse
+
+    process = {
+        "process_id": "proc-alice",
+        "owner": "alice",
+        "workflow": {"metadata": _process_identity(ALICE_SCOPE, owner="alice")},
+    }
+    rows = [
+        {"process_id": "proc-alice", "session_id": f"session-{index}"}
+        for index in range(1000)
+    ]
+    snapshot_calls = []
+
+    async def response_body():
+        yield json.dumps({"success": True, "sessions": rows}).encode("utf-8")
+
+    def snapshot(process_ids):
+        snapshot_calls.append(tuple(process_ids))
+        return {"proc-alice": process}
+
+    monkeypatch.setattr(main, "_runtime_process_ownership_snapshot", snapshot)
+    monkeypatch.setattr(
+        main,
+        "_runtime_process_for_read_authorization",
+        lambda _process_id: pytest.fail("per-row process authorization lookup used"),
+    )
+    response = StreamingResponse(
+        response_body(),
+        media_type="application/json",
+    )
+    principal = main.ReadPrincipal(
+        role="principal",
+        credential_id="readers",
+        storage_workspace_id=_storage_workspace(ALICE_SCOPE),
+        **ALICE_SCOPE,
+    )
+
+    transformed = await main._transform_sensitive_json_response(
+        response,
+        principal=principal,
+        policy="runtime_collection",
+    )
+
+    assert transformed.status_code == 200
+    assert len(json.loads(transformed.body)["sessions"]) == 1000
+    assert len(snapshot_calls) == 1
+    assert len(snapshot_calls[0]) == 1000
+
+
+@pytest.mark.asyncio
+async def test_runtime_collection_response_admission_precedes_ownership_io(monkeypatch):
+    from starlette.responses import StreamingResponse
+
+    monkeypatch.setattr(main, "_MAX_RUNTIME_COLLECTION_ROWS", 2)
+    monkeypatch.setattr(
+        main,
+        "_runtime_process_ownership_snapshot",
+        lambda _ids: pytest.fail("ownership snapshot loaded before row admission"),
+    )
+
+    async def response_body():
+        yield json.dumps(
+            {
+                "sessions": [
+                    {"process_id": "proc", "session_id": f"session-{index}"}
+                    for index in range(3)
+                ]
+            }
+        ).encode("utf-8")
+
+    response = StreamingResponse(
+        response_body(),
+        media_type="application/json",
+    )
+
+    transformed = await main._transform_sensitive_json_response(
+        response,
+        principal=main.ReadPrincipal(role="principal"),
+        policy="runtime_collection",
+    )
+
+    assert transformed.status_code == 413
+    assert json.loads(transformed.body)["error"] == (
+        "runtime collection exceeds authorization row limit"
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_collection_byte_admission_bounds_source_and_filtered_response(
+    monkeypatch,
+):
+    from starlette.responses import StreamingResponse
+
+    async def source_body():
+        yield json.dumps(
+            {"sessions": [{"process_id": "process", "padding": "x" * 256}]}
+        ).encode("utf-8")
+
+    monkeypatch.setattr(main, "_MAX_RUNTIME_COLLECTION_SOURCE_BYTES", 64)
+    monkeypatch.setattr(
+        main,
+        "_runtime_process_ownership_snapshot",
+        lambda _ids: pytest.fail("ownership snapshot loaded after source byte rejection"),
+    )
+    source_rejected = await main._transform_sensitive_json_response(
+        StreamingResponse(source_body(), media_type="application/json"),
+        principal=main.ReadPrincipal(role="principal"),
+        policy="runtime_collection",
+    )
+    assert source_rejected.status_code == 413
+    assert "source response" in json.loads(source_rejected.body)["error"]
+
+    process = {
+        "process_id": "proc-alice",
+        "owner": "alice",
+        "workflow": {"metadata": _process_identity(ALICE_SCOPE, owner="alice")},
+        "padding": "x" * 256,
+    }
+
+    async def filtered_body():
+        yield json.dumps({"processes": [process]}).encode("utf-8")
+
+    monkeypatch.setattr(main, "_MAX_RUNTIME_COLLECTION_SOURCE_BYTES", 4096)
+    monkeypatch.setattr(main, "_MAX_RUNTIME_COLLECTION_RESPONSE_BYTES", 128)
+    filtered_rejected = await main._transform_sensitive_json_response(
+        StreamingResponse(filtered_body(), media_type="application/json"),
+        principal=main.ReadPrincipal(
+            role="principal",
+            credential_id="readers",
+            storage_workspace_id=_storage_workspace(ALICE_SCOPE),
+            **ALICE_SCOPE,
+        ),
+        policy="runtime_collection",
+    )
+    assert filtered_rejected.status_code == 413
+    assert json.loads(filtered_rejected.body)["error"] == (
+        "runtime collection response exceeds authorization byte limit"
+    )
+
+
+def test_runtime_ownership_snapshot_reads_only_admitted_process_identity(monkeypatch, tmp_path):
+    from cortex_server.modules import reasoning_scheduler, reasoning_store
+
+    database = tmp_path / "reasoning.db"
+    monkeypatch.setattr(reasoning_scheduler, "DEFAULT_DB_PATH", database)
+    owned = {
+        "process_id": "owned",
+        "owner": "alice",
+        "workflow": {
+            "metadata": {
+                **_process_identity(ALICE_SCOPE, owner="alice"),
+                "unrelated_large_value": "x" * 100_000,
+            }
+        },
+    }
+    other = {
+        "process_id": "other",
+        "owner": "bob",
+        "workflow": {"metadata": _process_identity(BOB_SCOPE, owner="bob")},
+    }
+    reasoning_store.upsert_doc(
+        "reasoning_processes",
+        "owned",
+        owned,
+        db_path=database,
+    )
+    reasoning_store.upsert_doc(
+        "reasoning_processes",
+        "other",
+        other,
+        db_path=database,
+    )
+
+    snapshot = main._runtime_process_ownership_snapshot(["owned"])
+    principal = main.ReadPrincipal(
+        role="principal",
+        credential_id="readers",
+        storage_workspace_id=_storage_workspace(ALICE_SCOPE),
+        **ALICE_SCOPE,
+    )
+
+    assert set(snapshot) == {"owned"}
+    assert main._principal_can_read_process(principal, snapshot["owned"])
+    assert "unrelated_large_value" not in snapshot["owned"]["workflow"]["metadata"]
 
 
 @pytest.mark.asyncio

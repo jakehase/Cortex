@@ -13,6 +13,7 @@ import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.modules.reasoning_store as reasoning_store
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal
 from cortex_server.routers import nexus, orchestrator
+from cortex_server.runtime.session_registry import SessionRegistryStore
 
 
 def _reasoning_reservation_worker(start, results, db_path: str) -> None:
@@ -59,6 +60,130 @@ def _runtime_graph():
             }
         ],
     )
+
+
+def test_session_registry_persists_immutable_server_principal_binding(tmp_path):
+    path = tmp_path / "sessions.json"
+    store = SessionRegistryStore(path)
+    store.register(
+        process_id="process-a",
+        session_id="session-a",
+        server_principal_id="server-principal-a",
+    )
+
+    assert json.loads(path.read_text(encoding="utf-8"))[0]["server_principal_id"] == (
+        "server-principal-a"
+    )
+    with pytest.raises(ValueError, match="principal binding is immutable"):
+        store.register(
+            process_id="process-a",
+            session_id="session-a",
+            server_principal_id="server-principal-b",
+        )
+    assert store.get(process_id="process-a", session_id="session-a").server_principal_id == (
+        "server-principal-a"
+    )
+
+
+def test_session_registry_principal_and_process_caps_leave_capacity_for_victim(tmp_path):
+    store = SessionRegistryStore(
+        tmp_path / "sessions.json",
+        max_sessions=8,
+        max_sessions_per_process=1,
+        max_sessions_per_principal=2,
+        recovery_reserve_sessions=1,
+    )
+    store.register(
+        process_id="attacker-process-a",
+        session_id="attacker-a",
+        server_principal_id="attacker",
+    )
+    with pytest.raises(ValueError, match="process count"):
+        store.register(
+            process_id="attacker-process-a",
+            session_id="attacker-b",
+            server_principal_id="attacker",
+        )
+    store.register(
+        process_id="attacker-process-b",
+        session_id="attacker-b",
+        server_principal_id="attacker",
+    )
+    with pytest.raises(ValueError, match="principal count"):
+        store.register(
+            process_id="attacker-process-c",
+            session_id="attacker-c",
+            server_principal_id="attacker",
+        )
+
+    victim = store.register(
+        process_id="victim-process",
+        session_id="victim-session",
+        server_principal_id="victim",
+    )
+    assert victim.server_principal_id == "victim"
+    assert len(store.list()) == 3
+
+
+def test_session_registry_active_byte_caps_are_scoped_and_stale_rows_still_count(tmp_path):
+    store = SessionRegistryStore(
+        tmp_path / "sessions.json",
+        max_sessions=16,
+        max_sessions_per_process=8,
+        max_sessions_per_principal=8,
+        max_active_bytes_per_process=1000,
+        max_active_bytes_per_principal=3000,
+        recovery_reserve_bytes=512,
+        max_state_bytes=16_000,
+    )
+    store.register(
+        process_id="attacker-process",
+        session_id="attacker-a",
+        server_principal_id="attacker",
+        metadata={"padding": "x" * 300},
+    )
+    rows = store.list()
+    rows[0].status = "stale"
+    store._write_all(rows)
+    with pytest.raises(ValueError, match="process bytes"):
+        store.register(
+            process_id="attacker-process",
+            session_id="attacker-b",
+            server_principal_id="attacker",
+            metadata={"padding": "x" * 300},
+        )
+
+    victim = store.register(
+        process_id="victim-process",
+        session_id="victim-session",
+        server_principal_id="victim",
+    )
+    assert victim.session_id == "victim-session"
+
+
+def test_session_registry_aggregate_admission_preserves_recovery_reserve(tmp_path):
+    store = SessionRegistryStore(
+        tmp_path / "sessions.json",
+        max_sessions=16,
+        max_sessions_per_process=8,
+        max_sessions_per_principal=8,
+        recovery_reserve_sessions=1,
+    )
+    for index in range(15):
+        store.register(
+            process_id=f"process-{index}",
+            session_id=f"session-{index}",
+            server_principal_id=f"principal-{index}",
+        )
+
+    with pytest.raises(ValueError, match="active session count exceeds limit"):
+        store.register(
+            process_id="process-overflow",
+            session_id="session-overflow",
+            server_principal_id="principal-overflow",
+        )
+    assert store.recovery_reserve_sessions == 1
+    assert len(store.list()) == 15
 
 
 def test_referent_state_summarizes_maximum_queries_and_lru_bounds_rotated_sessions(

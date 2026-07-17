@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import os
 import fcntl
+import hashlib
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -42,6 +43,7 @@ class SessionRecord(BaseModel):
 
     process_id: str
     session_id: str
+    server_principal_id: str
     session_name: Optional[str] = None
     tool: Optional[str] = None
     status: str = "registered"
@@ -58,7 +60,14 @@ class SessionRecord(BaseModel):
     parent_process: Optional[JsonDict] = None
     metadata: JsonDict = Field(default_factory=dict)
 
-    @field_validator("process_id", "session_id", "status", "source", "registered_at")
+    @field_validator(
+        "process_id",
+        "session_id",
+        "server_principal_id",
+        "status",
+        "source",
+        "registered_at",
+    )
     @classmethod
     def _validate_non_empty(cls, value: str) -> str:
         text = str(value or "").strip()
@@ -68,12 +77,194 @@ class SessionRecord(BaseModel):
 
 
 class SessionRegistryStore:
-    def __init__(self, path: str | Path, *, max_sessions: int = 1000, max_questions: int = 50, max_question_bytes: int = 8192, max_metadata_bytes: int = 65536, max_state_bytes: int = 4_000_000, delivery_root: Optional[str | Path] = None):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        max_sessions: int = 1000,
+        max_sessions_per_process: Optional[int] = None,
+        max_sessions_per_principal: Optional[int] = None,
+        max_active_bytes_per_process: Optional[int] = None,
+        max_active_bytes_per_principal: Optional[int] = None,
+        recovery_reserve_sessions: Optional[int] = None,
+        recovery_reserve_bytes: Optional[int] = None,
+        max_questions: int = 50,
+        max_question_bytes: int = 8192,
+        max_metadata_bytes: int = 65536,
+        max_state_bytes: int = 4_000_000,
+        delivery_root: Optional[str | Path] = None,
+    ):
         self.path = Path(path)
-        self.max_sessions = max(1, int(max_sessions)); self.max_questions = max(1, int(max_questions))
-        self.max_question_bytes = max(1, int(max_question_bytes)); self.max_metadata_bytes = max(2, int(max_metadata_bytes))
-        self.max_state_bytes = max(1024, int(max_state_bytes)); self._mutex = threading.RLock(); self._lock_depth = 0
+        self.max_sessions = max(1, int(max_sessions))
+        self.max_questions = max(1, int(max_questions))
+        self.max_question_bytes = max(1, int(max_question_bytes))
+        self.max_metadata_bytes = max(2, int(max_metadata_bytes))
+        self.max_state_bytes = max(1024, int(max_state_bytes))
+
+        default_session_reserve = self.max_sessions // 16 if self.max_sessions >= 16 else 0
+        configured_session_reserve = (
+            default_session_reserve
+            if recovery_reserve_sessions is None
+            else max(default_session_reserve, int(recovery_reserve_sessions))
+        )
+        self.recovery_reserve_sessions = min(
+            configured_session_reserve,
+            max(0, self.max_sessions - 1),
+        )
+        operational_sessions = self.max_sessions - self.recovery_reserve_sessions
+        principal_session_ceiling = max(1, operational_sessions // 2)
+        self.max_sessions_per_principal = min(
+            principal_session_ceiling,
+            max(
+                1,
+                int(max_sessions_per_principal)
+                if max_sessions_per_principal is not None
+                else min(256, principal_session_ceiling),
+            ),
+        )
+        self.max_sessions_per_process = min(
+            self.max_sessions_per_principal,
+            max(
+                1,
+                int(max_sessions_per_process)
+                if max_sessions_per_process is not None
+                else min(64, self.max_sessions_per_principal),
+            ),
+        )
+
+        default_byte_reserve = (
+            min(512 * 1024, self.max_state_bytes // 8)
+            if self.max_state_bytes >= 8192
+            else 0
+        )
+        configured_byte_reserve = (
+            default_byte_reserve
+            if recovery_reserve_bytes is None
+            else max(default_byte_reserve, int(recovery_reserve_bytes))
+        )
+        self.recovery_reserve_bytes = min(
+            configured_byte_reserve,
+            max(0, self.max_state_bytes - 512),
+        )
+        operational_bytes = self.max_state_bytes - self.recovery_reserve_bytes
+        principal_byte_ceiling = max(256, operational_bytes // 2)
+        self.max_active_bytes_per_principal = min(
+            principal_byte_ceiling,
+            max(
+                256,
+                int(max_active_bytes_per_principal)
+                if max_active_bytes_per_principal is not None
+                else min(1024 * 1024, principal_byte_ceiling),
+            ),
+        )
+        self.max_active_bytes_per_process = min(
+            self.max_active_bytes_per_principal,
+            max(
+                256,
+                int(max_active_bytes_per_process)
+                if max_active_bytes_per_process is not None
+                else min(512 * 1024, self.max_active_bytes_per_principal),
+            ),
+        )
+        self._mutex = threading.RLock()
+        self._lock_depth = 0
         self.delivery_root = Path(delivery_root) if delivery_root is not None else None
+
+    @staticmethod
+    def _fallback_server_principal_id(process_id: str) -> str:
+        process = str(process_id or "").strip()
+        return hashlib.sha256(
+            f"cortex.session-registry.process-principal.v1\0{process}".encode("utf-8")
+        ).hexdigest()
+
+    @classmethod
+    def server_bound_principal_id(
+        cls,
+        *,
+        process_id: str,
+        process: Optional[Mapping[str, Any]] = None,
+    ) -> str:
+        """Derive a stable identifier only from server-persisted process state."""
+        process = process if isinstance(process, Mapping) else {}
+        workflow = process.get("workflow") if isinstance(process.get("workflow"), Mapping) else {}
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), Mapping) else {}
+        quota_principal = str(metadata.get("_reasoning_quota_principal_hash") or "").strip().lower()
+        if len(quota_principal) == 64 and all(char in "0123456789abcdef" for char in quota_principal):
+            return quota_principal
+
+        scopes = [process, metadata]
+        for container in (process, metadata):
+            for key in ("principal", "principal_scope", "scope"):
+                value = container.get(key) if isinstance(container, Mapping) else None
+                if isinstance(value, Mapping):
+                    scopes.append(value)
+        identity = {}
+        for field in (
+            "tenant_id",
+            "storage_workspace_id",
+            "owner",
+            "user_id",
+            "agent_id",
+            "channel_id",
+            "session_id",
+        ):
+            values = {
+                str(scope.get(field) or "").strip()
+                for scope in scopes
+                if str(scope.get(field) or "").strip()
+            }
+            if len(values) == 1:
+                identity[field] = next(iter(values))
+        required = {"tenant_id", "storage_workspace_id", "owner", "user_id", "agent_id"}
+        if required.issubset(identity):
+            encoded = json.dumps(
+                identity,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            return hashlib.sha256(b"cortex.session-registry.principal.v1\0" + encoded).hexdigest()
+        return cls._fallback_server_principal_id(process_id)
+
+    @staticmethod
+    def _normalize_server_principal_id(value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized or len(normalized.encode("utf-8")) > 256:
+            raise ValueError("server principal identity must be a bounded non-empty string")
+        return normalized
+
+    def _bind_process_principal(
+        self,
+        rows: List[SessionRecord],
+        *,
+        process_id: str,
+        server_principal_id: Optional[str],
+    ) -> str:
+        process = str(process_id or "").strip()
+        legacy_principal_id = self._fallback_server_principal_id(process)
+        supplied_principal_id = (
+            self._normalize_server_principal_id(server_principal_id)
+            if server_principal_id is not None
+            else None
+        )
+        process_rows = [row for row in rows if row.process_id == process]
+        process_principals = {row.server_principal_id for row in process_rows}
+        if len(process_principals) > 1:
+            raise ValueError("session process server principal binding is immutable")
+        if supplied_principal_id is not None and process_principals not in (
+            set(),
+            {supplied_principal_id},
+        ):
+            if process_principals == {legacy_principal_id}:
+                # One-time upgrade of pre-binding rows using the trusted
+                # server process identity supplied by the runtime boundary.
+                for row in process_rows:
+                    row.server_principal_id = supplied_principal_id
+            else:
+                raise ValueError("session process server principal binding is immutable")
+        return supplied_principal_id or (
+            next(iter(process_principals)) if process_principals else legacy_principal_id
+        )
 
     @contextmanager
     def _transaction(self):
@@ -103,6 +294,11 @@ class SessionRegistryStore:
         for row in rows:
             if not isinstance(row, dict):
                 raise ValueError("session registry entries must be objects")
+            row = dict(row)
+            row.setdefault(
+                "server_principal_id",
+                self._fallback_server_principal_id(str(row.get("process_id") or "")),
+            )
             self._validate_persisted_row(row)
             if hasattr(SessionRecord, "model_validate"):
                 out.append(SessionRecord.model_validate(row))
@@ -111,7 +307,14 @@ class SessionRegistryStore:
         return out
 
     def _validate_persisted_row(self, row: JsonDict) -> None:
-        string_fields = {"process_id", "session_id", "status", "source", "registered_at"}
+        string_fields = {
+            "process_id",
+            "session_id",
+            "server_principal_id",
+            "status",
+            "source",
+            "registered_at",
+        }
         optional_string_fields = {
             "session_name", "tool", "last_event_kind", "last_event_at", "heartbeat_at", "blocked_reason"
         }
@@ -119,6 +322,8 @@ class SessionRegistryStore:
         for field in string_fields:
             if field in row and not isinstance(row[field], str):
                 raise ValueError(f"session registry {field} must be a string")
+        if "server_principal_id" in row:
+            self._normalize_server_principal_id(row["server_principal_id"])
         for field in optional_string_fields:
             if field in row and row[field] is not None and not isinstance(row[field], str):
                 raise ValueError(f"session registry {field} must be a string or null")
@@ -178,25 +383,80 @@ class SessionRegistryStore:
                 )
                 commit()
 
+    @staticmethod
+    def _record_payload(row: SessionRecord) -> JsonDict:
+        return row.model_dump() if hasattr(row, "model_dump") else row.dict()
+
+    @classmethod
+    def _serialize_rows(cls, rows: List[SessionRecord]) -> bytes:
+        payload = [cls._record_payload(row) for row in rows]
+        return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+    @classmethod
+    def _active_record_bytes(cls, row: SessionRecord) -> int:
+        return len(
+            json.dumps(
+                cls._record_payload(row),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+
+    def _assert_active_quotas(self, rows: List[SessionRecord]) -> None:
+        active = [row for row in rows if row.status not in {"finished", "failed"}]
+        operational_session_limit = self.max_sessions - self.recovery_reserve_sessions
+        if len(active) > operational_session_limit:
+            raise ValueError("active session count exceeds limit")
+        active_payload_bytes = len(self._serialize_rows(active))
+        if active_payload_bytes > self.max_state_bytes - self.recovery_reserve_bytes:
+            raise ValueError("active session bytes exceed aggregate admission limit")
+
+        process_counts: Dict[str, int] = {}
+        principal_counts: Dict[str, int] = {}
+        process_bytes: Dict[str, int] = {}
+        principal_bytes: Dict[str, int] = {}
+        for row in active:
+            row_bytes = self._active_record_bytes(row)
+            process_counts[row.process_id] = process_counts.get(row.process_id, 0) + 1
+            principal_counts[row.server_principal_id] = principal_counts.get(row.server_principal_id, 0) + 1
+            process_bytes[row.process_id] = process_bytes.get(row.process_id, 0) + row_bytes
+            principal_bytes[row.server_principal_id] = principal_bytes.get(row.server_principal_id, 0) + row_bytes
+
+        if any(count > self.max_sessions_per_process for count in process_counts.values()):
+            raise ValueError("active session process count exceeds limit")
+        if any(count > self.max_sessions_per_principal for count in principal_counts.values()):
+            raise ValueError("active session principal count exceeds limit")
+        if any(size > self.max_active_bytes_per_process for size in process_bytes.values()):
+            raise ValueError("active session process bytes exceed limit")
+        if any(size > self.max_active_bytes_per_principal for size in principal_bytes.values()):
+            raise ValueError("active session principal bytes exceed limit")
+
+    def _assert_immutable_process_principals(self, rows: List[SessionRecord]) -> None:
+        bindings: Dict[str, set[str]] = {}
+        for row in rows:
+            principal_id = self._normalize_server_principal_id(row.server_principal_id)
+            bindings.setdefault(row.process_id, set()).add(principal_id)
+        if any(len(principals) != 1 for principals in bindings.values()):
+            raise ValueError("session process server principal binding is immutable")
+
     def _bounded_payload(self, rows: List[SessionRecord]) -> bytes:
         active = [r for r in rows if r.status not in {"finished", "failed"}]
         terminal = sorted((r for r in rows if r.status in {"finished", "failed"}), key=lambda r: (r.last_event_at or r.registered_at, r.process_id, r.session_id), reverse=True)
-        if len(active) > self.max_sessions: raise ValueError("active session count exceeds limit")
+        self._assert_immutable_process_principals(rows)
+        self._assert_active_quotas(rows)
         rows[:] = active + terminal[: self.max_sessions - len(active)]
         for row in rows:
             if len(row.open_questions) > self.max_questions: row.open_questions = row.open_questions[-self.max_questions:]
             if any(len(q.encode("utf-8")) > self.max_question_bytes for q in row.open_questions): raise ValueError("session question exceeds size limit")
             if len(json.dumps(row.metadata, ensure_ascii=False).encode("utf-8")) > self.max_metadata_bytes: raise ValueError("session metadata exceeds size limit")
-        def serialize() -> bytes:
-            payload = [(row.model_dump() if hasattr(row, "model_dump") else row.dict()) for row in rows]
-            return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
-        encoded = serialize()
+        encoded = self._serialize_rows(rows)
         while len(encoded) > self.max_state_bytes:
             terminal = [r for r in rows if r.status in {"finished", "failed"}]
             if not terminal: raise ValueError("active session registry exceeds size limit")
             oldest = min(terminal, key=lambda r: (r.last_event_at or r.registered_at, r.process_id, r.session_id))
             rows.remove(oldest)
-            encoded = serialize()
+            encoded = self._serialize_rows(rows)
         return encoded
 
     def _find(self, rows: List[SessionRecord], *, process_id: str, session_id: str) -> Optional[SessionRecord]:
@@ -216,14 +476,22 @@ class SessionRegistryStore:
         stale_after_seconds: Optional[int] = None,
         parent_process: Optional[JsonDict] = None,
         metadata: Optional[JsonDict] = None,
+        server_principal_id: Optional[str] = None,
     ) -> SessionRecord:
         with self._transaction():
-            return self._register_locked(process_id=process_id, session_id=session_id, session_name=session_name, tool=tool, source=source, stale_after_seconds=stale_after_seconds, parent_process=parent_process, metadata=metadata)
+            return self._register_locked(process_id=process_id, session_id=session_id, session_name=session_name, tool=tool, source=source, stale_after_seconds=stale_after_seconds, parent_process=parent_process, metadata=metadata, server_principal_id=server_principal_id)
 
-    def _register_locked(self, *, process_id: str, session_id: str, session_name=None, tool=None, source="runtime", stale_after_seconds=None, parent_process=None, metadata=None) -> SessionRecord:
+    def _register_locked(self, *, process_id: str, session_id: str, session_name=None, tool=None, source="runtime", stale_after_seconds=None, parent_process=None, metadata=None, server_principal_id=None) -> SessionRecord:
         rows = self._load_all()
+        effective_principal_id = self._bind_process_principal(
+            rows,
+            process_id=process_id,
+            server_principal_id=server_principal_id,
+        )
         existing = self._find(rows, process_id=process_id, session_id=session_id)
         if existing is not None:
+            if existing.server_principal_id != effective_principal_id:
+                raise ValueError("session server principal binding is immutable")
             if session_name:
                 existing.session_name = session_name
             if tool:
@@ -240,6 +508,7 @@ class SessionRegistryStore:
         record = SessionRecord(
             process_id=process_id,
             session_id=session_id,
+            server_principal_id=effective_principal_id,
             session_name=session_name,
             tool=tool,
             source=source,
@@ -287,13 +556,25 @@ class SessionRegistryStore:
         self._write_all(rows)
         return record
 
-    def _project_event(self, rows: List[SessionRecord], event: CanonicalSessionEvent) -> SessionRecord:
+    def _project_event(
+        self,
+        rows: List[SessionRecord],
+        event: CanonicalSessionEvent,
+        *,
+        server_principal_id: Optional[str] = None,
+    ) -> SessionRecord:
         session_id = str(event.session_id or event.process_id).strip()
+        effective_principal_id = self._bind_process_principal(
+            rows,
+            process_id=event.process_id,
+            server_principal_id=server_principal_id,
+        )
         current = self._find(rows, process_id=event.process_id, session_id=session_id)
         if current is None:
             current = SessionRecord(
                 process_id=event.process_id,
                 session_id=session_id,
+                server_principal_id=effective_principal_id,
                 session_name=event.session_name,
                 tool=event.tool,
                 heartbeat_at=_now_iso(),
@@ -349,17 +630,35 @@ class SessionRegistryStore:
         current.metadata = {**dict(current.metadata or {}), "last_operator_summary": event.operator_summary}
         return current
 
-    def validate_event_admission(self, event: CanonicalSessionEvent) -> None:
+    def validate_event_admission(
+        self,
+        event: CanonicalSessionEvent,
+        *,
+        server_principal_id: Optional[str] = None,
+    ) -> None:
         """Validate the exact registry projection without publishing it."""
 
         with self._transaction():
             rows = self._load_all()
-            self._project_event(rows, event)
+            self._project_event(
+                rows,
+                event,
+                server_principal_id=server_principal_id,
+            )
             self._bounded_payload(rows)
 
-    def apply_event(self, event: CanonicalSessionEvent) -> SessionRecord:
+    def apply_event(
+        self,
+        event: CanonicalSessionEvent,
+        *,
+        server_principal_id: Optional[str] = None,
+    ) -> SessionRecord:
         rows = self._load_all()
-        current = self._project_event(rows, event)
+        current = self._project_event(
+            rows,
+            event,
+            server_principal_id=server_principal_id,
+        )
         self._write_all(rows)
         return current
 
