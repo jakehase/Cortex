@@ -289,6 +289,105 @@ def test_release_bootstrap_rejects_disabled_initialization_without_orphaning_con
     assert not list((stores["root"] / "release_bootstrap_intents").glob("*.json"))
 
 
+def test_runtime_delivery_identity_is_process_derived_and_conflicts_precede_mutation(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    workflow = _workflow()
+    workflow["metadata"] = {
+        **workflow["metadata"],
+        "channel": "whatsapp",
+        "conversation_id": "conversation-authoritative",
+    }
+    process = scheduler.create_process_from_workflow(
+        workflow,
+        process_id="proc_runtime_delivery_identity",
+        owner="cortex",
+        session_key="session:delivery",
+    )
+    stores = orchestrator._runtime_delivery_stores()
+
+    resolved = orchestrator._resolve_runtime_delivery_contract(
+        process["process_id"],
+        process=process,
+        stores=stores,
+        request=orchestrator.RuntimeDeliveryReconcileRequest(
+            metadata={"non_identity_note": "preserved"}
+        ),
+    )
+    assert resolved.metadata == {
+        "non_identity_note": "preserved",
+        "owner": "cortex",
+        "session_key": "session:delivery",
+        "channel": "whatsapp",
+        "conversation_id": "conversation-authoritative",
+    }
+
+    with pytest.raises(orchestrator.HTTPException) as caller_conflict:
+        orchestrator._reconcile_runtime_delivery_sequence(
+            process["process_id"],
+            request=orchestrator.RuntimeDeliveryReconcileRequest(
+                contract={
+                    "metadata": {
+                        "conversation_owner": "user-other-placeholder",
+                        "conversation_session_key": "session-other-placeholder",
+                        "conversation_channel": "whatsapp",
+                        "thread_id": "conversation-other-placeholder",
+                    }
+                }
+            ),
+            stores=stores,
+        )
+    assert caller_conflict.value.status_code == 422
+    assert caller_conflict.value.detail["error"] == "runtime_delivery_identity_override_forbidden"
+    assert stores["loop_store"].load_contract(process["process_id"]) is None
+    assert stores["loop_store"].load_state(process["process_id"]) is None
+    assert stores["snapshot_store"].load(process["process_id"]) is None
+    assert stores["release_store"].load(process["process_id"]) is None
+    assert stores["follow_up_store"].list(process_id=process["process_id"]) == []
+
+    stored_conflict_process = scheduler.create_process_from_workflow(
+        workflow,
+        process_id="proc_runtime_delivery_stored_identity_conflict",
+        owner="cortex",
+        session_key="session:delivery",
+    )
+    stored_conflict = orchestrator.ProductionBuildContract(
+        process_id=stored_conflict_process["process_id"],
+        objective="conflicting persisted identity",
+        metadata={
+            "owner": "cortex",
+            "conversation_owner": "user-other-placeholder",
+            "session_key": "session:delivery",
+        },
+    )
+    stores["loop_store"].save_contract(stored_conflict)
+    stored_before = orchestrator.model_dump_compat(
+        stores["loop_store"].load_contract(stored_conflict_process["process_id"])
+    )
+
+    with pytest.raises(orchestrator.HTTPException) as persisted_conflict:
+        orchestrator._reconcile_runtime_delivery_sequence(
+            stored_conflict_process["process_id"],
+            request=orchestrator.RuntimeDeliveryReconcileRequest(),
+            stores=stores,
+        )
+    assert persisted_conflict.value.status_code == 409
+    assert "conflicts with immutable process identity" in str(persisted_conflict.value.detail)
+    assert orchestrator.model_dump_compat(
+        stores["loop_store"].load_contract(stored_conflict_process["process_id"])
+    ) == stored_before
+    assert stores["loop_store"].load_state(stored_conflict_process["process_id"]) is None
+    assert stores["snapshot_store"].load(stored_conflict_process["process_id"]) is None
+    assert stores["release_store"].load(stored_conflict_process["process_id"]) is None
+    assert stores["follow_up_store"].list(
+        process_id=stored_conflict_process["process_id"]
+    ) == []
+
+
 def test_release_bootstrap_intent_recovers_crash_between_contract_and_release(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")

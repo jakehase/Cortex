@@ -9,7 +9,7 @@ NOTE: This is L26 Workflow Conductor, NOT L36 Meta-Conductor.
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Mapping, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
@@ -1868,6 +1868,97 @@ def _mandatory_runtime_delivery_completion_criteria(process_id: str, target_envi
     ]
 
 
+_RUNTIME_DELIVERY_IDENTITY_ALIASES = {
+    "owner": ("owner", "conversation_owner"),
+    "session_key": ("session_key", "conversation_session_key"),
+    "channel": ("channel", "conversation_channel"),
+    "conversation_id": ("conversation_id", "thread_id", "chat_id"),
+    "tenant_id": ("tenant_id",),
+    "workspace_id": ("workspace_id",),
+    "storage_workspace_id": ("storage_workspace_id",),
+    "agent_id": ("agent_id",),
+    "user_id": ("user_id",),
+    "channel_id": ("channel_id",),
+    "session_id": ("session_id",),
+}
+_RUNTIME_DELIVERY_IDENTITY_METADATA_FIELDS = frozenset(
+    {
+        "principal",
+        "scope",
+        *(
+            alias
+            for aliases in _RUNTIME_DELIVERY_IDENTITY_ALIASES.values()
+            for alias in aliases
+        ),
+    }
+)
+
+
+def _runtime_delivery_process_identity(process: Mapping[str, Any]) -> Dict[str, str]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), Mapping) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), Mapping) else {}
+
+    def first(*values: Any) -> str:
+        return next((str(value).strip() for value in values if str(value or "").strip()), "")
+
+    return {
+        "owner": first(process.get("owner"), metadata.get("owner"), metadata.get("user_id")),
+        "session_key": first(
+            process.get("session_key"),
+            metadata.get("session_key"),
+            metadata.get("session_id"),
+        ),
+        "channel": first(
+            metadata.get("conversation_channel"),
+            metadata.get("channel"),
+            metadata.get("channel_id"),
+        ),
+        "conversation_id": first(
+            metadata.get("conversation_id"),
+            metadata.get("thread_id"),
+            metadata.get("chat_id"),
+        ),
+        **{
+            field: first(process.get(field), metadata.get(field))
+            for field in (
+                "tenant_id",
+                "workspace_id",
+                "storage_workspace_id",
+                "agent_id",
+                "user_id",
+                "channel_id",
+                "session_id",
+            )
+        },
+    }
+
+
+def _runtime_delivery_metadata_identity_error(
+    metadata: Mapping[str, Any],
+    *,
+    authoritative: Mapping[str, str],
+) -> Optional[str]:
+    if "principal" in metadata or "scope" in metadata:
+        return "principal/scope metadata is not valid in a persisted runtime delivery contract"
+    for canonical, aliases in _RUNTIME_DELIVERY_IDENTITY_ALIASES.items():
+        supplied = [str(metadata.get(alias) or "").strip() for alias in aliases if alias in metadata]
+        supplied = [value for value in supplied if value]
+        expected = str(authoritative.get(canonical) or "").strip()
+        if supplied and (not expected or any(value != expected for value in supplied)):
+            return f"persisted runtime delivery {canonical} conflicts with immutable process identity"
+    return None
+
+
+def _runtime_delivery_caller_identity_fields(metadata: Any) -> List[str]:
+    if not isinstance(metadata, Mapping):
+        return []
+    return sorted(
+        str(field)
+        for field in _RUNTIME_DELIVERY_IDENTITY_METADATA_FIELDS
+        if field in metadata
+    )
+
+
 
 def _resolve_runtime_delivery_contract(
     process_id: str,
@@ -1881,12 +1972,38 @@ def _resolve_runtime_delivery_contract(
     metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
     workflow_contract = metadata.get("production_build_loop") if isinstance(metadata.get("production_build_loop"), dict) else {}
     stored_contract = stores["loop_store"].load_contract(process_id)
+    authoritative_identity = _runtime_delivery_process_identity(process)
+
+    recovery_contract_replay = bool(
+        bootstrap_recovery_contract is not None
+        and isinstance(request.contract, dict)
+        and request.contract == model_dump_compat(bootstrap_recovery_contract)
+    )
+    caller_identity_fields = _runtime_delivery_caller_identity_fields(request.metadata)
+    if isinstance(request.contract, dict) and not recovery_contract_replay:
+        caller_identity_fields.extend(
+            _runtime_delivery_caller_identity_fields(request.contract.get("metadata"))
+        )
+    if caller_identity_fields:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "runtime_delivery_identity_override_forbidden",
+                "fields": sorted(set(caller_identity_fields)),
+            },
+        )
 
     payload: Dict[str, Any] = {}
     if stored_contract is not None:
         payload.update(model_dump_compat(stored_contract))
     elif workflow_contract:
         payload.update({key: value for key, value in workflow_contract.items() if key != "contract_id"})
+    persisted_identity_error = _runtime_delivery_metadata_identity_error(
+        payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else {},
+        authoritative=authoritative_identity,
+    )
+    if persisted_identity_error:
+        raise HTTPException(status_code=409, detail=persisted_identity_error)
     baseline_policy_id = str(payload.get("dependability_profile") or "24h").strip().lower()
     if isinstance(request.contract, dict):
         if "contract_id" in request.contract:
@@ -1960,12 +2077,14 @@ def _resolve_runtime_delivery_contract(
 
     merged_metadata = dict(payload.get("metadata") or {})
     merged_metadata.update(dict(request.metadata or {}))
-    merged_metadata.setdefault("owner", process.get("owner") or metadata.get("owner"))
-    merged_metadata.setdefault("session_key", process.get("session_key") or metadata.get("session_key"))
-    if metadata.get("channel") and not merged_metadata.get("channel"):
-        merged_metadata["channel"] = metadata.get("channel")
-    if metadata.get("conversation_id") and not merged_metadata.get("conversation_id"):
-        merged_metadata["conversation_id"] = metadata.get("conversation_id")
+    merged_metadata = {
+        str(key): value
+        for key, value in merged_metadata.items()
+        if str(key) not in _RUNTIME_DELIVERY_IDENTITY_METADATA_FIELDS
+    }
+    for field in ("owner", "session_key", "channel", "conversation_id"):
+        if authoritative_identity[field]:
+            merged_metadata[field] = authoritative_identity[field]
     if request.initial_release_stage:
         merged_metadata["initial_release_stage"] = request.initial_release_stage
     if request.candidate_ref:
@@ -2084,6 +2203,13 @@ def _sync_runtime_process_delivery_state_locked(
     workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
     metadata = dict(workflow.get("metadata") or {})
     desired_metadata = dict(metadata)
+    # replace_process_workflow derives these top-level fields from workflow
+    # metadata. Preserve the already-persisted process identity so projecting
+    # delivery state cannot silently replace an explicit owner/session.
+    if str(process.get("owner") or "").strip():
+        desired_metadata["owner"] = process["owner"]
+    if str(process.get("session_key") or "").strip():
+        desired_metadata["session_key"] = process["session_key"]
     desired_metadata["runtime_delivery"] = _runtime_delivery_projection(
         contract=contract,
         loop_state=loop_state,
@@ -6272,6 +6398,13 @@ def _reconcile_runtime_delivery_sequence(
         process = get_runtime_process(process_id)
         if not process:
             raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+        contract = _resolve_runtime_delivery_contract(
+            process_id,
+            process=process,
+            stores=stores,
+            request=request,
+            bootstrap_recovery_contract=bootstrap_recovery_contract,
+        )
         if request.bootstrap_runtime_state:
             _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
         snapshot = stores["snapshot_store"].load(process_id)
@@ -6284,13 +6417,6 @@ def _reconcile_runtime_delivery_sequence(
                 status_code=400,
                 detail="initialize_release=false is invalid before durable release workflow initialization",
             )
-        contract = _resolve_runtime_delivery_contract(
-            process_id,
-            process=process,
-            stores=stores,
-            request=request,
-            bootstrap_recovery_contract=bootstrap_recovery_contract,
-        )
         bootstrap_intent = _release_bootstrap_intent_target(
             stores=stores,
             process_id=process_id,

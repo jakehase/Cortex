@@ -4128,6 +4128,12 @@ def _issue_assurance_receipt(interaction: "AssuranceReceiptRequest", request: Op
 
 
 def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[Request]) -> Dict[str, Any]:
+    """Verify immutable receipt bindings without admitting a new write.
+
+    Expiry is an admission boundary, not a cryptographic one.  A signed,
+    structurally valid expired receipt must remain usable to look up the exact
+    scoped ledger/JTI outcome after response loss or process restart.
+    """
     payload = _decode_assurance_receipt(interaction.assurance_receipt)
     now = int(time.time())
     if payload.get("version") not in {
@@ -4139,7 +4145,6 @@ def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[
     expires_at = int(payload.get("expires_at", 0))
     if (
         issued_at > now + 5
-        or expires_at <= now
         or expires_at <= issued_at
         or expires_at - issued_at > _ASSURANCE_RECEIPT_TTL_SECONDS
     ):
@@ -7591,6 +7596,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
 
     scope = _assurance_scope(request)
     signed_receipt_jti = str(receipt_payload["jti"])
+    receipt_expired = int(receipt_payload["expires_at"]) <= int(time.time())
     try:
         prior_result = consumed_assurance_receipt_result(
             _ASSURANCE_RECEIPT_STATE_PATH,
@@ -7606,7 +7612,7 @@ async def commit_memory(interaction: InteractionData, request: Request):
         return prior_result
     recovery_required = False
     expired_recovery_state_missing = False
-    if int(receipt_payload["expires_at"]) < int(time.time()):
+    if receipt_expired:
         try:
             receipt_status = assurance_receipt_status(
                 _ASSURANCE_RECEIPT_STATE_PATH,

@@ -218,7 +218,7 @@ def reserve_assurance_receipt(
     current_time = int(time.time()) if now is None else int(now)
     normalized_jti = str(jti or "")
     normalized_expiry = int(expires_at)
-    if not normalized_jti or normalized_expiry < current_time:
+    if not normalized_jti or normalized_expiry <= current_time:
         raise ValueError("expired_receipt")
     scope_digest, scope_json = _canonical_scope(scope)
     token = secrets.token_hex(32)

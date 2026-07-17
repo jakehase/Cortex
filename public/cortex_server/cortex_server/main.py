@@ -573,6 +573,42 @@ async def _principal_mutation_payload_error(request, principal: ReadPrincipal) -
         owner = str(candidate.get("owner") or "").strip()
         if owner and owner not in {principal.user_id, principal.agent_id}:
             return "mutation payload owner conflicts with authenticated principal"
+    if re.fullmatch(
+        rf"^/{_RUNTIME_ROUTE_PREFIX}/runtime/delivery/reconcile/[^/]+$",
+        str(request.url.path or ""),
+    ):
+        contract = payload.get("contract")
+        nested_identity_sources = {
+            "metadata": payload.get("metadata"),
+            "contract.metadata": (
+                contract.get("metadata") if isinstance(contract, Mapping) else None
+            ),
+        }
+        identity_fields = frozenset(
+            {
+                *expected,
+                "owner",
+                "conversation_owner",
+                "session_key",
+                "conversation_session_key",
+                "channel",
+                "conversation_channel",
+                "conversation_id",
+                "thread_id",
+                "chat_id",
+                "principal",
+                "scope",
+            }
+        )
+        for source_name, source in nested_identity_sources.items():
+            if not isinstance(source, Mapping):
+                continue
+            forbidden = sorted(str(field) for field in identity_fields if field in source)
+            if forbidden:
+                return (
+                    f"runtime delivery {source_name} identity fields are server-owned: "
+                    + ", ".join(forbidden)
+                )
     return None
 _PUBLIC_REDACTED_READ_PATHS = frozenset(
     {

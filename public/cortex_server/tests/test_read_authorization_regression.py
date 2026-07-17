@@ -113,6 +113,7 @@ def _configured_production_app(monkeypatch, tmp_path):
     def load_test_routes(app, *, safe_mode):
         del safe_mode
         app.state.artifact_ingest_calls = []
+        app.state.runtime_delivery_reconcile_calls = []
 
         @app.post("/orchestrator/runtime/cancel/{process_id}")
         async def cancel(process_id: str):
@@ -126,12 +127,22 @@ def _configured_production_app(monkeypatch, tmp_path):
             app.state.artifact_ingest_calls.append(process_id)
             return {"success": True, "process_id": process_id}
 
+        async def runtime_delivery_reconcile(process_id: str, _payload: dict):
+            app.state.runtime_delivery_reconcile_calls.append(process_id)
+            return {"success": True, "process_id": process_id}
+
         for prefix in ("orchestrator", "conductor"):
             app.add_api_route(
                 f"/{prefix}/runtime/delivery/artifacts/{{process_id}}",
                 artifact_ingest,
                 methods=["POST"],
                 name=f"{prefix}_artifact_ingest",
+            )
+            app.add_api_route(
+                f"/{prefix}/runtime/delivery/reconcile/{{process_id}}",
+                runtime_delivery_reconcile,
+                methods=["POST"],
+                name=f"{prefix}_runtime_delivery_reconcile",
             )
 
         @app.post("/nexus/codec/corpus-replay")
@@ -470,6 +481,48 @@ async def test_production_mutations_require_exact_principal_ownership_or_admin(m
             json={"scope": BOB_SCOPE},
         )
         assert conflicting_payload_scope.status_code == 403
+
+        nested_identity_aliases = {
+            "tenant_id": BOB_SCOPE["tenant_id"],
+            "workspace_id": BOB_SCOPE["workspace_id"],
+            "storage_workspace_id": _storage_workspace(BOB_SCOPE),
+            "agent_id": BOB_SCOPE["agent_id"],
+            "user_id": BOB_SCOPE["user_id"],
+            "channel_id": BOB_SCOPE["channel_id"],
+            "session_id": BOB_SCOPE["session_id"],
+            "owner": "bob",
+            "conversation_owner": "bob",
+            "session_key": "bob-session-alias",
+            "conversation_session_key": "bob-conversation-session",
+            "channel": "whatsapp",
+            "conversation_channel": "whatsapp",
+            "conversation_id": "conversation-bob",
+            "thread_id": "thread-bob",
+            "chat_id": "chat-bob",
+            "principal": {"user_id": "bob"},
+            "scope": BOB_SCOPE,
+        }
+        for prefix in ("orchestrator", "conductor"):
+            for container in ("metadata", "contract.metadata"):
+                for field, value in nested_identity_aliases.items():
+                    body = (
+                        {"metadata": {field: value}}
+                        if container == "metadata"
+                        else {"contract": {"metadata": {field: value}}}
+                    )
+                    rejected_alias = await client.post(
+                        f"/{prefix}/runtime/delivery/reconcile/proc_alice",
+                        headers=alice_headers,
+                        json=body,
+                    )
+                    assert rejected_alias.status_code == 403, (
+                        prefix,
+                        container,
+                        field,
+                        rejected_alias.text,
+                    )
+
+        assert app.state.runtime_delivery_reconcile_calls == []
 
         global_as_principal = await client.post(
             "/orchestrator/runtime/maintenance/intake",

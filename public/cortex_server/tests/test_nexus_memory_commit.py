@@ -80,9 +80,9 @@ def _reserve_in_worker(state_path, start_event, results):
         results.put(str(exc))
 
 
-def _app(monkeypatch, recorder):
+def _app(monkeypatch, recorder, *, committed_records=None):
     fake_l22 = types.ModuleType("cortex_server.routers.l22")
-    committed = {}
+    committed = {} if committed_records is None else committed_records
 
     def store_memory_record(**kwargs):
         result = recorder(**kwargs)
@@ -296,6 +296,135 @@ async def test_finalization_failure_retains_reservation_after_durable_write(
     assert replay.json()["committed"] is True
     assert replay.json()["durable_write"]["idempotent_replay"] is False
     assert len(recorder.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_consumed_receipt_reconciles_after_restart(monkeypatch):
+    recorder = _Recorder()
+    committed_records = {}
+    clock = [2_000_000_000]
+    monkeypatch.setattr(nexus.time, "time", lambda: clock[0])
+    interaction = {
+        "query": "Remember this delayed consumed receipt decision",
+        "response": "Return the durable result after receipt expiry without writing again.",
+        "levels_used": [7, 22],
+    }
+    first_app = _app(monkeypatch, recorder, committed_records=committed_records)
+    first_transport = httpx.ASGITransport(app=first_app)
+    async with httpx.AsyncClient(transport=first_transport, base_url="http://test") as client:
+        receipt = await _receipt(client, interaction)
+        committed = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+
+    clock[0] += nexus._ASSURANCE_RECEIPT_TTL_SECONDS + 1
+    restarted_app = _app(monkeypatch, recorder, committed_records=committed_records)
+    restarted_transport = httpx.ASGITransport(app=restarted_app)
+    async with httpx.AsyncClient(
+        transport=restarted_transport, base_url="http://test"
+    ) as client:
+        replay = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+
+    assert committed.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json() == committed.json()
+    assert len(recorder.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_durable_unfinalized_receipt_recovers_after_restart(monkeypatch):
+    recorder = _Recorder()
+    committed_records = {}
+    clock = [2_000_000_000]
+    monkeypatch.setattr(nexus.time, "time", lambda: clock[0])
+    interaction = {
+        "query": "Remember this delayed finalization recovery decision",
+        "response": "Recover the exact durable JTI after finalization interruption.",
+        "levels_used": [7, 22],
+    }
+    original_finalize = nexus.finalize_assurance_receipt
+
+    def interrupt_finalization(*_args, **_kwargs):
+        raise nexus.AssuranceReceiptLedgerUnavailable("simulated_restart_before_finalization")
+
+    monkeypatch.setattr(nexus, "finalize_assurance_receipt", interrupt_finalization)
+    first_app = _app(monkeypatch, recorder, committed_records=committed_records)
+    first_transport = httpx.ASGITransport(app=first_app)
+    async with httpx.AsyncClient(transport=first_transport, base_url="http://test") as client:
+        receipt = await _receipt(client, interaction)
+        interrupted = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+
+    assert interrupted.status_code == 503
+    assert interrupted.json()["detail"]["error"] == "assurance_receipt_finalization_failed"
+    monkeypatch.setattr(nexus, "finalize_assurance_receipt", original_finalize)
+    clock[0] += nexus._ASSURANCE_RECEIPT_TTL_SECONDS + 1
+    restarted_app = _app(monkeypatch, recorder, committed_records=committed_records)
+    restarted_transport = httpx.ASGITransport(app=restarted_app)
+    async with httpx.AsyncClient(
+        transport=restarted_transport, base_url="http://test"
+    ) as client:
+        recovered = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+        replay = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+
+    assert recovered.status_code == 200
+    assert recovered.json()["committed"] is True
+    assert recovered.json()["durable_write"]["idempotent_replay"] is False
+    assert replay.json() == recovered.json()
+    assert len(recorder.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_receipt_returns_authoritative_no_write_after_restart(monkeypatch):
+    recorder = _Recorder()
+    committed_records = {}
+    clock = [2_000_000_000]
+    monkeypatch.setattr(nexus.time, "time", lambda: clock[0])
+    interaction = {
+        "query": "Remember this receipt only if it was durably written",
+        "response": "Prove that no exact JTI write exists before replacing the expired receipt.",
+        "levels_used": [7, 22],
+    }
+    first_app = _app(monkeypatch, recorder, committed_records=committed_records)
+    first_transport = httpx.ASGITransport(app=first_app)
+    async with httpx.AsyncClient(transport=first_transport, base_url="http://test") as client:
+        receipt = await _receipt(client, interaction)
+
+    clock[0] += nexus._ASSURANCE_RECEIPT_TTL_SECONDS + 1
+    restarted_app = _app(monkeypatch, recorder, committed_records=committed_records)
+    restarted_transport = httpx.ASGITransport(app=restarted_app)
+    async with httpx.AsyncClient(
+        transport=restarted_transport, base_url="http://test"
+    ) as client:
+        proof = await client.post(
+            "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
+        )
+
+    assert proof.status_code == 409
+    assert proof.json()["detail"] == {
+        "error": "assurance_receipt_expired_without_commit",
+        "reason": "expired_receipt",
+    }
+    assert recorder.calls == []
+    assert committed_records == {}
+
+
+def test_receipt_reservation_rejects_exact_expiry_boundary(tmp_path):
+    with pytest.raises(ValueError, match="expired_receipt"):
+        reserve_assurance_receipt(
+            tmp_path / "expiry-boundary.sqlite3",
+            scope={"tenant_id": "tenant", "workspace_id": "workspace", "user_id": "user"},
+            jti="c" * 32,
+            expires_at=100,
+            now=100,
+        )
 
 
 @pytest.mark.asyncio
