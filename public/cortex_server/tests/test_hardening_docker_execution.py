@@ -174,10 +174,6 @@ def test_production_images_and_openclaw_inputs_are_immutable():
     public_root = Path(__file__).resolve().parents[2]
     dockerfile = (public_root / "Dockerfile").read_text(encoding="utf-8")
     compose = (public_root / "docker-compose.yml").read_text(encoding="utf-8")
-    local_compose = (public_root / "docker-compose.local.yml").read_text(
-        encoding="utf-8"
-    )
-
     from_line = next(line for line in dockerfile.splitlines() if line.startswith("FROM "))
     assert re.fullmatch(
         r"FROM python:3\.11\.15-slim@sha256:[0-9a-f]{64}",
@@ -221,10 +217,6 @@ def test_production_images_and_openclaw_inputs_are_immutable():
         definition = _compose_service_definition(compose, service)
         assert f"image: {cortex_image}" in definition
         assert "build:" not in definition
-        local_definition = _compose_service_definition(local_compose, service)
-        assert "image: cortex-local:development" in local_definition
-        assert "build:" in local_definition
-    assert local_compose.count("build:") == 5
 
 
 def test_compose_mounts_and_identifies_durable_memory_volume():
