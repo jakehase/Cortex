@@ -10,12 +10,15 @@ from cortex_server.runtime import handoff_consumer
 
 BOOT_A = "11111111-1111-4111-8111-111111111111"
 BOOT_B = "22222222-2222-4222-8222-222222222222"
+BRAIN_A = "cortex-brain-startup-revision:" + "a" * 32
+BRAIN_B = "cortex-brain-startup-revision:" + "b" * 32
 
 
 def test_consumer_readiness_requires_a_fresh_authenticated_poll(monkeypatch):
     clock = {"now": 1000.0}
     monkeypatch.setattr(handoff_consumer.time, "time", lambda: clock["now"])
     monkeypatch.setenv("CORTEX_HANDOFF_READY_MAX_AGE_SECONDS", "10")
+    monkeypatch.setenv("CORTEX_ENV", "production")
     with handoff_consumer._POLL_STATUS_LOCK:
         handoff_consumer._POLL_STATUS.update(
             {
@@ -23,17 +26,27 @@ def test_consumer_readiness_requires_a_fresh_authenticated_poll(monkeypatch):
                 "last_success_at": None,
                 "last_error": "authenticated poll has not succeeded",
                 "awaiting_evidence_count": 0,
+                "capability_verified": False,
+                "cortex_brain_startup_revision_id": None,
+                "recipient": None,
             }
         )
 
     assert handoff_consumer._consumer_readiness()["ready"] is False
 
-    handoff_consumer._record_poll_success()
+    handoff_consumer._record_poll_success(
+        cortex_brain_startup_revision_id=BRAIN_A,
+        recipient="release-verifier",
+        capability_verified=True,
+    )
     assert handoff_consumer._consumer_readiness()["ready"] is True
 
     clock["now"] += 4
     handoff_consumer._record_poll_error(PermissionError("bad recipient credential"))
-    assert handoff_consumer._consumer_readiness()["ready"] is True
+    failed = handoff_consumer._consumer_readiness()
+    assert failed["ready"] is False
+    assert failed["capability_verified"] is False
+    assert failed["cortex_brain_startup_revision_id"] is None
 
     clock["now"] += 7
     stale = handoff_consumer._consumer_readiness()
@@ -58,7 +71,12 @@ def test_evidence_waiting_does_not_fail_authenticated_control_plane_readiness(mo
     monkeypatch.setattr(
         handoff_consumer,
         "_post_json",
-        lambda *_args, **_kwargs: {"messages": [{"message_id": "handoff-pending"}]},
+        lambda *_args, **_kwargs: {
+            "success": True,
+            "recipient": "release-verifier",
+            "cortex_brain_startup_revision_id": BRAIN_A,
+            "messages": [{"message_id": "handoff-pending"}],
+        },
     )
     monkeypatch.setattr(
         handoff_consumer,
@@ -93,7 +111,12 @@ def test_permanent_message_failure_does_not_refresh_readiness(monkeypatch):
     monkeypatch.setattr(
         handoff_consumer,
         "_post_json",
-        lambda *_args, **_kwargs: {"messages": [{"message_id": "handoff-broken"}]},
+        lambda *_args, **_kwargs: {
+            "success": True,
+            "recipient": "release-verifier",
+            "cortex_brain_startup_revision_id": BRAIN_A,
+            "messages": [{"message_id": "handoff-broken"}],
+        },
     )
     monkeypatch.setattr(
         handoff_consumer,
@@ -384,12 +407,104 @@ def test_production_controller_readiness_requires_live_measurement_capability(mo
                 "last_success_at": "now",
                 "last_error": None,
                 "capability_verified": False,
+                "cortex_brain_startup_revision_id": None,
+                "recipient": "release-verifier",
             }
         )
     assert handoff_consumer._consumer_readiness()["ready"] is False
     with handoff_consumer._POLL_STATUS_LOCK:
-        handoff_consumer._POLL_STATUS["capability_verified"] = True
+        handoff_consumer._POLL_STATUS.update(
+            {
+                "capability_verified": True,
+                "cortex_brain_startup_revision_id": BRAIN_A,
+            }
+        )
     assert handoff_consumer._consumer_readiness()["ready"] is True
+
+
+def test_worker_reauthenticates_capability_for_exact_restarted_brain_instance(
+    monkeypatch,
+):
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_RELEASE_MEASUREMENT_URL", "http://cortex/health")
+    monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_ID", "compose-release-verifier")
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET",
+        "verifier-attestation-secret-material-00000001",
+    )
+    monkeypatch.setattr(handoff_consumer, "_probe_measurement", lambda _url: True)
+
+    class EmptyObservationStore:
+        def retain(self, _keys):
+            return None
+
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_observation_store",
+        lambda: EmptyObservationStore(),
+    )
+    server = {"poll": BRAIN_A, "capability": BRAIN_A}
+
+    def respond(_base_url, path, payload):
+        if path.endswith("/claim-next"):
+            return {
+                "success": True,
+                "recipient": "release-verifier",
+                "cortex_brain_startup_revision_id": server["poll"],
+                "messages": [],
+                "verification_releases": [],
+            }
+        if path.endswith("/verifier-capability"):
+            return {
+                "success": True,
+                "capability": "revision-bound-artifact-attestation",
+                "verifier": payload["verifier"],
+                "cortex_brain_startup_revision_id": server["capability"],
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(handoff_consumer, "_post_json", respond)
+    with handoff_consumer._POLL_STATUS_LOCK:
+        handoff_consumer._POLL_STATUS.update(
+            {
+                "last_success_epoch": None,
+                "last_success_at": None,
+                "last_error": "authenticated poll has not succeeded",
+                "capability_verified": False,
+                "cortex_brain_startup_revision_id": None,
+                "recipient": None,
+            }
+        )
+
+    handoff_consumer._poll_once(
+        "http://cortex",
+        "release-verifier",
+        "verifier-recipient-secret-material-000000001",
+    )
+    assert handoff_consumer._consumer_readiness()["ready"] is True
+
+    # A cortex-brain-only restart changes the discovery identity.  A retained
+    # capability response from the prior instance cannot keep the worker ready.
+    server["poll"] = BRAIN_B
+    handoff_consumer._poll_once(
+        "http://cortex",
+        "release-verifier",
+        "verifier-recipient-secret-material-000000001",
+    )
+    stale = handoff_consumer._consumer_readiness()
+    assert stale["ready"] is False
+    assert stale["capability_verified"] is False
+    assert stale["cortex_brain_startup_revision_id"] == BRAIN_B
+
+    server["capability"] = BRAIN_B
+    handoff_consumer._poll_once(
+        "http://cortex",
+        "release-verifier",
+        "verifier-recipient-secret-material-000000001",
+    )
+    rebound = handoff_consumer._consumer_readiness()
+    assert rebound["ready"] is True
+    assert rebound["cortex_brain_startup_revision_id"] == BRAIN_B
 
 
 def test_controller_observation_store_fails_closed_on_missing_or_symlinked_state(
@@ -541,12 +656,15 @@ def test_manager_capability_challenge_uses_rollback_route_and_signature(monkeypa
         return {
             "success": True,
             "capability": "signed-non-mutating-manager-rollback",
+            "cortex_brain_startup_revision_id": BRAIN_A,
             "request_id": payload["request_id"],
         }
 
     monkeypatch.setattr(handoff_consumer, "_post_json", respond)
 
-    assert handoff_consumer._verify_manager_capability("http://cortex", secret) is True
+    assert handoff_consumer._verify_manager_capability(
+        "http://cortex", secret, BRAIN_A
+    ) is True
     assert "/manager-rollback/" in requests[0][1]
     assert requests[0][2]["reason"] == (
         handoff_consumer.RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON
@@ -569,7 +687,13 @@ def test_manager_readiness_rejects_unavailable_rollback_capability(monkeypatch, 
     def unavailable(_base_url, path, _payload):
         requests.append(path)
         if path.endswith("/claim-next"):
-            return {"messages": [], "managed_releases": []}
+            return {
+                "success": True,
+                "recipient": "release-manager",
+                "cortex_brain_startup_revision_id": BRAIN_A,
+                "messages": [],
+                "managed_releases": [],
+            }
         if "/manager-rollback/" in path:
             raise RuntimeError("manager rollback endpoint returned 404")
         raise AssertionError(path)

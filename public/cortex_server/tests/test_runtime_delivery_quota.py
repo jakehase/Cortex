@@ -42,6 +42,25 @@ def _crash_inside_runtime_delivery_recovery(root: str, intent_path: str) -> None
         os._exit(0)
 
 
+def _fresh_process_startup_preflight(root: str, sender) -> None:
+    try:
+        capacity = runtime_delivery_quota.preallocate_runtime_delivery_recovery_reserve(
+            Path(root)
+        )
+        sender.send(
+            (
+                "ready",
+                bool(capacity["startupRecoveryPending"]),
+                int(capacity["physicalRecoveryReserveBytes"]),
+            )
+        )
+    except BaseException as exc:
+        sender.send(("error", repr(exc)))
+        raise
+    finally:
+        sender.close()
+
+
 def _write_sized(path: Path, size: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as handle:
@@ -345,6 +364,21 @@ def test_partial_physical_reserve_restart_reenters_pending_recovery_before_reple
     crashing_recovery.join(10)
     assert crashing_recovery.exitcode == 0
     assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
+    (root / "released-capacity-still-occupied.bin").write_bytes(b"x" * (4 * 1024))
+
+    receiver, sender = context.Pipe(duplex=False)
+    restarted_preflight = context.Process(
+        target=_fresh_process_startup_preflight,
+        args=(str(root), sender),
+    )
+    restarted_preflight.start()
+    sender.close()
+    assert receiver.poll(10), "fresh startup preflight did not report"
+    assert receiver.recv() == ("ready", True, 12 * 1024)
+    restarted_preflight.join(10)
+    receiver.close()
+    assert restarted_preflight.exitcode == 0
+    assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
 
     real_resize = runtime_delivery_quota._resize_physical_reserve
     resize_attempts = []
@@ -362,23 +396,41 @@ def test_partial_physical_reserve_restart_reenters_pending_recovery_before_reple
         "_resize_physical_reserve",
         reject_full_replenishment,
     )
-    with runtime_delivery_quota.runtime_delivery_recovery_transaction(
-        root,
-        process_id="proc-partial-reserve",
-        transaction_id="rollback-partial-reserve",
-        intent_path=intent_path,
+    preflight = runtime_delivery_quota.preallocate_runtime_delivery_recovery_reserve(root)
+    assert preflight["startupRecoveryPending"] is True
+    assert preflight["physicalRecoveryReserveBytes"] == 12 * 1024
+    assert resize_attempts == []
+    with pytest.raises(
+        runtime_delivery_quota.RuntimeDeliveryQuotaError,
+        match="recovery must complete before generic quota transactions",
     ):
-        assert runtime_delivery_quota._recovery_admission(root) is True
         with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
-            assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
-        intent_path.write_text(
-            json.dumps({**intent, "status": "committed"}),
-            encoding="utf-8",
-        )
+            pass
+
+    with runtime_delivery_quota.runtime_delivery_startup_recovery_transaction(root):
+        with runtime_delivery_quota.runtime_delivery_recovery_transaction(
+            root,
+            process_id="proc-partial-reserve",
+            transaction_id="rollback-partial-reserve",
+            intent_path=intent_path,
+        ):
+            assert runtime_delivery_quota._recovery_admission(root) is True
+            with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
+                assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
+            intent_path.write_text(
+                json.dumps({**intent, "status": "committed"}),
+                encoding="utf-8",
+            )
+        assert resize_attempts == []
+        with pytest.raises(
+            runtime_delivery_quota.RuntimeDeliveryQuotaError,
+            match="released recovery capacity is still occupied",
+        ):
+            runtime_delivery_quota.preallocate_runtime_delivery_recovery_reserve(root)
 
     assert resize_attempts == [16 * 1024]
     assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
     monkeypatch.setattr(runtime_delivery_quota, "_resize_physical_reserve", real_resize)
-    with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
-        pass
+    restored = runtime_delivery_quota.preallocate_runtime_delivery_recovery_reserve(root)
+    assert restored["startupRecoveryPending"] is False
     assert runtime_delivery_quota.runtime_delivery_capacity(root)["ok"] is True

@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import stat
 import threading
 import time
@@ -32,6 +33,8 @@ MAX_REPORT_BYTES = 16 * 1024 * 1024
 MAX_SESSION_EVENT_PROJECTION_BYTES = 32 * 1024 * 1024
 RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS = 10 * 60
 RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE = ".runtime-delivery-physical-recovery-reserve"
+_PENDING_ROLLBACK_STATUS = frozenset({"in_progress", "recovery_required"})
+_RECOVERY_PROCESS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 _LOCKS: Dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -276,8 +279,73 @@ def runtime_delivery_capacity(delivery_root: Path) -> Dict[str, int | bool]:
     }
 
 
+def _validated_pending_startup_recovery_intents(delivery_root: Path) -> List[Dict[str, Any]]:
+    """Return path-bound rollback intents safe to use for startup ordering."""
+
+    pending: List[Dict[str, Any]] = []
+    for release_root in (
+        Path(delivery_root).resolve() / "release_workflow",
+        Path(delivery_root).resolve() / "rollback_transactions",
+    ):
+        if not release_root.is_dir() or release_root.is_symlink():
+            continue
+        for target in sorted(release_root.glob(".*.json.rollback-intent.json")):
+            try:
+                if target.is_symlink() or not target.is_file():
+                    continue
+                if target.stat().st_size > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+                    continue
+                payload = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            process_id = str(payload.get("process_id") or "").strip() if isinstance(payload, dict) else ""
+            transaction_id = str(payload.get("transaction_id") or "").strip() if isinstance(payload, dict) else ""
+            expected = release_root / f".{process_id}.json.rollback-intent.json"
+            if (
+                isinstance(payload, dict)
+                and payload.get("status") in _PENDING_ROLLBACK_STATUS
+                and _RECOVERY_PROCESS_ID_RE.fullmatch(process_id)
+                and 0 < len(transaction_id.encode("utf-8")) <= 256
+                and target == expected
+            ):
+                pending.append(payload)
+    return pending
+
+
+def _verify_preallocated_recovery_reserve(root: Path) -> Dict[str, int | bool]:
+    target = _physical_reserve_path(root)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(target, flags)
+    except OSError as exc:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve durability cannot be proven"
+        ) from exc
+    try:
+        observed = os.fstat(descriptor)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    fsync_directory(root)
+    allocated = int(observed.st_blocks) * 512
+    if (
+        not stat.S_ISREG(observed.st_mode)
+        or int(observed.st_size) != RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+        or allocated < RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+    ):
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve durability cannot be proven"
+        )
+    capacity = runtime_delivery_capacity(root)
+    if not bool(capacity["ok"]):
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve capacity verification failed"
+        )
+    return capacity
+
+
 def preallocate_runtime_delivery_recovery_reserve(delivery_root: Path) -> Dict[str, int | bool]:
-    """Synchronously allocate and durability-verify the production reserve."""
+    """Prepare startup capacity without overtaking a durable rollback."""
 
     if not _physical_reserve_enabled():
         raise RuntimeDeliveryQuotaError(
@@ -287,36 +355,39 @@ def preallocate_runtime_delivery_recovery_reserve(delivery_root: Path) -> Dict[s
     if not root.is_absolute():
         raise RuntimeDeliveryQuotaError("runtime delivery root must be absolute")
     root = root.resolve()
-    with runtime_delivery_quota_transaction(root):
-        target = _physical_reserve_path(root)
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        try:
-            descriptor = os.open(target, flags)
-        except OSError as exc:
-            raise RuntimeDeliveryQuotaError(
-                "runtime delivery physical recovery reserve durability cannot be proven"
-            ) from exc
-        try:
-            observed = os.fstat(descriptor)
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        fsync_directory(root)
-        allocated = int(observed.st_blocks) * 512
-        if (
-            not stat.S_ISREG(observed.st_mode)
-            or int(observed.st_size) != RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
-            or allocated < RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
-        ):
-            raise RuntimeDeliveryQuotaError(
-                "runtime delivery physical recovery reserve durability cannot be proven"
+    with _runtime_delivery_quota_lock(root):
+        pending = _validated_pending_startup_recovery_intents(root)
+        if pending:
+            # A prior rollback may have consumed physical reserve and crashed
+            # while the released blocks were occupied.  The host preflight
+            # must preserve that reduced file until application startup can
+            # replay the validated intent under this same quota lock.
+            physical_size = _physical_reserve_bytes(root)
+            physical_allocated = _physical_reserve_allocated_bytes(root)
+            minimum_recovery_size = max(
+                0,
+                RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                - RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES,
             )
-        capacity = runtime_delivery_capacity(root)
-        if not bool(capacity["ok"]):
-            raise RuntimeDeliveryQuotaError(
-                "runtime delivery physical recovery reserve capacity verification failed"
-            )
-        return capacity
+            if (
+                physical_size < minimum_recovery_size
+                or physical_size > RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                or physical_allocated < physical_size
+            ):
+                raise RuntimeDeliveryQuotaError(
+                    "runtime delivery pending rollback reserve is missing or invalid"
+                )
+            return {
+                **runtime_delivery_capacity(root),
+                "startupRecoveryPending": True,
+                "pendingRecoveryIntentCount": len(pending),
+            }
+        _resize_physical_reserve(root, RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES)
+        return {
+            **_verify_preallocated_recovery_reserve(root),
+            "startupRecoveryPending": False,
+            "pendingRecoveryIntentCount": 0,
+        }
 
 
 @contextmanager
@@ -352,11 +423,42 @@ def _runtime_delivery_quota_lock(delivery_root: Path) -> Iterator[bool]:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _startup_recovery_active(delivery_root: Path) -> bool:
+    lock_key = str(Path(delivery_root).resolve() / ".runtime-delivery-volume-quota.lock")
+    return int(
+        dict(getattr(_TRANSACTION_STATE, "startup_recoveries", {})).get(lock_key, 0)
+        or 0
+    ) > 0
+
+
+@contextmanager
+def runtime_delivery_startup_recovery_transaction(delivery_root: Path) -> Iterator[None]:
+    """Serialize fresh-process rollback replay ahead of ordinary admission."""
+
+    root = Path(delivery_root).resolve()
+    lock_key = str(root / ".runtime-delivery-volume-quota.lock")
+    with _runtime_delivery_quota_lock(root):
+        active = dict(getattr(_TRANSACTION_STATE, "startup_recoveries", {}))
+        active[lock_key] = int(active.get(lock_key, 0) or 0) + 1
+        _TRANSACTION_STATE.startup_recoveries = active
+        try:
+            yield
+        finally:
+            active[lock_key] -= 1
+            if active[lock_key] <= 0:
+                active.pop(lock_key, None)
+            _TRANSACTION_STATE.startup_recoveries = active
+
+
 @contextmanager
 def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
     root = Path(delivery_root).resolve()
     with _runtime_delivery_quota_lock(root) as outermost:
         if outermost and not _recovery_admission(root):
+            if _validated_pending_startup_recovery_intents(root):
+                raise RuntimeDeliveryQuotaError(
+                    "runtime delivery rollback recovery must complete before generic quota transactions"
+                )
             _resize_physical_reserve(
                 root,
                 RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES,
@@ -473,7 +575,7 @@ def runtime_delivery_recovery_transaction(
             else:
                 recoveries[lock_key] = existing
             _TRANSACTION_STATE.recoveries = recoveries
-            if committed:
+            if committed and not _startup_recovery_active(root):
                 try:
                     _resize_physical_reserve(root, RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES)
                 except RuntimeDeliveryQuotaError:
@@ -978,4 +1080,5 @@ __all__ = [
     "runtime_delivery_capacity_reservation",
     "runtime_delivery_quota_transaction",
     "runtime_delivery_recovery_transaction",
+    "runtime_delivery_startup_recovery_transaction",
 ]

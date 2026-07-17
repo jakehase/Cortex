@@ -174,6 +174,9 @@ def test_production_images_and_openclaw_inputs_are_immutable():
     public_root = Path(__file__).resolve().parents[2]
     dockerfile = (public_root / "Dockerfile").read_text(encoding="utf-8")
     compose = (public_root / "docker-compose.yml").read_text(encoding="utf-8")
+    local_compose = (public_root / "docker-compose.local.yml").read_text(
+        encoding="utf-8"
+    )
 
     from_line = next(line for line in dockerfile.splitlines() if line.startswith("FROM "))
     assert re.fullmatch(
@@ -188,8 +191,40 @@ def test_production_images_and_openclaw_inputs_are_immutable():
         r"image: rhasspy/wyoming-piper:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}",
         compose,
     )
-    for service in ("cortex-brain", "release-verifier", "release-manager"):
-        assert "${CORTEX_IMAGE_REF:?" in _compose_service_definition(compose, service)
+    cortex_image = (
+        "${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}"
+        "@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}"
+    )
+    resolved = compose.replace(
+        cortex_image,
+        "registry.invalid/cortex@sha256:" + "a" * 64,
+    )
+    image_lines = [
+        line.strip().removeprefix("image: ")
+        for line in resolved.splitlines()
+        if line.strip().startswith("image: ")
+    ]
+    assert len(image_lines) == 13
+    assert all(
+        re.fullmatch(r"[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}", image)
+        for image in image_lines
+    )
+    assert "CORTEX_IMAGE_REF" not in compose
+    assert "build:" not in compose
+    for service in (
+        "cortex-brain",
+        "cortex-volume-bootstrap",
+        "cortex-volume-adopt-source",
+        "release-verifier",
+        "release-manager",
+    ):
+        definition = _compose_service_definition(compose, service)
+        assert f"image: {cortex_image}" in definition
+        assert "build:" not in definition
+        local_definition = _compose_service_definition(local_compose, service)
+        assert "image: cortex-local:development" in local_definition
+        assert "build:" in local_definition
+    assert local_compose.count("build:") == 5
 
 
 def test_compose_mounts_and_identifies_durable_memory_volume():

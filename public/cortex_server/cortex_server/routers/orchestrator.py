@@ -115,12 +115,15 @@ from cortex_server.runtime.runtime_delivery_quota import (
     MAX_RUNTIME_DELIVERY_OBJECT_BYTES,
     RuntimeDeliveryQuotaError,
     assert_runtime_delivery_volume_capacity,
+    preallocate_runtime_delivery_recovery_reserve,
     runtime_delivery_quota_transaction,
+    runtime_delivery_startup_recovery_transaction,
 )
 from cortex_server.runtime.production_build_loop import (
     REQUIRED_RELEASE_HANDOFF_RECIPIENTS,
     RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
     RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON,
+    current_cortex_brain_startup_revision_id,
     ingest_production_release_artifact,
     probe_runtime_delivery_readiness,
     runtime_delivery_artifact_fetch_signature,
@@ -2447,11 +2450,18 @@ def _recover_runtime_delivery_bootstraps(*, stores: Optional[Dict[str, Any]] = N
 
 @router.on_event("startup")
 async def recover_runtime_delivery_rollbacks_on_startup() -> None:
-    stores = _runtime_delivery_stores()
-    # Allocate and verify the physical rollback reserve before readiness can
-    # advertise the delivery plane, including on a completely fresh volume.
-    with runtime_delivery_quota_transaction(Path(stores["root"])):
-        pass
+    root = _runtime_delivery_root().resolve()
+    # A fresh process must not grow a reserve that a durable rollback already
+    # consumed.  Replay that intent while holding the aggregate quota lock,
+    # then replenish and durability-verify the complete reserve after commit.
+    with runtime_delivery_startup_recovery_transaction(root):
+        stores = _runtime_delivery_stores()
+        _recover_runtime_delivery_rollbacks(stores=stores)
+        capacity = preallocate_runtime_delivery_recovery_reserve(root)
+        if bool(capacity.get("startupRecoveryPending")) or not bool(capacity.get("ok")):
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery rollback recovery did not restore the durable reserve"
+            )
     authoritative_processes = {
         str(process.get("process_id") or "").strip(): process
         for process in list_runtime_processes()
@@ -2467,7 +2477,6 @@ async def recover_runtime_delivery_rollbacks_on_startup() -> None:
         }
     )
     _recover_runtime_delivery_bootstraps(stores=stores)
-    _recover_runtime_delivery_rollbacks(stores=stores)
     for process in list_runtime_processes():
         process_id = str(process.get("process_id") or "").strip()
         if not process_id:
@@ -5780,6 +5789,7 @@ def _claim_runtime_delivery_handoffs_locked(
         response = {
             "success": True,
             "authentication": "hmac-sha256",
+            "cortex_brain_startup_revision_id": current_cortex_brain_startup_revision_id(),
             "recipient": recipient,
             "process_id": process_id,
             "expected_revision_id": expected_revision_id,
@@ -5992,6 +6002,7 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
         response = {
             "success": True,
             "authentication": "hmac-sha256",
+            "cortex_brain_startup_revision_id": current_cortex_brain_startup_revision_id(),
             "recipient": recipient,
             "request_id": request_id,
             "claimed_at": claimed_at,
@@ -6038,6 +6049,7 @@ async def manager_rollback_runtime_delivery(
         return {
             "success": True,
             "capability": "signed-non-mutating-manager-rollback",
+            "cortex_brain_startup_revision_id": current_cortex_brain_startup_revision_id(),
             "request_id": request.request_id,
         }
     stores = _runtime_delivery_stores()
@@ -6080,6 +6092,7 @@ async def verify_runtime_delivery_verifier_capability(
     return {
         "success": True,
         "capability": "revision-bound-artifact-attestation",
+        "cortex_brain_startup_revision_id": current_cortex_brain_startup_revision_id(),
         "verifier": request.verifier,
         "request_id": request.request_id,
     }

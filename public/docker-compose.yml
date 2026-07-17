@@ -2,10 +2,7 @@
 
 services:
   cortex-brain:
-    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
     container_name: cortex-brain
     ports:
       - "8888:8888"
@@ -91,10 +88,7 @@ services:
         condition: service_healthy
 
   cortex-volume-bootstrap:
-    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
     profiles: ["bootstrap"]
     environment:
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
@@ -398,10 +392,7 @@ services:
     restart: "no"
 
   cortex-volume-adopt-source:
-    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
     profiles: ["adopt-source"]
     environment:
       CORTEX_SOURCE_CHROMA_MOUNT_ID: ${CORTEX_SOURCE_CHROMA_MOUNT_ID:-cortex-chroma-v1}
@@ -857,7 +848,7 @@ services:
     restart: "no"
 
   cortex-memory-volume-init:
-    image: alpine:3.20
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     container_name: cortex-memory-volume-init
     environment:
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
@@ -905,7 +896,7 @@ services:
     restart: "no"
 
   cortex-runtime-delivery-volume-init:
-    image: alpine:3.20
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     container_name: cortex-runtime-delivery-volume-init
     environment:
       CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID}
@@ -981,7 +972,7 @@ services:
     restart: "no"
 
   cortex-knowledge-volume-init:
-    image: alpine:3.20
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     container_name: cortex-knowledge-volume-init
     environment:
       CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID}
@@ -1025,7 +1016,7 @@ services:
     restart: "no"
 
   cortex-app-state-volume-init:
-    image: alpine:3.20
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     container_name: cortex-app-state-volume-init
     environment:
       CORTEX_APP_STATE_MOUNT_ID: ${CORTEX_APP_STATE_MOUNT_ID:?set a deployment-random application-state volume ID}
@@ -1065,7 +1056,7 @@ services:
     restart: "no"
 
   cortex-reasoning-volume-init:
-    image: alpine:3.20
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     container_name: cortex-reasoning-volume-init
     environment:
       CORTEX_REASONING_MOUNT_ID: ${CORTEX_REASONING_MOUNT_ID:?set a deployment-random reasoning volume ID}
@@ -1116,7 +1107,7 @@ services:
     restart: "no"
 
   cortex-release-verifier-state-volume-init:
-    image: alpine:3.20
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     container_name: cortex-release-verifier-state-volume-init
     environment:
       CORTEX_RELEASE_CONTROLLER_MOUNT_ID: ${CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:?set a deployment-random verifier-state volume ID}
@@ -1161,7 +1152,7 @@ services:
     restart: "no"
 
   cortex-release-manager-state-volume-init:
-    image: alpine:3.20
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     container_name: cortex-release-manager-state-volume-init
     environment:
       CORTEX_RELEASE_CONTROLLER_MOUNT_ID: ${CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID:?set a deployment-random manager-state volume ID}
@@ -1206,10 +1197,7 @@ services:
     restart: "no"
 
   release-verifier:
-    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
     environment:
       CORTEX_ENV: production
       CORTEX_BASE_URL: http://cortex-brain:8888
@@ -1238,10 +1226,7 @@ services:
         condition: service_completed_successfully
 
   release-manager:
-    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
     environment:
       CORTEX_ENV: production
       CORTEX_BASE_URL: http://cortex-brain:8888

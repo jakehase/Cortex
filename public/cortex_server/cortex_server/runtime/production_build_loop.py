@@ -92,12 +92,20 @@ MAX_RELEASE_VERIFIER_ID_BYTES = 256
 MAX_RELEASE_VERIFIER_SECRET_BYTES = 4096
 MAX_RELEASE_VERIFIER_RECORD_BYTES = 8192
 MAX_RELEASE_VERIFIER_TRUST_BYTES = MAX_RUNTIME_DELIVERY_OBJECT_BYTES
+MAX_RELEASE_CONSUMER_HEALTH_BYTES = 64 * 1024
+_CORTEX_BRAIN_STARTUP_REVISION_ID = f"cortex-brain-startup-revision:{uuid4().hex}"
 _DEPENDABILITY_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
 _DEPENDABILITY_BOOT_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 _RELEASE_VERIFIER_LIFECYCLE_LOCKS: Dict[str, threading.RLock] = {}
 _RELEASE_VERIFIER_LIFECYCLE_LOCKS_GUARD = threading.Lock()
+
+
+def current_cortex_brain_startup_revision_id() -> str:
+    """Return the server-generated identity for this cortex-brain process."""
+
+    return _CORTEX_BRAIN_STARTUP_REVISION_ID
 
 
 def _dependability_server_now() -> datetime:
@@ -1298,6 +1306,7 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         }
 
     if _production_environment():
+        expected_brain_instance = current_cortex_brain_startup_revision_id()
         try:
             checks["credentialSeparation"] = _credential_separation_check(
                 verifier_credentials,
@@ -1326,9 +1335,35 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
                     with urlopen(url, timeout=2.0) as response:
                         if int(getattr(response, "status", 0) or 0) != 200:
                             raise RuntimeError(f"consumer health returned HTTP {getattr(response, 'status', 0)}")
-                except (HTTPError, URLError, OSError, RuntimeError, TimeoutError) as exc:
+                        encoded = response.read(MAX_RELEASE_CONSUMER_HEALTH_BYTES + 1)
+                    if len(encoded) > MAX_RELEASE_CONSUMER_HEALTH_BYTES:
+                        raise RuntimeError("consumer health response exceeds immutable bound")
+                    payload = json.loads(encoded.decode("utf-8"))
+                    if not isinstance(payload, dict):
+                        raise RuntimeError("consumer health returned a non-object response")
+                    if payload.get("ready") is not True or payload.get("capability_verified") is not True:
+                        raise RuntimeError("consumer has not completed a capability exchange")
+                    if str(payload.get("recipient") or "") != recipient:
+                        raise RuntimeError("consumer health role does not match its required worker")
+                    observed_instance = str(payload.get("cortex_brain_startup_revision_id") or "")
+                    if not hmac.compare_digest(observed_instance, expected_brain_instance):
+                        raise RuntimeError("consumer capability exchange belongs to a different cortex-brain instance")
+                except (
+                    HTTPError,
+                    URLError,
+                    OSError,
+                    RuntimeError,
+                    TimeoutError,
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                ) as exc:
                     error = f"{type(exc).__name__}: {exc}"
-            consumer_health[recipient] = {"ok": error is None, "url": url or None, "error": error}
+            consumer_health[recipient] = {
+                "ok": error is None,
+                "url": url or None,
+                "expectedCortexBrainStartupRevisionId": expected_brain_instance,
+                "error": error,
+            }
         checks["releaseConsumers"] = {
             "ok": all(row["ok"] for row in consumer_health.values()),
             "consumers": consumer_health,
@@ -5114,6 +5149,7 @@ __all__ = [
     "RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON",
     "RUNTIME_DELIVERY_MOUNT_MARKER",
     "advance_production_release_loop",
+    "current_cortex_brain_startup_revision_id",
     "detect_true_blockers",
     "evaluate_production_completion",
     "ingest_production_release_artifact",

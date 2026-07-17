@@ -76,8 +76,10 @@ if [[ "${CORTEX_RELEASE_VERIFIER_STATE_DIR}" == "${CORTEX_RELEASE_MANAGER_STATE_
   exit 1
 fi
 
-# Complete the allocation, file fsync, directory fsync, allocated-block check,
-# and quota/readiness projection before any serving process is started.
+# On an ordinary start, complete allocation and durability verification before
+# any serving process is started.  If a validated rollback is pending, this
+# preflight deliberately preserves its reduced reserve; router startup replays
+# that intent under the quota lock and verifies the full reserve after commit.
 preallocate_runtime_delivery_recovery_reserve
 
 export CORTEX_BASE_URL="${CORTEX_BASE_URL:-http://127.0.0.1:${CORTEX_PORT}}"

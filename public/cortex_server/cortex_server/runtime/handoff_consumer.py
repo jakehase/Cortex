@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -43,11 +44,16 @@ _POLL_STATUS: Dict[str, Any] = {
     "last_error": "authenticated poll has not succeeded",
     "awaiting_evidence_count": 0,
     "capability_verified": False,
+    "cortex_brain_startup_revision_id": None,
+    "recipient": None,
     "last_measurement_at": None,
 }
 
 _BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
 _BOOT_ID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_CORTEX_BRAIN_STARTUP_REVISION_PATTERN = re.compile(
+    r"^cortex-brain-startup-revision:[0-9a-f]{32}$"
+)
 
 
 class _EvidencePending(RuntimeError):
@@ -300,7 +306,14 @@ def _bound_measurement_url(measurement_url: str, release: Dict[str, Any], target
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
-def _verify_verifier_capability(base_url: str) -> bool:
+def _cortex_brain_startup_revision_id(response: Dict[str, Any]) -> str:
+    instance_id = str(response.get("cortex_brain_startup_revision_id") or "").strip()
+    if not _CORTEX_BRAIN_STARTUP_REVISION_PATTERN.fullmatch(instance_id):
+        raise RuntimeError("cortex-brain startup/revision identity is missing or invalid")
+    return instance_id
+
+
+def _verify_verifier_capability(base_url: str, expected_instance_id: str) -> bool:
     verifier = os.getenv("CORTEX_RELEASE_VERIFIER_ID", "").strip()
     secret = os.getenv("CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET", "").strip()
     if not verifier or len(secret.encode("utf-8")) < 32:
@@ -326,10 +339,17 @@ def _verify_verifier_capability(base_url: str) -> bool:
         response.get("success")
         and response.get("capability") == "revision-bound-artifact-attestation"
         and response.get("verifier") == verifier
+        and hmac.compare_digest(
+            _cortex_brain_startup_revision_id(response), expected_instance_id
+        )
     )
 
 
-def _verify_manager_capability(base_url: str, secret: str) -> bool:
+def _verify_manager_capability(
+    base_url: str,
+    secret: str,
+    expected_instance_id: str,
+) -> bool:
     manager_secret = str(secret or "").strip()
     if len(manager_secret.encode("utf-8")) < 32:
         raise RuntimeError("release manager requires a dedicated 32-byte recipient secret")
@@ -367,6 +387,9 @@ def _verify_manager_capability(base_url: str, secret: str) -> bool:
         response.get("success")
         and response.get("capability") == "signed-non-mutating-manager-rollback"
         and response.get("request_id") == request_id
+        and hmac.compare_digest(
+            _cortex_brain_startup_revision_id(response), expected_instance_id
+        )
     )
 
 
@@ -703,11 +726,14 @@ def _poll_once(base_url: str, recipient: str, secret: str) -> None:
             "recipient_signature": signature,
         },
     )
+    instance_id = _cortex_brain_startup_revision_id(response)
+    if response.get("success") is not True or str(response.get("recipient") or "") != recipient:
+        raise RuntimeError("authenticated handoff discovery response is invalid")
     measurement_verified = _probe_measurement(measurement_url)
     capability_verified = measurement_verified and (
-        _verify_verifier_capability(base_url)
+        _verify_verifier_capability(base_url, instance_id)
         if role == "verifier"
-        else _verify_manager_capability(base_url, secret)
+        else _verify_manager_capability(base_url, secret, instance_id)
     )
     active_observation_keys: set[str] = set()
     if role == "verifier":
@@ -756,29 +782,50 @@ def _poll_once(base_url: str, recipient: str, secret: str) -> None:
                 _process_message(base_url, recipient, secret, raw)
             except _EvidencePending:
                 awaiting_evidence += 1
-    with _POLL_STATUS_LOCK:
-        _POLL_STATUS["awaiting_evidence_count"] = awaiting_evidence
-        _POLL_STATUS["capability_verified"] = capability_verified
     # A successfully authenticated discovery whose available messages were
     # either completed or are waiting only for independent canary evidence
     # proves that the consumer can service the control-plane protocol.
-    _record_poll_success()
+    _record_poll_success(
+        cortex_brain_startup_revision_id=instance_id,
+        recipient=recipient,
+        capability_verified=capability_verified,
+        awaiting_evidence_count=awaiting_evidence,
+    )
 
 
-def _record_poll_success() -> None:
+def _record_poll_success(
+    *,
+    cortex_brain_startup_revision_id: str | None = None,
+    recipient: str | None = None,
+    capability_verified: bool | None = None,
+    awaiting_evidence_count: int | None = None,
+) -> None:
     with _POLL_STATUS_LOCK:
-        _POLL_STATUS.update(
-            {
-                "last_success_epoch": time.time(),
-                "last_success_at": _now_iso(),
-                "last_error": None,
-            }
-        )
+        update: Dict[str, Any] = {
+            "last_success_epoch": time.time(),
+            "last_success_at": _now_iso(),
+            "last_error": None,
+        }
+        if cortex_brain_startup_revision_id is not None:
+            update["cortex_brain_startup_revision_id"] = cortex_brain_startup_revision_id
+        if recipient is not None:
+            update["recipient"] = recipient
+        if capability_verified is not None:
+            update["capability_verified"] = bool(capability_verified)
+        if awaiting_evidence_count is not None:
+            update["awaiting_evidence_count"] = max(0, int(awaiting_evidence_count))
+        _POLL_STATUS.update(update)
 
 
 def _record_poll_error(exc: BaseException) -> None:
     with _POLL_STATUS_LOCK:
-        _POLL_STATUS["last_error"] = f"{type(exc).__name__}: {exc}"
+        _POLL_STATUS.update(
+            {
+                "last_error": f"{type(exc).__name__}: {exc}",
+                "capability_verified": False,
+                "cortex_brain_startup_revision_id": None,
+            }
+        )
 
 
 def _consumer_readiness() -> Dict[str, Any]:
@@ -794,8 +841,13 @@ def _consumer_readiness() -> Dict[str, Any]:
     last_success = snapshot.get("last_success_epoch")
     age = time.time() - float(last_success) if last_success is not None else None
     capability_verified = bool(snapshot.get("capability_verified"))
+    instance_id = str(snapshot.get("cortex_brain_startup_revision_id") or "")
     ready = age is not None and age <= max_age and (
-        capability_verified or not _production_environment()
+        (
+            capability_verified
+            and bool(_CORTEX_BRAIN_STARTUP_REVISION_PATTERN.fullmatch(instance_id))
+        )
+        or not _production_environment()
     )
     return {
         "status": "ready" if ready else "not_ready",
@@ -806,6 +858,8 @@ def _consumer_readiness() -> Dict[str, Any]:
         "last_error": snapshot.get("last_error"),
         "awaiting_evidence_count": int(snapshot.get("awaiting_evidence_count") or 0),
         "capability_verified": capability_verified,
+        "cortex_brain_startup_revision_id": instance_id or None,
+        "recipient": snapshot.get("recipient"),
         "last_measurement_at": snapshot.get("last_measurement_at"),
     }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -101,6 +102,114 @@ def _public_runtime_delivery_client() -> TestClient:
     client = TestClient(app)
     client.headers["x-cortex-write-token"] = "runtime-delivery-write-token"
     return client
+
+
+def test_router_startup_recovers_rollback_before_reserve_and_generic_migrations(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+
+    @contextmanager
+    def startup_lock(root):
+        events.append(("lock", root))
+        yield
+        events.append(("unlock", root))
+
+    class SessionRegistry:
+        def migrate_legacy_principals(self, principals):
+            events.append(("migrate", principals))
+
+    root = (tmp_path / "runtime_delivery").resolve()
+    stores = {"root": root, "session_registry": SessionRegistry()}
+    monkeypatch.setattr(orchestrator, "_runtime_delivery_root", lambda: root)
+    monkeypatch.setattr(orchestrator, "_runtime_delivery_stores", lambda: stores)
+    monkeypatch.setattr(
+        orchestrator,
+        "runtime_delivery_startup_recovery_transaction",
+        startup_lock,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_recover_runtime_delivery_rollbacks",
+        lambda *, stores: events.append(("rollback", stores["root"])) or ["proc"],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "preallocate_runtime_delivery_recovery_reserve",
+        lambda requested_root: events.append(("reserve", requested_root))
+        or {"ok": True, "startupRecoveryPending": False},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_recover_runtime_delivery_bootstraps",
+        lambda *, stores: events.append(("bootstrap", stores["root"])) or [],
+    )
+    monkeypatch.setattr(orchestrator, "list_runtime_processes", lambda: [])
+
+    asyncio.run(orchestrator.recover_runtime_delivery_rollbacks_on_startup())
+
+    assert [event[0] for event in events] == [
+        "lock",
+        "rollback",
+        "reserve",
+        "unlock",
+        "migrate",
+        "bootstrap",
+    ]
+
+
+def test_router_startup_fails_closed_when_post_commit_reserve_cannot_replenish(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+
+    @contextmanager
+    def startup_lock(_root):
+        yield
+
+    root = (tmp_path / "runtime_delivery").resolve()
+    stores = {"root": root, "session_registry": object()}
+    monkeypatch.setattr(orchestrator, "_runtime_delivery_root", lambda: root)
+    monkeypatch.setattr(orchestrator, "_runtime_delivery_stores", lambda: stores)
+    monkeypatch.setattr(
+        orchestrator,
+        "runtime_delivery_startup_recovery_transaction",
+        startup_lock,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_recover_runtime_delivery_rollbacks",
+        lambda *, stores: events.append("rollback-committed") or ["proc"],
+    )
+
+    def reserve_unavailable(_root):
+        events.append("reserve-failed")
+        raise orchestrator.RuntimeDeliveryQuotaError(
+            "released recovery capacity is still occupied"
+        )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "preallocate_runtime_delivery_recovery_reserve",
+        reserve_unavailable,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "list_runtime_processes",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("generic startup work must remain fenced")
+        ),
+    )
+
+    with pytest.raises(
+        orchestrator.RuntimeDeliveryQuotaError,
+        match="released recovery capacity is still occupied",
+    ):
+        asyncio.run(orchestrator.recover_runtime_delivery_rollbacks_on_startup())
+
+    assert events == ["rollback-committed", "reserve-failed"]
 
 
 @pytest.mark.asyncio
@@ -1278,6 +1387,9 @@ def test_verifier_capability_challenge_requires_dedicated_attestation_secret(mon
     )
     response = asyncio.run(orchestrator.verify_runtime_delivery_verifier_capability(valid))
     assert response["capability"] == "revision-bound-artifact-attestation"
+    assert response["cortex_brain_startup_revision_id"] == (
+        production_build_loop.current_cortex_brain_startup_revision_id()
+    )
 
     invalid = valid.model_copy(update={"verifier_signature": "0" * 64})
     with pytest.raises(orchestrator.HTTPException) as rejected:
@@ -1333,6 +1445,9 @@ def test_manager_capability_challenge_is_signed_and_non_mutating(monkeypatch):
     assert response == {
         "success": True,
         "capability": "signed-non-mutating-manager-rollback",
+        "cortex_brain_startup_revision_id": (
+            production_build_loop.current_cortex_brain_startup_revision_id()
+        ),
         "request_id": request_id,
     }
 

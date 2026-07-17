@@ -264,8 +264,18 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_HEALTH_URL", "http://release-verifier:8091/health")
     monkeypatch.setenv("CORTEX_RELEASE_MANAGER_HEALTH_URL", "http://release-manager:8092/health")
 
+    expected_brain_instance = (
+        production_build_loop.current_cortex_brain_startup_revision_id()
+    )
+    worker_instance = {"value": expected_brain_instance}
+
     class HealthyResponse:
         status = 200
+
+        def __init__(self, url):
+            self.recipient = (
+                "release-verifier" if "release-verifier" in str(url) else "release-manager"
+            )
 
         def __enter__(self):
             return self
@@ -273,7 +283,21 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
         def __exit__(self, *_args):
             return False
 
-    monkeypatch.setattr(production_build_loop, "urlopen", lambda *_args, **_kwargs: HealthyResponse())
+        def read(self, _size=-1):
+            return json.dumps(
+                {
+                    "ready": True,
+                    "capability_verified": True,
+                    "recipient": self.recipient,
+                    "cortex_brain_startup_revision_id": worker_instance["value"],
+                }
+            ).encode("utf-8")
+
+    monkeypatch.setattr(
+        production_build_loop,
+        "urlopen",
+        lambda url, **_kwargs: HealthyResponse(url),
+    )
 
     reasoning_before = reasoning_path.read_bytes()
     reasoning_mtime_before = reasoning_path.stat().st_mtime_ns
@@ -283,6 +307,16 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     assert healthy["checks"]["durableReasoningStore"]["quickCheck"] == "ok"
     assert reasoning_path.read_bytes() == reasoning_before
     assert reasoning_path.stat().st_mtime_ns == reasoning_mtime_before
+
+    worker_instance["value"] = "cortex-brain-startup-revision:" + "f" * 32
+    stale_workers = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    assert stale_workers["ready"] is False
+    assert stale_workers["checks"]["releaseConsumers"]["ok"] is False
+    assert all(
+        "different cortex-brain instance" in row["error"]
+        for row in stale_workers["checks"]["releaseConsumers"]["consumers"].values()
+    )
+    worker_instance["value"] = expected_brain_instance
 
     rotated_verifier = "independent-release-verifier-v2"
     rotated_secret = "verifier-key-v2-000000000000000000001"
@@ -498,13 +532,34 @@ def test_production_readiness_never_initializes_a_missing_reasoning_authority(
     class HealthyResponse:
         status = 200
 
+        def __init__(self, url):
+            self.recipient = (
+                "release-verifier" if "release-verifier" in str(url) else "release-manager"
+            )
+
         def __enter__(self):
             return self
 
         def __exit__(self, *_args):
             return False
 
-    monkeypatch.setattr(production_build_loop, "urlopen", lambda *_args, **_kwargs: HealthyResponse())
+        def read(self, _size=-1):
+            return json.dumps(
+                {
+                    "ready": True,
+                    "capability_verified": True,
+                    "recipient": self.recipient,
+                    "cortex_brain_startup_revision_id": (
+                        production_build_loop.current_cortex_brain_startup_revision_id()
+                    ),
+                }
+            ).encode("utf-8")
+
+    monkeypatch.setattr(
+        production_build_loop,
+        "urlopen",
+        lambda url, **_kwargs: HealthyResponse(url),
+    )
     from cortex_server.modules import reasoning_store
 
     initializer_calls = []
