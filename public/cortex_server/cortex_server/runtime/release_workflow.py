@@ -3296,6 +3296,16 @@ def _committed_rollback_descriptor(response: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _rollback_archive_json_default(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        return value.dict()
+    raise TypeError(
+        f"Object of type {value.__class__.__name__} is not JSON serializable"
+    )
+
+
 def _archived_committed_rollback_response(response: Dict[str, Any]) -> Dict[str, Any]:
     """Freeze one rollback response independently of subsequently active state."""
 
@@ -3326,7 +3336,12 @@ def _archived_committed_rollback_response(response: Dict[str, Any]) -> Dict[str,
         "shared_state": shared_state_payload,
         "rollback_event": json.loads(json.dumps(rollback_event)) if rollback_event is not None else None,
         "rollback_transaction": transaction,
-        "rollback_projections": json.loads(json.dumps(response.get("rollback_projections") or {})),
+        "rollback_projections": json.loads(
+            json.dumps(
+                response.get("rollback_projections") or {},
+                default=_rollback_archive_json_default,
+            )
+        ),
         "applied": bool(response.get("applied")),
         "production_image_ref": response.get("production_image_ref"),
         "production_image_digest": response.get("production_image_digest"),

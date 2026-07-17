@@ -1858,6 +1858,83 @@ def test_committed_rollback_retry_returns_durable_response_without_rolling_back_
         )
 
 
+def test_committed_rollback_archives_model_projection_for_idempotent_replay(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_model_projection_replay"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:model-projection-replay",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=seeded["snapshot"],
+            shared_state=seeded["shared_state"],
+            stage="canary_verified",
+        ),
+    )
+    stored = harness.release_store.save(state)
+    projection_calls = []
+
+    def project(**projection):
+        projection_calls.append(projection["intent"]["transaction_id"])
+        return {
+            "completed_projections": ["production_loop"],
+            "loop_checkpoint": {
+                "state": projection["restored_shared_state"],
+                "snapshot": projection["restored_snapshot"],
+            },
+        }
+
+    first = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="model_projection_failure",
+        actor="release-manager",
+        required_projections=["production_loop"],
+        projection_callback=project,
+        idempotency_key="model-projection-rollback-001",
+    )
+    archived = harness.release_store.load_rollback_result(
+        process_id, "model-projection-rollback-001"
+    )
+    replayed = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="model_projection_failure",
+        actor="release-manager",
+        required_projections=["production_loop"],
+        idempotency_key="model-projection-rollback-001",
+    )
+
+    archived_checkpoint = archived["committed_response"]["rollback_projections"][
+        "loop_checkpoint"
+    ]
+    assert archived_checkpoint["state"]["process_id"] == process_id
+    assert archived_checkpoint["snapshot"]["process_id"] == process_id
+    assert replayed["rollback_projections"]["loop_checkpoint"] == archived_checkpoint
+    assert replayed["rollback_transaction"]["transaction_id"] == first[
+        "rollback_transaction"
+    ]["transaction_id"]
+    assert projection_calls == [first["rollback_transaction"]["transaction_id"]]
+    assert harness.release_store.load_rollback_intent(process_id)["status"] == "committed"
+
+
 def test_archived_rollback_replay_is_stable_after_a_later_committed_rollback(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     process_id = "proc_release_archived_replay"
