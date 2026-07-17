@@ -54,6 +54,17 @@ MAX_RELEASE_STATE_BYTES = 4 * 1024 * 1024
 MAX_RELEASE_HISTORY_BYTES = 64 * 1024 * 1024
 MAX_RELEASE_PROCESS_DURABLE_BYTES = 128 * 1024 * 1024
 MAX_RELEASE_GLOBAL_DURABLE_BYTES = 1536 * 1024 * 1024
+# A history frame contains one bounded state plus bounded intent provenance and
+# a small integrity/audit envelope.  Ordinary growth must leave one complete
+# frame, stage, and save intent available to an already-durable rollback.
+MAX_RELEASE_HISTORY_FRAME_BYTES = 2 * MAX_RUNTIME_DELIVERY_OBJECT_BYTES + 64 * 1024
+RELEASE_HISTORY_RECOVERY_RESERVE_BYTES = MAX_RELEASE_HISTORY_FRAME_BYTES
+RELEASE_PROCESS_RECOVERY_RESERVE_BYTES = (
+    MAX_RELEASE_HISTORY_FRAME_BYTES
+    + MAX_RELEASE_STATE_BYTES
+    + MAX_RUNTIME_DELIVERY_OBJECT_BYTES
+)
+RELEASE_GLOBAL_RECOVERY_RESERVE_BYTES = RELEASE_PROCESS_RECOVERY_RESERVE_BYTES
 
 
 @dataclass(frozen=True)
@@ -1329,6 +1340,7 @@ class ReleaseWorkflowStore:
         history_record: ReleaseWorkflowHistoryRecord,
         *,
         save_intent_bytes: int = 0,
+        recovery_admission: bool = False,
     ) -> None:
         state_payload = _workflow_dump_compat(state)
         receipts = list((state.metadata or {}).get("release_artifacts") or [])
@@ -1356,10 +1368,23 @@ class ReleaseWorkflowStore:
         history_append_bytes = len(
             (json.dumps(_history_dump_compat(history_record), sort_keys=True) + "\n").encode("utf-8")
         )
-        if history_bytes + history_append_bytes > MAX_RELEASE_HISTORY_BYTES:
+        if history_append_bytes > MAX_RELEASE_HISTORY_FRAME_BYTES:
+            raise ValueError(
+                "release history frame quota exceeded: "
+                f"{history_append_bytes} > {MAX_RELEASE_HISTORY_FRAME_BYTES} bytes"
+            )
+        if save_intent_bytes > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+            raise ValueError(
+                "release save intent quota exceeded: "
+                f"{save_intent_bytes} > {MAX_RUNTIME_DELIVERY_OBJECT_BYTES} bytes"
+            )
+        history_limit = MAX_RELEASE_HISTORY_BYTES - (
+            0 if recovery_admission else RELEASE_HISTORY_RECOVERY_RESERVE_BYTES
+        )
+        if history_bytes + history_append_bytes > history_limit:
             raise ValueError(
                 "release history quota exceeded: "
-                f"{history_bytes + history_append_bytes} > {MAX_RELEASE_HISTORY_BYTES} bytes"
+                f"{history_bytes + history_append_bytes} > {history_limit} bytes"
             )
         intent_target = self._rollback_intent_target(state.process_id)
         intent_bytes = intent_target.stat().st_size if intent_target.exists() else 0
@@ -1370,10 +1395,13 @@ class ReleaseWorkflowStore:
             + intent_bytes
             + save_intent_bytes
         )
-        if projected_process_bytes > MAX_RELEASE_PROCESS_DURABLE_BYTES:
+        process_limit = MAX_RELEASE_PROCESS_DURABLE_BYTES - (
+            0 if recovery_admission else RELEASE_PROCESS_RECOVERY_RESERVE_BYTES
+        )
+        if projected_process_bytes > process_limit:
             raise ValueError(
                 "release process durable quota exceeded: "
-                f"{projected_process_bytes} > {MAX_RELEASE_PROCESS_DURABLE_BYTES} bytes"
+                f"{projected_process_bytes} > {process_limit} bytes"
             )
         root = self.path.parent if self.path.suffix else self.path
         global_usage = 0
@@ -1386,11 +1414,37 @@ class ReleaseWorkflowStore:
         projected_global = (
             global_usage + state_bytes + history_append_bytes + save_intent_bytes
         )
-        if projected_global > MAX_RELEASE_GLOBAL_DURABLE_BYTES:
+        global_limit = MAX_RELEASE_GLOBAL_DURABLE_BYTES - (
+            0 if recovery_admission else RELEASE_GLOBAL_RECOVERY_RESERVE_BYTES
+        )
+        if projected_global > global_limit:
             raise ValueError(
                 "global release durable quota exceeded: "
-                f"{projected_global} > {MAX_RELEASE_GLOBAL_DURABLE_BYTES} bytes"
+                f"{projected_global} > {global_limit} bytes"
             )
+
+    def _rollback_recovery_admitted(
+        self,
+        state: ReleaseWorkflowState,
+        provenance: Dict[str, Any],
+    ) -> bool:
+        """Authorize logical reserve use only for a matching durable rollback."""
+
+        if provenance.get("rollback") is not True:
+            return False
+        transaction_id = str(provenance.get("rollback_transaction_id") or "").strip()
+        intent = self.load_rollback_intent(state.process_id)
+        if (
+            not transaction_id
+            or intent is None
+            or str(intent.get("process_id") or "") != state.process_id
+            or str(intent.get("transaction_id") or "") != transaction_id
+            or intent.get("status") not in {"in_progress", "recovery_required"}
+        ):
+            raise RuntimeError(
+                "release recovery capacity requires a matching durable rollback intent"
+            )
+        return True
 
     def _rollback_intent_target(self, process_id: str) -> Path:
         target = self._target(process_id)
@@ -1426,9 +1480,53 @@ class ReleaseWorkflowStore:
             ]
         else:
             targets = []
+        if self.path.suffix:
+            pending_intents = [
+                self.path.with_name(f".{self.path.name}.save-intent.json")
+            ]
+        elif self.path.exists():
+            pending_intents = sorted(self.path.glob(".*.json.save-intent.json"))
+        else:
+            pending_intents = []
+        recoverable_states: List[tuple[Path, ReleaseWorkflowState]] = []
+        for intent_target in pending_intents:
+            if not intent_target.exists():
+                continue
+            intent = json.loads(intent_target.read_text(encoding="utf-8"))
+            process_id = str(intent.get("process_id") or "").strip() if isinstance(intent, dict) else ""
+            if (
+                not isinstance(intent, dict)
+                or intent.get("version") != "cortex.release-workflow-save-intent.v1"
+                or not process_id
+                or intent_target != self._save_intent_target(process_id)
+            ):
+                raise RuntimeError("release workflow save intent is invalid during artifact scan")
+            intended_revision = int(intent.get("persistence_revision") or 0)
+            expected_hash = str(intent.get("state_sha256") or "")
+            stage_target = self._save_stage_target(process_id)
+            source = stage_target if stage_target.exists() else self._target(process_id)
+            if not source.is_file() or source.is_symlink():
+                raise RuntimeError("release workflow recovery state is missing during artifact scan")
+            state_bytes = source.read_bytes()
+            if not hmac.compare_digest(hashlib.sha256(state_bytes).hexdigest(), expected_hash):
+                raise RuntimeError("release workflow save intent payload hash mismatch during artifact scan")
+            persisted = _workflow_validate_compat(json.loads(state_bytes))
+            if (
+                persisted.process_id != process_id
+                or persisted.persistence_revision != intended_revision
+            ):
+                raise RuntimeError("release workflow save intent is not revision bound during artifact scan")
+            current = self._load_unlocked(process_id)
+            current_revision = current.persistence_revision if current else 0
+            if current_revision not in {intended_revision - 1, intended_revision}:
+                raise RuntimeError("release workflow save intent is not recoverable during artifact scan")
+            recoverable_states.append((source, persisted))
         references: List[str] = []
-        for target in targets:
-            state = _workflow_validate_compat(json.loads(target.read_text(encoding="utf-8")))
+        durable_states = [
+            (target, _workflow_validate_compat(json.loads(target.read_text(encoding="utf-8"))))
+            for target in targets
+        ]
+        for target, state in durable_states + recoverable_states:
             for receipt in list((state.metadata or {}).get("release_artifacts") or []):
                 if not isinstance(receipt, dict):
                     raise ValueError(f"invalid release artifact receipt in {target}")
@@ -1644,6 +1742,7 @@ class ReleaseWorkflowStore:
         provenance: Optional[Dict[str, Any]] = None,
     ) -> ReleaseWorkflowState:
         record = state if isinstance(state, ReleaseWorkflowState) else _workflow_validate_compat(dict(state))
+        source_provenance = dict(provenance or {})
         with self.release_transaction(record.process_id):
             self._recover_pending_save(record.process_id)
             current = self._load_unlocked(record.process_id)
@@ -1680,11 +1779,15 @@ class ReleaseWorkflowStore:
                 status=persisted.status,
                 actor=str(actor or "").strip() or None,
                 provenance={
-                    **dict(provenance or {}),
+                    **source_provenance,
                     "persistence_revision": next_revision,
                 },
                 change_set=_state_change_set(current, persisted),
-                state=self._history_state_payload(persisted, dict(provenance or {})),
+                state=self._history_state_payload(persisted, source_provenance),
+            )
+            recovery_admission = self._rollback_recovery_admitted(
+                persisted,
+                source_provenance,
             )
             with self._metadata_quota_transaction():
                 delivery_root = self.path.parent
@@ -1702,7 +1805,7 @@ class ReleaseWorkflowStore:
                     "history_id": history_record.history_id,
                     "actor": history_record.actor,
                     "provenance": dict(history_record.provenance),
-                    "source_provenance": dict(provenance or {}),
+                    "source_provenance": source_provenance,
                     "change_set": dict(history_record.change_set),
                     "recorded_at": history_record.recorded_at,
                 }
@@ -1717,6 +1820,7 @@ class ReleaseWorkflowStore:
                         persisted,
                         history_record,
                         save_intent_bytes=len(intent_encoded),
+                        recovery_admission=recovery_admission,
                     )
                     assert_runtime_delivery_volume_capacity(
                         delivery_root,

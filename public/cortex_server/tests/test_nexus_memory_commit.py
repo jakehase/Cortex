@@ -398,6 +398,64 @@ def test_ledger_compacts_expired_consumed_results_and_enforces_multi_tenant_quot
     assert rows == [("b" * 32, "reserved"), ("c" * 32, "reserved")]
 
 
+def test_receipt_admission_reserves_result_bytes_and_recovery_uses_separate_capacity(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "result-capacity-assurance-receipts.sqlite3"
+    scope = {"tenant_id": "tenant", "workspace_id": "workspace", "user_id": "user"}
+    monkeypatch.setattr(assurance_ledger, "_MAX_RESULT_BYTES", 100)
+    monkeypatch.setattr(assurance_ledger, "_MAX_RESULT_STORAGE_BYTES", 150)
+    monkeypatch.setattr(assurance_ledger, "_MAX_RECOVERY_RESULT_STORAGE_BYTES", 100)
+
+    first = reserve_assurance_receipt(
+        state_path,
+        scope=scope,
+        jti="result-capacity-1",
+        expires_at=1_000,
+        now=100,
+    )
+    with pytest.raises(AssuranceReceiptLedgerUnavailable, match="result_quota"):
+        reserve_assurance_receipt(
+            state_path,
+            scope=scope,
+            jti="result-capacity-2",
+            expires_at=1_000,
+            now=100,
+        )
+
+    exact_result = {"committed": True, "receipt": "x" * 50}
+    finalize_assurance_receipt(state_path, first, result=exact_result, now=101)
+    restored = recover_assurance_receipt(
+        state_path,
+        scope=scope,
+        jti="result-capacity-2",
+        restore_expires_at=1_000,
+        now=102,
+    )
+    finalize_assurance_receipt(state_path, restored, result=exact_result, now=103)
+
+    assert consumed_assurance_receipt_result(
+        state_path,
+        scope=scope,
+        jti="result-capacity-1",
+    ) == exact_result
+    assert consumed_assurance_receipt_result(
+        state_path,
+        scope=scope,
+        jti="result-capacity-2",
+    ) == exact_result
+    with sqlite3.connect(state_path) as connection:
+        rows = connection.execute(
+            "SELECT jti, status, result_capacity_bytes, result_capacity_pool "
+            "FROM assurance_receipt_ledger ORDER BY jti"
+        ).fetchall()
+    assert rows == [
+        ("result-capacity-1", "consumed", 0, "normal"),
+        ("result-capacity-2", "consumed", 0, "recovery"),
+    ]
+
+
 @pytest.mark.parametrize("changed_field", ("session_id", "channel_id"))
 def test_adaptive_retrieval_state_isolated_by_full_principal_across_restart(
     tmp_path,

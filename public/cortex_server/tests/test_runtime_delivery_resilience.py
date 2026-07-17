@@ -263,6 +263,58 @@ def test_failed_receipt_persistence_removes_newly_published_orphan(tmp_path, mon
     assert not list(store.artifact_store().path.glob("*/*.artifact"))
 
 
+def test_pending_release_save_keeps_new_artifact_reachable_until_restart_recovery(
+    tmp_path,
+    monkeypatch,
+):
+    store = ReleaseWorkflowStore(tmp_path / "release")
+    process_id = "proc_pending_artifact_save"
+    _release_state(store, process_id)
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({VERIFIER_ID: VERIFIER_SECRET}),
+    )
+    real_publish = store._publish_stage
+    injected = {"raised": False}
+
+    def fail_after_intent_and_history(stage, target):
+        if target == store._target(process_id) and not injected["raised"]:
+            injected["raised"] = True
+            raise OSError("injected state publication failure")
+        return real_publish(stage, target)
+
+    monkeypatch.setattr(store, "_publish_stage", fail_after_intent_and_history)
+    with pytest.raises(OSError, match="injected state publication failure"):
+        _ingest(
+            store,
+            process_id,
+            artifact_id="artifact:pending-save",
+            payload="recoverable-published-artifact",
+        )
+
+    artifact_targets = list(store.artifact_store().path.glob("*/*.artifact"))
+    assert len(artifact_targets) == 1
+    artifact_ref = f"sha256:{artifact_targets[0].stem}"
+    assert artifact_ref in store.referenced_artifact_refs()
+    assert store.artifact_store().prune_orphans(
+        store.referenced_artifact_refs(),
+        grace_seconds=0,
+    ) == []
+    assert artifact_targets[0].exists()
+    assert store._save_intent_target(process_id).exists()
+    assert store._save_stage_target(process_id).exists()
+
+    restarted = ReleaseWorkflowStore(tmp_path / "release")
+    recovered = restarted.load(process_id)
+    assert recovered is not None
+    assert recovered.metadata["release_artifacts"][-1]["artifact_ref"] == artifact_ref
+    assert restarted.artifact_store().resolve(artifact_ref) == canonical_release_artifact_bytes(
+        "recoverable-published-artifact"
+    )
+    assert not restarted._save_intent_target(process_id).exists()
+    assert not restarted._save_stage_target(process_id).exists()
+
+
 def test_durable_verifier_trust_survives_add_drain_retire_restart_and_rejects_id_reuse(tmp_path, monkeypatch):
     delivery_root = tmp_path / "runtime_delivery"
     delivery_root.mkdir()

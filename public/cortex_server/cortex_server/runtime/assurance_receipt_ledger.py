@@ -14,7 +14,7 @@ import time
 from typing import Any, Mapping, Optional
 
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _LEDGER_LOCK = threading.RLock()
 _LOCK_RETRY_SECONDS = 10.0
 _LOCK_RETRY_INTERVAL_SECONDS = 0.01
@@ -26,6 +26,7 @@ _CONSUMED_RETENTION_AFTER_EXPIRY_SECONDS = 24 * 60 * 60
 _ABANDONED_RETENTION_AFTER_EXPIRY_SECONDS = 7 * 24 * 60 * 60
 _RECOVERY_CLAIM_TIMEOUT_SECONDS = 30
 _RECOVERY_ROW_RESERVE = 1024
+_MAX_RECOVERY_RESULT_STORAGE_BYTES = _RECOVERY_ROW_RESERVE * _MAX_RESULT_BYTES
 
 
 class AssuranceReceiptLedgerUnavailable(RuntimeError):
@@ -105,6 +106,9 @@ def _connect(state_path: Path) -> sqlite3.Connection:
                 expires_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 result_json TEXT,
+                result_capacity_bytes INTEGER NOT NULL DEFAULT 0,
+                result_capacity_pool TEXT NOT NULL DEFAULT 'normal'
+                    CHECK (result_capacity_pool IN ('normal', 'recovery')),
                 recovery_token TEXT,
                 recovery_started_at INTEGER,
                 schema_version INTEGER NOT NULL,
@@ -118,10 +122,29 @@ def _connect(state_path: Path) -> sqlite3.Connection:
         }
         if "result_json" not in columns:
             connection.execute("ALTER TABLE assurance_receipt_ledger ADD COLUMN result_json TEXT")
+        if "result_capacity_bytes" not in columns:
+            connection.execute(
+                "ALTER TABLE assurance_receipt_ledger "
+                "ADD COLUMN result_capacity_bytes INTEGER NOT NULL DEFAULT 0"
+            )
+        if "result_capacity_pool" not in columns:
+            connection.execute(
+                "ALTER TABLE assurance_receipt_ledger "
+                "ADD COLUMN result_capacity_pool TEXT NOT NULL DEFAULT 'normal'"
+            )
         if "recovery_token" not in columns:
             connection.execute("ALTER TABLE assurance_receipt_ledger ADD COLUMN recovery_token TEXT")
         if "recovery_started_at" not in columns:
             connection.execute("ALTER TABLE assurance_receipt_ledger ADD COLUMN recovery_started_at INTEGER")
+        # Reservations admitted by an older schema did not carry a result-byte
+        # allocation.  Grandfather them into the bounded recovery pool so an
+        # upgrade cannot strand a durable write that still needs finalization.
+        connection.execute(
+            "UPDATE assurance_receipt_ledger SET result_capacity_bytes = ?, "
+            "result_capacity_pool = 'recovery', schema_version = ? "
+            "WHERE status = 'reserved' AND result_capacity_bytes = 0",
+            (_MAX_RESULT_BYTES, _SCHEMA_VERSION),
+        )
     except Exception:
         if connection is not None:
             connection.close()
@@ -173,7 +196,9 @@ def _compact_and_assert_capacity(
             raise AssuranceReceiptLedgerUnavailable("assurance_receipt_ledger_scope_quota_exceeded")
     result_storage = int(
         connection.execute(
-            "SELECT COALESCE(SUM(LENGTH(CAST(result_json AS BLOB))), 0) FROM assurance_receipt_ledger"
+            "SELECT COALESCE(SUM(CASE WHEN status = 'reserved' THEN result_capacity_bytes "
+            "ELSE LENGTH(CAST(result_json AS BLOB)) END), 0) "
+            "FROM assurance_receipt_ledger WHERE result_capacity_pool = 'normal'"
         ).fetchone()[0]
     )
     if result_storage + _MAX_RESULT_BYTES > _MAX_RESULT_STORAGE_BYTES:
@@ -229,8 +254,9 @@ def reserve_assurance_receipt(
             )
             connection.execute(
                 "INSERT INTO assurance_receipt_ledger("
-                "scope_digest, scope_json, jti, status, reservation_token, expires_at, updated_at, schema_version"
-                ") VALUES (?, ?, ?, 'reserved', ?, ?, ?, ?)",
+                "scope_digest, scope_json, jti, status, reservation_token, expires_at, updated_at, "
+                "result_capacity_bytes, result_capacity_pool, schema_version"
+                ") VALUES (?, ?, ?, 'reserved', ?, ?, ?, ?, 'normal', ?)",
                 (
                     scope_digest,
                     scope_json,
@@ -238,6 +264,7 @@ def reserve_assurance_receipt(
                     token,
                     normalized_expiry,
                     current_time,
+                    _MAX_RESULT_BYTES,
                     _SCHEMA_VERSION,
                 ),
             )
@@ -279,7 +306,8 @@ def finalize_assurance_receipt(
 
     current_time = int(time.time()) if now is None else int(now)
     result_json = json.dumps(dict(result), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    if len(result_json.encode("utf-8")) > _MAX_RESULT_BYTES:
+    result_bytes = len(result_json.encode("utf-8"))
+    if result_bytes > _MAX_RESULT_BYTES:
         raise AssuranceReceiptLedgerUnavailable("assurance_receipt_result_too_large")
     connection: Optional[sqlite3.Connection] = None
     try:
@@ -287,18 +315,28 @@ def finalize_assurance_receipt(
             connection = _connect(Path(state_path))
             connection.execute("BEGIN IMMEDIATE")
             _compact_and_assert_capacity(connection, current_time=current_time)
-            result_storage = int(
-                connection.execute(
-                    "SELECT COALESCE(SUM(LENGTH(CAST(result_json AS BLOB))), 0) "
-                    "FROM assurance_receipt_ledger WHERE NOT (scope_digest = ? AND jti = ?)",
-                    (reservation.scope_digest, reservation.jti),
-                ).fetchone()[0]
-            )
-            if result_storage + len(result_json.encode("utf-8")) > _MAX_RESULT_STORAGE_BYTES:
-                raise AssuranceReceiptLedgerUnavailable("assurance_receipt_ledger_result_quota_exceeded")
+            allocated = connection.execute(
+                "SELECT result_capacity_bytes FROM assurance_receipt_ledger "
+                "WHERE scope_digest = ? AND jti = ? AND scope_json = ? "
+                "AND reservation_token = ? AND status = 'reserved'",
+                (
+                    reservation.scope_digest,
+                    reservation.jti,
+                    reservation.scope_json,
+                    reservation.token,
+                ),
+            ).fetchone()
+            if allocated is None:
+                raise AssuranceReceiptLedgerUnavailable(
+                    "assurance_receipt_reservation_lost"
+                )
+            if result_bytes > int(allocated["result_capacity_bytes"] or 0):
+                raise AssuranceReceiptLedgerUnavailable(
+                    "assurance_receipt_result_capacity_missing"
+                )
             cursor = connection.execute(
                 "UPDATE assurance_receipt_ledger SET status = 'consumed', updated_at = ?, result_json = ?, "
-                "recovery_token = NULL, recovery_started_at = NULL, schema_version = ? "
+                "result_capacity_bytes = 0, recovery_token = NULL, recovery_started_at = NULL, schema_version = ? "
                 "WHERE scope_digest = ? AND jti = ? AND scope_json = ? "
                 "AND reservation_token = ? AND status = 'reserved'",
                 (
@@ -378,12 +416,26 @@ def recover_assurance_receipt(
                 )
                 if scope_rows >= _MAX_SCOPE_ROWS + _RECOVERY_ROW_RESERVE:
                     raise AssuranceReceiptLedgerUnavailable("assurance_receipt_ledger_scope_recovery_quota_exceeded")
+                recovery_result_storage = int(
+                    connection.execute(
+                        "SELECT COALESCE(SUM(CASE WHEN status = 'reserved' THEN result_capacity_bytes "
+                        "ELSE LENGTH(CAST(result_json AS BLOB)) END), 0) "
+                        "FROM assurance_receipt_ledger WHERE result_capacity_pool = 'recovery'"
+                    ).fetchone()[0]
+                )
+                if (
+                    recovery_result_storage + _MAX_RESULT_BYTES
+                    > _MAX_RECOVERY_RESULT_STORAGE_BYTES
+                ):
+                    raise AssuranceReceiptLedgerUnavailable(
+                        "assurance_receipt_ledger_result_recovery_quota_exceeded"
+                    )
                 expires_at = int(restore_expires_at)
                 connection.execute(
                     "INSERT INTO assurance_receipt_ledger("
                     "scope_digest, scope_json, jti, status, reservation_token, expires_at, updated_at, "
-                    "recovery_token, recovery_started_at, schema_version"
-                    ") VALUES (?, ?, ?, 'reserved', ?, ?, ?, ?, ?, ?)",
+                    "result_capacity_bytes, result_capacity_pool, recovery_token, recovery_started_at, schema_version"
+                    ") VALUES (?, ?, ?, 'reserved', ?, ?, ?, ?, 'recovery', ?, ?, ?)",
                     (
                         scope_digest,
                         scope_json,
@@ -391,6 +443,7 @@ def recover_assurance_receipt(
                         token,
                         expires_at,
                         current_time,
+                        _MAX_RESULT_BYTES,
                         token,
                         current_time,
                         _SCHEMA_VERSION,

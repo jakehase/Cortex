@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import cortex_server.runtime.durable_files as durable_files
+import cortex_server.runtime.release_workflow as release_workflow
 from cortex_server.runtime import (
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
@@ -593,6 +594,68 @@ def test_release_save_rejects_history_growth_at_immutable_boundary(tmp_path):
 
     with pytest.raises(ValueError, match="history quota"):
         store.save(state, actor="release-manager")
+
+
+def test_ordinary_history_growth_cannot_consume_rollback_recovery_frame(
+    tmp_path,
+    monkeypatch,
+):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_history_rollback_reserve"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:history-rollback-reserve",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=seeded["snapshot"],
+            shared_state=seeded["shared_state"],
+            stage="build_verified",
+        ),
+    )
+    stored = harness.release_store.save(state, actor="release-manager")
+    history_target = harness.release_store._history_target(process_id)
+    recovery_frame_bytes = 64 * 1024
+    monkeypatch.setattr(
+        release_workflow,
+        "MAX_RELEASE_HISTORY_BYTES",
+        history_target.stat().st_size + recovery_frame_bytes,
+    )
+    monkeypatch.setattr(
+        release_workflow,
+        "RELEASE_HISTORY_RECOVERY_RESERVE_BYTES",
+        recovery_frame_bytes,
+    )
+
+    with pytest.raises(ValueError, match="history quota"):
+        harness.release_store.save(stored, actor="release-manager")
+
+    restored = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+        actor="release-manager",
+        reason="canary_failure_at_history_boundary",
+        idempotency_key="history-boundary-rollback-1",
+    )
+
+    assert restored["applied"] is True
+    assert restored["state"].current_stage == "build_verified"
+    assert harness.release_store.load(process_id).metadata["rollback_applied"] is True
+    assert len(harness.release_store.history(process_id)) == 2
 
 
 def test_release_history_repairs_only_a_torn_final_frame_before_append(tmp_path):
