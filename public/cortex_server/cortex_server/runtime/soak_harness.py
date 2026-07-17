@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, List, Optional
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentSupervisor
 from cortex_server.runtime.dependability import (
+    DEPENDABILITY_CAMPAIGN_SCHEMA,
+    _dependability_boot_id,
     build_unattended_profile,
     compile_dependability_repair_plan,
     load_dependability_report,
@@ -38,6 +40,11 @@ from cortex_server.runtime.shared_process_state import SharedProcessState, Share
 JsonDict = Dict[str, Any]
 SleepFn = Callable[[float], None]
 ClockFn = Callable[[], datetime]
+
+
+def _soak_monotonic_now() -> float:
+    return time.monotonic()
+
 
 SOAK_PROFILES: Dict[str, Dict[str, Any]] = {
     "2h": {
@@ -853,16 +860,21 @@ class RuntimeSoakHarness:
         owner_map: Dict[str, str] = {}
         timeline: List[JsonDict] = []
         campaign_started_at = self.clock_fn()
+        campaign_started_monotonic = _soak_monotonic_now()
+        campaign_boot_id = _dependability_boot_id()
         required_cycles = int(profile_spec.get("campaign_cycles", 0) or 0)
         interval_seconds = float(profile_spec.get("intended_duration_hours", 0) or 0) * 3600.0 / required_cycles
         campaign_evidence: JsonDict = {
-            "schema_version": "cortex.production-dependability-campaign.v1",
+            "schema_version": DEPENDABILITY_CAMPAIGN_SCHEMA,
             "campaign_id": f"depcamp_{process_id}",
             "process_id": process_id,
             "policy_id": str(profile_spec["profile"]),
             "policy_digest": unattended_profile_digest(profile),
+            "boot_id": campaign_boot_id,
             "started_at": campaign_started_at.isoformat(),
+            "started_monotonic": campaign_started_monotonic,
             "observation_end_at": campaign_started_at.isoformat(),
+            "observation_end_monotonic": campaign_started_monotonic,
             "observation_status": "healthy",
             "cycle_receipts": [],
         }
@@ -1000,13 +1012,18 @@ class RuntimeSoakHarness:
             next_revision_id = f"rev_{cycle_number + 1}"
             final_cycle = cycle_number == total_cycles
             observed_at = self.clock_fn()
+            observed_monotonic = _soak_monotonic_now()
             campaign_evidence["observation_end_at"] = observed_at.isoformat()
+            campaign_evidence["observation_end_monotonic"] = observed_monotonic
             if cycle_number <= required_cycles:
                 campaign_evidence["cycle_receipts"].append(
                     {
                         "receipt_id": f"depcycle_{process_id}_{cycle_number}",
+                        "campaign_id": campaign_evidence["campaign_id"],
                         "cycle_number": cycle_number,
+                        "boot_id": campaign_boot_id,
                         "observed_at": observed_at.isoformat(),
+                        "observed_monotonic": observed_monotonic,
                         "snapshot_id": snapshot.snapshot_id,
                         "process_id": process_id,
                         "policy_id": str(profile_spec["profile"]),

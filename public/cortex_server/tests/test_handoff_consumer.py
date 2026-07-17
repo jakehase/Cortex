@@ -203,6 +203,59 @@ def test_production_verifier_sends_only_dedicated_artifact_transport_token(monke
     assert request.get_header("X-cortex-write-token") is None
 
 
+def test_bound_measurement_probe_sends_fresh_controller_signature(monkeypatch):
+    secret = "measurement-controller-secret-material-0000001"
+    monkeypatch.setenv("CORTEX_HANDOFF_RECIPIENT", "release-verifier")
+    monkeypatch.setenv("CORTEX_HANDOFF_RECIPIENT_SECRET", secret)
+    captured = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _size=-1):
+            return b"{}"
+
+    def capture(request, timeout):
+        captured.append((request, timeout))
+        return Response()
+
+    monkeypatch.setattr(handoff_consumer, "urlopen", capture)
+    binding = {
+        "process_id": "proc-probe",
+        "release_id": "release-probe",
+        "revision_id": "revision-probe",
+        "target_stage": "canary_verified",
+    }
+    url = handoff_consumer._bound_measurement_url(
+        "http://cortex/release-observation",
+        binding,
+        binding["target_stage"],
+    )
+
+    assert handoff_consumer._probe_measurement(url) is True
+    request, timeout = captured[0]
+    assert timeout == 5
+    controller = request.get_header("X-cortex-release-controller")
+    nonce = request.get_header("X-cortex-release-observation-nonce")
+    requested_at = request.get_header("X-cortex-release-observation-at")
+    signature = request.get_header("X-cortex-release-observation-signature")
+    assert controller == "release-verifier"
+    assert nonce.startswith("obs_")
+    assert signature == handoff_consumer.runtime_delivery_release_observation_signature(
+        controller=controller,
+        nonce=nonce,
+        requested_at=requested_at,
+        secret=secret,
+        **binding,
+    )
+
+
 def test_health_listener_bounds_slow_connections_before_thread_creation(monkeypatch):
     release = threading.Event()
     both_entered = threading.Event()

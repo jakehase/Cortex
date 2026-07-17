@@ -41,6 +41,53 @@ VERIFIER_ID = "independent-release-verifier"
 VERIFIER_SECRET = "release-workflow-test-secret"
 
 
+def test_release_store_rejects_opaque_id_attacks_without_unknown_read_writes(
+    tmp_path,
+):
+    root = tmp_path / "runtime_delivery" / "release_workflow"
+    store = ReleaseWorkflowStore(root)
+
+    assert store.load("unknown-release") is None
+    assert store.load_for_observation("unknown-release") is None
+    assert not root.exists()
+
+    for attack in ("../../escaped", "nested/process", ".", "a" * 129):
+        with pytest.raises(ValueError, match="bounded opaque identifier"):
+            store.load(attack)
+        with pytest.raises(ValueError, match="bounded opaque identifier"):
+            store.load_for_observation(attack)
+    assert not root.exists()
+
+    root.mkdir(parents=True)
+    outside = tmp_path / "escaped.json"
+    outside.write_text("{}", encoding="utf-8")
+    (root / "linked.json").symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes its configured store root"):
+        store.load_for_observation("linked")
+
+
+def test_release_lock_namespace_is_bounded_and_cleans_legacy_locks(tmp_path):
+    root = tmp_path / "runtime_delivery" / "release_workflow"
+    root.mkdir(parents=True)
+    legacy = root / ".old-process.json.rollback.lock"
+    legacy.touch()
+    nested_legacy = root / "attacker" / ".nested.json.rollback.lock"
+    nested_legacy.parent.mkdir()
+    nested_legacy.touch()
+
+    store = ReleaseWorkflowStore(root)
+    assert not legacy.exists()
+    assert not nested_legacy.exists()
+    assert not nested_legacy.parent.exists()
+    for index in range(256):
+        with store.release_transaction(f"process-{index}"):
+            pass
+
+    locks = list((root / ".release-locks").glob("*.lock"))
+    assert 1 <= len(locks) <= release_workflow.MAX_RELEASE_LOCK_STRIPES
+    assert all(lock.is_file() and not lock.is_symlink() for lock in locks)
+
+
 def _directory_for_fd(fd: int) -> tuple[int, int]:
     descriptor = os.fstat(fd)
     return descriptor.st_dev, descriptor.st_ino

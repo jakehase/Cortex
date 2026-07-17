@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import fcntl
+import re
 from contextlib import contextmanager
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -19,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.dependability import (
+    DEPENDABILITY_CAMPAIGN_SCHEMA,
     build_unattended_profile,
     compile_dependability_repair_plan,
     load_dependability_report,
@@ -78,12 +82,44 @@ MIN_PRODUCTION_SECRET_BYTES = 32
 RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v1"
 RELEASE_VERIFIER_TRUST_FILE = ".release-verifier-trust.json"
 RELEASE_VERIFIER_TRUST_LIMIT = 4096
+_DEPENDABILITY_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
+_DEPENDABILITY_BOOT_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
 
 
 def _dependability_server_now() -> datetime:
     """Return the server clock used exclusively for production campaign evidence."""
 
     return datetime.now(timezone.utc)
+
+
+def _dependability_server_monotonic() -> float:
+    return time.monotonic()
+
+
+def _dependability_server_boot_id() -> str:
+    try:
+        boot_id = _DEPENDABILITY_BOOT_ID_PATH.read_text(encoding="ascii").strip().lower()
+    except OSError as exc:
+        raise RuntimeError("dependability campaign boot identity is unavailable") from exc
+    if not _DEPENDABILITY_BOOT_ID_RE.fullmatch(boot_id):
+        raise RuntimeError("dependability campaign boot identity is invalid")
+    return boot_id
+
+
+def _dependability_clock_divergence_seconds() -> float:
+    try:
+        value = float(
+            os.getenv("CORTEX_DEPENDABILITY_CLOCK_DIVERGENCE_SECONDS", "30")
+        )
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise RuntimeError(
+            "CORTEX_DEPENDABILITY_CLOCK_DIVERGENCE_SECONDS must be a positive finite number"
+        ) from exc
+    return min(value, 300.0)
 
 
 def _production_environment() -> bool:
@@ -306,6 +342,40 @@ def runtime_delivery_verifier_capability_signature(
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def runtime_delivery_release_observation_signature(
+    *,
+    controller: str,
+    nonce: str,
+    requested_at: str,
+    process_id: str,
+    release_id: str,
+    revision_id: str,
+    target_stage: str,
+    secret: str,
+) -> str:
+    """Authenticate one fresh, completely bound release health observation."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.release_observation.v1",
+        "controller": str(controller or "").strip(),
+        "nonce": str(nonce or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+        "process_id": str(process_id or "").strip(),
+        "release_id": str(release_id or "").strip(),
+        "revision_id": str(revision_id or "").strip(),
+        "target_stage": str(target_stage or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hmac.new(
+        signing_secret.encode("utf-8"), canonical, hashlib.sha256
+    ).hexdigest()
 
 
 def validate_production_delivery_credentials() -> Dict[str, Any]:
@@ -2792,6 +2862,7 @@ _DEPENDABILITY_CAMPAIGN_CHECKS = {
     "policy_binding_ok",
     "campaign_binding_ok",
     "campaign_timestamps_ok",
+    "campaign_continuity_ok",
     "elapsed_duration_ok",
     "campaign_cycles_ok",
 }
@@ -2835,6 +2906,10 @@ def _advance_production_dependability_campaign(
     current = _dependability_server_now()
     if current.tzinfo is None:
         raise ValueError("dependability campaign server time must be timezone-aware")
+    current_monotonic = float(_dependability_server_monotonic())
+    current_boot_id = _dependability_server_boot_id()
+    if not math.isfinite(current_monotonic) or current_monotonic < 0:
+        raise RuntimeError("dependability campaign monotonic clock is invalid")
     current_iso = _now_iso(current)
     profile_spec = build_unattended_profile(contract.dependability_profile)
     policy_digest = unattended_profile_digest(contract.dependability_profile)
@@ -2846,9 +2921,13 @@ def _advance_production_dependability_campaign(
     }
     campaign = dict(existing or {})
     actions: List[JsonDict] = []
-    binding_matches = bool(campaign) and all(
-        str(campaign.get(key) or "") == str(value or "")
-        for key, value in expected.items()
+    binding_matches = (
+        bool(campaign)
+        and campaign.get("schema_version") == DEPENDABILITY_CAMPAIGN_SCHEMA
+        and all(
+            str(campaign.get(key) or "") == str(value or "")
+            for key, value in expected.items()
+        )
     )
     static_healthy = all(
         bool(value)
@@ -2856,21 +2935,83 @@ def _advance_production_dependability_campaign(
         if name not in _DEPENDABILITY_CAMPAIGN_CHECKS
     )
     existing_receipts = list(campaign.get("cycle_receipts") or []) if isinstance(campaign.get("cycle_receipts"), list) else []
-    campaign_complete = binding_matches and len(existing_receipts) >= int(profile_spec["campaign_cycles"])
+    continuity_reason: Optional[str] = None
+    continuity_ok = False
+    if binding_matches:
+        try:
+            started_at = datetime.fromisoformat(
+                str(campaign["started_at"]).replace("Z", "+00:00")
+            )
+            previous_end = datetime.fromisoformat(
+                str(campaign["observation_end_at"]).replace("Z", "+00:00")
+            )
+            started_monotonic = float(campaign["started_monotonic"])
+            previous_end_monotonic = float(campaign["observation_end_monotonic"])
+            if started_at.tzinfo is None or previous_end.tzinfo is None:
+                raise ValueError
+            monotonic_delta = current_monotonic - previous_end_monotonic
+            wall_delta = (current - previous_end).total_seconds()
+            total_monotonic = current_monotonic - started_monotonic
+            total_wall = (current - started_at).total_seconds()
+            if str(campaign.get("boot_id") or "") != current_boot_id:
+                continuity_reason = "boot_identity_changed"
+            elif (
+                not all(
+                    math.isfinite(value)
+                    for value in (
+                        started_monotonic,
+                        previous_end_monotonic,
+                        monotonic_delta,
+                        total_monotonic,
+                    )
+                )
+                or started_monotonic < 0
+                or previous_end_monotonic < started_monotonic
+                or monotonic_delta < 0
+                or total_monotonic < 0
+                or wall_delta < 0
+                or total_wall < 0
+            ):
+                continuity_reason = "monotonic_discontinuity"
+            elif (
+                abs(wall_delta - monotonic_delta)
+                > _dependability_clock_divergence_seconds()
+                or abs(total_wall - total_monotonic)
+                > _dependability_clock_divergence_seconds()
+            ):
+                continuity_reason = "wall_clock_divergence"
+            else:
+                continuity_ok = True
+        except (KeyError, TypeError, ValueError):
+            continuity_reason = "monotonic_evidence_invalid"
+
+    campaign_complete = (
+        binding_matches
+        and continuity_ok
+        and len(existing_receipts) >= int(profile_spec["campaign_cycles"])
+    )
     recovered_from_unhealthy = bool(
         binding_matches
         and static_healthy
         and not campaign_complete
         and str(campaign.get("observation_status") or "") != "healthy"
     )
-    if not binding_matches or (not static_healthy and not campaign_complete) or recovered_from_unhealthy:
+    if (
+        not binding_matches
+        or not continuity_ok
+        or (not static_healthy and not campaign_complete)
+        or recovered_from_unhealthy
+    ):
         previous_campaign_id = str(campaign.get("campaign_id") or "") or None
         campaign = {
-            "schema_version": "cortex.production-dependability-campaign.v1",
+            "schema_version": DEPENDABILITY_CAMPAIGN_SCHEMA,
             "campaign_id": f"depcamp_{uuid4().hex[:20]}",
             **expected,
+            "boot_id": current_boot_id,
             "started_at": current_iso,
+            "started_monotonic": current_monotonic,
             "observation_end_at": current_iso,
+            "observation_end_monotonic": current_monotonic,
             "observation_status": "healthy" if static_healthy else "unhealthy",
             "cycle_receipts": [],
         }
@@ -2882,6 +3023,8 @@ def _advance_production_dependability_campaign(
                 "reason": (
                     "release_binding_changed"
                     if not binding_matches and existing
+                    else continuity_reason
+                    if continuity_reason
                     else "static_dependability_recovered"
                     if recovered_from_unhealthy
                     else "static_dependability_not_ready"
@@ -2899,10 +3042,15 @@ def _advance_production_dependability_campaign(
         # genuine elapsed duration and cycle receipts already observed.
         return campaign, actions
 
+    if campaign_complete:
+        return campaign, actions
+
     campaign["observation_end_at"] = current_iso
+    campaign["observation_end_monotonic"] = current_monotonic
     receipts = [dict(row) for row in list(campaign.get("cycle_receipts") or []) if isinstance(row, dict)]
-    started_at = datetime.fromisoformat(str(campaign["started_at"]).replace("Z", "+00:00"))
-    elapsed_seconds = max(0.0, (current - started_at).total_seconds())
+    elapsed_seconds = max(
+        0.0, current_monotonic - float(campaign["started_monotonic"])
+    )
     required_cycles = int(profile_spec["campaign_cycles"])
     duration_seconds = float(profile_spec["intended_duration_hours"]) * 3600.0
     interval_seconds = duration_seconds / required_cycles
@@ -2911,11 +3059,14 @@ def _advance_production_dependability_campaign(
     if next_cycle <= required_cycles and current_slot > next_cycle:
         previous_campaign_id = str(campaign["campaign_id"])
         campaign = {
-            "schema_version": "cortex.production-dependability-campaign.v1",
+            "schema_version": DEPENDABILITY_CAMPAIGN_SCHEMA,
             "campaign_id": f"depcamp_{uuid4().hex[:20]}",
             **expected,
+            "boot_id": current_boot_id,
             "started_at": current_iso,
+            "started_monotonic": current_monotonic,
             "observation_end_at": current_iso,
+            "observation_end_monotonic": current_monotonic,
             "observation_status": "healthy",
             "cycle_receipts": [],
         }
@@ -2931,8 +3082,11 @@ def _advance_production_dependability_campaign(
     if next_cycle <= required_cycles and current_slot == next_cycle:
         receipt = {
             "receipt_id": f"depcycle_{uuid4().hex[:20]}",
+            "campaign_id": campaign["campaign_id"],
             "cycle_number": next_cycle,
+            "boot_id": current_boot_id,
             "observed_at": current_iso,
+            "observed_monotonic": current_monotonic,
             "snapshot_id": snapshot.snapshot_id,
             **expected,
         }
@@ -4582,6 +4736,7 @@ __all__ = [
     "runtime_delivery_artifact_fetch_signature",
     "runtime_delivery_manager_rollback_signature",
     "runtime_delivery_recipient_credentials",
+    "runtime_delivery_release_observation_signature",
     "runtime_delivery_verifier_capability_signature",
     "runtime_delivery_verifier_credentials",
     "validate_production_delivery_credentials",

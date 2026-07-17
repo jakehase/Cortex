@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
+import cortex_server.runtime.dependability as dependability
 import cortex_server.runtime.production_build_loop as production_build_loop
 from cortex_server.middleware.write_authorization import WriteAuthorizationMiddleware
 from cortex_server.runtime import (
@@ -563,10 +564,30 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
     _prime_production_dependability_observations(process, stores)
     campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
     campaign_clock = [campaign_start]
+    campaign_monotonic = [1000.0]
+    campaign_boot_id = "66666666-6666-4666-8666-666666666666"
     monkeypatch.setattr(
         production_build_loop,
         "_dependability_server_now",
         lambda: campaign_clock[0],
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_monotonic",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_boot_id",
+        lambda: campaign_boot_id,
+    )
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        dependability, "_dependability_boot_id", lambda: campaign_boot_id
     )
 
     unauthorized = client.post(
@@ -663,6 +684,7 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
     build = None
     for cycle in range(1, 7):
         campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        campaign_monotonic[0] = 1000.0 + 4 * 3600 * cycle
         build = client.post(
             f"/orchestrator/runtime/delivery/reconcile/{process['process_id']}",
             json={
@@ -883,10 +905,30 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     _prime_production_dependability_observations(process, stores)
     campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
     campaign_clock = [campaign_start]
+    campaign_monotonic = [2000.0]
+    campaign_boot_id = "77777777-7777-4777-8777-777777777777"
     monkeypatch.setattr(
         production_build_loop,
         "_dependability_server_now",
         lambda: campaign_clock[0],
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_monotonic",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_boot_id",
+        lambda: campaign_boot_id,
+    )
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        dependability, "_dependability_boot_id", lambda: campaign_boot_id
     )
 
     reconciled = asyncio.run(
@@ -1005,6 +1047,7 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
 
     for cycle in range(1, 7):
         campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        campaign_monotonic[0] = 2000.0 + 4 * 3600 * cycle
         reconciled = asyncio.run(
             orchestrator.reconcile_runtime_delivery(
                 process["process_id"],

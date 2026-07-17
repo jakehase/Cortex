@@ -26,6 +26,7 @@ from cortex_server.runtime.production_build_loop import (
     runtime_delivery_artifact_fetch_signature,
     runtime_delivery_handoff_discovery_signature,
     runtime_delivery_manager_rollback_signature,
+    runtime_delivery_release_observation_signature,
     runtime_delivery_verifier_capability_signature,
 )
 from cortex_server.runtime.release_workflow import (
@@ -370,7 +371,41 @@ def _verify_manager_capability(base_url: str, secret: str) -> bool:
 
 
 def _probe_measurement(url: str) -> bool:
-    request = Request(url, method="GET", headers={"user-agent": "cortex-release-controller/1"})
+    parsed = urlsplit(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    binding = {
+        field: str(query.get(field) or "").strip()
+        for field in ("process_id", "release_id", "revision_id", "target_stage")
+    }
+    headers = {"user-agent": "cortex-release-controller/1"}
+    if any(binding.values()):
+        if not all(binding.values()):
+            raise RuntimeError("release measurement binding is incomplete")
+        controller = os.getenv("CORTEX_HANDOFF_RECIPIENT", "").strip()
+        secret = os.getenv("CORTEX_HANDOFF_RECIPIENT_SECRET", "").strip()
+        if controller not in {"release-verifier", "release-manager"}:
+            raise RuntimeError("release observation controller identity is invalid")
+        if len(secret.encode("utf-8")) < 32:
+            raise RuntimeError("release observation controller secret must contain at least 32 bytes")
+        nonce = f"obs_{uuid4().hex}"
+        requested_at = _now_iso()
+        headers.update(
+            {
+                "x-cortex-release-controller": controller,
+                "x-cortex-release-observation-nonce": nonce,
+                "x-cortex-release-observation-at": requested_at,
+                "x-cortex-release-observation-signature": (
+                    runtime_delivery_release_observation_signature(
+                        controller=controller,
+                        nonce=nonce,
+                        requested_at=requested_at,
+                        secret=secret,
+                        **binding,
+                    )
+                ),
+            }
+        )
+    request = Request(url, method="GET", headers=headers)
     try:
         with urlopen(request, timeout=5) as response:
             response.read(1024)

@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +12,9 @@ from fastapi import APIRouter
 
 import cortex_server.main as main
 from cortex_server.routers import websockets
+from cortex_server.runtime.production_build_loop import (
+    runtime_delivery_release_observation_signature,
+)
 
 
 def _install_minimal_routers(monkeypatch, *, failed=()):
@@ -83,6 +87,91 @@ def _install_included_routers(monkeypatch):
 
 def _route(app, path):
     return next(route for route in app.routes if getattr(route, "path", None) == path).endpoint
+
+
+@pytest.mark.asyncio
+async def test_bound_release_observation_authenticates_freshness_and_replay_before_lookup(
+    monkeypatch, lifecycle_fakes
+):
+    from cortex_server.routers import orchestrator as orchestrator_module
+
+    secret = "release-observation-recipient-secret-00000001"
+    monkeypatch.setenv(
+        "CORTEX_AGENT_ACK_CREDENTIALS",
+        json.dumps({"release-verifier": secret}),
+    )
+    app = main.create_app()
+    endpoint = _route(app, "/release-observation")
+    binding = {
+        "process_id": "proc-observation",
+        "release_id": "release-observation",
+        "revision_id": "revision-observation",
+        "target_stage": "canary_verified",
+    }
+    state = SimpleNamespace(
+        **{key: binding[key] for key in ("process_id", "release_id", "revision_id")},
+        current_stage="build_verified",
+        target_environment="production",
+    )
+    calls = []
+
+    class Store:
+        def load_for_observation(self, process_id):
+            calls.append(process_id)
+            return state if process_id == binding["process_id"] else None
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_runtime_delivery_stores",
+        lambda: {"release_store": Store()},
+    )
+
+    unauthenticated = await endpoint(**binding)
+    assert unauthenticated.status_code == 401
+    assert calls == []
+
+    traversal = await endpoint(**{**binding, "process_id": "../../escaped"})
+    assert traversal.status_code == 422
+    assert calls == []
+
+    def signed_request(nonce, observed_at):
+        requested_at = observed_at.isoformat(timespec="milliseconds").replace(
+            "+00:00", "Z"
+        )
+        signature = runtime_delivery_release_observation_signature(
+            controller="release-verifier",
+            nonce=nonce,
+            requested_at=requested_at,
+            secret=secret,
+            **binding,
+        )
+        return SimpleNamespace(
+            headers={
+                "x-cortex-release-controller": "release-verifier",
+                "x-cortex-release-observation-nonce": nonce,
+                "x-cortex-release-observation-at": requested_at,
+                "x-cortex-release-observation-signature": signature,
+            }
+        )
+
+    stale = await endpoint(
+        request=signed_request(
+            "obs-stale", datetime.now(timezone.utc) - timedelta(minutes=5)
+        ),
+        **binding,
+    )
+    assert stale.status_code == 401
+    assert calls == []
+
+    request = signed_request("obs-fresh", datetime.now(timezone.utc))
+    accepted = await endpoint(request=request, **binding)
+    assert json.loads(accepted.body)["release_binding"] == binding
+    assert calls == [binding["process_id"]]
+
+    replayed = await endpoint(request=request, **binding)
+    assert replayed.status_code == 409
+    assert json.loads(replayed.body)["status"] == "replayed"
+    assert calls == [binding["process_id"]]
 
 
 def _import_scheduler(monkeypatch):

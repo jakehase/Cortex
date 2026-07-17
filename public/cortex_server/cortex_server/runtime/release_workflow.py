@@ -7,6 +7,8 @@ import hmac
 import json
 import math
 import os
+import re
+import stat
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -49,6 +51,7 @@ DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS = 3600
 MAX_RELEASE_ARTIFACT_RECEIPTS = 128
 MAX_RELEASE_ARTIFACT_CLAIMS_BYTES = 64 * 1024
 MAX_RELEASE_ROLLBACK_IDEMPOTENCY_RESULTS = 64
+MAX_RELEASE_LOCK_STRIPES = 64
 MAX_RELEASE_RECEIPT_METADATA_BYTES = 2 * 1024 * 1024
 MAX_RELEASE_STATE_BYTES = 4 * 1024 * 1024
 MAX_RELEASE_HISTORY_BYTES = 64 * 1024 * 1024
@@ -65,6 +68,18 @@ RELEASE_PROCESS_RECOVERY_RESERVE_BYTES = (
     + MAX_RUNTIME_DELIVERY_OBJECT_BYTES
 )
 RELEASE_GLOBAL_RECOVERY_RESERVE_BYTES = RELEASE_PROCESS_RECOVERY_RESERVE_BYTES
+
+_RELEASE_OPAQUE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_LEGACY_RELEASE_LOCK_RE = re.compile(r"^\..+\.json\.rollback\.lock$")
+
+
+def release_opaque_identifier(value: str, *, field: str) -> str:
+    """Return a path-safe, bounded identifier used by release boundaries."""
+
+    normalized = str(value or "").strip()
+    if not _RELEASE_OPAQUE_ID_RE.fullmatch(normalized):
+        raise ValueError(f"{field} must be a bounded opaque identifier")
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -605,6 +620,11 @@ class ReleaseRollbackFencepost(BaseModel):
             raise ValueError("must be non-empty")
         return value
 
+    @field_validator("process_id")
+    @classmethod
+    def _validate_process_id(cls, value: str) -> str:
+        return release_opaque_identifier(value, field="process_id")
+
     @field_validator("created_at")
     @classmethod
     def _validate_timestamp(cls, value: str) -> str:
@@ -645,6 +665,11 @@ class ReleaseWorkflowState(BaseModel):
         if not value:
             raise ValueError("must be non-empty")
         return value
+
+    @field_validator("process_id")
+    @classmethod
+    def _validate_process_id(cls, value: str) -> str:
+        return release_opaque_identifier(value, field="process_id")
 
     @field_validator("updated_at")
     @classmethod
@@ -1112,23 +1137,83 @@ def _state_change_set(before: Optional[ReleaseWorkflowState], after: ReleaseWork
 
 class ReleaseWorkflowStore:
     def __init__(self, path: str | Path):
-        self.path = Path(path)
+        self.path = Path(path).expanduser()
         self._transaction_local = threading.local()
+        self._cleanup_legacy_lock_files()
+
+    def _store_root(self) -> Path:
+        root = self.path.parent if self.path.suffix else self.path
+        return root.resolve(strict=False)
+
+    def _contained(self, candidate: Path) -> Path:
+        root = self._store_root()
+        resolved = candidate.resolve(strict=False)
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("release workflow path escapes its configured store root") from exc
+        return resolved
+
+    def _cleanup_legacy_lock_files(self) -> None:
+        """Remove obsolete caller-named locks before using bounded lock stripes."""
+
+        root = self.path.parent if self.path.suffix else self.path
+        if not root.is_dir() or root.is_symlink():
+            return
+        touched_directories: set[Path] = set()
+        legacy_parents: set[Path] = set()
+        for directory, directory_names, file_names in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            parent = Path(directory)
+            directory_names[:] = [
+                name for name in directory_names if not (parent / name).is_symlink()
+            ]
+            for name in file_names:
+                candidate = parent / name
+                if (
+                    _LEGACY_RELEASE_LOCK_RE.fullmatch(name)
+                    and candidate.is_file()
+                    and not candidate.is_symlink()
+                ):
+                    candidate.unlink()
+                    touched_directories.add(parent)
+                    legacy_parents.add(parent)
+        cleanup_candidates: set[Path] = set()
+        for parent in legacy_parents:
+            current = parent
+            while current != root:
+                cleanup_candidates.add(current)
+                current = current.parent
+        for candidate in sorted(
+            cleanup_candidates, key=lambda path: len(path.parts), reverse=True
+        ):
+            try:
+                candidate.rmdir()
+            except OSError:
+                continue
+            touched_directories.add(candidate.parent)
+        for directory in sorted(touched_directories, key=str):
+            if directory.is_dir() and not directory.is_symlink():
+                fsync_directory(directory)
 
     def _target(self, process_id: Optional[str] = None) -> Path:
         if self.path.suffix:
-            return self.path
+            if process_id is not None:
+                release_opaque_identifier(process_id, field="process_id")
+            return self._contained(self.path)
         if not process_id:
             raise ValueError("process_id required when release store path is a directory")
-        return self.path / f"{process_id}.json"
+        process = release_opaque_identifier(process_id, field="process_id")
+        return self._contained(self.path / f"{process}.json")
 
     def _history_target(self, process_id: str) -> Path:
-        process = str(process_id or "").strip()
-        if not process:
-            raise ValueError("process_id required for release history target")
+        process = release_opaque_identifier(process_id, field="process_id")
         if self.path.suffix:
-            return self.path.with_name(self.path.name + f".{process}.history.jsonl")
-        return self.path / "history" / f"{process}.jsonl"
+            return self._contained(
+                self.path.with_name(self.path.name + f".{process}.history.jsonl")
+            )
+        return self._contained(self.path / "history" / f"{process}.jsonl")
 
     def _save_intent_target(self, process_id: str) -> Path:
         target = self._target(process_id)
@@ -1451,13 +1536,16 @@ class ReleaseWorkflowStore:
         return target.with_name(f".{target.name}.rollback-intent.json")
 
     def _rollback_lock_target(self, process_id: str) -> Path:
-        target = self._target(process_id)
-        return target.with_name(f".{target.name}.rollback.lock")
+        process = release_opaque_identifier(process_id, field="process_id")
+        stripe = int(hashlib.sha256(process.encode("utf-8")).hexdigest(), 16) % MAX_RELEASE_LOCK_STRIPES
+        root = self.path.parent if self.path.suffix else self.path
+        return self._contained(root / ".release-locks" / f"{stripe:02x}.lock")
 
     def _rollback_result_root(self, process_id: str) -> Path:
+        process = release_opaque_identifier(process_id, field="process_id")
         store_root = self.path.parent if self.path.suffix else self.path
-        process_digest = hashlib.sha256(str(process_id).encode("utf-8")).hexdigest()
-        return store_root / "rollback_results" / process_digest
+        process_digest = hashlib.sha256(process.encode("utf-8")).hexdigest()
+        return self._contained(store_root / "rollback_results" / process_digest)
 
     def _rollback_result_target(self, process_id: str, idempotency_key: str) -> Path:
         key_digest = hashlib.sha256(str(idempotency_key).encode("utf-8")).hexdigest()
@@ -1545,9 +1633,7 @@ class ReleaseWorkflowStore:
         rollback that compose store operations under one larger transaction.
         """
 
-        process = str(process_id or "").strip()
-        if not process:
-            raise ValueError("process_id required for release transaction")
+        process = release_opaque_identifier(process_id, field="process_id")
         depths = getattr(self._transaction_local, "depths", None)
         if depths is None:
             depths = {}
@@ -1560,9 +1646,20 @@ class ReleaseWorkflowStore:
                 depths[process] -= 1
             return
 
-        lock_target = self._rollback_lock_target(process_id)
+        lock_target = self._rollback_lock_target(process)
         durable_mkdir(lock_target.parent)
-        with lock_target.open("a+b") as handle:
+        if lock_target.parent.is_symlink():
+            raise ValueError("release lock directory cannot be a symbolic link")
+        flags_open = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_CLOEXEC"):
+            flags_open |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags_open |= os.O_NOFOLLOW
+        descriptor = os.open(lock_target, flags_open, 0o600)
+        with os.fdopen(descriptor, "a+b") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise ValueError("release transaction lock must be a regular file")
+            os.fchmod(handle.fileno(), 0o600)
             flags = fcntl.LOCK_EX
             try:
                 running_on_event_loop = asyncio.get_running_loop() is not None
@@ -1709,6 +1806,14 @@ class ReleaseWorkflowStore:
 
     def load(self, process_id: Optional[str] = None) -> Optional[ReleaseWorkflowState]:
         resolved_process = str(process_id or "").strip()
+        if resolved_process:
+            resolved_process = release_opaque_identifier(
+                resolved_process, field="process_id"
+            )
+            target = self._target(resolved_process)
+            intent_target = self._save_intent_target(resolved_process)
+            if not target.exists() and not intent_target.exists():
+                return None
         if not resolved_process:
             target = self._target(process_id)
             intent_target = target.with_name(f".{target.name}.save-intent.json")
@@ -1726,6 +1831,23 @@ class ReleaseWorkflowStore:
                 self._history_unlocked(resolved_process), current
             )
             return current
+
+    def load_for_observation(
+        self, process_id: str
+    ) -> Optional[ReleaseWorkflowState]:
+        """Read a stable release state without recovery, locks, or filesystem writes."""
+
+        process = release_opaque_identifier(process_id, field="process_id")
+        target = self._target(process)
+        intent_target = self._save_intent_target(process)
+        if intent_target.exists() or not target.exists():
+            return None
+        if target.is_symlink() or not target.is_file():
+            raise RuntimeError("release workflow observation target is not a regular file")
+        current = _workflow_validate_compat(json.loads(target.read_text(encoding="utf-8")))
+        if current.process_id != process:
+            raise RuntimeError("release workflow observation identity mismatch")
+        return current
 
     def history(self, process_id: str) -> List[ReleaseWorkflowHistoryRecord]:
         with self.release_transaction(process_id):

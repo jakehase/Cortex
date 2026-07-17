@@ -3,6 +3,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
+import os
+from pathlib import Path
+import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +21,13 @@ from cortex_server.runtime.shared_process_state import SharedProcessState, Share
 
 
 JsonDict = Dict[str, Any]
+
+
+DEPENDABILITY_CAMPAIGN_SCHEMA = "cortex.production-dependability-campaign.v2"
+_DEPENDABILITY_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
+_DEPENDABILITY_BOOT_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
 
 
 UNATTENDED_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -91,6 +103,34 @@ UNATTENDED_PROFILES: Dict[str, Dict[str, Any]] = {
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _dependability_monotonic_now() -> float:
+    return time.monotonic()
+
+
+def _dependability_boot_id() -> str:
+    try:
+        boot_id = _DEPENDABILITY_BOOT_ID_PATH.read_text(encoding="ascii").strip().lower()
+    except OSError as exc:
+        raise RuntimeError("dependability verifier boot identity is unavailable") from exc
+    if not _DEPENDABILITY_BOOT_ID_RE.fullmatch(boot_id):
+        raise RuntimeError("dependability verifier boot identity is invalid")
+    return boot_id
+
+
+def _dependability_clock_divergence_seconds() -> float:
+    try:
+        value = float(
+            os.getenv("CORTEX_DEPENDABILITY_CLOCK_DIVERGENCE_SECONDS", "30")
+        )
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise RuntimeError(
+            "CORTEX_DEPENDABILITY_CLOCK_DIVERGENCE_SECONDS must be a positive finite number"
+        ) from exc
+    return min(value, 300.0)
 
 
 
@@ -174,9 +214,68 @@ def _campaign_evidence_status(
         observation_end = None
         timestamps_valid = False
 
+    try:
+        started_monotonic = float(campaign["started_monotonic"])
+        observation_end_monotonic = float(campaign["observation_end_monotonic"])
+        current_monotonic = float(_dependability_monotonic_now())
+        current_boot_id = _dependability_boot_id()
+    except (KeyError, TypeError, ValueError, RuntimeError):
+        started_monotonic = 0.0
+        observation_end_monotonic = 0.0
+        current_monotonic = float("nan")
+        current_boot_id = ""
+
+    wall_elapsed = (
+        (observation_end - started_at).total_seconds()
+        if timestamps_valid and started_at is not None and observation_end is not None
+        else -1.0
+    )
+    monotonic_elapsed = observation_end_monotonic - started_monotonic
+    current_wall_delta = (
+        (now - observation_end).total_seconds()
+        if timestamps_valid and observation_end is not None
+        else -1.0
+    )
+    current_monotonic_delta = current_monotonic - observation_end_monotonic
+    current_total_wall = (
+        (now - started_at).total_seconds()
+        if timestamps_valid and started_at is not None
+        else -1.0
+    )
+    current_total_monotonic = current_monotonic - started_monotonic
+    continuity_valid = bool(
+        timestamps_valid
+        and _DEPENDABILITY_BOOT_ID_RE.fullmatch(
+            str(campaign.get("boot_id") or "")
+        )
+        and str(campaign.get("boot_id") or "") == current_boot_id
+        and all(
+            math.isfinite(value)
+            for value in (
+                started_monotonic,
+                observation_end_monotonic,
+                current_monotonic,
+                monotonic_elapsed,
+                current_monotonic_delta,
+                current_total_monotonic,
+            )
+        )
+        and started_monotonic >= 0
+        and observation_end_monotonic >= started_monotonic
+        and current_monotonic >= observation_end_monotonic
+        and abs(wall_elapsed - monotonic_elapsed)
+        <= _dependability_clock_divergence_seconds()
+        and current_wall_delta >= 0
+        and current_monotonic_delta >= 0
+        and abs(current_wall_delta - current_monotonic_delta)
+        <= _dependability_clock_divergence_seconds()
+        and abs(current_total_wall - current_total_monotonic)
+        <= _dependability_clock_divergence_seconds()
+    )
+
     policy_binding_ok = bool(
         campaign
-        and str(campaign.get("schema_version") or "") == "cortex.production-dependability-campaign.v1"
+        and str(campaign.get("schema_version") or "") == DEPENDABILITY_CAMPAIGN_SCHEMA
         and bool(str(campaign.get("campaign_id") or "").strip())
         and str(campaign.get("observation_status") or "") == "healthy"
         and str(campaign.get("process_id") or "") == process_id
@@ -190,7 +289,8 @@ def _campaign_evidence_status(
 
     receipt_ids: List[str] = []
     receipt_timestamps: List[datetime] = []
-    receipts_valid = timestamps_valid and campaign_binding_ok and len(receipts) <= required_cycles
+    receipt_monotonic_values: List[float] = []
+    receipts_valid = continuity_valid and campaign_binding_ok and len(receipts) <= required_cycles
     for index, raw_receipt in enumerate(receipts, start=1):
         if not isinstance(raw_receipt, dict):
             receipts_valid = False
@@ -198,8 +298,13 @@ def _campaign_evidence_status(
         receipt_id = str(raw_receipt.get("receipt_id") or "").strip()
         try:
             observed_at = _parse_ts(str(raw_receipt.get("observed_at") or ""))
+            observed_monotonic = float(raw_receipt["observed_monotonic"])
         except (TypeError, ValueError):
             observed_at = None
+            observed_monotonic = float("nan")
+        except KeyError:
+            observed_at = None
+            observed_monotonic = float("nan")
         receipt_binding_ok = all(
             str(raw_receipt.get(key) or "") == expected
             for key, expected in expected_binding.items()
@@ -209,11 +314,23 @@ def _campaign_evidence_status(
             or not str(raw_receipt.get("snapshot_id") or "").strip()
             or type(raw_receipt.get("cycle_number")) is not int
             or raw_receipt.get("cycle_number") != index
+            or str(raw_receipt.get("campaign_id") or "")
+            != str(campaign.get("campaign_id") or "")
+            or str(raw_receipt.get("boot_id") or "")
+            != str(campaign.get("boot_id") or "")
             or observed_at is None
             or observed_at.tzinfo is None
+            or not math.isfinite(observed_monotonic)
             or started_at is None
             or observation_end is None
             or observed_at > observation_end
+            or observed_monotonic < started_monotonic
+            or observed_monotonic > observation_end_monotonic
+            or abs(
+                (observed_at - started_at).total_seconds()
+                - (observed_monotonic - started_monotonic)
+            )
+            > _dependability_clock_divergence_seconds()
             or not receipt_binding_ok
             or str(raw_receipt.get("process_id") or "") != process_id
             or str(raw_receipt.get("policy_id") or "") != profile_id
@@ -223,28 +340,48 @@ def _campaign_evidence_status(
             continue
         if required_cycles > 0:
             scheduled_start = started_at + timedelta(seconds=required_duration_seconds * index / required_cycles)
+            scheduled_start_monotonic = (
+                started_monotonic
+                + required_duration_seconds * index / required_cycles
+            )
             scheduled_end = (
                 started_at + timedelta(seconds=required_duration_seconds * (index + 1) / required_cycles)
                 if index < required_cycles
                 else None
             )
-            if observed_at < scheduled_start or (scheduled_end is not None and observed_at >= scheduled_end):
+            scheduled_end_monotonic = (
+                started_monotonic
+                + required_duration_seconds * (index + 1) / required_cycles
+                if index < required_cycles
+                else None
+            )
+            if (
+                observed_at < scheduled_start
+                or (scheduled_end is not None and observed_at >= scheduled_end)
+                or observed_monotonic < scheduled_start_monotonic
+                or (
+                    scheduled_end_monotonic is not None
+                    and observed_monotonic >= scheduled_end_monotonic
+                )
+            ):
                 receipts_valid = False
         receipt_ids.append(receipt_id)
         receipt_timestamps.append(observed_at)
+        receipt_monotonic_values.append(observed_monotonic)
 
     if len(receipt_ids) != len(set(receipt_ids)):
         receipts_valid = False
     timestamp_text = [row.isoformat() for row in receipt_timestamps]
     if len(timestamp_text) != len(set(timestamp_text)) or receipt_timestamps != sorted(receipt_timestamps):
         receipts_valid = False
+    if (
+        len(receipt_monotonic_values) != len(set(receipt_monotonic_values))
+        or receipt_monotonic_values != sorted(receipt_monotonic_values)
+    ):
+        receipts_valid = False
 
-    elapsed_seconds = (
-        max(0.0, (observation_end - started_at).total_seconds())
-        if timestamps_valid and started_at is not None and observation_end is not None
-        else 0.0
-    )
-    elapsed_duration_ok = timestamps_valid and elapsed_seconds >= required_duration_seconds
+    elapsed_seconds = max(0.0, monotonic_elapsed) if continuity_valid else 0.0
+    elapsed_duration_ok = continuity_valid and elapsed_seconds >= required_duration_seconds
     campaign_cycles_ok = bool(
         receipts_valid
         and required_cycles > 0
@@ -264,6 +401,7 @@ def _campaign_evidence_status(
             "policy_binding_ok": policy_binding_ok,
             "campaign_binding_ok": campaign_binding_ok,
             "campaign_timestamps_ok": timestamps_valid and receipts_valid,
+            "campaign_continuity_ok": continuity_valid,
             "elapsed_duration_ok": elapsed_duration_ok,
             "campaign_cycles_ok": campaign_cycles_ok,
         },
@@ -480,7 +618,12 @@ def compile_dependability_repair_plan(report: JsonDict) -> JsonDict:
             _add(check, "drain_inflight_messages", "re-deliver or acknowledge stuck inflight mailbox entries before they age out")
         elif check == "completed_or_waiting_ok":
             _add(check, "restore_safe_lifecycle_state", "move the process back to a resumable waiting/running/completed lifecycle state")
-        elif check in {"policy_binding_ok", "campaign_binding_ok", "campaign_timestamps_ok"}:
+        elif check in {
+            "policy_binding_ok",
+            "campaign_binding_ok",
+            "campaign_timestamps_ok",
+            "campaign_continuity_ok",
+        }:
             _add(check, "restart_dependability_campaign", "start a new server-owned campaign bound to the active release candidate and revision")
         elif check in {"elapsed_duration_ok", "campaign_cycles_ok"}:
             _add(check, "observe_dependability_campaign", "continue genuine server-timestamped observation cycles; repair cannot synthesize temporal evidence")

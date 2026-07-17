@@ -10,6 +10,8 @@ from cortex_server.runtime import (
     compile_dependability_report,
     load_dependability_report,
 )
+import cortex_server.runtime.dependability as dependability
+import cortex_server.runtime.soak_harness as soak_harness
 
 
 
@@ -22,11 +24,24 @@ def test_runtime_package_exports_dependability_helpers():
 
 
 
-def test_runtime_soak_harness_unattended_campaign_reports_dependability(tmp_path):
+def test_runtime_soak_harness_unattended_campaign_reports_dependability(
+    tmp_path, monkeypatch
+):
     clock = [datetime(2026, 7, 1, tzinfo=timezone.utc)]
+    monotonic_clock = [1000.0]
 
     def advance(seconds: float) -> None:
         clock[0] += timedelta(seconds=seconds)
+        monotonic_clock[0] += seconds
+
+    monkeypatch.setattr(
+        soak_harness, "_soak_monotonic_now", lambda: monotonic_clock[0]
+    )
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: monotonic_clock[0],
+    )
 
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=advance, clock_fn=lambda: clock[0])
 
@@ -104,11 +119,24 @@ def test_dependability_report_flags_dead_letters_and_checkpoint_drift(tmp_path):
 
 
 
-def test_runtime_soak_harness_self_heals_injected_unattended_failures(tmp_path):
+def test_runtime_soak_harness_self_heals_injected_unattended_failures(
+    tmp_path, monkeypatch
+):
     clock = [datetime(2026, 7, 1, tzinfo=timezone.utc)]
+    monotonic_clock = [2000.0]
 
     def advance(seconds: float) -> None:
         clock[0] += timedelta(seconds=seconds)
+        monotonic_clock[0] += seconds
+
+    monkeypatch.setattr(
+        soak_harness, "_soak_monotonic_now", lambda: monotonic_clock[0]
+    )
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: monotonic_clock[0],
+    )
 
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=advance, clock_fn=lambda: clock[0])
 

@@ -5,6 +5,8 @@ Main entry point and FastAPI application factory.
 
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
+from collections import OrderedDict
+from datetime import datetime, timezone
 import importlib
 import hashlib
 import hmac
@@ -17,7 +19,7 @@ from pathlib import Path
 import re
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
@@ -47,6 +49,9 @@ import weakref
 
 
 logger = logging.getLogger(__name__)
+
+_RELEASE_OBSERVATION_MAX_AGE_SECONDS = 30.0
+_RELEASE_OBSERVATION_MAX_REPLAY_ENTRIES = 4096
 
 DANGEROUS_ROUTERS = {
     "lab_fixed",
@@ -2002,8 +2007,12 @@ def create_app() -> FastAPI:
         }
         return JSONResponse(status_code=200 if readiness["ready"] else 503, content=payload)
 
+    release_observation_replays: OrderedDict[str, float] = OrderedDict()
+    release_observation_replay_lock = threading.Lock()
+
     @app.get("/release-observation")
     async def release_observation(
+        request: Request = None,
         process_id: Optional[str] = None,
         release_id: Optional[str] = None,
         revision_id: Optional[str] = None,
@@ -2020,10 +2029,144 @@ def create_app() -> FastAPI:
                     status_code=422,
                     content={"status": "invalid", "error": "complete release observation binding required"},
                 )
+            from cortex_server.runtime.production_build_loop import (
+                runtime_delivery_recipient_credentials,
+                runtime_delivery_release_observation_signature,
+            )
+            from cortex_server.runtime.release_workflow import (
+                release_opaque_identifier,
+            )
+
+            try:
+                normalized_binding = {
+                    "process_id": release_opaque_identifier(
+                        str(process_id), field="process_id"
+                    ),
+                    "release_id": release_opaque_identifier(
+                        str(release_id), field="release_id"
+                    ),
+                    "revision_id": release_opaque_identifier(
+                        str(revision_id), field="revision_id"
+                    ),
+                    "target_stage": release_opaque_identifier(
+                        str(target_stage), field="target_stage"
+                    ),
+                }
+            except ValueError as exc:
+                return JSONResponse(
+                    status_code=422,
+                    content={"status": "invalid", "error": str(exc)},
+                )
+
+            headers = request.headers if request is not None else {}
+            controller = str(
+                headers.get("x-cortex-release-controller", "") or ""
+            ).strip()
+            nonce = str(
+                headers.get("x-cortex-release-observation-nonce", "") or ""
+            ).strip()
+            requested_at = str(
+                headers.get("x-cortex-release-observation-at", "") or ""
+            ).strip()
+            signature = str(
+                headers.get("x-cortex-release-observation-signature", "") or ""
+            ).strip()
+            try:
+                controller = release_opaque_identifier(
+                    controller, field="release controller"
+                )
+                if controller not in {"release-verifier", "release-manager"}:
+                    raise ValueError("release observation controller is invalid")
+                nonce = release_opaque_identifier(
+                    nonce, field="release observation nonce"
+                )
+                if len(requested_at) > 64 or not re.fullmatch(
+                    r"[0-9A-Fa-f]{64}", signature
+                ):
+                    raise ValueError("release observation authentication is invalid")
+                observed_at = datetime.fromisoformat(
+                    requested_at.replace("Z", "+00:00")
+                )
+                if observed_at.tzinfo is None:
+                    raise ValueError("release observation timestamp must be timezone-aware")
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "status": "unauthorized",
+                        "error": "fresh authenticated release observation required",
+                    },
+                )
+
+            current = datetime.now(timezone.utc)
+            if (
+                abs((current - observed_at).total_seconds())
+                > _RELEASE_OBSERVATION_MAX_AGE_SECONDS
+            ):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "status": "unauthorized",
+                        "error": "fresh authenticated release observation required",
+                    },
+                )
+            credentials = runtime_delivery_recipient_credentials()
+            secret = credentials.get(controller, "")
+            expected_signature = runtime_delivery_release_observation_signature(
+                controller=controller,
+                nonce=nonce,
+                requested_at=requested_at,
+                secret=secret,
+                **normalized_binding,
+            )
+            if not secret or not hmac.compare_digest(signature, expected_signature):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "status": "unauthorized",
+                        "error": "fresh authenticated release observation required",
+                    },
+                )
+
+            replay_key = f"{controller}\0{nonce}"
+            with release_observation_replay_lock:
+                now_epoch = current.timestamp()
+                expired_keys = [
+                    key
+                    for key, expires_at in release_observation_replays.items()
+                    if expires_at < now_epoch
+                ]
+                for expired_key in expired_keys:
+                    release_observation_replays.pop(expired_key, None)
+                if replay_key in release_observation_replays:
+                    return JSONResponse(
+                        status_code=409,
+                        content={
+                            "status": "replayed",
+                            "error": "release observation request was already used",
+                        },
+                    )
+                if (
+                    len(release_observation_replays)
+                    >= _RELEASE_OBSERVATION_MAX_REPLAY_ENTRIES
+                ):
+                    return JSONResponse(
+                        status_code=503,
+                        content={
+                            "status": "unavailable",
+                            "error": "release observation replay protection is at capacity",
+                        },
+                    )
+                release_observation_replays[replay_key] = (
+                    observed_at.timestamp() + _RELEASE_OBSERVATION_MAX_AGE_SECONDS
+                )
+
             from cortex_server.routers import orchestrator as orchestrator_module
 
-            state = orchestrator_module._runtime_delivery_stores()["release_store"].load(
-                str(process_id)
+            state = orchestrator_module._runtime_delivery_stores()[
+                "release_store"
+            ].load_for_observation(
+                normalized_binding["process_id"]
             )
             expected_target = (
                 "canary_verified"
@@ -2036,10 +2179,16 @@ def create_app() -> FastAPI:
             )
             if (
                 state is None
-                or not hmac.compare_digest(state.release_id, str(release_id))
-                or not hmac.compare_digest(state.revision_id, str(revision_id))
+                or not hmac.compare_digest(
+                    state.release_id, normalized_binding["release_id"]
+                )
+                or not hmac.compare_digest(
+                    state.revision_id, normalized_binding["revision_id"]
+                )
                 or not expected_target
-                or not hmac.compare_digest(expected_target, str(target_stage))
+                or not hmac.compare_digest(
+                    expected_target, normalized_binding["target_stage"]
+                )
             ):
                 return JSONResponse(
                     status_code=409,

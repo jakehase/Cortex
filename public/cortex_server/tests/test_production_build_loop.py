@@ -13,6 +13,7 @@ import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.routers.orchestrator import RuntimeDeliveryReconcileRequest
 from cortex_server.runtime import RuntimeSoakHarness
 from cortex_server.runtime.dependability import load_dependability_report, unattended_profile_digest
+import cortex_server.runtime.dependability as dependability
 import cortex_server.runtime.production_build_loop as production_build_loop
 import cortex_server.runtime.runtime_delivery_quota as runtime_delivery_quota
 from cortex_server.runtime.production_build_loop import (
@@ -703,7 +704,9 @@ def _prime_genuine_dependability_observations(harness, shared_state):
     return current
 
 
-def test_dependability_rejects_elapsed_claim_without_distinct_scheduled_cycle_receipts(tmp_path):
+def test_dependability_rejects_elapsed_claim_without_distinct_scheduled_cycle_receipts(
+    tmp_path, monkeypatch
+):
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
     process_id = "proc_temporal_evidence"
     seeded = harness._seed_waiting_process(
@@ -721,18 +724,30 @@ def test_dependability_rejects_elapsed_claim_without_distinct_scheduled_cycle_re
     )
     now = datetime.now(timezone.utc)
     started_at = now - timedelta(hours=24)
+    boot_id = "11111111-1111-4111-8111-111111111111"
+    started_monotonic = 1000.0
+    observation_end_monotonic = started_monotonic + 24 * 3600
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: observation_end_monotonic,
+    )
+    monkeypatch.setattr(dependability, "_dependability_boot_id", lambda: boot_id)
     policy_digest = unattended_profile_digest("24h")
     snapshot_id = harness.snapshot_store.load(process_id).snapshot_id
     binding = {"contract_id": contract.contract_id, "revision_id": shared_state.revision_id}
     campaign_base = {
-        "schema_version": "cortex.production-dependability-campaign.v1",
+        "schema_version": dependability.DEPENDABILITY_CAMPAIGN_SCHEMA,
         "campaign_id": "depcamp_adversarial",
         "process_id": process_id,
         "policy_id": "24h",
         "policy_digest": policy_digest,
         **binding,
+        "boot_id": boot_id,
         "started_at": started_at.isoformat(),
+        "started_monotonic": started_monotonic,
         "observation_end_at": now.isoformat(),
+        "observation_end_monotonic": observation_end_monotonic,
         "observation_status": "healthy",
     }
     synthetic = {
@@ -740,8 +755,11 @@ def test_dependability_rejects_elapsed_claim_without_distinct_scheduled_cycle_re
         "cycle_receipts": [
             {
                 "receipt_id": f"synthetic_{cycle}",
+                "campaign_id": campaign_base["campaign_id"],
                 "cycle_number": cycle,
+                "boot_id": boot_id,
                 "observed_at": now.isoformat(),
+                "observed_monotonic": observation_end_monotonic,
                 "snapshot_id": snapshot_id,
                 "process_id": process_id,
                 "policy_id": "24h",
@@ -773,8 +791,11 @@ def test_dependability_rejects_elapsed_claim_without_distinct_scheduled_cycle_re
         "cycle_receipts": [
             {
                 "receipt_id": f"genuine_{cycle}",
+                "campaign_id": campaign_base["campaign_id"],
                 "cycle_number": cycle,
+                "boot_id": boot_id,
                 "observed_at": (started_at + timedelta(hours=4 * cycle)).isoformat(),
+                "observed_monotonic": started_monotonic + 4 * 3600 * cycle,
                 "snapshot_id": snapshot_id,
                 "process_id": process_id,
                 "policy_id": "24h",
@@ -798,6 +819,22 @@ def test_dependability_rejects_elapsed_claim_without_distinct_scheduled_cycle_re
     )
     assert genuine_report["success"] is True, genuine_report["failing_checks"]
     assert genuine_report["campaign"]["completed_cycle_count"] == 6
+
+    diverged_report = load_dependability_report(
+        process_id=process_id,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        profile="24h",
+        campaign_evidence=genuine,
+        evidence_binding=binding,
+        now=now + timedelta(hours=1),
+    )
+    assert diverged_report["checks"]["campaign_continuity_ok"] is False
+    assert diverged_report["checks"]["elapsed_duration_ok"] is False
+    assert diverged_report["success"] is False
 
 
 def test_caller_supplied_reconciliation_time_cannot_advance_campaign_evidence(tmp_path, monkeypatch):
@@ -835,6 +872,103 @@ def test_caller_supplied_reconciliation_time_cannot_advance_campaign_evidence(tm
     assert attempted["started_at"] == server_now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
     assert attempted["observation_end_at"] == attempted["started_at"]
     assert attempted["cycle_receipts"] == []
+
+
+def test_dependability_campaign_restarts_on_clock_jump_reboot_and_monotonic_discontinuity(
+    monkeypatch,
+):
+    wall = [datetime(2026, 7, 17, tzinfo=timezone.utc)]
+    monotonic_clock = [1000.0]
+    boot_id = ["44444444-4444-4444-8444-444444444444"]
+    monkeypatch.setattr(
+        production_build_loop, "_dependability_server_now", lambda: wall[0]
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_monotonic",
+        lambda: monotonic_clock[0],
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_boot_id",
+        lambda: boot_id[0],
+    )
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: monotonic_clock[0],
+    )
+    monkeypatch.setattr(dependability, "_dependability_boot_id", lambda: boot_id[0])
+
+    contract = ProductionBuildContract(
+        process_id="proc-clock-fault",
+        objective="prove honest elapsed time",
+        dependability_profile="24h",
+    )
+    snapshot = production_build_loop.ProcessSnapshot(process_id=contract.process_id)
+    binding = {"contract_id": contract.contract_id, "revision_id": "rev-1"}
+    campaign, _ = production_build_loop._advance_production_dependability_campaign(
+        contract,
+        existing=None,
+        binding=binding,
+        preliminary_report={"checks": {"static_health": True}},
+        snapshot=snapshot,
+    )
+
+    for _cycle in range(1, 7):
+        wall[0] += timedelta(hours=4)
+        monotonic_clock[0] += 0.001
+        campaign, actions = (
+            production_build_loop._advance_production_dependability_campaign(
+                contract,
+                existing=campaign,
+                binding=binding,
+                preliminary_report={"checks": {"static_health": True}},
+                snapshot=snapshot,
+            )
+        )
+        assert actions[-1]["reason"] == "wall_clock_divergence"
+        assert campaign["cycle_receipts"] == []
+
+    status = dependability._campaign_evidence_status(
+        process_id=contract.process_id,
+        profile_id="24h",
+        profile_digest=unattended_profile_digest("24h"),
+        profile_spec=dependability.build_unattended_profile("24h"),
+        campaign_evidence=campaign,
+        evidence_binding=binding,
+        now=wall[0],
+    )
+    assert status["elapsed_duration_seconds"] == 0
+    assert status["completed_cycle_count"] == 0
+    assert status["checks"]["elapsed_duration_ok"] is False
+
+    previous_campaign_id = campaign["campaign_id"]
+    wall[0] += timedelta(seconds=1)
+    monotonic_clock[0] += 1
+    boot_id[0] = "55555555-5555-4555-8555-555555555555"
+    campaign, actions = production_build_loop._advance_production_dependability_campaign(
+        contract,
+        existing=campaign,
+        binding=binding,
+        preliminary_report={"checks": {"static_health": True}},
+        snapshot=snapshot,
+    )
+    assert campaign["campaign_id"] != previous_campaign_id
+    assert actions[-1]["reason"] == "boot_identity_changed"
+
+    previous_campaign_id = campaign["campaign_id"]
+    wall[0] += timedelta(seconds=1)
+    monotonic_clock[0] -= 1
+    campaign, actions = production_build_loop._advance_production_dependability_campaign(
+        contract,
+        existing=campaign,
+        binding=binding,
+        preliminary_report={"checks": {"static_health": True}},
+        snapshot=snapshot,
+    )
+    assert campaign["campaign_id"] != previous_campaign_id
+    assert actions[-1]["reason"] == "monotonic_discontinuity"
 
 
 def test_dependability_revision_requirement_excludes_repair_generated_history(tmp_path):
@@ -969,7 +1103,27 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
 
     campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
     campaign_clock = [campaign_start]
+    campaign_monotonic = [1000.0]
+    campaign_boot_id = "22222222-2222-4222-8222-222222222222"
     monkeypatch.setattr(production_build_loop, "_dependability_server_now", lambda: campaign_clock[0])
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_monotonic",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_boot_id",
+        lambda: campaign_boot_id,
+    )
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        dependability, "_dependability_boot_id", lambda: campaign_boot_id
+    )
     awaiting_canary = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -987,6 +1141,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
     _approve_pending_release_handoff(harness, process_id, "canary_verified")
     for cycle in range(1, 6):
         campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        campaign_monotonic[0] = 1000.0 + 4 * 3600 * cycle
         observed = reconcile_production_build_loop(
             contract,
             loop_store=loop_store,
@@ -1002,6 +1157,7 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
         )
         assert observed["state"]["current_stage"] == "build_verified"
     campaign_clock[0] = campaign_start + timedelta(hours=24)
+    campaign_monotonic[0] = 1000.0 + 24 * 3600
     first = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -1658,7 +1814,27 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
 
     campaign_start = datetime.now(timezone.utc) - timedelta(hours=24)
     campaign_clock = [campaign_start]
+    campaign_monotonic = [2000.0]
+    campaign_boot_id = "33333333-3333-4333-8333-333333333333"
     monkeypatch.setattr(production_build_loop, "_dependability_server_now", lambda: campaign_clock[0])
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_monotonic",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        production_build_loop,
+        "_dependability_server_boot_id",
+        lambda: campaign_boot_id,
+    )
+    monkeypatch.setattr(
+        dependability,
+        "_dependability_monotonic_now",
+        lambda: campaign_monotonic[0],
+    )
+    monkeypatch.setattr(
+        dependability, "_dependability_boot_id", lambda: campaign_boot_id
+    )
     result = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
@@ -1693,6 +1869,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
 
     for cycle in range(1, 6):
         campaign_clock[0] = campaign_start + timedelta(hours=4 * cycle)
+        campaign_monotonic[0] = 2000.0 + 4 * 3600 * cycle
         observed = reconcile_production_build_loop(
             contract,
             loop_store=loop_store,
@@ -1708,6 +1885,7 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
         )
         assert observed["state"]["current_stage"] == "build_verified"
     campaign_clock[0] = campaign_start + timedelta(hours=24)
+    campaign_monotonic[0] = 2000.0 + 24 * 3600
     awaiting_production = reconcile_production_build_loop(
         contract,
         loop_store=loop_store,
