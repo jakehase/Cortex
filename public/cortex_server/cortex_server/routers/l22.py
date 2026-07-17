@@ -1173,6 +1173,7 @@ def delete_structured_memory_records(
     with _STRUCTURED_MEMORY_LOCK:
         connection = _structured_memory_connection()
         try:
+            connection.execute("BEGIN IMMEDIATE")
             existing_ids = {
                 str(row[0])
                 for row in connection.execute(
@@ -1184,12 +1185,20 @@ def delete_structured_memory_records(
                 f"DELETE FROM structured_memory WHERE tenant_id = ? AND workspace_id = ? AND id IN ({placeholders})",
                 [tenant, workspace, *normalized],
             )
+            for memory_id in existing_ids:
+                quota_row = connection.execute(
+                    "SELECT * FROM l22_quota_records WHERE memory_id = ?",
+                    (memory_id,),
+                ).fetchone()
+                if quota_row is not None:
+                    _quota_release_row(connection, quota_row)
             connection.commit()
             deleted = int(cursor.rowcount or 0)
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()
-    for memory_id in existing_ids:
-        _release_memory_quota(memory_id, committed=True)
     return deleted
 
 

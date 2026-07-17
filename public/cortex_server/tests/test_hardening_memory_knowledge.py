@@ -772,6 +772,109 @@ def test_supersession_reserves_complete_amplified_metadata_before_update(
     )
 
 
+def test_structured_delete_releases_quota_in_its_single_commit_boundary(
+    monkeypatch, tmp_path
+):
+    from cortex_server.routers import l22
+
+    database = tmp_path / "structured-delete.sqlite3"
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(database))
+    memory_id = "structured-delete-crash-boundary"
+    tenant = "tenant-delete"
+    workspace = "workspace-delete"
+    credential = "credential-delete"
+    charge_bytes = 8192
+
+    connection = l22._structured_memory_connection()
+    try:
+        connection.execute(
+            "INSERT INTO structured_memory(id, tenant_id, workspace_id, memory_type, "
+            "lookup_key, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                memory_id,
+                tenant,
+                workspace,
+                "codec_state",
+                "session-delete",
+                "durable state",
+                "{}",
+                "2026-07-17T00:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO l22_quota_records(memory_id, tenant_id, workspace_id, credential_id, "
+            "charge_bytes, payload_hash, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'committed', ?)",
+            (memory_id, tenant, workspace, credential, charge_bytes, "a" * 64, 0.0),
+        )
+        l22._quota_adjust_usage(
+            connection,
+            l22._quota_scopes(tenant, workspace, credential),
+            records=1,
+            bytes_delta=charge_bytes,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    class LifecycleStop(BaseException):
+        pass
+
+    class CrashAfterCommitConnection:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+            self.commit_calls = 0
+
+        def execute(self, *args, **kwargs):
+            return self.wrapped.execute(*args, **kwargs)
+
+        def commit(self):
+            self.commit_calls += 1
+            self.wrapped.commit()
+            raise LifecycleStop("lifecycle stopped after SQLite commit")
+
+        def rollback(self):
+            return self.wrapped.rollback()
+
+        def close(self):
+            return self.wrapped.close()
+
+    real_connection = l22._structured_memory_connection
+    crash_connection = CrashAfterCommitConnection(real_connection())
+    monkeypatch.setattr(
+        l22,
+        "_structured_memory_connection",
+        lambda: crash_connection,
+    )
+
+    with pytest.raises(LifecycleStop, match="after SQLite commit"):
+        l22.delete_structured_memory_records(
+            [memory_id], tenant_id=tenant, workspace_id=workspace
+        )
+    assert crash_connection.commit_calls == 1
+
+    monkeypatch.setattr(l22, "_structured_memory_connection", real_connection)
+    l22._reconcile_l22_quota_reservations()
+    connection = real_connection()
+    try:
+        structured_rows = connection.execute(
+            "SELECT COUNT(*) FROM structured_memory WHERE id = ?", (memory_id,)
+        ).fetchone()[0]
+        quota_rows = connection.execute(
+            "SELECT COUNT(*) FROM l22_quota_records WHERE memory_id = ?", (memory_id,)
+        ).fetchone()[0]
+        usage = connection.execute(
+            "SELECT record_count, byte_count FROM l22_quota_usage"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert structured_rows == 0
+    assert quota_rows == 0
+    assert usage
+    assert {(row["record_count"], row["byte_count"]) for row in usage} == {(0, 0)}
+
+
 @pytest.mark.parametrize(
     "model,kwargs",
     [

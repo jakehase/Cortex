@@ -62,6 +62,7 @@ from cortex_server.runtime.assurance_receipt_ledger import (
     release_assurance_receipt,
     reserve_assurance_receipt,
 )
+from cortex_server.runtime.durable_files import durable_mkdir
 from services.routing.adaptive_router_policy import choose_route
 from services.routing.route_feature_pipeline import build_route_features
 
@@ -318,7 +319,7 @@ def _bounded_referent_entries(directory: Path, maximum: int) -> List[Path]:
 @contextmanager
 def _referent_quota_lock():
     root = _referent_state_root()
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    durable_mkdir(root, mode=0o700)
     os.chmod(root, 0o700)
     lock_path = root / ".referent-quota.lock"
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
@@ -520,7 +521,7 @@ def _reserve_referent_state(
             raise ReferentStateQuotaError("referent state filesystem recovery reserve is unavailable")
 
         reservation_root = _referent_reservation_root(root)
-        reservation_root.mkdir(mode=0o700, exist_ok=True)
+        durable_mkdir(reservation_root, mode=0o700)
         os.chmod(reservation_root, 0o700)
         token = secrets.token_hex(24)
         reservation = {

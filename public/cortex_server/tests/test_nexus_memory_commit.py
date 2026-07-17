@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import multiprocessing
 import json
+import os
 from pathlib import Path
 import pytest
 from fastapi import FastAPI
@@ -105,6 +106,68 @@ def _app(monkeypatch, recorder, *, committed_records=None):
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
     return app
+
+
+def test_first_referent_reservation_fsyncs_every_new_directory_link(
+    monkeypatch, tmp_path
+):
+    durable_volume = tmp_path / "durable-volume"
+    durable_volume.mkdir()
+    state_path = durable_volume / "new-parent" / "nexus_referent_state.json"
+    monkeypatch.setattr(nexus, "_REFERENT_STATE_PATH", state_path)
+    real_fsync = os.fsync
+    fsync_targets = []
+
+    def trace_fsync(descriptor):
+        fsync_targets.append(Path(os.readlink(f"/proc/self/fd/{descriptor}")))
+        return real_fsync(descriptor)
+
+    monkeypatch.setattr(nexus.os, "fsync", trace_fsync)
+    reservation = nexus._reserve_referent_state(
+        "principal-continuity-key",
+        "b" * 64,
+    )
+
+    root = nexus._referent_state_root()
+    reservation_root = nexus._referent_reservation_root(root)
+    expected_directory_fsyncs = [
+        durable_volume,
+        state_path.parent,
+        root,
+        reservation_root,
+    ]
+    positions = [fsync_targets.index(path) for path in expected_directory_fsyncs]
+    assert positions == sorted(positions)
+    assert (reservation_root / f"{reservation['token']}.json").is_file()
+
+
+def test_referent_parent_fsync_failure_blocks_admission_before_lock_publication(
+    monkeypatch, tmp_path
+):
+    durable_volume = tmp_path / "durable-volume"
+    durable_volume.mkdir()
+    state_path = durable_volume / "new-parent" / "nexus_referent_state.json"
+    monkeypatch.setattr(nexus, "_REFERENT_STATE_PATH", state_path)
+    real_fsync = os.fsync
+    observed = []
+
+    def fail_first_parent_fsync(descriptor):
+        target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        observed.append(target)
+        if target == durable_volume:
+            raise OSError("injected parent directory fsync failure")
+        return real_fsync(descriptor)
+
+    monkeypatch.setattr(nexus.os, "fsync", fail_first_parent_fsync)
+
+    with pytest.raises(OSError, match="parent directory fsync failure"):
+        nexus._reserve_referent_state("principal-continuity-key", "b" * 64)
+
+    root = nexus._referent_state_root()
+    assert observed == [durable_volume]
+    assert not root.exists()
+    assert not (root / ".referent-quota.lock").exists()
+    assert not nexus._referent_reservation_root(root).exists()
 
 
 async def _receipt(client, payload, headers=None):
