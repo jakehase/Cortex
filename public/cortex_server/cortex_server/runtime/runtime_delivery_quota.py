@@ -6,12 +6,13 @@ from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import threading
 import time
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
 
@@ -34,6 +35,18 @@ RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE = ".runtime-delivery-physical-recovery-re
 _LOCKS: Dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
 _TRANSACTION_STATE = threading.local()
+
+
+def _wall_time() -> float:
+    """Return wall time for non-authoritative reservation diagnostics."""
+
+    return time.time()
+
+
+def _monotonic() -> float:
+    """Return the host monotonic clock used to bound reservation leases."""
+
+    return time.monotonic()
 
 
 class RuntimeDeliveryQuotaError(ValueError):
@@ -395,6 +408,13 @@ def _recovery_admission(delivery_root: Path) -> bool:
     return lock_key in dict(getattr(_TRANSACTION_STATE, "recoveries", {}))
 
 
+def _quota_transaction_active(delivery_root: Path) -> bool:
+    lock_key = str(
+        Path(delivery_root).resolve() / ".runtime-delivery-volume-quota.lock"
+    )
+    return int(dict(getattr(_TRANSACTION_STATE, "depths", {})).get(lock_key, 0) or 0) > 0
+
+
 def _assert_volume_projection(root: Path, *, additional_bytes: int) -> None:
     reservations = _active_reservation_bytes_unlocked(root, prune_stale=True)
     additional = max(0, int(additional_bytes))
@@ -428,35 +448,194 @@ def _assert_volume_projection(root: Path, *, additional_bytes: int) -> None:
         )
 
 
+def _process_start_ticks(pid: int) -> str:
+    raw = (Path("/proc") / str(int(pid)) / "stat").read_text(encoding="utf-8")
+    close = raw.rfind(")")
+    if close < 0:
+        raise RuntimeError("process identity stat is malformed")
+    fields = raw[close + 1 :].split()
+    if len(fields) <= 19 or not fields[19].isdigit():
+        raise RuntimeError("process identity start time is malformed")
+    return fields[19]
+
+
+def _boot_id() -> str:
+    value = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    try:
+        parsed = UUID(value)
+    except (ValueError, AttributeError) as exc:
+        raise RuntimeError("process boot identity is malformed") from exc
+    if str(parsed) != value.lower():
+        raise RuntimeError("process boot identity is malformed")
+    return str(parsed)
+
+
+def _current_process_identity() -> Dict[str, Any]:
+    """Return the kernel identity of this exact process instance."""
+
+    pid = os.getpid()
+    try:
+        return {
+            "pid": pid,
+            "process_start_ticks": _process_start_ticks(pid),
+            "boot_id": _boot_id(),
+        }
+    except (OSError, RuntimeError) as exc:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery reservation process identity is unavailable"
+        ) from exc
+
+
+def _legacy_reservation_owner_proven_dead(pid: int) -> bool:
+    """Reclaim an old PID-only record only when the kernel proves no PID exists."""
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _reservation_process_identity(payload: Dict[str, Any]) -> Tuple[int, str, str]:
+    pid = int(payload["pid"])
+    owner_boot_id = str(payload["boot_id"])
+    owner_start_ticks = str(payload["process_start_ticks"])
+    try:
+        parsed_boot_id = UUID(owner_boot_id)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("invalid reservation process identity") from exc
+    if (
+        pid <= 0
+        or pid > 2_147_483_647
+        or str(parsed_boot_id) != owner_boot_id.lower()
+        or not owner_start_ticks.isdigit()
+        or len(owner_start_ticks) > 32
+    ):
+        raise ValueError("invalid reservation process identity")
+    return pid, str(parsed_boot_id), owner_start_ticks
+
+
+def _reservation_owner_state(
+    payload: Dict[str, Any],
+    *,
+    current_boot_id: Optional[str],
+) -> str:
+    """Classify a v2 owner as exact, gone, or unknown without PID-only trust."""
+
+    pid, owner_boot_id, owner_start_ticks = _reservation_process_identity(payload)
+    if current_boot_id is None:
+        return "unknown"
+    if owner_boot_id != current_boot_id:
+        return "gone"
+    try:
+        observed_start_ticks = _process_start_ticks(pid)
+    except FileNotFoundError:
+        return "gone"
+    except (OSError, RuntimeError):
+        return "unknown"
+    return "exact" if observed_start_ticks == owner_start_ticks else "gone"
+
+
 def _active_reservation_bytes_unlocked(delivery_root: Path, *, prune_stale: bool) -> int:
+    """Charge reservations and lazily renew expired identity leases.
+
+    A lease only bounds how long the stored kernel identity may be trusted
+    without revalidation. Expiry alone never proves owner death and never frees
+    capacity. Mutating renewal and reclamation are restricted to the aggregate
+    volume transaction.
+    """
+
     reservation_root = delivery_root / ".runtime-delivery-reservations"
     if not reservation_root.exists():
         return 0
-    current_time = time.time()
+    current_monotonic = float(_monotonic())
+    if not math.isfinite(current_monotonic):
+        raise RuntimeDeliveryQuotaError("runtime delivery monotonic clock is invalid")
+    may_mutate = bool(prune_stale and _quota_transaction_active(delivery_root))
+    current_boot_id: Optional[str] = None
+    boot_id_observed = False
+    deleted = False
     total = 0
     for target in reservation_root.glob("*.json"):
         try:
             payload = json.loads(target.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid reservation payload")
             pid = int(payload["pid"])
-            created_at = float(payload["created_at"])
             reserved_bytes = int(payload["reserved_bytes"])
-            if reserved_bytes <= 0:
+            if pid <= 0 or pid > 2_147_483_647 or reserved_bytes <= 0:
                 raise ValueError("invalid reservation size")
-            owner_alive = True
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                owner_alive = False
-            except PermissionError:
-                owner_alive = True
-            if not owner_alive or current_time - created_at > RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS:
-                if prune_stale:
-                    target.unlink()
+            version = str(payload.get("version") or "")
+            if version == "cortex.runtime-delivery-reservation.v1":
+                if _legacy_reservation_owner_proven_dead(pid):
+                    if may_mutate:
+                        target.unlink()
+                        deleted = True
+                    continue
+                # A live or unverifiable PID-only legacy record has no safe PID
+                # reuse fence. Keep it charged rather than infer free capacity.
+                total += reserved_bytes
                 continue
+            if version != "cortex.runtime-delivery-reservation.v2":
+                raise ValueError("invalid reservation version")
+            _pid, owner_boot_id, _owner_start_ticks = _reservation_process_identity(payload)
+            created_at = float(payload["created_at"])
+            heartbeat_monotonic = float(payload["heartbeat_monotonic"])
+            lease_expires_monotonic = float(payload["lease_expires_monotonic"])
+            lease_duration = lease_expires_monotonic - heartbeat_monotonic
+            if (
+                not math.isfinite(created_at)
+                or not math.isfinite(heartbeat_monotonic)
+                or not math.isfinite(lease_expires_monotonic)
+                or heartbeat_monotonic < 0
+                or lease_duration <= 0
+                or lease_duration > RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS
+            ):
+                raise ValueError("invalid reservation lease")
+            if not boot_id_observed:
+                try:
+                    current_boot_id = _boot_id()
+                except (OSError, RuntimeError):
+                    current_boot_id = None
+                boot_id_observed = True
+            if (
+                current_boot_id is not None
+                and owner_boot_id != current_boot_id
+            ):
+                owner_state = "gone"
+            elif current_monotonic < lease_expires_monotonic:
+                # The lease is a bounded cache of an already proven exact
+                # process identity. Wall time never controls reclamation.
+                owner_state = "exact"
+            else:
+                owner_state = _reservation_owner_state(
+                    payload,
+                    current_boot_id=current_boot_id,
+                )
+            if owner_state == "gone":
+                if may_mutate:
+                    target.unlink()
+                    deleted = True
+                continue
+            if (
+                owner_state == "exact"
+                and current_monotonic >= lease_expires_monotonic
+                and may_mutate
+            ):
+                renewed = dict(payload)
+                renewed["heartbeat_monotonic"] = current_monotonic
+                renewed["lease_expires_monotonic"] = (
+                    current_monotonic + RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS
+                )
+                _atomic_write_bytes(target, encoded_json(renewed))
             total += reserved_bytes
         except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
             # An invalid reservation cannot safely be treated as free capacity.
             total += MAX_SESSION_EVENT_PROJECTION_BYTES
+    if deleted:
+        fsync_directory(reservation_root)
     return total
 
 
@@ -474,13 +653,21 @@ def runtime_delivery_capacity_reservation(
     target = root / ".runtime-delivery-reservations" / f"{token}.json"
     with runtime_delivery_quota_transaction(root):
         assert_runtime_delivery_volume_capacity(root, additional_bytes=requested)
+        identity = _current_process_identity()
+        heartbeat_monotonic = float(_monotonic())
+        if not math.isfinite(heartbeat_monotonic) or heartbeat_monotonic < 0:
+            raise RuntimeDeliveryQuotaError("runtime delivery monotonic clock is invalid")
         _atomic_write_bytes(
             target,
             encoded_json(
                 {
-                    "version": "cortex.runtime-delivery-reservation.v1",
-                    "pid": os.getpid(),
-                    "created_at": time.time(),
+                    "version": "cortex.runtime-delivery-reservation.v2",
+                    **identity,
+                    "created_at": _wall_time(),
+                    "heartbeat_monotonic": heartbeat_monotonic,
+                    "lease_expires_monotonic": (
+                        heartbeat_monotonic + RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS
+                    ),
                     "reserved_bytes": requested,
                 }
             ),
