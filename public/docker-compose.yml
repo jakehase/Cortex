@@ -90,7 +90,9 @@ services:
         condition: service_healthy
 
   cortex-volume-bootstrap:
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: Dockerfile
     profiles: ["bootstrap"]
     environment:
       CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
@@ -169,6 +171,108 @@ services:
           sync "$$temporary"
           mv "$$temporary" "$$target"
           sync "$$controller"
+        }
+        bootstrap_python="$${CORTEX_BOOTSTRAP_PYTHON:-python}"
+        initialize_chroma_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        from pathlib import Path
+
+        import chromadb
+
+        root = Path("/memory")
+        if root.is_symlink() or not root.is_dir():
+            raise RuntimeError("Chroma authority volume is missing or unsafe")
+        client = chromadb.PersistentClient(path=str(root))
+        client.get_or_create_collection(name="cortex_memory", embedding_function=None)
+        client.get_or_create_collection(
+            name="cortex-durability-readiness", embedding_function=None
+        )
+        database = root / "chroma.sqlite3"
+        if database.is_symlink() or not database.is_file():
+            raise RuntimeError("Chroma authority database was not initialized")
+        descriptor = os.open(database, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        directory_descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /memory/chroma.sqlite3
+          sync /memory
+        }
+        initialize_reasoning_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        path = Path("/reasoning/reasoning_runtime.db")
+        if path.parent.is_symlink() or not path.parent.is_dir():
+            raise RuntimeError("reasoning authority volume is missing or unsafe")
+        if path.is_symlink():
+            raise RuntimeError("reasoning authority database is unsafe")
+        connection = sqlite3.connect(str(path), timeout=2.5)
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_documents ("
+                "namespace TEXT NOT NULL, doc_id TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(namespace, doc_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_documents_ns_updated "
+                "ON reasoning_documents(namespace, updated_at)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_events ("
+                "namespace TEXT NOT NULL, parent_id TEXT NOT NULL, event_id TEXT NOT NULL, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL, "
+                "PRIMARY KEY(namespace, event_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_events_ns_parent_created "
+                "ON reasoning_events(namespace, parent_id, created_at)"
+            )
+            connection.commit()
+            connection.execute(
+                "SELECT namespace, doc_id, created_at, updated_at, payload "
+                "FROM reasoning_documents LIMIT 0"
+            )
+            connection.execute(
+                "SELECT namespace, parent_id, event_id, created_at, updated_at, payload "
+                "FROM reasoning_events LIMIT 0"
+            )
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            if not quick_check or str(quick_check[0]) != "ok":
+                raise RuntimeError("reasoning authority database quick_check failed")
+            checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint and int(checkpoint[0]) != 0:
+                raise RuntimeError("reasoning authority WAL checkpoint did not complete")
+        finally:
+            connection.close()
+        for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+            if candidate.exists():
+                descriptor = os.open(candidate, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+        directory_descriptor = os.open(
+            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /reasoning/reasoning_runtime.db
+          sync /reasoning
         }
 
         for identity_specification in \
@@ -250,16 +354,22 @@ services:
         fi
         journal_phase knowledge-initialized
 
+        initialize_chroma_authority
+        initialize_reasoning_authority
+        journal_phase durable-authorities-initialized
+
         initialize_controller /verifier-controller
         initialize_controller /manager-controller
         journal_phase controllers-initialized
 
         for specification in \
           "/memory/.cortex-durable-memory:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/memory/.cortex-memory-authority:cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" \
           "/knowledge/.cortex-durable-knowledge:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
           "/state/runtime_delivery/.cortex-durable-runtime-delivery:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
           "/application/.cortex-durable-app-state:$$CORTEX_APP_STATE_MOUNT_ID" \
           "/reasoning/.cortex-durable-reasoning:$$CORTEX_REASONING_MOUNT_ID" \
+          "/reasoning/.cortex-reasoning-authority:cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" \
           "/verifier-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
           "/manager-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
         do
@@ -286,7 +396,9 @@ services:
     restart: "no"
 
   cortex-volume-adopt-source:
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: Dockerfile
     profiles: ["adopt-source"]
     environment:
       CORTEX_SOURCE_CHROMA_MOUNT_ID: ${CORTEX_SOURCE_CHROMA_MOUNT_ID:-cortex-chroma-v1}
@@ -397,6 +509,163 @@ services:
           sync "$$controller"
         }
 
+        bootstrap_python="$${CORTEX_BOOTSTRAP_PYTHON:-python}"
+        adopt_chroma_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        from pathlib import Path
+
+        import chromadb
+
+        root = Path("/source-memory")
+        if root.is_symlink() or not root.is_dir():
+            raise RuntimeError("source Chroma authority volume is missing or unsafe")
+        database = root / "chroma.sqlite3"
+        if database.is_symlink() or not database.is_file():
+            raise RuntimeError("source Chroma authority database is missing or unsafe")
+        client = chromadb.PersistentClient(path=str(root))
+        client.get_collection(name="cortex_memory", embedding_function=None)
+        client.get_or_create_collection(
+            name="cortex-durability-readiness", embedding_function=None
+        )
+        descriptor = os.open(database, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        directory_descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /source-memory/chroma.sqlite3
+          sync /source-memory
+        }
+        validate_chroma_authority() {
+          "$$bootstrap_python" - <<'PY'
+        from pathlib import Path
+
+        import chromadb
+
+        root = Path("/source-memory")
+        database = root / "chroma.sqlite3"
+        if root.is_symlink() or not root.is_dir() or database.is_symlink() or not database.is_file():
+            raise RuntimeError("adopted Chroma authority is missing or unsafe")
+        client = chromadb.PersistentClient(path=str(root))
+        client.get_collection(name="cortex_memory", embedding_function=None)
+        client.get_collection(name="cortex-durability-readiness", embedding_function=None)
+        PY
+        }
+        initialize_reasoning_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        path = Path("/reasoning/reasoning_runtime.db")
+        if path.parent.is_symlink() or not path.parent.is_dir() or path.is_symlink():
+            raise RuntimeError("reasoning authority target is missing or unsafe")
+        connection = sqlite3.connect(str(path), timeout=2.5)
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_documents ("
+                "namespace TEXT NOT NULL, doc_id TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(namespace, doc_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_documents_ns_updated "
+                "ON reasoning_documents(namespace, updated_at)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_events ("
+                "namespace TEXT NOT NULL, parent_id TEXT NOT NULL, event_id TEXT NOT NULL, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL, "
+                "PRIMARY KEY(namespace, event_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_events_ns_parent_created "
+                "ON reasoning_events(namespace, parent_id, created_at)"
+            )
+            connection.commit()
+            connection.execute(
+                "SELECT namespace, doc_id, created_at, updated_at, payload "
+                "FROM reasoning_documents LIMIT 0"
+            )
+            connection.execute(
+                "SELECT namespace, parent_id, event_id, created_at, updated_at, payload "
+                "FROM reasoning_events LIMIT 0"
+            )
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            if not quick_check or str(quick_check[0]) != "ok":
+                raise RuntimeError("reasoning authority database quick_check failed")
+            checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint and int(checkpoint[0]) != 0:
+                raise RuntimeError("reasoning authority WAL checkpoint did not complete")
+        finally:
+            connection.close()
+        for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+            if candidate.exists():
+                descriptor = os.open(candidate, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+        directory_descriptor = os.open(
+            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /reasoning/reasoning_runtime.db
+          sync /reasoning
+        }
+        validate_reasoning_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import sqlite3
+        from pathlib import Path
+
+        path = Path("/reasoning/reasoning_runtime.db")
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("adopted reasoning authority database is missing or unsafe")
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.5) as connection:
+            connection.execute("PRAGMA query_only = ON")
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            connection.execute(
+                "SELECT namespace, doc_id, created_at, updated_at, payload "
+                "FROM reasoning_documents LIMIT 0"
+            )
+            connection.execute(
+                "SELECT namespace, parent_id, event_id, created_at, updated_at, payload "
+                "FROM reasoning_events LIMIT 0"
+            )
+            schema = {
+                (str(row[0]), str(row[1]))
+                for row in connection.execute(
+                    "SELECT type, name FROM sqlite_master WHERE name IN (?, ?, ?, ?)",
+                    (
+                        "reasoning_documents",
+                        "reasoning_events",
+                        "idx_reasoning_documents_ns_updated",
+                        "idx_reasoning_events_ns_parent_created",
+                    ),
+                ).fetchall()
+            }
+        required = {
+            ("table", "reasoning_documents"),
+            ("table", "reasoning_events"),
+            ("index", "idx_reasoning_documents_ns_updated"),
+            ("index", "idx_reasoning_events_ns_parent_created"),
+        }
+        if not quick_check or str(quick_check[0]) != "ok" or not required.issubset(schema):
+            raise RuntimeError("adopted reasoning authority schema is invalid")
+        PY
+        }
+
         for identity_specification in \
           "CORTEX_SOURCE_CHROMA_MOUNT_ID:$$CORTEX_SOURCE_CHROMA_MOUNT_ID" \
           "CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID:$$CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID" \
@@ -485,10 +754,12 @@ services:
             "/continuity/cortex-release-verifier-state.volume-id:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
             "/continuity/cortex-release-manager-state.volume-id:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID" \
             "/source-memory/.cortex-durable-memory:$$CORTEX_CHROMA_MOUNT_ID" \
+            "/source-memory/.cortex-memory-authority:cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" \
             "/source/runtime_delivery/.cortex-durable-runtime-delivery:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
             "/application/.cortex-durable-app-state:$$CORTEX_APP_STATE_MOUNT_ID" \
             "/knowledge/.cortex-durable-knowledge:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
             "/reasoning/.cortex-durable-reasoning:$$CORTEX_REASONING_MOUNT_ID" \
+            "/reasoning/.cortex-reasoning-authority:cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" \
             "/verifier-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
             "/manager-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
           do
@@ -498,6 +769,8 @@ services:
             fail "verifier observation state is missing after completed adoption"
           [ -f /manager-controller/observations.json ] && [ ! -L /manager-controller/observations.json ] || \
             fail "manager observation state is missing after completed adoption"
+          validate_chroma_authority
+          validate_reasoning_authority
           publish_value /continuity/cortex-volume-set.complete cortex.volume-set.v1
           echo "Cortex source-volume adoption is already complete"
           exit 0
@@ -529,6 +802,9 @@ services:
         sync /reasoning
         journal_phase reasoning-copied
 
+        initialize_reasoning_authority
+        journal_phase reasoning-authority-initialized
+
         sync /source/runtime_delivery
         journal_phase runtime-retained
         initialize_controller /verifier-controller
@@ -545,10 +821,14 @@ services:
           "$$CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID" \
           "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
           runtime-delivery
+        adopt_chroma_authority
+        journal_phase chroma-authority-initialized
         for marker in \
+          "/source-memory/.cortex-memory-authority:cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" \
           "/application/.cortex-durable-app-state:$$CORTEX_APP_STATE_MOUNT_ID" \
           "/knowledge/.cortex-durable-knowledge:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
           "/reasoning/.cortex-durable-reasoning:$$CORTEX_REASONING_MOUNT_ID" \
+          "/reasoning/.cortex-reasoning-authority:cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" \
           "/verifier-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
           "/manager-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
         do
@@ -586,6 +866,8 @@ services:
       - -ec
       - |
         marker=/memory/.cortex-durable-memory
+        authority=/memory/.cortex-memory-authority
+        database=/memory/chroma.sqlite3
         expected=/continuity/cortex-chroma.volume-id
         completion=/continuity/cortex-volume-set.complete
         if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
@@ -606,6 +888,15 @@ services:
         fi
         if [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
           echo "Cortex memory volume identity mismatch" >&2
+          exit 1
+        fi
+        if [ ! -f "$$authority" ] || [ -L "$$authority" ] || \
+          [ "$$(cat "$$authority")" != "cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" ]; then
+          echo "Cortex memory authority sentinel is missing or mismatched; restore the authority instead of recreating it" >&2
+          exit 1
+        fi
+        if [ ! -f "$$database" ] || [ -L "$$database" ]; then
+          echo "Cortex memory authority database is missing; restore it instead of initializing during startup" >&2
           exit 1
         fi
     restart: "no"
@@ -783,6 +1074,8 @@ services:
       - -ec
       - |
         marker=/reasoning/.cortex-durable-reasoning
+        authority=/reasoning/.cortex-reasoning-authority
+        database=/reasoning/reasoning_runtime.db
         expected=/continuity/cortex-reasoning.volume-id
         completion=/continuity/cortex-volume-set.complete
         if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
@@ -805,8 +1098,17 @@ services:
           echo "Cortex reasoning volume identity mismatch" >&2
           exit 1
         fi
+        if [ ! -f "$$authority" ] || [ -L "$$authority" ] || \
+          [ "$$(cat "$$authority")" != "cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" ]; then
+          echo "Cortex reasoning authority sentinel is missing or mismatched; restore the authority instead of recreating it" >&2
+          exit 1
+        fi
+        if [ ! -f "$$database" ] || [ -L "$$database" ]; then
+          echo "Cortex reasoning database is missing; restore it instead of initializing during startup" >&2
+          exit 1
+        fi
         chmod 0700 /reasoning
-        chmod 0600 "$$marker"
+        chmod 0600 "$$marker" "$$authority" "$$database"
         sync /reasoning
     restart: "no"
 

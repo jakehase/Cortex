@@ -1005,4 +1005,115 @@ def test_production_memory_path_verifies_durable_mount_identity(monkeypatch, tmp
     with pytest.raises(RuntimeError, match="mount identity"):
         librarian._validate_chroma_storage(str(durable))
     (durable / ".cortex-durable-memory").write_text("volume-123\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="authority is missing"):
+        librarian._validate_chroma_storage(str(durable))
+    (durable / librarian.CHROMA_AUTHORITY_SENTINEL).write_text(
+        librarian._chroma_authority_binding("volume-123") + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="authority database is missing"):
+        librarian._validate_chroma_storage(str(durable))
+    (durable / librarian.CHROMA_DATABASE_NAME).write_bytes(b"published-chroma-authority")
     librarian._validate_chroma_storage(str(durable))
+
+
+def test_production_memory_startup_never_creates_the_authoritative_collection(monkeypatch):
+    calls = []
+
+    class MissingAuthorityClient:
+        def get_collection(self, **kwargs):
+            calls.append(("get", kwargs["name"]))
+            raise RuntimeError("collection does not exist")
+
+        def get_or_create_collection(self, **kwargs):
+            calls.append(("get_or_create", kwargs["name"]))
+            raise AssertionError("production startup must not create memory authority")
+
+    monkeypatch.setenv("CORTEX_ENV", "production")
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        librarian._load_memory_collection(MissingAuthorityClient(), object())
+
+    assert calls == [("get", librarian.COLLECTION_NAME)]
+
+
+def test_production_memory_readiness_fails_closed_after_authority_loss(monkeypatch, tmp_path):
+    durable = tmp_path / "durable-chroma"
+    durable.mkdir()
+    mount_id = "volume-authority-readiness-123"
+    (durable / ".cortex-durable-memory").write_text(mount_id + "\n", encoding="utf-8")
+    (durable / librarian.CHROMA_AUTHORITY_SENTINEL).write_text(
+        librarian._chroma_authority_binding(mount_id) + "\n",
+        encoding="utf-8",
+    )
+    database = durable / librarian.CHROMA_DATABASE_NAME
+    database.write_bytes(b"published-chroma-authority")
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_CHROMA_MOUNT_ID", mount_id)
+    monkeypatch.setattr(librarian, "CHROMA_DIR", str(durable))
+    calls = []
+
+    class AuthoritativeCollection:
+        def count(self):
+            return 0
+
+    class ReadinessCollection:
+        def __init__(self):
+            self.probe_id = None
+
+        def upsert(self, *, ids, **_kwargs):
+            self.probe_id = ids[0]
+
+        def get(self, *, ids):
+            return {"ids": ids if ids == [self.probe_id] else []}
+
+        def delete(self, *, ids):
+            calls.append(("delete", ids[0]))
+
+    readiness_collection = ReadinessCollection()
+
+    class ExistingOnlyClient:
+        def __init__(self):
+            self.authority_available = True
+
+        def get_collection(self, **kwargs):
+            name = kwargs["name"]
+            calls.append(("get", name))
+            if name == librarian.COLLECTION_NAME:
+                if not self.authority_available:
+                    raise RuntimeError("authoritative collection does not exist")
+                return AuthoritativeCollection()
+            if name == librarian.READINESS_COLLECTION_NAME:
+                return readiness_collection
+            raise RuntimeError("unexpected collection")
+
+        def get_or_create_collection(self, **kwargs):
+            calls.append(("get_or_create", kwargs["name"]))
+            raise AssertionError("production readiness must not create collections")
+
+    existing_client = ExistingOnlyClient()
+    monkeypatch.setattr(librarian, "client", existing_client)
+
+    healthy = librarian.probe_memory_backend_readiness()
+
+    assert healthy["ok"] is True
+    assert healthy["count"] == 0
+    assert [call for call in calls if call[0] == "get"] == [
+        ("get", librarian.COLLECTION_NAME),
+        ("get", librarian.READINESS_COLLECTION_NAME),
+    ]
+    assert not any(call[0] == "get_or_create" for call in calls)
+
+    existing_client.authority_available = False
+    missing_collection = librarian.probe_memory_backend_readiness()
+
+    assert missing_collection["ok"] is False
+    assert "authoritative collection does not exist" in missing_collection["error"]
+    assert not any(call[0] == "get_or_create" for call in calls)
+
+    database.unlink()
+    lost = librarian.probe_memory_backend_readiness()
+
+    assert lost["ok"] is False
+    assert "authority database is missing" in lost["error"]
+    assert not database.exists()

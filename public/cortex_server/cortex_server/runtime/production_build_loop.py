@@ -68,6 +68,10 @@ JsonDict = Dict[str, Any]
 BUILTIN_BLOCKER_PREFIXES = ("BLOCKER:", "HUMAN:")
 REQUIRED_RELEASE_HANDOFF_RECIPIENTS = ("release-verifier", "release-manager")
 RUNTIME_DELIVERY_MOUNT_MARKER = ".cortex-durable-runtime-delivery"
+REASONING_VOLUME_MOUNT_MARKER = ".cortex-durable-reasoning"
+REASONING_AUTHORITY_SENTINEL = ".cortex-reasoning-authority"
+REASONING_AUTHORITY_SCHEMA = "cortex.reasoning-authority.v1"
+REASONING_DATABASE_NAME = "reasoning_runtime.db"
 RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID = "__cortex_manager_capability__"
 RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON = "non_mutating_manager_capability_challenge"
 MIN_PRODUCTION_SECRET_BYTES = 32
@@ -88,6 +92,13 @@ def _production_environment() -> bool:
         "prod",
         "staging",
     }
+
+
+def _reasoning_authority_binding(
+    mount_id: str,
+    database_name: str = REASONING_DATABASE_NAME,
+) -> str:
+    return f"{REASONING_AUTHORITY_SCHEMA}:{mount_id}:{database_name}"
 
 
 def _production_request_credentials() -> Dict[str, str]:
@@ -1022,6 +1033,9 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         reasoning_path = Path(
             os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/reasoning/reasoning_runtime.db")
         )
+        reasoning_mount_id = os.getenv("CORTEX_REASONING_MOUNT_ID", "").strip()
+        reasoning_marker_path = reasoning_path.parent / REASONING_VOLUME_MOUNT_MARKER
+        reasoning_authority_path = reasoning_path.parent / REASONING_AUTHORITY_SENTINEL
         reasoning_error: Optional[str] = None
         quick_check: Optional[str] = None
         missing_process_ids: List[str] = []
@@ -1029,6 +1043,29 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         try:
             if not reasoning_path.is_absolute():
                 raise RuntimeError("reasoning store path must be absolute")
+            if reasoning_path.parent.is_symlink() or not reasoning_path.parent.is_dir():
+                raise RuntimeError("reasoning store volume is missing or invalid")
+            if not reasoning_mount_id:
+                raise RuntimeError("CORTEX_REASONING_MOUNT_ID is not configured")
+            if reasoning_marker_path.is_symlink() or not reasoning_marker_path.is_file():
+                raise RuntimeError("reasoning store volume marker is missing or invalid")
+            observed_reasoning_mount_id = reasoning_marker_path.read_text(
+                encoding="utf-8"
+            ).strip()
+            if not hmac.compare_digest(observed_reasoning_mount_id, reasoning_mount_id):
+                raise RuntimeError("reasoning store volume identity mismatch")
+            if reasoning_authority_path.is_symlink() or not reasoning_authority_path.is_file():
+                raise RuntimeError("reasoning store authority sentinel is missing or invalid")
+            observed_reasoning_authority = reasoning_authority_path.read_text(
+                encoding="utf-8"
+            ).strip()
+            if not hmac.compare_digest(
+                observed_reasoning_authority,
+                _reasoning_authority_binding(reasoning_mount_id, reasoning_path.name),
+            ):
+                raise RuntimeError("reasoning store authority identity mismatch")
+            if reasoning_path.is_symlink() or not reasoning_path.is_file():
+                raise RuntimeError("reasoning store database is missing or invalid")
             persisted_release_ids = {
                 process_id
                 for process_id, sources in _runtime_delivery_projection_sources(delivery_root).items()
@@ -1050,18 +1087,31 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
                 process_id = str(payload.get("process_id") or "").strip() if isinstance(payload, dict) else ""
                 if process_id:
                     persisted_release_ids.add(process_id)
-            if not reasoning_path.exists() and persisted_release_ids:
-                raise RuntimeError(
-                    "reasoning store database is missing while persisted release state exists"
-                )
-            if not reasoning_path.exists():
-                # A pristine durable volume has no process rows to recover. Build
-                # the canonical schema in-place so first-boot readiness can pass.
-                from cortex_server.modules.reasoning_store import list_docs
-
-                list_docs("reasoning_processes", db_path=reasoning_path)
             with sqlite3.connect(f"file:{reasoning_path}?mode=ro", uri=True, timeout=2.0) as connection:
+                connection.execute("PRAGMA query_only = ON")
                 row = connection.execute("PRAGMA quick_check").fetchone()
+                schema_rows = connection.execute(
+                    "SELECT type, name FROM sqlite_master "
+                    "WHERE (type = 'table' OR type = 'index') AND name IN (?, ?, ?, ?)",
+                    (
+                        "reasoning_documents",
+                        "reasoning_events",
+                        "idx_reasoning_documents_ns_updated",
+                        "idx_reasoning_events_ns_parent_created",
+                    ),
+                ).fetchall()
+                document_columns = {
+                    str(column[1])
+                    for column in connection.execute(
+                        "PRAGMA table_info(reasoning_documents)"
+                    ).fetchall()
+                }
+                event_columns = {
+                    str(column[1])
+                    for column in connection.execute(
+                        "PRAGMA table_info(reasoning_events)"
+                    ).fetchall()
+                }
                 process_rows = connection.execute(
                     "SELECT doc_id, payload FROM reasoning_documents WHERE namespace = ?",
                     ("reasoning_processes",),
@@ -1069,6 +1119,35 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
             quick_check = str(row[0] if row else "")
             if quick_check != "ok":
                 raise RuntimeError(f"reasoning store quick_check failed: {quick_check}")
+            observed_schema = {(str(row[0]), str(row[1])) for row in schema_rows}
+            required_schema = {
+                ("table", "reasoning_documents"),
+                ("table", "reasoning_events"),
+                ("index", "idx_reasoning_documents_ns_updated"),
+                ("index", "idx_reasoning_events_ns_parent_created"),
+            }
+            missing_schema = sorted(
+                name for _item_type, name in required_schema - observed_schema
+            )
+            if missing_schema:
+                raise RuntimeError(
+                    "reasoning store schema is incomplete: " + ", ".join(missing_schema)
+                )
+            required_document_columns = {
+                "namespace", "doc_id", "created_at", "updated_at", "payload"
+            }
+            required_event_columns = {
+                "namespace",
+                "parent_id",
+                "event_id",
+                "created_at",
+                "updated_at",
+                "payload",
+            }
+            if not required_document_columns.issubset(document_columns):
+                raise RuntimeError("reasoning_documents schema is incomplete")
+            if not required_event_columns.issubset(event_columns):
+                raise RuntimeError("reasoning_events schema is incomplete")
             process_ids = {str(row[0]) for row in process_rows}
             for row in process_rows:
                 payload = json.loads(str(row[1]))
@@ -1088,6 +1167,9 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
         checks["durableReasoningStore"] = {
             "ok": reasoning_error is None,
             "path": str(reasoning_path),
+            "markerPath": str(reasoning_marker_path),
+            "authorityPath": str(reasoning_authority_path),
+            "configuredMountId": reasoning_mount_id or None,
             "quickCheck": quick_check,
             "missingProcessIds": missing_process_ids,
             "error": reasoning_error,

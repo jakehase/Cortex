@@ -4,11 +4,14 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
+import sys
 import textwrap
 from types import SimpleNamespace
 
 import pytest
+import chromadb
 
 from cortex_server.tools import docker_wrapper
 
@@ -56,6 +59,37 @@ def _volume_tree(root: Path) -> list[tuple[str, bool, int, str]]:
             )
         )
     return snapshot
+
+
+def _initialize_test_chroma_authority(root: Path) -> None:
+    client = chromadb.PersistentClient(path=str(root))
+    collection = client.get_or_create_collection(
+        name="cortex_memory",
+        embedding_function=None,
+    )
+    collection.add(
+        ids=["preserved-memory-row"],
+        embeddings=[[0.5]],
+        documents=["preserved memory"],
+    )
+
+
+def _initialize_test_reasoning_authority(path: Path) -> None:
+    from cortex_server.modules.reasoning_store import list_docs
+
+    list_docs("reasoning_processes", db_path=path)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT INTO reasoning_documents(namespace, doc_id, created_at, updated_at, payload) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                "reasoning_processes",
+                "preserved-reasoning-row",
+                "2026-07-16T00:00:00+00:00",
+                "2026-07-16T00:00:00+00:00",
+                '{"process_id":"preserved-reasoning-row"}',
+            ),
+        )
 
 
 VOLUME_INITIALIZERS = (
@@ -273,6 +307,7 @@ def test_explicit_bootstrap_initializes_every_identity_and_controller_ledger(tmp
         path.mkdir()
     (mounts["/seed"] / "cortex_graph.db").write_text("seed-graph", encoding="utf-8")
     identities = {
+        "CORTEX_BOOTSTRAP_PYTHON": sys.executable,
         "CORTEX_CHROMA_MOUNT_ID": "bootstrap-chroma-id",
         "CORTEX_KNOWLEDGE_MOUNT_ID": "bootstrap-knowledge-id",
         "CORTEX_RUNTIME_DELIVERY_MOUNT_ID": "bootstrap-runtime-id",
@@ -302,6 +337,31 @@ def test_explicit_bootstrap_initializes_every_identity_and_controller_ledger(tmp
     assert (mounts["/knowledge"] / "cortex_graph.db").read_text(
         encoding="utf-8"
     ) == "seed-graph"
+    assert (mounts["/memory"] / ".cortex-memory-authority").read_text(
+        encoding="utf-8"
+    ).strip() == "cortex.memory-authority.v1:bootstrap-chroma-id:cortex_memory"
+    memory_client = chromadb.PersistentClient(path=str(mounts["/memory"]))
+    assert memory_client.get_collection("cortex_memory", embedding_function=None).count() == 0
+    assert (
+        memory_client.get_collection(
+            "cortex-durability-readiness", embedding_function=None
+        ).count()
+        == 0
+    )
+    reasoning_database = mounts["/reasoning"] / "reasoning_runtime.db"
+    assert (mounts["/reasoning"] / ".cortex-reasoning-authority").read_text(
+        encoding="utf-8"
+    ).strip() == (
+        "cortex.reasoning-authority.v1:bootstrap-reasoning-id:reasoning_runtime.db"
+    )
+    with sqlite3.connect(f"file:{reasoning_database}?mode=ro", uri=True) as connection:
+        assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        assert {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        } >= {"reasoning_documents", "reasoning_events"}
     for controller in ("/verifier-controller", "/manager-controller"):
         assert json.loads(
             (mounts[controller] / "observations.json").read_text(encoding="utf-8")
@@ -332,6 +392,7 @@ def test_interrupted_volume_bootstrap_resumes_matching_transaction(tmp_path):
         "seed-graph", encoding="utf-8"
     )
     identities = {
+        "CORTEX_BOOTSTRAP_PYTHON": sys.executable,
         "CORTEX_CHROMA_MOUNT_ID": "resume-chroma-id",
         "CORTEX_KNOWLEDGE_MOUNT_ID": "resume-knowledge-id",
         "CORTEX_RUNTIME_DELIVERY_MOUNT_ID": "resume-runtime-id",
@@ -487,6 +548,80 @@ def test_blank_replacement_volume_commands_exit_without_mutation(
 
 
 @pytest.mark.parametrize(
+    "service,credential,manifest_name,volume_mount,marker_name,authority_name,authority_value,error",
+    (
+        (
+            "cortex-memory-volume-init",
+            "CORTEX_CHROMA_MOUNT_ID",
+            "cortex-chroma.volume-id",
+            "/memory",
+            ".cortex-durable-memory",
+            ".cortex-memory-authority",
+            "cortex.memory-authority.v1:deployment-volume-id:cortex_memory",
+            "memory authority database is missing",
+        ),
+        (
+            "cortex-reasoning-volume-init",
+            "CORTEX_REASONING_MOUNT_ID",
+            "cortex-reasoning.volume-id",
+            "/reasoning",
+            ".cortex-durable-reasoning",
+            ".cortex-reasoning-authority",
+            "cortex.reasoning-authority.v1:deployment-volume-id:reasoning_runtime.db",
+            "reasoning database is missing",
+        ),
+    ),
+)
+def test_ordinary_startup_rejects_lost_authority_database_without_mutation(
+    tmp_path,
+    service,
+    credential,
+    manifest_name,
+    volume_mount,
+    marker_name,
+    authority_name,
+    authority_value,
+    error,
+):
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    continuity = tmp_path / "continuity"
+    volume = tmp_path / volume_mount.removeprefix("/")
+    continuity.mkdir()
+    volume.mkdir()
+    identity = "deployment-volume-id"
+    (continuity / manifest_name).write_text(identity + "\n", encoding="utf-8")
+    (continuity / "cortex-volume-set.complete").write_text(
+        "cortex.volume-set.v1\n",
+        encoding="utf-8",
+    )
+    (volume / marker_name).write_text(identity + "\n", encoding="utf-8")
+    (volume / authority_name).write_text(authority_value + "\n", encoding="utf-8")
+    before = _volume_tree(volume)
+
+    completed = subprocess.run(
+        [
+            "/bin/sh",
+            "-ec",
+            _compose_init_script(
+                compose,
+                service,
+                {"/continuity": continuity, volume_mount: volume},
+            ),
+        ],
+        capture_output=True,
+        check=False,
+        env={**os.environ, credential: identity},
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert error in completed.stderr
+    assert _volume_tree(volume) == before
+
+
+@pytest.mark.parametrize(
     "service,credential,manifest_name,volume_mount,marker_relative",
     VOLUME_INITIALIZERS,
 )
@@ -607,9 +742,7 @@ def _source_adoption_fixture(tmp_path: Path) -> tuple[dict[str, Path], dict[str,
     (mounts["/source-memory"] / ".cortex-durable-memory").write_text(
         "cortex-chroma-v1\n", encoding="utf-8"
     )
-    (mounts["/source-memory"] / "chroma.sqlite3").write_text(
-        "preserved-memory", encoding="utf-8"
-    )
+    _initialize_test_chroma_authority(mounts["/source-memory"])
     runtime = mounts["/source"] / "runtime_delivery"
     runtime.mkdir()
     (runtime / ".cortex-durable-runtime-delivery").write_text(
@@ -623,13 +756,14 @@ def _source_adoption_fixture(tmp_path: Path) -> tuple[dict[str, Path], dict[str,
     (source_knowledge / "cortex_graph.db").write_text(
         "preserved-knowledge", encoding="utf-8"
     )
-    (mounts["/source"] / "reasoning_runtime.db").write_text(
-        "preserved-reasoning", encoding="utf-8"
+    _initialize_test_reasoning_authority(
+        mounts["/source"] / "reasoning_runtime.db"
     )
     (mounts["/source"] / "nexus_outcome_feedback_receipts.json").write_text(
         '{"consumed":["jti-preserved"]}\n', encoding="utf-8"
     )
     identities = {
+        "CORTEX_BOOTSTRAP_PYTHON": sys.executable,
         "CORTEX_SOURCE_CHROMA_MOUNT_ID": "cortex-chroma-v1",
         "CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID": "cortex-runtime-delivery-v1",
         "CORTEX_CHROMA_MOUNT_ID": "adopted-chroma-id",
@@ -685,9 +819,29 @@ def test_source_volume_adoption_preserves_split_state_and_completed_rerun_is_noo
     assert (mounts["/knowledge"] / "cortex_graph.db").read_text(
         encoding="utf-8"
     ) == "preserved-knowledge"
-    assert (mounts["/reasoning"] / "reasoning_runtime.db").read_text(
+    with sqlite3.connect(
+        f"file:{mounts['/reasoning'] / 'reasoning_runtime.db'}?mode=ro",
+        uri=True,
+    ) as connection:
+        assert connection.execute(
+            "SELECT doc_id FROM reasoning_documents WHERE namespace = ?",
+            ("reasoning_processes",),
+        ).fetchone()[0] == "preserved-reasoning-row"
+    adopted_memory = chromadb.PersistentClient(path=str(mounts["/source-memory"]))
+    assert adopted_memory.get_collection(
+        "cortex_memory", embedding_function=None
+    ).count() == 1
+    assert adopted_memory.get_collection(
+        "cortex-durability-readiness", embedding_function=None
+    ).count() == 0
+    assert (mounts["/source-memory"] / ".cortex-memory-authority").read_text(
         encoding="utf-8"
-    ) == "preserved-reasoning"
+    ).strip() == "cortex.memory-authority.v1:adopted-chroma-id:cortex_memory"
+    assert (mounts["/reasoning"] / ".cortex-reasoning-authority").read_text(
+        encoding="utf-8"
+    ).strip() == (
+        "cortex.reasoning-authority.v1:adopted-reasoning-id:reasoning_runtime.db"
+    )
     assert (mounts["/source"] / "runtime_delivery/active-rollback.json").is_file()
     assert "complete" in (
         mounts["/continuity"] / "cortex-source-adoption.journal"

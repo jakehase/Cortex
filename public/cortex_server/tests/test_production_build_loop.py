@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import multiprocessing
+import sqlite3
 
 import pytest
 from fastapi import HTTPException
@@ -41,6 +42,23 @@ from cortex_server.runtime.shared_process_state import OpenDecision, SharedProce
 
 VERIFIER_ID = "independent-release-verifier"
 VERIFIER_SECRET = "test-release-verifier-secret-material-0001"
+
+
+def _initialize_reasoning_authority(path, mount_id: str) -> None:
+    from cortex_server.modules.reasoning_store import list_docs
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    list_docs("reasoning_processes", db_path=path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    (path.parent / production_build_loop.REASONING_VOLUME_MOUNT_MARKER).write_text(
+        mount_id + "\n",
+        encoding="utf-8",
+    )
+    (path.parent / production_build_loop.REASONING_AUTHORITY_SENTINEL).write_text(
+        production_build_loop._reasoning_authority_binding(mount_id) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _configure_production_credentials(monkeypatch):
@@ -233,8 +251,10 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
         encoding="utf-8",
     )
     reasoning_path = tmp_path / "state" / "reasoning_runtime.db"
-    reasoning_path.parent.mkdir()
+    reasoning_mount_id = "reasoning-volume-test-v1"
+    _initialize_reasoning_authority(reasoning_path, reasoning_mount_id)
     monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", mount_id)
+    monkeypatch.setenv("CORTEX_REASONING_MOUNT_ID", reasoning_mount_id)
     monkeypatch.setenv("REASONING_STORE_DB_PATH", str(reasoning_path))
     monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_HEALTH_URL", "http://release-verifier:8091/health")
     monkeypatch.setenv("CORTEX_RELEASE_MANAGER_HEALTH_URL", "http://release-manager:8092/health")
@@ -250,10 +270,14 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
 
     monkeypatch.setattr(production_build_loop, "urlopen", lambda *_args, **_kwargs: HealthyResponse())
 
+    reasoning_before = reasoning_path.read_bytes()
+    reasoning_mtime_before = reasoning_path.stat().st_mtime_ns
     healthy = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
     assert healthy["ready"] is True
     assert healthy["checks"]["releaseConsumers"]["ok"] is True
     assert healthy["checks"]["durableReasoningStore"]["quickCheck"] == "ok"
+    assert reasoning_path.read_bytes() == reasoning_before
+    assert reasoning_path.stat().st_mtime_ns == reasoning_mtime_before
 
     rotated_verifier = "independent-release-verifier-v2"
     rotated_secret = "verifier-key-v2-000000000000000000001"
@@ -326,6 +350,103 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     inconsistent = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
     assert inconsistent["ready"] is False
     assert inconsistent["checks"]["durableReasoningStore"]["missingProcessIds"] == ["proc_missing"]
+
+
+def test_production_readiness_never_initializes_a_missing_reasoning_authority(
+    tmp_path, monkeypatch
+):
+    _configure_production_credentials(monkeypatch)
+    delivery_root = tmp_path / "runtime_delivery"
+    delivery_root.mkdir()
+    runtime_mount_id = "runtime-delivery-missing-reasoning-v1"
+    (delivery_root / production_build_loop.RUNTIME_DELIVERY_MOUNT_MARKER).write_text(
+        runtime_mount_id + "\n",
+        encoding="utf-8",
+    )
+    reasoning_root = tmp_path / "reasoning"
+    reasoning_root.mkdir()
+    reasoning_path = reasoning_root / production_build_loop.REASONING_DATABASE_NAME
+    reasoning_mount_id = "reasoning-volume-missing-database-v1"
+    (reasoning_root / production_build_loop.REASONING_VOLUME_MOUNT_MARKER).write_text(
+        reasoning_mount_id + "\n",
+        encoding="utf-8",
+    )
+    (reasoning_root / production_build_loop.REASONING_AUTHORITY_SENTINEL).write_text(
+        production_build_loop._reasoning_authority_binding(reasoning_mount_id) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", runtime_mount_id)
+    monkeypatch.setenv("CORTEX_REASONING_MOUNT_ID", reasoning_mount_id)
+    monkeypatch.setenv("REASONING_STORE_DB_PATH", str(reasoning_path))
+    monkeypatch.setenv("CORTEX_RELEASE_VERIFIER_HEALTH_URL", "http://release-verifier/health")
+    monkeypatch.setenv("CORTEX_RELEASE_MANAGER_HEALTH_URL", "http://release-manager/health")
+
+    class HealthyResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(production_build_loop, "urlopen", lambda *_args, **_kwargs: HealthyResponse())
+    from cortex_server.modules import reasoning_store
+
+    initializer_calls = []
+    monkeypatch.setattr(
+        reasoning_store,
+        "list_docs",
+        lambda *args, **kwargs: initializer_calls.append((args, kwargs)),
+    )
+    reasoning_files_before = {
+        path.name: path.read_bytes() for path in reasoning_root.iterdir()
+    }
+
+    result = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+
+    assert result["ready"] is False
+    assert result["checks"]["durableReasoningStore"]["ok"] is False
+    assert "database is missing" in result["checks"]["durableReasoningStore"]["error"]
+    assert initializer_calls == []
+    assert not reasoning_path.exists()
+    assert {
+        path.name: path.read_bytes() for path in reasoning_root.iterdir()
+    } == reasoning_files_before
+
+
+def test_production_readiness_rejects_unpublished_reasoning_schema(tmp_path, monkeypatch):
+    _configure_production_credentials(monkeypatch)
+    delivery_root = tmp_path / "runtime_delivery"
+    delivery_root.mkdir()
+    runtime_mount_id = "runtime-delivery-invalid-reasoning-v1"
+    (delivery_root / production_build_loop.RUNTIME_DELIVERY_MOUNT_MARKER).write_text(
+        runtime_mount_id + "\n",
+        encoding="utf-8",
+    )
+    reasoning_root = tmp_path / "reasoning"
+    reasoning_root.mkdir()
+    reasoning_path = reasoning_root / production_build_loop.REASONING_DATABASE_NAME
+    with sqlite3.connect(reasoning_path):
+        pass
+    reasoning_mount_id = "reasoning-volume-invalid-schema-v1"
+    (reasoning_root / production_build_loop.REASONING_VOLUME_MOUNT_MARKER).write_text(
+        reasoning_mount_id + "\n",
+        encoding="utf-8",
+    )
+    (reasoning_root / production_build_loop.REASONING_AUTHORITY_SENTINEL).write_text(
+        production_build_loop._reasoning_authority_binding(reasoning_mount_id) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", runtime_mount_id)
+    monkeypatch.setenv("CORTEX_REASONING_MOUNT_ID", reasoning_mount_id)
+    monkeypatch.setenv("REASONING_STORE_DB_PATH", str(reasoning_path))
+
+    result = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+
+    assert result["ready"] is False
+    assert result["checks"]["durableReasoningStore"]["ok"] is False
+    assert "no such table" in result["checks"]["durableReasoningStore"]["error"]
 
 
 def _with_artifact_receipts(state, release_store, *artifact_ids):

@@ -58,6 +58,11 @@ logger = logging.getLogger(__name__)
 # Initialize ChromaDB client with persistent storage
 # Use host-mounted /app path for durability across container rebuilds.
 LEGACY_CHROMA_DIR = "/root/cortex_server/chroma_db"
+CHROMA_DATABASE_NAME = "chroma.sqlite3"
+CHROMA_AUTHORITY_SENTINEL = ".cortex-memory-authority"
+CHROMA_AUTHORITY_SCHEMA = "cortex.memory-authority.v1"
+COLLECTION_NAME = "cortex_memory"
+READINESS_COLLECTION_NAME = "cortex-durability-readiness"
 
 
 def _production_memory_mode() -> bool:
@@ -84,6 +89,10 @@ def _default_chroma_dir() -> str:
         pass
     return str(Path.home() / ".cache" / "cortex_server" / "chroma_db")
 
+
+def _chroma_authority_binding(mount_id: str) -> str:
+    return f"{CHROMA_AUTHORITY_SCHEMA}:{mount_id}:{COLLECTION_NAME}"
+
 CHROMA_DIR = _default_chroma_dir()
 if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
     try:
@@ -95,8 +104,9 @@ if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
 def _validate_chroma_storage(path_value: str) -> None:
     path = Path(path_value)
     try:
-        path.mkdir(parents=True, exist_ok=True)
         if _production_memory_mode():
+            if path.is_symlink() or not path.is_dir():
+                raise RuntimeError("configured Cortex memory volume is missing or invalid")
             expected_mount_id = os.getenv("CORTEX_CHROMA_MOUNT_ID", "").strip()
             marker_name = os.getenv(
                 "CORTEX_CHROMA_MOUNT_MARKER", ".cortex-durable-memory"
@@ -116,6 +126,19 @@ def _validate_chroma_storage(path_value: str) -> None:
                 or marker_path.read_text(encoding="utf-8").strip() != expected_mount_id
             ):
                 raise RuntimeError("configured Cortex memory mount identity does not match")
+            authority_path = path / CHROMA_AUTHORITY_SENTINEL
+            if (
+                authority_path.is_symlink()
+                or not authority_path.is_file()
+                or authority_path.read_text(encoding="utf-8").strip()
+                != _chroma_authority_binding(expected_mount_id)
+            ):
+                raise RuntimeError("configured Cortex memory authority is missing or mismatched")
+            database_path = path / CHROMA_DATABASE_NAME
+            if database_path.is_symlink() or not database_path.is_file():
+                raise RuntimeError("configured Cortex memory authority database is missing or invalid")
+        else:
+            path.mkdir(parents=True, exist_ok=True)
         probe = path / f".cortex-durability-probe-{uuid.uuid4().hex}"
         descriptor = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -144,12 +167,19 @@ client = chromadb.PersistentClient(path=CHROMA_DIR)
 # CORTEX_LIBRARIAN_EMBEDDING_MODE=default for reproduction experiments.
 embed_fn = build_embedding_function()
 
-# Get or create collection
-COLLECTION_NAME = "cortex_memory"
-collection = client.get_or_create_collection(
-    name=COLLECTION_NAME,
-    embedding_function=embed_fn,
-)
+def _load_memory_collection(chroma_client, embedding_function):
+    if _production_memory_mode():
+        return chroma_client.get_collection(
+            name=COLLECTION_NAME,
+            embedding_function=embedding_function,
+        )
+    return chroma_client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=embedding_function,
+    )
+
+
+collection = _load_memory_collection(client, embed_fn)
 
 _FALLBACK_LOG_PATH = Path(os.getenv("LIBRARIAN_FALLBACK_LOG_PATH", f"{CHROMA_DIR}/librarian_fallback.jsonl"))
 _FALLBACK_MAX_BYTES = int(os.getenv("LIBRARIAN_FALLBACK_MAX_BYTES", str(16 * 1024 * 1024)))
@@ -1441,13 +1471,24 @@ def probe_memory_backend_readiness() -> Dict[str, Any]:
     probe_collection = None
     try:
         _validate_chroma_storage(CHROMA_DIR)
-        count = int(collection.count())
+        authoritative_collection = (
+            _load_memory_collection(client, embed_fn)
+            if _production_memory_mode()
+            else collection
+        )
+        count = int(authoritative_collection.count())
         if count < 0:
             raise RuntimeError("memory collection returned an invalid count")
-        probe_collection = client.get_or_create_collection(
-            name="cortex-durability-readiness",
-            embedding_function=None,
-        )
+        if _production_memory_mode():
+            probe_collection = client.get_collection(
+                name=READINESS_COLLECTION_NAME,
+                embedding_function=None,
+            )
+        else:
+            probe_collection = client.get_or_create_collection(
+                name=READINESS_COLLECTION_NAME,
+                embedding_function=None,
+            )
         probe_collection.upsert(
             ids=[probe_id],
             embeddings=[[0.0]],
