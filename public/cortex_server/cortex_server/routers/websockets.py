@@ -91,29 +91,58 @@ async def _close_log_stream(logs) -> None:
 @router.websocket("/ws/progress")
 async def ws_progress(websocket: WebSocket):
     """WebSocket for progress updates on long-running tasks."""
+    security = websocket.app.state.websocket_security
+    send_timeout = float(security.progress_send_timeout_seconds)
+    lifetime_deadline = time.monotonic() + float(security.progress_lifetime_seconds)
+
+    async def bounded(operation):
+        remaining = lifetime_deadline - time.monotonic()
+        if remaining <= 0:
+            raise asyncio.TimeoutError
+        return await asyncio.wait_for(
+            operation(),
+            timeout=min(send_timeout, remaining),
+        )
+
+    async def close_bounded(code: int, reason: str) -> None:
+        try:
+            await bounded(lambda: websocket.close(code=code, reason=reason))
+        except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError):
+            pass
+
     if not _allowed_websocket_origin(websocket) or not _progress_websocket_authorized(websocket):
-        await websocket.close(code=1008, reason="connection rejected")
+        await close_bounded(1008, "connection rejected")
         return
     admission = websocket.app.state.websocket_progress_admission
     if not admission.acquire():
-        await websocket.close(code=1013, reason="connection capacity exhausted")
+        await close_bounded(1013, "connection capacity exhausted")
         return
     try:
-        await websocket.accept()
-        security = websocket.app.state.websocket_security
+        await bounded(websocket.accept)
         idle_timeout = float(security.progress_idle_timeout_seconds)
-        lifetime_deadline = time.monotonic() + float(security.progress_lifetime_seconds)
         while True:
             remaining = lifetime_deadline - time.monotonic()
             if remaining <= 0:
-                await websocket.close(code=1000, reason="connection lifetime complete")
+                await close_bounded(1000, "connection lifetime complete")
                 return
-            data = await asyncio.wait_for(
-                websocket.receive_text(),
-                timeout=min(idle_timeout, remaining),
-            )
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=min(idle_timeout, remaining),
+                )
+            except asyncio.TimeoutError:
+                lifetime_complete = time.monotonic() >= lifetime_deadline
+                await close_bounded(
+                    1000,
+                    (
+                        "connection lifetime complete"
+                        if lifetime_complete
+                        else "connection idle timeout"
+                    ),
+                )
+                return
             if len(data.encode("utf-8")) > MAX_PROGRESS_MESSAGE_BYTES:
-                await websocket.close(code=1009, reason="message too large")
+                await close_bounded(1009, "message too large")
                 return
             try:
                 msg = json.loads(data)
@@ -125,22 +154,32 @@ async def ws_progress(websocket: WebSocket):
                     task_id = str(msg.get("task_id") or "")
                     if not _TASK_ID.fullmatch(task_id):
                         raise ValueError("invalid task_id")
-                    await websocket.send_json({
+                    await bounded(lambda: websocket.send_json({
                         "type": "subscribed",
                         "task_id": task_id,
-                    })
+                    }))
                 elif action == "ping":
                     if "task_id" in msg:
                         raise ValueError("invalid ping schema")
-                    await websocket.send_json({"type": "pong"})
+                    await bounded(lambda: websocket.send_json({"type": "pong"}))
                 else:
                     raise ValueError("unsupported action")
             except (json.JSONDecodeError, ValueError):
-                await websocket.send_json({
+                await bounded(lambda: websocket.send_json({
                     "type": "error",
                     "message": "Invalid progress message"
-                })
-    except (asyncio.TimeoutError, WebSocketDisconnect):
+                }))
+    except asyncio.TimeoutError:
+        reason = (
+            "connection lifetime complete"
+            if time.monotonic() >= lifetime_deadline
+            else "client backpressure timeout"
+        )
+        await close_bounded(
+            1000 if reason == "connection lifetime complete" else 1013,
+            reason,
+        )
+    except WebSocketDisconnect:
         pass
     finally:
         admission.release()

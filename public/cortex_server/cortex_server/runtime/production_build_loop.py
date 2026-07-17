@@ -9,6 +9,7 @@ import fcntl
 import re
 from contextlib import contextmanager
 import sqlite3
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,7 @@ from cortex_server.runtime.runtime_delivery_quota import (
     MAX_HISTORY_RECORDS,
     MAX_REPORT_BYTES,
     MAX_REPORT_RECORDS,
+    MAX_RUNTIME_DELIVERY_OBJECT_BYTES,
     append_bounded_jsonl,
     assert_process_count,
     assert_runtime_delivery_capacity,
@@ -63,6 +65,7 @@ from cortex_server.runtime.release_workflow import (
     repair_release_workflow,
     release_artifact_storage_limits,
     verify_release_artifact_receipt,
+    verify_release_artifact_receipt_payload,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
 
@@ -80,14 +83,21 @@ REASONING_DATABASE_NAME = "reasoning_runtime.db"
 RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID = "__cortex_manager_capability__"
 RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON = "non_mutating_manager_capability_challenge"
 MIN_PRODUCTION_SECRET_BYTES = 32
-RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v2"
+RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v3"
+PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v2"
 LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v1"
 RELEASE_VERIFIER_TRUST_FILE = ".release-verifier-trust.json"
 RELEASE_VERIFIER_TRUST_LIMIT = 4096
+MAX_RELEASE_VERIFIER_ID_BYTES = 256
+MAX_RELEASE_VERIFIER_SECRET_BYTES = 4096
+MAX_RELEASE_VERIFIER_RECORD_BYTES = 8192
+MAX_RELEASE_VERIFIER_TRUST_BYTES = MAX_RUNTIME_DELIVERY_OBJECT_BYTES
 _DEPENDABILITY_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
 _DEPENDABILITY_BOOT_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
+_RELEASE_VERIFIER_LIFECYCLE_LOCKS: Dict[str, threading.RLock] = {}
+_RELEASE_VERIFIER_LIFECYCLE_LOCKS_GUARD = threading.Lock()
 
 
 def _dependability_server_now() -> datetime:
@@ -229,13 +239,112 @@ def _runtime_delivery_credential_map(environment_name: str) -> Dict[str, str]:
     return credentials
 
 
-def _durable_release_verifier_credentials(
+def _release_verifier_trust_bytes(payload: JsonDict) -> bytes:
+    return (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+
+
+def _validate_release_verifier_material(verifier_id: str, secret: str) -> None:
+    if not verifier_id or len(verifier_id.encode("utf-8")) > MAX_RELEASE_VERIFIER_ID_BYTES:
+        raise RuntimeError("release verifier identity exceeds its immutable byte limit")
+    if not secret or len(secret.encode("utf-8")) > MAX_RELEASE_VERIFIER_SECRET_BYTES:
+        raise RuntimeError(
+            f"release verifier secret exceeds its immutable byte limit: {verifier_id}"
+        )
+
+
+def _max_durable_verifier_acceptance_epoch(
+    delivery_root: Path,
+    verifier_id: str,
+) -> float:
+    """Find the latest committed or recoverable legacy acceptance boundary."""
+
+    release_root = delivery_root / "release_workflow"
+    if not release_root.exists():
+        return 0.0
+    if not release_root.is_dir() or release_root.is_symlink():
+        raise RuntimeError("durable release workflow root is invalid during verifier retirement")
+    targets = [
+        *sorted(release_root.glob("*.json")),
+        *sorted(release_root.glob(".*.json.save-state.stage")),
+    ]
+    latest = 0.0
+    for target in targets:
+        if not target.is_file() or target.is_symlink():
+            raise RuntimeError("durable release state is invalid during verifier retirement")
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError("durable release state is invalid during verifier retirement")
+        metadata = payload.get("metadata")
+        rows = metadata.get("release_artifacts", []) if isinstance(metadata, dict) else []
+        if not isinstance(rows, list):
+            raise RuntimeError("durable release receipts are invalid during verifier retirement")
+        for raw_receipt in rows:
+            if not isinstance(raw_receipt, dict):
+                raise RuntimeError("durable release receipt is invalid during verifier retirement")
+            if str(raw_receipt.get("verifier") or "") != verifier_id:
+                continue
+            acceptance = raw_receipt.get("acceptance_epoch")
+            if (
+                isinstance(acceptance, bool)
+                or not isinstance(acceptance, (int, float))
+                or not math.isfinite(float(acceptance))
+                or float(acceptance) < 0
+            ):
+                raise RuntimeError("durable release receipt acceptance epoch is invalid")
+            latest = max(latest, float(acceptance))
+    return latest
+
+
+def _persist_release_verifier_trust(
+    delivery_root: Path,
+    target: Path,
+    payload: JsonDict,
+) -> None:
+    records = payload.get("credentials")
+    if not isinstance(records, dict) or len(records) > RELEASE_VERIFIER_TRUST_LIMIT:
+        raise RuntimeError("durable release verifier trust capacity exceeded")
+    for verifier_id, record in records.items():
+        if not isinstance(record, dict):
+            raise RuntimeError("durable release verifier trust contains an invalid record")
+        encoded_record = _release_verifier_trust_bytes(
+            {"verifier_id": verifier_id, "record": record}
+        )
+        if len(encoded_record) > MAX_RELEASE_VERIFIER_RECORD_BYTES:
+            raise RuntimeError(
+                f"durable release verifier record exceeds its immutable byte limit: {verifier_id}"
+            )
+    encoded = _release_verifier_trust_bytes(payload)
+    if len(encoded) > MAX_RELEASE_VERIFIER_TRUST_BYTES:
+        raise RuntimeError("durable release verifier trust exceeds its immutable byte limit")
+    with runtime_delivery_quota_transaction(delivery_root):
+        assert_runtime_delivery_capacity(
+            delivery_root=delivery_root,
+            store_root=target,
+            process_id="__release_verifier_trust__",
+            object_bytes=len(encoded),
+            additional_bytes=len(encoded),
+            replacing=target,
+        )
+        _atomic_write_json(target, payload)
+    _fsync_directory(delivery_root)
+
+
+@contextmanager
+def _release_verifier_lifecycle_transaction(
     delivery_root: Path,
     active_credentials: Dict[str, str],
     *,
     now: Optional[datetime] = None,
-) -> tuple[Dict[str, JsonDict], JsonDict]:
-    """Persist verifier lifecycles while retaining bounded historical verification."""
+):
+    """Serialize activation, server acceptance ordinals, and retirement."""
+
+    delivery_root = Path(delivery_root).resolve()
+    normalized_active = {
+        str(verifier_id or "").strip(): str(secret or "").strip()
+        for verifier_id, secret in active_credentials.items()
+    }
+    for verifier_id, secret in normalized_active.items():
+        _validate_release_verifier_material(verifier_id, secret)
 
     target = delivery_root / RELEASE_VERIFIER_TRUST_FILE
     lock_target = delivery_root / f"{RELEASE_VERIFIER_TRUST_FILE}.lock"
@@ -270,7 +379,13 @@ def _durable_release_verifier_credentials(
         return epoch
 
     durable_mkdir(delivery_root)
-    with lock_target.open("a+b") as lock_handle:
+    lock_key = str(lock_target)
+    with _RELEASE_VERIFIER_LIFECYCLE_LOCKS_GUARD:
+        thread_lock = _RELEASE_VERIFIER_LIFECYCLE_LOCKS.setdefault(
+            lock_key,
+            threading.RLock(),
+        )
+    with thread_lock, lock_target.open("a+b") as lock_handle:
         os.chmod(lock_target, 0o600)
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         try:
@@ -278,12 +393,14 @@ def _durable_release_verifier_credentials(
                 "schema_version": RELEASE_VERIFIER_TRUST_SCHEMA,
                 "credentials": {},
                 "updated_at": current_iso,
+                "last_lifecycle_generation": 0,
             }
             initializing_trust = not target.exists()
             if not initializing_trust:
                 loaded = json.loads(target.read_text(encoding="utf-8"))
                 if not isinstance(loaded, dict) or loaded.get("schema_version") not in {
                     LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA,
+                    PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA,
                     RELEASE_VERIFIER_TRUST_SCHEMA,
                 }:
                     raise RuntimeError("durable release verifier trust has an invalid schema")
@@ -292,6 +409,14 @@ def _durable_release_verifier_credentials(
             raw_records = payload.get("credentials")
             if not isinstance(raw_records, dict):
                 raise RuntimeError("durable release verifier trust credentials are invalid")
+            raw_generation = payload.get("last_lifecycle_generation", 0)
+            if (
+                isinstance(raw_generation, bool)
+                or not isinstance(raw_generation, int)
+                or raw_generation < 0
+            ):
+                raise RuntimeError("durable release verifier trust generation is invalid")
+            last_generation = int(raw_generation)
             migration_retirement_epoch = trust_epoch(
                 payload.get("updated_at") or current_iso,
                 field="updated_at",
@@ -303,6 +428,7 @@ def _durable_release_verifier_credentials(
                 if not verifier_id or not isinstance(raw_record, dict):
                     raise RuntimeError("durable release verifier trust contains an invalid identity")
                 secret = str(raw_record.get("secret") or "").strip()
+                _validate_release_verifier_material(verifier_id, secret)
                 digest = str(raw_record.get("secret_sha256") or "").strip()
                 expected_digest = hashlib.sha256(secret.encode("utf-8")).hexdigest() if secret else ""
                 if not secret or not hmac.compare_digest(digest, expected_digest):
@@ -317,6 +443,8 @@ def _durable_release_verifier_credentials(
                     # retain their historical verification semantics.
                     activation_epoch = 0.0
                     retirement_epoch = None
+                    activation_generation = 0
+                    retirement_generation = None
                 else:
                     activation_epoch = trust_epoch(
                         raw_record.get("activation_epoch"),
@@ -338,44 +466,104 @@ def _durable_release_verifier_credentials(
                         raise RuntimeError(
                             f"durable release verifier trust lifecycle is invalid for {verifier_id}"
                         )
-                if verifier_id in active_credentials and not hmac.compare_digest(
-                    secret, active_credentials[verifier_id]
+                    if loaded_schema == RELEASE_VERIFIER_TRUST_SCHEMA:
+                        raw_activation_generation = raw_record.get("activation_generation")
+                        raw_retirement_generation = raw_record.get("retirement_generation")
+                        if (
+                            isinstance(raw_activation_generation, bool)
+                            or not isinstance(raw_activation_generation, int)
+                            or raw_activation_generation < 0
+                            or isinstance(raw_retirement_generation, bool)
+                            or (
+                                raw_retirement_generation is not None
+                                and (
+                                    not isinstance(raw_retirement_generation, int)
+                                    or raw_retirement_generation <= raw_activation_generation
+                                )
+                            )
+                        ):
+                            raise RuntimeError(
+                                f"durable release verifier trust generation is invalid for {verifier_id}"
+                            )
+                        activation_generation = int(raw_activation_generation)
+                        retirement_generation = (
+                            None
+                            if raw_retirement_generation is None
+                            else int(raw_retirement_generation)
+                        )
+                        last_generation = max(
+                            last_generation,
+                            activation_generation,
+                            retirement_generation or 0,
+                        )
+                    else:
+                        activation_generation = 0
+                        retirement_generation = None
+                        if retirement_epoch is not None:
+                            latest_acceptance = _max_durable_verifier_acceptance_epoch(
+                                delivery_root,
+                                verifier_id,
+                            )
+                            retirement_epoch = max(
+                                retirement_epoch,
+                                math.nextafter(latest_acceptance, math.inf),
+                            )
+                            last_generation += 1
+                            retirement_generation = last_generation
+                if verifier_id in normalized_active and not hmac.compare_digest(
+                    secret, normalized_active[verifier_id]
                 ):
                     raise RuntimeError(
                         f"release verifier identity {verifier_id} cannot be reused with different key material"
                     )
-                if verifier_id in active_credentials and retirement_epoch is not None:
+                if verifier_id in normalized_active and retirement_epoch is not None:
                     raise RuntimeError(
                         f"retired release verifier identity cannot be reactivated: {verifier_id}"
                     )
-                if verifier_id not in active_credentials and retirement_epoch is None:
+                if verifier_id not in normalized_active and retirement_epoch is None:
+                    latest_acceptance = _max_durable_verifier_acceptance_epoch(
+                        delivery_root,
+                        verifier_id,
+                    )
                     retirement_epoch = max(
                         activation_epoch,
                         migration_retirement_epoch
                         if loaded_schema == LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA
                         else current_epoch,
+                        math.nextafter(latest_acceptance, math.inf),
                     )
+                    last_generation += 1
+                    retirement_generation = last_generation
                     retired.append(verifier_id)
                 records[verifier_id] = {
                     "secret": secret,
                     "secret_sha256": digest,
                     "activation_epoch": activation_epoch,
                     "retirement_epoch": retirement_epoch,
+                    "activation_generation": activation_generation,
+                    "retirement_generation": retirement_generation,
                 }
 
             added: List[str] = []
-            for verifier_id, secret in active_credentials.items():
+            for verifier_id, secret in sorted(normalized_active.items()):
                 existing = records.get(verifier_id)
                 if existing is not None and not hmac.compare_digest(str(existing.get("secret") or ""), secret):
                     raise RuntimeError(
                         f"release verifier identity {verifier_id} cannot be reused with different key material"
                     )
                 if existing is None:
+                    if initializing_trust:
+                        activation_generation = 0
+                    else:
+                        last_generation += 1
+                        activation_generation = last_generation
                     records[verifier_id] = {
                         "secret": secret,
                         "secret_sha256": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
                         "activation_epoch": 0.0 if initializing_trust else current_epoch,
                         "retirement_epoch": None,
+                        "activation_generation": activation_generation,
+                        "retirement_generation": None,
                     }
                     added.append(verifier_id)
             if len(records) > RELEASE_VERIFIER_TRUST_LIMIT:
@@ -391,28 +579,69 @@ def _durable_release_verifier_credentials(
                 "schema_version": RELEASE_VERIFIER_TRUST_SCHEMA,
                 "credentials": records,
                 "updated_at": current_iso if trust_changed else str(payload.get("updated_at") or current_iso),
+                "last_lifecycle_generation": last_generation,
             }
             if trust_changed:
-                _atomic_write_json(target, updated_payload)
-                _fsync_directory(delivery_root)
+                _persist_release_verifier_trust(delivery_root, target, updated_payload)
             os.chmod(target, 0o600)
-            trusted = {verifier_id: dict(record) for verifier_id, record in records.items()}
-            return trusted, {
+            lifecycle = {
+                "credentials": {
+                    verifier_id: dict(record) for verifier_id, record in records.items()
+                },
+                "payload": updated_payload,
+            }
+            check = {
                 "ok": True,
                 "path": str(target),
-                "activeVerifierIds": sorted(active_credentials),
+                "activeVerifierIds": sorted(normalized_active),
                 "historicalVerifierIds": sorted(
                     verifier_id
-                    for verifier_id, record in trusted.items()
+                    for verifier_id, record in records.items()
                     if record.get("retirement_epoch") is not None
                 ),
-                "trustedVerifierCount": len(trusted),
+                "trustedVerifierCount": len(records),
                 "addedVerifierIds": sorted(added),
                 "retiredVerifierIds": sorted(retired),
                 "error": None,
             }
+            lifecycle["check"] = check
+
+            def allocate_acceptance_generation(verifier_id: str) -> int:
+                record = records.get(str(verifier_id or "").strip())
+                if record is None or record.get("retirement_generation") is not None:
+                    raise PermissionError(
+                        f"release artifact verifier is not durably active: {verifier_id}"
+                    )
+                generation = int(lifecycle["payload"]["last_lifecycle_generation"]) + 1
+                lifecycle["payload"]["last_lifecycle_generation"] = generation
+                lifecycle["payload"]["updated_at"] = _now_iso()
+                _persist_release_verifier_trust(
+                    delivery_root,
+                    target,
+                    lifecycle["payload"],
+                )
+                return generation
+
+            lifecycle["allocate_acceptance_generation"] = allocate_acceptance_generation
+            yield lifecycle
         finally:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _durable_release_verifier_credentials(
+    delivery_root: Path,
+    active_credentials: Dict[str, str],
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[Dict[str, JsonDict], JsonDict]:
+    """Persist verifier lifecycles while retaining bounded historical verification."""
+
+    with _release_verifier_lifecycle_transaction(
+        delivery_root,
+        active_credentials,
+        now=now,
+    ) as lifecycle:
+        return lifecycle["credentials"], lifecycle["check"]
 
 
 def runtime_delivery_recipient_credentials() -> Dict[str, str]:
@@ -3590,67 +3819,112 @@ def ingest_production_release_artifact(
             attestation_signature=attestation_signature,
         )
 
-    # Authenticate against a read-only snapshot before even opening mutation
-    # or publication locks. State and immutable-receipt checks are repeated
-    # under the release transaction to close the snapshot race.
-    record_release_artifact_receipt(
-        preflight_state,
-        _receipt_for_state(preflight_state),
-        encoded_artifact=encoded,
+    active_credentials = _runtime_delivery_credential_map(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS"
     )
-    with release_store.release_transaction(process_id):
-        release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
-        state = release_store.load(process_id)
-        if state is None:
-            raise KeyError(f"release workflow not found: {process_id}")
-        artifact_store = release_store.artifact_store()
-        artifact_ref = content_hash
-        receipt = _receipt_for_state(state)
-        updated = record_release_artifact_receipt(
-            state,
-            receipt,
-            encoded_artifact=encoded,
-        )
-        current_refs = [
-            str(row.get("artifact_ref") or "")
-            for row in list((state.metadata or {}).get("release_artifacts") or [])
-            if isinstance(row, dict)
-        ]
-        with artifact_store.publication_transaction():
-            artifact_store.prune_orphans(
-                release_store.referenced_artifact_refs(),
-                grace_seconds=limits.orphan_grace_seconds,
+    # Authenticate the supplied bytes without assigning server acceptance.
+    # Durable activation and the acceptance ordinal are serialized below.
+    verify_release_artifact_receipt_payload(
+        _receipt_for_state(preflight_state),
+        encoded=encoded,
+        verifier_credentials=active_credentials,
+        require_current_verifier=True,
+    )
+    delivery_root = release_store.path.parent.resolve()
+    with _release_verifier_lifecycle_transaction(
+        delivery_root,
+        active_credentials,
+    ) as lifecycle:
+        with release_store.release_transaction(process_id):
+            release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
+            state = release_store.load(process_id)
+            if state is None:
+                raise KeyError(f"release workflow not found: {process_id}")
+            artifact_store = release_store.artifact_store()
+            artifact_ref = content_hash
+            receipt = _receipt_for_state(state)
+            receipt_identity = (state.release_id, state.revision_id, artifact_id)
+            existing_receipt = next(
+                (
+                    row
+                    for row in list((state.metadata or {}).get("release_artifacts") or [])
+                    if isinstance(row, dict)
+                    and (
+                        str(row.get("release_id") or ""),
+                        str(row.get("revision_id") or ""),
+                        str(row.get("artifact_id") or ""),
+                    ) == receipt_identity
+                ),
+                None,
             )
-            artifact_store.assert_release_capacity(
-                current_refs,
-                content_hash=content_hash,
-                encoded_size=len(encoded),
-                release_quota_bytes=limits.release_quota_bytes,
+            acceptance_generation = (
+                None
+                if existing_receipt is not None
+                else lifecycle["allocate_acceptance_generation"](verifier)
             )
-            artifact_ref, content_hash, created = artifact_store.publish_prepared(
-                encoded,
-                content_hash,
-                store_quota_bytes=limits.store_quota_bytes,
+            updated = record_release_artifact_receipt(
+                state,
+                receipt,
+                encoded_artifact=encoded,
+                verifier_credentials=lifecycle["credentials"],
+                server_acceptance_generation=acceptance_generation,
             )
-            try:
-                persisted = release_store.save(
-                    updated,
-                    actor=verifier,
-                    provenance={
-                        "scenario": "production_artifact_ingestion",
-                        "artifact_id": artifact_id,
-                        "content_hash": content_hash,
-                        "verifier": verifier,
-                    },
+            receipt = ReleaseArtifactReceipt.model_validate(
+                next(
+                    row
+                    for row in updated.metadata["release_artifacts"]
+                    if (
+                        str(row.get("release_id") or ""),
+                        str(row.get("revision_id") or ""),
+                        str(row.get("artifact_id") or ""),
+                    ) == receipt_identity
                 )
-            except BaseException:
+            )
+            current_refs = [
+                str(row.get("artifact_ref") or "")
+                for row in list((state.metadata or {}).get("release_artifacts") or [])
+                if isinstance(row, dict)
+            ]
+            with artifact_store.publication_transaction():
+                artifact_store.prune_orphans(
+                    release_store.referenced_artifact_refs(),
+                    grace_seconds=limits.orphan_grace_seconds,
+                )
+                artifact_store.assert_release_capacity(
+                    current_refs,
+                    content_hash=content_hash,
+                    encoded_size=len(encoded),
+                    release_quota_bytes=limits.release_quota_bytes,
+                )
+                artifact_ref, content_hash, created = artifact_store.publish_prepared(
+                    encoded,
+                    content_hash,
+                    store_quota_bytes=limits.store_quota_bytes,
+                )
                 try:
-                    durable_refs = release_store.referenced_artifact_refs()
-                except Exception:
-                    durable_refs = []
-                if created and artifact_ref not in durable_refs:
-                    artifact_store.remove_publication(artifact_ref)
-                raise
+                    persisted = release_store.save(
+                        updated,
+                        actor=verifier,
+                        provenance={
+                            "scenario": "production_artifact_ingestion",
+                            "artifact_id": artifact_id,
+                            "content_hash": content_hash,
+                            "verifier": verifier,
+                            "verifier_acceptance_generation": receipt.acceptance_generation,
+                        },
+                    )
+                except BaseException:
+                    try:
+                        durable_refs = release_store.referenced_artifact_refs()
+                    except Exception:
+                        # Reference enumeration is authoritative only when it
+                        # completes. A pending save intent may already make this
+                        # artifact restart-recoverable, so uncertainty retains
+                        # it for later recovery/orphan pruning.
+                        durable_refs = None
+                    if created and durable_refs is not None and artifact_ref not in durable_refs:
+                        artifact_store.remove_publication(artifact_ref)
+                    raise
     return {
         "state": persisted,
         "receipt": receipt,

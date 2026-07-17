@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+import stat
 import threading
 import time
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
@@ -273,6 +274,49 @@ def runtime_delivery_capacity(delivery_root: Path) -> Dict[str, int | bool]:
         "operationalRemainingBytes": max(0, operational_limit - used - reserved),
         "recoveryRemainingBytes": max(0, MAX_RUNTIME_DELIVERY_VOLUME_BYTES - used - reserved),
     }
+
+
+def preallocate_runtime_delivery_recovery_reserve(delivery_root: Path) -> Dict[str, int | bool]:
+    """Synchronously allocate and durability-verify the production reserve."""
+
+    if not _physical_reserve_enabled():
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve must be enabled before startup"
+        )
+    root = Path(delivery_root)
+    if not root.is_absolute():
+        raise RuntimeDeliveryQuotaError("runtime delivery root must be absolute")
+    root = root.resolve()
+    with runtime_delivery_quota_transaction(root):
+        target = _physical_reserve_path(root)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(target, flags)
+        except OSError as exc:
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery physical recovery reserve durability cannot be proven"
+            ) from exc
+        try:
+            observed = os.fstat(descriptor)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        fsync_directory(root)
+        allocated = int(observed.st_blocks) * 512
+        if (
+            not stat.S_ISREG(observed.st_mode)
+            or int(observed.st_size) != RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+            or allocated < RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+        ):
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery physical recovery reserve durability cannot be proven"
+            )
+        capacity = runtime_delivery_capacity(root)
+        if not bool(capacity["ok"]):
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery physical recovery reserve capacity verification failed"
+            )
+        return capacity
 
 
 @contextmanager
@@ -929,6 +973,7 @@ __all__ = [
     "assert_runtime_delivery_volume_capacity",
     "encoded_json",
     "read_recoverable_jsonl",
+    "preallocate_runtime_delivery_recovery_reserve",
     "runtime_delivery_capacity",
     "runtime_delivery_capacity_reservation",
     "runtime_delivery_quota_transaction",

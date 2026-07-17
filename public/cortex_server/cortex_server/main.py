@@ -91,6 +91,7 @@ class WebSocketSecurityConfig:
     admin_token: str
     allowed_origins: frozenset[str]
     progress_idle_timeout_seconds: float
+    progress_send_timeout_seconds: float
     progress_lifetime_seconds: float
     log_send_timeout_seconds: float
     log_lifetime_seconds: float
@@ -1449,6 +1450,9 @@ def create_app() -> FastAPI:
         allowed_origins=allowed_origins,
         progress_idle_timeout_seconds=_bounded_body_float(
             "CORTEX_PROGRESS_WEBSOCKET_IDLE_TIMEOUT_SECONDS", 15.0, 60.0
+        ),
+        progress_send_timeout_seconds=_bounded_body_float(
+            "CORTEX_PROGRESS_WEBSOCKET_SEND_TIMEOUT_SECONDS", 5.0, 30.0
         ),
         progress_lifetime_seconds=_bounded_body_float(
             "CORTEX_PROGRESS_WEBSOCKET_LIFETIME_SECONDS", 300.0, 900.0

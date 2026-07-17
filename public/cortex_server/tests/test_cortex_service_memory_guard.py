@@ -37,6 +37,11 @@ def test_canonical_host_startup_is_bounded_and_supervises_required_workers():
     assert "CORTEX_LIMIT_CONCURRENCY > 128" in startup
     assert "--timeout-keep-alive 5" in startup
     assert 'wait -n "${child_pids[@]}"' in startup
+    assert "export CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE=true" in startup
+    assert "preallocate_runtime_delivery_recovery_reserve(Path(" in startup
+    assert startup.index("preallocate_runtime_delivery_recovery_reserve\n\nexport CORTEX_BASE_URL") < startup.index(
+        "python3 -m uvicorn cortex_server.main:app"
+    )
 
 
 def test_canonical_host_controller_environments_are_role_isolated(tmp_path):
@@ -59,6 +64,10 @@ def test_canonical_host_controller_environments_are_role_isolated(tmp_path):
         startup.replace(
             "cd /root/clawd/public/cortex_server",
             f"cd {shlex.quote(str(SERVER_ROOT))}",
+        )
+        .replace(
+            "preallocate_runtime_delivery_recovery_reserve\n\nexport CORTEX_BASE_URL",
+            ": # startup reserve preallocation exercised separately\n\nexport CORTEX_BASE_URL",
         )
         .replace(
             "/usr/bin/python3 -m cortex_server.runtime.release_verifier_worker",
@@ -210,6 +219,46 @@ def test_canonical_host_rejects_unsafe_controller_state_directories(
 
     assert completed.returncode != 0
     assert error in completed.stderr
+
+
+def test_canonical_host_fails_before_uvicorn_when_reserve_is_not_proven(tmp_path):
+    startup = (SERVER_ROOT / "scripts" / "start_cortex_service.sh").read_text(
+        encoding="utf-8"
+    )
+    uvicorn_marker = tmp_path / "uvicorn-started"
+    executable = tmp_path / "start_cortex_service.sh"
+    executable.write_text(
+        startup.replace(
+            "cd /root/clawd/public/cortex_server",
+            f"cd {shlex.quote(str(SERVER_ROOT))}",
+        )
+        .replace(
+            "preallocate_runtime_delivery_recovery_reserve\n\nexport CORTEX_BASE_URL",
+            "/usr/bin/python3 -c 'raise SystemExit(73)'\n\nexport CORTEX_BASE_URL",
+        )
+        .replace(
+            "/usr/bin/python3 -m uvicorn cortex_server.main:app \\\n",
+            f"/usr/bin/python3 -c {shlex.quote(f'from pathlib import Path; Path({str(uvicorn_marker)!r}).touch()')} \\\n",
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        ["/usr/bin/bash", str(executable)],
+        cwd=SERVER_ROOT,
+        env=_launcher_environment(
+            CORTEX_RELEASE_VERIFIER_STATE_DIR="/var/lib/cortex/verifier",
+            CORTEX_RELEASE_MANAGER_STATE_DIR="/var/lib/cortex/manager",
+            ORCHESTRATOR_RUNTIME_DELIVERY_ROOT=str(tmp_path / "runtime-delivery"),
+        ),
+        text=True,
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+
+    assert completed.returncode == 73
+    assert not uvicorn_marker.exists()
 
 
 def test_ct101_dropin_has_root_fix_and_last_resort_cgroup_boundary():

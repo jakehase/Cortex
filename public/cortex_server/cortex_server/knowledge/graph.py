@@ -17,6 +17,21 @@ from uuid import uuid4
 from cortex_server.runtime.durable_files import durable_mkdir
 
 
+MAX_GRAPH_OBJECT_BYTES = 1024 * 1024
+MAX_GRAPH_PRINCIPAL_ROWS = 100_000
+MAX_GRAPH_PRINCIPAL_BYTES = 128 * 1024 * 1024
+MAX_GRAPH_TENANT_ROWS = 500_000
+MAX_GRAPH_TENANT_BYTES = 512 * 1024 * 1024
+MAX_GRAPH_ROWS = 2_000_000
+MAX_GRAPH_BYTES = 2 * 1024 * 1024 * 1024
+GRAPH_RECOVERY_RESERVE_ROWS = 100_000
+GRAPH_RECOVERY_RESERVE_BYTES = 128 * 1024 * 1024
+
+
+class GraphQuotaError(ValueError):
+    """A graph mutation would cross an immutable durable storage boundary."""
+
+
 class NodeType(str, Enum):
     FILE = "File"
     FUNCTION = "Function"
@@ -183,6 +198,260 @@ class SQLiteStorage:
                 if (owner[0], owner[1]) != (edge.tenant_id, edge.storage_workspace_id):
                     raise PermissionError("graph edge endpoints must belong to the edge scope")
 
+    @staticmethod
+    def _node_values(node: Node) -> tuple:
+        return (
+            node.id,
+            node.type.value,
+            node.name,
+            node.uri,
+            node.language,
+            node.created_at.isoformat(),
+            node.updated_at.isoformat(),
+            json.dumps(node.metadata),
+            node.tenant_id,
+            node.storage_workspace_id,
+        )
+
+    @staticmethod
+    def _edge_values(edge: Edge) -> tuple:
+        return (
+            edge.id,
+            edge.type.value,
+            edge.source_id,
+            edge.target_id,
+            edge.weight,
+            edge.context,
+            json.dumps(edge.metadata),
+            edge.tenant_id,
+            edge.storage_workspace_id,
+        )
+
+    @staticmethod
+    def _quota_record(kind: str, values: tuple) -> tuple[str, str, str, str, int]:
+        tenant_id = str(values[-2] or "")
+        workspace_id = str(values[-1] or "")
+        if bool(tenant_id) != bool(workspace_id):
+            raise GraphQuotaError("graph quota scope must contain both tenant and principal workspace")
+        encoded = json.dumps(
+            [kind, *values],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        if len(encoded) > MAX_GRAPH_OBJECT_BYTES:
+            raise GraphQuotaError(
+                f"graph object exceeds immutable quota of {MAX_GRAPH_OBJECT_BYTES} bytes"
+            )
+        return kind, str(values[0]), tenant_id, workspace_id, len(encoded)
+
+    @staticmethod
+    def _assert_quota_limits(
+        *,
+        global_rows: int,
+        global_bytes: int,
+        principal_usage: Dict[tuple[str, str], tuple[int, int]],
+        tenant_usage: Dict[str, tuple[int, int]],
+    ) -> None:
+        operational_rows = MAX_GRAPH_ROWS - GRAPH_RECOVERY_RESERVE_ROWS
+        operational_bytes = MAX_GRAPH_BYTES - GRAPH_RECOVERY_RESERVE_BYTES
+        if operational_rows < 0 or operational_bytes < 0:
+            raise RuntimeError("graph recovery reserve exceeds the immutable aggregate quota")
+        if global_rows > operational_rows:
+            raise GraphQuotaError("graph aggregate row quota exceeded; recovery reserve preserved")
+        if global_bytes > operational_bytes:
+            raise GraphQuotaError("graph aggregate byte quota exceeded; recovery reserve preserved")
+        for rows, size in principal_usage.values():
+            if rows > MAX_GRAPH_PRINCIPAL_ROWS:
+                raise GraphQuotaError("graph principal workspace row quota exceeded")
+            if size > MAX_GRAPH_PRINCIPAL_BYTES:
+                raise GraphQuotaError("graph principal workspace byte quota exceeded")
+        for rows, size in tenant_usage.values():
+            if rows > MAX_GRAPH_TENANT_ROWS:
+                raise GraphQuotaError("graph tenant row quota exceeded")
+            if size > MAX_GRAPH_TENANT_BYTES:
+                raise GraphQuotaError("graph tenant byte quota exceeded")
+
+    @classmethod
+    def _assert_quota_snapshot(cls, records) -> None:
+        principal: Dict[tuple[str, str], tuple[int, int]] = {}
+        tenants: Dict[str, tuple[int, int]] = {}
+        total_bytes = 0
+        total_rows = 0
+        for _kind, _object_id, tenant_id, workspace_id, record_bytes in records:
+            total_rows += 1
+            total_bytes += int(record_bytes)
+            scope = (str(tenant_id), str(workspace_id))
+            scope_rows, scope_bytes = principal.get(scope, (0, 0))
+            principal[scope] = (scope_rows + 1, scope_bytes + int(record_bytes))
+            tenant_rows, tenant_bytes = tenants.get(str(tenant_id), (0, 0))
+            tenants[str(tenant_id)] = (
+                tenant_rows + 1,
+                tenant_bytes + int(record_bytes),
+            )
+        cls._assert_quota_limits(
+            global_rows=total_rows,
+            global_bytes=total_bytes,
+            principal_usage=principal,
+            tenant_usage=tenants,
+        )
+
+    @classmethod
+    def _reconcile_quota_ledger(cls, connection: sqlite3.Connection) -> None:
+        connection.execute("DELETE FROM graph_quota_ledger")
+        principal: Dict[tuple[str, str], List[int]] = {}
+        tenants: Dict[str, List[int]] = {}
+        total_rows = 0
+        total_bytes = 0
+        pending = []
+
+        def flush() -> None:
+            if not pending:
+                return
+            connection.executemany(
+                """
+                INSERT INTO graph_quota_ledger
+                    (object_kind, object_id, tenant_id, storage_workspace_id, record_bytes)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                pending,
+            )
+            pending.clear()
+
+        def backfill(record) -> None:
+            nonlocal total_rows, total_bytes
+            record_bytes = int(record[4])
+            total_rows += 1
+            total_bytes += record_bytes
+            scope = (str(record[2]), str(record[3]))
+            scope_usage = principal.setdefault(scope, [0, 0])
+            scope_usage[0] += 1
+            scope_usage[1] += record_bytes
+            tenant_usage = tenants.setdefault(str(record[2]), [0, 0])
+            tenant_usage[0] += 1
+            tenant_usage[1] += record_bytes
+            cls._assert_quota_limits(
+                global_rows=total_rows,
+                global_bytes=total_bytes,
+                principal_usage={scope: tuple(scope_usage)},
+                tenant_usage={str(record[2]): tuple(tenant_usage)},
+            )
+            pending.append(record)
+            if len(pending) >= 1024:
+                flush()
+
+        for kind, query in (
+            (
+                "node",
+                "SELECT id,type,name,uri,language,created_at,updated_at,metadata,tenant_id,storage_workspace_id FROM nodes",
+            ),
+            (
+                "edge",
+                "SELECT id,type,source_id,target_id,weight,context,metadata,tenant_id,storage_workspace_id FROM edges",
+            ),
+        ):
+            for row in connection.execute(query):
+                backfill(cls._quota_record(kind, tuple(row)))
+        flush()
+
+    @classmethod
+    def _admit_quota_records(cls, connection: sqlite3.Connection, records) -> None:
+        projected = {
+            (record[0], record[1]): record
+            for record in records
+        }
+        if not projected:
+            return
+        existing = {}
+        for key in projected:
+            row = connection.execute(
+                """
+                SELECT object_kind, object_id, tenant_id, storage_workspace_id, record_bytes
+                FROM graph_quota_ledger
+                WHERE object_kind = ? AND object_id = ?
+                """,
+                key,
+            ).fetchone()
+            if row is not None:
+                existing[key] = tuple(row)
+
+        global_row_delta = 0
+        global_byte_delta = 0
+        principal_deltas: Dict[tuple[str, str], List[int]] = {}
+        tenant_deltas: Dict[str, List[int]] = {}
+
+        def apply_delta(record, row_delta: int, byte_delta: int) -> None:
+            scope = (str(record[2]), str(record[3]))
+            principal_delta = principal_deltas.setdefault(scope, [0, 0])
+            principal_delta[0] += row_delta
+            principal_delta[1] += byte_delta
+            tenant_delta = tenant_deltas.setdefault(str(record[2]), [0, 0])
+            tenant_delta[0] += row_delta
+            tenant_delta[1] += byte_delta
+
+        for key, record in projected.items():
+            previous = existing.get(key)
+            if previous is None:
+                global_row_delta += 1
+                global_byte_delta += int(record[4])
+                apply_delta(record, 1, int(record[4]))
+                continue
+            global_byte_delta += int(record[4]) - int(previous[4])
+            if (previous[2], previous[3]) == (record[2], record[3]):
+                apply_delta(record, 0, int(record[4]) - int(previous[4]))
+            else:
+                apply_delta(previous, -1, -int(previous[4]))
+                apply_delta(record, 1, int(record[4]))
+
+        global_rows, global_bytes = connection.execute(
+            "SELECT COUNT(*), COALESCE(SUM(record_bytes), 0) FROM graph_quota_ledger"
+        ).fetchone()
+        principal_usage: Dict[tuple[str, str], tuple[int, int]] = {}
+        for scope, delta in principal_deltas.items():
+            current = connection.execute(
+                """
+                SELECT COUNT(*), COALESCE(SUM(record_bytes), 0)
+                FROM graph_quota_ledger
+                WHERE tenant_id = ? AND storage_workspace_id = ?
+                """,
+                scope,
+            ).fetchone()
+            principal_usage[scope] = (
+                int(current[0]) + delta[0],
+                int(current[1]) + delta[1],
+            )
+        tenant_usage: Dict[str, tuple[int, int]] = {}
+        for tenant_id, delta in tenant_deltas.items():
+            current = connection.execute(
+                """
+                SELECT COUNT(*), COALESCE(SUM(record_bytes), 0)
+                FROM graph_quota_ledger WHERE tenant_id = ?
+                """,
+                (tenant_id,),
+            ).fetchone()
+            tenant_usage[tenant_id] = (
+                int(current[0]) + delta[0],
+                int(current[1]) + delta[1],
+            )
+        cls._assert_quota_limits(
+            global_rows=int(global_rows) + global_row_delta,
+            global_bytes=int(global_bytes) + global_byte_delta,
+            principal_usage=principal_usage,
+            tenant_usage=tenant_usage,
+        )
+        connection.executemany(
+            """
+            INSERT INTO graph_quota_ledger
+                (object_kind, object_id, tenant_id, storage_workspace_id, record_bytes)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(object_kind, object_id) DO UPDATE SET
+                tenant_id=excluded.tenant_id,
+                storage_workspace_id=excluded.storage_workspace_id,
+                record_bytes=excluded.record_bytes
+            """,
+            projected.values(),
+        )
+
     def write_batch_atomic(self, nodes, edges, *, deadline: float, cancelled) -> None:
         """Write a complete bounded batch or make none of it visible."""
         def expired() -> bool:
@@ -203,6 +472,7 @@ class SQLiteStorage:
                     raise TimeoutError("graph commit deadline exceeded")
                 connection.execute("BEGIN IMMEDIATE")
                 self._assert_scope_ownership(connection, "nodes", nodes)
+                node_values = [self._node_values(node) for node in nodes]
                 connection.executemany(
                     """
                     INSERT INTO nodes (id,type,name,uri,language,created_at,updated_at,metadata,tenant_id,storage_workspace_id)
@@ -218,8 +488,7 @@ class SQLiteStorage:
                     WHERE COALESCE(nodes.tenant_id, '') = COALESCE(excluded.tenant_id, '')
                       AND COALESCE(nodes.storage_workspace_id, '') = COALESCE(excluded.storage_workspace_id, '')
                     """,
-                    [(n.id, n.type.value, n.name, n.uri, n.language, n.created_at.isoformat(),
-                      n.updated_at.isoformat(), json.dumps(n.metadata), n.tenant_id, n.storage_workspace_id) for n in nodes],
+                    node_values,
                 )
                 hook = getattr(self, "_batch_transaction_hook", None)
                 if hook is not None:
@@ -228,6 +497,7 @@ class SQLiteStorage:
                     raise TimeoutError("graph commit deadline exceeded")
                 self._assert_scope_ownership(connection, "edges", edges)
                 self._assert_edge_endpoints(connection, edges)
+                edge_values = [self._edge_values(edge) for edge in edges]
                 connection.executemany(
                     """INSERT INTO edges (id,type,source_id,target_id,weight,context,metadata,tenant_id,storage_workspace_id)
                        VALUES (?,?,?,?,?,?,?,?,?)
@@ -236,8 +506,22 @@ class SQLiteStorage:
                          weight=excluded.weight, context=excluded.context, metadata=excluded.metadata
                        WHERE COALESCE(edges.tenant_id, '') = COALESCE(excluded.tenant_id, '')
                          AND COALESCE(edges.storage_workspace_id, '') = COALESCE(excluded.storage_workspace_id, '')""",
-                    [(e.id, e.type.value, e.source_id, e.target_id, e.weight,
-                      e.context, json.dumps(e.metadata), e.tenant_id, e.storage_workspace_id) for e in edges],
+                    edge_values,
+                )
+                if expired():
+                    raise TimeoutError("graph commit deadline exceeded")
+                quota_records = []
+                for kind, values_rows in (
+                    ("node", node_values),
+                    ("edge", edge_values),
+                ):
+                    for values in values_rows:
+                        if expired():
+                            raise TimeoutError("graph commit deadline exceeded")
+                        quota_records.append(self._quota_record(kind, values))
+                self._admit_quota_records(
+                    connection,
+                    quota_records,
                 )
                 if expired():
                     raise TimeoutError("graph commit deadline exceeded")
@@ -316,43 +600,74 @@ class SQLiteStorage:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_nodes_scope ON nodes(tenant_id, storage_workspace_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_scope ON edges(tenant_id, storage_workspace_id)")
-        
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS graph_quota_ledger (
+                object_kind TEXT NOT NULL CHECK(object_kind IN ('node', 'edge')),
+                object_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                storage_workspace_id TEXT NOT NULL,
+                record_bytes INTEGER NOT NULL CHECK(record_bytes >= 0),
+                PRIMARY KEY(object_kind, object_id)
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_graph_quota_scope ON graph_quota_ledger(tenant_id, storage_workspace_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_graph_quota_tenant ON graph_quota_ledger(tenant_id)"
+        )
+
         conn.commit()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._reconcile_quota_ledger(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     
     def insert_node(self, node: Node) -> None:
         """Insert or update a node."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO nodes
-            (id, type, name, uri, language, created_at, updated_at, metadata, tenant_id, storage_workspace_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                type = excluded.type,
-                name = excluded.name,
-                uri = excluded.uri,
-                language = excluded.language,
-                created_at = excluded.created_at,
-                updated_at = excluded.updated_at,
-                metadata = excluded.metadata
-            WHERE COALESCE(nodes.tenant_id, '') = COALESCE(excluded.tenant_id, '')
-              AND COALESCE(nodes.storage_workspace_id, '') = COALESCE(excluded.storage_workspace_id, '')
-        """, (
-            node.id, node.type.value, node.name, node.uri, node.language,
-            node.created_at.isoformat(), node.updated_at.isoformat(),
-            json.dumps(node.metadata), node.tenant_id, node.storage_workspace_id
-        ))
-        if cursor.rowcount == 0:
+        values = self._node_values(node)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._assert_scope_ownership(conn, "nodes", [node])
+            self._admit_quota_records(conn, [self._quota_record("node", values)])
+            cursor.execute("""
+                INSERT INTO nodes
+                (id, type, name, uri, language, created_at, updated_at, metadata, tenant_id, storage_workspace_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    type = excluded.type,
+                    name = excluded.name,
+                    uri = excluded.uri,
+                    language = excluded.language,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    metadata = excluded.metadata
+                WHERE COALESCE(nodes.tenant_id, '') = COALESCE(excluded.tenant_id, '')
+                  AND COALESCE(nodes.storage_workspace_id, '') = COALESCE(excluded.storage_workspace_id, '')
+            """, values)
+            if cursor.rowcount == 0:
+                raise PermissionError("graph node id is already owned by another scope")
+            conn.commit()
+        except Exception:
             conn.rollback()
-            raise PermissionError("graph node id is already owned by another scope")
-        conn.commit()
+            raise
     
     def insert_edge(self, edge: Edge) -> None:
         """Insert or update an edge."""
         conn = self._get_conn()
         cursor = conn.cursor()
+        values = self._edge_values(edge)
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._assert_scope_ownership(conn, "edges", [edge])
             self._assert_edge_endpoints(conn, [edge])
+            self._admit_quota_records(conn, [self._quota_record("edge", values)])
             cursor.execute("""
                 INSERT INTO edges
                 (id, type, source_id, target_id, weight, context, metadata, tenant_id, storage_workspace_id)
@@ -362,8 +677,7 @@ class SQLiteStorage:
                     weight=excluded.weight, context=excluded.context, metadata=excluded.metadata
                 WHERE COALESCE(edges.tenant_id, '') = COALESCE(excluded.tenant_id, '')
                   AND COALESCE(edges.storage_workspace_id, '') = COALESCE(excluded.storage_workspace_id, '')
-            """, (edge.id, edge.type.value, edge.source_id, edge.target_id,
-                  edge.weight, edge.context, json.dumps(edge.metadata), edge.tenant_id, edge.storage_workspace_id))
+            """, values)
             if cursor.rowcount == 0:
                 raise PermissionError("graph edge id is already owned by another scope")
             conn.commit()
@@ -378,7 +692,13 @@ class SQLiteStorage:
         conn = self._get_conn()
         cursor = conn.cursor()
         try:
+            conn.execute("BEGIN IMMEDIATE")
             self._assert_scope_ownership(conn, "nodes", nodes)
+            values = [self._node_values(node) for node in nodes]
+            self._admit_quota_records(
+                conn,
+                [self._quota_record("node", row) for row in values],
+            )
             cursor.executemany("""
                 INSERT INTO nodes
                 (id, type, name, uri, language, created_at, updated_at, metadata, tenant_id, storage_workspace_id)
@@ -393,14 +713,7 @@ class SQLiteStorage:
                     metadata = excluded.metadata
                 WHERE COALESCE(nodes.tenant_id, '') = COALESCE(excluded.tenant_id, '')
                   AND COALESCE(nodes.storage_workspace_id, '') = COALESCE(excluded.storage_workspace_id, '')
-            """, [
-                (
-                    node.id, node.type.value, node.name, node.uri, node.language,
-                    node.created_at.isoformat(), node.updated_at.isoformat(),
-                    json.dumps(node.metadata), node.tenant_id, node.storage_workspace_id,
-                )
-                for node in nodes
-            ])
+            """, values)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -413,8 +726,14 @@ class SQLiteStorage:
         conn = self._get_conn()
         cursor = conn.cursor()
         try:
+            conn.execute("BEGIN IMMEDIATE")
             self._assert_scope_ownership(conn, "edges", edges)
             self._assert_edge_endpoints(conn, edges)
+            values = [self._edge_values(edge) for edge in edges]
+            self._admit_quota_records(
+                conn,
+                [self._quota_record("edge", row) for row in values],
+            )
             cursor.executemany("""
                 INSERT INTO edges
                 (id, type, source_id, target_id, weight, context, metadata, tenant_id, storage_workspace_id)
@@ -424,8 +743,7 @@ class SQLiteStorage:
                     weight=excluded.weight, context=excluded.context, metadata=excluded.metadata
                 WHERE COALESCE(edges.tenant_id, '') = COALESCE(excluded.tenant_id, '')
                   AND COALESCE(edges.storage_workspace_id, '') = COALESCE(excluded.storage_workspace_id, '')
-            """, [(edge.id, edge.type.value, edge.source_id, edge.target_id,
-                    edge.weight, edge.context, json.dumps(edge.metadata), edge.tenant_id, edge.storage_workspace_id) for edge in edges])
+            """, values)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -599,21 +917,52 @@ class SQLiteStorage:
         conn = self._get_conn()
         cursor = conn.cursor()
         
-        # Delete associated edges first
-        cursor.execute("DELETE FROM edges WHERE source_id = ? OR target_id = ?", (node_id, node_id))
-        
-        # Delete the node
-        cursor.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
-        conn.commit()
-        return cursor.rowcount > 0
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            edge_ids = [
+                str(row[0])
+                for row in cursor.execute(
+                    "SELECT id FROM edges WHERE source_id = ? OR target_id = ?",
+                    (node_id, node_id),
+                ).fetchall()
+            ]
+            cursor.execute("DELETE FROM edges WHERE source_id = ? OR target_id = ?", (node_id, node_id))
+            if edge_ids:
+                cursor.executemany(
+                    "DELETE FROM graph_quota_ledger WHERE object_kind = 'edge' AND object_id = ?",
+                    [(edge_id,) for edge_id in edge_ids],
+                )
+            cursor.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+            deleted = cursor.rowcount > 0
+            if deleted:
+                cursor.execute(
+                    "DELETE FROM graph_quota_ledger WHERE object_kind = 'node' AND object_id = ?",
+                    (node_id,),
+                )
+            conn.commit()
+            return deleted
+        except Exception:
+            conn.rollback()
+            raise
     
     def delete_edge(self, edge_id: str) -> bool:
         """Delete an edge."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM edges WHERE id = ?", (edge_id,))
-        conn.commit()
-        return cursor.rowcount > 0
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor.execute("DELETE FROM edges WHERE id = ?", (edge_id,))
+            deleted = cursor.rowcount > 0
+            if deleted:
+                cursor.execute(
+                    "DELETE FROM graph_quota_ledger WHERE object_kind = 'edge' AND object_id = ?",
+                    (edge_id,),
+                )
+            conn.commit()
+            return deleted
+        except Exception:
+            conn.rollback()
+            raise
     
     def _row_to_node(self, row: sqlite3.Row) -> Node:
         """Convert a database row to a Node."""

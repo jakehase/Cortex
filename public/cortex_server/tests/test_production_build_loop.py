@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import multiprocessing
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -395,6 +396,74 @@ def test_durable_release_verifier_rotation_persists_lifecycle_epochs(tmp_path):
             {old_id: old_secret, new_id: new_secret},
             now=rotated + timedelta(days=1),
         )
+
+
+def test_durable_release_verifier_trust_bounds_material_records_and_object(
+    tmp_path,
+    monkeypatch,
+):
+    root = tmp_path / "runtime-delivery"
+    valid_secret = "v" * 32
+
+    with pytest.raises(RuntimeError, match="identity exceeds"):
+        production_build_loop._durable_release_verifier_credentials(
+            root,
+            {"i" * (production_build_loop.MAX_RELEASE_VERIFIER_ID_BYTES + 1): valid_secret},
+        )
+    with pytest.raises(RuntimeError, match="secret exceeds"):
+        production_build_loop._durable_release_verifier_credentials(
+            root,
+            {
+                "bounded-id": "s"
+                * (production_build_loop.MAX_RELEASE_VERIFIER_SECRET_BYTES + 1)
+            },
+        )
+
+    monkeypatch.setattr(production_build_loop, "MAX_RELEASE_VERIFIER_RECORD_BYTES", 128)
+    with pytest.raises(RuntimeError, match="record exceeds"):
+        production_build_loop._durable_release_verifier_credentials(
+            root,
+            {"record-bounded": valid_secret},
+        )
+    monkeypatch.setattr(production_build_loop, "MAX_RELEASE_VERIFIER_RECORD_BYTES", 8192)
+    monkeypatch.setattr(production_build_loop, "MAX_RELEASE_VERIFIER_TRUST_BYTES", 512)
+    with pytest.raises(RuntimeError, match="trust exceeds"):
+        production_build_loop._durable_release_verifier_credentials(
+            root,
+            {f"verifier-{index}": valid_secret + str(index) for index in range(4)},
+        )
+    assert not (root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE).exists()
+
+
+def test_durable_release_verifier_trust_replacement_uses_runtime_quota(tmp_path, monkeypatch):
+    root = tmp_path / "runtime-delivery"
+    target = root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE
+    old_credentials = {"verifier-old": "o" * 32}
+    new_credentials = {**old_credentials, "verifier-new": "n" * 32}
+    production_build_loop._durable_release_verifier_credentials(root, old_credentials)
+    before = target.read_bytes()
+    calls = []
+
+    def reject_projection(**kwargs):
+        calls.append(kwargs)
+        raise runtime_delivery_quota.RuntimeDeliveryQuotaError(
+            "runtime delivery volume quota exceeded; recovery reserve preserved"
+        )
+
+    monkeypatch.setattr(
+        production_build_loop,
+        "assert_runtime_delivery_capacity",
+        reject_projection,
+    )
+    with pytest.raises(runtime_delivery_quota.RuntimeDeliveryQuotaError, match="recovery reserve"):
+        production_build_loop._durable_release_verifier_credentials(root, new_credentials)
+
+    assert len(calls) == 1
+    assert calls[0]["replacing"] == target
+    assert calls[0]["additional_bytes"] == calls[0]["object_bytes"]
+    assert calls[0]["additional_bytes"] > 0
+    assert calls[0]["process_id"] == "__release_verifier_trust__"
+    assert target.read_bytes() == before
 
 
 def test_production_readiness_never_initializes_a_missing_reasoning_authority(
@@ -2492,9 +2561,7 @@ def test_preallocated_recovery_reserve_isolated_from_sibling_database_growth(tmp
     monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES", 16 * 1024)
     monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES", 4 * 1024)
 
-    with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
-        pass
-    initial = runtime_delivery_quota.runtime_delivery_capacity(root)
+    initial = runtime_delivery_quota.preallocate_runtime_delivery_recovery_reserve(root)
     assert initial["physicalRecoveryReserveEnforced"] is True
     assert initial["physicalRecoveryReserveBytes"] == 16 * 1024
     assert initial["physicalRecoveryReserveAllocatedBytes"] >= 16 * 1024
@@ -2539,6 +2606,33 @@ def test_preallocated_recovery_reserve_isolated_from_sibling_database_growth(tmp
     restored = runtime_delivery_quota.runtime_delivery_capacity(root)
     assert restored["physicalRecoveryReserveBytes"] == 16 * 1024
     assert restored["physicalRecoveryReserveAllocatedBytes"] >= 16 * 1024
+
+
+def test_startup_preallocation_fails_when_allocated_blocks_cannot_be_proven(
+    tmp_path,
+    monkeypatch,
+):
+    root = (tmp_path / "runtime_delivery").resolve()
+    monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE", "true")
+    monkeypatch.setattr(runtime_delivery_quota, "MAX_RUNTIME_DELIVERY_VOLUME_BYTES", 64 * 1024)
+    monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES", 16 * 1024)
+    real_fstat = runtime_delivery_quota.os.fstat
+
+    def unallocated_fstat(descriptor):
+        observed = real_fstat(descriptor)
+        return SimpleNamespace(
+            st_mode=observed.st_mode,
+            st_size=observed.st_size,
+            st_blocks=0,
+        )
+
+    monkeypatch.setattr(runtime_delivery_quota.os, "fstat", unallocated_fstat)
+
+    with pytest.raises(
+        runtime_delivery_quota.RuntimeDeliveryQuotaError,
+        match="durability cannot be proven",
+    ):
+        runtime_delivery_quota.preallocate_runtime_delivery_recovery_reserve(root)
 
 
 def test_auto_chain_budget_has_an_immutable_upper_bound():

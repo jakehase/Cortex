@@ -781,6 +781,7 @@ class ReleaseArtifactReceipt(BaseModel):
     claims: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
     acceptance_epoch: Optional[float] = None
+    acceptance_generation: Optional[int] = None
     attestation_signature: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("artifact_id", "artifact_kind", "candidate_ref", "release_id", "revision_id", "producer", "verifier")
@@ -828,6 +829,15 @@ class ReleaseArtifactReceipt(BaseModel):
         ):
             raise ValueError("acceptance_epoch must be a finite non-negative server epoch")
         return float(value)
+
+    @field_validator("acceptance_generation", mode="before")
+    @classmethod
+    def _receipt_acceptance_generation(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("acceptance_generation must be a positive server ordinal")
+        return int(value)
 
     @field_validator("claims")
     @classmethod
@@ -925,6 +935,8 @@ def _verify_release_artifact_authorization(
         secret = str(raw_credential.get("secret") or "").strip()
         activation_epoch = raw_credential.get("activation_epoch")
         retirement_epoch = raw_credential.get("retirement_epoch")
+        activation_generation = raw_credential.get("activation_generation")
+        retirement_generation = raw_credential.get("retirement_generation")
         if (
             isinstance(activation_epoch, bool)
             or not isinstance(activation_epoch, (int, float))
@@ -947,17 +959,56 @@ def _verify_release_artifact_authorization(
             raise PermissionError(
                 "release artifact receipt is missing its server acceptance epoch"
             )
-        # Lifecycle membership is permanently bound to server admission.  The
-        # signed verifier timestamp remains immutable evidence metadata and is
-        # used only for the bounded skew check above.
-        lifecycle_epoch = float(acceptance_epoch)
-        if lifecycle_epoch < float(activation_epoch) or (
-            retirement_epoch is not None
-            and lifecycle_epoch >= float(retirement_epoch)
-        ):
-            raise PermissionError(
-                f"release artifact receipt is outside verifier lifecycle: {receipt.verifier}"
-            )
+        if activation_generation is not None:
+            if (
+                isinstance(activation_generation, bool)
+                or not isinstance(activation_generation, int)
+                or activation_generation < 0
+                or isinstance(retirement_generation, bool)
+                or (
+                    retirement_generation is not None
+                    and (
+                        not isinstance(retirement_generation, int)
+                        or retirement_generation <= activation_generation
+                    )
+                )
+            ):
+                raise PermissionError(
+                    f"release artifact verifier lifecycle is invalid: {receipt.verifier}"
+                )
+            if receipt.acceptance_generation is not None:
+                lifecycle_generation = int(receipt.acceptance_generation)
+                if lifecycle_generation <= int(activation_generation) or (
+                    retirement_generation is not None
+                    and lifecycle_generation >= int(retirement_generation)
+                ):
+                    raise PermissionError(
+                        f"release artifact receipt is outside verifier lifecycle: {receipt.verifier}"
+                    )
+            else:
+                # Receipts durably accepted before generation-backed trust was
+                # introduced retain their epoch fence. New admission below
+                # requires a server-owned generation whenever v3 trust is used.
+                lifecycle_epoch = float(acceptance_epoch)
+                if lifecycle_epoch < float(activation_epoch) or (
+                    retirement_epoch is not None
+                    and lifecycle_epoch >= float(retirement_epoch)
+                ):
+                    raise PermissionError(
+                        f"release artifact receipt is outside verifier lifecycle: {receipt.verifier}"
+                    )
+        else:
+            # Lifecycle membership is permanently bound to server admission.
+            # The signed verifier timestamp remains immutable evidence metadata
+            # and is used only for the bounded skew check above.
+            lifecycle_epoch = float(acceptance_epoch)
+            if lifecycle_epoch < float(activation_epoch) or (
+                retirement_epoch is not None
+                and lifecycle_epoch >= float(retirement_epoch)
+            ):
+                raise PermissionError(
+                    f"release artifact receipt is outside verifier lifecycle: {receipt.verifier}"
+                )
         if require_current_verifier and retirement_epoch is not None:
             raise PermissionError(
                 f"retired release artifact verifier cannot authorize new evidence: {receipt.verifier}"
@@ -1151,6 +1202,7 @@ def record_release_artifact_receipt(
     artifact_store: Optional[ReleaseArtifactStore] = None,
     encoded_artifact: Optional[bytes] = None,
     verifier_credentials: Optional[Dict[str, Any]] = None,
+    server_acceptance_generation: Optional[int] = None,
 ) -> ReleaseWorkflowState:
     record = receipt if isinstance(receipt, ReleaseArtifactReceipt) else ReleaseArtifactReceipt.model_validate(receipt)
     if (
@@ -1185,16 +1237,48 @@ def record_release_artifact_receipt(
             )
         )
         supplied_acceptance_matches = bool(
-            record.acceptance_epoch is None
-            or record.acceptance_epoch == existing_record.acceptance_epoch
+            (
+                record.acceptance_epoch is None
+                or record.acceptance_epoch == existing_record.acceptance_epoch
+            )
+            and (
+                record.acceptance_generation is None
+                or record.acceptance_generation == existing_record.acceptance_generation
+            )
+            and (
+                server_acceptance_generation is None
+                or server_acceptance_generation == existing_record.acceptance_generation
+            )
         )
         if not same_attested_evidence or not supplied_acceptance_matches:
             raise ValueError(f"immutable release artifact receipt already exists: {record.artifact_id}")
         record = existing_record
     else:
-        if record.acceptance_epoch is not None:
-            raise ValueError("release artifact acceptance_epoch is assigned by the server")
-        record = record.model_copy(update={"acceptance_epoch": _now().timestamp()})
+        if record.acceptance_epoch is not None or record.acceptance_generation is not None:
+            raise ValueError("release artifact acceptance fields are assigned by the server")
+        raw_credential = (
+            dict(verifier_credentials).get(record.verifier)
+            if verifier_credentials is not None
+            else None
+        )
+        generation_required = bool(
+            isinstance(raw_credential, dict)
+            and raw_credential.get("activation_generation") is not None
+        )
+        if generation_required and server_acceptance_generation is None:
+            raise ValueError("release artifact server acceptance generation is required")
+        if server_acceptance_generation is not None and (
+            isinstance(server_acceptance_generation, bool)
+            or not isinstance(server_acceptance_generation, int)
+            or server_acceptance_generation <= 0
+        ):
+            raise ValueError("release artifact server acceptance generation is invalid")
+        record = record.model_copy(
+            update={
+                "acceptance_epoch": _now().timestamp(),
+                "acceptance_generation": server_acceptance_generation,
+            }
+        )
     require_current_verifier = existing is None
     if encoded_artifact is not None:
         verify_release_artifact_receipt_payload(

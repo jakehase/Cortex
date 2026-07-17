@@ -16,7 +16,15 @@ from pydantic import ValidationError
 os.environ["CORTEX_CHROMA_DIR"] = "/tmp/cortex-c05-hardening-chroma"
 os.environ["LIBRARIAN_FALLBACK_LOG_PATH"] = "/tmp/cortex-c05-hardening-chroma/fallback.jsonl"
 
-from cortex_server.knowledge.graph import Edge, EdgeType, Node, NodeType, SQLiteStorage
+from cortex_server.knowledge import graph as graph_module
+from cortex_server.knowledge.graph import (
+    Edge,
+    EdgeType,
+    GraphQuotaError,
+    Node,
+    NodeType,
+    SQLiteStorage,
+)
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, memory_scope_signature
 from cortex_server.modules.prior_art_gate import build_prior_art_gate
 from cortex_server.routers import knowledge, librarian
@@ -361,6 +369,165 @@ def test_structural_graph_scope_is_immutable_and_filters_legacy_rows(tmp_path):
     with pytest.raises(PermissionError, match="owned by another scope"):
         storage.insert_node(stolen)
     assert storage.get_edge("dangling") is None
+
+
+def test_graph_quota_enforces_principal_tenant_aggregate_and_byte_deltas(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_PRINCIPAL_ROWS", 2)
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_TENANT_ROWS", 3)
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_ROWS", 5)
+    monkeypatch.setattr(graph_module, "GRAPH_RECOVERY_RESERVE_ROWS", 1)
+    storage = SQLiteStorage(str(tmp_path / "quota.db"))
+
+    def scoped(node_id, tenant="tenant-a", workspace="principal-a"):
+        return _node(node_id).model_copy(
+            update={"tenant_id": tenant, "storage_workspace_id": workspace}
+        )
+
+    storage.insert_nodes([scoped("a1"), scoped("a2")])
+    with pytest.raises(GraphQuotaError, match="principal workspace row quota"):
+        storage.insert_node(scoped("a3"))
+
+    storage.insert_node(scoped("b1", workspace="principal-b"))
+    with pytest.raises(GraphQuotaError, match="tenant row quota"):
+        storage.insert_node(scoped("b2", workspace="principal-b"))
+
+    storage.insert_node(scoped("other", tenant="tenant-b", workspace="principal-c"))
+    with pytest.raises(GraphQuotaError, match="recovery reserve preserved"):
+        storage.insert_node(scoped("aggregate-full", tenant="tenant-c", workspace="principal-d"))
+
+    original = storage.get_node("a1")
+    original_bytes = storage._quota_record(
+        "node", storage._node_values(original)
+    )[4]
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_PRINCIPAL_BYTES", original_bytes + 8)
+    with pytest.raises(GraphQuotaError, match="principal workspace byte quota"):
+        storage.insert_node(
+            original.model_copy(update={"metadata": {"oversized_update": "x" * 100}})
+        )
+    assert storage.get_node("a1").metadata == {}
+
+
+def test_graph_quota_ledger_covers_every_write_path_and_deletion(tmp_path):
+    storage = SQLiteStorage(str(tmp_path / "all-write-paths.db"))
+    storage.insert_node(_node("n1"))
+    storage.insert_nodes([_node("n2"), _node("n3")])
+    storage.insert_edge(_edge("e1", "n1", "n2"))
+    storage.insert_edges([_edge("e2", "n2", "n3")])
+    storage.write_batch_atomic(
+        [_node("n4")],
+        [_edge("e3", "n3", "n4")],
+        deadline=10**12,
+        cancelled=threading.Event(),
+    )
+
+    ledger = storage._get_conn().execute(
+        "SELECT object_kind, object_id, record_bytes FROM graph_quota_ledger ORDER BY object_kind, object_id"
+    ).fetchall()
+    assert [(row[0], row[1]) for row in ledger] == [
+        ("edge", "e1"),
+        ("edge", "e2"),
+        ("edge", "e3"),
+        ("node", "n1"),
+        ("node", "n2"),
+        ("node", "n3"),
+        ("node", "n4"),
+    ]
+    assert all(int(row[2]) > 0 for row in ledger)
+
+    assert storage.delete_edge("e2") is True
+    assert storage.delete_node("n4") is True
+    assert storage._get_conn().execute(
+        "SELECT COUNT(*) FROM graph_quota_ledger"
+    ).fetchone()[0] == 4
+
+
+def test_graph_quota_serializes_concurrent_writers_and_survives_restart(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "concurrent.db"
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_ROWS", 2)
+    monkeypatch.setattr(graph_module, "GRAPH_RECOVERY_RESERVE_ROWS", 1)
+    first = SQLiteStorage(str(database))
+    second = SQLiteStorage(str(database))
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    def write(storage, node_id):
+        barrier.wait()
+        try:
+            storage.insert_node(_node(node_id))
+        except GraphQuotaError:
+            outcomes.append("rejected")
+        else:
+            outcomes.append("committed")
+
+    threads = [
+        threading.Thread(target=write, args=(first, "concurrent-a")),
+        threading.Thread(target=write, args=(second, "concurrent-b")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+    assert not any(thread.is_alive() for thread in threads)
+    assert sorted(outcomes) == ["committed", "rejected"]
+
+    restarted = SQLiteStorage(str(database))
+    assert restarted._get_conn().execute("SELECT COUNT(*) FROM nodes").fetchone()[0] == 1
+    assert restarted._get_conn().execute(
+        "SELECT COUNT(*) FROM graph_quota_ledger"
+    ).fetchone()[0] == 1
+    with pytest.raises(GraphQuotaError, match="recovery reserve preserved"):
+        restarted.insert_node(_node("after-restart"))
+
+
+def test_graph_quota_backfills_legacy_rows_and_fails_closed_when_over_limit(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "legacy.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE nodes (
+                id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL,
+                uri TEXT, language TEXT, created_at TEXT, updated_at TEXT,
+                metadata TEXT, tenant_id TEXT, storage_workspace_id TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE edges (
+                id TEXT PRIMARY KEY, type TEXT NOT NULL, source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL, weight REAL, context TEXT, metadata TEXT,
+                tenant_id TEXT, storage_workspace_id TEXT,
+                FOREIGN KEY(source_id) REFERENCES nodes(id),
+                FOREIGN KEY(target_id) REFERENCES nodes(id)
+            )
+            """
+        )
+        for node_id in ("legacy-a", "legacy-b"):
+            connection.execute(
+                "INSERT INTO nodes VALUES (?, 'Function', ?, NULL, NULL, ?, ?, '{}', 'tenant', 'principal')",
+                (node_id, node_id, "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+            )
+
+    backfilled = SQLiteStorage(str(database))
+    assert backfilled._get_conn().execute(
+        "SELECT COUNT(*) FROM graph_quota_ledger"
+    ).fetchone()[0] == 2
+    backfilled._get_conn().close()
+    backfilled._local.conn = None
+
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_ROWS", 2)
+    monkeypatch.setattr(graph_module, "GRAPH_RECOVERY_RESERVE_ROWS", 1)
+    with pytest.raises(GraphQuotaError, match="recovery reserve preserved"):
+        SQLiteStorage(str(database))
 
 
 def test_batch_edge_insert_is_atomic_and_preserves_unrelated_data(tmp_path):

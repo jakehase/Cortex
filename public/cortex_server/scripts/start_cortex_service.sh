@@ -21,6 +21,19 @@ if [[ "${CORTEX_ENV}" != "production" ]]; then
   exit 1
 fi
 
+export ORCHESTRATOR_RUNTIME_DELIVERY_ROOT="${ORCHESTRATOR_RUNTIME_DELIVERY_ROOT:-/opt/clawdbot/state/runtime_delivery}"
+if [[ "${ORCHESTRATOR_RUNTIME_DELIVERY_ROOT}" != /* ]]; then
+  echo "ORCHESTRATOR_RUNTIME_DELIVERY_ROOT must be an absolute path" >&2
+  exit 1
+fi
+# The canonical host path always owns a physically allocated rollback reserve;
+# an inherited false value must never silently weaken this default.
+export CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE=true
+
+preallocate_runtime_delivery_recovery_reserve() {
+  /usr/bin/python3 -c 'import os; from pathlib import Path; from cortex_server.runtime.runtime_delivery_quota import preallocate_runtime_delivery_recovery_reserve; preallocate_runtime_delivery_recovery_reserve(Path(os.environ["ORCHESTRATOR_RUNTIME_DELIVERY_ROOT"]))'
+}
+
 CORTEX_LIMIT_CONCURRENCY="${CORTEX_LIMIT_CONCURRENCY:-128}"
 if [[ ! "${CORTEX_LIMIT_CONCURRENCY}" =~ ^[0-9]+$ ]] || \
    (( CORTEX_LIMIT_CONCURRENCY < 1 || CORTEX_LIMIT_CONCURRENCY > 128 )); then
@@ -62,6 +75,10 @@ if [[ "${CORTEX_RELEASE_VERIFIER_STATE_DIR}" == "${CORTEX_RELEASE_MANAGER_STATE_
   echo "release verifier and manager state directories must be distinct" >&2
   exit 1
 fi
+
+# Complete the allocation, file fsync, directory fsync, allocated-block check,
+# and quota/readiness projection before any serving process is started.
+preallocate_runtime_delivery_recovery_reserve
 
 export CORTEX_BASE_URL="${CORTEX_BASE_URL:-http://127.0.0.1:${CORTEX_PORT}}"
 export CORTEX_RELEASE_MEASUREMENT_URL="${CORTEX_RELEASE_MEASUREMENT_URL:-${CORTEX_BASE_URL}/release-observation}"

@@ -34,6 +34,9 @@ def websocket_security_from_env():
         ).strip().lower(),
         admin_token=os.getenv("CORTEX_ADMIN_TOKEN", "").strip(),
         allowed_origins=allowed_origins,
+        progress_send_timeout_seconds=0.1,
+        progress_idle_timeout_seconds=0.1,
+        progress_lifetime_seconds=1.0,
         log_send_timeout_seconds=0.1,
         log_lifetime_seconds=1.0,
     )
@@ -89,6 +92,7 @@ class FakeProgressWebSocket(FakeWebSocket):
             admin_token="admin-secret",
             allowed_origins=frozenset({"https://console.example"}),
             progress_idle_timeout_seconds=0.1,
+            progress_send_timeout_seconds=0.1,
             progress_lifetime_seconds=1.0,
         )
         super().__init__(security=security, **kwargs)
@@ -562,6 +566,65 @@ async def test_progress_websocket_authenticates_bounds_schema_and_preserves_capa
     assert oversized.closed == [(1009, "message too large")]
 
 
+@pytest.mark.asyncio
+async def test_progress_websocket_bounds_accept_send_close_and_restores_admission():
+    admission = websockets.WebSocketAdmission(1)
+    security = SimpleNamespace(
+        write_auth_mode="token_required",
+        write_token="progress-secret",
+        write_token_header="x-progress-token",
+        admin_token="admin-secret",
+        allowed_origins=frozenset({"https://console.example"}),
+        progress_idle_timeout_seconds=0.1,
+        progress_send_timeout_seconds=0.01,
+        progress_lifetime_seconds=0.03,
+    )
+
+    class StalledProgressSocket(FakeProgressWebSocket):
+        async def send_json(self, _value):
+            await asyncio.Event().wait()
+
+        async def close(self, code=1000, reason=None):
+            self.closed.append((code, reason))
+            if reason == "client backpressure timeout":
+                await asyncio.Event().wait()
+
+    stalled = StalledProgressSocket(
+        messages=['{"action":"ping"}'],
+        headers={"x-progress-token": "progress-secret"},
+        security=security,
+    )
+    stalled.app.state.websocket_progress_admission = admission
+
+    await asyncio.wait_for(websockets.ws_progress(stalled), timeout=0.1)
+
+    assert stalled.accepted is True
+    assert stalled.closed == [(1013, "client backpressure timeout")]
+    assert admission.active == 0
+
+    class StalledAcceptSocket(FakeProgressWebSocket):
+        async def accept(self):
+            await asyncio.Event().wait()
+
+    blocked_accept = StalledAcceptSocket(
+        headers={"x-progress-token": "progress-secret"},
+        security=security,
+    )
+    blocked_accept.app.state.websocket_progress_admission = admission
+    await asyncio.wait_for(websockets.ws_progress(blocked_accept), timeout=0.1)
+    assert admission.active == 0
+
+    recovered = FakeProgressWebSocket(
+        messages=['{"action":"ping"}'],
+        headers={"x-progress-token": "progress-secret"},
+        security=security,
+    )
+    recovered.app.state.websocket_progress_admission = admission
+    await websockets.ws_progress(recovered)
+    assert recovered.json == [{"type": "pong"}]
+    assert admission.active == 0
+
+
 def test_websocket_health_is_bodyless_http_not_a_long_lived_socket():
     health_routes = [route for route in websockets.router.routes if route.path == "/ws/health"]
     assert len(health_routes) == 1
@@ -574,6 +637,7 @@ def test_log_websocket_configuration_has_immutable_hard_caps(monkeypatch):
     monkeypatch.setenv("CORTEX_MAX_LOG_WEBSOCKETS", "999999")
     monkeypatch.setenv("CORTEX_LOG_WEBSOCKET_SEND_TIMEOUT_SECONDS", "999999")
     monkeypatch.setenv("CORTEX_LOG_WEBSOCKET_LIFETIME_SECONDS", "999999")
+    monkeypatch.setenv("CORTEX_PROGRESS_WEBSOCKET_SEND_TIMEOUT_SECONDS", "999999")
     from cortex_server import main
 
     app = main.create_app()
@@ -581,6 +645,7 @@ def test_log_websocket_configuration_has_immutable_hard_caps(monkeypatch):
     assert app.state.websocket_log_admission.limit == 64
     assert app.state.websocket_security.log_send_timeout_seconds == 30.0
     assert app.state.websocket_security.log_lifetime_seconds == 900.0
+    assert app.state.websocket_security.progress_send_timeout_seconds == 30.0
 
 
 @pytest.mark.asyncio

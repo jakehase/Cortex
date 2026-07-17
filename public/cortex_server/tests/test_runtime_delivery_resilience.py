@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -314,6 +314,49 @@ def test_pending_release_save_keeps_new_artifact_reachable_until_restart_recover
     assert not restarted._save_stage_target(process_id).exists()
 
 
+def test_reference_scan_uncertainty_retains_pending_release_artifact(tmp_path, monkeypatch):
+    store = ReleaseWorkflowStore(tmp_path / "release")
+    process_id = "proc_uncertain_artifact_scan"
+    _release_state(store, process_id)
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({VERIFIER_ID: VERIFIER_SECRET}),
+    )
+    real_publish = store._publish_stage
+    injected = {"raised": False}
+
+    def fail_after_save_intent(stage, target):
+        if target == store._target(process_id) and not injected["raised"]:
+            injected["raised"] = True
+            raise OSError("injected state publication failure")
+        return real_publish(stage, target)
+
+    monkeypatch.setattr(store, "_publish_stage", fail_after_save_intent)
+    real_reference_scan = store.referenced_artifact_refs
+    scan_calls = {"count": 0}
+
+    def fail_cleanup_reference_scan():
+        scan_calls["count"] += 1
+        if scan_calls["count"] >= 2:
+            raise OSError("reference scan unavailable")
+        return real_reference_scan()
+
+    monkeypatch.setattr(store, "referenced_artifact_refs", fail_cleanup_reference_scan)
+
+    with pytest.raises(OSError, match="injected state publication failure"):
+        _ingest(
+            store,
+            process_id,
+            artifact_id="artifact:uncertain-reference-scan",
+            payload="recoverable-artifact-under-scan-fault",
+        )
+
+    artifact_targets = list(store.artifact_store().path.glob("*/*.artifact"))
+    assert len(artifact_targets) == 1
+    assert store._save_intent_target(process_id).exists()
+    assert store._save_stage_target(process_id).exists()
+
+
 def test_durable_verifier_trust_survives_add_drain_retire_restart_and_rejects_id_reuse(tmp_path, monkeypatch):
     delivery_root = tmp_path / "runtime_delivery"
     delivery_root.mkdir()
@@ -366,3 +409,77 @@ def test_durable_verifier_trust_survives_add_drain_retire_restart_and_rejects_id
             delivery_root,
             {VERIFIER_ID: "different-resilience-secret-000000000001"},
         )
+
+
+def test_verifier_activation_acceptance_and_retirement_share_monotonic_lifecycle(
+    tmp_path,
+    monkeypatch,
+):
+    delivery_root = tmp_path / "runtime_delivery"
+    store = ReleaseWorkflowStore(delivery_root / "release_workflow")
+    process_id = "proc_generation_ordered_verifier"
+    _release_state(store, process_id)
+    old_id = "ordered-verifier-old"
+    old_secret = "ordered-verifier-old-secret-00000001"
+    new_id = VERIFIER_ID
+    new_secret = VERIFIER_SECRET
+    production_build_loop._durable_release_verifier_credentials(
+        delivery_root,
+        {old_id: old_secret},
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps({new_id: new_secret}),
+    )
+    observed = []
+    real_record = production_build_loop.record_release_artifact_receipt
+
+    def assert_active_before_acceptance(*args, **kwargs):
+        trust_payload = json.loads(
+            (delivery_root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE).read_text(
+                encoding="utf-8"
+            )
+        )
+        record = trust_payload["credentials"][new_id]
+        observed.append(
+            (
+                record["activation_generation"],
+                trust_payload["last_lifecycle_generation"],
+            )
+        )
+        assert record["retirement_generation"] is None
+        return real_record(*args, **kwargs)
+
+    monkeypatch.setattr(
+        production_build_loop,
+        "record_release_artifact_receipt",
+        assert_active_before_acceptance,
+    )
+    ingested = _ingest(
+        store,
+        process_id,
+        artifact_id="artifact:generation-ordered",
+        payload="generation-ordered-release",
+    )
+    receipt = ReleaseArtifactReceipt.model_validate(
+        ingested["state"].metadata["release_artifacts"][0]
+    )
+    assert observed
+    assert receipt.acceptance_generation == observed[0][1]
+    assert observed[0][0] < receipt.acceptance_generation
+
+    backwards = datetime.now(timezone.utc) - timedelta(days=7)
+    retired_trust, _ = production_build_loop._durable_release_verifier_credentials(
+        delivery_root,
+        {"ordered-verifier-next": "ordered-verifier-next-secret-0000001"},
+        now=backwards,
+    )
+    assert (
+        retired_trust[new_id]["retirement_generation"]
+        > receipt.acceptance_generation
+    )
+    verify_release_artifact_receipt(
+        receipt,
+        artifact_store=store.artifact_store(),
+        verifier_credentials=retired_trust,
+    )
