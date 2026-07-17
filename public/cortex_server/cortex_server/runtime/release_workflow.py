@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import shlex
 import stat
 import threading
 from contextlib import contextmanager
@@ -123,14 +124,20 @@ def production_image_binding_from_state(
 
 
 def operator_rollback_command(image_ref: str, image_digest: str) -> str:
-    normalized_ref, _ = normalize_production_image_binding(
+    normalized_ref, normalized_digest = normalize_production_image_binding(
         image_ref=image_ref,
         image_digest=image_digest,
     )
+    repository = normalized_ref.rsplit("@", 1)[0]
+    digest_hex = normalized_digest.removeprefix("sha256:")
+    assignments = (
+        f"CORTEX_IMAGE_REPOSITORY={shlex.quote(repository)} "
+        f"CORTEX_IMAGE_DIGEST={shlex.quote(digest_hex)}"
+    )
     services = "cortex-brain release-verifier release-manager"
     return (
-        f"CORTEX_IMAGE_REF={normalized_ref} docker compose pull {services} && "
-        f"CORTEX_IMAGE_REF={normalized_ref} docker compose up -d --no-build --pull never {services}"
+        f"{assignments} docker compose pull {services} && "
+        f"{assignments} docker compose up -d --no-build --pull never {services}"
     )
 
 
@@ -3289,6 +3296,45 @@ def _committed_rollback_descriptor(response: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _archived_committed_rollback_response(response: Dict[str, Any]) -> Dict[str, Any]:
+    """Freeze one rollback response independently of subsequently active state."""
+
+    state = response["state"]
+    snapshot = response["snapshot"]
+    shared_state = response["shared_state"]
+    rollback_event = response.get("rollback_event")
+    transaction = {
+        key: value
+        for key, value in dict(response.get("rollback_transaction") or {}).items()
+        if key not in {"rollback_bundle", "committed_response"}
+    }
+    snapshot_payload = (
+        snapshot.model_dump() if hasattr(snapshot, "model_dump") else snapshot.dict()
+    )
+    shared_state_payload = (
+        shared_state.model_dump()
+        if hasattr(shared_state, "model_dump")
+        else shared_state.dict()
+    )
+    snapshot_payload.pop("world_state", None)
+    shared_state_payload.pop("world_state", None)
+    return {
+        "version": "cortex.release-rollback-committed.v2",
+        "rolled_back": True,
+        "state": _workflow_dump_compat(state),
+        "snapshot": snapshot_payload,
+        "shared_state": shared_state_payload,
+        "rollback_event": json.loads(json.dumps(rollback_event)) if rollback_event is not None else None,
+        "rollback_transaction": transaction,
+        "rollback_projections": json.loads(json.dumps(response.get("rollback_projections") or {})),
+        "applied": bool(response.get("applied")),
+        "production_image_ref": response.get("production_image_ref"),
+        "production_image_digest": response.get("production_image_digest"),
+        "operator_rollback_command": response.get("operator_rollback_command"),
+        "operator_summary": str(response.get("operator_summary") or ""),
+    }
+
+
 def _restore_committed_rollback_response(
     payload: Dict[str, Any],
     *,
@@ -3298,6 +3344,53 @@ def _restore_committed_rollback_response(
     shared_state_store: Optional[SharedProcessStateStore] = None,
     journal: Optional[ProcessJournal] = None,
 ) -> JsonDict:
+    if payload.get("version") == "cortex.release-rollback-committed.v2":
+        response = dict(payload)
+        response.pop("version", None)
+        response["state"] = _workflow_validate_compat(dict(response["state"]))
+        selected_fencepost_id = str(
+            (response.get("rollback_transaction") or {}).get(
+                "selected_fencepost_id"
+            )
+            or ""
+        )
+        selected_fencepost = next(
+            (
+                row
+                for row in response["state"].rollback_fenceposts
+                if row.fencepost_id == selected_fencepost_id
+            ),
+            None,
+        )
+        if selected_fencepost is None:
+            raise RuntimeError(
+                "archived rollback response is missing its immutable fencepost"
+            )
+        fencepost_payload = (
+            selected_fencepost.model_dump()
+            if hasattr(selected_fencepost, "model_dump")
+            else selected_fencepost.dict()
+        )
+        restore_state = dict(fencepost_payload.get("restore_state") or {})
+        response["fencepost"] = fencepost_payload
+        response["restore_state"] = restore_state
+        snapshot_payload = dict(response["snapshot"])
+        snapshot_payload["world_state"] = dict(restore_state.get("world_state") or {})
+        response["snapshot"] = (
+            ProcessSnapshot.model_validate(snapshot_payload)
+            if hasattr(ProcessSnapshot, "model_validate")
+            else ProcessSnapshot.parse_obj(snapshot_payload)
+        )
+        shared_state_payload = dict(response["shared_state"])
+        shared_state_payload["world_state"] = dict(
+            restore_state.get("world_state") or {}
+        )
+        response["shared_state"] = (
+            SharedProcessState.model_validate(shared_state_payload)
+            if hasattr(SharedProcessState, "model_validate")
+            else SharedProcessState.parse_obj(shared_state_payload)
+        )
+        return response
     if payload.get("version") == "cortex.release-rollback-committed.v1":
         bundle_source = intent if isinstance((intent or {}).get("rollback_bundle"), dict) else payload
         rolled_state, target_fencepost, restore_state = _rollback_bundle_parts(bundle_source)
@@ -3471,14 +3564,21 @@ def apply_release_rollback_restore(
         if intent and not same_intent_key and intent.get("status") == "committed":
             previous_response = intent.get("committed_response")
             if isinstance(previous_response, dict) and intent.get("idempotency_key"):
+                restored_previous = _restore_committed_rollback_response(
+                    previous_response,
+                    intent=intent,
+                    release_store=release_store,
+                    snapshot_store=snapshot_store,
+                    shared_state_store=shared_state_store,
+                    journal=journal,
+                )
                 transaction_store.save_rollback_result(
                     state.process_id,
                     idempotency_key=str(intent["idempotency_key"]),
                     request_fingerprint=str(intent.get("request_fingerprint") or ""),
-                    committed_response={
-                        **previous_response,
-                        "rollback_bundle": dict(intent.get("rollback_bundle") or {}),
-                    },
+                    committed_response=_archived_committed_rollback_response(
+                        restored_previous
+                    ),
                 )
             if not str(stage or "").strip() and not str(fencepost_id or "").strip():
                 raise ValueError(
@@ -3847,6 +3947,12 @@ def apply_release_rollback_restore(
                 },
             )
             response["rollback_transaction"] = intent
+            transaction_store.save_rollback_result(
+                state.process_id,
+                idempotency_key=requested_idempotency_key,
+                request_fingerprint=request_fingerprint,
+                committed_response=_archived_committed_rollback_response(response),
+            )
         except BaseException as exc:
             latest_intent = transaction_store.load_rollback_intent(state.process_id) or intent
             transaction_store.save_rollback_intent(

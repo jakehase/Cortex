@@ -694,11 +694,82 @@ async def test_invalid_enum_filters_and_directions_are_rejected_before_graph_acc
         (knowledge.ImpactRequest, {"query": "x", "limit": 51}),
         (librarian.RecallRequest, {"query": "x", "n_results": 101}),
         (librarian.SupersedeRequest, {"memory_ids": [str(i) for i in range(501)]}),
+        (librarian.SupersedeRequest, {"memory_ids": ["é" * 129]}),
+        (
+            librarian.SupersedeRequest,
+            {"memory_ids": ["record"], "superseded_by": "é" * 129},
+        ),
     ],
 )
 def test_router_models_reject_oversized_payloads_and_work_factors(model, kwargs):
     with pytest.raises(ValidationError):
         model(**kwargs)
+
+
+def test_supersession_reserves_complete_amplified_metadata_before_update(
+    monkeypatch,
+):
+    from cortex_server.routers import l22
+
+    fake = FakeCollection()
+    record_ids = [f"memory-{index:03d}" for index in range(500)]
+    fake.add(
+        record_ids,
+        ["payload"] * len(record_ids),
+        [
+            {
+                "memory_status": "active",
+                "tenant_id": "tenant-quota",
+                "workspace_id": "principal-workspace-quota",
+                "storage_workspace_id": "principal-workspace-quota",
+            }
+            for _ in record_ids
+        ],
+    )
+    monkeypatch.setattr(librarian, "collection", fake)
+    reservations = []
+
+    def reserve_side_effect(**kwargs):
+        reservations.append(dict(kwargs))
+        return kwargs["publish"]()
+
+    monkeypatch.setattr(
+        l22,
+        "run_l22_quota_controlled_side_effect",
+        reserve_side_effect,
+    )
+    superseded_by = "é" * 128
+    result = librarian.supersede_memory_records(
+        record_ids,
+        superseded_by=superseded_by,
+        reason="bounded correction",
+        _skip_recovery=True,
+        tenant_id="tenant-quota",
+        workspace_id="principal-workspace-quota",
+        quota_credential_id="credential-quota",
+    )
+
+    assert result["updated"] == 500
+    assert len(reservations) == 1
+    assert reservations[0]["tenant_id"] == "tenant-quota"
+    assert reservations[0]["workspace_id"] == "principal-workspace-quota"
+    assert reservations[0]["credential_id"] == "credential-quota"
+    resulting_metadata_bytes = sum(
+        len(
+            json.dumps(
+                fake.rows[memory_id]["metadata"],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        for memory_id in record_ids
+    )
+    assert reservations[0]["charge_bytes"] >= resulting_metadata_bytes
+    assert all(
+        len(row["metadata"]["superseded_by"].encode("utf-8")) == 256
+        for row in fake.rows.values()
+    )
 
 
 @pytest.mark.parametrize(

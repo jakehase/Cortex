@@ -626,13 +626,22 @@ async def test_assurance_receipt_key_id_survives_rotation_and_lost_response(monk
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         receipt = await _receipt(client, interaction)
-        assert nexus._decode_assurance_receipt(receipt)["signing_key_id"] == "assurance-2026-01"
+        receipt_payload = nexus._decode_assurance_receipt(receipt)
+        assert receipt_payload["signing_key_id"] == "assurance-2026-01"
 
         monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "assurance-2026-07")
         monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY", new_key)
         monkeypatch.setenv(
             "NEXUS_ASSURANCE_VERIFY_KEYS",
-            json.dumps({"assurance-2026-01": old_key}),
+            json.dumps(
+                {
+                    "assurance-2026-01": {
+                        "secret": old_key,
+                        "activated_at": 0,
+                        "retired_at": receipt_payload["issued_at"],
+                    }
+                }
+            ),
         )
         committed = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -644,6 +653,91 @@ async def test_assurance_receipt_key_id_survives_rotation_and_lost_response(monk
     assert committed.status_code == 200
     assert replay.json() == committed.json()
     assert len(recorder.calls) == 1
+
+
+def test_historical_assurance_key_enforces_issuance_window_and_server_max_ttl(
+    monkeypatch,
+):
+    now = 2_000_000_000
+    old_key = "old-assurance-signing-key-material-00000001"
+    new_key = "new-assurance-signing-key-material-00000002"
+    monkeypatch.setattr(nexus.time, "time", lambda: now)
+    monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "assurance-new")
+    monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY", new_key)
+    monkeypatch.setenv(
+        "NEXUS_ASSURANCE_VERIFY_KEYS",
+        json.dumps(
+            {
+                "assurance-old": {
+                    "secret": old_key,
+                    "activated_at": now - 1_000,
+                    "retired_at": now - 10,
+                }
+            }
+        ),
+    )
+    interaction = nexus.InteractionData(
+        query="Remember the bounded historical key policy",
+        response="Historical keys verify only receipts issued before retirement.",
+        levels_used=[7, 22],
+    )
+
+    def signed_old_receipt(*, issued_at, expires_at):
+        payload = {
+            "version": nexus._ASSURANCE_RECEIPT_VERSION,
+            "jti": "a" * 32,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "query_hash": nexus._content_hash(interaction.query),
+            "response_hash": nexus._content_hash(interaction.response),
+            "levels_used": nexus._normalized_commit_levels(interaction.levels_used),
+            "scope": nexus._assurance_scope(None),
+            "risk_flags": [],
+            "validator_pass": True,
+            "signing_key_id": "assurance-old",
+        }
+        body = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+        signature = nexus.hmac.new(
+            old_key.encode("utf-8"), body, nexus.hashlib.sha256
+        ).digest()
+        return f"{nexus._b64url_encode(body)}.{nexus._b64url_encode(signature)}"
+
+    valid = interaction.model_copy(
+        update={
+            "assurance_receipt": signed_old_receipt(
+                issued_at=now - 20,
+                expires_at=now + 60,
+            )
+        }
+    )
+    assert nexus._verify_assurance_receipt(valid, None)["signing_key_id"] == "assurance-old"
+
+    newly_dated = interaction.model_copy(
+        update={
+            "assurance_receipt": signed_old_receipt(
+                issued_at=now,
+                expires_at=now + 60,
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="outside_issuance_window"):
+        nexus._verify_assurance_receipt(newly_dated, None)
+
+    overlong = interaction.model_copy(
+        update={
+            "assurance_receipt": signed_old_receipt(
+                issued_at=now - 20,
+                expires_at=now + 10_000,
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="expired_receipt"):
+        nexus._verify_assurance_receipt(overlong, None)
 
 
 def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_restart(

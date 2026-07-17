@@ -120,6 +120,11 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
         "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
         "server-only-feedback-signing-key-for-continuity-test",
     )
+    monkeypatch.setattr(
+        nexus,
+        "_REFERENT_STATE_PATH",
+        tmp_path / "nexus-referent-state.json",
+    )
     monkeypatch.setenv(
         "CORTEX_MEMORY_SCOPE_CREDENTIALS",
         json.dumps(
@@ -281,6 +286,190 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
     assert "private-marker-a" not in orchestration_packets[1]
     assert len(set(kernel_session_keys)) == 2
     assert all(key and key.startswith("principal:") for key in kernel_session_keys)
+
+
+@pytest.mark.asyncio
+async def test_codec_lifecycle_replay_returns_durable_result_without_reapplying(
+    monkeypatch,
+    tmp_path,
+):
+    session_id = "openclaw-codec-idempotency"
+    scope = _scope("tenant-codec", "bridge-agent", session_id)
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps(
+            {
+                "codec-bridge": {
+                    "secret": "codec-bridge-secret",
+                    "allowed_scopes": [scope],
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        nexus,
+        "_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+        tmp_path / "codec-idempotency.sqlite3",
+    )
+    update_calls = []
+    packet_state = {}
+
+    def update_state(_session_key, events, **_scope):
+        update_calls.append(list(events))
+        packet_state["source_refs"] = [
+            {"event_id": events[0]["event_id"], "event_kind": "codec_lifecycle"}
+        ]
+        return {"state_revision": 8, "durable_write": {"fingerprint": "codec-fp-8"}}
+
+    def get_packet(_session_key, **_scope):
+        return {
+            "available": True,
+            "packet": "bounded packet",
+            "summary": "bounded packet",
+            "state": dict(packet_state),
+            "durable": {"fingerprint": "codec-fp-8"},
+        }
+
+    monkeypatch.setattr(nexus, "update_codec_state_for_session", update_state)
+    monkeypatch.setattr(nexus, "get_codec_packet_for_session", get_packet)
+    signature = memory_scope_signature(
+        **scope,
+        credential_id="codec-bridge",
+        secret="codec-bridge-secret",
+    )
+    request = SimpleNamespace(
+        headers={"x-session-id": session_id},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    def payload(text):
+        return nexus.CodecEventsRequest(
+            session_key=session_id,
+            events=[{"text": text}],
+            idempotency_key="bridge-lifecycle-0001",
+            tenant_id=scope["tenant_id"],
+            workspace_id=scope["workspace_id"],
+            scope=scope,
+            scope_credential_id="codec-bridge",
+            scope_signature=signature,
+        )
+
+    first = await nexus.post_nexus_codec_events(payload("remember durable cobalt"), request)
+    replay = await nexus.post_nexus_codec_events(payload("remember durable cobalt"), request)
+
+    assert replay == first
+    assert len(update_calls) == 1
+    with pytest.raises(HTTPException) as reused:
+        await nexus.post_nexus_codec_events(payload("different lifecycle payload"), request)
+    assert reused.value.status_code == 409
+    assert len(update_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_codec_incomplete_reservation_recovers_from_durable_source_ref(
+    monkeypatch,
+    tmp_path,
+):
+    session_id = "openclaw-codec-recovery"
+    scope = _scope("tenant-codec", "bridge-agent", session_id)
+    secret = "codec-recovery-secret"
+    monkeypatch.setenv(
+        "CORTEX_MEMORY_SCOPE_CREDENTIALS",
+        json.dumps(
+            {
+                "codec-bridge": {
+                    "secret": secret,
+                    "allowed_scopes": [scope],
+                }
+            }
+        ),
+    )
+    state_path = tmp_path / "codec-recovery.sqlite3"
+    monkeypatch.setattr(nexus, "_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH", state_path)
+    signature = memory_scope_signature(
+        **scope,
+        credential_id="codec-bridge",
+        secret=secret,
+    )
+    principal = authenticate_memory_principal(
+        tenant_id=scope["tenant_id"],
+        workspace_id=scope["workspace_id"],
+        scope=scope,
+        credential_id="codec-bridge",
+        signature=signature,
+        production=False,
+    )
+    normalized_events = [
+        {
+            "text": "recover durable lifecycle",
+            "tags": [],
+            "metadata": dict(principal.storage_metadata),
+        }
+    ]
+    request_fingerprint = nexus._codec_events_request_fingerprint(
+        session_key=session_id,
+        events=normalized_events,
+        max_chars=420,
+    )
+    idempotency_key = "bridge-lifecycle-recovery"
+    lifecycle_ref = nexus.hashlib.sha256(
+        (
+            "nexus.codec-events.lifecycle.v1\0"
+            + idempotency_key
+            + "\0"
+            + request_fingerprint
+        ).encode("utf-8")
+    ).hexdigest()
+    nexus.reserve_assurance_receipt(
+        state_path,
+        scope=nexus._codec_events_idempotency_scope(principal, session_id),
+        jti=idempotency_key,
+        expires_at=nexus._CODEC_EVENTS_IDEMPOTENCY_EXPIRES_AT,
+    )
+
+    def should_not_update(*_args, **_kwargs):
+        pytest.fail("recovery replay invoked the Codec updater")
+
+    monkeypatch.setattr(nexus, "update_codec_state_for_session", should_not_update)
+    monkeypatch.setattr(
+        nexus,
+        "get_codec_packet_for_session",
+        lambda *_args, **_kwargs: {
+            "available": True,
+            "packet": "recovered packet",
+            "summary": "recovered packet",
+            "state": {
+                "source_refs": [
+                    {"event_id": lifecycle_ref, "event_kind": "codec_lifecycle"}
+                ]
+            },
+            "durable": {"fingerprint": "codec-fp-recovered"},
+        },
+    )
+    request = SimpleNamespace(
+        headers={"x-session-id": session_id},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+    response = await nexus.post_nexus_codec_events(
+        nexus.CodecEventsRequest(
+            session_key=session_id,
+            events=[{"text": "recover durable lifecycle"}],
+            idempotency_key=idempotency_key,
+            tenant_id=scope["tenant_id"],
+            workspace_id=scope["workspace_id"],
+            scope=scope,
+            scope_credential_id="codec-bridge",
+            scope_signature=signature,
+        ),
+        request,
+    )
+
+    assert response["state_fingerprint"] == "codec-fp-recovered"
+    assert nexus.assurance_receipt_status(
+        state_path,
+        scope=nexus._codec_events_idempotency_scope(principal, session_id),
+        jti=idempotency_key,
+    ) == "consumed"
 
 
 def test_orchestration_principal_authentication_fails_closed_in_production(monkeypatch):

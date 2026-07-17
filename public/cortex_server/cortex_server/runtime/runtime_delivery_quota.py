@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import fcntl
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -39,6 +40,8 @@ _RECOVERY_PROCESS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _LOCKS: Dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
 _TRANSACTION_STATE = threading.local()
+_ACTIVE_RESERVATION_TOKENS: set[tuple[str, str]] = set()
+_ACTIVE_RESERVATION_TOKENS_LOCK = threading.Lock()
 
 
 def _wall_time() -> float:
@@ -721,6 +724,61 @@ def _reservation_owner_state(
     return "exact" if observed_start_ticks == owner_start_ticks else "gone"
 
 
+def _reservation_token_key(delivery_root: Path, token: str) -> tuple[str, str]:
+    return str(Path(delivery_root).resolve()), str(token)
+
+
+def _reservation_token_is_active(delivery_root: Path, token: str) -> bool:
+    with _ACTIVE_RESERVATION_TOKENS_LOCK:
+        return _reservation_token_key(delivery_root, token) in _ACTIVE_RESERVATION_TOKENS
+
+
+def _release_runtime_delivery_reservation(
+    delivery_root: Path,
+    *,
+    token: str,
+) -> None:
+    """Durably free one exact owned token even while rollback recovery is pending."""
+
+    root = Path(delivery_root).resolve()
+    normalized_token = str(token or "")
+    if not re.fullmatch(r"[0-9a-f]{32}", normalized_token):
+        raise RuntimeDeliveryQuotaError("runtime delivery reservation token is invalid")
+    reservation_root = root / ".runtime-delivery-reservations"
+    target = reservation_root / f"{normalized_token}.json"
+    with _runtime_delivery_quota_lock(root):
+        try:
+            target_stat = target.lstat()
+        except FileNotFoundError:
+            return
+        if target.is_symlink() or not stat.S_ISREG(target_stat.st_mode):
+            raise RuntimeDeliveryQuotaError("runtime delivery reservation target is invalid")
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            payload_token = str(payload.get("token") or target.stem)
+            payload_identity = _reservation_process_identity(payload)
+            current_identity = _current_process_identity()
+        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery reservation payload is invalid"
+            ) from exc
+        if (
+            payload.get("version") != "cortex.runtime-delivery-reservation.v2"
+            or not hmac.compare_digest(payload_token, normalized_token)
+            or payload_identity
+            != (
+                int(current_identity["pid"]),
+                str(current_identity["boot_id"]),
+                str(current_identity["process_start_ticks"]),
+            )
+        ):
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery reservation token does not match its durable record"
+            )
+        target.unlink()
+        fsync_directory(reservation_root)
+
+
 def _active_reservation_bytes_unlocked(delivery_root: Path, *, prune_stale: bool) -> int:
     """Charge reservations and lazily renew expired identity leases.
 
@@ -764,6 +822,9 @@ def _active_reservation_bytes_unlocked(delivery_root: Path, *, prune_stale: bool
             if version != "cortex.runtime-delivery-reservation.v2":
                 raise ValueError("invalid reservation version")
             _pid, owner_boot_id, _owner_start_ticks = _reservation_process_identity(payload)
+            reservation_token = str(payload.get("token") or target.stem)
+            if not re.fullmatch(r"[0-9a-f]{32}", reservation_token):
+                raise ValueError("invalid reservation token")
             created_at = float(payload["created_at"])
             heartbeat_monotonic = float(payload["heartbeat_monotonic"])
             lease_expires_monotonic = float(payload["lease_expires_monotonic"])
@@ -802,6 +863,16 @@ def _active_reservation_bytes_unlocked(delivery_root: Path, *, prune_stale: bool
                     target.unlink()
                     deleted = True
                 continue
+            if (
+                owner_state == "exact"
+                and _pid == os.getpid()
+                and current_monotonic >= lease_expires_monotonic
+                and not _reservation_token_is_active(delivery_root, reservation_token)
+            ):
+                if may_mutate:
+                    target.unlink()
+                    deleted = True
+                    continue
             if (
                 owner_state == "exact"
                 and current_monotonic >= lease_expires_monotonic
@@ -845,6 +916,7 @@ def runtime_delivery_capacity_reservation(
             encoded_json(
                 {
                     "version": "cortex.runtime-delivery-reservation.v2",
+                    "token": token,
                     **identity,
                     "created_at": _wall_time(),
                     "heartbeat_monotonic": heartbeat_monotonic,
@@ -855,16 +927,18 @@ def runtime_delivery_capacity_reservation(
                 }
             ),
         )
+        with _ACTIVE_RESERVATION_TOKENS_LOCK:
+            _ACTIVE_RESERVATION_TOKENS.add(_reservation_token_key(root, token))
     try:
         yield
     finally:
-        with runtime_delivery_quota_transaction(root):
-            try:
-                target.unlink()
-            except FileNotFoundError:
-                pass
-            else:
-                fsync_directory(target.parent)
+        try:
+            _release_runtime_delivery_reservation(root, token=token)
+        finally:
+            with _ACTIVE_RESERVATION_TOKENS_LOCK:
+                _ACTIVE_RESERVATION_TOKENS.discard(
+                    _reservation_token_key(root, token)
+                )
 
 
 def assert_runtime_delivery_capacity(

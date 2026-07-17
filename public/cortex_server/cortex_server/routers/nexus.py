@@ -218,11 +218,19 @@ _ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
 _ASSURANCE_LEGACY_RECEIPT_VERSION = "nexus.commit-receipt.v1"
 _ASSURANCE_KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 _ASSURANCE_MAX_VERIFY_KEYS = 16
+_ASSURANCE_MAX_KEY_EPOCH = 4_102_444_800  # 2100-01-01T00:00:00Z
+_CODEC_EVENTS_IDEMPOTENCY_EXPIRES_AT = _ASSURANCE_MAX_KEY_EPOCH
 _ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
 _ASSURANCE_RECEIPT_STATE_PATH = Path(
     os.getenv(
         "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
         "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
+    )
+)
+_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = Path(
+    os.getenv(
+        "NEXUS_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+        "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
     )
 )
 _OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.outcome-feedback-receipt.v1"
@@ -3804,7 +3812,7 @@ def _b64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4)))
 
 
-def _assurance_keyring() -> tuple[str, bytes, Dict[str, bytes]]:
+def _assurance_keyring() -> tuple[str, bytes, Dict[str, Dict[str, Any]]]:
     configured = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY", "").strip()
     key_id = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "").strip()
     if not configured:
@@ -3832,13 +3840,53 @@ def _assurance_keyring() -> tuple[str, bytes, Dict[str, bytes]]:
         raise RuntimeError(
             f"NEXUS_ASSURANCE_VERIFY_KEYS must contain at most {_ASSURANCE_MAX_VERIFY_KEYS} keys"
         )
-    verify_keys: Dict[str, bytes] = {key_id: configured_key}
-    for previous_id, previous_secret in parsed_previous.items():
+    current_activated_at_raw = os.getenv(
+        "NEXUS_ASSURANCE_SIGNING_KEY_ACTIVATED_AT", "0"
+    ).strip()
+    if (
+        not current_activated_at_raw.isdecimal()
+        or int(current_activated_at_raw) > _ASSURANCE_MAX_KEY_EPOCH
+    ):
+        raise RuntimeError(
+            "NEXUS_ASSURANCE_SIGNING_KEY_ACTIVATED_AT must be a non-negative epoch"
+        )
+    current_activated_at = int(current_activated_at_raw)
+    verify_keys: Dict[str, Dict[str, Any]] = {
+        key_id: {
+            "secret": configured_key,
+            "activated_at": current_activated_at,
+            "retired_at": None,
+        }
+    }
+    for previous_id, previous_record in parsed_previous.items():
         normalized_id = str(previous_id or "").strip()
         if not _ASSURANCE_KEY_ID_PATTERN.fullmatch(normalized_id):
             raise RuntimeError("assurance verification key ID is invalid")
+        if not isinstance(previous_record, dict) or set(previous_record) != {
+            "secret",
+            "activated_at",
+            "retired_at",
+        }:
+            raise RuntimeError(
+                "historical assurance verification keys require secret, activated_at, and retired_at"
+            )
+        previous_secret = previous_record.get("secret")
         if not isinstance(previous_secret, str) or not previous_secret.strip():
             raise RuntimeError("assurance verification keys must be non-empty strings")
+        activated_at = previous_record.get("activated_at")
+        retired_at = previous_record.get("retired_at")
+        if (
+            isinstance(activated_at, bool)
+            or isinstance(retired_at, bool)
+            or not isinstance(activated_at, int)
+            or not isinstance(retired_at, int)
+            or activated_at < 0
+            or retired_at <= activated_at
+            or retired_at > _ASSURANCE_MAX_KEY_EPOCH
+        ):
+            raise RuntimeError(
+                "historical assurance verification key epochs are invalid"
+            )
         encoded_secret = previous_secret.strip().encode("utf-8")
         if _production_memory_scope_mode() and len(encoded_secret) < 32:
             raise RuntimeError("production assurance verification keys must contain at least 32 bytes")
@@ -3846,11 +3894,15 @@ def _assurance_keyring() -> tuple[str, bytes, Dict[str, bytes]]:
             raise RuntimeError("current assurance key ID cannot map to a different verification key")
         if any(
             existing_id != normalized_id
-            and hmac.compare_digest(existing_secret, encoded_secret)
-            for existing_id, existing_secret in verify_keys.items()
+            and hmac.compare_digest(existing_record["secret"], encoded_secret)
+            for existing_id, existing_record in verify_keys.items()
         ):
             raise RuntimeError("assurance key IDs must map to distinct key material")
-        verify_keys[normalized_id] = encoded_secret
+        verify_keys[normalized_id] = {
+            "secret": encoded_secret,
+            "activated_at": activated_at,
+            "retired_at": retired_at,
+        }
 
     reserved_credentials = {
         **_outcome_feedback_request_credentials(),
@@ -3862,7 +3914,8 @@ def _assurance_keyring() -> tuple[str, bytes, Dict[str, bytes]]:
     }
     reused = [
         f"{key_name}:{credential_name}"
-        for key_name, key_secret in verify_keys.items()
+        for key_name, key_record in verify_keys.items()
+        for key_secret in (key_record["secret"],)
         for credential_name, credential in reserved_credentials.items()
         if credential and hmac.compare_digest(key_secret, credential.encode("utf-8"))
     ]
@@ -3895,21 +3948,45 @@ def _decode_assurance_receipt(receipt: str) -> Dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("invalid_payload")
         _current_id, _current_key, verify_keys = _assurance_keyring()
+        issued_at = int(payload.get("issued_at", -1))
         receipt_key_id = str(payload.get("signing_key_id") or "").strip()
         if receipt_key_id:
-            verification_key = verify_keys.get(receipt_key_id)
-            if verification_key is None:
+            verification_record = verify_keys.get(receipt_key_id)
+            if verification_record is None:
                 raise ValueError("unknown_signing_key")
             signature_matches = hmac.compare_digest(
                 supplied,
-                hmac.new(verification_key, body, hashlib.sha256).digest(),
+                hmac.new(verification_record["secret"], body, hashlib.sha256).digest(),
             )
+            retired_at = verification_record.get("retired_at")
+            if (
+                issued_at < int(verification_record["activated_at"])
+                or (retired_at is not None and issued_at > int(retired_at))
+            ):
+                raise ValueError("signing_key_outside_issuance_window")
         else:
-            # Transitional v1 receipts did not carry a KID. Try the bounded
-            # verify-only ring so rotation can drain already-spooled records.
+            cutoff_raw = os.getenv(
+                "NEXUS_ASSURANCE_LEGACY_RECEIPT_DRAIN_CUTOFF", ""
+            ).strip()
+            if (
+                not cutoff_raw.isdecimal()
+                or int(cutoff_raw) > _ASSURANCE_MAX_KEY_EPOCH
+                or issued_at > int(cutoff_raw)
+            ):
+                raise ValueError("legacy_receipt_drain_closed")
+            # Transitional v1 receipts may drain only through an explicit
+            # server-owned cutoff and a key issuance window containing them.
             signature_matches = any(
-                hmac.compare_digest(supplied, hmac.new(key, body, hashlib.sha256).digest())
-                for key in verify_keys.values()
+                issued_at >= int(record["activated_at"])
+                and (
+                    record.get("retired_at") is None
+                    or issued_at <= int(record["retired_at"])
+                )
+                and hmac.compare_digest(
+                    supplied,
+                    hmac.new(record["secret"], body, hashlib.sha256).digest(),
+                )
+                for record in verify_keys.values()
             )
         if not signature_matches:
             raise ValueError("signature_mismatch")
@@ -3919,6 +3996,8 @@ def _decode_assurance_receipt(receipt: str) -> Dict[str, Any]:
             "signature_mismatch",
             "unknown_signing_key",
             "invalid_payload",
+            "signing_key_outside_issuance_window",
+            "legacy_receipt_drain_closed",
         }:
             raise
         raise ValueError("malformed_receipt") from exc
@@ -4056,7 +4135,14 @@ def _verify_assurance_receipt(interaction: "InteractionData", request: Optional[
         _ASSURANCE_LEGACY_RECEIPT_VERSION,
     }:
         raise ValueError("unsupported_receipt_version")
-    if int(payload.get("issued_at", 0)) > now + 5 or int(payload.get("expires_at", 0)) <= int(payload.get("issued_at", 0)):
+    issued_at = int(payload.get("issued_at", 0))
+    expires_at = int(payload.get("expires_at", 0))
+    if (
+        issued_at > now + 5
+        or expires_at <= now
+        or expires_at <= issued_at
+        or expires_at - issued_at > _ASSURANCE_RECEIPT_TTL_SECONDS
+    ):
         raise ValueError("expired_receipt")
     if not hmac.compare_digest(str(payload.get("query_hash") or ""), _content_hash(interaction.query)):
         raise ValueError("query_binding_mismatch")
@@ -4961,12 +5047,89 @@ class OutcomeFeedbackReceiptRequest(BaseModel):
 class CodecEventsRequest(BaseModel):
     session_key: str = ""
     events: List[Dict[str, Any]] = Field(default_factory=list)
+    idempotency_key: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=256,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
+    )
     max_chars: int = 420
     tenant_id: str = Field("cortex-local", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
     workspace_id: str = Field("default", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
     scope: Optional[Dict[str, str]] = None
     scope_credential_id: Optional[str] = Field(None, max_length=128)
     scope_signature: Optional[str] = Field(None, max_length=256)
+
+
+def _codec_events_idempotency_scope(
+    principal: AuthenticatedMemoryPrincipal,
+    session_key: str,
+) -> Dict[str, str]:
+    return {
+        "operation": "nexus.codec-events.v1",
+        **principal.scope,
+        "codec_session_key": str(session_key),
+    }
+
+
+def _codec_events_request_fingerprint(
+    *,
+    session_key: str,
+    events: List[Dict[str, Any]],
+    max_chars: int,
+) -> str:
+    encoded = json.dumps(
+        {
+            "version": "nexus.codec-events.request.v1",
+            "session_key": session_key,
+            "events": events,
+            "max_chars": max_chars,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _codec_events_response(
+    *,
+    session_key: str,
+    event_count: int,
+    state_fingerprint: Optional[str],
+    packet: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "success": True,
+        "session_key": session_key,
+        "event_count": event_count,
+        "state_fingerprint": state_fingerprint,
+        "codec": packet,
+        "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check.",
+    }
+
+
+def _codec_events_replay_result(
+    envelope: Optional[Dict[str, Any]],
+    *,
+    request_fingerprint: str,
+) -> Optional[Dict[str, Any]]:
+    if envelope is None:
+        return None
+    if not hmac.compare_digest(
+        str(envelope.get("request_fingerprint") or ""), request_fingerprint
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Codec idempotency key was reused with a different event batch",
+        )
+    response = envelope.get("response")
+    if not isinstance(response, dict):
+        raise AssuranceReceiptLedgerUnavailable(
+            "codec_events_idempotency_result_invalid"
+        )
+    return dict(response)
 
 
 def analyze_intent_with_oracle(query: str, *, route_health: Optional[RouteHealthMonitor] = None) -> Dict[str, Any]:
@@ -5224,6 +5387,137 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         metadata = {**metadata, **principal.storage_metadata}
         events.append({"text": text, "tags": [str(tag)[:80] for tag in tags[:24]], "metadata": metadata})
+    max_chars = max(120, min(int(payload.max_chars), 2400))
+    idempotency_key = str(payload.idempotency_key or "").strip()
+    idempotency_scope: Optional[Dict[str, str]] = None
+    request_fingerprint = ""
+    reservation = None
+    lifecycle_ref = ""
+    if idempotency_key:
+        idempotency_scope = _codec_events_idempotency_scope(
+            principal, resolved_session_key
+        )
+        request_fingerprint = _codec_events_request_fingerprint(
+            session_key=resolved_session_key,
+            events=events,
+            max_chars=max_chars,
+        )
+        lifecycle_ref = hashlib.sha256(
+            (
+                "nexus.codec-events.lifecycle.v1\0"
+                + idempotency_key
+                + "\0"
+                + request_fingerprint
+            ).encode("utf-8")
+        ).hexdigest()
+        try:
+            prior = await run_in_threadpool(
+                consumed_assurance_receipt_result,
+                _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH,
+                scope=idempotency_scope,
+                jti=idempotency_key,
+            )
+            replay = _codec_events_replay_result(
+                prior, request_fingerprint=request_fingerprint
+            )
+            if replay is not None:
+                return replay
+            try:
+                reservation = await run_in_threadpool(
+                    reserve_assurance_receipt,
+                    _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH,
+                    scope=idempotency_scope,
+                    jti=idempotency_key,
+                    expires_at=_CODEC_EVENTS_IDEMPOTENCY_EXPIRES_AT,
+                )
+            except ValueError:
+                prior = await run_in_threadpool(
+                    consumed_assurance_receipt_result,
+                    _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH,
+                    scope=idempotency_scope,
+                    jti=idempotency_key,
+                )
+                replay = _codec_events_replay_result(
+                    prior, request_fingerprint=request_fingerprint
+                )
+                if replay is not None:
+                    return replay
+                recovery_packet = await run_in_threadpool(
+                    get_codec_packet_for_session,
+                    resolved_session_key,
+                    max_chars=max_chars,
+                    tenant_id=principal.tenant_id,
+                    workspace_id=principal.storage_workspace_id,
+                )
+                recovery_state = (
+                    recovery_packet.get("state")
+                    if isinstance(recovery_packet.get("state"), dict)
+                    else {}
+                )
+                source_refs = recovery_state.get("source_refs") or []
+                if not any(
+                    isinstance(ref, dict)
+                    and hmac.compare_digest(
+                        str(ref.get("event_id") or ""), lifecycle_ref
+                    )
+                    for ref in source_refs
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Codec lifecycle commit remains in progress",
+                    )
+                try:
+                    reservation = await run_in_threadpool(
+                        recover_assurance_receipt,
+                        _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH,
+                        scope=idempotency_scope,
+                        jti=idempotency_key,
+                    )
+                except ValueError as exc:
+                    prior = await run_in_threadpool(
+                        consumed_assurance_receipt_result,
+                        _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH,
+                        scope=idempotency_scope,
+                        jti=idempotency_key,
+                    )
+                    replay = _codec_events_replay_result(
+                        prior, request_fingerprint=request_fingerprint
+                    )
+                    if replay is not None:
+                        return replay
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Codec lifecycle recovery is already claimed",
+                    ) from exc
+                response = _codec_events_response(
+                    session_key=resolved_session_key,
+                    event_count=len(events),
+                    state_fingerprint=(recovery_packet.get("durable") or {}).get(
+                        "fingerprint"
+                    ),
+                    packet=recovery_packet,
+                )
+                await run_in_threadpool(
+                    finalize_assurance_receipt,
+                    _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH,
+                    reservation,
+                    result={
+                        "request_fingerprint": request_fingerprint,
+                        "response": response,
+                    },
+                )
+                return response
+        except HTTPException:
+            raise
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Codec lifecycle idempotency ledger is unavailable",
+            ) from exc
+        events = [
+            {**event, "event_id": lifecycle_ref, "event_kind": "codec_lifecycle"}
+            for event in events
+        ]
     state = await run_in_threadpool(
         update_codec_state_for_session,
         resolved_session_key,
@@ -5234,18 +5528,33 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
     packet = await run_in_threadpool(
         get_codec_packet_for_session,
         resolved_session_key,
-        max_chars=max(120, min(int(payload.max_chars), 2400)),
+        max_chars=max_chars,
         tenant_id=principal.tenant_id,
         workspace_id=principal.storage_workspace_id,
     )
-    return {
-        "success": True,
-        "session_key": resolved_session_key,
-        "event_count": len(events),
-        "state_fingerprint": state.get("durable_write", {}).get("fingerprint"),
-        "codec": packet,
-        "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check."
-    }
+    response = _codec_events_response(
+        session_key=resolved_session_key,
+        event_count=len(events),
+        state_fingerprint=state.get("durable_write", {}).get("fingerprint"),
+        packet=packet,
+    )
+    if reservation is not None:
+        try:
+            await run_in_threadpool(
+                finalize_assurance_receipt,
+                _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH,
+                reservation,
+                result={
+                    "request_fingerprint": request_fingerprint,
+                    "response": response,
+                },
+            )
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Codec lifecycle result could not be finalized durably",
+            ) from exc
+    return response
 
 
 @router.get("/codec/benchmark")

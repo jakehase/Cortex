@@ -916,8 +916,29 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
     assert rolled["restore_state"]["shared_state_revision_id"] == "rev_1"
     assert rolled["restore_state"]["waiting_steps"] == ["build"]
     assert rolled["production_image_digest"] == IMAGE_DIGEST
-    assert f"CORTEX_IMAGE_REF={IMAGE_REF}" in rolled["operator_rollback_command"]
+    assert "CORTEX_IMAGE_REPOSITORY=registry.example/cortex" in rolled["operator_rollback_command"]
+    assert f"CORTEX_IMAGE_DIGEST={'d' * 64}" in rolled["operator_rollback_command"]
+    assert "CORTEX_IMAGE_REF=" not in rolled["operator_rollback_command"]
     assert "--no-build --pull never" in rolled["operator_rollback_command"]
+
+
+def test_operator_rollback_command_assigns_every_production_compose_image_variable():
+    command = release_workflow.operator_rollback_command(IMAGE_REF, IMAGE_DIGEST)
+    compose = (Path(__file__).parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+
+    required = set(
+        release_workflow.re.findall(r"\$\{(CORTEX_IMAGE_[A-Z]+):\?", compose)
+    )
+    assigned = set(
+        release_workflow.re.findall(r"\b(CORTEX_IMAGE_[A-Z]+)=", command)
+    )
+
+    assert required == {"CORTEX_IMAGE_REPOSITORY", "CORTEX_IMAGE_DIGEST"}
+    assert required <= assigned
+    assert command.count("CORTEX_IMAGE_REPOSITORY=registry.example/cortex") == 2
+    assert command.count(f"CORTEX_IMAGE_DIGEST={'d' * 64}") == 2
 
 
 def test_same_digest_receipt_flood_is_bounded_before_state_or_history_amplification(tmp_path):
@@ -1835,6 +1856,77 @@ def test_committed_rollback_retry_returns_durable_response_without_rolling_back_
             actor="release-manager",
             idempotency_key="health-incident-002",
         )
+
+
+def test_archived_rollback_replay_is_stable_after_a_later_committed_rollback(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_archived_replay"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:archived-replay",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    for stage in ("build_verified", "canary_verified"):
+        state = record_release_fencepost(
+            state,
+            capture_release_rollback_fencepost(
+                snapshot=seeded["snapshot"],
+                shared_state=seeded["shared_state"],
+                stage=stage,
+            ),
+        )
+    stored = harness.release_store.save(state)
+
+    rollback_a = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="incident-a",
+        actor="release-manager",
+        idempotency_key="archived-rollback-a",
+    )
+    rollback_b = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+        reason="incident-b",
+        actor="release-manager",
+        idempotency_key="archived-rollback-b",
+    )
+    active_revision_after_b = harness.release_store.load(process_id).persistence_revision
+
+    replay_a = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="incident-a",
+        actor="release-manager",
+        idempotency_key="archived-rollback-a",
+    )
+
+    assert rollback_a["state"].current_stage == "canary_verified"
+    assert rollback_b["state"].current_stage == "build_verified"
+    assert replay_a["state"].current_stage == rollback_a["state"].current_stage
+    assert (
+        replay_a["rollback_transaction"]["transaction_id"]
+        == rollback_a["rollback_transaction"]["transaction_id"]
+    )
+    assert harness.release_store.load(process_id).persistence_revision == active_revision_after_b
 
 
 def test_near_limit_release_state_uses_one_bounded_rollback_bundle(tmp_path):

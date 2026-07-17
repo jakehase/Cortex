@@ -942,6 +942,113 @@ def run_l22_quota_controlled_write(
         raise
 
 
+def run_l22_quota_controlled_side_effect(
+    *,
+    transaction_id: str,
+    charge_bytes: int,
+    payload_hash: str,
+    tenant_id: str,
+    workspace_id: str,
+    credential_id: str,
+    publish: Callable[[], _QuotaWriteResult],
+) -> _QuotaWriteResult:
+    """Reserve complete amplified bytes and retain a durable publication intent."""
+
+    tenant, workspace = _memory_scope(tenant_id, workspace_id)
+    normalized_transaction = str(transaction_id or "").strip()
+    normalized_hash = str(payload_hash or "").strip()
+    requested_bytes = int(charge_bytes)
+    if (
+        not normalized_transaction
+        or len(normalized_transaction) > 256
+        or requested_bytes <= 0
+        or not _is_sha256_hex(normalized_hash)
+    ):
+        raise ValueError("invalid L22 quota-controlled side effect")
+    memory_id = str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"cortex:l22:side-effect:{tenant}:{workspace}:{normalized_transaction}",
+        )
+    )
+    reservation_status = _reserve_memory_quota(
+        memory_id=memory_id,
+        tenant=tenant,
+        workspace=workspace,
+        credential=str(credential_id or "uncredentialed")[:128],
+        charge_bytes=requested_bytes,
+        payload_hash=normalized_hash,
+    )
+    if reservation_status != "new":
+        raise HTTPException(
+            status_code=409,
+            detail="L22 side-effect quota reservation is not publishable",
+        )
+    marker_published = False
+    publication_started = False
+    try:
+        _fence_memory_quota(memory_id, normalized_hash)
+        with _STRUCTURED_MEMORY_LOCK:
+            connection = _structured_memory_connection()
+            try:
+                connection.execute(
+                    "INSERT INTO structured_memory(id, tenant_id, workspace_id, memory_type, lookup_key, content, metadata_json, created_at) "
+                    "VALUES (?, ?, ?, 'quota_side_effect', ?, ?, ?, ?)",
+                    (
+                        memory_id,
+                        tenant,
+                        workspace,
+                        normalized_transaction,
+                        normalized_hash,
+                        json.dumps(
+                            {
+                                "type": "quota_side_effect",
+                                "transaction_id": normalized_transaction,
+                                "payload_hash": normalized_hash,
+                                "charge_bytes": requested_bytes,
+                            },
+                            ensure_ascii=True,
+                            sort_keys=True,
+                        ),
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                connection.commit()
+                marker_published = True
+            finally:
+                connection.close()
+        publication_started = True
+        result = publish()
+        _finalize_memory_quota(memory_id)
+        return result
+    except Exception:
+        if marker_published and publication_started:
+            # Publication may be partial. Retain both its durable intent and
+            # complete capacity charge rather than falsely freeing bytes.
+            try:
+                _finalize_memory_quota(memory_id, require_owner=False)
+            except Exception:
+                pass
+        else:
+            if marker_published:
+                with _STRUCTURED_MEMORY_LOCK:
+                    connection = _structured_memory_connection()
+                    try:
+                        connection.execute(
+                            "DELETE FROM structured_memory WHERE id = ? AND memory_type = 'quota_side_effect'",
+                            (memory_id,),
+                        )
+                        connection.commit()
+                    finally:
+                        connection.close()
+            _settle_failed_memory_write(memory_id)
+        raise
+
+
+def _is_sha256_hex(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
 def store_structured_memory_record(
     *,
     content: str,

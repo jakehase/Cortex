@@ -637,9 +637,13 @@ def test_librarian_fallback_and_supersession_publications_remain_charged(
         charged = connection.execute(
             "SELECT COUNT(*) FROM l22_quota_records WHERE status = 'committed'"
         ).fetchone()[0]
+        side_effects = connection.execute(
+            "SELECT COUNT(*) FROM structured_memory WHERE memory_type = 'quota_side_effect'"
+        ).fetchone()[0]
     finally:
         connection.close()
-    assert charged == 2
+    assert charged == 3
+    assert side_effects == 1
 
 
 def test_v1_complete_restart_reconciles_librarian_rows_then_stops(

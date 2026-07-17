@@ -496,7 +496,10 @@ MAX_MEMORY_METADATA_BYTES = 65_536
 MAX_MEMORY_METADATA_DEPTH = 8
 MAX_MEMORY_METADATA_NODES = 1_000
 MAX_MEMORY_METADATA_STRING = 16_384
+MAX_SUPERSESSION_RECORDS = 500
+MAX_SUPERSESSION_ID_BYTES = 256
 MemoryTag = Annotated[str, Field(max_length=256)]
+MemoryRecordId = Annotated[str, Field(min_length=1, max_length=MAX_SUPERSESSION_ID_BYTES)]
 
 
 def _validate_memory_metadata(value: Optional[dict]) -> Optional[dict]:
@@ -654,14 +657,48 @@ class RecallResponse(BaseModel):
 
 
 class SupersedeRequest(BaseModel):
-    memory_ids: List[str] = Field(..., min_items=1, max_items=500)
-    superseded_by: Optional[str] = None
-    reason: str = "explicit_correction"
+    memory_ids: List[MemoryRecordId] = Field(
+        ..., min_length=1, max_length=MAX_SUPERSESSION_RECORDS
+    )
+    superseded_by: Optional[MemoryRecordId] = None
+    reason: str = Field("explicit_correction", max_length=240)
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
     scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
+
+    @field_validator("memory_ids")
+    @classmethod
+    def _bounded_memory_ids(cls, values: List[str]) -> List[str]:
+        normalized = [str(value).strip() for value in values]
+        if any(
+            not value or len(value.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES
+            for value in normalized
+        ):
+            raise ValueError("memory IDs must be bounded non-empty UTF-8 values")
+        return normalized
+
+    @field_validator("superseded_by")
+    @classmethod
+    def _bounded_superseded_by(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        if (
+            not normalized
+            or len(normalized.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES
+        ):
+            raise ValueError("superseded_by must be a bounded non-empty UTF-8 value")
+        return normalized
+
+    @field_validator("reason")
+    @classmethod
+    def _bounded_reason(cls, value: str) -> str:
+        normalized = str(value or "").strip() or "explicit_correction"
+        if len(normalized.encode("utf-8")) > 240:
+            raise ValueError("supersession reason exceeds its immutable byte bound")
+        return normalized
 
 
 _CANONICAL_PROJECT_INDEX = Path(os.getenv("CORTEX_CANONICAL_PROJECT_INDEX", "/root/clawd/memory/projects/INDEX.md"))
@@ -900,11 +937,36 @@ def supersede_memory_records(
     _skip_recovery: bool = False,
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
+    quota_credential_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     tenant, workspace = _memory_scope(tenant_id, workspace_id)
     if not _skip_recovery:
         _recover_fact_supersessions()
-    ids = [str(value).strip() for value in memory_ids if str(value or "").strip()]
+    if len(memory_ids) > MAX_SUPERSESSION_RECORDS:
+        raise ValueError("supersession record count exceeds its immutable bound")
+    ids: List[str] = []
+    seen_ids = set()
+    for raw_value in memory_ids:
+        value = str(raw_value or "").strip()
+        if not value:
+            continue
+        if len(value.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES:
+            raise ValueError("memory ID exceeds its immutable byte bound")
+        if value not in seen_ids:
+            seen_ids.add(value)
+            ids.append(value)
+    normalized_superseded_by = (
+        str(superseded_by).strip() if superseded_by is not None else None
+    )
+    if normalized_superseded_by is not None and (
+        not normalized_superseded_by
+        or len(normalized_superseded_by.encode("utf-8"))
+        > MAX_SUPERSESSION_ID_BYTES
+    ):
+        raise ValueError("superseded_by exceeds its immutable byte bound")
+    normalized_reason = str(reason or "explicit_correction").strip() or "explicit_correction"
+    if len(normalized_reason.encode("utf-8")) > 240:
+        raise ValueError("supersession reason exceeds its immutable byte bound")
     if not ids:
         return {"updated": 0, "missing": []}
     try:
@@ -928,24 +990,115 @@ def supersede_memory_records(
             "memory_status": "superseded",
             "superseded": True,
             "superseded_at": _utc_iso(),
-            "supersession_reason": str(reason or "explicit_correction")[:240],
+            "supersession_reason": normalized_reason,
         })
-        if superseded_by:
-            metadata["superseded_by"] = str(superseded_by)
+        if normalized_superseded_by:
+            metadata["superseded_by"] = normalized_superseded_by
+        _validate_memory_metadata(metadata)
         updated.append(metadata)
         scoped_ids.append(memory_id)
-    if scoped_ids:
-        collection.update(ids=scoped_ids, metadatas=updated)
+    fallback_matched: List[str] = []
     if not _skip_recovery:
-        _append_fallback_id_supersession(
-            ids,
-            superseded_by=superseded_by,
-            reason=reason,
+        requested = set(ids)
+        fallback_matched = sorted(
+            requested
+            & {
+                str(row.get("id") or "")
+                for row in _read_fallback_rows(
+                    limit=_FALLBACK_MAX_ROWS,
+                    tenant_id=tenant,
+                    workspace_id=workspace,
+                    _strict=True,
+                )
+            }
+        )
+    if scoped_ids or fallback_matched:
+        fallback_marker = {
+            "kind": "id_supersession",
+            "memory_ids": fallback_matched,
+            "superseded_by": normalized_superseded_by,
+            "reason": normalized_reason,
+            "tenant_id": tenant,
+            "workspace_id": workspace,
+            "stored_at": "9999-12-31T23:59:59.999999+00:00",
+        }
+        update_bytes = sum(
+            len(memory_id.encode("utf-8"))
+            + len(
+                json.dumps(
+                    metadata,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            )
+            for memory_id, metadata in zip(scoped_ids, updated)
+        )
+        fallback_bytes = (
+            len(
+                json.dumps(
+                    fallback_marker,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            )
+            if fallback_matched
+            else 0
+        )
+        charge_bytes = 4096 + update_bytes + fallback_bytes
+        payload_hash = sha256(
+            json.dumps(
+                {
+                    "version": "cortex.memory-supersession.v1",
+                    "ids": scoped_ids,
+                    "metadatas": updated,
+                    "fallback": fallback_marker if fallback_matched else None,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        def publish_supersession() -> None:
+            if scoped_ids:
+                collection.update(ids=scoped_ids, metadatas=updated)
+            if not _skip_recovery and fallback_matched:
+                _append_fallback_id_supersession(
+                    ids,
+                    superseded_by=normalized_superseded_by,
+                    reason=normalized_reason,
+                    tenant_id=tenant,
+                    workspace_id=workspace,
+                )
+
+        from cortex_server.routers.l22 import run_l22_quota_controlled_side_effect
+
+        run_l22_quota_controlled_side_effect(
+            transaction_id=f"supersession-{uuid.uuid4().hex}",
+            charge_bytes=charge_bytes,
+            payload_hash=payload_hash,
             tenant_id=tenant,
             workspace_id=workspace,
+            credential_id=(
+                str(quota_credential_id or "").strip()
+                or next(
+                    (
+                        str(metadata.get("scope_credential_id") or "").strip()
+                        for metadata in updated
+                        if str(metadata.get("scope_credential_id") or "").strip()
+                    ),
+                    "uncredentialed",
+                )
+            ),
+            publish=publish_supersession,
         )
     missing = [memory_id for memory_id in ids if memory_id not in set(scoped_ids)]
-    return {"updated": len(scoped_ids), "ids": scoped_ids, "missing": missing, "superseded_by": superseded_by}
+    return {"updated": len(scoped_ids), "ids": scoped_ids, "missing": missing, "superseded_by": normalized_superseded_by}
 
 
 def _supersede_prior_fact_versions(
@@ -3257,6 +3410,7 @@ async def supersede_memory(request: SupersedeRequest):
         reason=request.reason,
         tenant_id=tenant,
         workspace_id=workspace,
+        quota_credential_id=principal.credential_id,
     )}
 
 

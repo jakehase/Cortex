@@ -9,6 +9,7 @@ from cortex_server.modules.route_health import RouteHealthMonitor
 from cortex_server.runtime.delivery_resilience import DeliveryDeadLetterStore, resilient_delivery_attempt
 import cortex_server.runtime.delivery_resilience as delivery_resilience
 import cortex_server.runtime.production_build_loop as production_build_loop
+import cortex_server.runtime.runtime_delivery_quota as runtime_delivery_quota
 from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
 from cortex_server.runtime.release_workflow import (
     ReleaseArtifactReceipt,
@@ -483,3 +484,63 @@ def test_verifier_activation_acceptance_and_retirement_share_monotonic_lifecycle
         artifact_store=store.artifact_store(),
         verifier_credentials=retired_trust,
     )
+
+
+def test_capacity_reservation_cleanup_remains_permitted_during_pending_rollback(
+    tmp_path,
+    monkeypatch,
+):
+    delivery_root = tmp_path / "runtime_delivery"
+    reservation = runtime_delivery_quota.runtime_delivery_capacity_reservation(
+        delivery_root,
+        reserved_bytes=32 * 1024 * 1024,
+    )
+    reservation.__enter__()
+    targets = list(
+        (delivery_root / ".runtime-delivery-reservations").glob("*.json")
+    )
+    assert len(targets) == 1
+
+    monkeypatch.setattr(
+        runtime_delivery_quota,
+        "_validated_pending_startup_recovery_intents",
+        lambda _root: [{"status": "recovery_required"}],
+    )
+    reservation.__exit__(None, None, None)
+
+    assert not targets[0].exists()
+
+
+def test_expired_same_process_orphan_is_reclaimed_instead_of_renewed(
+    tmp_path,
+    monkeypatch,
+):
+    delivery_root = tmp_path / "runtime_delivery"
+    reservation_root = delivery_root / ".runtime-delivery-reservations"
+    reservation_root.mkdir(parents=True)
+    token = "a" * 32
+    target = reservation_root / f"{token}.json"
+    identity = runtime_delivery_quota._current_process_identity()
+    target.write_bytes(
+        runtime_delivery_quota.encoded_json(
+            {
+                "version": "cortex.runtime-delivery-reservation.v2",
+                "token": token,
+                **identity,
+                "created_at": 1000.0,
+                "heartbeat_monotonic": 1000.0,
+                "lease_expires_monotonic": 1600.0,
+                "reserved_bytes": 32 * 1024 * 1024,
+            }
+        )
+    )
+    monkeypatch.setattr(runtime_delivery_quota, "_monotonic", lambda: 2600.0)
+
+    with runtime_delivery_quota.runtime_delivery_quota_transaction(delivery_root):
+        charged = runtime_delivery_quota._active_reservation_bytes_unlocked(
+            delivery_root,
+            prune_stale=True,
+        )
+
+    assert charged == 0
+    assert not target.exists()
