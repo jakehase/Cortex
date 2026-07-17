@@ -1276,6 +1276,43 @@ def _raw_fallback_rows(limit: int, *, strict: bool = False) -> List[Dict[str, An
     return rows
 
 
+def _quota_fallback_rows() -> List[Dict[str, Any]]:
+    """Return the complete bounded fallback lifecycle for quota reconciliation."""
+
+    if not _FALLBACK_LOG_PATH.exists():
+        return []
+    try:
+        with _fallback_store_transaction():
+            if not _FALLBACK_LOG_PATH.exists():
+                return []
+            info = _FALLBACK_LOG_PATH.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                raise FallbackPersistenceError("fallback store must be a regular file")
+            if int(info.st_size) > _FALLBACK_MAX_BYTES:
+                raise FallbackPersistenceError("fallback store exceeds its configured byte quota")
+            with _FALLBACK_LOG_PATH.open("rb") as handle:
+                payload = handle.read(_FALLBACK_MAX_BYTES + 1)
+            if len(payload) > _FALLBACK_MAX_BYTES:
+                raise FallbackPersistenceError("fallback store exceeds its configured byte quota")
+    except FallbackPersistenceError:
+        raise
+    except OSError as exc:
+        raise FallbackPersistenceError("fallback lifecycle store is unreadable") from exc
+
+    rows: List[Dict[str, Any]] = []
+    for line in payload.splitlines():
+        try:
+            row = json.loads(line)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise FallbackPersistenceError("fallback lifecycle store contains an invalid row") from exc
+        if not isinstance(row, dict):
+            raise FallbackPersistenceError("fallback lifecycle store contains an invalid row")
+        rows.append(row)
+    if len(rows) > _FALLBACK_MAX_ROWS:
+        raise FallbackPersistenceError("fallback lifecycle store exceeds its configured row quota")
+    return rows
+
+
 def _read_fallback_rows(
     limit: int = 200,
     *,
@@ -1926,6 +1963,75 @@ def _persist_fallback_memory(
     _mark_fallback_write()
 
 
+def _persist_indexed_novelty_memory(
+    memory_id: str,
+    text: str,
+    enriched_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    try:
+        _add_memory_with_supersession(
+            memory_id,
+            text,
+            enriched_metadata,
+            tenant_id=str(enriched_metadata["tenant_id"]),
+            workspace_id=str(enriched_metadata["storage_workspace_id"]),
+        )
+        return {
+            "id": memory_id,
+            "status": "stored",
+            "metadata": enriched_metadata,
+        }
+    except FactSupersessionError:
+        raise
+    except Exception as exc:
+        _mark_embedding_error(exc)
+        try:
+            _persist_fallback_memory(
+                memory_id,
+                text,
+                enriched_metadata,
+                reason=str(exc),
+                mode="novelty_embed",
+            )
+        except FallbackPersistenceError as fallback_exc:
+            raise HTTPException(
+                status_code=503,
+                detail="semantic and fallback memory persistence are unavailable",
+            ) from fallback_exc
+        return {
+            "id": memory_id,
+            "status": "stored_fallback_lexical",
+            "metadata": {
+                **enriched_metadata,
+                "recall_mode": "lexical_fallback",
+                "fallback_reason": str(exc)[:220],
+            },
+        }
+
+
+def _run_librarian_quota_controlled_write(
+    *,
+    memory_id: str,
+    text: str,
+    metadata: Dict[str, Any],
+    tenant_id: str,
+    workspace_id: str,
+    publish,
+):
+    # L22 imports Librarian for its storage backend, so resolve the shared
+    # admission API lazily after both router modules have initialized.
+    from cortex_server.routers.l22 import run_l22_quota_controlled_write
+
+    return run_l22_quota_controlled_write(
+        memory_id=memory_id,
+        content=text,
+        metadata=metadata,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        publish=publish,
+    )
+
+
 def index_with_novelty(
     text: str,
     metadata: Optional[Dict[str, Any]] = None,
@@ -1951,39 +2057,7 @@ def index_with_novelty(
         workspace_id=workspace,
     ), tenant_id=tenant, workspace_id=workspace)
 
-    try:
-        _add_memory_with_supersession(
-            memory_id,
-            text,
-            enriched_metadata,
-            tenant_id=tenant,
-            workspace_id=workspace,
-        )
-        return {
-            "id": memory_id,
-            "status": "stored",
-            "metadata": enriched_metadata,
-        }
-    except FactSupersessionError:
-        raise
-    except Exception as exc:
-        _mark_embedding_error(exc)
-        try:
-            _persist_fallback_memory(memory_id, text, enriched_metadata, reason=str(exc), mode="novelty_embed")
-        except FallbackPersistenceError as fallback_exc:
-            raise HTTPException(
-                status_code=503,
-                detail="semantic and fallback memory persistence are unavailable",
-            ) from fallback_exc
-        return {
-            "id": memory_id,
-            "status": "stored_fallback_lexical",
-            "metadata": {
-                **enriched_metadata,
-                "recall_mode": "lexical_fallback",
-                "fallback_reason": str(exc)[:220],
-            },
-        }
+    return _persist_indexed_novelty_memory(memory_id, text, enriched_metadata)
 
 
 def _relevance_from_distance(distance: float) -> float:
@@ -2975,32 +3049,54 @@ async def embed_memory(request: EmbedRequest):
         workspace_id=workspace,
     )
 
+    def publish(scoped_metadata: Dict[str, Any]) -> str:
+        try:
+            _add_memory_with_supersession(
+                memory_id,
+                request.text,
+                scoped_metadata,
+                tenant_id=tenant,
+                workspace_id=workspace,
+            )
+            return "stored"
+        except FactSupersessionError:
+            raise
+        except Exception as exc:
+            _mark_embedding_error(exc)
+            try:
+                _persist_fallback_memory(
+                    memory_id,
+                    request.text,
+                    scoped_metadata,
+                    reason=str(exc),
+                    mode="embed",
+                )
+            except FallbackPersistenceError as fallback_exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="semantic and fallback memory persistence are unavailable",
+                ) from fallback_exc
+            return "stored_fallback_lexical"
+
     try:
-        _add_memory_with_supersession(
-            memory_id,
-            request.text,
-            metadata,
+        status = _run_librarian_quota_controlled_write(
+            memory_id=memory_id,
+            text=request.text,
+            metadata=metadata,
             tenant_id=tenant,
             workspace_id=workspace,
+            publish=publish,
         )
-        return EmbedResponse(id=memory_id, status="stored")
     except FactSupersessionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        _mark_embedding_error(exc)
-        try:
-            _persist_fallback_memory(memory_id, request.text, metadata, reason=str(exc), mode="embed")
-        except FallbackPersistenceError as fallback_exc:
-            raise HTTPException(
-                status_code=503,
-                detail="semantic and fallback memory persistence are unavailable",
-            ) from fallback_exc
-        return EmbedResponse(id=memory_id, status="stored_fallback_lexical")
+    return EmbedResponse(id=memory_id, status=status)
 
 
 @router.post("/embed_novel", response_model=NovelEmbedResponse)
 async def embed_memory_novel(request: NovelEmbedRequest):
     """Store text with novelty metadata for L7/L22 orchestration."""
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
     principal = _authenticated_memory_principal_scope(
         request.tenant_id,
         request.workspace_id,
@@ -3009,7 +3105,8 @@ async def embed_memory_novel(request: NovelEmbedRequest):
         scope_credential_id=request.scope_credential_id,
     )
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
-    result = index_with_novelty(
+    memory_id = str(uuid.uuid4())
+    enriched_metadata = _normalize_memory_metadata(_build_novel_metadata(
         text=request.text,
         metadata={**dict(request.metadata or {}), **principal.storage_metadata},
         novelty_tags=request.novelty_tags,
@@ -3017,6 +3114,18 @@ async def embed_memory_novel(request: NovelEmbedRequest):
         compare_window=request.compare_window,
         tenant_id=tenant,
         workspace_id=workspace,
+    ), tenant_id=tenant, workspace_id=workspace)
+    result = _run_librarian_quota_controlled_write(
+        memory_id=memory_id,
+        text=request.text,
+        metadata=enriched_metadata,
+        tenant_id=tenant,
+        workspace_id=workspace,
+        publish=lambda scoped_metadata: _persist_indexed_novelty_memory(
+            memory_id,
+            request.text,
+            scoped_metadata,
+        ),
     )
 
     novelty_score = float(result["metadata"].get("novelty_score", 0.0))

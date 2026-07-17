@@ -310,6 +310,77 @@ def test_release_artifact_ids_are_immutable_within_revision_and_reusable_after_r
     assert receipts[0]["content_hash"] != receipts[1]["content_hash"]
 
 
+def test_retired_verifier_only_replays_receipts_bound_to_its_active_epoch(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "release-workflow")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_retired_verifier",
+        candidate_ref="build:retired-verifier",
+        target_environment="production",
+        revision_id="rev_retired_verifier",
+    )
+    retired_id = "release-verifier-retired"
+    retired_secret = "retired-release-verifier-secret"
+    trust = {
+        retired_id: {
+            "secret": retired_secret,
+            "secret_sha256": "not-used-by-receipt-verification",
+            "activation_epoch": 1_700_000_000.0,
+            "retirement_epoch": 1_800_000_000.0,
+        }
+    }
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_historical_verifier",
+        payload={"historical": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=retired_id,
+        verifier_secret=retired_secret,
+        claims=IMAGE_CLAIMS,
+        created_at="2026-01-01T00:00:00Z",
+    )
+
+    with pytest.raises(PermissionError, match="retired.*cannot authorize new evidence"):
+        record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials=trust,
+        )
+
+    historical = state.model_copy(
+        update={"metadata": {"release_artifacts": [receipt.model_dump()]}}
+    )
+    replayed = record_release_artifact_receipt(
+        historical,
+        receipt,
+        artifact_store=artifact_store,
+        verifier_credentials=trust,
+    )
+    assert replayed.metadata["release_artifacts"] == [receipt.model_dump()]
+
+    late = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_after_retirement",
+        payload={"historical": False},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=retired_id,
+        verifier_secret=retired_secret,
+        claims=IMAGE_CLAIMS,
+        created_at="2030-01-01T00:00:00Z",
+    )
+    with pytest.raises(PermissionError, match="outside verifier lifecycle"):
+        release_workflow.verify_release_artifact_receipt(
+            late,
+            artifact_store=artifact_store,
+            verifier_credentials=trust,
+        )
+
+
 def test_signed_canary_evidence_cannot_define_or_evade_server_thresholds(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     state = ReleaseWorkflowState(

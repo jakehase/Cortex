@@ -356,6 +356,47 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     assert inconsistent["checks"]["durableReasoningStore"]["missingProcessIds"] == ["proc_missing"]
 
 
+def test_durable_release_verifier_rotation_persists_lifecycle_epochs(tmp_path):
+    root = tmp_path / "runtime-delivery"
+    activated = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rotated = activated + timedelta(days=1)
+    old_id = "release-verifier-old"
+    new_id = "release-verifier-new"
+    old_secret = "old-release-verifier-secret-material-000000001"
+    new_secret = "new-release-verifier-secret-material-000000001"
+
+    production_build_loop._durable_release_verifier_credentials(
+        root,
+        {old_id: old_secret},
+        now=activated,
+    )
+    trusted, check = production_build_loop._durable_release_verifier_credentials(
+        root,
+        {new_id: new_secret},
+        now=rotated,
+    )
+
+    assert trusted[old_id]["activation_epoch"] == 0.0
+    assert trusted[old_id]["retirement_epoch"] == rotated.timestamp()
+    assert trusted[new_id]["activation_epoch"] == rotated.timestamp()
+    assert trusted[new_id]["retirement_epoch"] is None
+    assert check["historicalVerifierIds"] == [old_id]
+    assert check["retiredVerifierIds"] == [old_id]
+    payload = json.loads(
+        (root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_version"] == production_build_loop.RELEASE_VERIFIER_TRUST_SCHEMA
+
+    with pytest.raises(RuntimeError, match="cannot be reactivated"):
+        production_build_loop._durable_release_verifier_credentials(
+            root,
+            {old_id: old_secret, new_id: new_secret},
+            now=rotated + timedelta(days=1),
+        )
+
+
 def test_production_readiness_never_initializes_a_missing_reasoning_authority(
     tmp_path, monkeypatch
 ):

@@ -11,7 +11,7 @@ Plus novelty-aware extensions:
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional
+from typing import Callable, List, Optional, TypeVar
 from datetime import datetime, timezone
 import fcntl
 import json
@@ -41,6 +41,7 @@ from cortex_server.routers.librarian import (
     _authenticated_memory_principal_scope,
     _memory_scope_auth_ready,
     _production_memory_mode,
+    _quota_fallback_rows,
 )
 
 router = APIRouter()
@@ -50,6 +51,7 @@ _L22_QUOTA_FIXED_RECORD_BYTES = 4096
 _L22_QUOTA_RESERVATION_TIMEOUT_SECONDS = 10 * 60
 _L22_RECOVERY_RESERVE_BYTES = 256 * 1024 * 1024
 _L22_PHYSICAL_RESERVE_FILE = ".l22-physical-recovery-reserve"
+_L22_QUOTA_BACKFILL_VERSION = "v2-complete"
 _L22_QUOTA_LIMIT_DEFAULTS = {
     "workspace_records": 100_000,
     "workspace_bytes": 512 * 1024 * 1024,
@@ -62,6 +64,7 @@ _L22_QUOTA_LIMIT_DEFAULTS = {
 }
 _QUOTA_WRITER_IDENTITY_LOCK = threading.Lock()
 _QUOTA_WRITER_IDENTITY: dict[str, object] = {}
+_QuotaWriteResult = TypeVar("_QuotaWriteResult")
 
 
 @router.on_event("startup")
@@ -71,6 +74,7 @@ async def initialize_l22_quota_recovery_reserve() -> None:
         connection.close()
     if _production_memory_mode():
         _backfill_l22_quota_ledger()
+    _reconcile_l22_quota_reservations()
 
 
 def _structured_memory_db_path() -> Path:
@@ -422,7 +426,10 @@ def _backfill_l22_quota_ledger() -> None:
             complete = connection.execute(
                 "SELECT value FROM l22_quota_state WHERE key = 'legacy_backfill'"
             ).fetchone()
-            if complete is not None and str(complete["value"]) == "v1-complete":
+            if (
+                complete is not None
+                and str(complete["value"]) == _L22_QUOTA_BACKFILL_VERSION
+            ):
                 connection.commit()
                 return
 
@@ -474,9 +481,32 @@ def _backfill_l22_quota_ledger() -> None:
                     break
                 offset += len(ids)
 
+            for row in _quota_fallback_rows():
+                if str(row.get("kind") or "memory") != "memory":
+                    continue
+                memory_id = str(row.get("id") or "").strip()
+                if not memory_id:
+                    raise RuntimeError("legacy fallback memory has no durable identity")
+                metadata = dict(row.get("metadata") or {})
+                tenant = str(metadata.get("tenant_id") or DEFAULT_TENANT_ID)
+                workspace = str(
+                    metadata.get("storage_workspace_id")
+                    or metadata.get("workspace_id")
+                    or DEFAULT_WORKSPACE_ID
+                )
+                _backfill_quota_row(
+                    connection,
+                    memory_id=memory_id,
+                    tenant=tenant,
+                    workspace=workspace,
+                    metadata=metadata,
+                    content=str(row.get("text") or ""),
+                )
+
             connection.execute(
-                "INSERT INTO l22_quota_state(key, value) VALUES ('legacy_backfill', 'v1-complete') "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+                "INSERT INTO l22_quota_state(key, value) VALUES ('legacy_backfill', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (_L22_QUOTA_BACKFILL_VERSION,),
             )
             connection.commit()
         except Exception:
@@ -492,7 +522,7 @@ def _assert_l22_quota_backfill_ready(connection: sqlite3.Connection) -> None:
     row = connection.execute(
         "SELECT value FROM l22_quota_state WHERE key = 'legacy_backfill'"
     ).fetchone()
-    if row is None or str(row["value"]) != "v1-complete":
+    if row is None or str(row["value"]) != _L22_QUOTA_BACKFILL_VERSION:
         raise HTTPException(status_code=503, detail="L22 legacy quota reconciliation is incomplete")
 
 
@@ -570,19 +600,56 @@ def _reconcile_stale_quota_reservations(connection: sqlite3.Connection) -> None:
         ).fetchall()
     }
     try:
+        fallback_ids = {
+            str(row.get("id") or "")
+            for row in _quota_fallback_rows()
+            if str(row.get("kind") or "memory") == "memory"
+        }
+        fallback_authoritative = True
+    except Exception:
+        fallback_ids = set()
+        fallback_authoritative = False
+    try:
         existing = collection.get(ids=ids, include=["metadatas"])
         existing_ids = set(existing.get("ids") or [])
     except Exception:
-        # Unavailable storage cannot safely be interpreted as an absent write.
-        return
+        existing_ids = set()
+        chroma_authoritative = False
+    else:
+        chroma_authoritative = True
     for row in rows:
-        if str(row["memory_id"]) in existing_ids or str(row["memory_id"]) in structured_ids:
+        memory_id = str(row["memory_id"])
+        if (
+            memory_id in existing_ids
+            or memory_id in structured_ids
+            or memory_id in fallback_ids
+        ):
             connection.execute(
                 "UPDATE l22_quota_records SET status = 'committed' WHERE memory_id = ?",
                 (row["memory_id"],),
             )
-        elif _quota_owner_proven_dead(row):
+        elif (
+            chroma_authoritative
+            and fallback_authoritative
+            and _quota_owner_proven_dead(row)
+        ):
             _quota_release_row(connection, row)
+
+
+def _reconcile_l22_quota_reservations() -> None:
+    """Reconcile one bounded reservation page during every process restart."""
+
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            _reconcile_stale_quota_reservations(connection)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
 
 def _reserve_memory_quota(
@@ -788,6 +855,21 @@ def _settle_failed_memory_write(memory_id: str) -> None:
             pass
         return
     try:
+        fallback_exists = memory_id in {
+            str(row.get("id") or "")
+            for row in _quota_fallback_rows()
+            if str(row.get("kind") or "memory") == "memory"
+        }
+    except Exception:
+        # An unreadable publication target is uncertain, so keep its admission.
+        return
+    if fallback_exists:
+        try:
+            _finalize_memory_quota(memory_id, require_owner=False)
+        except Exception:
+            pass
+        return
+    try:
         existing = collection.get(ids=[memory_id], include=["metadatas"])
     except Exception:
         # A retained reservation is safe and restart reconciliation will settle
@@ -803,6 +885,61 @@ def _settle_failed_memory_write(memory_id: str) -> None:
             _release_memory_quota(memory_id)
         except Exception:
             pass
+
+
+def run_l22_quota_controlled_write(
+    *,
+    memory_id: str,
+    content: str,
+    metadata: dict,
+    tenant_id: str,
+    workspace_id: str,
+    publish: Callable[[dict], _QuotaWriteResult],
+    idempotency_key: str = "",
+    payload_hash: Optional[str] = None,
+) -> _QuotaWriteResult:
+    """Reserve, fence, publish, and settle one durable memory identity."""
+
+    tenant, workspace = _memory_scope(tenant_id, workspace_id)
+    try:
+        scoped_metadata = _normalize_memory_metadata(
+            metadata,
+            tenant_id=tenant,
+            workspace_id=workspace,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    canonical_hash = payload_hash or sha256(
+        json.dumps(
+            {"content": content, "metadata": scoped_metadata},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    reservation_status = _reserve_memory_quota(
+        memory_id=memory_id,
+        tenant=tenant,
+        workspace=workspace,
+        credential=_quota_credential(scoped_metadata),
+        charge_bytes=_memory_charge_bytes(
+            content,
+            scoped_metadata,
+            idempotency_key=idempotency_key,
+        ),
+        payload_hash=canonical_hash,
+    )
+    if reservation_status != "new":
+        raise HTTPException(status_code=409, detail="memory quota reservation is not publishable")
+    try:
+        _fence_memory_quota(memory_id, canonical_hash)
+        result = publish(scoped_metadata)
+        _finalize_memory_quota(memory_id)
+        return result
+    except Exception:
+        _settle_failed_memory_write(memory_id)
+        raise
 
 
 def store_structured_memory_record(

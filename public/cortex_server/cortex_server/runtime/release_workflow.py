@@ -867,29 +867,72 @@ def verify_release_artifact_receipt(
     receipt: ReleaseArtifactReceipt,
     *,
     artifact_store: ReleaseArtifactStore,
-    verifier_credentials: Optional[Dict[str, str]] = None,
+    verifier_credentials: Optional[Dict[str, Any]] = None,
+    require_current_verifier: bool = False,
 ) -> None:
     _verify_release_artifact_authorization(
         receipt,
         verifier_credentials=verifier_credentials,
+        require_current_verifier=require_current_verifier,
     )
     encoded = artifact_store.resolve(receipt.artifact_ref)
     verify_release_artifact_receipt_payload(
         receipt,
         encoded=encoded,
         verifier_credentials=verifier_credentials,
+        require_current_verifier=require_current_verifier,
     )
 
 
 def _verify_release_artifact_authorization(
     receipt: ReleaseArtifactReceipt,
     *,
-    verifier_credentials: Optional[Dict[str, str]] = None,
+    verifier_credentials: Optional[Dict[str, Any]] = None,
+    require_current_verifier: bool = False,
 ) -> None:
     if receipt.producer == receipt.verifier:
         raise PermissionError("release artifact producer cannot self-verify")
     credentials = dict(verifier_credentials) if verifier_credentials is not None else _release_verifier_credentials()
-    secret = str(credentials.get(receipt.verifier) or "").strip()
+    raw_credential = credentials.get(receipt.verifier)
+    if isinstance(raw_credential, dict):
+        secret = str(raw_credential.get("secret") or "").strip()
+        activation_epoch = raw_credential.get("activation_epoch")
+        retirement_epoch = raw_credential.get("retirement_epoch")
+        if (
+            isinstance(activation_epoch, bool)
+            or not isinstance(activation_epoch, (int, float))
+            or not math.isfinite(float(activation_epoch))
+            or float(activation_epoch) < 0
+            or isinstance(retirement_epoch, bool)
+            or (
+                retirement_epoch is not None
+                and (
+                    not isinstance(retirement_epoch, (int, float))
+                    or not math.isfinite(float(retirement_epoch))
+                    or float(retirement_epoch) < float(activation_epoch)
+                )
+            )
+        ):
+            raise PermissionError(
+                f"release artifact verifier lifecycle is invalid: {receipt.verifier}"
+            )
+        receipt_time = _parse_ts(receipt.created_at)
+        if receipt_time is None or receipt_time.tzinfo is None:
+            raise PermissionError("release artifact receipt time must be timezone-aware")
+        receipt_epoch = receipt_time.astimezone(timezone.utc).timestamp()
+        if receipt_epoch < float(activation_epoch) or (
+            retirement_epoch is not None
+            and receipt_epoch >= float(retirement_epoch)
+        ):
+            raise PermissionError(
+                f"release artifact receipt is outside verifier lifecycle: {receipt.verifier}"
+            )
+        if require_current_verifier and retirement_epoch is not None:
+            raise PermissionError(
+                f"retired release artifact verifier cannot authorize new evidence: {receipt.verifier}"
+            )
+    else:
+        secret = str(raw_credential or "").strip()
     if not secret:
         raise PermissionError(f"release artifact verifier is not authorized: {receipt.verifier}")
     expected_signature = release_artifact_attestation_signature(receipt.model_dump(), secret=secret)
@@ -901,13 +944,15 @@ def verify_release_artifact_receipt_payload(
     receipt: ReleaseArtifactReceipt,
     *,
     encoded: bytes,
-    verifier_credentials: Optional[Dict[str, str]] = None,
+    verifier_credentials: Optional[Dict[str, Any]] = None,
+    require_current_verifier: bool = False,
 ) -> None:
     """Verify identity, HMAC, digest, and claims without publishing content."""
 
     _verify_release_artifact_authorization(
         receipt,
         verifier_credentials=verifier_credentials,
+        require_current_verifier=require_current_verifier,
     )
     actual_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
     if not hmac.compare_digest(receipt.artifact_ref, actual_hash):
@@ -1074,7 +1119,7 @@ def record_release_artifact_receipt(
     *,
     artifact_store: Optional[ReleaseArtifactStore] = None,
     encoded_artifact: Optional[bytes] = None,
-    verifier_credentials: Optional[Dict[str, str]] = None,
+    verifier_credentials: Optional[Dict[str, Any]] = None,
 ) -> ReleaseWorkflowState:
     record = receipt if isinstance(receipt, ReleaseArtifactReceipt) else ReleaseArtifactReceipt.model_validate(receipt)
     if (
@@ -1083,20 +1128,6 @@ def record_release_artifact_receipt(
         or record.revision_id != state.revision_id
     ):
         raise ValueError("artifact receipt is not bound to the active release candidate and revision")
-    if encoded_artifact is not None:
-        verify_release_artifact_receipt_payload(
-            record,
-            encoded=bytes(encoded_artifact),
-            verifier_credentials=verifier_credentials,
-        )
-    elif artifact_store is not None:
-        verify_release_artifact_receipt(
-            record,
-            artifact_store=artifact_store,
-            verifier_credentials=verifier_credentials,
-        )
-    else:
-        raise ValueError("artifact_store or encoded_artifact is required")
     receipt_identity = (record.release_id, record.revision_id, record.artifact_id)
     existing = next(
         (
@@ -1112,6 +1143,23 @@ def record_release_artifact_receipt(
     )
     if existing is not None and existing != record.model_dump():
         raise ValueError(f"immutable release artifact receipt already exists: {record.artifact_id}")
+    require_current_verifier = existing is None
+    if encoded_artifact is not None:
+        verify_release_artifact_receipt_payload(
+            record,
+            encoded=bytes(encoded_artifact),
+            verifier_credentials=verifier_credentials,
+            require_current_verifier=require_current_verifier,
+        )
+    elif artifact_store is not None:
+        verify_release_artifact_receipt(
+            record,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
+            require_current_verifier=require_current_verifier,
+        )
+    else:
+        raise ValueError("artifact_store or encoded_artifact is required")
     rows = [
         row for row in list((state.metadata or {}).get("release_artifacts") or [])
         if not (
@@ -2311,7 +2359,7 @@ def evaluate_release_promotion_gate(
     allowed_lifecycle_states: Optional[List[str]] = None,
     require_dependability: bool = True,
     artifact_store: Optional[ReleaseArtifactStore] = None,
-    verifier_credentials: Optional[Dict[str, str]] = None,
+    verifier_credentials: Optional[Dict[str, Any]] = None,
 ) -> JsonDict:
     if snapshot.process_id != state.process_id or shared_state.process_id != state.process_id:
         raise ValueError("release workflow state, snapshot, and shared_state must refer to the same process_id")
@@ -2887,7 +2935,7 @@ def repair_release_workflow(
     allowed_lifecycle_states: Optional[List[str]] = None,
     require_dependability: Optional[bool] = None,
     artifact_store: Optional[ReleaseArtifactStore] = None,
-    verifier_credentials: Optional[Dict[str, str]] = None,
+    verifier_credentials: Optional[Dict[str, Any]] = None,
 ) -> JsonDict:
     stage_target = str(target_stage or (gate or {}).get("target_stage") or state.target_environment).strip()
     if not stage_target:

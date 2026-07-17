@@ -138,6 +138,10 @@ asyncio.to_thread = _fresh_thread
 def isolate_generated_homeostasis_artifacts(tmp_path, monkeypatch):
     monkeypatch.setenv("CORTEX_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     monkeypatch.setenv("CORTEX_DB_PATH", str(tmp_path / "cortex-graph.db"))
+    monkeypatch.setenv(
+        "CORTEX_L22_STRUCTURED_DB",
+        str(tmp_path / "l22-structured.sqlite3"),
+    )
     try:
         import cortex_server.routers.nexus as nexus
         import cortex_server.routers.oracle as oracle
