@@ -1009,8 +1009,11 @@ def assert_runtime_delivery_volume_capacity(delivery_root: Path, *, additional_b
 
 
 def assert_process_count(store_root: Path, process_id: str, *, delivery_root: Optional[Path] = None) -> None:
+    process = str(process_id or "").strip()
+    if not process:
+        raise ValueError("runtime delivery process_id is required for quota admission")
     contracts = Path(store_root) / "contracts"
-    target = contracts / f"{process_id}.json"
+    target = contracts / f"{process}.json"
     root = Path(delivery_root).resolve() if delivery_root is not None else Path(store_root).resolve()
     process_ids = {
         candidate.stem
@@ -1038,11 +1041,11 @@ def assert_process_count(store_root: Path, process_id: str, *, delivery_root: Op
         ):
             raise ValueError("runtime delivery process registry is invalid")
         process_ids.update(registry["process_ids"])
-    if process_id not in process_ids and len(process_ids) >= MAX_RUNTIME_DELIVERY_PROCESSES:
+    if process not in process_ids and len(process_ids) >= MAX_RUNTIME_DELIVERY_PROCESSES:
         raise ValueError("runtime delivery process count exceeds immutable limit")
-    if process_id in process_ids and registry_target.exists():
+    if process in process_ids and registry_target.exists():
         return
-    process_ids.add(process_id)
+    process_ids.add(process)
     encoded = encoded_json(
         {
             "version": "cortex.runtime-delivery-processes.v1",

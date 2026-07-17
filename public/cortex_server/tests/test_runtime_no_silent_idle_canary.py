@@ -173,13 +173,14 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
                     "proactive_report_seconds": 120,
                     "blocker_followup_seconds": 60,
                 },
-                dependability_profile=dict(MINIMAL_PROFILE),
+                dependability_profile="24h",
             ),
         )
     )
 
     assert roadmap["state"]["status"] == "active"
     assert delivery["state"]["status"] == "active"
+    assert delivery["contract"]["dependability_profile"] == "24h"
     stores = orchestrator._runtime_delivery_stores()
     controller_lease_expiries = [
         datetime.fromisoformat(row.expires_at.replace("Z", "+00:00"))

@@ -15,6 +15,9 @@ from cortex_server.services import mission_control_service
 router = APIRouter()
 
 
+_MISSION_CONTROL_DELIVERY_DEPENDABILITY_POLICY_ID = "24h"
+
+
 class MissionControlCreateRequest(BaseModel):
     kind: str = "roadmap"
     title: str
@@ -712,6 +715,12 @@ async def mission_control_create_objective(request: MissionControlCreateRequest)
     if kind == "delivery":
         delivery = dict(request.delivery or {})
         delivery.setdefault("objective", request.objective or request.title)
+        # Mission Control historically accepted an inline dependability shape,
+        # but production delivery is governed only by immutable server-owned
+        # policies. Keep this internal adapter at the caller boundary so the
+        # production request model continues to reject inline policy data.
+        if isinstance(delivery.get("dependability_profile"), dict):
+            delivery["dependability_profile"] = _MISSION_CONTROL_DELIVERY_DEPENDABILITY_POLICY_ID
         await orchestrator.reconcile_runtime_delivery(
             process["process_id"],
             orchestrator.RuntimeDeliveryReconcileRequest(**delivery),

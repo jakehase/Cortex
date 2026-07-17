@@ -573,6 +573,25 @@ def _runtime_delivery_root() -> Path:
     return Path(str(RUNTIME_DELIVERY_ROOT))
 
 
+def _maintenance_queue_process_id(item: MaintenanceQueueItem) -> str:
+    suffix = "".join(ch for ch in str(item.item_id or "") if ch.isalnum())[-12:] or "item"
+    return f"proc_maintenance_{suffix}"
+
+
+class _RuntimeMaintenanceQueueStore(MaintenanceQueueStore):
+    """Bind every quota-protected queue record to its eventual process."""
+
+    def _write_state(self, state) -> None:
+        if self.delivery_root is not None and not state.items:
+            raise ValueError(
+                "runtime maintenance queue requires an owned item for quota admission"
+            )
+        for item in state.items:
+            if not str(item.process_id or "").strip():
+                item.process_id = _maintenance_queue_process_id(item)
+        super()._write_state(state)
+
+
 
 def _runtime_delivery_stores() -> Dict[str, Any]:
     root = _runtime_delivery_root()
@@ -599,7 +618,7 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "loop_store": ProductionBuildLoopStore(root / "production_build_loop"),
         "roadmap_store": RoadmapExecutionStore(root / "roadmap_executor"),
         "follow_up_store": RuntimeFollowUpStore(root / "runtime_follow_ups.json", delivery_root=root),
-        "maintenance_queue_store": MaintenanceQueueStore(
+        "maintenance_queue_store": _RuntimeMaintenanceQueueStore(
             root / "maintenance_queue.json",
             max_items=int(os.getenv("ORCHESTRATOR_MAX_MAINTENANCE_ITEMS", "1000")),
             max_state_bytes=int(os.getenv("ORCHESTRATOR_MAX_MAINTENANCE_STATE_BYTES", "4000000")),
@@ -3357,11 +3376,6 @@ def _maintenance_queue_workflow(item: MaintenanceQueueItem) -> Dict[str, Any]:
 
 
 
-def _maintenance_queue_process_id(item: MaintenanceQueueItem) -> str:
-    suffix = "".join(ch for ch in str(item.item_id or "") if ch.isalnum())[-12:] or "item"
-    return f"proc_maintenance_{suffix}"
-
-
 _MAINTENANCE_DISPATCH_LEASE_SECONDS = 300
 
 
@@ -3452,10 +3466,11 @@ def _runtime_maintenance_queue_sync(
     # Persist refreshed projections/statuses with the captured version.  A CAS
     # failure means another writer won; reload on the next sync rather than
     # replacing its state.
-    try:
-        queue_state = queue_store.merge_items(list(by_id.values()), expected_updated_at=queue_state.updated_at)
-    except RuntimeError:
-        queue_state = queue_store.get_state()
+    if by_id:
+        try:
+            queue_state = queue_store.merge_items(list(by_id.values()), expected_updated_at=queue_state.updated_at)
+        except RuntimeError:
+            queue_state = queue_store.get_state()
 
     if allow_claim:
         claim_budget = max(0, capacity - sum(1 for row in queue_state.items if row.status == "active"))
@@ -6642,8 +6657,6 @@ async def reconcile_runtime_roadmap(process_id: str, request: Optional[RuntimeRo
 @router.post("/runtime/maintenance/intake")
 async def intake_runtime_maintenance_item(request: RuntimeMaintenanceIntakeRequest):
     stores = _runtime_delivery_stores()
-    if request.max_active_items is not None:
-        stores["maintenance_queue_store"].configure(max_active_items=request.max_active_items)
     contract = _build_runtime_maintenance_contract("pending", request)
     item = MaintenanceQueueItem(
         queue_name=str(request.queue_name or "maintenance").strip() or "maintenance",
@@ -6678,7 +6691,10 @@ async def intake_runtime_maintenance_item(request: RuntimeMaintenanceIntakeReque
         "maintenance_queue": dict((contract.metadata or {}).get("maintenance_queue") or {}),
     }
     item.projection = _maintenance_queue_item_projection(item, process=None, state=None, latest_report=None, stores=stores)
-    queued = stores["maintenance_queue_store"].enqueue(item)
+    queued = stores["maintenance_queue_store"].enqueue(
+        item,
+        max_active_items=request.max_active_items,
+    )
     _runtime_maintenance_queue_sync(stores=stores, now=None, allow_claim=False)
     return {
         "success": True,

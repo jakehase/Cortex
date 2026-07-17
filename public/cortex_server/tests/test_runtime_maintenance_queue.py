@@ -253,8 +253,11 @@ def test_maintenance_queue_sync_preserves_enqueue_during_claim_side_effects(tmp_
     state = stores["maintenance_queue_store"].get_state()
     assert calls == 1
     assert result["action_count"] == 1
+    assert first.process_id == orchestrator._maintenance_queue_process_id(first)
     assert {row.item_id for row in state.items} == {first.item_id, injected.item_id}
-    assert next(row for row in state.items if row.item_id == injected.item_id).status == "pending"
+    pending = next(row for row in state.items if row.item_id == injected.item_id)
+    assert pending.status == "pending"
+    assert pending.process_id == orchestrator._maintenance_queue_process_id(pending)
 
 
 def test_maintenance_queue_sync_fences_same_item_mutation_during_claim_side_effects(tmp_path, monkeypatch):
