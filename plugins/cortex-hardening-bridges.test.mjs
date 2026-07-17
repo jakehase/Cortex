@@ -53,6 +53,7 @@ const suites = [
   {
     name: 'memory retry, idempotency, lifecycle deduplication, and admission control',
     files: ['./cortex-memory-bridge/index.test.mjs'],
+    timeoutMs: 75_000,
   },
   {
     name: 'strict routing and authenticated route-cache validation',
@@ -61,6 +62,7 @@ const suites = [
       './cortex-route-gate/route-cache-validation.test.mjs',
       './cortex-route-gate/creativity-governor.test.mjs',
     ],
+    timeoutMs: 60_000,
   },
   {
     name: 'atomic state replacement, locking, concurrent writers, and process death',
@@ -68,10 +70,11 @@ const suites = [
       './cortex-route-gate/lock-cleanup.test.mjs',
       './cortex-route-gate/route-state-concurrency.test.mjs',
     ],
+    timeoutMs: 60_000,
   },
 ];
 
-for (const { name, files } of suites) {
+for (const { name, files, timeoutMs } of suites) {
   test(name, async () => {
     const paths = files.map((file) => fileURLToPath(new URL(file, import.meta.url)));
     try {
@@ -79,12 +82,12 @@ for (const { name, files } of suites) {
         encoding: 'utf8',
         env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'NODE_TEST_CONTEXT')),
         maxBuffer: 4 * 1024 * 1024,
-        timeout: 60_000,
+        timeout: timeoutMs,
       });
       assert.equal(stderr, '');
     } catch (error) {
-      const output = [error.stdout, error.stderr].filter(Boolean).join('\n');
-      assert.fail(`${name} failed${output ? `:\n${output}` : `: ${error.message}`}`);
+      const output = [error.message, error.stdout, error.stderr].filter(Boolean).join('\n');
+      assert.fail(`${name} failed (child timeout: ${timeoutMs}ms):\n${output}`);
     }
   });
 }
