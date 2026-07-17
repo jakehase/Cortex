@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,6 @@ from cortex_server.runtime.release_workflow import (
 
 VERIFIER_ID = "resilience-independent-verifier"
 VERIFIER_SECRET = "resilience-verifier-secret-000000000001"
-CREATED_AT = "2026-07-16T05:00:00.000Z"
-
-
 def _release_state(store: ReleaseWorkflowStore, process_id: str) -> ReleaseWorkflowState:
     state = ReleaseWorkflowState(
         process_id=process_id,
@@ -44,6 +42,7 @@ def _ingest(
 ):
     state = store.load(process_id)
     assert state is not None
+    created_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     encoded = canonical_release_artifact_bytes(payload)
     content_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
     unsigned = {
@@ -59,7 +58,7 @@ def _ingest(
         "verifier": VERIFIER_ID,
         "validation_outcome": "passed",
         "claims": {},
-        "created_at": CREATED_AT,
+        "created_at": created_at,
     }
     return ingest_production_release_artifact(
         release_store=store,
@@ -72,7 +71,7 @@ def _ingest(
         attestation_signature=signature
         if signature is not None
         else release_artifact_attestation_signature(unsigned, secret=VERIFIER_SECRET),
-        created_at=CREATED_AT,
+        created_at=created_at,
     )
 
 

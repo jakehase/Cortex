@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import stat
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -30,6 +30,7 @@ from cortex_server.runtime.session_registry import SessionRegistryStore
 from cortex_server.runtime.release_workflow import (
     MAX_RELEASE_ARTIFACT_RECEIPTS,
     MAX_RELEASE_HISTORY_BYTES,
+    ReleaseArtifactReceipt,
     create_release_artifact_receipt,
     release_canary_policy,
 )
@@ -339,7 +340,7 @@ def test_retired_verifier_only_replays_receipts_bound_to_its_active_epoch(tmp_pa
         verifier=retired_id,
         verifier_secret=retired_secret,
         claims=IMAGE_CLAIMS,
-        created_at="2026-01-01T00:00:00Z",
+        created_at=release_workflow._now_iso(),
     )
 
     with pytest.raises(PermissionError, match="retired.*cannot authorize new evidence"):
@@ -350,16 +351,19 @@ def test_retired_verifier_only_replays_receipts_bound_to_its_active_epoch(tmp_pa
             verifier_credentials=trust,
         )
 
+    historical_receipt = receipt.model_copy(
+        update={"acceptance_epoch": release_workflow._now().timestamp()}
+    )
     historical = state.model_copy(
-        update={"metadata": {"release_artifacts": [receipt.model_dump()]}}
+        update={"metadata": {"release_artifacts": [historical_receipt.model_dump()]}}
     )
     replayed = record_release_artifact_receipt(
         historical,
-        receipt,
+        historical_receipt,
         artifact_store=artifact_store,
         verifier_credentials=trust,
     )
-    assert replayed.metadata["release_artifacts"] == [receipt.model_dump()]
+    assert replayed.metadata["release_artifacts"] == [historical_receipt.model_dump()]
 
     late = create_release_artifact_receipt(
         state,
@@ -372,12 +376,159 @@ def test_retired_verifier_only_replays_receipts_bound_to_its_active_epoch(tmp_pa
         verifier_secret=retired_secret,
         claims=IMAGE_CLAIMS,
         created_at="2030-01-01T00:00:00Z",
+    ).model_copy(
+        update={
+            "acceptance_epoch": datetime(2030, 1, 1, tzinfo=timezone.utc).timestamp()
+        }
     )
     with pytest.raises(PermissionError, match="outside verifier lifecycle"):
         release_workflow.verify_release_artifact_receipt(
             late,
             artifact_store=artifact_store,
             verifier_credentials=trust,
+        )
+
+
+@pytest.mark.parametrize("verifier_offset_seconds", [-120, 120])
+def test_server_acceptance_epoch_survives_clock_offset_verifier_rotation(
+    tmp_path,
+    monkeypatch,
+    verifier_offset_seconds,
+):
+    server_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    server_epoch = server_time.timestamp()
+    monkeypatch.setattr(release_workflow, "_now", lambda: server_time)
+    store = ReleaseWorkflowStore(tmp_path / f"release-{verifier_offset_seconds}")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id=f"proc_clock_offset_{verifier_offset_seconds}",
+        candidate_ref="build:clock-offset",
+        target_environment="production",
+        revision_id="rev_clock_offset",
+    )
+    verifier_id = f"offset-verifier-{verifier_offset_seconds}"
+    verifier_secret = "offset-verifier-secret"
+    active_trust = {
+        verifier_id: {
+            "secret": verifier_secret,
+            "activation_epoch": server_epoch - 1,
+            "retirement_epoch": None,
+        }
+    }
+    verifier_time = server_time + timedelta(seconds=verifier_offset_seconds)
+    verifier_created_at = verifier_time.isoformat().replace("+00:00", "Z")
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=f"artifact_clock_offset_{verifier_offset_seconds}",
+        payload={"offset": verifier_offset_seconds},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=verifier_id,
+        verifier_secret=verifier_secret,
+        created_at=verifier_created_at,
+    )
+
+    admitted = record_release_artifact_receipt(
+        state,
+        receipt,
+        artifact_store=artifact_store,
+        verifier_credentials=active_trust,
+    )
+    durable_receipt = ReleaseArtifactReceipt.model_validate(
+        admitted.metadata["release_artifacts"][0]
+    )
+    assert durable_receipt.acceptance_epoch == server_epoch
+    assert durable_receipt.created_at == verifier_created_at
+
+    rotated_trust = {
+        verifier_id: {
+            **active_trust[verifier_id],
+            "retirement_epoch": server_epoch + 1,
+        }
+    }
+    release_workflow.verify_release_artifact_receipt(
+        durable_receipt,
+        artifact_store=artifact_store,
+        verifier_credentials=rotated_trust,
+    )
+
+
+@pytest.mark.parametrize("verifier_offset_seconds", [-301, 301])
+def test_server_rejects_verifier_evidence_outside_bounded_clock_skew(
+    tmp_path,
+    monkeypatch,
+    verifier_offset_seconds,
+):
+    server_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    server_epoch = server_time.timestamp()
+    monkeypatch.setattr(release_workflow, "_now", lambda: server_time)
+    store = ReleaseWorkflowStore(tmp_path / f"skew-{verifier_offset_seconds}")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id=f"proc_skew_{verifier_offset_seconds}",
+        candidate_ref="build:skew",
+        target_environment="production",
+        revision_id="rev_skew",
+    )
+    verifier_time = server_time + timedelta(seconds=verifier_offset_seconds)
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=f"artifact_skew_{verifier_offset_seconds}",
+        payload={"offset": verifier_offset_seconds},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier="skew-verifier",
+        verifier_secret="skew-verifier-secret",
+        created_at=verifier_time.isoformat().replace("+00:00", "Z"),
+    )
+    trust = {
+        "skew-verifier": {
+            "secret": "skew-verifier-secret",
+            "activation_epoch": server_epoch - 1,
+            "retirement_epoch": None,
+        }
+    }
+
+    with pytest.raises(PermissionError, match="clock skew"):
+        record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials=trust,
+        )
+
+
+def test_verifier_cannot_supply_server_acceptance_epoch(tmp_path, monkeypatch):
+    server_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(release_workflow, "_now", lambda: server_time)
+    store = ReleaseWorkflowStore(tmp_path / "server-owned-acceptance")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_server_owned_acceptance",
+        candidate_ref="build:server-owned-acceptance",
+        target_environment="production",
+        revision_id="rev_server_owned_acceptance",
+    )
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_server_owned_acceptance",
+        payload={"forged": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        created_at=release_workflow._now_iso(),
+    ).model_copy(update={"acceptance_epoch": server_time.timestamp() - 1})
+
+    with pytest.raises(ValueError, match="assigned by the server"):
+        record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
         )
 
 

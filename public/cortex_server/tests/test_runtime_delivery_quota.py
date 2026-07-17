@@ -32,6 +32,16 @@ def _hold_runtime_delivery_reservation(
     ready.close()
 
 
+def _crash_inside_runtime_delivery_recovery(root: str, intent_path: str) -> None:
+    with runtime_delivery_quota.runtime_delivery_recovery_transaction(
+        Path(root),
+        process_id="proc-partial-reserve",
+        transaction_id="rollback-partial-reserve",
+        intent_path=Path(intent_path),
+    ):
+        os._exit(0)
+
+
 def _write_sized(path: Path, size: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as handle:
@@ -303,3 +313,72 @@ def test_expired_reservation_stays_charged_when_owner_probe_is_inconclusive(
 
     assert target.exists()
     assert runtime_delivery_quota.runtime_delivery_capacity(root)["reservedBytes"] == 100
+
+
+def test_partial_physical_reserve_restart_reenters_pending_recovery_before_replenishment(
+    tmp_path,
+    monkeypatch,
+):
+    root = tmp_path / "runtime_delivery"
+    intent_path = root / "release_workflow" / ".proc-partial-reserve.json.rollback-intent.json"
+    monkeypatch.setenv("CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE", "true")
+    monkeypatch.setattr(runtime_delivery_quota, "MAX_RUNTIME_DELIVERY_VOLUME_BYTES", 64 * 1024)
+    monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES", 16 * 1024)
+    monkeypatch.setattr(runtime_delivery_quota, "RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES", 4 * 1024)
+
+    with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
+        pass
+    intent_path.parent.mkdir(parents=True)
+    intent = {
+        "process_id": "proc-partial-reserve",
+        "transaction_id": "rollback-partial-reserve",
+        "status": "recovery_required",
+    }
+    intent_path.write_text(json.dumps(intent), encoding="utf-8")
+
+    context = multiprocessing.get_context("fork")
+    crashing_recovery = context.Process(
+        target=_crash_inside_runtime_delivery_recovery,
+        args=(str(root), str(intent_path)),
+    )
+    crashing_recovery.start()
+    crashing_recovery.join(10)
+    assert crashing_recovery.exitcode == 0
+    assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
+
+    real_resize = runtime_delivery_quota._resize_physical_reserve
+    resize_attempts = []
+
+    def reject_full_replenishment(delivery_root, size):
+        resize_attempts.append(size)
+        if size == 16 * 1024:
+            raise runtime_delivery_quota.RuntimeDeliveryQuotaError(
+                "released recovery capacity is still occupied"
+            )
+        real_resize(delivery_root, size)
+
+    monkeypatch.setattr(
+        runtime_delivery_quota,
+        "_resize_physical_reserve",
+        reject_full_replenishment,
+    )
+    with runtime_delivery_quota.runtime_delivery_recovery_transaction(
+        root,
+        process_id="proc-partial-reserve",
+        transaction_id="rollback-partial-reserve",
+        intent_path=intent_path,
+    ):
+        assert runtime_delivery_quota._recovery_admission(root) is True
+        with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
+            assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
+        intent_path.write_text(
+            json.dumps({**intent, "status": "committed"}),
+            encoding="utf-8",
+        )
+
+    assert resize_attempts == [16 * 1024]
+    assert runtime_delivery_quota._physical_reserve_bytes(root) == 12 * 1024
+    monkeypatch.setattr(runtime_delivery_quota, "_resize_physical_reserve", real_resize)
+    with runtime_delivery_quota.runtime_delivery_quota_transaction(root):
+        pass
+    assert runtime_delivery_quota.runtime_delivery_capacity(root)["ok"] is True

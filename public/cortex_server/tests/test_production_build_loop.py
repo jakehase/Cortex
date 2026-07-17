@@ -2525,6 +2525,16 @@ def test_preallocated_recovery_reserve_isolated_from_sibling_database_growth(tmp
         during_recovery = runtime_delivery_quota.runtime_delivery_capacity(root)
         assert during_recovery["physicalRecoveryReserveBytes"] == 12 * 1024
         (root / "bounded-recovery-write.bin").write_bytes(b"r" * 1024)
+        intent_path.write_text(
+            json.dumps(
+                {
+                    "process_id": "proc-reserve",
+                    "transaction_id": "rollback-reserve",
+                    "status": "committed",
+                }
+            ),
+            encoding="utf-8",
+        )
 
     restored = runtime_delivery_quota.runtime_delivery_capacity(root)
     assert restored["physicalRecoveryReserveBytes"] == 16 * 1024

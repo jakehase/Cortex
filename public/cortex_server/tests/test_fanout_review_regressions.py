@@ -5,6 +5,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -409,7 +410,7 @@ def test_release_receipt_recomputes_signed_hash_from_immutable_output(tmp_path):
         "verifier": "independent-verifier",
         "validation_outcome": "passed",
         "claims": {},
-        "created_at": "2026-07-15T12:00:00.000Z",
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
     }
     receipt = ReleaseArtifactReceipt(
         **unsigned,

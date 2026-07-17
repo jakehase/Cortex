@@ -365,7 +365,7 @@ def _signed_artifact_request(
         effective_claims = {**IMAGE_CLAIMS, **effective_claims}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     content_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
-    created_at = "2026-07-15T12:00:00.000Z"
+    created_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     unsigned = {
         "artifact_id": artifact_id,
         "artifact_ref": content_hash,

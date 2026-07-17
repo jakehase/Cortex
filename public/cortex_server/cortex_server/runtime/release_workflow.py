@@ -50,6 +50,7 @@ DEFAULT_RELEASE_ARTIFACT_STORE_QUOTA_BYTES = 1024 * 1024 * 1024
 DEFAULT_RELEASE_ARTIFACT_ORPHAN_GRACE_SECONDS = 3600
 MAX_RELEASE_ARTIFACT_RECEIPTS = 128
 MAX_RELEASE_ARTIFACT_CLAIMS_BYTES = 64 * 1024
+MAX_RELEASE_VERIFIER_CLOCK_SKEW_SECONDS = 5 * 60
 MAX_RELEASE_ROLLBACK_IDEMPOTENCY_RESULTS = 64
 MAX_RELEASE_LOCK_STRIPES = 64
 MAX_RELEASE_RECEIPT_METADATA_BYTES = 2 * 1024 * 1024
@@ -779,6 +780,7 @@ class ReleaseArtifactReceipt(BaseModel):
     validation_outcome: str
     claims: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
+    acceptance_epoch: Optional[float] = None
     attestation_signature: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("artifact_id", "artifact_kind", "candidate_ref", "release_id", "revision_id", "producer", "verifier")
@@ -812,6 +814,20 @@ class ReleaseArtifactReceipt(BaseModel):
     def _receipt_timestamp(cls, value: str) -> str:
         _parse_ts(value)
         return value
+
+    @field_validator("acceptance_epoch", mode="before")
+    @classmethod
+    def _receipt_acceptance_epoch(cls, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise ValueError("acceptance_epoch must be a finite non-negative server epoch")
+        return float(value)
 
     @field_validator("claims")
     @classmethod
@@ -892,6 +908,17 @@ def _verify_release_artifact_authorization(
 ) -> None:
     if receipt.producer == receipt.verifier:
         raise PermissionError("release artifact producer cannot self-verify")
+    receipt_time = _parse_ts(receipt.created_at)
+    if receipt_time is None or receipt_time.tzinfo is None:
+        raise PermissionError("release artifact receipt time must be timezone-aware")
+    receipt_epoch = receipt_time.astimezone(timezone.utc).timestamp()
+    acceptance_epoch = receipt.acceptance_epoch
+    if (
+        acceptance_epoch is not None
+        and abs(receipt_epoch - acceptance_epoch)
+        > MAX_RELEASE_VERIFIER_CLOCK_SKEW_SECONDS
+    ):
+        raise PermissionError("release artifact verifier clock skew exceeds the server bound")
     credentials = dict(verifier_credentials) if verifier_credentials is not None else _release_verifier_credentials()
     raw_credential = credentials.get(receipt.verifier)
     if isinstance(raw_credential, dict):
@@ -916,13 +943,17 @@ def _verify_release_artifact_authorization(
             raise PermissionError(
                 f"release artifact verifier lifecycle is invalid: {receipt.verifier}"
             )
-        receipt_time = _parse_ts(receipt.created_at)
-        if receipt_time is None or receipt_time.tzinfo is None:
-            raise PermissionError("release artifact receipt time must be timezone-aware")
-        receipt_epoch = receipt_time.astimezone(timezone.utc).timestamp()
-        if receipt_epoch < float(activation_epoch) or (
+        if acceptance_epoch is None:
+            raise PermissionError(
+                "release artifact receipt is missing its server acceptance epoch"
+            )
+        # Lifecycle membership is permanently bound to server admission.  The
+        # signed verifier timestamp remains immutable evidence metadata and is
+        # used only for the bounded skew check above.
+        lifecycle_epoch = float(acceptance_epoch)
+        if lifecycle_epoch < float(activation_epoch) or (
             retirement_epoch is not None
-            and receipt_epoch >= float(retirement_epoch)
+            and lifecycle_epoch >= float(retirement_epoch)
         ):
             raise PermissionError(
                 f"release artifact receipt is outside verifier lifecycle: {receipt.verifier}"
@@ -1141,8 +1172,29 @@ def record_release_artifact_receipt(
         ),
         None,
     )
-    if existing is not None and existing != record.model_dump():
-        raise ValueError(f"immutable release artifact receipt already exists: {record.artifact_id}")
+    if existing is not None:
+        existing_record = ReleaseArtifactReceipt.model_validate(existing)
+        same_attested_evidence = bool(
+            hmac.compare_digest(
+                _artifact_attestation_payload(existing_record.model_dump()),
+                _artifact_attestation_payload(record.model_dump()),
+            )
+            and hmac.compare_digest(
+                existing_record.attestation_signature,
+                record.attestation_signature,
+            )
+        )
+        supplied_acceptance_matches = bool(
+            record.acceptance_epoch is None
+            or record.acceptance_epoch == existing_record.acceptance_epoch
+        )
+        if not same_attested_evidence or not supplied_acceptance_matches:
+            raise ValueError(f"immutable release artifact receipt already exists: {record.artifact_id}")
+        record = existing_record
+    else:
+        if record.acceptance_epoch is not None:
+            raise ValueError("release artifact acceptance_epoch is assigned by the server")
+        record = record.model_copy(update={"acceptance_epoch": _now().timestamp()})
     require_current_verifier = existing is None
     if encoded_artifact is not None:
         verify_release_artifact_receipt_payload(

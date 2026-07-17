@@ -276,7 +276,9 @@ def runtime_delivery_capacity(delivery_root: Path) -> Dict[str, int | bool]:
 
 
 @contextmanager
-def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
+def _runtime_delivery_quota_lock(delivery_root: Path) -> Iterator[bool]:
+    """Hold the aggregate quota lock without changing recovery capacity."""
+
     root = Path(delivery_root).resolve()
     durable_mkdir(root)
     lock_target = root / ".runtime-delivery-volume-quota.lock"
@@ -289,7 +291,7 @@ def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
             depths[lock_key] += 1
             _TRANSACTION_STATE.depths = depths
             try:
-                yield
+                yield False
             finally:
                 depths[lock_key] -= 1
                 _TRANSACTION_STATE.depths = depths
@@ -299,23 +301,31 @@ def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
             depths[lock_key] = 1
             _TRANSACTION_STATE.depths = depths
             try:
-                if not _recovery_admission(root):
-                    _resize_physical_reserve(
-                        root,
-                        RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES,
-                    )
-                yield
+                yield True
             finally:
                 depths.pop(lock_key, None)
                 _TRANSACTION_STATE.depths = depths
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _pending_recovery_intent(
+@contextmanager
+def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
+    root = Path(delivery_root).resolve()
+    with _runtime_delivery_quota_lock(root) as outermost:
+        if outermost and not _recovery_admission(root):
+            _resize_physical_reserve(
+                root,
+                RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES,
+            )
+        yield
+
+
+def _matching_recovery_intent(
     delivery_root: Path,
     *,
     process_id: str,
     transaction_id: str,
+    statuses: Sequence[str],
     intent_path: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
     process = str(process_id or "").strip()
@@ -342,10 +352,26 @@ def _pending_recovery_intent(
             isinstance(payload, dict)
             and str(payload.get("process_id") or "") == process
             and str(payload.get("transaction_id") or "") == transaction
-            and payload.get("status") in {"in_progress", "recovery_required"}
+            and payload.get("status") in set(statuses)
         ):
             return payload
     return None
+
+
+def _pending_recovery_intent(
+    delivery_root: Path,
+    *,
+    process_id: str,
+    transaction_id: str,
+    intent_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    return _matching_recovery_intent(
+        delivery_root,
+        process_id=process_id,
+        transaction_id=transaction_id,
+        statuses=("in_progress", "recovery_required"),
+        intent_path=intent_path,
+    )
 
 
 @contextmanager
@@ -360,7 +386,7 @@ def runtime_delivery_recovery_transaction(
 
     root = Path(delivery_root).resolve()
     lock_key = str(root / ".runtime-delivery-volume-quota.lock")
-    with runtime_delivery_quota_transaction(root):
+    with _runtime_delivery_quota_lock(root):
         intent = _pending_recovery_intent(
             root,
             process_id=process_id,
@@ -377,30 +403,41 @@ def runtime_delivery_recovery_transaction(
             raise RuntimeDeliveryQuotaError("runtime delivery recovery transaction identity conflict")
         recoveries[lock_key] = (str(process_id), str(transaction_id))
         _TRANSACTION_STATE.recoveries = recoveries
-        _resize_physical_reserve(
-            root,
-            max(
+        try:
+            recovery_reserve_target = max(
                 0,
                 RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
                 - RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES,
-            ),
-        )
-        try:
+            )
+            existing_reserve = _physical_reserve_bytes(root)
+            # Recovery consumes, but never allocates, physical capacity.  On a
+            # restart a partially consumed reserve is therefore preserved
+            # instead of being grown before the durable rollback can resume.
+            if existing_reserve > recovery_reserve_target:
+                _resize_physical_reserve(root, recovery_reserve_target)
             yield
         finally:
+            committed = _matching_recovery_intent(
+                root,
+                process_id=process_id,
+                transaction_id=transaction_id,
+                statuses=("committed",),
+                intent_path=intent_path,
+            ) is not None
             if existing is None:
                 recoveries.pop(lock_key, None)
             else:
                 recoveries[lock_key] = existing
             _TRANSACTION_STATE.recoveries = recoveries
-            try:
-                _resize_physical_reserve(root, RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES)
-            except RuntimeDeliveryQuotaError:
-                # The rollback itself is already durably committed. Readiness
-                # remains failed until capacity cleanup permits replenishment;
-                # never rewrite a committed intent as recovery-required solely
-                # because post-commit reserve replenishment is unavailable.
-                pass
+            if committed:
+                try:
+                    _resize_physical_reserve(root, RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES)
+                except RuntimeDeliveryQuotaError:
+                    # The rollback itself is already durably committed.
+                    # Readiness remains failed until capacity cleanup permits
+                    # replenishment; never rewrite a committed intent solely
+                    # because post-commit reserve growth is unavailable.
+                    pass
 
 
 def _recovery_admission(delivery_root: Path) -> bool:
