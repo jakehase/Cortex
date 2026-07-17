@@ -338,6 +338,12 @@ def _durable_release_verifier_credentials(
                         raise RuntimeError(
                             f"durable release verifier trust lifecycle is invalid for {verifier_id}"
                         )
+                if verifier_id in active_credentials and not hmac.compare_digest(
+                    secret, active_credentials[verifier_id]
+                ):
+                    raise RuntimeError(
+                        f"release verifier identity {verifier_id} cannot be reused with different key material"
+                    )
                 if verifier_id in active_credentials and retirement_epoch is not None:
                     raise RuntimeError(
                         f"retired release verifier identity cannot be reactivated: {verifier_id}"

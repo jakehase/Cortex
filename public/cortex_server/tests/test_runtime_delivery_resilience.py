@@ -354,8 +354,8 @@ def test_durable_verifier_trust_survives_add_drain_retire_restart_and_rejects_id
     assert restarted_check["activeVerifierIds"] == [new_verifier]
     assert restarted_check["historicalVerifierIds"] == [VERIFIER_ID]
     assert (delivery_root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE).stat().st_mode & 0o077 == 0
-    assert initial_trust[VERIFIER_ID] == VERIFIER_SECRET
-    assert rotated_trust[new_verifier] == new_secret
+    assert initial_trust[VERIFIER_ID]["secret"] == VERIFIER_SECRET
+    assert rotated_trust[new_verifier]["secret"] == new_secret
     verify_release_artifact_receipt(
         historical_receipt,
         artifact_store=store.artifact_store(),
