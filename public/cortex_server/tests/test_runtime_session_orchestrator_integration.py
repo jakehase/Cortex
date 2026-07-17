@@ -50,6 +50,24 @@ def test_orchestrator_runtime_session_endpoints_wire_registry_memory_and_watcher
     )
     assert registered["session"]["session_id"] == "sess_1"
 
+    auto_registered = asyncio.run(
+        orchestrator.heartbeat_runtime_session(
+            orchestrator.RuntimeSessionHeartbeatRequest(
+                process_id=process_id,
+                session_id="sess_from_heartbeat",
+            )
+        )
+    )
+    expected_principal = orchestrator.SessionRegistryStore.server_bound_principal_id(
+        process_id=process_id,
+        process=process,
+    )
+    assert auto_registered["session"]["server_principal_id"] == expected_principal
+    assert orchestrator._runtime_delivery_stores()["session_registry"].get(
+        process_id=process_id,
+        session_id="sess_from_heartbeat",
+    ).server_principal_id == expected_principal
+
     blocked = asyncio.run(
         orchestrator.record_runtime_session_event(
             orchestrator.RuntimeSessionEventRequest(

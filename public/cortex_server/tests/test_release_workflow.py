@@ -39,6 +39,9 @@ from cortex_server.runtime.shared_process_state import SharedProcessState
 
 VERIFIER_ID = "independent-release-verifier"
 VERIFIER_SECRET = "release-workflow-test-secret"
+IMAGE_DIGEST = "sha256:" + "d" * 64
+IMAGE_REF = f"registry.example/cortex@{IMAGE_DIGEST}"
+IMAGE_CLAIMS = {"image_ref": IMAGE_REF, "image_digest": IMAGE_DIGEST}
 
 
 def test_release_store_rejects_opaque_id_attacks_without_unknown_read_writes(
@@ -220,13 +223,19 @@ def test_event_loop_release_lock_contention_fails_fast_without_deadlock(tmp_path
 
 def _record_canary_evidence(harness, state, *, evidence_id: str, target_stage: str):
     policy = release_canary_policy(target_stage)
+    artifact_hashes = [
+        str(row.get("content_hash") or "")
+        for row in (state.metadata.get("release_artifacts") or [])
+        if isinstance(row, dict) and row.get("artifact_kind") != "canary_evidence"
+    ]
     claims = {
         "policy_id": policy["policy_id"],
         "deployment_id": f"deployment:{state.process_id}:{target_stage}",
         "cohort_id": "canary-cohort",
+        **IMAGE_CLAIMS,
         "traffic_volume": 1000,
         "observation_window_seconds": 900,
-        "artifact_hashes": [],
+        "artifact_hashes": artifact_hashes,
         "metrics": {"availability": 1.0, "error_rate": 0.0},
         "thresholds": policy["thresholds"],
     }
@@ -269,6 +278,7 @@ def test_release_artifact_ids_are_immutable_within_revision_and_reusable_after_r
         producer="builder",
         verifier=VERIFIER_ID,
         verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
     )
     state = record_release_artifact_receipt(
         state,
@@ -286,6 +296,7 @@ def test_release_artifact_ids_are_immutable_within_revision_and_reusable_after_r
         producer="builder",
         verifier=VERIFIER_ID,
         verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
     )
     state = record_release_artifact_receipt(
         state,
@@ -314,6 +325,7 @@ def test_signed_canary_evidence_cannot_define_or_evade_server_thresholds(tmp_pat
         "policy_id": policy["policy_id"],
         "deployment_id": "deployment:unsafe",
         "cohort_id": "one-request",
+        **IMAGE_CLAIMS,
         "traffic_volume": 1,
         "observation_window_seconds": 1,
         "artifact_hashes": [],
@@ -393,6 +405,122 @@ def test_signed_canary_evidence_cannot_define_or_evade_server_thresholds(tmp_pat
             )
 
 
+def test_canary_evidence_for_a_different_image_digest_cannot_authorize_promotion(
+    tmp_path,
+):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(
+        process_id="proc_image_mismatch",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id="proc_image_mismatch",
+        candidate_ref="build:image-mismatch",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="build_verified",
+    )
+    artifact_store = harness.release_store.artifact_store()
+    bundle_id = "artifact_release_bundle:proc_image_mismatch"
+    bundle = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=bundle_id,
+        payload={"published": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        bundle,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    wrong_digest = "sha256:" + "e" * 64
+    policy = release_canary_policy("canary_verified")
+    claims = {
+        "policy_id": policy["policy_id"],
+        "deployment_id": "deployment:wrong-image",
+        "cohort_id": "canary-cohort",
+        "image_ref": f"registry.example/cortex@{wrong_digest}",
+        "image_digest": wrong_digest,
+        "traffic_volume": 1000,
+        "observation_window_seconds": 900,
+        "artifact_hashes": [bundle.content_hash],
+        "metrics": {"availability": 1.0, "error_rate": 0.0},
+        "thresholds": policy["thresholds"],
+    }
+    evidence_id = "evidence:wrong-image"
+    evidence = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=evidence_id,
+        payload=claims,
+        artifact_kind="canary_evidence",
+        target_stage="canary_verified",
+        claims=claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        evidence,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    message = harness.mailbox.send(
+        process_id=state.process_id,
+        from_agent="builder",
+        to_agent="verifier",
+        kind="handoff",
+        revision_id=state.revision_id,
+        dedupe_key="wrong-image-evidence",
+        payload={"objective": "verify"},
+    )
+    harness.mailbox.receive(
+        to_agent="verifier",
+        process_id=state.process_id,
+        expected_revision_id=state.revision_id,
+        reject_stale_revision=True,
+    )
+    acknowledged = harness.mailbox.acknowledge(
+        message.message_id,
+        actor="verifier",
+        result_receipt={
+            "candidate_ref": state.candidate_ref,
+            "release_id": state.release_id,
+            "revision_id": state.revision_id,
+            "result": "approved",
+            "evidence_receipts": [evidence_id],
+        },
+    )
+    state = record_release_handoff(state, acknowledged, stage="canary_verified")
+
+    gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        target_stage="canary_verified",
+        mailbox_messages=harness.mailbox.list(process_id=state.process_id),
+        dependability_report={"success": True},
+        required_artifacts=[bundle_id],
+        required_handoff_count=1,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+
+    assert gate["checks"]["image_digest_ready"] is True
+    assert gate["checks"]["handoff_receipts_ok"] is False
+    assert gate["safe_push"] is False
+    assert gate["invalid_evidence_receipt_ids"] == [evidence_id]
+
+
 def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     seeded = harness._seed_waiting_process(process_id="proc_release_history", revision_id="rev_1", node_id="build", agent_id="builder")
@@ -408,6 +536,25 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         current_stage="build_verified",
     )
     harness.release_store.save(state, actor="release-coordinator", provenance={"phase": "seed"})
+    artifact_store = harness.release_store.artifact_store()
+    bundle_id = "artifact_release_bundle:proc_release_history"
+    bundle = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=bundle_id,
+        payload={"candidate_ref": state.candidate_ref, "published": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        bundle,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
 
     handoff = compile_release_handoff(
         state=state,
@@ -442,7 +589,13 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         },
     )
     state = record_release_handoff(state, acked, stage="canary_verified")
-    fencepost = capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified")
+    fencepost = capture_release_rollback_fencepost(
+        snapshot=snapshot,
+        shared_state=shared_state,
+        stage="build_verified",
+        image_ref=IMAGE_REF,
+        image_digest=IMAGE_DIGEST,
+    )
     state = record_release_fencepost(state, fencepost)
 
     unresolved_gate = evaluate_release_promotion_gate(
@@ -453,6 +606,7 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         mailbox_messages=harness.mailbox.list(process_id="proc_release_history"),
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified"],
+        required_artifacts=[bundle_id],
         required_handoff_count=1,
         artifact_store=harness.release_store.artifact_store(),
         verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
@@ -476,6 +630,7 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         leases=harness.supervisor.list(process_id="proc_release_history"),
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified"],
+        required_artifacts=[bundle_id],
         required_handoff_count=1,
         artifact_store=harness.release_store.artifact_store(),
         verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
@@ -487,6 +642,7 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
     assert gate["safe_push"] is True
     assert promoted["promoted"] is True
     assert stored.current_stage == "canary_verified"
+    assert stored.promotion_history[-1]["production_image_digest"] == IMAGE_DIGEST
     assert len(history) == 2
     assert history[0].change_set["created"] is True
     assert history[1].change_set["current_stage"] == "canary_verified"
@@ -505,8 +661,18 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
         target_environment="production",
         revision_id="rev_1",
         current_stage="build_verified",
+        metadata={
+            "production_image_ref": IMAGE_REF,
+            "production_image_digest": IMAGE_DIGEST,
+        },
     )
-    fencepost = capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified")
+    fencepost = capture_release_rollback_fencepost(
+        snapshot=snapshot,
+        shared_state=shared_state,
+        stage="build_verified",
+        image_ref=IMAGE_REF,
+        image_digest=IMAGE_DIGEST,
+    )
     state = record_release_fencepost(state, fencepost)
 
     gate = evaluate_release_promotion_gate(
@@ -527,6 +693,9 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
     assert rolled["restore_state"]["lifecycle_state"] == "waiting"
     assert rolled["restore_state"]["shared_state_revision_id"] == "rev_1"
     assert rolled["restore_state"]["waiting_steps"] == ["build"]
+    assert rolled["production_image_digest"] == IMAGE_DIGEST
+    assert f"CORTEX_IMAGE_REF={IMAGE_REF}" in rolled["operator_rollback_command"]
+    assert "--no-build --pull never" in rolled["operator_rollback_command"]
 
 
 def test_same_digest_receipt_flood_is_bounded_before_state_or_history_amplification(tmp_path):

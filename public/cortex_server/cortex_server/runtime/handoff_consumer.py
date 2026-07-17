@@ -482,6 +482,8 @@ def _submit_verifier_evidence(
         "policy_id": policy["policy_id"],
         "deployment_id": str(release.get("release_id") or ""),
         "cohort_id": f"{target_stage}:{release.get('revision_id')}",
+        "image_ref": str(release.get("production_image_ref") or ""),
+        "image_digest": str(release.get("production_image_digest") or ""),
         "traffic_volume": total,
         "observation_window_seconds": elapsed,
         "artifact_hashes": sorted({

@@ -186,6 +186,106 @@ def test_session_registry_aggregate_admission_preserves_recovery_reserve(tmp_pat
     assert len(store.list()) == 15
 
 
+def _source_session_row(process_id: str, session_id: str, **updates):
+    row = {
+        "process_id": process_id,
+        "session_id": session_id,
+        "status": "registered",
+        "source": "runtime",
+        "stale_after_seconds": 900,
+        "registered_at": "2026-07-16T00:00:00Z",
+        "retry_count": 0,
+        "open_questions": [],
+        "watcher_ids": [],
+        "parent_process": None,
+        "metadata": {},
+    }
+    row.update(updates)
+    return row
+
+
+def test_rejected_default_limit_heartbeat_preserves_restart_registry_byte_for_byte(tmp_path):
+    path = tmp_path / "sessions.json"
+    store = SessionRegistryStore(path)
+    authoritative_principal = "a" * 64
+    rows = []
+    for process_index in range(4):
+        rows.extend(
+            _source_session_row(
+                f"process-{process_index}",
+                f"session-{process_index}-{session_index}",
+                server_principal_id=authoritative_principal,
+            )
+            for session_index in range(64)
+        )
+    rows.append(_source_session_row("process-4", "legacy-session"))
+    path.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="principal count exceeds limit"):
+        store.heartbeat(
+            process_id="process-4",
+            session_id="session-new",
+            server_principal_id=authoritative_principal,
+        )
+
+    assert path.read_bytes() == before
+    assert len(store.list()) == 257
+    assert store.get(process_id="process-4", session_id="session-new") is None
+
+
+def test_legacy_principal_recovery_is_all_or_nothing_when_authoritative_binding_is_over_quota(
+    tmp_path,
+):
+    path = tmp_path / "sessions.json"
+    rows = [
+        _source_session_row(
+            f"process-{process_index}",
+            f"session-{process_index}-{session_index}",
+        )
+        for process_index, count in enumerate((64, 64, 64, 64, 1))
+        for session_index in range(count)
+    ]
+    path.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    before = path.read_bytes()
+    store = SessionRegistryStore(path)
+
+    with pytest.raises(ValueError, match="principal count exceeds limit"):
+        store.migrate_legacy_principals(
+            {f"process-{index}": "b" * 64 for index in range(5)}
+        )
+
+    assert path.read_bytes() == before
+
+
+def test_legacy_principal_recovery_migrates_known_rows_and_quarantines_orphans_atomically(
+    tmp_path,
+):
+    path = tmp_path / "sessions.json"
+    path.write_text(
+        json.dumps(
+            [
+                _source_session_row("known-process", "known-session"),
+                _source_session_row("deleted-process", "orphan-session"),
+            ],
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    store = SessionRegistryStore(path)
+
+    recovered = store.migrate_legacy_principals({"known-process": "c" * 64})
+    known = store.get(process_id="known-process", session_id="known-session")
+    orphan = store.get(process_id="deleted-process", session_id="orphan-session")
+
+    assert recovered == ["deleted-process", "known-process"]
+    assert known.server_principal_id == "c" * 64
+    assert orphan.status == "failed"
+    assert orphan.metadata["legacy_principal_quarantined"] is True
+
+
 def test_referent_state_summarizes_maximum_queries_and_lru_bounds_rotated_sessions(
     tmp_path, monkeypatch
 ):

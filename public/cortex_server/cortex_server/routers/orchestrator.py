@@ -1130,6 +1130,10 @@ def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any]
         session = stores["session_registry"].heartbeat(
             process_id=process_id,
             session_id=session_id,
+            server_principal_id=SessionRegistryStore.server_bound_principal_id(
+                process_id=process_id,
+                process=process,
+            ),
             stale_after_seconds=session.stale_after_seconds,
         )
 
@@ -2448,6 +2452,20 @@ async def recover_runtime_delivery_rollbacks_on_startup() -> None:
     # advertise the delivery plane, including on a completely fresh volume.
     with runtime_delivery_quota_transaction(Path(stores["root"])):
         pass
+    authoritative_processes = {
+        str(process.get("process_id") or "").strip(): process
+        for process in list_runtime_processes()
+        if str(process.get("process_id") or "").strip()
+    }
+    stores["session_registry"].migrate_legacy_principals(
+        {
+            process_id: SessionRegistryStore.server_bound_principal_id(
+                process_id=process_id,
+                process=process,
+            )
+            for process_id, process in authoritative_processes.items()
+        }
+    )
     _recover_runtime_delivery_bootstraps(stores=stores)
     _recover_runtime_delivery_rollbacks(stores=stores)
     for process in list_runtime_processes():
@@ -5134,6 +5152,10 @@ async def heartbeat_runtime_session(request: RuntimeSessionHeartbeatRequest):
             session = stores["session_registry"].heartbeat(
                 process_id=request.process_id,
                 session_id=request.session_id,
+                server_principal_id=SessionRegistryStore.server_bound_principal_id(
+                    process_id=request.process_id,
+                    process=process,
+                ),
                 stale_after_seconds=request.stale_after_seconds,
             )
             event = normalize_session_event(
@@ -5146,7 +5168,7 @@ async def heartbeat_runtime_session(request: RuntimeSessionHeartbeatRequest):
                 payload={"stale_after_seconds": session.stale_after_seconds},
             )
             result = _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores)
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "success": True,
@@ -5941,6 +5963,12 @@ async def claim_next_runtime_delivery_handoff(request: RuntimeDeliveryHandoffCla
                 "revision_id": controller_state.revision_id,
                 "current_stage": controller_state.current_stage,
                 "target_environment": controller_state.target_environment,
+                "production_image_ref": (controller_state.metadata or {}).get(
+                    "production_image_ref"
+                ),
+                "production_image_digest": (controller_state.metadata or {}).get(
+                    "production_image_digest"
+                ),
                 "artifact_receipts": controller_receipts,
             }
             if recipient == "release-verifier":
@@ -6415,6 +6443,9 @@ async def rollback_runtime_delivery(process_id: str, request: RuntimeDeliveryRol
         "snapshot": model_dump_compat(rolled["snapshot"]),
         "shared_state": model_dump_compat(rolled["shared_state"]),
         "rollback_event": rolled.get("rollback_event"),
+        "production_image_ref": rolled.get("production_image_ref"),
+        "production_image_digest": rolled.get("production_image_digest"),
+        "operator_rollback_command": rolled.get("operator_rollback_command"),
         "operator_summary": rolled.get("operator_summary"),
         "loop_checkpoint": {
             "state": model_dump_compat(rollback_checkpoint["state"]),

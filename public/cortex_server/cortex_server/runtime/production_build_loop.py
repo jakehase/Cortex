@@ -56,6 +56,7 @@ from cortex_server.runtime.release_workflow import (
     compile_release_handoff,
     evaluate_release_promotion_gate,
     prepare_release_artifact,
+    production_image_binding_from_state,
     record_release_artifact_receipt,
     record_release_fencepost,
     record_release_handoff,
@@ -3750,10 +3751,13 @@ def advance_production_release_loop(
             release_state.current_stage != "draft"
             and not any(row.stage == release_state.current_stage for row in release_state.rollback_fenceposts)
         ):
+            image_ref, image_digest = production_image_binding_from_state(release_state)
             prior_fencepost = capture_release_rollback_fencepost(
                 snapshot=snapshot,
                 shared_state=shared_state,
                 stage=release_state.current_stage,
+                image_ref=image_ref,
+                image_digest=image_digest,
                 metadata={"captured_by": "production_build_loop", "pre_promotion": True},
             )
             release_state = release_store.save(
@@ -3878,10 +3882,13 @@ def advance_production_release_loop(
                 break
 
         if release_state.current_stage != "draft" and not captured_current_fencepost:
+            image_ref, image_digest = production_image_binding_from_state(release_state)
             pre_promotion_fencepost = capture_release_rollback_fencepost(
                 snapshot=snapshot,
                 shared_state=shared_state,
                 stage=release_state.current_stage,
+                image_ref=image_ref,
+                image_digest=image_digest,
                 metadata={"captured_by": "production_build_loop", "pre_promotion": True},
             )
             release_state = release_store.save(
@@ -3997,10 +4004,13 @@ def advance_production_release_loop(
                 actor=controller_id,
                 provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
             )
+        image_ref, image_digest = production_image_binding_from_state(release_state)
         release_fencepost = capture_release_rollback_fencepost(
             snapshot=snapshot,
             shared_state=shared_state,
             stage=next_stage,
+            image_ref=image_ref,
+            image_digest=image_digest,
             metadata={"captured_by": "production_build_loop", "post_promotion": True},
         )
         release_state = release_store.save(

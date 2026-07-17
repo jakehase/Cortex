@@ -2,6 +2,7 @@
 
 services:
   cortex-brain:
+    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
     build:
       context: .
       dockerfile: Dockerfile
@@ -90,6 +91,7 @@ services:
         condition: service_healthy
 
   cortex-volume-bootstrap:
+    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
     build:
       context: .
       dockerfile: Dockerfile
@@ -396,6 +398,7 @@ services:
     restart: "no"
 
   cortex-volume-adopt-source:
+    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
     build:
       context: .
       dockerfile: Dockerfile
@@ -1203,6 +1206,7 @@ services:
     restart: "no"
 
   release-verifier:
+    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
     build:
       context: .
       dockerfile: Dockerfile
@@ -1234,6 +1238,7 @@ services:
         condition: service_completed_successfully
 
   release-manager:
+    image: ${CORTEX_IMAGE_REF:?set the published Cortex image reference pinned with @sha256}
     build:
       context: .
       dockerfile: Dockerfile
@@ -1263,7 +1268,7 @@ services:
 
   # Level 6: The Bard - Piper TTS (Open Source, No Auth Required)
   piper-tts:
-    image: rhasspy/wyoming-piper:latest
+    image: rhasspy/wyoming-piper:2.2.2@sha256:c874e4a04657ae3381332ee5d0c8c70a310dae6722892840f530ac0890b44eb3
     container_name: piper-tts
     ports:
       - "10200:10200"

@@ -266,6 +266,71 @@ class SessionRegistryStore:
             next(iter(process_principals)) if process_principals else legacy_principal_id
         )
 
+    def migrate_legacy_principals(
+        self,
+        process_principals: Mapping[str, str],
+    ) -> List[str]:
+        """Atomically upgrade source-format process fallbacks during recovery.
+
+        The caller must derive every supplied principal from authoritative
+        server process state.  All candidate bindings are quota-preflighted as
+        one registry image; an invalid or over-quota recovery leaves the
+        durable source byte-for-byte unchanged so startup readiness fails
+        closed instead of publishing a partial migration.
+        """
+
+        if len(process_principals) > self.max_sessions:
+            raise ValueError("session principal recovery process count exceeds limit")
+        normalized = {
+            str(process_id or "").strip(): self._normalize_server_principal_id(principal_id)
+            for process_id, principal_id in process_principals.items()
+        }
+        if any(not process_id for process_id in normalized):
+            raise ValueError("session principal recovery process_id must be non-empty")
+
+        with self._transaction():
+            rows = self._load_all()
+            migrated: List[str] = []
+            for process_id, principal_id in sorted(normalized.items()):
+                legacy_principal_id = self._fallback_server_principal_id(process_id)
+                process_rows = [row for row in rows if row.process_id == process_id]
+                bindings = {row.server_principal_id for row in process_rows}
+                if len(bindings) > 1:
+                    raise ValueError("session process server principal binding is immutable")
+                if bindings == {legacy_principal_id} and principal_id != legacy_principal_id:
+                    for row in process_rows:
+                        row.server_principal_id = principal_id
+                    migrated.append(process_id)
+                elif bindings and bindings != {principal_id}:
+                    raise ValueError("session process server principal binding is immutable")
+
+            authoritative_process_ids = set(normalized)
+            for row in rows:
+                if (
+                    row.process_id not in authoritative_process_ids
+                    and row.server_principal_id
+                    == self._fallback_server_principal_id(row.process_id)
+                    and row.status not in {"finished", "failed"}
+                ):
+                    row.status = "failed"
+                    row.blocked_reason = (
+                        "legacy fallback principal quarantined: authoritative process state unavailable"
+                    )
+                    row.metadata = {
+                        **dict(row.metadata or {}),
+                        "legacy_principal_quarantined": True,
+                    }
+                    if row.process_id not in migrated:
+                        migrated.append(row.process_id)
+
+            if migrated:
+                self._write_all(rows)
+            else:
+                # Recovery must still reject pre-existing state that violates
+                # current active quotas, without rewriting a legacy file.
+                self._bounded_payload(rows)
+            return sorted(migrated)
+
     @contextmanager
     def _transaction(self):
         with self._mutex:
@@ -531,13 +596,32 @@ class SessionRegistryStore:
         out.sort(key=lambda row: (row.process_id, row.session_id))
         return out
 
-    def heartbeat(self, *, process_id: str, session_id: str, stale_after_seconds: Optional[int] = None) -> SessionRecord:
+    def heartbeat(
+        self,
+        *,
+        process_id: str,
+        session_id: str,
+        server_principal_id: str,
+        stale_after_seconds: Optional[int] = None,
+    ) -> SessionRecord:
         rows = self._load_all()
+        effective_principal_id = self._bind_process_principal(
+            rows,
+            process_id=process_id,
+            server_principal_id=server_principal_id,
+        )
         record = self._find(rows, process_id=process_id, session_id=session_id)
         if record is None:
-            record = self.register(process_id=process_id, session_id=session_id, stale_after_seconds=stale_after_seconds or 900)
-            rows = self._load_all()
-            record = self._find(rows, process_id=process_id, session_id=session_id)
+            record = SessionRecord(
+                process_id=process_id,
+                session_id=session_id,
+                server_principal_id=effective_principal_id,
+                stale_after_seconds=max(1, int(stale_after_seconds or 900)),
+                heartbeat_at=_now_iso(),
+            )
+            rows.append(record)
+        elif record.server_principal_id != effective_principal_id:
+            raise ValueError("session server principal binding is immutable")
         record.heartbeat_at = _now_iso()
         if stale_after_seconds is not None:
             record.stale_after_seconds = max(1, int(stale_after_seconds))

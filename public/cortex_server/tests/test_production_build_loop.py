@@ -43,6 +43,9 @@ from cortex_server.runtime.shared_process_state import OpenDecision, SharedProce
 
 VERIFIER_ID = "independent-release-verifier"
 VERIFIER_SECRET = "test-release-verifier-secret-material-0001"
+IMAGE_DIGEST = "sha256:" + "d" * 64
+IMAGE_REF = f"registry.example/cortex@{IMAGE_DIGEST}"
+IMAGE_CLAIMS = {"image_ref": IMAGE_REF, "image_digest": IMAGE_DIGEST}
 
 
 def _initialize_reasoning_authority(path, mount_id: str) -> None:
@@ -463,6 +466,7 @@ def _with_artifact_receipts(state, release_store, *artifact_ids):
             producer="build-worker",
             verifier=VERIFIER_ID,
             verifier_secret=VERIFIER_SECRET,
+            claims=IMAGE_CLAIMS if artifact_kind == "release_bundle" else None,
         )
         state = record_release_artifact_receipt(
             state,
@@ -487,6 +491,7 @@ def _approve_pending_release_handoff(harness, process_id, stage):
         "policy_id": policy["policy_id"],
         "deployment_id": f"deployment:{process_id}:{stage}",
         "cohort_id": "canary-10-percent",
+        **IMAGE_CLAIMS,
         "traffic_volume": 1000,
         "observation_window_seconds": 900,
         "artifact_hashes": artifact_hashes,

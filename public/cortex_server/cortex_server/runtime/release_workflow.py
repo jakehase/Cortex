@@ -71,6 +71,10 @@ RELEASE_GLOBAL_RECOVERY_RESERVE_BYTES = RELEASE_PROCESS_RECOVERY_RESERVE_BYTES
 
 _RELEASE_OPAQUE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _LEGACY_RELEASE_LOCK_RE = re.compile(r"^\..+\.json\.rollback\.lock$")
+_PRODUCTION_IMAGE_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_IMMUTABLE_PRODUCTION_IMAGE_REF_RE = re.compile(
+    r"^[a-z0-9][a-z0-9._:/-]{0,446}@sha256:[0-9a-f]{64}$"
+)
 
 
 def release_opaque_identifier(value: str, *, field: str) -> str:
@@ -80,6 +84,53 @@ def release_opaque_identifier(value: str, *, field: str) -> str:
     if not _RELEASE_OPAQUE_ID_RE.fullmatch(normalized):
         raise ValueError(f"{field} must be a bounded opaque identifier")
     return normalized
+
+
+def normalize_production_image_binding(
+    *,
+    image_ref: str,
+    image_digest: str,
+) -> tuple[str, str]:
+    """Validate one published OCI image reference and its immutable digest."""
+
+    normalized_ref = str(image_ref or "").strip()
+    normalized_digest = str(image_digest or "").strip()
+    if not _PRODUCTION_IMAGE_DIGEST_RE.fullmatch(normalized_digest):
+        raise ValueError("production image_digest must be a lowercase SHA-256 digest")
+    if not _IMMUTABLE_PRODUCTION_IMAGE_REF_RE.fullmatch(normalized_ref):
+        raise ValueError("production image_ref must be an immutable OCI reference")
+    if not hmac.compare_digest(normalized_ref.rsplit("@", 1)[-1], normalized_digest):
+        raise ValueError("production image_ref and image_digest do not match")
+    return normalized_ref, normalized_digest
+
+
+def production_image_binding_from_claims(claims: Dict[str, Any]) -> tuple[str, str]:
+    return normalize_production_image_binding(
+        image_ref=str((claims or {}).get("image_ref") or ""),
+        image_digest=str((claims or {}).get("image_digest") or ""),
+    )
+
+
+def production_image_binding_from_state(
+    state: "ReleaseWorkflowState",
+) -> tuple[str, str]:
+    metadata = dict(state.metadata or {})
+    return normalize_production_image_binding(
+        image_ref=str(metadata.get("production_image_ref") or ""),
+        image_digest=str(metadata.get("production_image_digest") or ""),
+    )
+
+
+def operator_rollback_command(image_ref: str, image_digest: str) -> str:
+    normalized_ref, _ = normalize_production_image_binding(
+        image_ref=image_ref,
+        image_digest=image_digest,
+    )
+    services = "cortex-brain release-verifier release-manager"
+    return (
+        f"CORTEX_IMAGE_REF={normalized_ref} docker compose pull {services} && "
+        f"CORTEX_IMAGE_REF={normalized_ref} docker compose up -d --no-build --pull never {services}"
+    )
 
 
 @dataclass(frozen=True)
@@ -553,6 +604,8 @@ def _is_bound_release_approval(
     target_stage: str,
     valid_receipts: Dict[str, "ReleaseArtifactReceipt"],
     required_artifact_hashes: Sequence[str],
+    required_image_ref: str,
+    required_image_digest: str,
 ) -> bool:
     if message.delivery_status != "acked" or message.acked_by != message.to_agent:
         return False
@@ -584,6 +637,8 @@ def _is_bound_release_approval(
             receipt,
             target_stage=target_stage,
             required_artifact_hashes=required_artifact_hashes,
+            required_image_ref=required_image_ref,
+            required_image_digest=required_image_digest,
         )
         for receipt in resolved_receipts
     )
@@ -598,6 +653,14 @@ class ReleaseRollbackFencepost(BaseModel):
     revision_id: str
     snapshot_id: str
     shared_state_revision_id: str
+    image_ref: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-z0-9][a-z0-9._:/-]{0,446}@sha256:[0-9a-f]{64}$",
+    )
+    image_digest: Optional[str] = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
     last_event_id: Optional[str] = None
     lifecycle_state: str
     created_at: str = Field(default_factory=_now_iso)
@@ -851,6 +914,11 @@ def verify_release_artifact_receipt_payload(
         raise ValueError("release artifact receipt reference does not match artifact content")
     if not hmac.compare_digest(receipt.content_hash, actual_hash):
         raise ValueError("release artifact receipt content hash does not match immutable artifact")
+    if (
+        receipt.artifact_kind == "release_bundle"
+        and receipt.artifact_id.startswith("artifact_release_bundle:")
+    ):
+        production_image_binding_from_claims(receipt.claims)
     if receipt.artifact_kind == "canary_evidence":
         try:
             artifact_claims = json.loads(encoded.decode("utf-8"))
@@ -886,6 +954,8 @@ def _canary_claims_have_strict_schema(claims: Dict[str, Any]) -> bool:
         "policy_id",
         "deployment_id",
         "cohort_id",
+        "image_ref",
+        "image_digest",
         "traffic_volume",
         "observation_window_seconds",
         "artifact_hashes",
@@ -898,6 +968,10 @@ def _canary_claims_have_strict_schema(claims: Dict[str, Any]) -> bool:
     if claims["traffic_volume"] < 0 or claims["observation_window_seconds"] < 0:
         return False
     if not all(isinstance(claims.get(field), str) and 0 < len(claims[field]) <= 512 for field in ("policy_id", "deployment_id", "cohort_id")):
+        return False
+    try:
+        production_image_binding_from_claims(claims)
+    except ValueError:
         return False
     hashes = claims.get("artifact_hashes")
     if not isinstance(hashes, list) or len(hashes) > 256 or not all(isinstance(row, str) and 0 < len(row) <= 256 for row in hashes):
@@ -954,6 +1028,8 @@ def _canary_evidence_satisfies_stage(
     *,
     target_stage: str,
     required_artifact_hashes: Sequence[str],
+    required_image_ref: str,
+    required_image_digest: str,
 ) -> bool:
     if receipt.artifact_kind != "canary_evidence" or receipt.target_stage != target_stage:
         return False
@@ -964,9 +1040,21 @@ def _canary_evidence_satisfies_stage(
     deployment_id = str(claims.get("deployment_id") or "").strip()
     cohort_id = str(claims.get("cohort_id") or "").strip()
     artifact_hashes = set(_dedupe_rows([str(row) for row in claims.get("artifact_hashes") or []]))
+    try:
+        image_ref, image_digest = production_image_binding_from_claims(claims)
+    except ValueError:
+        return False
     return bool(
         deployment_id
         and cohort_id
+        and (
+            not required_image_ref
+            or hmac.compare_digest(image_ref, required_image_ref)
+        )
+        and (
+            not required_image_digest
+            or hmac.compare_digest(image_digest, required_image_digest)
+        )
         and _canary_observations_satisfy_policy(claims, policy=policy)
         and set(required_artifact_hashes).issubset(artifact_hashes)
     )
@@ -1040,9 +1128,30 @@ def record_release_artifact_receipt(
             f"release artifact receipt count exceeds immutable limit of {MAX_RELEASE_ARTIFACT_RECEIPTS}"
         )
     rows.append(record.model_dump())
+    metadata = {**dict(state.metadata), "release_artifacts": rows}
+    if (
+        record.artifact_kind == "release_bundle"
+        and record.artifact_id.startswith("artifact_release_bundle:")
+        and record.validation_outcome == "passed"
+    ):
+        image_ref, image_digest = production_image_binding_from_claims(record.claims)
+        existing_ref = str(metadata.get("production_image_ref") or "").strip()
+        existing_digest = str(metadata.get("production_image_digest") or "").strip()
+        if existing_ref or existing_digest:
+            bound_ref, bound_digest = normalize_production_image_binding(
+                image_ref=existing_ref,
+                image_digest=existing_digest,
+            )
+            if not (
+                hmac.compare_digest(bound_ref, image_ref)
+                and hmac.compare_digest(bound_digest, image_digest)
+            ):
+                raise ValueError("release revision production image binding is immutable")
+        metadata["production_image_ref"] = image_ref
+        metadata["production_image_digest"] = image_digest
     return _copy_state(
         state,
-        metadata={**dict(state.metadata), "release_artifacts": rows},
+        metadata=metadata,
         updated_at=_now_iso(),
     )
 
@@ -1972,6 +2081,8 @@ def capture_release_rollback_fencepost(
     shared_state: SharedProcessState,
     stage: str,
     latest_event: Optional[ProcessEvent] = None,
+    image_ref: Optional[str] = None,
+    image_digest: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> ReleaseRollbackFencepost:
     if snapshot.process_id != shared_state.process_id:
@@ -1979,10 +2090,19 @@ def capture_release_rollback_fencepost(
     stage_name = str(stage or "").strip()
     if not stage_name:
         raise ValueError("stage must be non-empty")
+    normalized_image_ref: Optional[str] = None
+    normalized_image_digest: Optional[str] = None
+    if image_ref is not None or image_digest is not None:
+        normalized_image_ref, normalized_image_digest = normalize_production_image_binding(
+            image_ref=str(image_ref or ""),
+            image_digest=str(image_digest or ""),
+        )
     restore_state = {
         "process_id": snapshot.process_id,
         "snapshot_id": snapshot.snapshot_id,
         "shared_state_revision_id": shared_state.revision_id,
+        "production_image_ref": normalized_image_ref,
+        "production_image_digest": normalized_image_digest,
         "last_event_id": snapshot.last_event_id,
         "lifecycle_state": snapshot.lifecycle_state,
         "active_steps": list(snapshot.active_steps),
@@ -2013,6 +2133,8 @@ def capture_release_rollback_fencepost(
         revision_id=shared_state.revision_id,
         snapshot_id=snapshot.snapshot_id,
         shared_state_revision_id=shared_state.revision_id,
+        image_ref=normalized_image_ref,
+        image_digest=normalized_image_digest,
         last_event_id=(latest_event.event_id if latest_event else snapshot.last_event_id),
         lifecycle_state=snapshot.lifecycle_state,
         restore_state=restore_state,
@@ -2020,6 +2142,8 @@ def capture_release_rollback_fencepost(
             **dict(metadata or {}),
             "snapshot_event_count": int(snapshot.event_count or 0),
             "shared_state_id": shared_state.state_id,
+            "production_image_ref": normalized_image_ref,
+            "production_image_digest": normalized_image_digest,
         },
     )
 
@@ -2028,6 +2152,32 @@ def capture_release_rollback_fencepost(
 def record_release_fencepost(state: ReleaseWorkflowState, fencepost: ReleaseRollbackFencepost) -> ReleaseWorkflowState:
     if fencepost.process_id != state.process_id:
         raise ValueError("fencepost process_id must match release workflow state")
+    state_ref = str((state.metadata or {}).get("production_image_ref") or "").strip()
+    state_digest = str((state.metadata or {}).get("production_image_digest") or "").strip()
+    if state_ref or state_digest:
+        bound_ref, bound_digest = normalize_production_image_binding(
+            image_ref=state_ref,
+            image_digest=state_digest,
+        )
+        if not fencepost.image_ref and not fencepost.image_digest:
+            fencepost = fencepost.model_copy(
+                update={"image_ref": bound_ref, "image_digest": bound_digest}
+            )
+            fencepost.restore_state = {
+                **dict(fencepost.restore_state or {}),
+                "production_image_ref": bound_ref,
+                "production_image_digest": bound_digest,
+            }
+            fencepost.metadata = {
+                **dict(fencepost.metadata or {}),
+                "production_image_ref": bound_ref,
+                "production_image_digest": bound_digest,
+            }
+        elif not (
+            hmac.compare_digest(str(fencepost.image_ref), bound_ref)
+            and hmac.compare_digest(str(fencepost.image_digest), bound_digest)
+        ):
+            raise ValueError("rollback fencepost must preserve the active production image binding")
     rows = [row for row in state.rollback_fenceposts if row.stage != fencepost.stage]
     rows.append(fencepost)
     rows = sorted(rows, key=lambda row: row.created_at)
@@ -2255,6 +2405,35 @@ def evaluate_release_promotion_gate(
         if artifact_id in valid_receipts_by_id
         and _artifact_kind_matches_requirement(artifact_id, valid_receipts_by_id[artifact_id])
     ]
+    required_release_bundles = [
+        valid_receipts_by_id[artifact_id]
+        for artifact_id in required_artifact_ids
+        if artifact_id.startswith("artifact_release_bundle:")
+        and artifact_id in valid_receipts_by_id
+        and valid_receipts_by_id[artifact_id].artifact_kind == "release_bundle"
+    ]
+    image_binding_required = any(
+        artifact_id.startswith("artifact_release_bundle:")
+        for artifact_id in required_artifact_ids
+    )
+    required_image_ref = ""
+    required_image_digest = ""
+    image_binding_ready = not image_binding_required
+    if image_binding_required and len(required_release_bundles) == 1:
+        try:
+            receipt_ref, receipt_digest = production_image_binding_from_claims(
+                required_release_bundles[0].claims
+            )
+            state_ref, state_digest = production_image_binding_from_state(state)
+            image_binding_ready = bool(
+                hmac.compare_digest(receipt_ref, state_ref)
+                and hmac.compare_digest(receipt_digest, state_digest)
+            )
+            if image_binding_ready:
+                required_image_ref = state_ref
+                required_image_digest = state_digest
+        except ValueError:
+            image_binding_ready = False
     acked_messages = [
         row for row in relevant_messages
         if _is_bound_release_approval(
@@ -2263,6 +2442,8 @@ def evaluate_release_promotion_gate(
             target_stage=target,
             valid_receipts=valid_receipts_by_id,
             required_artifact_hashes=required_artifact_hashes,
+            required_image_ref=required_image_ref,
+            required_image_digest=required_image_digest,
         )
     ]
     invalid_evidence_ids: List[str] = []
@@ -2278,6 +2459,8 @@ def evaluate_release_promotion_gate(
                 receipt,
                 target_stage=target,
                 required_artifact_hashes=required_artifact_hashes,
+                required_image_ref=required_image_ref,
+                required_image_digest=required_image_digest,
             )
             for receipt in resolved
         ):
@@ -2299,6 +2482,7 @@ def evaluate_release_promotion_gate(
         "active_leases_safe": len(unexpected_active_leases) == 0,
         "fenceposts_ready": len(missing_fenceposts) == 0,
         "artifacts_ready": len(missing_artifacts) == 0,
+        "image_digest_ready": image_binding_ready,
         "operator_holds_clear": len(state.operator_holds) == 0,
     }
     safe_push = all(checks.values())
@@ -2374,6 +2558,13 @@ def evaluate_release_promotion_gate(
                 "invalid_receipt_ids": invalid_artifact_receipts,
             }
         )
+    if not checks["image_digest_ready"]:
+        blockers.append(
+            {
+                "check": "image_digest_ready",
+                "summary": "release bundle lacks the immutable published production image binding",
+            }
+        )
     if not checks["operator_holds_clear"]:
         blockers.append(
             {
@@ -2411,6 +2602,8 @@ def evaluate_release_promotion_gate(
         "valid_artifact_receipt_ids": sorted(present_artifacts),
         "invalid_artifact_receipt_ids": invalid_artifact_receipts,
         "invalid_evidence_receipt_ids": invalid_evidence_receipt_ids,
+        "production_image_ref": required_image_ref or None,
+        "production_image_digest": required_image_digest or None,
         "dead_letter_ids": [row.message_id for row in dead_letter_messages],
         "acked_handoff_ids": [row.message_id for row in acked_messages],
         "stale_handoff_records": [dict(row) for row in stale_handoff_records],
@@ -2492,6 +2685,8 @@ def advance_release_workflow(
         "to_stage": target,
         "safe_push": True,
         "candidate_ref": state.candidate_ref,
+        "production_image_ref": gate.get("production_image_ref"),
+        "production_image_digest": gate.get("production_image_digest"),
         "metadata": dict(metadata or {}),
     }
     updated = _copy_state(
@@ -2559,6 +2754,25 @@ def rollback_release_workflow(
             f"rollback target must strictly precede {state.current_stage} in the immutable release topology: {target.stage}"
         )
 
+    rollback_image_ref = str(target.image_ref or "").strip()
+    rollback_image_digest = str(target.image_digest or "").strip()
+    active_image_ref = str((state.metadata or {}).get("production_image_ref") or "").strip()
+    active_image_digest = str((state.metadata or {}).get("production_image_digest") or "").strip()
+    if active_image_ref or active_image_digest:
+        normalize_production_image_binding(
+            image_ref=active_image_ref,
+            image_digest=active_image_digest,
+        )
+        rollback_image_ref, rollback_image_digest = normalize_production_image_binding(
+            image_ref=rollback_image_ref,
+            image_digest=rollback_image_digest,
+        )
+    rollback_command = (
+        operator_rollback_command(rollback_image_ref, rollback_image_digest)
+        if rollback_image_ref and rollback_image_digest
+        else None
+    )
+
     target_rank = stage_ranks[target.stage]
     retained_fenceposts = [
         row for row in state.rollback_fenceposts
@@ -2572,6 +2786,8 @@ def rollback_release_workflow(
         "reason": str(reason or "rollback").strip() or "rollback",
         "target_stage": target.stage,
         "fencepost_id": target.fencepost_id,
+        "production_image_ref": rollback_image_ref or None,
+        "production_image_digest": rollback_image_digest or None,
     }
     updated = _copy_state(
         state,
@@ -2590,6 +2806,9 @@ def rollback_release_workflow(
             "rollback_target_stage": target.stage,
             "rollback_fencepost_id": target.fencepost_id,
             "rollback_reason": str(reason or "rollback").strip() or "rollback",
+            "production_image_ref": rollback_image_ref or None,
+            "production_image_digest": rollback_image_digest or None,
+            "operator_rollback_command": rollback_command,
         },
         updated_at=_now_iso(),
     )
@@ -2598,6 +2817,9 @@ def rollback_release_workflow(
         "state": updated,
         "fencepost": target.model_dump() if hasattr(target, "model_dump") else target.dict(),
         "restore_state": dict(target.restore_state or {}),
+        "production_image_ref": rollback_image_ref or None,
+        "production_image_digest": rollback_image_digest or None,
+        "operator_rollback_command": rollback_command,
         "operator_summary": f"release rolled back for {state.process_id} to {target.stage}",
     }
 
@@ -2876,6 +3098,9 @@ def _committed_rollback_descriptor(response: Dict[str, Any]) -> Dict[str, Any]:
         "rollback_event_id": str((rollback_event or {}).get("event_id") or "") if isinstance(rollback_event, dict) else "",
         "completed_projections": list(transaction.get("completed_projections") or []),
         "applied": bool(response.get("applied")),
+        "production_image_ref": str(response.get("production_image_ref") or "") or None,
+        "production_image_digest": str(response.get("production_image_digest") or "") or None,
+        "operator_rollback_command": str(response.get("operator_rollback_command") or "") or None,
         "operator_summary": str(response.get("operator_summary") or ""),
     }
 
@@ -2925,6 +3150,9 @@ def _restore_committed_rollback_response(
             "rollback_transaction": dict(intent or payload),
             "rollback_projections": {},
             "applied": bool(payload.get("applied")),
+            "production_image_ref": payload.get("production_image_ref"),
+            "production_image_digest": payload.get("production_image_digest"),
+            "operator_rollback_command": payload.get("operator_rollback_command"),
             "operator_summary": str(payload.get("operator_summary") or ""),
         }
     response = dict(payload)
@@ -3330,6 +3558,8 @@ def apply_release_rollback_restore(
                             intent.get("restored_artifact_revision_id") or target_revision_id
                         ),
                         "control_revision_id": restored_shared.revision_id,
+                        "production_image_ref": target_fencepost.get("image_ref"),
+                        "production_image_digest": target_fencepost.get("image_digest"),
                     },
                 },
             )
@@ -3402,6 +3632,11 @@ def apply_release_rollback_restore(
                 "rollback_transaction": intent,
                 "rollback_projections": projection_result,
                 "applied": True,
+                "production_image_ref": target_fencepost.get("image_ref"),
+                "production_image_digest": target_fencepost.get("image_digest"),
+                "operator_rollback_command": (applied_state.metadata or {}).get(
+                    "operator_rollback_command"
+                ),
                 "operator_summary": (
                     f"release rollback applied for {state.process_id}: {state.current_stage} -> {applied_state.current_stage} "
                     f"via {target_fencepost_id or 'unknown_fencepost'}"
@@ -3463,6 +3698,10 @@ __all__ = [
     "record_release_artifact_receipt",
     "record_release_handoff",
     "prepare_release_artifact",
+    "normalize_production_image_binding",
+    "operator_rollback_command",
+    "production_image_binding_from_claims",
+    "production_image_binding_from_state",
     "release_canary_policy",
     "release_artifact_attestation_signature",
     "release_artifact_storage_limits",

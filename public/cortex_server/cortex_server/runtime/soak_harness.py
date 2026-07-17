@@ -1399,6 +1399,8 @@ class RuntimeSoakHarness:
             target_stage: str,
         ) -> tuple[ReleaseWorkflowState, str]:
             artifact_hashes: List[str] = []
+            image_digest = "sha256:" + "b" * 64
+            image_ref = f"registry.example/cortex@{image_digest}"
             for artifact_id, artifact_kind in (
                 (artifact_release_bundle, "release_bundle"),
                 (artifact_smoke_report, "smoke_report"),
@@ -1417,6 +1419,11 @@ class RuntimeSoakHarness:
                     producer="soak-build-worker",
                     verifier=verifier_id,
                     verifier_secret=verifier_secret,
+                    claims=(
+                        {"image_ref": image_ref, "image_digest": image_digest}
+                        if artifact_kind == "release_bundle"
+                        else None
+                    ),
                 )
                 active_state = record_release_artifact_receipt(
                     active_state,
@@ -1432,6 +1439,8 @@ class RuntimeSoakHarness:
                 "policy_id": canary_policy["policy_id"],
                 "deployment_id": f"deployment:{process_id}:{target_stage}",
                 "cohort_id": "soak-canary-cohort",
+                "image_ref": image_ref,
+                "image_digest": image_digest,
                 "traffic_volume": 1000,
                 "observation_window_seconds": 900,
                 "artifact_hashes": artifact_hashes,

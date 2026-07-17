@@ -39,6 +39,10 @@ from cortex_server.runtime.shared_process_state import (
 )
 
 
+IMAGE_DIGEST = "sha256:" + "d" * 64
+IMAGE_REF = f"registry.example/cortex@{IMAGE_DIGEST}"
+
+
 class _ScopedCollection:
     def __init__(self):
         self.rows = {}
@@ -299,7 +303,7 @@ def test_release_gates_cannot_remove_mandatory_evidence():
     contract = ProductionBuildContract(
         process_id="proc-gates",
         objective="ship",
-        dependability_profile={"profile": "test"},
+        dependability_profile="24h",
         stage_gates=[
             ProductionStageGate(
                 stage="production",
@@ -362,6 +366,7 @@ def test_release_gate_rejects_bare_and_stale_artifact_ids(tmp_path):
         producer="builder",
         verifier="independent-verifier",
         verifier_secret="verifier-secret",
+        claims={"image_ref": IMAGE_REF, "image_digest": IMAGE_DIGEST},
     )
     state = record_release_artifact_receipt(
         state.model_copy(update={"metadata": {}}),

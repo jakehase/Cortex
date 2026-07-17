@@ -170,6 +170,28 @@ def test_production_container_pid1_has_allocator_and_connection_hardening():
     assert '"--timeout-keep-alive", "5"' in dockerfile
 
 
+def test_production_images_and_openclaw_inputs_are_immutable():
+    public_root = Path(__file__).resolve().parents[2]
+    dockerfile = (public_root / "Dockerfile").read_text(encoding="utf-8")
+    compose = (public_root / "docker-compose.yml").read_text(encoding="utf-8")
+
+    from_line = next(line for line in dockerfile.splitlines() if line.startswith("FROM "))
+    assert re.fullmatch(
+        r"FROM python:3\.11\.15-slim@sha256:[0-9a-f]{64}",
+        from_line,
+    )
+    assert "openclaw@latest" not in dockerfile
+    assert re.search(r"ARG OPENCLAW_VERSION=\d{4}\.\d+\.\d+", dockerfile)
+    assert re.search(r"ARG OPENCLAW_INTEGRITY=sha512-[A-Za-z0-9+/]+=*", dockerfile)
+    assert 'npm view "openclaw@${OPENCLAW_VERSION}" dist.integrity' in dockerfile
+    assert re.search(
+        r"image: rhasspy/wyoming-piper:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}",
+        compose,
+    )
+    for service in ("cortex-brain", "release-verifier", "release-manager"):
+        assert "${CORTEX_IMAGE_REF:?" in _compose_service_definition(compose, service)
+
+
 def test_compose_mounts_and_identifies_durable_memory_volume():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
 

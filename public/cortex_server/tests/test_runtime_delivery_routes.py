@@ -77,6 +77,9 @@ def _install_fake_diplomat(monkeypatch):
 
 
 VERIFIER_SECRET = "runtime-verifier-secret-0000000000000001"
+IMAGE_DIGEST = "sha256:" + "d" * 64
+IMAGE_REF = f"registry.example/cortex@{IMAGE_DIGEST}"
+IMAGE_CLAIMS = {"image_ref": IMAGE_REF, "image_digest": IMAGE_DIGEST}
 VERIFIER_RECIPIENT_SECRET = "verifier-recipient-secret-000000000001"
 MANAGER_RECIPIENT_SECRET = "manager-recipient-secret-0000000000001"
 
@@ -355,6 +358,11 @@ def _signed_artifact_request(
     target_stage: str | None = None,
     claims: dict | None = None,
 ) -> orchestrator.RuntimeDeliveryArtifactIngestRequest:
+    effective_claims = dict(claims or {})
+    if artifact_kind == "release_bundle" and artifact_id.startswith(
+        "artifact_release_bundle:"
+    ):
+        effective_claims = {**IMAGE_CLAIMS, **effective_claims}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     content_hash = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
     created_at = "2026-07-15T12:00:00.000Z"
@@ -370,7 +378,7 @@ def _signed_artifact_request(
         "producer": "runtime-build-worker" if artifact_kind != "canary_evidence" else "canary-runner",
         "verifier": "runtime-independent-verifier",
         "validation_outcome": "passed",
-        "claims": dict(claims or {}),
+        "claims": effective_claims,
         "created_at": created_at,
     }
     return orchestrator.RuntimeDeliveryArtifactIngestRequest(
@@ -384,7 +392,7 @@ def _signed_artifact_request(
             secret=VERIFIER_SECRET,
         ),
         target_stage=target_stage,
-        claims=dict(claims or {}),
+        claims=effective_claims,
         created_at=created_at,
     )
 
@@ -661,6 +669,7 @@ def test_public_runtime_delivery_handoffs_reach_production_and_survive_store_reo
             "policy_id": policy["policy_id"],
             "deployment_id": f"deployment:public-runtime:{target_stage}",
             "cohort_id": "canary-10-percent",
+            **IMAGE_CLAIMS,
             "traffic_volume": 2500,
             "observation_window_seconds": 1200,
             "artifact_hashes": artifact_hashes,
@@ -1007,6 +1016,7 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
             "policy_id": policy["policy_id"],
             "deployment_id": f"deployment:runtime:{stage}",
             "cohort_id": "canary-10-percent",
+            **IMAGE_CLAIMS,
             "traffic_volume": 2500,
             "observation_window_seconds": 1200,
             "artifact_hashes": artifact_hashes,
