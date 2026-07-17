@@ -8,6 +8,7 @@ import pytest
 from cortex_server.modules.route_health import RouteHealthMonitor
 from cortex_server.runtime.delivery_resilience import DeliveryDeadLetterStore, resilient_delivery_attempt
 import cortex_server.runtime.delivery_resilience as delivery_resilience
+import cortex_server.runtime.handoff_consumer as handoff_consumer
 import cortex_server.runtime.production_build_loop as production_build_loop
 import cortex_server.runtime.runtime_delivery_quota as runtime_delivery_quota
 from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
@@ -23,6 +24,27 @@ from cortex_server.runtime.release_workflow import (
 
 VERIFIER_ID = "resilience-independent-verifier"
 VERIFIER_SECRET = "resilience-verifier-secret-000000000001"
+CONTROLLER_BOOT_ID = "11111111-1111-4111-8111-111111111111"
+CONTROLLER_BRAIN_ID = "cortex-brain-startup-revision:" + "a" * 32
+
+
+def _rotation_intent(
+    *,
+    phase: str,
+    generation: int,
+    expected_generation: int,
+    activate: str,
+    retire: str,
+):
+    return {
+        "phase": phase,
+        "generation": generation,
+        "expected_generation": expected_generation,
+        "activate_verifier_ids": [activate],
+        "retire_verifier_ids": [retire],
+    }
+
+
 def _release_state(store: ReleaseWorkflowStore, process_id: str) -> ReleaseWorkflowState:
     state = ReleaseWorkflowState(
         process_id=process_id,
@@ -386,10 +408,24 @@ def test_durable_verifier_trust_survives_add_drain_retire_restart_and_rejects_id
     rotated_trust, rotated_check = production_build_loop._durable_release_verifier_credentials(
         delivery_root,
         {VERIFIER_ID: VERIFIER_SECRET, new_verifier: new_secret},
+        rotation_intent=_rotation_intent(
+            phase="overlap",
+            generation=1,
+            expected_generation=0,
+            activate=new_verifier,
+            retire=VERIFIER_ID,
+        ),
     )
     restarted_trust, restarted_check = production_build_loop._durable_release_verifier_credentials(
         delivery_root,
         {new_verifier: new_secret},
+        rotation_intent=_rotation_intent(
+            phase="drained",
+            generation=2,
+            expected_generation=1,
+            activate=new_verifier,
+            retire=VERIFIER_ID,
+        ),
     )
 
     assert initial_check["trustedVerifierCount"] == 1
@@ -430,7 +466,19 @@ def test_verifier_activation_acceptance_and_retirement_share_monotonic_lifecycle
     )
     monkeypatch.setenv(
         "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
-        json.dumps({new_id: new_secret}),
+        json.dumps({old_id: old_secret, new_id: new_secret}),
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT",
+        json.dumps(
+            _rotation_intent(
+                phase="overlap",
+                generation=1,
+                expected_generation=0,
+                activate=new_id,
+                retire=old_id,
+            )
+        ),
     )
     observed = []
     real_record = production_build_loop.record_release_artifact_receipt
@@ -470,10 +518,42 @@ def test_verifier_activation_acceptance_and_retirement_share_monotonic_lifecycle
     assert observed[0][0] < receipt.acceptance_generation
 
     backwards = datetime.now(timezone.utc) - timedelta(days=7)
+    monkeypatch.delenv("CORTEX_RELEASE_VERIFIER_ROTATION_INTENT")
+    production_build_loop._durable_release_verifier_credentials(
+        delivery_root,
+        {new_id: new_secret},
+        rotation_intent=_rotation_intent(
+            phase="drained",
+            generation=2,
+            expected_generation=1,
+            activate=new_id,
+            retire=old_id,
+        ),
+    )
+    next_id = "ordered-verifier-next"
+    next_secret = "ordered-verifier-next-secret-0000001"
+    production_build_loop._durable_release_verifier_credentials(
+        delivery_root,
+        {new_id: new_secret, next_id: next_secret},
+        rotation_intent=_rotation_intent(
+            phase="overlap",
+            generation=3,
+            expected_generation=2,
+            activate=next_id,
+            retire=new_id,
+        ),
+    )
     retired_trust, _ = production_build_loop._durable_release_verifier_credentials(
         delivery_root,
-        {"ordered-verifier-next": "ordered-verifier-next-secret-0000001"},
+        {next_id: next_secret},
         now=backwards,
+        rotation_intent=_rotation_intent(
+            phase="drained",
+            generation=4,
+            expected_generation=3,
+            activate=next_id,
+            retire=new_id,
+        ),
     )
     assert (
         retired_trust[new_id]["retirement_generation"]
@@ -484,6 +564,145 @@ def test_verifier_activation_acceptance_and_retirement_share_monotonic_lifecycle
         artifact_store=store.artifact_store(),
         verifier_credentials=retired_trust,
     )
+
+
+def test_release_consumer_readiness_uses_monotonic_freshness_and_rejects_invalid_ages(
+    monkeypatch,
+):
+    clocks = {"wall": 1000.0, "monotonic": 100.0}
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_HANDOFF_READY_MAX_AGE_SECONDS", "30")
+    monkeypatch.setattr(handoff_consumer.time, "time", lambda: clocks["wall"])
+    monkeypatch.setattr(
+        handoff_consumer.time,
+        "monotonic",
+        lambda: clocks["monotonic"],
+    )
+    with handoff_consumer._POLL_STATUS_LOCK:
+        handoff_consumer._POLL_STATUS.update(
+            {
+                "last_success_epoch": None,
+                "last_success_monotonic": None,
+                "last_success_at": None,
+                "last_error": "authenticated poll has not succeeded",
+                "capability_verified": False,
+                "cortex_brain_startup_revision_id": None,
+            }
+        )
+
+    handoff_consumer._record_poll_success(
+        cortex_brain_startup_revision_id=CONTROLLER_BRAIN_ID,
+        recipient="release-verifier",
+        capability_verified=True,
+    )
+    clocks["wall"] = 100.0
+    clocks["monotonic"] = 101.0
+    corrected = handoff_consumer._consumer_readiness()
+    assert corrected["ready"] is True
+    assert corrected["last_success_age_seconds"] == 1.0
+
+    clocks["monotonic"] = 99.0
+    backwards = handoff_consumer._consumer_readiness()
+    assert backwards["ready"] is False
+    assert backwards["last_success_age_seconds"] is None
+    assert backwards["freshness_error"] == "successful poll monotonic age is invalid"
+
+    clocks["monotonic"] = float("nan")
+    non_finite = handoff_consumer._consumer_readiness()
+    assert non_finite["ready"] is False
+    assert non_finite["last_success_age_seconds"] is None
+
+
+def test_observation_turnover_reconciles_before_record_and_recovers_readiness(
+    tmp_path,
+    monkeypatch,
+):
+    controller_root = tmp_path / "release-controller"
+    seeded = handoff_consumer._ObservationStore(controller_root)
+    seeded._save(
+        {
+            "version": "cortex.release-controller-observations.v1",
+            "windows": {
+                f"stale:{index}": {
+                    "boot_id": CONTROLLER_BOOT_ID,
+                    "first_epoch": 1.0,
+                    "last_epoch": 1.0,
+                    "first_monotonic": 1.0,
+                    "last_monotonic": 1.0,
+                    "total": 1,
+                    "succeeded": 1,
+                }
+                for index in range(4096)
+            },
+        }
+    )
+    before = seeded.path.read_bytes()
+    with pytest.raises(RuntimeError, match="observation state is invalid"):
+        seeded._save(
+            {
+                "version": "cortex.release-controller-observations.v1",
+                "windows": {str(index): {} for index in range(4097)},
+            }
+        )
+    assert seeded.path.read_bytes() == before
+
+    monkeypatch.setenv("CORTEX_ENV", "production")
+    monkeypatch.setenv("CORTEX_RELEASE_CONTROLLER_ROLE", "verifier")
+    monkeypatch.setenv("CORTEX_RELEASE_CONTROLLER_STATE_DIR", str(controller_root))
+    monkeypatch.setenv("CORTEX_RELEASE_MEASUREMENT_URL", "http://cortex/health")
+    monkeypatch.setattr(handoff_consumer, "_current_boot_id", lambda: CONTROLLER_BOOT_ID)
+    monkeypatch.setattr(handoff_consumer, "_probe_measurement", lambda _url: True)
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_verify_verifier_capability",
+        lambda _base_url, _instance_id: True,
+    )
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_submit_verifier_evidence",
+        lambda _base_url, _release, _window: None,
+    )
+    monkeypatch.setattr(
+        handoff_consumer,
+        "_post_json",
+        lambda *_args, **_kwargs: {
+            "success": True,
+            "recipient": "release-verifier",
+            "cortex_brain_startup_revision_id": CONTROLLER_BRAIN_ID,
+            "verification_releases": [
+                {
+                    "process_id": "proc-active",
+                    "release_id": "release-active",
+                    "revision_id": "revision-active",
+                    "target_stage": "canary",
+                }
+            ],
+            "messages": [],
+        },
+    )
+    with handoff_consumer._POLL_STATUS_LOCK:
+        handoff_consumer._POLL_STATUS.update(
+            {
+                "last_success_epoch": None,
+                "last_success_monotonic": None,
+                "last_success_at": None,
+                "last_error": "authenticated poll has not succeeded",
+                "capability_verified": False,
+                "cortex_brain_startup_revision_id": None,
+            }
+        )
+
+    handoff_consumer._poll_once(
+        "http://cortex",
+        "release-verifier",
+        "recipient-secret-material-000000000001",
+    )
+
+    reopened = handoff_consumer._ObservationStore(controller_root)
+    windows = reopened._load()["windows"]
+    assert list(windows) == ["verifier:release-active:revision-active:canary"]
+    assert windows["verifier:release-active:revision-active:canary"]["total"] == 4
+    assert handoff_consumer._consumer_readiness()["ready"] is True
 
 
 def test_capacity_reservation_cleanup_remains_permitted_during_pending_rollback(

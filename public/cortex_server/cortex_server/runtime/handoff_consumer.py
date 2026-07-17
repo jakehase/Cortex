@@ -40,6 +40,7 @@ from cortex_server.runtime.release_workflow import (
 _POLL_STATUS_LOCK = threading.Lock()
 _POLL_STATUS: Dict[str, Any] = {
     "last_success_epoch": None,
+    "last_success_monotonic": None,
     "last_success_at": None,
     "last_error": "authenticated poll has not succeeded",
     "awaiting_evidence_count": 0,
@@ -120,6 +121,13 @@ class _ObservationStore:
         return payload
 
     def _save(self, payload: Dict[str, Any]) -> None:
+        if (
+            not isinstance(payload, dict)
+            or payload.get("version") != "cortex.release-controller-observations.v1"
+            or not isinstance(payload.get("windows"), dict)
+            or len(payload["windows"]) > 4096
+        ):
+            raise RuntimeError("release controller observation state is invalid")
         encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
         if len(encoded) > 4 * 1024 * 1024:
             raise RuntimeError("release controller observation state exceeds durable bound")
@@ -210,7 +218,12 @@ class _ObservationStore:
             if payload["windows"].pop(key, None) is not None:
                 self._save(payload)
 
-    def retain(self, keys: set[str]) -> None:
+    def reconcile(self, active_keys: set[str]) -> None:
+        """Atomically discard inactive windows before any active window grows."""
+
+        keys = {str(key or "") for key in active_keys}
+        if "" in keys or len(keys) > 4096:
+            raise RuntimeError("release controller active observation set is invalid")
         with self._lock:
             payload = self._load()
             windows = payload["windows"]
@@ -219,6 +232,9 @@ class _ObservationStore:
                 windows.pop(key, None)
             if removed:
                 self._save(payload)
+
+    def retain(self, keys: set[str]) -> None:
+        self.reconcile(keys)
 
 
 def _now_iso() -> str:
@@ -735,16 +751,45 @@ def _poll_once(base_url: str, recipient: str, secret: str) -> None:
         if role == "verifier"
         else _verify_manager_capability(base_url, secret, instance_id)
     )
-    active_observation_keys: set[str] = set()
+    verification_releases = [
+        release
+        for release in response.get("verification_releases") or []
+        if isinstance(release, dict)
+    ]
+    managed_releases = [
+        release
+        for release in response.get("managed_releases") or []
+        if isinstance(release, dict)
+    ]
     if role == "verifier":
-        for release in response.get("verification_releases") or []:
-            if not isinstance(release, dict):
-                continue
+        active_observation_keys = {
+            (
+                f"verifier:{release.get('release_id')}:{release.get('revision_id')}:"
+                f"{release.get('target_stage')}"
+            )
+            for release in verification_releases
+        }
+    else:
+        active_observation_keys = {
+            f"manager:{release.get('release_id')}:{release.get('revision_id')}"
+            for release in managed_releases
+        }
+    # Reconcile under one lock before record() can cross the 4096-window
+    # boundary. A crash can now leave either the old readable ledger or the
+    # pruned readable ledger, never an oversized intermediate publication.
+    reconcile = getattr(observation_store, "reconcile", None)
+    if reconcile is None:
+        # Compatibility for injected stores implementing the former retain()
+        # protocol; the production store always provides atomic reconcile().
+        observation_store.retain(active_observation_keys)
+    else:
+        reconcile(active_observation_keys)
+    if role == "verifier":
+        for release in verification_releases:
             key = (
                 f"verifier:{release.get('release_id')}:{release.get('revision_id')}:"
                 f"{release.get('target_stage')}"
             )
-            active_observation_keys.add(key)
             window = _record_measurement_burst(
                 observation_store,
                 key=key,
@@ -758,23 +803,18 @@ def _poll_once(base_url: str, recipient: str, secret: str) -> None:
             if submitted is not None:
                 observation_store.clear(key)
     else:
-        for release in response.get("managed_releases") or []:
-            if isinstance(release, dict):
-                active_observation_keys.add(
-                    f"manager:{release.get('release_id')}:{release.get('revision_id')}"
-                )
-                _monitor_managed_release(
-                    base_url,
-                    secret,
-                    observation_store,
+        for release in managed_releases:
+            _monitor_managed_release(
+                base_url,
+                secret,
+                observation_store,
+                release,
+                _bound_measurement_url(
+                    measurement_url,
                     release,
-                    _bound_measurement_url(
-                        measurement_url,
-                        release,
-                        str(release.get("target_environment") or "production"),
-                    ),
-                )
-    observation_store.retain(active_observation_keys)
+                    str(release.get("target_environment") or "production"),
+                ),
+            )
     awaiting_evidence = 0
     for raw in response.get("messages") or []:
         if isinstance(raw, dict):
@@ -782,6 +822,9 @@ def _poll_once(base_url: str, recipient: str, secret: str) -> None:
                 _process_message(base_url, recipient, secret, raw)
             except _EvidencePending:
                 awaiting_evidence += 1
+            except Exception as exc:
+                _record_poll_error(exc)
+                raise
     # A successfully authenticated discovery whose available messages were
     # either completed or are waiting only for independent canary evidence
     # proves that the consumer can service the control-plane protocol.
@@ -803,6 +846,7 @@ def _record_poll_success(
     with _POLL_STATUS_LOCK:
         update: Dict[str, Any] = {
             "last_success_epoch": time.time(),
+            "last_success_monotonic": time.monotonic(),
             "last_success_at": _now_iso(),
             "last_error": None,
         }
@@ -830,24 +874,50 @@ def _record_poll_error(exc: BaseException) -> None:
 
 def _consumer_readiness() -> Dict[str, Any]:
     try:
-        max_age = max(
-            5.0,
-            min(float(os.getenv("CORTEX_HANDOFF_READY_MAX_AGE_SECONDS", "30")), 300.0),
+        configured_max_age = float(
+            os.getenv("CORTEX_HANDOFF_READY_MAX_AGE_SECONDS", "30")
         )
+        if not math.isfinite(configured_max_age):
+            raise ValueError
+        max_age = max(5.0, min(configured_max_age, 300.0))
     except ValueError:
         max_age = 30.0
     with _POLL_STATUS_LOCK:
         snapshot = dict(_POLL_STATUS)
-    last_success = snapshot.get("last_success_epoch")
-    age = time.time() - float(last_success) if last_success is not None else None
+    last_success_monotonic = snapshot.get("last_success_monotonic")
+    age: float | None = None
+    freshness_error: str | None = None
+    if last_success_monotonic is None:
+        freshness_error = "successful poll has no monotonic freshness checkpoint"
+    else:
+        try:
+            monotonic_now = float(time.monotonic())
+            monotonic_success = float(last_success_monotonic)
+            candidate_age = monotonic_now - monotonic_success
+            if (
+                not math.isfinite(monotonic_now)
+                or not math.isfinite(monotonic_success)
+                or not math.isfinite(candidate_age)
+                or candidate_age < 0
+            ):
+                raise ValueError
+            age = candidate_age
+        except (TypeError, ValueError):
+            freshness_error = "successful poll monotonic age is invalid"
     capability_verified = bool(snapshot.get("capability_verified"))
     instance_id = str(snapshot.get("cortex_brain_startup_revision_id") or "")
-    ready = age is not None and age <= max_age and (
-        (
-            capability_verified
-            and bool(_CORTEX_BRAIN_STARTUP_REVISION_PATTERN.fullmatch(instance_id))
+    ready = (
+        snapshot.get("last_error") is None
+        and freshness_error is None
+        and age is not None
+        and age <= max_age
+        and (
+            (
+                capability_verified
+                and bool(_CORTEX_BRAIN_STARTUP_REVISION_PATTERN.fullmatch(instance_id))
+            )
+            or not _production_environment()
         )
-        or not _production_environment()
     )
     return {
         "status": "ready" if ready else "not_ready",
@@ -855,6 +925,7 @@ def _consumer_readiness() -> Dict[str, Any]:
         "last_success_at": snapshot.get("last_success_at"),
         "last_success_age_seconds": round(age, 3) if age is not None else None,
         "maximum_success_age_seconds": max_age,
+        "freshness_error": freshness_error,
         "last_error": snapshot.get("last_error"),
         "awaiting_evidence_count": int(snapshot.get("awaiting_evidence_count") or 0),
         "capability_verified": capability_verified,

@@ -322,9 +322,49 @@ def test_production_readiness_requires_live_consumers_and_matching_reasoning_sta
     rotated_secret = "verifier-key-v2-000000000000000000001"
     monkeypatch.setenv(
         "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
+        json.dumps(
+            {
+                "independent-release-verifier": "verifier-key-0000000000000000000001",
+                rotated_verifier: rotated_secret,
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT",
+        json.dumps(
+            {
+                "phase": "overlap",
+                "generation": 1,
+                "expected_generation": 0,
+                "activate_verifier_ids": [rotated_verifier],
+                "retire_verifier_ids": ["independent-release-verifier"],
+            }
+        ),
+    )
+    overlapping = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    assert overlapping["ready"] is True
+    assert overlapping["checks"]["releaseVerifierTrust"]["activeVerifierIds"] == [
+        "independent-release-verifier",
+        rotated_verifier,
+    ]
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
         json.dumps({rotated_verifier: rotated_secret}),
     )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT",
+        json.dumps(
+            {
+                "phase": "drained",
+                "generation": 2,
+                "expected_generation": 1,
+                "activate_verifier_ids": [rotated_verifier],
+                "retire_verifier_ids": ["independent-release-verifier"],
+            }
+        ),
+    )
     rotated = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
+    monkeypatch.delenv("CORTEX_RELEASE_VERIFIER_ROTATION_INTENT")
     restarted = production_build_loop.probe_runtime_delivery_readiness(delivery_root)
     assert rotated["ready"] is True
     assert restarted["ready"] is True
@@ -405,16 +445,48 @@ def test_durable_release_verifier_rotation_persists_lifecycle_epochs(tmp_path):
         {old_id: old_secret},
         now=activated,
     )
+    overlap_intent = {
+        "phase": "overlap",
+        "generation": 1,
+        "expected_generation": 0,
+        "activate_verifier_ids": [new_id],
+        "retire_verifier_ids": [old_id],
+    }
+    overlapping, overlap_check = production_build_loop._durable_release_verifier_credentials(
+        root,
+        {old_id: old_secret, new_id: new_secret},
+        now=rotated,
+        rotation_intent=overlap_intent,
+    )
+    stale, stale_check = production_build_loop._durable_release_verifier_credentials(
+        root,
+        {old_id: old_secret},
+        now=rotated + timedelta(minutes=1),
+    )
+    drained = rotated + timedelta(hours=1)
     trusted, check = production_build_loop._durable_release_verifier_credentials(
         root,
         {new_id: new_secret},
-        now=rotated,
+        now=drained,
+        rotation_intent={
+            **overlap_intent,
+            "phase": "drained",
+            "generation": 2,
+            "expected_generation": 1,
+        },
     )
 
     assert trusted[old_id]["activation_epoch"] == 0.0
-    assert trusted[old_id]["retirement_epoch"] == rotated.timestamp()
+    assert overlapping[old_id]["retirement_epoch"] is None
+    assert stale[new_id]["retirement_epoch"] is None
+    assert stale_check["activeVerifierIds"] == [new_id, old_id]
+    assert trusted[old_id]["retirement_epoch"] == drained.timestamp()
     assert trusted[new_id]["activation_epoch"] == rotated.timestamp()
     assert trusted[new_id]["retirement_epoch"] is None
+    assert overlap_check["configurationGeneration"] == 1
+    assert overlap_check["rotationIntent"]["phase"] == "overlap"
+    assert check["configurationGeneration"] == 2
+    assert check["rotationIntent"]["phase"] == "completed"
     assert check["historicalVerifierIds"] == [old_id]
     assert check["retiredVerifierIds"] == [old_id]
     payload = json.loads(
@@ -423,6 +495,8 @@ def test_durable_release_verifier_rotation_persists_lifecycle_epochs(tmp_path):
         )
     )
     assert payload["schema_version"] == production_build_loop.RELEASE_VERIFIER_TRUST_SCHEMA
+    assert payload["configuration_generation"] == 2
+    assert payload["rotation_intent"]["phase"] == "completed"
 
     with pytest.raises(RuntimeError, match="cannot be reactivated"):
         production_build_loop._durable_release_verifier_credentials(
@@ -430,6 +504,21 @@ def test_durable_release_verifier_rotation_persists_lifecycle_epochs(tmp_path):
             {old_id: old_secret, new_id: new_secret},
             now=rotated + timedelta(days=1),
         )
+
+    before = (root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE).read_bytes()
+    with pytest.raises(RuntimeError, match="compare-and-set generation mismatch"):
+        production_build_loop._durable_release_verifier_credentials(
+            root,
+            {new_id: new_secret},
+            rotation_intent={
+                "phase": "drained",
+                "generation": 4,
+                "expected_generation": 3,
+                "activate_verifier_ids": [new_id],
+                "retire_verifier_ids": [old_id],
+            },
+        )
+    assert (root / production_build_loop.RELEASE_VERIFIER_TRUST_FILE).read_bytes() == before
 
 
 def test_durable_release_verifier_trust_bounds_material_records_and_object(
@@ -490,7 +579,17 @@ def test_durable_release_verifier_trust_replacement_uses_runtime_quota(tmp_path,
         reject_projection,
     )
     with pytest.raises(runtime_delivery_quota.RuntimeDeliveryQuotaError, match="recovery reserve"):
-        production_build_loop._durable_release_verifier_credentials(root, new_credentials)
+        production_build_loop._durable_release_verifier_credentials(
+            root,
+            new_credentials,
+            rotation_intent={
+                "phase": "overlap",
+                "generation": 1,
+                "expected_generation": 0,
+                "activate_verifier_ids": ["verifier-new"],
+                "retire_verifier_ids": ["verifier-old"],
+            },
+        )
 
     assert len(calls) == 1
     assert calls[0]["replacing"] == target
@@ -2093,7 +2192,24 @@ def test_production_loop_waits_for_recipient_handoff_evidence_before_promotion(t
     rotated_verifier_secret = "rotated-release-verifier-secret-material-0123456789"
     monkeypatch.setenv(
         "CORTEX_RELEASE_VERIFIER_CREDENTIALS",
-        json.dumps({rotated_verifier_id: rotated_verifier_secret}),
+        json.dumps(
+            {
+                VERIFIER_ID: VERIFIER_SECRET,
+                rotated_verifier_id: rotated_verifier_secret,
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT",
+        json.dumps(
+            {
+                "phase": "overlap",
+                "generation": 1,
+                "expected_generation": 0,
+                "activate_verifier_ids": [rotated_verifier_id],
+                "retire_verifier_ids": [VERIFIER_ID],
+            }
+        ),
     )
     observed_verifier_maps = []
     original_evaluate_gate = production_build_loop.evaluate_release_promotion_gate

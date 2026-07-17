@@ -83,8 +83,9 @@ REASONING_DATABASE_NAME = "reasoning_runtime.db"
 RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID = "__cortex_manager_capability__"
 RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON = "non_mutating_manager_capability_challenge"
 MIN_PRODUCTION_SECRET_BYTES = 32
-RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v3"
-PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v2"
+RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v4"
+PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v3"
+OLDER_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v2"
 LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v1"
 RELEASE_VERIFIER_TRUST_FILE = ".release-verifier-trust.json"
 RELEASE_VERIFIER_TRUST_LIMIT = 4096
@@ -247,6 +248,25 @@ def _runtime_delivery_credential_map(environment_name: str) -> Dict[str, str]:
     return credentials
 
 
+def _runtime_delivery_verifier_rotation_intent() -> Optional[JsonDict]:
+    """Load an explicit, generation-bound verifier rotation transition."""
+
+    raw = os.getenv("CORTEX_RELEASE_VERIFIER_ROTATION_INTENT", "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT must be valid JSON"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(
+            "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT must be an object"
+        )
+    return dict(parsed)
+
+
 def _release_verifier_trust_bytes(payload: JsonDict) -> bytes:
     return (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
@@ -343,8 +363,9 @@ def _release_verifier_lifecycle_transaction(
     active_credentials: Dict[str, str],
     *,
     now: Optional[datetime] = None,
+    rotation_intent: Optional[JsonDict] = None,
 ):
-    """Serialize activation, server acceptance ordinals, and retirement."""
+    """Serialize activation, server acceptance ordinals, and explicit retirement."""
 
     delivery_root = Path(delivery_root).resolve()
     normalized_active = {
@@ -353,6 +374,65 @@ def _release_verifier_lifecycle_transaction(
     }
     for verifier_id, secret in normalized_active.items():
         _validate_release_verifier_material(verifier_id, secret)
+
+    def normalize_rotation_intent(
+        value: Any,
+        *,
+        allowed_phases: set[str],
+        source: str,
+    ) -> Optional[JsonDict]:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+        phase = str(value.get("phase") or "").strip()
+        generation = value.get("generation")
+        expected_generation = value.get("expected_generation")
+        if (
+            phase not in allowed_phases
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation <= 0
+            or isinstance(expected_generation, bool)
+            or not isinstance(expected_generation, int)
+            or expected_generation < 0
+            or generation != expected_generation + 1
+        ):
+            raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+
+        normalized_ids: Dict[str, List[str]] = {}
+        for field in ("activate_verifier_ids", "retire_verifier_ids"):
+            raw_ids = value.get(field)
+            if not isinstance(raw_ids, list):
+                raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+            ids = [str(identity or "").strip() for identity in raw_ids]
+            if (
+                not ids
+                or any(
+                    not identity
+                    or len(identity.encode("utf-8")) > MAX_RELEASE_VERIFIER_ID_BYTES
+                    for identity in ids
+                )
+                or len(set(ids)) != len(ids)
+            ):
+                raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+            normalized_ids[field] = sorted(ids)
+        if set(normalized_ids["activate_verifier_ids"]) & set(
+            normalized_ids["retire_verifier_ids"]
+        ):
+            raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+        return {
+            "phase": phase,
+            "generation": int(generation),
+            "expected_generation": int(expected_generation),
+            **normalized_ids,
+        }
+
+    requested_rotation = normalize_rotation_intent(
+        rotation_intent,
+        allowed_phases={"overlap", "drained"},
+        source="requested",
+    )
 
     target = delivery_root / RELEASE_VERIFIER_TRUST_FILE
     lock_target = delivery_root / f"{RELEASE_VERIFIER_TRUST_FILE}.lock"
@@ -402,12 +482,15 @@ def _release_verifier_lifecycle_transaction(
                 "credentials": {},
                 "updated_at": current_iso,
                 "last_lifecycle_generation": 0,
+                "configuration_generation": 0,
+                "rotation_intent": None,
             }
             initializing_trust = not target.exists()
             if not initializing_trust:
                 loaded = json.loads(target.read_text(encoding="utf-8"))
                 if not isinstance(loaded, dict) or loaded.get("schema_version") not in {
                     LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA,
+                    OLDER_RELEASE_VERIFIER_TRUST_SCHEMA,
                     PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA,
                     RELEASE_VERIFIER_TRUST_SCHEMA,
                 }:
@@ -425,7 +508,37 @@ def _release_verifier_lifecycle_transaction(
             ):
                 raise RuntimeError("durable release verifier trust generation is invalid")
             last_generation = int(raw_generation)
-            migration_retirement_epoch = trust_epoch(
+            if loaded_schema == RELEASE_VERIFIER_TRUST_SCHEMA:
+                raw_configuration_generation = payload.get("configuration_generation")
+                if (
+                    isinstance(raw_configuration_generation, bool)
+                    or not isinstance(raw_configuration_generation, int)
+                    or raw_configuration_generation < 0
+                ):
+                    raise RuntimeError(
+                        "durable release verifier configuration generation is invalid"
+                    )
+                configuration_generation = int(raw_configuration_generation)
+                persisted_rotation = normalize_rotation_intent(
+                    payload.get("rotation_intent"),
+                    allowed_phases={"overlap", "completed"},
+                    source="durable",
+                )
+                if (
+                    persisted_rotation is not None
+                    and persisted_rotation["generation"] != configuration_generation
+                ):
+                    raise RuntimeError(
+                        "durable release verifier rotation generation is invalid"
+                    )
+                if configuration_generation > 0 and persisted_rotation is None:
+                    raise RuntimeError(
+                        "durable release verifier rotation intent is missing"
+                    )
+            else:
+                configuration_generation = 0
+                persisted_rotation = None
+            trust_epoch(
                 payload.get("updated_at") or current_iso,
                 field="updated_at",
             )
@@ -474,7 +587,10 @@ def _release_verifier_lifecycle_transaction(
                         raise RuntimeError(
                             f"durable release verifier trust lifecycle is invalid for {verifier_id}"
                         )
-                    if loaded_schema == RELEASE_VERIFIER_TRUST_SCHEMA:
+                    if loaded_schema in {
+                        PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA,
+                        RELEASE_VERIFIER_TRUST_SCHEMA,
+                    }:
                         raw_activation_generation = raw_record.get("activation_generation")
                         raw_retirement_generation = raw_record.get("retirement_generation")
                         if (
@@ -528,21 +644,6 @@ def _release_verifier_lifecycle_transaction(
                     raise RuntimeError(
                         f"retired release verifier identity cannot be reactivated: {verifier_id}"
                     )
-                if verifier_id not in normalized_active and retirement_epoch is None:
-                    latest_acceptance = _max_durable_verifier_acceptance_epoch(
-                        delivery_root,
-                        verifier_id,
-                    )
-                    retirement_epoch = max(
-                        activation_epoch,
-                        migration_retirement_epoch
-                        if loaded_schema == LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA
-                        else current_epoch,
-                        math.nextafter(latest_acceptance, math.inf),
-                    )
-                    last_generation += 1
-                    retirement_generation = last_generation
-                    retired.append(verifier_id)
                 records[verifier_id] = {
                     "secret": secret,
                     "secret_sha256": digest,
@@ -553,6 +654,137 @@ def _release_verifier_lifecycle_transaction(
                 }
 
             added: List[str] = []
+            transition_changed = False
+            allowed_additions: set[str] = set()
+            if initializing_trust:
+                if requested_rotation is not None:
+                    raise RuntimeError(
+                        "release verifier rotation cannot precede trust bootstrap"
+                    )
+                allowed_additions = set(normalized_active)
+            elif requested_rotation is None:
+                unknown = set(normalized_active) - set(records)
+                if unknown:
+                    raise RuntimeError(
+                        "release verifier activation requires an explicit rotation intent: "
+                        + ", ".join(sorted(unknown))
+                    )
+            elif requested_rotation["phase"] == "overlap":
+                activate_ids = set(requested_rotation["activate_verifier_ids"])
+                retire_ids = set(requested_rotation["retire_verifier_ids"])
+                if not activate_ids <= set(normalized_active) or not retire_ids <= set(
+                    normalized_active
+                ):
+                    raise RuntimeError(
+                        "release verifier overlap must configure activating and retiring identities"
+                    )
+                if not retire_ids <= set(records) or any(
+                    records[verifier_id].get("retirement_epoch") is not None
+                    for verifier_id in retire_ids
+                ):
+                    raise RuntimeError(
+                        "release verifier overlap retirement set is not durably active"
+                    )
+                unknown = set(normalized_active) - set(records)
+                if not unknown <= activate_ids:
+                    raise RuntimeError(
+                        "release verifier overlap contains an activation outside its intent"
+                    )
+                durable_request = {
+                    **requested_rotation,
+                    "phase": "overlap",
+                }
+                if (
+                    configuration_generation
+                    == requested_rotation["expected_generation"]
+                    and requested_rotation["generation"]
+                    == configuration_generation + 1
+                ):
+                    if persisted_rotation is not None and persisted_rotation.get(
+                        "phase"
+                    ) == "overlap":
+                        raise RuntimeError(
+                            "release verifier overlap generation has not drained"
+                        )
+                    configuration_generation = requested_rotation["generation"]
+                    persisted_rotation = durable_request
+                    transition_changed = True
+                elif not (
+                    configuration_generation == requested_rotation["generation"]
+                    and persisted_rotation == durable_request
+                ):
+                    raise RuntimeError(
+                        "release verifier rotation compare-and-set generation mismatch"
+                    )
+                allowed_additions = activate_ids
+            else:
+                activate_ids = set(requested_rotation["activate_verifier_ids"])
+                retire_ids = set(requested_rotation["retire_verifier_ids"])
+                if not activate_ids <= set(normalized_active) or retire_ids & set(
+                    normalized_active
+                ):
+                    raise RuntimeError(
+                        "drained release verifier rotation has an invalid active set"
+                    )
+                if set(normalized_active) - set(records):
+                    raise RuntimeError(
+                        "drained release verifier rotation cannot activate identities"
+                    )
+                expected_overlap = {
+                    **requested_rotation,
+                    "phase": "overlap",
+                    "generation": requested_rotation["expected_generation"],
+                    "expected_generation": requested_rotation["expected_generation"] - 1,
+                }
+                completed_rotation = {
+                    **requested_rotation,
+                    "phase": "completed",
+                }
+                if requested_rotation["expected_generation"] <= 0:
+                    raise RuntimeError(
+                        "release verifier rotation compare-and-set generation mismatch"
+                    )
+                if (
+                    configuration_generation
+                    == requested_rotation["expected_generation"]
+                    and persisted_rotation == expected_overlap
+                ):
+                    if not retire_ids <= set(records) or any(
+                        records[verifier_id].get("retirement_epoch") is not None
+                        for verifier_id in retire_ids
+                    ):
+                        raise RuntimeError(
+                            "release verifier retirement set is not durably active"
+                        )
+                    for verifier_id in sorted(retire_ids):
+                        record = records[verifier_id]
+                        latest_acceptance = _max_durable_verifier_acceptance_epoch(
+                            delivery_root,
+                            verifier_id,
+                        )
+                        record["retirement_epoch"] = max(
+                            float(record["activation_epoch"]),
+                            current_epoch,
+                            math.nextafter(latest_acceptance, math.inf),
+                        )
+                        last_generation += 1
+                        record["retirement_generation"] = last_generation
+                        retired.append(verifier_id)
+                    configuration_generation = requested_rotation["generation"]
+                    persisted_rotation = completed_rotation
+                    transition_changed = True
+                elif not (
+                    configuration_generation == requested_rotation["generation"]
+                    and persisted_rotation == completed_rotation
+                    and all(
+                        records[verifier_id].get("retirement_epoch") is not None
+                        for verifier_id in retire_ids
+                    )
+                ):
+                    raise RuntimeError(
+                        "release verifier rotation compare-and-set generation mismatch"
+                    )
+
             for verifier_id, secret in sorted(normalized_active.items()):
                 existing = records.get(verifier_id)
                 if existing is not None and not hmac.compare_digest(str(existing.get("secret") or ""), secret):
@@ -560,6 +792,10 @@ def _release_verifier_lifecycle_transaction(
                         f"release verifier identity {verifier_id} cannot be reused with different key material"
                     )
                 if existing is None:
+                    if verifier_id not in allowed_additions:
+                        raise RuntimeError(
+                            f"release verifier activation is not authorized by rotation intent: {verifier_id}"
+                        )
                     if initializing_trust:
                         activation_generation = 0
                     else:
@@ -582,12 +818,15 @@ def _release_verifier_lifecycle_transaction(
                 or loaded_schema != RELEASE_VERIFIER_TRUST_SCHEMA
                 or bool(added)
                 or bool(retired)
+                or transition_changed
             )
             updated_payload = {
                 "schema_version": RELEASE_VERIFIER_TRUST_SCHEMA,
                 "credentials": records,
                 "updated_at": current_iso if trust_changed else str(payload.get("updated_at") or current_iso),
                 "last_lifecycle_generation": last_generation,
+                "configuration_generation": configuration_generation,
+                "rotation_intent": persisted_rotation,
             }
             if trust_changed:
                 _persist_release_verifier_trust(delivery_root, target, updated_payload)
@@ -601,7 +840,12 @@ def _release_verifier_lifecycle_transaction(
             check = {
                 "ok": True,
                 "path": str(target),
-                "activeVerifierIds": sorted(normalized_active),
+                "activeVerifierIds": sorted(
+                    verifier_id
+                    for verifier_id, record in records.items()
+                    if record.get("retirement_epoch") is None
+                ),
+                "configuredVerifierIds": sorted(normalized_active),
                 "historicalVerifierIds": sorted(
                     verifier_id
                     for verifier_id, record in records.items()
@@ -610,6 +854,10 @@ def _release_verifier_lifecycle_transaction(
                 "trustedVerifierCount": len(records),
                 "addedVerifierIds": sorted(added),
                 "retiredVerifierIds": sorted(retired),
+                "configurationGeneration": configuration_generation,
+                "rotationIntent": (
+                    None if persisted_rotation is None else dict(persisted_rotation)
+                ),
                 "error": None,
             }
             lifecycle["check"] = check
@@ -641,6 +889,7 @@ def _durable_release_verifier_credentials(
     active_credentials: Dict[str, str],
     *,
     now: Optional[datetime] = None,
+    rotation_intent: Optional[JsonDict] = None,
 ) -> tuple[Dict[str, JsonDict], JsonDict]:
     """Persist verifier lifecycles while retaining bounded historical verification."""
 
@@ -648,6 +897,7 @@ def _durable_release_verifier_credentials(
         delivery_root,
         active_credentials,
         now=now,
+        rotation_intent=rotation_intent,
     ) as lifecycle:
         return lifecycle["credentials"], lifecycle["check"]
 
@@ -1443,6 +1693,7 @@ def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
             verifier_credentials, trust_check = _durable_release_verifier_credentials(
                 delivery_root,
                 verifier_credentials,
+                rotation_intent=_runtime_delivery_verifier_rotation_intent(),
             )
             checks["releaseVerifierTrust"] = trust_check
             checks["historicalCredentialSeparation"] = _credential_separation_check(
@@ -3869,6 +4120,7 @@ def ingest_production_release_artifact(
     with _release_verifier_lifecycle_transaction(
         delivery_root,
         active_credentials,
+        rotation_intent=_runtime_delivery_verifier_rotation_intent(),
     ) as lifecycle:
         with release_store.release_transaction(process_id):
             release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
@@ -4153,6 +4405,7 @@ def advance_production_release_loop(
         verifier_credentials, _ = _durable_release_verifier_credentials(
             release_store.path.parent,
             active_verifier_credentials,
+            rotation_intent=_runtime_delivery_verifier_rotation_intent(),
         )
 
     for _ in range(len(_stage_plan(contract)) + 1):
