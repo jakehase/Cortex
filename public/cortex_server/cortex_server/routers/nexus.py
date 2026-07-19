@@ -3805,6 +3805,31 @@ def _content_hash(value: str) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
 
 
+def _chroma_compatible_metadata(metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    """Preserve metadata facts using only values accepted by Chroma."""
+    normalized: Dict[str, Any] = {}
+    scalar_types = (str, int, float, bool)
+    for key, value in metadata.items():
+        compatible = value is None or isinstance(value, scalar_types)
+        if isinstance(value, float) and not math.isfinite(value):
+            compatible = False
+        if isinstance(value, list):
+            item_type = type(value[0]) if value else None
+            compatible = bool(value) and item_type in scalar_types and all(
+                type(item) is item_type
+                and (not isinstance(item, float) or math.isfinite(item))
+                for item in value
+            )
+        normalized[str(key)] = value if compatible else json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+    return normalized
+
+
 def _b64url_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
@@ -7716,22 +7741,24 @@ async def commit_memory(interaction: InteractionData, request: Request):
                 tenant_id=scope["tenant_id"],
                 workspace_id=scope["storage_workspace_id"],
                 idempotency_key=signed_receipt_jti,
-                metadata={
-                    **caller_metadata,
-                    "query": interaction.query,
-                    "levels_used": _normalized_commit_levels(interaction.levels_used),
-                    "source": "nexus.commit",
-                    "tenant_id": scope["tenant_id"],
-                    "workspace_id": scope["workspace_id"],
-                    "assurance": {
-                        "receipt_version": _ASSURANCE_RECEIPT_VERSION,
-                        "receipt_id": signed_receipt_jti,
-                        "validator_pass": bool(validator_summary.get("pass")),
-                        "validator_reason_codes": validator_summary.get("reason_codes", []),
-                        "risk_flags": risk_flags,
-                        "scope": scope,
-                    },
-                },
+                metadata=_chroma_compatible_metadata(
+                    {
+                        **caller_metadata,
+                        "query": interaction.query,
+                        "levels_used": _normalized_commit_levels(interaction.levels_used),
+                        "source": "nexus.commit",
+                        "tenant_id": scope["tenant_id"],
+                        "workspace_id": scope["workspace_id"],
+                        "assurance": {
+                            "receipt_version": receipt_payload["version"],
+                            "receipt_id": signed_receipt_jti,
+                            "validator_pass": bool(validator_summary.get("pass")),
+                            "validator_reason_codes": validator_summary.get("reason_codes", []),
+                            "risk_flags": risk_flags,
+                            "scope": scope,
+                        },
+                    }
+                ),
             )
             if recovery_required:
                 durable_write = lookup_idempotent_memory_record(**l22_request)

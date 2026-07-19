@@ -29,11 +29,25 @@ from cortex_server.runtime.assurance_receipt_ledger import (
 import cortex_server.runtime.assurance_receipt_ledger as assurance_ledger
 
 
+def _assert_chroma_compatible_metadata(metadata):
+    assert isinstance(metadata, dict) and metadata
+    for key, value in metadata.items():
+        assert isinstance(key, str)
+        if isinstance(value, list):
+            assert value
+            item_type = type(value[0])
+            assert item_type in (str, int, float, bool)
+            assert all(type(item) is item_type for item in value)
+        else:
+            assert value is None or isinstance(value, (str, int, float, bool))
+
+
 class _Recorder:
     def __init__(self):
         self.calls = []
 
     def __call__(self, **kwargs):
+        _assert_chroma_compatible_metadata(kwargs.get("metadata"))
         self.calls.append(kwargs)
         return {
             "id": "mem-123",
@@ -92,6 +106,7 @@ def _app(monkeypatch, recorder, *, committed_records=None):
         return result
 
     def lookup_idempotent_memory_record(**kwargs):
+        _assert_chroma_compatible_metadata(kwargs.get("metadata"))
         prior = committed.get(str(kwargs.get("idempotency_key") or ""))
         if prior is None:
             return None
@@ -205,6 +220,10 @@ async def test_commit_writes_to_l22_when_assurance_allows(monkeypatch):
                     "source": "caller.forged",
                     "assurance": {"validator_pass": False},
                     "client_note": "keep this non-reserved field",
+                    "client_context": {
+                        "attempt": 1,
+                        "labels": ["python311", "docker-stage"],
+                    },
                 },
             },
         )
@@ -227,17 +246,26 @@ async def test_commit_writes_to_l22_when_assurance_allows(monkeypatch):
     stored_metadata = recorder.calls[0]["metadata"]
     assert stored_metadata["query"] == interaction["query"]
     assert stored_metadata["source"] == "nexus.commit"
-    assert stored_metadata["assurance"]["validator_pass"] is True
-    assert stored_metadata["assurance"]["receipt_version"] == "nexus.commit-receipt.v1"
-    assert (
-        recorder.calls[0]["idempotency_key"]
-        == stored_metadata["assurance"]["receipt_id"]
-    )
-    assert (
-        recorder.calls[0]["idempotency_key"]
-        == nexus._decode_assurance_receipt(receipt)["jti"]
+    assurance_metadata = json.loads(stored_metadata["assurance"])
+    receipt_payload = nexus._decode_assurance_receipt(receipt)
+    assert assurance_metadata["validator_pass"] is True
+    assert assurance_metadata["validator_reason_codes"] == []
+    assert assurance_metadata["risk_flags"] == receipt_payload["risk_flags"]
+    assert assurance_metadata["scope"] == receipt_payload["scope"]
+    assert assurance_metadata["receipt_version"] == receipt_payload["version"]
+    assert recorder.calls[0]["idempotency_key"] == assurance_metadata["receipt_id"]
+    assert recorder.calls[0]["idempotency_key"] == receipt_payload["jti"]
+    assert stored_metadata["assurance"] == json.dumps(
+        assurance_metadata,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
     )
     assert stored_metadata["client_note"] == "keep this non-reserved field"
+    assert json.loads(stored_metadata["client_context"]) == {
+        "attempt": 1,
+        "labels": ["python311", "docker-stage"],
+    }
 
 
 @pytest.mark.asyncio
@@ -275,7 +303,10 @@ async def test_commit_rejects_alternate_idempotency_identity_without_consuming_r
     assert len(recorder.calls) == 1
     signed_jti = nexus._decode_assurance_receipt(receipt)["jti"]
     assert recorder.calls[0]["idempotency_key"] == signed_jti
-    assert recorder.calls[0]["metadata"]["assurance"]["receipt_id"] == signed_jti
+    assert (
+        json.loads(recorder.calls[0]["metadata"]["assurance"])["receipt_id"]
+        == signed_jti
+    )
 
 
 @pytest.mark.asyncio
