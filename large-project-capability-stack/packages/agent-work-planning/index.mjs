@@ -114,9 +114,14 @@ function declaredSurfaces({ input = {}, contractBundle = {} } = {}) {
     id: task.surfaceIds?.[0] || task.taskId,
     label: task.goal || task.taskId,
     files: task.allowedFiles || [],
+    deps: task.dependencies || [],
     verifiers: task.requiredVerifiers || [],
     evidence: [],
-    metadata: { sourceTaskId: task.taskId }
+    metadata: {
+      ...(task.source?.metadata || {}),
+      sourceTaskId: task.taskId,
+      deps: task.dependencies || []
+    }
   }));
   if (taskSurfaces.length) return taskSurfaces;
   return (input.surfaces || []).map((surface) => ({

@@ -153,6 +153,38 @@ test('canonical Agent Work planning selects and materializes an automatic runtim
   assert.equal(result.artifacts.semanticWorkforcePlan, path.join(out, 'semantic_workforce_plan.json'));
 });
 
+test('canonical planning preserves task dependencies when selecting admitted work', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-work-dependency-facade-'));
+  const repo = path.join(root, 'repo');
+  const out = path.join(root, 'run');
+  fs.mkdirSync(repo, { recursive: true });
+  const result = compileObjective({
+    input: {
+      objective: 'Run a dependency-ordered two-task plan',
+      repoPath: repo,
+      fidelity: 'production_slice',
+      requestedAgentCount: 2,
+      executionBoundary: 'control_plane_allowed',
+      permissions: { allow: ['read_repo', 'write_product_code', 'run_tests'], forbid: ['external_send'] },
+      doneWhen: ['independent_acceptance_green'],
+      surfaces: [
+        { id: 'a001', goal: 'Produce the prerequisite', files: ['artifacts/a001.json'], verify: ['a001_proof'] },
+        { id: 'a002', goal: 'Consume the prerequisite', files: ['artifacts/a002.json'], verify: ['a002_proof'], deps: ['a001'] }
+      ]
+    },
+    outputDir: out,
+    config: { executionBoundary: 'control_plane_allowed' }
+  });
+  assert.equal(result.ok, true, JSON.stringify(result, null, 2));
+  const tasks = JSON.parse(fs.readFileSync(path.join(out, 'task_contracts.json'), 'utf8'));
+  const workforce = JSON.parse(fs.readFileSync(path.join(out, 'semantic_workforce_plan.json'), 'utf8'));
+  assert.deepEqual(tasks.find((task) => task.taskId === 'a002').dependencies, ['a001']);
+  assert.equal(workforce.totalWorkItemCount, 2);
+  assert.equal(workforce.readyWorkItemCount, 1);
+  assert.equal(workforce.blockedOrDependentWorkItemCount, 1);
+  assert.deepEqual(workforce.selectedWorkItemIds, ['a001']);
+});
+
 test('objective controller consumes semantic workforce target for its wave contract', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-work-auto-controller-'));
   const artifactRoot = path.join(root, 'artifacts');
