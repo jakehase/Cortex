@@ -556,22 +556,66 @@ function extractText(value: unknown): string {
   return Object.values(obj).map(extractText).filter(Boolean).join('\n');
 }
 
-function extractAssistantVisibleText(messages: unknown): string {
+export function extractLatestAssistantVisibleText(messages: unknown): string {
   if (!Array.isArray(messages)) return '';
-  return messages
-    .filter((m) => m && typeof m === 'object' && (m as Record<string, unknown>).role === 'assistant')
-    .map((m) => extractText((m as Record<string, unknown>).content ?? m))
-    .filter(Boolean)
-    .join('\n');
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== 'object' || (message as Record<string, unknown>).role !== 'assistant') continue;
+    const text = extractText((message as Record<string, unknown>).content ?? message).trim();
+    if (text) return text.slice(-12000);
+  }
+  return '';
+}
+export function extractLlmOutputText(event: any): string {
+  const assistantTexts = extractText(event?.assistantTexts).trim();
+  if (assistantTexts) return assistantTexts.slice(-12000);
+  return extractText(event?.lastAssistant).trim().slice(-12000);
+}
+const LLM_OUTPUT_WAIT_MS = 250;
+const OUTPUT_CACHE_TTL_MS = 60_000;
+const OUTPUT_CACHE_MAX = 512;
+const OUTPUT_WAITER_MAX = 256;
+const LIFECYCLE_IN_FLIGHT_MAX = 256;
+const LIFECYCLE_COMPLETED_MAX = 1024;
+const LIFECYCLE_COMPLETED_TTL_MS = 15 * 60_000;
+
+function lifecyclePrincipal(ctx: any): string {
+  return [
+    String(ctx?.agentId ?? 'main').trim() || 'main',
+    String(ctx?.userId ?? 'local-user').trim() || 'local-user',
+    String(ctx?.channelId ?? 'local-channel').trim() || 'local-channel',
+    String(ctx?.sessionKey ?? ctx?.sessionId ?? 'local-session').trim() || 'local-session',
+  ].join('|');
+}
+function lifecycleIdentity(event: any, ctx: any): string {
+  return String(event?.runId ?? ctx?.runId ?? '').trim();
+}
+function outputCorrelationKey(event: any, ctx: any): string {
+  const principal = lifecyclePrincipal(ctx);
+  const identity = lifecycleIdentity(event, ctx);
+  return identity ? `${principal}|run:${identity}` : principal;
+}
+function lifecyclePersistenceKey(event: any, ctx: any, text = ''): string {
+  const identity = lifecycleIdentity(event, ctx);
+  const principal = lifecyclePrincipal(ctx);
+  return identity ? `${principal}|run:${identity}` : `${principal}|legacy:${normalizeQuery(text).slice(-512)}`;
 }
 function detectProjectSlug(text: string): string | null {
   const t = normalizeQuery(text);
   if (/\bmailchimp\b/.test(t)) return 'mailchimp';
   if (/\bpmhnp\b|\bclaim guard\b/.test(t)) return 'pmhnp-claim-guard';
+  if (/\bprofit tournament\b/.test(t)) return 'profit-tournament';
+  if (/\bcortex memory\b|\bmemory system\b/.test(t)) return 'cortex-memory';
+  if (/\bai os\b/.test(t)) return 'ai-os';
+  if (/\bagent work\b/.test(t)) return 'agent-work';
   return null;
 }
 function containsSecretLike(text: string): boolean {
-  return /\b(api[_-]?key|token|password|secret|bearer|ssh-rsa|BEGIN [A-Z ]+ PRIVATE KEY)\b/i.test(text);
+  return /-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text)
+    || /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_-]{6,}\b/.test(text)
+    || /\bwhsec_[A-Za-z0-9_-]{8,}\b/.test(text)
+    || /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i.test(text)
+    || /\b(?:password|passphrase|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|webhook[_ -]?secret|secret|token)\b\s*(?::|=|\bis\b)\s*["'`]?[^\s"'`]{8,}/i.test(text);
 }
 function summarizeShape(value: unknown, depth = 0): unknown {
   if (depth > 2) return typeof value;
@@ -595,7 +639,9 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
   if (/\bremember this\b|\bplease remember\b|\bmy preference\b|\bi prefer\b|\bcall me\b|\btimezone\b|\bpronouns\b/i.test(t)) { score += 0.45; reasons.push('explicit_preference'); kind = 'preference'; }
   if (/\bdecision\b|\bwe decided\b|\bthe plan is\b|\bfrom now on\b|\bdefault to\b|\balways use\b/i.test(t)) { score += 0.35; reasons.push('decision'); kind = 'decision'; }
   if (/\breply-anchor context .* primary\b|\breply anchor .* primary\b|\bpersistence first\b/i.test(t)) { score += 0.2; reasons.push('anti_drift_or_lesson'); if (kind === 'transient') kind = 'decision'; }
-  if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b/i.test(t)) { score += 0.22; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
+  if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b|\bimplemented\b|\bdeployed\b|\bverified\b|\bconfigured\b|\bauthorized\b|\benabled\b/i.test(t)) { score += 0.3; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
+  if (/\bcorrection\b|\bcorrected\b|\bsupersed(?:e|ed)\b|\bwas wrong\b/i.test(t)) { score += 0.22; reasons.push('correction'); if (kind === 'transient') kind = 'fact'; }
+  if (/\b(?:uuid|account id|project id|calendar id|entity id)\b/i.test(t) || /\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/i.test(t) || /\bacct_[A-Za-z0-9]+\b/.test(t)) { score += 0.46; reasons.push('stable_identifier'); kind = 'stable_identifier'; }
   if (detectProjectSlug(t)) { score += 0.16; reasons.push('named_project'); if (kind === 'transient') kind = 'fact'; }
   if (/\b(today|right now|currently|just now|this morning|tonight|lol|haha|thanks|ok|okay|sure)\b/i.test(t)) { score -= 0.18; reasons.push('transient_chat'); }
   if (/https?:\/\/\S+/.test(t) && t.length < 140) { score -= 0.18; reasons.push('bare_link'); }
@@ -634,46 +680,51 @@ function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: a
   };
 }
 
-async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
-  if (cfg.enabledCodecContinuity === false) return;
+async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string): Promise<boolean> {
+  if (cfg.enabledCodecContinuity === false) return true;
   const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
-  if (!sessionKey) return;
-  const text = [extractAssistantVisibleText(event?.messages), extractText(event?.result), String(fallbackText || '')]
-    .filter(Boolean).join('\n').replace(/\s+/g, ' ').trim().slice(-2400);
-  if (text.length < 20 || containsSecretLike(text)) return;
+  if (!sessionKey) return true;
+  const text = (String(fallbackText || '').trim()
+    || extractLatestAssistantVisibleText(event?.messages)
+    || extractText(event?.result))
+    .replace(/\s+/g, ' ').trim().slice(-2400);
+  if (text.length < 20 || containsSecretLike(text)) return true;
   try {
     await postJson(cfg.baseUrl, cfg.codecEventsPath, {
       session_key: sessionKey,
       events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown' } }],
       max_chars: 1200,
     }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+    return true;
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed: ${String(error)}`);
+    return false;
   }
 }
-async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
-  if (!cfg.enabledWriteThrough) return;
-  const text = [
-    extractAssistantVisibleText(event?.messages),
-    extractText(event?.result),
-    String(fallbackText || ''),
-  ].filter(Boolean).join('\n').replace(/\s+/g, ' ').trim();
+async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string): Promise<boolean> {
+  if (!cfg.enabledWriteThrough) return true;
+  const text = (String(fallbackText || '').trim()
+    || extractLatestAssistantVisibleText(event?.messages)
+    || extractText(event?.result))
+    .replace(/\s+/g, ' ').trim();
   if (!text) {
     api.logger.info?.('cortex-memory-bridge: write-through skipped (no extractable text)');
-    return;
+    return true;
   }
   const recent = text.slice(-2000);
   const dur = durabilityScore(recent);
   if (dur.score < cfg.minDurabilityScore) {
     api.logger.info?.(`cortex-memory-bridge: write-through skipped (score=${dur.score.toFixed(2)} < min=${cfg.minDurabilityScore.toFixed(2)} reasons=${dur.reasons.join(',') || 'none'})`);
-    return;
+    return true;
   }
   const senderScoped = buildWriteThroughMetadata(cfg, ctx, recent, dur);
   try {
     await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
     api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
+    return true;
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: write-through failed: ${String(error)}`);
+    return false;
   }
 }
 
@@ -683,7 +734,129 @@ const plugin = {
   description: 'Bridge from OpenClaw memory_search into Cortex /knowledge/search with optional durable-memory write-through.',
   kind: 'memory',
   register(api: OpenClawPluginApi) {
-    const recentOutputBySession = new Map<string, string>();
+    const recentOutputBySession = new Map<string, { text: string; expiresAt: number }>();
+    const outputWaiters = new Map<string, Set<(text?: string) => void>>();
+    const lifecycleInFlight = new Map<string, Promise<boolean>>();
+    const lifecycleCompleted = new Map<string, number>();
+    let outputWaiterCount = 0;
+
+    const pruneOutputCache = () => {
+      const now = Date.now();
+      for (const [key, entry] of recentOutputBySession) {
+        if (entry.expiresAt <= now) recentOutputBySession.delete(key);
+      }
+      while (recentOutputBySession.size > OUTPUT_CACHE_MAX) {
+        const oldest = recentOutputBySession.keys().next().value;
+        if (typeof oldest !== 'string') break;
+        recentOutputBySession.delete(oldest);
+      }
+    };
+    const setOutput = (key: string, text: string) => {
+      if (!key || !text) return;
+      recentOutputBySession.delete(key);
+      recentOutputBySession.set(key, { text: text.slice(-12000), expiresAt: Date.now() + OUTPUT_CACHE_TTL_MS });
+      pruneOutputCache();
+      const waiters = outputWaiters.get(key);
+      if (!waiters) return;
+      outputWaiters.delete(key);
+      for (const resolve of waiters) resolve(text.slice(-12000));
+    };
+    const getOutput = (key: string): string | undefined => {
+      pruneOutputCache();
+      const entry = recentOutputBySession.get(key);
+      if (!entry) return undefined;
+      recentOutputBySession.delete(key);
+      recentOutputBySession.set(key, entry);
+      return entry.text;
+    };
+    const clearOutput = (key: string, expected?: string) => {
+      const current = recentOutputBySession.get(key);
+      if (current && (!expected || current.text === expected)) recentOutputBySession.delete(key);
+    };
+    const waitForOutput = (key: string): Promise<string | undefined> => {
+      const current = getOutput(key);
+      if (current) return Promise.resolve(current);
+      if (outputWaiterCount >= OUTPUT_WAITER_MAX) return Promise.reject(new Error('Cortex lifecycle output rendezvous is at capacity'));
+      return new Promise((resolve) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const finish = (text?: string) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          const waiters = outputWaiters.get(key);
+          if (waiters) {
+            waiters.delete(finish);
+            if (!waiters.size) outputWaiters.delete(key);
+          }
+          outputWaiterCount = Math.max(0, outputWaiterCount - 1);
+          resolve(text);
+        };
+        const waiters = outputWaiters.get(key) ?? new Set<(text?: string) => void>();
+        waiters.add(finish);
+        outputWaiters.set(key, waiters);
+        outputWaiterCount += 1;
+        timer = setTimeout(() => finish(undefined), LLM_OUTPUT_WAIT_MS);
+      });
+    };
+    const pruneCompleted = () => {
+      const now = Date.now();
+      for (const [key, expiresAt] of lifecycleCompleted) {
+        if (expiresAt <= now) lifecycleCompleted.delete(key);
+      }
+      while (lifecycleCompleted.size > LIFECYCLE_COMPLETED_MAX) {
+        const oldest = lifecycleCompleted.keys().next().value;
+        if (typeof oldest !== 'string') break;
+        lifecycleCompleted.delete(oldest);
+      }
+    };
+    const persistLifecycle = async (key: string, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string): Promise<boolean> => {
+      pruneCompleted();
+      if (lifecycleCompleted.has(key)) return true;
+      const existing = lifecycleInFlight.get(key);
+      if (existing) return existing;
+      if (lifecycleInFlight.size >= LIFECYCLE_IN_FLIGHT_MAX) throw new Error('Cortex lifecycle persistence is at capacity');
+      const job = (async () => {
+        const writeThrough = await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+        const codec = await maybeWriteCodecContinuity(api, cfg, event, ctx, fallbackText);
+        return writeThrough && codec;
+      })();
+      lifecycleInFlight.set(key, job);
+      try {
+        const persisted = await job;
+        if (persisted) {
+          lifecycleCompleted.delete(key);
+          lifecycleCompleted.set(key, Date.now() + LIFECYCLE_COMPLETED_TTL_MS);
+          pruneCompleted();
+        }
+        return persisted;
+      } finally {
+        if (lifecycleInFlight.get(key) === job) lifecycleInFlight.delete(key);
+      }
+    };
+    const handleLifecycle = async (kind: 'agent_end' | 'subagent_ended', event: any, ctx: any) => {
+      const cfg = resolveConfig(api.pluginConfig);
+      const principal = lifecyclePrincipal(ctx);
+      const identity = lifecycleIdentity(event, ctx);
+      const correlationKey = outputCorrelationKey(event, ctx);
+      let fallbackText = identity ? getOutput(correlationKey) : getOutput(principal);
+      let persistenceKey = lifecyclePersistenceKey(event, ctx, fallbackText || extractText(event?.result));
+      const alreadyScheduled = lifecycleInFlight.has(persistenceKey) || lifecycleCompleted.has(persistenceKey);
+      if (!fallbackText && identity && !alreadyScheduled) fallbackText = await waitForOutput(correlationKey);
+      if (!fallbackText && identity && !alreadyScheduled) {
+        throw new Error(`Cortex lifecycle persistence refused stale ${kind} content because authoritative llm_output did not arrive`);
+      }
+      persistenceKey = lifecyclePersistenceKey(event, ctx, fallbackText || extractText(event?.result));
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: ${kind} shape ${JSON.stringify({ principal, identity: identity || null, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      const persisted = await persistLifecycle(persistenceKey, cfg, event, ctx, fallbackText);
+      if (!persisted && kind === 'agent_end') throw new Error('Cortex lifecycle persistence failed; output retained for retry');
+      if (fallbackText) {
+        clearOutput(correlationKey, fallbackText);
+        clearOutput(principal, fallbackText);
+      }
+    };
 
     api.registerMemoryRuntime({
       async getMemorySearchManager(params: { agentId: string }) {
@@ -769,32 +942,19 @@ const plugin = {
     }), { names: ['memory_get'] });
 
     api.on('llm_output', (event: any, ctx: any) => {
-      const key = String(ctx?.sessionKey || ctx?.sessionId || '');
-      const text = extractText(event).replace(/\s+/g, ' ').trim();
-      if (key && text) recentOutputBySession.set(key, text.slice(-4000));
+      const text = extractLlmOutputText(event).replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      const principal = lifecyclePrincipal(ctx);
+      setOutput(outputCorrelationKey(event, ctx), text);
+      setOutput(principal, text);
     });
 
     api.on('subagent_ended', async (event: any, ctx: any) => {
-      const cfg = resolveConfig(api.pluginConfig);
-      const key = String(ctx?.sessionKey || ctx?.sessionId || '');
-      const fallbackText = key ? recentOutputBySession.get(key) : undefined;
-      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: subagent_ended shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      await maybeWriteThrough(api, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
-      await maybeWriteCodecContinuity(api, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
+      await handleLifecycle('subagent_ended', event, ctx);
     });
 
     api.on('agent_end', async (event: any, ctx: any) => {
-      const cfg = resolveConfig(api.pluginConfig);
-      const key = String(ctx?.sessionKey || ctx?.sessionId || '');
-      const fallbackText = key ? recentOutputBySession.get(key) : undefined;
-      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-      await maybeWriteCodecContinuity(api, cfg, event, ctx, fallbackText);
-      if (key) recentOutputBySession.delete(key);
+      await handleLifecycle('agent_end', event, ctx);
     });
   },
 };

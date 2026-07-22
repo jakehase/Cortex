@@ -1,7 +1,131 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { durabilityScore, buildWriteThroughMetadata, reconcileResults } from './index.ts';
+import bridgePlugin, {
+  durabilityScore,
+  buildWriteThroughMetadata,
+  reconcileResults,
+  extractLatestAssistantVisibleText,
+  extractLlmOutputText,
+} from './index.ts';
+
+const profitTournamentCorrection = `[Cortex] On July 21, you authorized the separate Profit Tournament Market Stripe account. We later verified that charges and payouts were enabled. I confused missing Hetzner credentials with a missing account and was wrong. The durable project record is corrected. Install the restricted API key and webhook secret through the secure deployment path; creating another account is not required.`;
+
+test('current OpenClaw assistant content shape extracts visible text and skips thinking', () => {
+  const messages = [
+    { role: 'assistant', content: [{ type: 'thinking', thinking: 'internal', thinkingSignature: 'sig' }, { type: 'text', text: 'older answer' }] },
+    { role: 'user', content: [{ type: 'text', text: 'follow-up' }] },
+    { role: 'assistant', content: [{ type: 'thinking', thinking: 'internal', thinkingSignature: 'sig' }, { type: 'text', text: profitTournamentCorrection }] },
+  ];
+  assert.equal(extractLatestAssistantVisibleText(messages), profitTournamentCorrection);
+});
+
+test('llm_output falls back to lastAssistant when assistantTexts is empty', () => {
+  const event = {
+    assistantTexts: [],
+    lastAssistant: { role: 'assistant', content: [{ type: 'text', text: profitTournamentCorrection }] },
+  };
+  assert.equal(extractLlmOutputText(event), profitTournamentCorrection);
+});
+
+test('safe discussion of credential installation is durable but concrete secret values are blocked', () => {
+  const safe = durabilityScore(profitTournamentCorrection);
+  assert.ok(safe.score >= 0.64, `expected safe correction >= 0.64, got ${safe.score}`);
+  assert.ok(!safe.reasons.includes('secret_like'));
+
+  const unsafe = durabilityScore('Profit Tournament API key=sk_live_ABC123456789 was configured and verified.');
+  assert.equal(unsafe.score, 0);
+  assert.ok(unsafe.reasons.includes('secret_like'));
+});
+
+test('agent_end waits for the following llm_output and stores only the latest reply', async () => {
+  const hooks = {};
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: JSON.parse(String(options?.body || '{}')) });
+    return { ok: true, json: async () => ({ stored: true }) };
+  };
+  try {
+    bridgePlugin.register({
+      pluginConfig: {
+        baseUrl: 'http://127.0.0.1:8000',
+        enabledWriteThrough: true,
+        enabledCodecContinuity: false,
+        minDurabilityScore: 0.64,
+      },
+      logger: { info() {}, warn() {} },
+      registerMemoryRuntime() {},
+      registerTool() {},
+      on(name, handler) { hooks[name] = handler; },
+    });
+    const ctx = { runId: 'run-current-shape', sessionId: 'session-1', sessionKey: 'agent:main:main', channelId: 'whatsapp' };
+    const agentEnd = hooks.agent_end({
+      messages: [{ role: 'assistant', content: [{ type: 'text', text: 'PMHNP old project setup.' }] }],
+      success: true,
+    }, ctx);
+    await hooks.llm_output({ runId: 'run-current-shape', assistantTexts: [profitTournamentCorrection], lastAssistant: {} }, ctx);
+    await agentEnd;
+
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/l22\/store$/);
+    assert.equal(calls[0].body.content, profitTournamentCorrection.replace(/\s+/g, ' ').trim());
+    assert.equal(calls[0].body.metadata.project, 'profit-tournament');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('agent_end refuses stale transcript content when correlated llm_output never arrives', async () => {
+  const hooks = {};
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: JSON.parse(String(options?.body || '{}')) });
+    return { ok: true, json: async () => ({ stored: true }) };
+  };
+  try {
+    bridgePlugin.register({
+      pluginConfig: { baseUrl: 'http://127.0.0.1:8000', enabledWriteThrough: true, enabledCodecContinuity: false, minDurabilityScore: 0.64 },
+      logger: { info() {}, warn() {} }, registerMemoryRuntime() {}, registerTool() {}, on(name, handler) { hooks[name] = handler; },
+    });
+    const ctx = { runId: 'stale-run-1', sessionId: 'stale-session', sessionKey: 'stale-session', channelId: 'whatsapp' };
+    await assert.rejects(
+      hooks.agent_end({ messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Old durable project configuration that must not be stored.' }] }] }, ctx),
+      /refused stale agent_end content/,
+    );
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('subagent_ended and agent_end coalesce one correlated lifecycle persistence', async () => {
+  const hooks = {};
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: JSON.parse(String(options?.body || '{}')) });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return { ok: true, json: async () => ({ stored: true }) };
+  };
+  try {
+    bridgePlugin.register({
+      pluginConfig: { baseUrl: 'http://127.0.0.1:8000', enabledWriteThrough: true, enabledCodecContinuity: false, minDurabilityScore: 0.64 },
+      logger: { info() {}, warn() {} }, registerMemoryRuntime() {}, registerTool() {}, on(name, handler) { hooks[name] = handler; },
+    });
+    const ctx = { runId: 'shared-run', sessionId: 'shared-session', sessionKey: 'shared-session', channelId: 'whatsapp' };
+    await hooks.llm_output({ runId: 'shared-run', assistantTexts: [profitTournamentCorrection] }, ctx);
+    await Promise.all([
+      hooks.subagent_ended({ runId: 'shared-run', outcome: 'ok' }, ctx),
+      hooks.agent_end({ runId: 'shared-run', success: true }, ctx),
+    ]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].body.content, profitTournamentCorrection.replace(/\s+/g, ' ').trim());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test('canonical project-status summaries score as durable project state', () => {
   const text = `Mailchimp remediated-run takeaway: trustworthy partial result. Current canonical status: supervisorStatus: red, matrixStatus: partial, parityStatus: partial, blocker: null. Remaining surfaces: C_data_model_and_persistence_parity, E_reporting_analytics_parity. Persistence first. Reply-anchor context should be treated as primary.`;

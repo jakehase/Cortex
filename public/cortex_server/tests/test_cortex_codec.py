@@ -196,6 +196,106 @@ def test_codec_persists_to_l22_when_state_changes(monkeypatch):
     assert recorder.calls[0]["metadata"]["codec_utility_item_count"] >= 1
 
 
+def test_codec_persistence_excludes_derived_rollups(monkeypatch):
+    calls = []
+    fake_l22 = types.ModuleType("cortex_server.routers.l22")
+    fake_l22.store_memory_record = lambda **kwargs: calls.append(kwargs) or {"id": "bounded-1", "status": "stored", "metadata": kwargs.get("metadata", {})}
+    monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", fake_l22)
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
+    monkeypatch.setattr(codec_module, "_prune_codec_snapshots_in_l22", lambda *a, **k: {"status": "noop"})
+
+    state = build_codec_state([{"text": "Remember this stable preference: begin replies with [Cortex].", "tags": ["preference"]}])
+    state["rollup_state"] = {"payload": "x" * 1_250_000}
+    state["promotion_state"] = {"derived": True}
+    state["schema_state"] = {"derived": True}
+    state["memory_facts"] = [{"derived": True}]
+
+    result = codec_module._persist_codec_state_to_l22("codec-bounded-persistence-test", state)
+    stored = codec_module.json.loads(calls[0]["content"])
+
+    assert result["status"] == "stored"
+    assert len(calls[0]["content"]) < 50_000
+    assert not ({"rollup_state", "promotion_state", "schema_state", "memory_facts"} & stored.keys())
+    assert stored["summary"] == state["summary"]
+
+
+def test_codec_in_memory_cache_is_bounded(monkeypatch):
+    monkeypatch.setattr(codec_module, "CODEC_IN_MEMORY_MAX_SESSIONS", 2)
+    keys = ["codec-cache-bound-a", "codec-cache-bound-b", "codec-cache-bound-c"]
+    for key in keys:
+        codec_module._SESSION_CODEC_STATE.pop(key, None)
+        codec_module._SESSION_CODEC_PERSIST.pop(key, None)
+    try:
+        for key in keys:
+            codec_module._cache_codec_state(key, {"summary": key})
+        assert keys[0] not in codec_module._SESSION_CODEC_STATE
+        assert keys[1] in codec_module._SESSION_CODEC_STATE
+        assert keys[2] in codec_module._SESSION_CODEC_STATE
+    finally:
+        for key in keys:
+            codec_module._SESSION_CODEC_STATE.pop(key, None)
+            codec_module._SESSION_CODEC_PERSIST.pop(key, None)
+
+
+def test_codec_compaction_bounds_untrusted_source_and_recomputes_projections(monkeypatch):
+    oversized = {
+        "version": codec_module.CODEC_VERSION,
+        "schema_version": codec_module.CODEC_SCHEMA_VERSION,
+        "generated_at": "2026-07-22T20:00:00+00:00",
+        "summary": "s" * 100_000,
+        "source_event_count": "not-an-integer",
+        "identity_state": {
+            "preferences": [f"preference-{index}-" + ("x" * 5000) for index in range(100)],
+            "preference_revision_count": "malformed",
+        },
+        "project_state": {},
+        "world_state": {},
+        "failure_state": {},
+        "outcome_state": {"success_count": "broken"},
+        "utility_state": {},
+        "rollup_state": {"amplification": "x" * 1_000_000},
+        "unknown_generated_projection": {"amplification": "x" * 1_000_000},
+    }
+
+    compact = codec_module._compact_codec_state(oversized)
+    encoded = codec_module.json.dumps(compact, sort_keys=True)
+
+    assert len(encoded) < 100_000
+    assert len(compact["summary"]) <= codec_module.CODEC_STATE_SUMMARY_MAX_CHARS
+    assert len(compact["identity_state"]["preferences"]) <= 8
+    assert compact["source_event_count"] == 0
+    assert compact["outcome_state"]["success_count"] == 0
+    assert "rollup_state" not in compact
+    assert "unknown_generated_projection" not in compact
+
+    session_key = "codec-derived-read-test"
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+    codec_module._cache_codec_state(session_key, compact)
+    projected = get_codec_state(session_key)
+    assert "schema_state" in projected
+    assert "promotion_state" in projected
+    assert "memory_facts" in projected
+    assert "schema_state" not in codec_module._SESSION_CODEC_STATE[session_key]
+
+
+def test_codec_repeated_updates_converge_to_bounded_source_state(monkeypatch):
+    session_key = "codec-repeat-bounded-test"
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+    codec_module._SESSION_CODEC_STATE.pop(session_key, None)
+    for index in range(250):
+        state = update_codec_state_for_session(
+            session_key,
+            [{"text": f"Remember stable bounded fact {index}: " + ("x" * 5000), "tags": ["fact"]}],
+        )
+        state["rollup_state"] = {"derived": "y" * 50_000}
+        codec_module._cache_codec_state(session_key, state)
+
+    cached = codec_module._SESSION_CODEC_STATE[session_key]
+    assert len(codec_module.json.dumps(cached, sort_keys=True)) < 100_000
+    assert len(cached["world_state"]["durable_facts"]) <= 8
+    assert not (codec_module._CODEC_DERIVED_STATE_KEYS & cached.keys())
+
+
 def test_codec_can_hydrate_latest_state_from_l22(monkeypatch):
     fake_state = build_codec_state(
         [{"text": "Jake prefers replies to begin with [Cortex].", "metadata": {"project": "Cortex Codec"}}]

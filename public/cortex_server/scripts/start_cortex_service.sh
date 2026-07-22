@@ -13,7 +13,7 @@ export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 export MALLOC_TRIM_THRESHOLD_="${MALLOC_TRIM_THRESHOLD_:-131072}"
 export MALLOC_TOP_PAD_="${MALLOC_TOP_PAD_:-131072}"
 
-export CORTEX_HOST="${CORTEX_HOST:-0.0.0.0}"
+export CORTEX_HOST="${CORTEX_HOST:-127.0.0.1}"
 export CORTEX_PORT="${CORTEX_PORT:-8000}"
 
 exec /usr/bin/python3 -m uvicorn cortex_server.main:app \

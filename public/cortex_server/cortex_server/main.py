@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 import importlib
 import os
@@ -18,6 +19,7 @@ from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.middleware.event_ledger_middleware import EventLedgerMiddleware
 from cortex_server.middleware.observability import ObservabilityMiddleware
+from cortex_server.middleware.write_authorization import MUTATING_METHODS, WriteAuthorizationMiddleware
 from cortex_server.routers import websockets
 import asyncio
 import subprocess
@@ -35,9 +37,10 @@ ADMIN_TOKEN = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
 FAIL_CLOSED_MEMORY_ENDPOINTS = os.getenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "true").lower() in {"1", "true", "yes", "on"}
 
 
-def load_dynamic_routers(app: FastAPI) -> None:
+def load_dynamic_routers(app: FastAPI) -> dict:
     """Dynamically discover and mount routers from cortex_server.routers."""
     routers_dir = Path(__file__).parent / "routers"
+    report = {"loaded": [], "safeModeSkipped": [], "failed": [], "missingRouter": []}
     for file_path in routers_dir.glob("*.py"):
         module_name = file_path.stem
         if module_name == "__init__" or module_name.startswith("_"):
@@ -46,19 +49,33 @@ def load_dynamic_routers(app: FastAPI) -> None:
             continue
         if SAFE_MODE and module_name in DANGEROUS_ROUTERS:
             logger.warning("SAFE_MODE: skipping dangerous router '%s'", module_name)
+            report["safeModeSkipped"].append(module_name)
             continue
         try:
             module = importlib.import_module(f"cortex_server.routers.{module_name}")
         except Exception as e:
             logger.warning("Skipping router '%s' due to import error: %s", module_name, e)
+            report["failed"].append({"router": module_name, "error": f"{type(e).__name__}: {e}"})
             continue
         router = getattr(module, "router", None)
         if router is not None:
             app.include_router(router, prefix=f"/{module_name}", tags=[module_name.title()])
+            report["loaded"].append(module_name)
+        else:
+            report["missingRouter"].append(module_name)
+    for key in ("loaded", "safeModeSkipped", "missingRouter"):
+        report[key].sort()
+    report["failed"].sort(key=lambda row: row["router"])
+    app.state.router_load_report = report
+    return report
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+
+    write_auth_mode = os.getenv("CORTEX_WRITE_AUTH_MODE", "token_or_loopback").strip().lower()
+    write_token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
+    write_token_header = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -105,6 +122,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(
+        WriteAuthorizationMiddleware,
+        mode=write_auth_mode,
+        token=write_token,
+        header_name=write_token_header,
+    )
+
     @app.middleware("http")
     async def admin_guard(request, call_next):
         if SAFE_MODE and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
@@ -134,8 +158,79 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     # API Routers
-    load_dynamic_routers(app)
+    router_load_report = load_dynamic_routers(app)
     app.include_router(websockets.router, tags=["WebSockets"])
+
+    def readiness_payload() -> dict:
+        route_paths = {route.path for route in app.routes}
+        required_paths = {
+            value.strip()
+            for value in os.getenv("CORTEX_REQUIRED_PATHS", "/l22/store,/knowledge/search").split(",")
+            if value.strip()
+        }
+        required_routers = {
+            value.strip()
+            for value in os.getenv("CORTEX_REQUIRED_ROUTERS", "l22,knowledge").split(",")
+            if value.strip()
+        }
+        loaded_routers = set(router_load_report["loaded"])
+        missing_paths = sorted(required_paths - route_paths)
+        missing_routers = sorted(required_routers - loaded_routers)
+        graph_path = Path(__file__).resolve().parents[1] / "cortex_graph.db"
+        checks = {
+            "requiredPaths": {"ok": not missing_paths, "missing": missing_paths},
+            "requiredRouters": {"ok": not missing_routers, "missing": missing_routers},
+            "structuralGraph": {"ok": graph_path.is_file(), "path": str(graph_path)},
+            "writeAuthorization": {
+                "ok": write_auth_mode == "token_or_loopback" or (write_auth_mode == "token_required" and bool(write_token)),
+                "mode": write_auth_mode,
+                "tokenConfigured": bool(write_token),
+            },
+        }
+        ready = all(check["ok"] for check in checks.values())
+        return {
+            "status": "ready" if ready else "not_ready",
+            "ready": ready,
+            "service": "cortex",
+            "checks": checks,
+            "routerLoad": {
+                "loadedCount": len(router_load_report["loaded"]),
+                "safeModeSkipped": router_load_report["safeModeSkipped"],
+                "failed": router_load_report["failed"],
+                "missingRouter": router_load_report["missingRouter"],
+            },
+        }
+
+    @app.get("/ready")
+    async def readiness_check():
+        from fastapi.responses import JSONResponse
+        payload = readiness_payload()
+        return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
+
+    @app.get("/capabilities")
+    async def capability_inventory():
+        capabilities = []
+        for route in app.routes:
+            methods = sorted(method for method in (getattr(route, "methods", None) or []) if method not in {"HEAD", "OPTIONS"})
+            if not methods:
+                continue
+            capabilities.append({
+                "path": route.path,
+                "methods": methods,
+                "write": any(method in MUTATING_METHODS for method in methods),
+                "name": getattr(route, "name", None),
+            })
+        return {
+            "schemaVersion": "cortex.capability_inventory.v1",
+            "security": {
+                "writeAuthorizationMode": write_auth_mode,
+                "writeTokenConfigured": bool(write_token),
+                "writeTokenHeader": write_token_header,
+            },
+            "capabilityCount": len(capabilities),
+            "writeCapabilityCount": sum(1 for row in capabilities if row["write"]),
+            "capabilities": sorted(capabilities, key=lambda row: (row["path"], row["methods"])),
+        }
 
     @app.get("/health")
     async def health_check():
@@ -151,6 +246,12 @@ def create_app() -> FastAPI:
                 "autonomy_control_plane": True,
                 "event_ledger": True,
             },
+            "security": {
+                "writeAuthorizationMode": write_auth_mode,
+                "writeTokenConfigured": bool(write_token),
+                "networkBind": os.getenv("CORTEX_HOST", "127.0.0.1"),
+            },
+            "readiness": readiness_payload()["ready"],
         }
 
     @app.get("/")
@@ -169,6 +270,33 @@ def create_app() -> FastAPI:
             },
         }
 
+    def custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        components = schema.setdefault("components", {})
+        security_schemes = components.setdefault("securitySchemes", {})
+        security_schemes["CortexWriteToken"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": write_token_header,
+            "description": "Required for non-loopback mutating requests. Loopback is a trusted capability boundary in token_or_loopback mode.",
+        }
+        for path_item in schema.get("paths", {}).values():
+            for method in ("post", "put", "patch", "delete"):
+                operation = path_item.get(method)
+                if operation:
+                    operation["security"] = [{"CortexWriteToken": []}]
+                    operation["x-cortex-write-authorization-mode"] = write_auth_mode
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = custom_openapi
     return app
 
 
@@ -176,4 +304,4 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=os.getenv("CORTEX_HOST", "127.0.0.1"), port=int(os.getenv("CORTEX_PORT", "8000")))

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Cortex availability watchdog every 30 seconds
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30s
+AccuracySec=5s
+Persistent=true
+Unit=cortex-health-watchdog.service
+
+[Install]
+WantedBy=timers.target
