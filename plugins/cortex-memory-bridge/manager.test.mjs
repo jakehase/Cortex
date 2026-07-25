@@ -115,6 +115,25 @@ test('manager forwards signed tenant, workspace, and agent scope', async () => {
   }
 });
 
+test('configured deployment user remains stable across runtime hook shapes', async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (_url, options) => {
+    request = JSON.parse(String(options?.body));
+    return new Response('{"results":[],"search_mode":"semantic","degraded":false}');
+  };
+  try {
+    const manager = await CortexMemorySearchManager.create(managerParams(
+      { ...scopedConfig, userId: 'configured-openclaw-user', preferConfiguredUserId: true },
+      { userId: 'runtime-only-user' },
+    ));
+    await manager.search('stable configured principal');
+    assert.equal(request.scope.user_id, 'configured-openclaw-user');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('manager fails closed when non-default memory scope lacks authentication', async () => {
   const manager = await CortexMemorySearchManager.create(managerParams(
     { tenantId: 'tenant-a', workspaceId: 'workspace-a', sessionIdentityHmacSecret: 'session-test-secret' },

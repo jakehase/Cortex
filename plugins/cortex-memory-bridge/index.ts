@@ -38,6 +38,7 @@ type BridgeConfig = {
   workspaceId?: string;
   agentId?: string;
   userId?: string;
+  preferConfiguredUserId?: boolean;
   channelId?: string;
   sessionId?: string;
   scopeCredentialId?: string;
@@ -959,6 +960,7 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     workspaceId: typeof cfg.workspaceId === 'string' ? cfg.workspaceId.trim() : 'default',
     agentId: typeof cfg.agentId === 'string' && cfg.agentId.trim() ? cfg.agentId.trim() : 'main',
     userId: typeof cfg.userId === 'string' && cfg.userId.trim() ? cfg.userId.trim() : 'local-user',
+    preferConfiguredUserId: cfg.preferConfiguredUserId === true,
     channelId: typeof cfg.channelId === 'string' && cfg.channelId.trim() ? cfg.channelId.trim() : 'local-channel',
     sessionId: typeof cfg.sessionId === 'string' && cfg.sessionId.trim() ? cfg.sessionId.trim() : 'global-session',
     scopeCredentialId: typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '',
@@ -1422,7 +1424,11 @@ function scopedIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string
     tenant_id: String(cfg.tenantId || '').trim(),
     workspace_id: String(cfg.workspaceId || '').trim(),
     agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
-    user_id: String(ctx?.userId || cfg.userId || '').trim(),
+    user_id: String(
+      cfg.preferConfiguredUserId === true
+        ? (cfg.userId || ctx?.userId)
+        : (ctx?.userId || cfg.userId),
+    ).trim(),
     channel_id: String(ctx?.channelId || cfg.channelId || '').trim(),
     session_id: `openclaw-${sessionDigest}`,
   };

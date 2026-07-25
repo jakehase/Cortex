@@ -1038,6 +1038,7 @@ export default function register(api: any) {
   const hasScopeCredentialId = scopeCredentialId.length > 0;
   const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
   const allowUnsignedLocalDevelopment = cfg.allowUnsignedLocalDevelopment === true;
+  const preferConfiguredUserId = cfg.preferConfiguredUserId === true;
   // Tenant/workspace are instance configuration, while agent/user/channel and
   // session are per-callback identities. Local instance defaults remain valid.
   const tenantId = configuredTenantId || 'cortex-local';
@@ -1090,9 +1091,16 @@ export default function register(api: any) {
     const scope = {
       tenant_id: tenantId,
       workspace_id: workspaceId,
-      agent_id: String(ctx?.agentId || '').trim(),
-      user_id: String(ctx?.userId || ctx?.requesterSenderId || '').trim(),
-      channel_id: String(ctx?.channelId || ctx?.messageChannel || '').trim(),
+      // Current OpenClaw prompt hooks do not always expose requesterSenderId.
+      // Fixed configured fallbacks are trusted deployment policy; callback
+      // identity still takes precedence whenever the runtime supplies it.
+      agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
+      user_id: String(
+        preferConfiguredUserId
+          ? (cfg.userId || ctx?.userId || ctx?.requesterSenderId)
+          : (ctx?.userId || ctx?.requesterSenderId || cfg.userId),
+      ).trim(),
+      channel_id: String(ctx?.channelId || ctx?.messageChannel || cfg.channelId || '').trim(),
       session_id: sessionIdentity,
     };
     if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {

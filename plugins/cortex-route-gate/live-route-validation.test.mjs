@@ -190,7 +190,7 @@ test('private retrieval never falls back to accumulated prompt without a structu
   assert.equal(requestBody.private_retrieval_shadow_query, '');
 });
 
-test('callback identity is mandatory and two users never share adaptive state', async () => {
+test('configured hook fallbacks and callback principals never share adaptive state', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-route-principal-isolation-'));
   const handlers = new Map();
   register({
@@ -200,10 +200,11 @@ test('callback identity is mandatory and two users never share adaptive state', 
       baseUrl: 'http://127.0.0.1:18888',
       routeCacheHmacSecret: CACHE_SECRET,
       sessionIdentityHmacSecret: 'principal-isolation-session-secret',
-      // Provisioned defaults must not substitute for trusted callback identity.
-      agentId: 'unsafe-config-agent',
-      userId: 'unsafe-config-user',
-      channelId: 'unsafe-config-channel',
+      // These fixed deployment values cover OpenClaw hook shapes that omit
+      // one or more principal dimensions.
+      agentId: 'configured-agent',
+      userId: 'configured-user',
+      channelId: 'configured-channel',
       writeToken: 'route-gate-production-write-token',
       scopeCredentialId: 'route-principal-isolation-test',
       scopeHmacSecret: 'route-principal-isolation-scope-secret',
@@ -221,9 +222,9 @@ test('callback identity is mandatory and two users never share adaptive state', 
   const handler = handlers.get('before_prompt_build');
   const sessionKey = 'agent:main:shared-session';
   try {
-    await assert.rejects(
-      () => handler({ prompt: 'Route missing identity', messages: [] }, { sessionKey }),
-      /complete bounded trusted Cortex principal/,
+    await handler(
+      { prompt: 'Route with configured hook identity', messages: [] },
+      { sessionKey },
     );
     await handler(
       { prompt: 'Tenant A private blue ocean prompt', messages: [] },
@@ -235,10 +236,10 @@ test('callback identity is mandatory and two users never share adaptive state', 
     );
     const principalRoot = path.join(stateDir, 'principals');
     const directories = fs.readdirSync(principalRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-    assert.equal(directories.length, 2);
+    assert.equal(directories.length, 3);
     const histories = directories.map((entry) => JSON.parse(fs.readFileSync(path.join(principalRoot, entry.name, 'prompt-history.json'), 'utf8')));
-    assert.deepEqual(histories.map((rows) => rows.length).sort(), [1, 1]);
-    assert.notDeepEqual(histories[0][0].tokens, histories[1][0].tokens);
+    assert.deepEqual(histories.map((rows) => rows.length).sort(), [1, 1, 1]);
+    assert.equal(new Set(histories.map((rows) => JSON.stringify(rows[0].tokens))).size, 3);
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -307,6 +308,20 @@ test('minimal production route configuration signs the default cortex-local scop
   assert.equal(headers.get('x-cortex-tenant-id'), 'cortex-local');
   assert.equal(headers.get('x-cortex-workspace-id'), 'default');
   assert.equal(headers.get('x-cortex-scope-credential-id'), 'route-default-test');
+  assert.match(headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
+});
+
+test('configured principal fallbacks cover the current OpenClaw prompt-hook context', async () => {
+  let headers;
+  await invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24 }] },
+    context: { userId: undefined, requesterSenderId: undefined },
+    inspectRequest(_url, init) { headers = new Headers(init.headers); },
+  });
+  assert.equal(headers.get('x-cortex-agent-id'), 'test-agent');
+  assert.equal(headers.get('x-cortex-user-id'), 'test-user');
+  assert.equal(headers.get('x-cortex-channel-id'), 'test-channel');
   assert.match(headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
 });
 

@@ -17,6 +17,7 @@ function resolveConfig(cfg) {
     tenantId: typeof pluginCfg.tenantId === 'string' ? pluginCfg.tenantId.trim() : 'cortex-local',
     workspaceId: typeof pluginCfg.workspaceId === 'string' ? pluginCfg.workspaceId.trim() : 'default',
     userId: typeof pluginCfg.userId === 'string' && pluginCfg.userId.trim() ? pluginCfg.userId.trim() : 'local-user',
+    preferConfiguredUserId: pluginCfg.preferConfiguredUserId === true,
     channelId: typeof pluginCfg.channelId === 'string' && pluginCfg.channelId.trim() ? pluginCfg.channelId.trim() : 'local-channel',
     sessionId: typeof pluginCfg.sessionId === 'string' && pluginCfg.sessionId.trim() ? pluginCfg.sessionId.trim() : 'global-session',
     timeoutMs: Number(pluginCfg.timeoutMs || 12000),
@@ -434,7 +435,7 @@ function scopedIdentity(rcfg, agentId, opts = {}) {
     tenant_id: String(opts.tenantId || rcfg.tenantId || '').trim(),
     workspace_id: String(opts.workspaceId || rcfg.workspaceId || '').trim(),
     agent_id: String(opts.agentId || agentId || '').trim(),
-    user_id: String(opts.userId || rcfg.userId || '').trim(),
+    user_id: String(rcfg.preferConfiguredUserId === true ? (rcfg.userId || opts.userId) : (opts.userId || rcfg.userId) || '').trim(),
     channel_id: String(opts.channelId || rcfg.channelId || '').trim(),
     session_id: `openclaw-${sessionDigest}`,
   };
