@@ -5,7 +5,7 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 08:30 CDT`
+- Last updated: `2026-07-25 11:13 CDT`
 - Status: `active`
 - Current fidelity: `production_slice`
 - Package version: `0.3.0`
@@ -16,7 +16,7 @@ Cortex Learning OS has completed its first bounded, verifier-gated learning loop
 
 The production slice now includes:
 
-- 19 machine tests covering contracts, deterministic checkers, fail-closed promotion, retrieval limits, curriculum coverage, learning-loop behavior, paired randomization, exact McNemar analysis, and Codex tool-event detection.
+- 21 machine tests covering contracts, deterministic checkers, fail-closed promotion, retrieval limits, curriculum coverage, learning-loop behavior, paired randomization, strict Codex structured output, frozen-runtime resume enforcement, exact McNemar analysis, and Codex tool-event detection.
 - 14 JSON record schemas plus internal contract validation.
 - A 36-concept math-foundations curriculum.
 - A 30-item deterministic baseline exam, a 20-item exactness/reliability challenge, and a 20-item exact-arithmetic stress exam.
@@ -38,7 +38,18 @@ The production slice now includes:
 - Held-out post-promotion retest: `1/1` passed using the canonical 336-token retrieval pack.
 - Canonical default update: completed (`defaultPromoted=true`).
 - Latest local validation: `npm test` passed `14/14`; `npm run validate:fixtures` passed with 12 valid records and 1 intentionally invalid record.
-- Latest A/B branch validation: `npm test` passed `19/19`; fixtures passed; paired plan-only and fake-worker lifecycle smokes froze and completed successfully before any real A/B model calls.
+- Latest A/B branch validation: `npm test` passed `21/21`; fixtures passed; paired plan-only and fake-worker lifecycle smokes froze and completed successfully before the real A/B model calls.
+
+## Latest randomized A/B evidence
+
+- Experiment: `math-foundations-paired-ab-20260725T1600Z`.
+- Exact execution source: branch `feat/cortex-learning-os-ab-20260725`, commit `bde94bf4f872a75e7c744bc9b37c9b91e41a9600`.
+- Mechanical result: completed `54/54` fresh ephemeral Codex trials across all `27/27` valid pairs; zero invalid trials and zero observed tool events.
+- Provider evidence: model `gpt-5.6-sol`; usage present for `54/54` trials; `795,631` input tokens, `352,000` cached input tokens, `24,304` output tokens, and `22,374` reasoning-output tokens recorded.
+- Paired outcome: both arms passed `26/27` (`96.2963%`); `25` both-pass pairs, `0` both-fail pairs, `1` pack-only win, and `1` no-pack-only win.
+- Estimated effect: absolute pack lift `0`; two-sided exact McNemar p-value `1.0`.
+- Evidence gate: **not passed**. The run is mechanically green but provides no bounded evidence that the retrieval pack helped or harmed under this declared configuration.
+- Artifact verification: the control-plane return bundle checksum passed and all `464/464` manifest-listed files matched SHA-256.
 
 Additional honest evidence:
 
@@ -49,17 +60,17 @@ Additional honest evidence:
 ## Active blockers / unproven surfaces
 
 - The completed bounded production slice remains green.
-- The A/B execution is temporarily blocked because the Hetzner execution plane `/dev/md2` is at `100%` with no writable space; Codex fails creating `/home/jake/.codex/tmp/...` with `ENOSPC`. Disposable cleanup requires operator approval before the 48-trial remote run can launch.
-- Broad or durable math improvement is unproven.
-- Retrieval-pack causality is unproven because the baseline was a 20-item batch while correction/retest phases were single-item and easier.
+- The randomized A/B executed successfully, but its preregistered evidence threshold did not pass: both arms scored `26/27`, lift was `0`, and exact McNemar p was `1.0`.
+- Broad or durable math improvement remains unproven.
+- Retrieval-pack benefit and harm remain unproven under the declared exact-multiplication/model/runtime configuration.
 - Ordinary Cortex task routing does not yet auto-select a Learning OS capsule outside the explicit CLOS run path.
 - Model weights were not changed.
 
 ## Next actions
 
-1. Restore safe free space on the Hetzner execution plane without deleting authoritative artifacts or backups.
-2. Launch and artifact the preregistered 27-pair/54-trial pack-versus-no-pack experiment remotely.
-3. Treat threshold miss as an honest null result; only after a threshold pass consider repeated out-of-sample runs over time, then a bounded default pre-task hook with rollback and token limits.
+1. Preserve this completed threshold miss as an honest null result; do not enable ordinary-task retrieval routing from it.
+2. Before any new efficacy run, redesign difficulty to avoid the observed `96.3%` ceiling while retaining identical paired items, fresh sessions, deterministic grading, and frozen thresholds.
+3. Require a new preregistered out-of-sample threshold pass before considering repeated durability checks or a bounded default pre-task hook with rollback and token limits.
 
 ## Do not use / superseded
 

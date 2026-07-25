@@ -87,3 +87,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `src/ab-experiment.mjs`, `src/run-ab-experiment.mjs`, `src/model-answer-runner.mjs`, `tests/ab-experiment.test.mjs`; local `npm test` `19/19`; paired plan-only and fake-worker full-lifecycle smokes green.
 - Supersedes: using the prior baseline/retest difference as retrieval-effect evidence.
 - Follow-up: recover safe free space on Hetzner, launch the frozen experiment remotely, preserve a null result honestly if the preregistered gate does not pass, and do not auto-promote ordinary-task routing from one run.
+
+## 2026-07-25 — Preserve the paired retrieval A/B as a mechanically green null result
+
+- Decision: Record experiment `math-foundations-paired-ab-20260725T1600Z` as completed but threshold-not-passed, and make no retrieval-benefit, retrieval-harm, broad-learning, durability, mastery, or model-weight claim from it.
+- Reason: All 27 pairs were valid, but pack and no-pack each passed 26/27; the paired lift was `0`, pack-only and no-pack-only wins were tied `1–1`, and the exact two-sided McNemar p-value was `1.0`. The `96.3%` accuracy in both arms also indicates a ceiling-limited efficacy test.
+- Evidence: exact execution source `bde94bf4f872a75e7c744bc9b37c9b91e41a9600`; remote artifact `artifacts/math-foundations-paired-ab-20260725T1600Z`; local returned artifact `/root/clawd/artifacts/cortex-learning-os-ab-20260725/returns/math-foundations-paired-ab-20260725T1600Z`; `54/54` trials, `27/27` valid pairs, zero tool events, usage on every trial, return-bundle checksum pass, and `464/464` manifest hashes verified.
+- Supersedes: treating the earlier single held-out pass as evidence that retrieval caused improvement.
+- Follow-up: do not promote routing from this run. If another efficacy experiment is approved, preregister harder out-of-sample paired items that reduce ceiling effects while preserving the same fail-closed causal design.
