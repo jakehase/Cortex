@@ -5,9 +5,9 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 14:27 CDT`
+- Last updated: `2026-07-25 16:11 CDT`
 - Status: `active`
-- Current fidelity: `production_slice_plus_corrected_private_utility_validation_harness`
+- Current fidelity: `production_slice_plus_default_on_selective_private_retrieval_shadow_observer`
 - Package version: `0.5.0`
 
 ## Current checkpoint
@@ -74,7 +74,25 @@ The production slice now includes:
 - Held-out gate: at least 90% valid pairs/clusters, pack item accuracy at least 90%, pack cluster accuracy at least 85%, item and cluster lift at least 20 points, exact cluster-level McNemar p no greater than 0.05, at most one no-pack-only cluster, and all token/latency gates.
 - Privacy: 12 calibration facts and 30 different held-out facts are low-sensitivity, open-ended, and outside Git; no credentials, client-identifying facts, financial identifiers, email addresses, or network addresses.
 - Local validation: `npm test` passed `32/32`; real-fixture plan smoke froze 144 calls and 144 unique sessions; fake-worker full lifecycle completed `144/144`, passed calibration and all clustered held-out gates, and replayed every manifest hash.
-- Current state: implementation and private fixtures are locally green; no real corrected-test model calls have started yet.
+- Terminal state: all `144/144` calls completed; calibration and held-out validation passed; decision `go_selective_private_retrieval_shadow_candidate`.
+- Calibration: `24/24` valid items, no-pack item accuracy `1/24` (`4.17%`), no-pack cluster accuracy `0/12`; headroom gate passed.
+- Held-out items: `60/60` valid pairs; pack `60/60`, no-pack `4/60`, absolute lift `93.33` points, zero no-pack-only outcomes.
+- Held-out clusters: `30/30` valid; pack `30/30`, no-pack `1/30`, `29` pack-only clusters, zero no-pack-only clusters, absolute lift `96.67` points, exact McNemar p `4e-9`.
+- Cost gates: maximum observed pack `271` tokens, mean input overhead `277.07` tokens, median latency overhead `-1.389` seconds; all frozen validity/effect/no-regression/token/latency gates passed.
+- Returned artifact verification: checksum passed and `1,218/1,218` manifest-listed files matched SHA-256 with zero mismatches.
+
+## Approved selective private-retrieval shadow implementation
+
+- Reply anchor: after the corrected validation passed, Jake approved implementing the selective private-retrieval candidate.
+- Integration boundary: default-on **observe-only** shadow execution. Retrieval candidates cannot alter model context, route selection, reasoning text, tool decisions, or user-visible answers.
+- Nexus classifies only bounded private-fact, preference, prior-decision, project-state, and operational-setting lookups; it rejects action/generation requests, unanchored general questions, external volatile lookups, sensitive-secret terms, empty input, and oversized shadow input.
+- Retrieval uses `librarian.robust_search()` with the authenticated principal's tenant and derived storage-workspace scope. It simulates at most 3 candidates / 600 estimated tokens by default, then discards all content.
+- Execution is asynchronous and fail-open, with a two-worker pool, bounded pending queue, per-principal rate limit, latency-SLA telemetry, immediate kill switch, and no answer-path dependency.
+- Telemetry stores only opaque observation IDs and content-free operational fields. Raw queries, prompts, snippets, candidate scores, source IDs, metadata bodies, outputs, and exception messages are excluded.
+- Server and route-gate state are principal-scoped, record-capped, lock-protected, atomically replaced, and mode `0600`; ephemeral observation markers are stripped from last-good route caches and never rendered into prompts.
+- Authenticated content-free inspection is available at `GET /nexus/private-retrieval-shadow/status`.
+- Promotion remains blocked: shadow retrieval success, pack availability, latency, and baseline run success are not causal quality evidence. Answer-path use requires a separate approved treatment/control evaluation and privacy review.
+- Deployment state: implemented and validated on `feat/cortex-learning-os-ab-20260725` as the deployment candidate; not yet merged into remote `main` or activated in a live service by this change.
 
 Additional honest evidence:
 
@@ -88,16 +106,19 @@ Additional honest evidence:
 - The randomized A/B executed successfully, but its preregistered evidence threshold did not pass: both arms scored `26/27`, lift was `0`, and exact McNemar p was `1.0`.
 - Broad or durable math improvement remains unproven.
 - Retrieval-pack benefit and harm remain unproven under the declared exact-multiplication/model/runtime configuration.
-- The capped mechanism track proved bounded retrieval transfer for seeded novel information. Its first private-workspace utility arm failed the frozen effect threshold (`+11.11` points, p `0.25`) but was itself ceiling-limited, so broader selective private utility remains unresolved pending the corrected test.
-- Ordinary Cortex task routing remains unchanged; neither the mechanism pass nor the corrected-test harness approves default integration.
+- The capped mechanism track proved bounded retrieval transfer for seeded novel information. Its first private-workspace utility arm failed the frozen effect threshold (`+11.11` points, p `0.25`) and remains an immutable no-go for that contract, although the corrected held-out validation later passed its separate frozen gates.
+- The corrected validation proves bounded utility only for selectively routed, genuinely non-inferable private workspace facts represented by its frozen pool.
+- Ordinary Cortex answer behavior remains unchanged. The observer is default-on only in shadow mode and cannot inject retrieved content.
+- Real-world classifier precision, retrieval availability, production latency distribution, and answer-quality lift under the live retrieval backend remain unproven.
 - Model weights were not changed.
 
 ## Next actions
 
-1. Preserve the first utility run unchanged; never append favorable items or relabel its no-go.
-2. Commit and push the corrected utility-only harness while keeping both private fixtures outside Git.
-3. Sync exact source and fixture hashes to Hetzner, rerun local gates remotely, freeze the complete 144-call program before any validation model call, and launch detached with independent notifier/harvester.
-4. Keep ordinary-task/default routing unchanged. Even a pass permits only a selective private-retrieval shadow candidate pending separate explicit approval.
+1. Preserve both completed validations and their frozen claims unchanged.
+2. Merge/deploy the validated feature-branch candidate through normal change control, retaining the immediate kill switch.
+3. Run the selective observer in production shadow mode long enough to measure eligibility precision, empty/error rates, bounded pack availability, and latency without answer influence.
+4. Review content-free telemetry and manually audited, privacy-safe samples; tune only prospectively.
+5. Require a new approved identical-item treatment/control contract before any retrieved candidate can enter model context or affect answers.
 
 ## Do not use / superseded
 
@@ -113,7 +134,9 @@ Allowed claims:
 - One bounded exact-arithmetic failure was followed by passed correction, independent promotion retest, and a different held-out retest after a gated retrieval pack.
 - One scoped lesson passed the declared promotion gates and is available on the canonical capsule path.
 - In the capped go/no-go, seeded synthetic-procedure retrieval transferred perfectly across fresh sessions under the declared runtime.
-- The private-utility pack improved three of 27 paired items with no regressions, but this did not meet the preregistered utility effect threshold.
+- The private-utility pack improved three of 27 paired items with no regressions, but this did not meet the first preregistered utility effect threshold.
+- The corrected, disjoint clustered private-utility validation passed all frozen gates under its declared workload and supports only a selective shadow candidate.
+- The selective observer may retrieve and record content-free operational evidence while remaining isolated from the answer path.
 
 Not allowed:
 
@@ -123,3 +146,5 @@ Not allowed:
 - Cortex is an expert mathematician, quant PM, or profitable trader.
 - Model weights changed.
 - Live trading or external financial actions are approved.
+- Shadow pack availability or successful retrieval proves answer-quality improvement.
+- Private retrieval is approved to influence prompts, reasoning, tools, or user-visible answers.

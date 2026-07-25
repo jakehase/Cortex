@@ -133,7 +133,8 @@ def _oracle_continuity_key(principal, transport_session: str) -> str:
         return principal_key
     if principal.credential_id != "local-development":
         raise HTTPException(status_code=403, detail="transport session must match the authenticated principal session")
-    return f"principal:{hashlib.sha256(f'{principal_key}\0{resolved}'.encode('utf-8')).hexdigest()}"
+    continuity_material = f"{principal_key}\0{resolved}".encode("utf-8")
+    return f"principal:{hashlib.sha256(continuity_material).hexdigest()}"
 
 
 def _forwarded_principal_headers(http_request: Request, *, augmenter_bypass: bool = False) -> Dict[str, str]:

@@ -136,6 +136,9 @@ asyncio.to_thread = _fresh_thread
 
 @pytest.fixture(autouse=True)
 def isolate_generated_homeostasis_artifacts(tmp_path, monkeypatch):
+    # Individual shadow-observer tests opt in explicitly. General route tests
+    # must never launch background private retrieval as a side effect.
+    monkeypatch.setenv("CORTEX_PRIVATE_RETRIEVAL_SHADOW_ENABLED", "false")
     monkeypatch.setenv("CORTEX_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     monkeypatch.setenv("CORTEX_DB_PATH", str(tmp_path / "cortex-graph.db"))
     monkeypatch.setenv(

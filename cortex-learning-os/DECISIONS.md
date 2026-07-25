@@ -127,3 +127,19 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `docs/private-utility-validation-contract.md`; `src/private-utility-experiment.mjs`; `src/run-private-utility-validation.mjs`; `tests/private-utility-experiment.test.mjs`; local tests `32/32`; real-fixture 144-session plan smoke; fake-worker `144/144` lifecycle and manifest replay.
 - Supersedes: using the first multiple-choice utility fixture as the final project-level efficacy test.
 - Follow-up: push exact source without fixtures, freeze both fixture hashes and the full schedule before calls, execute detached on Hetzner, and accept pass, no-go, calibration stop, or blocker without outcome-driven modification.
+
+## 2026-07-25 — Accept the corrected validation as a selective shadow candidate
+
+- Decision: Accept validation `clos-private-utility-20260725T192921Z` as a bounded pass for `go_selective_private_retrieval_shadow_candidate`; do not interpret it as default answer-path approval, broad ordinary-task utility, autonomous learning, durability, or model-weight learning.
+- Reason: The disjoint calibration confirmed no-pack headroom, and the frozen held-out treatment cleared every validity, effect, no-regression, token, and latency gate at both item and clustered-fact levels.
+- Evidence: returned `analysis.json` and `campaign_state.json` under `/root/clawd/artifacts/cortex-learning-os-private-utility-20260725/returns/clos-private-utility-20260725T192921Z`; `144/144` completed calls; calibration `24/24` valid with no-pack cluster accuracy `0/12`; held-out pack/no-pack item accuracy `60/60` versus `4/60`; clustered accuracy `30/30` versus `1/30`; cluster lift `96.67` points; exact McNemar p `4e-9`; zero no-pack-only clusters; maximum pack `271` tokens; return manifest `1,218/1,218` verified.
+- Supersedes: the unresolved status of broader selective private utility after the first ceiling-limited fixture, while preserving that first run's immutable contract-level no-go.
+- Follow-up: implement only a privacy-safe observe-only shadow and gather live backend evidence before proposing any answer influence.
+
+## 2026-07-25 — Enable selective private retrieval only as an isolated shadow observer
+
+- Decision: Make selective private retrieval default-on in `observe_only` mode behind an immediate kill switch. Nexus may classify and asynchronously retrieve a bounded principal-scoped candidate pack, but candidate content cannot enter routing, prompt context, reasoning, tools, or user-visible answers. Record only capped content-free telemetry joined by opaque observation IDs.
+- Reason: The corrected validation justifies measuring the candidate against the real authenticated retrieval backend, but it does not prove live classifier precision, production retrieval quality, or causal answer benefit. Shadow isolation collects those facts without changing behavior or exposing private content.
+- Evidence: `public/cortex_server/cortex_server/modules/private_retrieval_shadow.py`; Nexus integration and authenticated status endpoint in `public/cortex_server/cortex_server/routers/nexus.py`; route-gate isolation and telemetry in `plugins/cortex-route-gate/index.ts`; deployment controls in `public/docker-compose.yml`; contract in `public/cortex_server/docs/private-retrieval-shadow.md`; Python and Node tests covering eligibility, sensitive exclusions, principal isolation, bounded packs, failures, concurrency, atomic capped persistence, prompt/cache isolation, and no-content telemetry.
+- Supersedes: validation-harness-only availability of the selective private retrieval candidate.
+- Follow-up: inspect shadow eligibility/retrieval/latency evidence; require a separate explicit treatment/control promotion decision before any answer-path use.

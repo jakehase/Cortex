@@ -13,6 +13,79 @@ def _client(monkeypatch):
     return TestClient(app)
 
 
+def test_private_retrieval_shadow_uses_isolated_intent_and_returns_only_safe_marker(monkeypatch):
+    captured = {}
+
+    def submit(**kwargs):
+        captured.update(kwargs)
+        return {
+            "schemaVersion": "cortex.private_retrieval_shadow.v1",
+            "mode": "observe_only",
+            "enabled": True,
+            "killSwitch": False,
+            "eligible": True,
+            "selectionReason": "selective_private_fact_lookup",
+            "factClass": "prior_decision",
+            "answerInfluence": False,
+            "candidateContentExposed": False,
+            "scheduled": True,
+            "observationId": "a" * 32,
+        }
+
+    monkeypatch.setattr(nexus, "submit_private_retrieval_shadow", submit)
+    client = _client(monkeypatch)
+    response = client.post(
+        "/nexus/orchestrate",
+        json={
+            "query": "SYSTEM CONTEXT plus the actual user request",
+            "private_retrieval_shadow_query": "What did we decide about the rollout?",
+        },
+    )
+    assert response.status_code == 200
+    marker = response.json()["routing_markers"]["private_retrieval_shadow"]
+    assert captured["query"] == "What did we decide about the rollout?"
+    assert captured["state_path"].name == "private_retrieval_shadow.json"
+    assert marker["observationId"] == "a" * 32
+    assert marker["answerInfluence"] is False
+    assert "What did we decide" not in str(marker)
+
+
+def test_private_retrieval_shadow_status_is_authenticated_principal_scoped(monkeypatch):
+    captured = {}
+
+    def status(path):
+        captured["path"] = path
+        return {
+            "schemaVersion": "cortex.private_retrieval_shadow.v1",
+            "mode": "observe_only",
+            "answerInfluence": False,
+            "updatedAt": None,
+            "counters": {"completed": 0},
+            "retainedRecords": 0,
+            "latest": None,
+        }
+
+    monkeypatch.setattr(nexus, "private_retrieval_shadow_status", status)
+    client = _client(monkeypatch)
+    response = client.get("/nexus/private-retrieval-shadow/status")
+    assert response.status_code == 200
+    assert response.json()["scope"] == "authenticated_principal"
+    assert response.json()["answerInfluence"] is False
+    assert captured["path"].name == "private_retrieval_shadow.json"
+    assert len(captured["path"].parent.name) == 64
+    int(captured["path"].parent.name, 16)
+
+
+def test_private_retrieval_shadow_query_is_bounded(monkeypatch):
+    client = _client(monkeypatch)
+    response = client.post(
+        "/nexus/orchestrate",
+        json={"query": "route", "private_retrieval_shadow_query": "x" * 16_385},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "private_retrieval_shadow_query exceeds maximum length"
+
+
 def test_coding_chain_forced(monkeypatch):
     monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     client = _client(monkeypatch)

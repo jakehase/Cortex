@@ -28,6 +28,11 @@ from pathlib import Path
 from cortex_server.modules.qa_fastlane import classify_qtype, build_template, confidence_score, should_escalate
 from cortex_server.modules.qa_micro_retrieval import retrieve_top3
 from cortex_server.modules.qa_validator import fast_verify
+from cortex_server.modules.private_retrieval_shadow import (
+    ShadowConfig,
+    private_retrieval_shadow_status,
+    submit_private_retrieval_shadow,
+)
 from cortex_server.modules.level_optimizer import (
     ContextualBanditScheduler,
     TokenBudgetPlanner,
@@ -63,6 +68,7 @@ from cortex_server.runtime.assurance_receipt_ledger import (
     reserve_assurance_receipt,
 )
 from cortex_server.runtime.durable_files import durable_mkdir
+from cortex_server.routers.librarian import robust_search
 from services.routing.adaptive_router_policy import choose_route
 from services.routing.route_feature_pipeline import build_route_features
 
@@ -5341,6 +5347,27 @@ async def get_nexus_status():
     }
 
 
+@router.get("/private-retrieval-shadow/status")
+async def get_private_retrieval_shadow_status(request: Request):
+    """Return content-free shadow telemetry for the authenticated principal."""
+    principal, _ = _authenticated_nexus_principal(
+        request,
+        session_hint=_codec_session_key(request),
+    )
+    policies = _adaptive_policies_for_scope(principal.storage_metadata)
+    status = private_retrieval_shadow_status(
+        policies.root / "private_retrieval_shadow.json"
+    )
+    config = ShadowConfig.from_env()
+    return {
+        "success": True,
+        **status,
+        "enabled": config.enabled,
+        "killSwitch": config.kill_switch,
+        "scope": "authenticated_principal",
+    }
+
+
 @router.get("/codec/status")
 async def get_nexus_codec_status(request: Request, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
     resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
@@ -6489,6 +6516,16 @@ async def orchestrate_query(
         raise HTTPException(status_code=422, detail="query is required")
     if len(query) > 1_048_576:
         raise HTTPException(status_code=422, detail="query exceeds maximum length")
+    shadow_query_value = payload.get("private_retrieval_shadow_query") if payload is not None else None
+    if shadow_query_value is not None and not isinstance(shadow_query_value, str):
+        raise HTTPException(status_code=422, detail="private_retrieval_shadow_query must be a string")
+    private_retrieval_shadow_query = (
+        query if shadow_query_value is None and len(query) <= 16_384
+        else "" if shadow_query_value is None
+        else shadow_query_value.strip()
+    )
+    if len(private_retrieval_shadow_query) > 16_384:
+        raise HTTPException(status_code=422, detail="private_retrieval_shadow_query exceeds maximum length")
     requested_session_key = _codec_session_key(request)
     principal, session_key = _authenticated_nexus_principal(
         request,
@@ -7217,6 +7254,36 @@ async def orchestrate_query(
 
         activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'adaptive_router_policy', 'autotune_l9', 'complexity_gate', 'world_grounding'} or item.get('always_on')]
         workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
+
+        try:
+            private_retrieval_shadow = submit_private_retrieval_shadow(
+                query=private_retrieval_shadow_query,
+                state_path=adaptive_policies.root / "private_retrieval_shadow.json",
+                scope_key=adaptive_policies.scope_key,
+                retriever=robust_search,
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.storage_workspace_id,
+                config=ShadowConfig.from_env(),
+            )
+        except Exception:
+            # Shadow observation is strictly fail-open. Do not leak exception
+            # text because a backend error can contain private query content.
+            private_retrieval_shadow = {
+                "schemaVersion": "cortex.private_retrieval_shadow.v1",
+                "mode": "observe_only",
+                "enabled": False,
+                "killSwitch": False,
+                "eligible": False,
+                "selectionReason": "observer_unavailable",
+                "factClass": "unknown",
+                "answerInfluence": False,
+                "candidateContentExposed": False,
+                "scheduled": False,
+            }
+        # This marker is intentionally absent from the reasoning text and
+        # candidate content is never returned. OpenClaw can join the opaque
+        # observation ID to baseline run telemetry without answer influence.
+        routing_markers["private_retrieval_shadow"] = private_retrieval_shadow
 
         cognitive_trace = _cognitive_reasoning(query, risk_flags, kernel_contract=kernel_contract)
         cognitive_quality = _cognitive_quality(cognitive_trace, fastlane, risk_flags)

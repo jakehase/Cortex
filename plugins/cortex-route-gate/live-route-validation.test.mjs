@@ -22,7 +22,7 @@ function cachedPlan() {
   return { ...cache, tag: crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson(cache)).digest('hex') };
 }
 
-async function invoke({ requireRouting, cache, response, config = {}, context = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this' }) {
+async function invoke({ requireRouting, cache, response, config = {}, context = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this', messages, complete = false }) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-live-route-'));
   const handlers = new Map();
   register({
@@ -75,11 +75,22 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
     return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   try {
+    const callbackContext = { sessionKey, ...trustedContext };
     const result = await handlers.get('before_prompt_build')(
-      { prompt, messages: [{ role: 'user', content: prompt }] },
-      { sessionKey, ...trustedContext },
+      { prompt, messages: messages || [{ role: 'user', content: prompt }] },
+      callbackContext,
     );
-    return { context: String(result?.appendSystemContext || ''), saved: fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, 'utf8')) : null };
+    if (complete) {
+      await handlers.get('llm_output')({ assistantTexts: ['bounded answer without private content'] }, callbackContext);
+      await handlers.get('agent_end')({ success: true }, callbackContext);
+    }
+    const telemetryPath = path.join(principalDir, 'private-retrieval-shadow-telemetry.json');
+    return {
+      context: String(result?.appendSystemContext || ''),
+      saved: fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, 'utf8')) : null,
+      telemetry: fs.existsSync(telemetryPath) ? JSON.parse(fs.readFileSync(telemetryPath, 'utf8')) : null,
+      telemetryMode: fs.existsSync(telemetryPath) ? fs.statSync(telemetryPath).mode & 0o777 : null,
+    };
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -91,6 +102,93 @@ for (const response of [{}, { recommended_levels: [] }, { recommended_levels: [{
     await assert.rejects(() => invoke({ requireRouting: true, response }), /invalid live route response schema/);
   });
 }
+
+test('private retrieval shadow uses isolated user intent and remains absent from prompt/cache content', async () => {
+  let requestBody;
+  const observationId = 'a'.repeat(32);
+  const { context, saved, telemetry, telemetryMode } = await invoke({
+    requireRouting: true,
+    prompt: 'SYSTEM CONTEXT and prior history that must not become a private retrieval query',
+    messages: [{ role: 'user', content: 'What did we decide about the rollout gate?' }],
+    response: {
+      recommended_levels: [{ level: 24, name: 'Nexus', reason: 'live' }],
+      routing_method: 'shadow_test',
+      routing_markers: {
+        private_retrieval_shadow: {
+          schemaVersion: 'cortex.private_retrieval_shadow.v1',
+          mode: 'observe_only',
+          enabled: true,
+          killSwitch: false,
+          eligible: true,
+          selectionReason: 'selective_private_fact_lookup',
+          factClass: 'prior_decision',
+          answerInfluence: false,
+          candidateContentExposed: false,
+          scheduled: true,
+          observationId,
+        },
+      },
+    },
+    inspectRequest(_url, init) { requestBody = JSON.parse(String(init.body)); },
+    complete: true,
+  });
+  assert.equal(requestBody.query, 'SYSTEM CONTEXT and prior history that must not become a private retrieval query');
+  assert.equal(requestBody.private_retrieval_shadow_query, 'What did we decide about the rollout gate?');
+  assert.doesNotMatch(context, /private_retrieval_shadow|selective_private_fact_lookup|aaaaaaaaaaaaaaaa/);
+  assert.equal(saved.plan.routingMarkers.private_retrieval_shadow, undefined);
+  assert.equal(telemetry.mode, 'observe_only');
+  assert.equal(telemetry.answerInfluence, false);
+  assert.equal(telemetry.records[0].observationId, observationId);
+  assert.equal(telemetry.records[0].qualityCompared, false);
+  assert.equal(telemetry.records[0].baselineMemorySearchAttempted, false);
+  assert.equal(telemetryMode, 0o600);
+  assert.doesNotMatch(JSON.stringify(telemetry), /rollout gate|bounded answer|SYSTEM CONTEXT/);
+});
+
+test('content-like shadow marker fields are rejected instead of persisted', async () => {
+  const { context, saved, telemetry } = await invoke({
+    requireRouting: true,
+    prompt: 'ordinary prompt',
+    response: {
+      recommended_levels: [{ level: 24, name: 'Nexus', reason: 'live' }],
+      routing_method: 'shadow_test',
+      routing_markers: {
+        private_retrieval_shadow: {
+          schemaVersion: 'cortex.private_retrieval_shadow.v1',
+          mode: 'observe_only',
+          enabled: true,
+          killSwitch: false,
+          eligible: false,
+          selectionReason: 'PRIVATE_QUERY_CONTENT',
+          factClass: 'unknown',
+          answerInfluence: false,
+          candidateContentExposed: false,
+          scheduled: false,
+        },
+      },
+    },
+    complete: true,
+  });
+  assert.doesNotMatch(context, /PRIVATE_QUERY_CONTENT|private_retrieval_shadow/);
+  assert.equal(saved.plan.routingMarkers.private_retrieval_shadow, undefined);
+  assert.equal(telemetry, null);
+});
+
+test('private retrieval never falls back to accumulated prompt without a structured user turn', async () => {
+  let requestBody;
+  await invoke({
+    requireRouting: true,
+    prompt: 'SYSTEM CONTEXT and prior history only',
+    messages: [],
+    response: {
+      recommended_levels: [{ level: 24, name: 'Nexus', reason: 'live' }],
+      routing_method: 'shadow_test',
+    },
+    inspectRequest(_url, init) { requestBody = JSON.parse(String(init.body)); },
+  });
+  assert.equal(requestBody.query, 'SYSTEM CONTEXT and prior history only');
+  assert.equal(requestBody.private_retrieval_shadow_query, '');
+});
 
 test('callback identity is mandatory and two users never share adaptive state', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-route-principal-isolation-'));
@@ -192,7 +290,10 @@ test('routing POST uses the configured sensitive write-token header', async () =
   assert.equal(new Headers(request.init.headers).get('x-custom-cortex-token'), 'route-secret');
   assert.equal(new URL(request.url).pathname, '/nexus/orchestrate');
   assert.equal(new URL(request.url).search, '', 'the prompt must not enter the query string');
-  assert.deepEqual(JSON.parse(String(request.init.body)), { query: 'Route this' });
+  assert.deepEqual(JSON.parse(String(request.init.body)), {
+    query: 'Route this',
+    private_retrieval_shadow_query: 'Route this',
+  });
   assert.match(new Headers(request.init.headers).get('x-session-id'), /^openclaw-[0-9a-f]{64}$/);
 });
 

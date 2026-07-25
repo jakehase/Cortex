@@ -81,7 +81,22 @@ type PrincipalStatePaths = {
   promptHistory: string;
   creativityRetry: string;
   creativityMetrics: string;
+  privateRetrievalShadowTelemetry: string;
   lastGoodPlan: string;
+};
+
+type PrivateRetrievalShadowMarker = {
+  schemaVersion: string;
+  mode: 'observe_only';
+  enabled: boolean;
+  killSwitch: boolean;
+  eligible: boolean;
+  selectionReason: string;
+  factClass: string;
+  answerInfluence: false;
+  candidateContentExposed: false;
+  scheduled: boolean;
+  observationId?: string;
 };
 
 const ALLOWED_CORTEX_LEVELS = new Set(Array.from({ length: 38 }, (_, index) => index + 1));
@@ -195,12 +210,52 @@ type RunState = {
   startedAt: number;
   toolCalls: { toolName: string; ok: boolean; durationMs?: number; error?: string }[];
   observedSignals: string[];
+  privateRetrievalShadow?: PrivateRetrievalShadowMarker;
+  outputObserved: boolean;
   selfModel?: CapabilitySelfModel;
   predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
   creativity?: CreativityProfile;
   creativityAudit?: CreativityAudit;
   statePaths: PrincipalStatePaths;
 };
+
+function privateRetrievalShadowMarker(plan: RoutePlan): PrivateRetrievalShadowMarker | undefined {
+  const value = plan.routingMarkers?.private_retrieval_shadow;
+  const allowedReasons = new Set([
+    'disabled', 'kill_switch', 'empty_query', 'query_too_large', 'sensitive_lookup_blocked',
+    'action_or_generation_request', 'external_volatile_lookup', 'not_fact_lookup', 'no_private_anchor',
+    'selective_private_fact_lookup', 'principal_rate_limited', 'global_capacity_limited',
+    'executor_unavailable', 'observer_unavailable',
+  ]);
+  const allowedFactClasses = new Set(['unknown', 'private_fact', 'preference', 'prior_decision', 'project_state', 'operational_setting']);
+  if (!isRecord(value) || value.mode !== 'observe_only' || value.answerInfluence !== false || value.candidateContentExposed !== false) return undefined;
+  if (value.schemaVersion !== 'cortex.private_retrieval_shadow.v1' || typeof value.enabled !== 'boolean' || typeof value.killSwitch !== 'boolean') return undefined;
+  if (typeof value.eligible !== 'boolean' || typeof value.scheduled !== 'boolean') return undefined;
+  if (typeof value.selectionReason !== 'string' || !allowedReasons.has(value.selectionReason)) return undefined;
+  if (typeof value.factClass !== 'string' || !allowedFactClasses.has(value.factClass)) return undefined;
+  if (value.observationId !== undefined && (typeof value.observationId !== 'string' || !/^[0-9a-f]{32}$/.test(value.observationId))) return undefined;
+  if (value.scheduled !== (typeof value.observationId === 'string') || (value.scheduled && !value.eligible)) return undefined;
+  return {
+    schemaVersion: value.schemaVersion,
+    mode: 'observe_only',
+    enabled: value.enabled,
+    killSwitch: value.killSwitch,
+    eligible: value.eligible,
+    selectionReason: value.selectionReason,
+    factClass: value.factClass,
+    answerInfluence: false,
+    candidateContentExposed: false,
+    scheduled: value.scheduled,
+    ...(typeof value.observationId === 'string' ? { observationId: value.observationId } : {}),
+  };
+}
+
+function routePlanForCache(plan: RoutePlan): RoutePlan {
+  if (!plan.routingMarkers?.private_retrieval_shadow) return plan;
+  const routingMarkers = { ...plan.routingMarkers };
+  delete routingMarkers.private_retrieval_shadow;
+  return { ...plan, routingMarkers };
+}
 
 function normalizeBaseUrl(value: unknown): string {
   const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:8888';
@@ -759,9 +814,10 @@ function writeJsonAtomic(targetPath: string, value: unknown) {
   reclaimWriteTemporaries(targetPath);
   const tmp = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
   try {
-    const fd = fs.openSync(tmp, 'wx');
+    const fd = fs.openSync(tmp, 'wx', 0o600);
     try { fs.writeFileSync(fd, JSON.stringify(value, null, 2)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, targetPath);
+    fs.chmodSync(targetPath, 0o600);
     if (process.platform !== 'win32') {
       const dirFd = fs.openSync(path.dirname(targetPath), 'r');
       try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
@@ -1015,6 +1071,8 @@ export default function register(api: any) {
   const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
   const creativityAuditEnabled = asBool(cfg.creativityAuditEnabled, true);
   const creativityAuditOverlapThreshold = asNumber(cfg.creativityAuditOverlapThreshold, 0.34);
+  const privateRetrievalShadowTelemetryEnabled = asBool(cfg.privateRetrievalShadowTelemetryEnabled, true);
+  const privateRetrievalShadowTelemetryMaxRecords = clamp(Math.trunc(asNumber(cfg.privateRetrievalShadowTelemetryMaxRecords, 1_000)), 10, 10_000);
   const oracleSessionQuarantineEnabled = asBool(cfg.oracleSessionQuarantineEnabled, false);
   const oracleSessionResetBytes = asNumber(cfg.oracleSessionResetBytes, 500_000);
   const oracleSessionDir = typeof cfg.oracleSessionDir === 'string' && cfg.oracleSessionDir.trim()
@@ -1044,6 +1102,7 @@ export default function register(api: any) {
     const scopeTag = crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.state.v1\n${canonicalScope}`, 'utf8').digest('hex');
     const root = path.join(stateDir, 'principals', scopeTag);
     fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    fs.chmodSync(root, 0o700);
     const statePaths: PrincipalStatePaths = {
       scopeTag,
       root,
@@ -1052,6 +1111,7 @@ export default function register(api: any) {
       promptHistory: path.join(root, 'prompt-history.json'),
       creativityRetry: path.join(root, 'creativity-retry.json'),
       creativityMetrics: path.join(root, 'creativity-metrics.json'),
+      privateRetrievalShadowTelemetry: path.join(root, 'private-retrieval-shadow-telemetry.json'),
       lastGoodPlan: path.join(root, 'last-good-plan.json'),
     };
     return { scope, sessionIdentity, statePaths, stateKey: scopeTag };
@@ -1089,7 +1149,7 @@ export default function register(api: any) {
 
   // Legacy unscoped files are never consumed. Move them aside so an upgrade
   // cannot silently reuse cross-principal history or route plans.
-  for (const legacyName of ['adaptive-routing-stats.json', 'prompt-fingerprints.json', 'prompt-history.json', 'creativity-retry.json', 'creativity-metrics.json', 'last-good-plan.json']) {
+  for (const legacyName of ['adaptive-routing-stats.json', 'prompt-fingerprints.json', 'prompt-history.json', 'creativity-retry.json', 'creativity-metrics.json', 'private-retrieval-shadow-telemetry.json', 'last-good-plan.json']) {
     const legacyPath = path.join(stateDir, legacyName);
     if (!fs.existsSync(legacyPath)) continue;
     const quarantine = path.join(stateDir, 'quarantine', 'legacy-global');
@@ -1167,6 +1227,8 @@ export default function register(api: any) {
   async function getPlan(prompt: string, messages: unknown[], sessionKey: string | undefined, trustedContext: any): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string; statePaths: PrincipalStatePaths; stateKey: string }> {
     const principal = principalState(trustedContext, String(sessionKey || ''));
     const { statePaths } = principal;
+    const isolatedUserIntent = latestUserTurnText(messages);
+    const intentText = isolatedUserIntent || tailIntentText(prompt);
     let plan: RoutePlan | null = null;
     try {
       if (Buffer.byteLength(prompt, 'utf8') > maxRoutingPromptBytes) {
@@ -1174,7 +1236,12 @@ export default function register(api: any) {
       }
       const data = await postJson(
         `${baseUrl}/nexus/orchestrate`,
-        { query: prompt },
+        {
+          query: prompt,
+          // Always send the dedicated field so Nexus never falls back to the
+          // accumulated prompt when a structured latest-user turn is absent.
+          private_retrieval_shadow_query: isolatedUserIntent.length <= 16_384 ? isolatedUserIntent : '',
+        },
         timeoutMs,
         maxResponseBytes,
         nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
@@ -1198,7 +1265,7 @@ export default function register(api: any) {
       };
       if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
       if (routeCacheHmacSecret) {
-        const cache = { savedAt: nowIso(), provenance: baseUrl, scopeTag: statePaths.scopeTag, plan };
+        const cache = { savedAt: nowIso(), provenance: baseUrl, scopeTag: statePaths.scopeTag, plan: routePlanForCache(plan) };
         const signedCache = { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan;
         try {
           saveJson(statePaths.lastGoodPlan, signedCache);
@@ -1215,16 +1282,17 @@ export default function register(api: any) {
       const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
       if (validCache && lastGoodPlan) {
         api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
+        const cachedPlan = routePlanForCache(lastGoodPlan.plan);
         plan = {
-          ...lastGoodPlan.plan,
+          ...cachedPlan,
           routingMethod: 'cached_fallback',
           routingError: String(error),
           reasoning: [
             `Cortex routing failed, using cached last-good route plan from ${lastGoodPlan.savedAt || 'unknown'}.`,
-            ...(lastGoodPlan.plan.reasoning || []),
+            ...(cachedPlan.reasoning || []),
           ],
           routingMarkers: {
-            ...(lastGoodPlan.plan.routingMarkers || {}),
+            ...(cachedPlan.routingMarkers || {}),
             degraded: true,
             cachedFallback: true,
             requireRouting,
@@ -1237,7 +1305,6 @@ export default function register(api: any) {
         throw new Error(`routing unavailable and no valid last-good route plan exists: ${String(error)}`);
       }
     }
-    const intentText = latestUserTurnText(messages) || tailIntentText(prompt);
     const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
     const taskClass = classifyTask(intentText || prompt);
     const stats = loadStats(statePaths.stats);
@@ -1312,6 +1379,8 @@ export default function register(api: any) {
         startedAt: Date.now(),
         toolCalls: [],
         observedSignals: [],
+        privateRetrievalShadow: privateRetrievalShadowMarker(plan),
+        outputObserved: false,
         selfModel,
         predictedChecks,
         creativity,
@@ -1367,9 +1436,11 @@ export default function register(api: any) {
     const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
-    if (!rs || !rs.creativity?.requested || !creativityAuditEnabled) return;
-    cleanupPendingCreativitySuppressions();
+    if (!rs) return;
     const output = Array.isArray(event?.assistantTexts) ? event.assistantTexts.join('\n\n') : '';
+    rs.outputObserved = Boolean(output.trim());
+    if (!rs.creativity?.requested || !creativityAuditEnabled) return;
+    cleanupPendingCreativitySuppressions();
     if (!output.trim()) return;
     const audit = auditCreativityOutput(output, rs.creativity);
     if (audit.overlapRatio < creativityAuditOverlapThreshold && audit.reasons.includes('anchor_overlap_ratio_high')) {
@@ -1449,6 +1520,51 @@ export default function register(api: any) {
     if ((contradictions.contradictions || []).length > 0 && rs.observedSignals.every((x) => !x.startsWith('contradiction:'))) {
       const severe = (contradictions.contradictions || []).filter((x: any) => x?.severity === 'high').length;
       if (severe > 0) rs.observedSignals.push(`contradiction:high:${severe}`);
+    }
+    if (privateRetrievalShadowTelemetryEnabled && rs.privateRetrievalShadow) {
+      const marker = rs.privateRetrievalShadow;
+      const memoryCalls = rs.toolCalls.filter((call) => call.toolName === 'memory_search');
+      try {
+        updateJson(rs.statePaths.privateRetrievalShadowTelemetry, {
+          schemaVersion: 'cortex.private_retrieval_shadow.route_gate.v1',
+          mode: 'observe_only',
+          answerInfluence: false,
+          updatedAt: nowIso(),
+          counters: { observed: 0, eligible: 0, scheduled: 0, baselineMemorySearchAttempted: 0 },
+          records: [] as any[],
+        }, (state: any) => {
+          state.schemaVersion = 'cortex.private_retrieval_shadow.route_gate.v1';
+          state.mode = 'observe_only';
+          state.answerInfluence = false;
+          state.updatedAt = nowIso();
+          state.counters = isRecord(state.counters) ? state.counters : {};
+          state.counters.observed = Number(state.counters.observed || 0) + 1;
+          if (marker.eligible) state.counters.eligible = Number(state.counters.eligible || 0) + 1;
+          if (marker.scheduled) state.counters.scheduled = Number(state.counters.scheduled || 0) + 1;
+          if (memoryCalls.length) state.counters.baselineMemorySearchAttempted = Number(state.counters.baselineMemorySearchAttempted || 0) + 1;
+          state.records = Array.isArray(state.records) ? state.records : [];
+          state.records.push({
+            completedAt: nowIso(),
+            observationId: marker.observationId || null,
+            eligible: marker.eligible,
+            scheduled: marker.scheduled,
+            selectionReason: marker.selectionReason,
+            factClass: marker.factClass,
+            answerInfluence: false,
+            candidateContentExposed: false,
+            baselineMemorySearchAttempted: memoryCalls.length > 0,
+            baselineMemorySearchSucceeded: memoryCalls.some((call) => call.ok),
+            baselineRunSucceeded: success,
+            outputObserved: rs.outputObserved,
+            qualityCompared: false,
+            qualityComparisonReason: 'shadow_candidate_content_unavailable_to_answer_path',
+          });
+          state.records.splice(0, Math.max(0, state.records.length - privateRetrievalShadowTelemetryMaxRecords));
+        });
+      } catch (error) {
+        // Shadow telemetry must never fail or delay completion of the real run.
+        api.logger.warn?.(`cortex-route-gate: private retrieval shadow telemetry failed: ${String(error)}`);
+      }
     }
     runStateByKey.delete(stateKey);
   });
