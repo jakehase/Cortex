@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"cortex.learning_os.attempt.v0","type":"object","required":["schemaVersion","attemptId","capsuleId","examId","promptDigest","answer","toolsUsed","startedAt","completedAt"]}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "cortex.learning_os.lesson_candidate.v0",
+  "candidateId": "candidate-factor-before-cancel",
+  "capsuleId": "math-foundations-v0",
+  "rule": "Factor algebraic expressions before cancelling terms, and preserve domain restrictions.",
+  "supportingEvidenceIds": ["verify-algebra-1", "verify-probability-1"],
+  "sourceExamIds": ["algebra-baseline", "probability-baseline"],
+  "contradictions": []
+}

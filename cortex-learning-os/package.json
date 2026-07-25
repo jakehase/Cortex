@@ -1,0 +1,11 @@
+{
+  "name": "cortex-learning-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "validate:fixtures": "node src/validate-fixtures.mjs",
+    "promote:fixture": "node src/run-promotion.mjs --capsule fixtures/valid/capsule.json --candidate fixtures/valid/lesson-candidate.json --verifiers fixtures/valid/verifier-results.json --task 'factor an algebraic expression safely' --out artifacts/promotion-fixture"
+  }
+}

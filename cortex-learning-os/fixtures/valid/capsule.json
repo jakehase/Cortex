@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "cortex.learning_os.capsule.v0",
+  "capsuleId": "math-foundations-v0",
+  "domain": "math-foundations",
+  "version": "0.1.0",
+  "trustState": "candidate",
+  "activeExamIds": ["algebra-baseline", "probability-baseline"],
+  "promotionThresholds": {"minEvidence": 2, "minDistinctExams": 2, "minScore": 0.9, "retestDays": 90}
+}
