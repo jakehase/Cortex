@@ -199,7 +199,11 @@ class FFmpegWrapper:
             )
         except asyncio.TimeoutError:
             raise FFmpegError(f"ffmpeg timed out after {timeout_seconds}s")
-        
+        owner = asyncio.current_task()
+        if owner is not None and owner.cancelling():
+            await _stop_process(proc)
+            raise asyncio.CancelledError
+
         stderr_tail = bytearray()
 
         async def read_stderr() -> None:

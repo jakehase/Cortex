@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 import fcntl
 import json
 import os
+import re
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
@@ -46,10 +47,20 @@ from cortex_server.routers.librarian import (
 
 router = APIRouter()
 _STRUCTURED_MEMORY_LOCK = threading.RLock()
+_STRUCTURED_DB_INITIALIZED_PATHS: set[str] = set()
 _L22_MAX_CONTENT_BYTES = 1_000_000
+_CODEC_MAX_CONTENT_BYTES = max(1024, min(int(os.getenv("CORTEX_L22_CODEC_MAX_CONTENT_BYTES", "524288")), 524288))
+_GENERIC_MAX_CONTENT_BYTES = max(1024, int(os.getenv("CORTEX_L22_GENERIC_MAX_CONTENT_BYTES", str(_L22_MAX_CONTENT_BYTES))))
+_METADATA_MAX_BYTES = max(1024, int(os.getenv("CORTEX_L22_METADATA_MAX_BYTES", "65536")))
+_MAX_PHYSICAL_BYTES = max(0, int(os.getenv("CORTEX_L22_MAX_PHYSICAL_BYTES", str(12 * 1024 * 1024 * 1024))))
+_CODEC_MAX_SESSIONS = max(1, int(os.getenv("CODEC_DURABLE_MAX_SESSIONS", "128")))
+_CODEC_MAX_SNAPSHOTS_PER_SESSION = max(1, int(os.getenv("CODEC_RETENTION_MAX_SNAPSHOTS", "4")))
+_UUID_DIR_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.IGNORECASE)
 _L22_QUOTA_FIXED_RECORD_BYTES = 4096
 _L22_QUOTA_RESERVATION_TIMEOUT_SECONDS = 10 * 60
 _L22_RECOVERY_RESERVE_BYTES = 256 * 1024 * 1024
+_RECOVERY_RESERVE_BYTES = _L22_RECOVERY_RESERVE_BYTES
+_PREALLOCATE_RECOVERY_RESERVE = os.getenv("CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE", "false").strip().lower() in {"1", "true", "yes", "on"}
 _L22_PHYSICAL_RESERVE_FILE = ".l22-physical-recovery-reserve"
 _L22_QUOTA_BACKFILL_VERSION = "v2-complete"
 _L22_QUOTA_LIMIT_DEFAULTS = {
@@ -75,10 +86,23 @@ async def initialize_l22_quota_recovery_reserve() -> None:
     if _production_memory_mode():
         _backfill_l22_quota_ledger()
     _reconcile_l22_quota_reservations()
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            _prune_codec_records(connection)
+            connection.commit()
+        finally:
+            connection.close()
 
 
 def _structured_memory_db_path() -> Path:
     return Path(os.getenv("CORTEX_L22_STRUCTURED_DB", str(Path(CHROMA_DIR) / "l22_structured.sqlite3")))
+
+
+def _structured_schema_exists(connection: sqlite3.Connection) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='structured_memory' LIMIT 1"
+    ).fetchone() is not None
 
 
 def _structured_memory_connection() -> sqlite3.Connection:
@@ -87,101 +111,107 @@ def _structured_memory_connection() -> sqlite3.Connection:
     _ensure_l22_physical_reserve(db_path.parent)
     connection = sqlite3.connect(str(db_path), timeout=10)
     connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA busy_timeout=10000")
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS structured_memory (
-            id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL DEFAULT 'cortex-local',
-            workspace_id TEXT NOT NULL DEFAULT 'default',
-            memory_type TEXT NOT NULL,
-            lookup_key TEXT NOT NULL DEFAULT '',
-            content TEXT NOT NULL,
-            metadata_json TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-        """
-    )
-    columns = {
-        str(row[1])
-        for row in connection.execute("PRAGMA table_info(structured_memory)").fetchall()
-    }
-    added_tenant = "tenant_id" not in columns
-    added_workspace = "workspace_id" not in columns
-    if added_tenant:
+    db_key = str(db_path.resolve())
+    with _STRUCTURED_MEMORY_LOCK:
+        initialized = db_key in _STRUCTURED_DB_INITIALIZED_PATHS and _structured_schema_exists(connection)
+        if initialized:
+            connection.execute("PRAGMA busy_timeout=10000")
+            return connection
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=10000")
         connection.execute(
-            "ALTER TABLE structured_memory ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'cortex-local'"
-        )
-    if added_workspace:
-        connection.execute(
-            "ALTER TABLE structured_memory ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default'"
-        )
-    if added_tenant:
-        connection.execute("UPDATE structured_memory SET tenant_id = ?", (DEFAULT_TENANT_ID,))
-    else:
-        connection.execute(
-            "UPDATE structured_memory SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = ''",
-            (DEFAULT_TENANT_ID,),
-        )
-    if added_workspace:
-        connection.execute("UPDATE structured_memory SET workspace_id = ?", (DEFAULT_WORKSPACE_ID,))
-    else:
-        connection.execute(
-            "UPDATE structured_memory SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
-            (DEFAULT_WORKSPACE_ID,),
-        )
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS memory_idempotency ("
-        "tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, "
-        "request_hash TEXT NOT NULL, record_json TEXT NOT NULL, created_at TEXT NOT NULL, "
-        "PRIMARY KEY (tenant_id, workspace_id, idempotency_key))"
-    )
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS l22_quota_records ("
-        "memory_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, "
-        "credential_id TEXT NOT NULL, charge_bytes INTEGER NOT NULL, payload_hash TEXT NOT NULL, "
-        "status TEXT NOT NULL CHECK(status IN ('reserved', 'committed')), created_at REAL NOT NULL, "
-        "owner_token TEXT NOT NULL DEFAULT '', writer_pid INTEGER NOT NULL DEFAULT 0, "
-        "writer_start_ticks TEXT NOT NULL DEFAULT '', writer_boot_id TEXT NOT NULL DEFAULT '', "
-        "lease_expires_at REAL NOT NULL DEFAULT 0)"
-    )
-    quota_columns = {
-        str(row[1])
-        for row in connection.execute("PRAGMA table_info(l22_quota_records)").fetchall()
-    }
-    quota_column_migrations = {
-        "owner_token": "TEXT NOT NULL DEFAULT ''",
-        "writer_pid": "INTEGER NOT NULL DEFAULT 0",
-        "writer_start_ticks": "TEXT NOT NULL DEFAULT ''",
-        "writer_boot_id": "TEXT NOT NULL DEFAULT ''",
-        "lease_expires_at": "REAL NOT NULL DEFAULT 0",
-    }
-    for column, definition in quota_column_migrations.items():
-        if column not in quota_columns:
-            connection.execute(
-                f"ALTER TABLE l22_quota_records ADD COLUMN {column} {definition}"
+            """
+            CREATE TABLE IF NOT EXISTS structured_memory (
+                id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL DEFAULT 'cortex-local',
+                workspace_id TEXT NOT NULL DEFAULT 'default',
+                memory_type TEXT NOT NULL,
+                lookup_key TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS l22_quota_usage ("
-        "scope_type TEXT NOT NULL, scope_id TEXT NOT NULL, record_count INTEGER NOT NULL, "
-        "byte_count INTEGER NOT NULL, PRIMARY KEY(scope_type, scope_id))"
-    )
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS l22_quota_state ("
-        "key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_structured_memory_type_key_created "
-        "ON structured_memory(memory_type, lookup_key, created_at DESC)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_structured_memory_scope_type_key_created "
-        "ON structured_memory(tenant_id, workspace_id, memory_type, lookup_key, created_at DESC)"
-    )
-    connection.commit()
+            """
+        )
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(structured_memory)").fetchall()
+        }
+        added_tenant = "tenant_id" not in columns
+        added_workspace = "workspace_id" not in columns
+        if added_tenant:
+            connection.execute(
+                "ALTER TABLE structured_memory ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'cortex-local'"
+            )
+        if added_workspace:
+            connection.execute(
+                "ALTER TABLE structured_memory ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default'"
+            )
+        if added_tenant:
+            connection.execute("UPDATE structured_memory SET tenant_id = ?", (DEFAULT_TENANT_ID,))
+        else:
+            connection.execute(
+                "UPDATE structured_memory SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = ''",
+                (DEFAULT_TENANT_ID,),
+            )
+        if added_workspace:
+            connection.execute("UPDATE structured_memory SET workspace_id = ?", (DEFAULT_WORKSPACE_ID,))
+        else:
+            connection.execute(
+                "UPDATE structured_memory SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
+                (DEFAULT_WORKSPACE_ID,),
+            )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS memory_idempotency ("
+            "tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, "
+            "request_hash TEXT NOT NULL, record_json TEXT NOT NULL, created_at TEXT NOT NULL, "
+            "PRIMARY KEY (tenant_id, workspace_id, idempotency_key))"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS l22_quota_records ("
+            "memory_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, "
+            "credential_id TEXT NOT NULL, charge_bytes INTEGER NOT NULL, payload_hash TEXT NOT NULL, "
+            "status TEXT NOT NULL CHECK(status IN ('reserved', 'committed')), created_at REAL NOT NULL, "
+            "owner_token TEXT NOT NULL DEFAULT '', writer_pid INTEGER NOT NULL DEFAULT 0, "
+            "writer_start_ticks TEXT NOT NULL DEFAULT '', writer_boot_id TEXT NOT NULL DEFAULT '', "
+            "lease_expires_at REAL NOT NULL DEFAULT 0)"
+        )
+        quota_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(l22_quota_records)").fetchall()
+        }
+        quota_column_migrations = {
+            "owner_token": "TEXT NOT NULL DEFAULT ''",
+            "writer_pid": "INTEGER NOT NULL DEFAULT 0",
+            "writer_start_ticks": "TEXT NOT NULL DEFAULT ''",
+            "writer_boot_id": "TEXT NOT NULL DEFAULT ''",
+            "lease_expires_at": "REAL NOT NULL DEFAULT 0",
+        }
+        for column, definition in quota_column_migrations.items():
+            if column not in quota_columns:
+                connection.execute(
+                    f"ALTER TABLE l22_quota_records ADD COLUMN {column} {definition}"
+                )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS l22_quota_usage ("
+            "scope_type TEXT NOT NULL, scope_id TEXT NOT NULL, record_count INTEGER NOT NULL, "
+            "byte_count INTEGER NOT NULL, PRIMARY KEY(scope_type, scope_id))"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS l22_quota_state ("
+            "key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_structured_memory_type_key_created "
+            "ON structured_memory(memory_type, lookup_key, created_at DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_structured_memory_scope_type_key_created "
+            "ON structured_memory(tenant_id, workspace_id, memory_type, lookup_key, created_at DESC)"
+        )
+        connection.commit()
+        _STRUCTURED_DB_INITIALIZED_PATHS.add(db_key)
     return connection
-
 
 def _bounded_quota_setting(name: str, default: int) -> int:
     raw = os.getenv(name, str(default)).strip()
@@ -238,41 +268,74 @@ def _quota_credential(metadata: dict) -> str:
     return str(metadata.get("scope_credential_id") or "uncredentialed")[:128]
 
 
-def _l22_volume_usage() -> int:
-    root = _structured_memory_db_path().parent
-    total = 0
-    if not root.exists():
+def _path_size(path: Path) -> int:
+    try:
+        return int(path.stat().st_size) if path.is_file() and not path.is_symlink() else 0
+    except OSError:
         return 0
-    for candidate in root.rglob("*"):
+
+
+def _path_allocated_size(path: Path) -> int:
+    """Return filesystem blocks allocated to one regular file."""
+    try:
+        stat = path.stat()
+        if not path.is_file() or path.is_symlink():
+            return 0
+        return int(getattr(stat, "st_blocks", 0)) * 512
+    except OSError:
+        return 0
+
+
+def _l22_active_physical_usage() -> int:
+    """Count active SQLite/Chroma files; exclude backups, quarantine and recovery artifacts."""
+    db_path = _structured_memory_db_path()
+    root = db_path.parent
+    total = sum(_path_size(Path(f"{db_path}{suffix}")) for suffix in ("", "-wal", "-shm"))
+    chroma_db = root / "chroma.sqlite3"
+    total += sum(_path_size(Path(f"{chroma_db}{suffix}")) for suffix in ("", "-wal", "-shm"))
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        children = []
+    for child in children:
+        if not child.is_dir() or not _UUID_DIR_RE.fullmatch(child.name):
+            continue
         try:
-            if (
-                candidate.name != _L22_PHYSICAL_RESERVE_FILE
-                and candidate.is_file()
-                and not candidate.is_symlink()
-            ):
-                total += candidate.stat().st_size
-        except FileNotFoundError:
+            total += sum(_path_size(candidate) for candidate in child.rglob("*") if candidate.is_file())
+        except OSError:
             continue
     return total
 
 
+def _l22_volume_usage() -> int:
+    return _l22_active_physical_usage()
+
+
 def _l22_reserve_enabled() -> bool:
-    return os.getenv("CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE", "false").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    configured = os.getenv("CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE", "false").strip().lower()
+    return bool(_PREALLOCATE_RECOVERY_RESERVE) or configured in {"1", "true", "yes", "on"}
 
 
 def _l22_recovery_reserve_bytes() -> int:
     return _bounded_quota_setting(
         "CORTEX_L22_RECOVERY_RESERVE_BYTES",
-        _L22_RECOVERY_RESERVE_BYTES,
+        _RECOVERY_RESERVE_BYTES,
     )
+
+
+def _recovery_reserve_path(root: Optional[Path] = None) -> Path:
+    base = Path(root) if root is not None else _structured_memory_db_path().parent
+    return Path(os.getenv("CORTEX_L22_RECOVERY_RESERVE_FILE", str(base / _L22_PHYSICAL_RESERVE_FILE)))
+
+
+def _preallocate_recovery_reserve() -> None:
+    _ensure_l22_physical_reserve(_structured_memory_db_path().parent)
 
 
 def _ensure_l22_physical_reserve(root: Path) -> None:
     if not _l22_reserve_enabled():
         return
-    target = Path(root).resolve() / _L22_PHYSICAL_RESERVE_FILE
+    target = _recovery_reserve_path(Path(root)).resolve()
     requested = _l22_recovery_reserve_bytes()
     lock_path = target.with_name(f"{target.name}.lock")
     with lock_path.open("a+b") as lock_handle:
@@ -324,6 +387,50 @@ def _l22_filesystem_available() -> int:
     probe = root if root.exists() else root.parent
     stat = os.statvfs(probe)
     return int(stat.f_bavail) * int(stat.f_frsize)
+
+
+def probe_l22_structured_memory_readiness() -> dict:
+    """Verify SQLite integrity plus bounded physical headroom for durable L22 state."""
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        connection = _structured_memory_connection()
+        row = connection.execute("PRAGMA quick_check").fetchone()
+        quick_check = str(row[0] if row else "")
+        if quick_check != "ok":
+            raise RuntimeError(f"structured memory quick_check failed: {quick_check}")
+        active_bytes = _l22_active_physical_usage()
+        if _MAX_PHYSICAL_BYTES and active_bytes > _MAX_PHYSICAL_BYTES:
+            raise RuntimeError("structured memory active physical quota is exceeded")
+        reserve_required = _l22_recovery_reserve_bytes()
+        reserve_allocated = _path_allocated_size(_recovery_reserve_path())
+        available_bytes = _l22_filesystem_available()
+        reserve_enabled = _l22_reserve_enabled()
+        if reserve_enabled and reserve_allocated < reserve_required:
+            raise RuntimeError("structured memory recovery reserve is not fully allocated")
+        if not reserve_enabled and available_bytes < reserve_required:
+            raise RuntimeError("structured memory filesystem recovery headroom is unavailable")
+        return {
+            "ok": True,
+            "status": "ready",
+            "backend": "l22_structured_sqlite_v1",
+            "quickCheck": quick_check,
+            "activePhysicalBytes": active_bytes,
+            "maxPhysicalBytes": _MAX_PHYSICAL_BYTES,
+            "filesystemAvailableBytes": available_bytes,
+            "recoveryReserveRequiredBytes": reserve_required,
+            "recoveryReserveAllocatedBytes": reserve_allocated,
+            "recoveryReserveEnabled": reserve_enabled,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": "not_ready",
+            "backend": "l22_structured_sqlite_v1",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _quota_adjust_usage(
@@ -1049,6 +1156,57 @@ def _is_sha256_hex(value: str) -> bool:
     return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
+def _prune_codec_records(
+    connection: sqlite3.Connection,
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> int:
+    clauses = ["memory_type = 'codec_state'"]
+    params: List[object] = []
+    if tenant_id is not None:
+        clauses.append("tenant_id = ?")
+        params.append(str(tenant_id))
+    if workspace_id is not None:
+        clauses.append("workspace_id = ?")
+        params.append(str(workspace_id))
+    rows = connection.execute(
+        "SELECT rowid AS insertion_order, id, lookup_key, created_at "
+        "FROM structured_memory WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY created_at DESC, insertion_order DESC",
+        params,
+    ).fetchall()
+    session_latest: dict[str, tuple[str, int]] = {}
+    for row in rows:
+        key = str(row["lookup_key"] or "")
+        session_latest.setdefault(
+            key,
+            (str(row["created_at"] or ""), int(row["insertion_order"])),
+        )
+    allowed_sessions = {
+        key
+        for key, _ in sorted(
+            session_latest.items(), key=lambda item: (item[1], item[0]), reverse=True
+        )[:_CODEC_MAX_SESSIONS]
+    }
+    seen: dict[str, int] = {}
+    delete_ids: List[str] = []
+    for row in rows:
+        key = str(row["lookup_key"] or "")
+        seen[key] = seen.get(key, 0) + 1
+        if key not in allowed_sessions or seen[key] > _CODEC_MAX_SNAPSHOTS_PER_SESSION:
+            delete_ids.append(str(row["id"]))
+    for memory_id in delete_ids:
+        quota_row = connection.execute(
+            "SELECT * FROM l22_quota_records WHERE memory_id = ?", (memory_id,)
+        ).fetchone()
+        if quota_row is not None:
+            _quota_release_row(connection, quota_row)
+        connection.execute("DELETE FROM structured_memory WHERE id = ?", (memory_id,))
+    return len(delete_ids)
+
+
 def store_structured_memory_record(
     *,
     content: str,
@@ -1073,12 +1231,28 @@ def store_structured_memory_record(
         metadata, tenant_id=tenant, workspace_id=workspace
     )
     resolved_type = str(memory_type or record_metadata.get("type") or "memory")
+    content_bytes = len(content.encode("utf-8"))
+    content_limit = _CODEC_MAX_CONTENT_BYTES if resolved_type == "codec_state" else _GENERIC_MAX_CONTENT_BYTES
+    if content_bytes > content_limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{resolved_type} exceeds bounded L22 record size ({content_bytes} > {content_limit} bytes)",
+        )
     record_metadata.setdefault("type", resolved_type)
     if tags:
         record_metadata.setdefault("tags", list(tags))
     record_metadata.setdefault("persistence_backend", "l22_structured_sqlite_v1")
     lookup_key = str(record_metadata.get("codec_session_key") or record_metadata.get("lookup_key") or "")
+    if resolved_type == "codec_state" and not lookup_key:
+        raise HTTPException(status_code=400, detail="Codec state requires a non-empty session lookup key")
     created_at = str(record_metadata.get("codec_generated_at") or record_metadata.get("generated_at") or datetime.now(timezone.utc).isoformat())
+    metadata_json = json.dumps(record_metadata, ensure_ascii=False, sort_keys=True)
+    metadata_bytes = len(metadata_json.encode("utf-8"))
+    if metadata_bytes > _METADATA_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="L22 metadata exceeds bounded size")
+    estimated_charge = content_bytes + metadata_bytes + _L22_QUOTA_FIXED_RECORD_BYTES
+    if _MAX_PHYSICAL_BYTES and _l22_active_physical_usage() + estimated_charge > _MAX_PHYSICAL_BYTES:
+        raise HTTPException(status_code=507, detail="L22 active physical storage quota exceeded")
     payload_hash = sha256(json.dumps(
         {"content": content, "memory_type": resolved_type, "metadata": record_metadata},
         ensure_ascii=False,
@@ -1101,8 +1275,13 @@ def store_structured_memory_record(
             try:
                 connection.execute(
                     "INSERT INTO structured_memory(id, tenant_id, workspace_id, memory_type, lookup_key, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (memory_id, tenant, workspace, resolved_type, lookup_key, content, json.dumps(record_metadata, ensure_ascii=False, sort_keys=True), created_at),
+                    (memory_id, tenant, workspace, resolved_type, lookup_key, content, metadata_json, created_at),
                 )
+                pruned = _prune_codec_records(
+                    connection,
+                    tenant_id=tenant,
+                    workspace_id=workspace,
+                ) if resolved_type == "codec_state" else 0
                 connection.commit()
             finally:
                 connection.close()
@@ -1110,7 +1289,13 @@ def store_structured_memory_record(
     except Exception:
         _settle_failed_memory_write(memory_id)
         raise
-    return {"id": memory_id, "status": "stored", "metadata": record_metadata, "backend": "l22_structured_sqlite_v1"}
+    return {
+        "id": memory_id,
+        "status": "stored",
+        "metadata": record_metadata,
+        "backend": "l22_structured_sqlite_v1",
+        "pruned_records": pruned,
+    }
 
 
 def list_structured_memory_records(
@@ -1573,6 +1758,13 @@ async def l22_status():
         "memory_count": memory_count,
         "structured_memory_count": structured_memory_count,
         "structured_memory_backend": "l22_structured_sqlite_v1",
+        "active_physical_bytes": _l22_active_physical_usage(),
+        "max_physical_bytes": _MAX_PHYSICAL_BYTES,
+        "codec_max_content_bytes": _CODEC_MAX_CONTENT_BYTES,
+        "codec_max_sessions": _CODEC_MAX_SESSIONS,
+        "codec_max_snapshots_per_session": _CODEC_MAX_SNAPSHOTS_PER_SESSION,
+        "recovery_reserve_bytes": _path_size(_recovery_reserve_path()),
+        "recovery_reserve_allocated_bytes": _path_allocated_size(_recovery_reserve_path()),
         "scope_auth_ready": scope_auth_ready,
         "novelty_version": "l7l22.v1.1",
     }

@@ -100,6 +100,8 @@ const LIFECYCLE_ROOT_INODE_RESERVE = 16;
 const RECENT_OUTPUT_MAX_ENTRIES = 1024;
 const RECENT_OUTPUT_TTL_MS = 10 * 60 * 1000;
 const RECENT_OUTPUT_MAX_CHARS = 4096;
+const LLM_OUTPUT_WAIT_MS = 250;
+const OUTPUT_WAITER_MAX = 256;
 
 function lifecyclePersistenceKey(session: string, payload: string): string {
   const sessionBytes = Buffer.from(session, 'utf8');
@@ -1673,13 +1675,22 @@ function extractText(value: unknown): string {
   return Object.values(obj).map(extractText).filter(Boolean).join('\n');
 }
 
-function extractAssistantVisibleText(messages: unknown): string {
+export function extractLatestAssistantVisibleText(messages: unknown): string {
   if (!Array.isArray(messages)) return '';
-  return messages
-    .filter((m) => m && typeof m === 'object' && (m as Record<string, unknown>).role === 'assistant')
-    .map((m) => extractText((m as Record<string, unknown>).content ?? m))
-    .filter(Boolean)
-    .join('\n');
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== 'object' || (message as Record<string, unknown>).role !== 'assistant') continue;
+    const text = extractText((message as Record<string, unknown>).content ?? message).trim();
+    if (text) return text.slice(-12000);
+  }
+  return '';
+}
+export function extractLlmOutputText(event: any): string {
+  const assistantTexts = extractText(event?.assistantTexts).trim();
+  if (assistantTexts) return assistantTexts.slice(-12000);
+  const lastAssistant = extractText(event?.lastAssistant).trim();
+  if (lastAssistant) return lastAssistant.slice(-12000);
+  return extractText(event?.content).trim().slice(-12000);
 }
 function extractLatestUserText(messages: unknown): string {
   if (!Array.isArray(messages)) return '';
@@ -1695,10 +1706,23 @@ function detectProjectSlug(text: string): string | null {
   const t = normalizeQuery(text);
   if (/\bmailchimp\b/.test(t)) return 'mailchimp';
   if (/\bpmhnp\b|\bclaim guard\b/.test(t)) return 'pmhnp-claim-guard';
+  if (/\bprofit tournament\b/.test(t)) return 'profit-tournament';
+  if (/\bcortex memory\b|\bmemory system\b/.test(t)) return 'cortex-memory';
+  if (/\bai os\b/.test(t)) return 'ai-os';
+  if (/\bagent work\b/.test(t)) return 'agent-work';
   return null;
 }
 function containsSecretLike(text: string): boolean {
-  return /\b(api[_-]?key|token|password|secret|bearer|ssh-rsa|BEGIN [A-Z ]+ PRIVATE KEY)\b/i.test(text);
+  return /-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text)
+    || /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_-]{6,}\b/.test(text)
+    || /\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b/.test(text)
+    || /\b(?:gh[opusr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/.test(text)
+    || /\bAKIA[0-9A-Z]{16}\b/.test(text)
+    || /\bxox[baprs]-[A-Za-z0-9-]{16,}\b/.test(text)
+    || /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/.test(text)
+    || /\bwhsec_[A-Za-z0-9_-]{8,}\b/.test(text)
+    || /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i.test(text)
+    || /\b(?:password|passphrase|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|webhook[_ -]?secret|secret|token)\b\s*(?::|=|\bis\b)\s*["'`]?[^\s"'`]{8,}/i.test(text);
 }
 function summarizeShape(value: unknown, depth = 0): unknown {
   if (depth > 2) return typeof value;
@@ -1722,7 +1746,9 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
   if (/\bremember this\b|\bplease remember\b|\bmy preference\b|\bi prefer\b|\bcall me\b|\btimezone\b|\bpronouns\b/i.test(t)) { score += 0.45; reasons.push('explicit_preference'); kind = 'preference'; }
   if (/\bdecision\b|\bwe decided\b|\bthe plan is\b|\bfrom now on\b|\bdefault to\b|\balways use\b/i.test(t)) { score += 0.35; reasons.push('decision'); kind = 'decision'; }
   if (/\breply-anchor context .* primary\b|\breply anchor .* primary\b|\bpersistence first\b/i.test(t)) { score += 0.2; reasons.push('anti_drift_or_lesson'); if (kind === 'transient') kind = 'decision'; }
-  if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b/i.test(t)) { score += 0.22; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
+  if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b|\bimplemented\b|\bdeployed\b|\bverified\b|\bconfigured\b|\bauthorized\b|\benabled\b/i.test(t)) { score += 0.3; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
+  if (/\bcorrection\b|\bcorrected\b|\bsupersed(?:e|ed)\b|\bwas wrong\b/i.test(t)) { score += 0.22; reasons.push('correction'); if (kind === 'transient') kind = 'fact'; }
+  if (/\b(?:uuid|account id|project id|calendar id|entity id)\b/i.test(t) || /\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/i.test(t) || /\bacct_[A-Za-z0-9]+\b/.test(t)) { score += 0.46; reasons.push('stable_identifier'); kind = 'stable_identifier'; }
   if (detectProjectSlug(t)) { score += 0.16; reasons.push('named_project'); if (kind === 'transient') kind = 'fact'; }
   if (/\b(today|right now|currently|just now|this morning|tonight|lol|haha|thanks|ok|okay|sure)\b/i.test(t)) { score -= 0.18; reasons.push('transient_chat'); }
   if (/https?:\/\/\S+/.test(t) && t.length < 140) { score -= 0.18; reasons.push('bare_link'); }
@@ -1770,8 +1796,10 @@ async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType
   }
   const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
   if (!rawSessionKey) return 'failed' as const;
-  const text = [extractAssistantVisibleText(event?.messages), extractText(event?.result), String(fallbackText || '')]
-    .filter(Boolean).join('\n').replace(/\s+/g, ' ').trim().slice(-2400);
+  const text = (String(fallbackText || '').trim()
+    || extractLatestAssistantVisibleText(event?.messages)
+    || extractText(event?.result))
+    .replace(/\s+/g, ' ').trim().slice(-2400);
   if (text.length < 20 || containsSecretLike(text)) return 'skipped' as const;
   try {
     const scope = scopedIdentity(cfg, ctx);
@@ -1801,11 +1829,10 @@ async function maybeWriteThrough(
   retainReceipt?: (receipt: string, replaceReceipt?: string) => string,
 ) {
   if (!cfg.enabledWriteThrough) return 'disabled' as const;
-  const text = [
-    extractAssistantVisibleText(event?.messages),
-    extractText(event?.result),
-    String(fallbackText || ''),
-  ].filter(Boolean).join('\n').replace(/\s+/g, ' ').trim();
+  const text = (String(fallbackText || '').trim()
+    || extractLatestAssistantVisibleText(event?.messages)
+    || extractText(event?.result))
+    .replace(/\s+/g, ' ').trim();
   if (!text) {
     api.logger.info?.('cortex-memory-bridge: write-through skipped (no extractable text)');
     return 'skipped' as const;
@@ -1928,6 +1955,49 @@ const plugin = {
       return { context, principal, namespace: lifecyclePrincipalNamespace(initialConfig, principal) };
     };
     const recentOutputByPrincipal = new ExpiringLruMap<string>(RECENT_OUTPUT_MAX_ENTRIES, RECENT_OUTPUT_TTL_MS);
+    const outputWaiters = new Map<string, Set<(text?: string) => void>>();
+    let outputWaiterCount = 0;
+    const outputCorrelationKey = (principalNamespace: string, event: any, ctx: any) => {
+      const identity = lifecycleIdentity(event, ctx);
+      return identity ? `${principalNamespace}:${identity}` : principalNamespace;
+    };
+    const setRecentOutput = (key: string, text: string) => {
+      if (!key || !text) return;
+      const bounded = text.slice(-recentOutputMaxChars);
+      recentOutputByPrincipal.set(key, bounded);
+      const waiters = outputWaiters.get(key);
+      if (!waiters) return;
+      outputWaiters.delete(key);
+      for (const resolve of waiters) resolve(bounded);
+    };
+    const waitForOutput = (key: string): Promise<string | undefined> => {
+      const current = recentOutputByPrincipal.get(key);
+      if (current) return Promise.resolve(current);
+      if (outputWaiterCount >= OUTPUT_WAITER_MAX) {
+        return Promise.reject(new Error('Cortex lifecycle output rendezvous is at capacity'));
+      }
+      return new Promise((resolve) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const finish = (text?: string) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          const waiters = outputWaiters.get(key);
+          if (waiters) {
+            waiters.delete(finish);
+            if (!waiters.size) outputWaiters.delete(key);
+          }
+          outputWaiterCount = Math.max(0, outputWaiterCount - 1);
+          resolve(text);
+        };
+        const waiters = outputWaiters.get(key) ?? new Set<(text?: string) => void>();
+        waiters.add(finish);
+        outputWaiters.set(key, waiters);
+        outputWaiterCount += 1;
+        timer = setTimeout(() => finish(undefined), LLM_OUTPUT_WAIT_MS);
+      });
+    };
     const completed = new ExpiringLruSet(LIFECYCLE_DEDUP_MAX_ENTRIES, LIFECYCLE_DEDUP_TTL_MS);
     const inFlight = new Map<string, Promise<boolean>>();
     const queued = new Map<string, Promise<boolean>>();
@@ -1938,13 +2008,16 @@ const plugin = {
       const payload = identity ? `lifecycle:${identity}` : `content:${String(fallback || '').slice(-recentOutputMaxChars)}`;
       return lifecyclePersistenceKey(principalNamespace, payload);
     };
-    const boundedLifecycleEvent = (event: any, cfg: ReturnType<typeof resolveConfig>) => {
+    const boundedLifecycleEvent = (
+      event: any,
+      cfg: ReturnType<typeof resolveConfig>,
+      authoritativeText = '',
+    ) => {
       const userText = extractLatestUserText(event?.messages).slice(-2000);
-      const assistantText = extractAssistantVisibleText(event?.messages);
+      const assistantText = extractLatestAssistantVisibleText(event?.messages);
       const resultText = extractText(event?.result);
-      const boundedText = [assistantText, resultText]
-        .filter(Boolean)
-        .join('\n')
+      const boundedText = (authoritativeText.trim()
+        || [assistantText, resultText].filter(Boolean).join('\n'))
         .slice(-cfg.recentOutputMaxChars);
       return {
         result: boundedText,
@@ -2008,8 +2081,8 @@ const plugin = {
       if (existing) return existing;
       const waiting = queued.get(persistenceKey);
       if (waiting) return waiting;
-      const boundedEvent = boundedLifecycleEvent(event, cfg);
       const boundedFallback = String(fallbackText || '').slice(-cfg.recentOutputMaxChars);
+      const boundedEvent = boundedLifecycleEvent(event, cfg, boundedFallback);
       const boundedContext = context;
       const retainedSpoolRecord = lifecycleState!.quota.entries(principalNamespace, principalSpool)
         .find((record) => record.key === persistenceKey);
@@ -2233,42 +2306,60 @@ const plugin = {
     }), { names: ['memory_get'] });
 
     api.on('llm_output', (event: any, ctx: any) => {
-      const text = extractText(event);
+      const text = extractLlmOutputText(event).replace(/\s+/g, ' ').trim();
       if (!text) return;
       try {
         const binding = principalBinding(ctx);
-        recentOutputByPrincipal.set(binding.namespace, text.slice(-recentOutputMaxChars));
+        setRecentOutput(outputCorrelationKey(binding.namespace, event, ctx), text);
+        setRecentOutput(binding.namespace, text);
       } catch (error) {
         api.logger.warn?.(`cortex-memory-bridge: refused recent output with incomplete principal: ${String(error)}`);
         throw error;
       }
     });
 
-    api.on('subagent_ended', async (event: any, ctx: any) => {
+    const handleLifecycle = async (kind: 'agent_end' | 'subagent_ended', event: any, ctx: any) => {
       const cfg = initialConfig;
       const binding = principalBinding(ctx);
-      const fallbackText = recentOutputByPrincipal.get(binding.namespace);
-      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: subagent_ended shape ${JSON.stringify({ principal: binding.namespace, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      const correlationKey = outputCorrelationKey(binding.namespace, event, ctx);
+      const identity = lifecycleIdentity(event, ctx);
+      let fallbackText = recentOutputByPrincipal.get(correlationKey);
+      let persistenceKey = makePersistenceKey(binding.namespace, event, ctx, fallbackText || extractText(event?.result));
+      let alreadyScheduled = inFlight.has(persistenceKey) || queued.has(persistenceKey) || completed.has(persistenceKey);
+      if (!alreadyScheduled && lifecycleState) {
+        try {
+          const principalSpool = spools.get(binding.namespace);
+          if (principalSpool) {
+            alreadyScheduled = lifecycleState.quota.entries(binding.namespace, principalSpool)
+              .some((record) => record.key === persistenceKey);
+          }
+        } catch {}
       }
-      const persistenceKey = makePersistenceKey(binding.namespace, event, ctx, fallbackText || extractText(event?.result));
-      await persistLifecycle(persistenceKey, cfg, { result: event?.result, messages: event?.messages }, binding.context, fallbackText);
+      if (!fallbackText && identity && !alreadyScheduled) fallbackText = await waitForOutput(correlationKey);
+      if (!fallbackText && identity && !alreadyScheduled) {
+        throw new Error(`Cortex lifecycle persistence refused stale ${kind} content because authoritative llm_output did not arrive`);
+      }
+      persistenceKey = makePersistenceKey(binding.namespace, event, ctx, fallbackText || extractText(event?.result));
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: ${kind} shape ${JSON.stringify({ principal: binding.namespace, identity: identity || null, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      const persisted = await persistLifecycle(persistenceKey, cfg, event, binding.context, fallbackText);
+      if (persisted) {
+        recentOutputByPrincipal.delete(correlationKey);
+        recentOutputByPrincipal.delete(binding.namespace);
+      }
+      if (!persisted && kind === 'agent_end') {
+        throw new Error('Cortex lifecycle persistence failed; output retained for retry');
+      }
+      return persisted;
+    };
+
+    api.on('subagent_ended', async (event: any, ctx: any) => {
+      await handleLifecycle('subagent_ended', event, ctx);
     });
 
     api.on('agent_end', async (event: any, ctx: any) => {
-      const cfg = initialConfig;
-      const binding = principalBinding(ctx);
-      const fallbackText = recentOutputByPrincipal.get(binding.namespace);
-      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ principal: binding.namespace, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      const persistenceKey = makePersistenceKey(binding.namespace, event, ctx, fallbackText || extractText(event?.result));
-      const persisted = await persistLifecycle(persistenceKey, cfg, event, binding.context, fallbackText);
-      if (persisted) {
-        recentOutputByPrincipal.delete(binding.namespace);
-      } else {
-        throw new Error('Cortex lifecycle persistence failed; output retained for retry');
-      }
+      await handleLifecycle('agent_end', event, ctx);
     });
   },
 };

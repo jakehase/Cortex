@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import copy
 from datetime import datetime, timezone
 import hashlib
 import importlib
@@ -149,6 +150,15 @@ CODEC_SESSION_CACHE_MAX = max(1, int(os.getenv("CODEC_SESSION_CACHE_MAX", "512")
 CODEC_SESSION_TTL_SECONDS = max(1, int(os.getenv("CODEC_SESSION_TTL_SECONDS", "3600")))
 CODEC_SESSION_KEY_MAX_CHARS = max(32, int(os.getenv("CODEC_SESSION_KEY_MAX_CHARS", "256")))
 CODEC_DURABLE_MAX_SESSIONS = max(1, int(os.getenv("CODEC_DURABLE_MAX_SESSIONS", "128")))
+CODEC_IN_MEMORY_MAX_SESSIONS = max(1, int(os.getenv("CODEC_IN_MEMORY_MAX_SESSIONS", "128")))
+CODEC_STATE_TEXT_MAX_CHARS = max(128, int(os.getenv("CODEC_STATE_TEXT_MAX_CHARS", "1200")))
+CODEC_STATE_SUMMARY_MAX_CHARS = max(256, int(os.getenv("CODEC_STATE_SUMMARY_MAX_CHARS", "2400")))
+_CODEC_DERIVED_STATE_KEYS = {"durable_write", "memory_facts", "promotion_state", "rollup_state", "schema_state"}
+_CODEC_SOURCE_STATE_KEYS = {
+    "version", "schema_version", "state_revision", "generated_at", "source_event_count",
+    "source_refs", "compression", "identity_state", "project_state", "world_state",
+    "failure_state", "outcome_state", "utility_state", "summary", "migration",
+}
 
 UTILITY_BUCKET_WEIGHTS = {
     "preferences": 1.0,
@@ -264,7 +274,7 @@ def _prune_codec_session_cache_locked(*, now: Optional[float] = None, protected:
         if key != protected and current - float(accessed_at) >= ttl:
             _evict_codec_session_locked(key, "ttl")
 
-    capacity = max(1, int(CODEC_SESSION_CACHE_MAX))
+    capacity = max(1, min(int(CODEC_SESSION_CACHE_MAX), int(CODEC_IN_MEMORY_MAX_SESSIONS)))
     cached_keys = set(_SESSION_CODEC_STATE).union(_SESSION_CODEC_PERSIST)
     while len(cached_keys) > capacity:
         candidates = [key for key in cached_keys if key != protected]
@@ -288,7 +298,7 @@ def _codec_cache_retention_snapshot() -> Dict[str, Any]:
         _prune_codec_session_cache_locked()
         return {
             "active_sessions": len(set(_SESSION_CODEC_STATE).union(_SESSION_CODEC_PERSIST)),
-            "capacity": max(1, int(CODEC_SESSION_CACHE_MAX)),
+            "capacity": max(1, min(int(CODEC_SESSION_CACHE_MAX), int(CODEC_IN_MEMORY_MAX_SESSIONS))),
             "ttl_seconds": max(1, int(CODEC_SESSION_TTL_SECONDS)),
             "session_key_max_chars": max(32, int(CODEC_SESSION_KEY_MAX_CHARS)),
             "evictions": dict(_SESSION_CODEC_EVICTIONS),
@@ -582,12 +592,16 @@ def _clean_text(value: Any) -> str:
     return text
 
 
+def _clean_state_text(value: Any) -> str:
+    return _clean_text(value)[:CODEC_STATE_TEXT_MAX_CHARS]
+
+
 def _normalize_text_list(value: Any, *, limit: int = 8) -> List[str]:
     items = value if isinstance(value, list) else []
     cleaned: List[str] = []
     seen = set()
     for item in items:
-        text = _clean_text(item)
+        text = _clean_state_text(item)
         if not text:
             continue
         key = text.lower()
@@ -606,11 +620,11 @@ def _normalize_revision_log(value: Any) -> List[Dict[str, Any]]:
             continue
         normalized.append({
             "bucket": _clean_text(item.get("bucket")),
-            "superseded_text": _clean_text(item.get("superseded_text")),
-            "replacement_text": _clean_text(item.get("replacement_text")),
-            "claim_key": _clean_text(item.get("claim_key")),
-            "reason": _clean_text(item.get("reason") or "revision"),
-            "generated_at": _clean_text(item.get("generated_at")),
+            "superseded_text": _clean_state_text(item.get("superseded_text")),
+            "replacement_text": _clean_state_text(item.get("replacement_text")),
+            "claim_key": _clean_state_text(item.get("claim_key")),
+            "reason": _clean_state_text(item.get("reason") or "revision"),
+            "generated_at": _clean_text(item.get("generated_at"))[:128],
         })
     return normalized[-REVISION_LOG_LIMIT:]
 
@@ -665,6 +679,14 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _bounded_nonnegative_int(value: Any, *, maximum: int, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = int(default)
+    return max(0, min(int(maximum), parsed))
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -1161,6 +1183,156 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "compat_mode": previous_version != CODEC_VERSION or previous_schema_version != CODEC_SCHEMA_VERSION,
     }
     return payload
+
+
+def _sanitize_codec_source_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Bound an already-current Codec state without changing semantic scores."""
+
+    payload = {
+        key: copy.deepcopy(state[key])
+        for key in _CODEC_SOURCE_STATE_KEYS
+        if key in state and key not in _CODEC_DERIVED_STATE_KEYS
+    }
+    payload["version"] = CODEC_VERSION
+    payload["schema_version"] = CODEC_SCHEMA_VERSION
+    payload["generated_at"] = (_clean_text(payload.get("generated_at")) or _now_iso())[:128]
+    payload["summary"] = _clean_text(payload.get("summary"))[:CODEC_STATE_SUMMARY_MAX_CHARS]
+    payload["state_revision"] = _bounded_nonnegative_int(payload.get("state_revision"), maximum=10**12)
+    payload["source_event_count"] = _bounded_nonnegative_int(payload.get("source_event_count"), maximum=10**12)
+
+    identity = payload.get("identity_state") if isinstance(payload.get("identity_state"), dict) else {}
+    project = payload.get("project_state") if isinstance(payload.get("project_state"), dict) else {}
+    world = payload.get("world_state") if isinstance(payload.get("world_state"), dict) else {}
+    failure = payload.get("failure_state") if isinstance(payload.get("failure_state"), dict) else {}
+    payload["identity_state"] = {
+        "preferences": _normalize_text_list(identity.get("preferences", [])),
+        "preference_revisions": _normalize_revision_log(identity.get("preference_revisions", [])),
+        "preference_revision_count": _bounded_nonnegative_int(identity.get("preference_revision_count"), maximum=10**12),
+    }
+    payload["project_state"] = {
+        "active_projects": _normalize_text_list(project.get("active_projects", [])),
+        "active_goals": _normalize_text_list(project.get("active_goals", [])),
+        "open_loops": _normalize_text_list(project.get("open_loops", [])),
+    }
+    payload["world_state"] = {
+        "durable_facts": _normalize_text_list(world.get("durable_facts", [])),
+        "fact_revisions": _normalize_revision_log(world.get("fact_revisions", [])),
+        "fact_revision_count": _bounded_nonnegative_int(world.get("fact_revision_count"), maximum=10**12),
+    }
+    payload["failure_state"] = {
+        "patterns": _normalize_text_list(failure.get("patterns", [])),
+        "lessons": _normalize_text_list(failure.get("lessons", [])),
+        "lesson_revisions": _normalize_revision_log(failure.get("lesson_revisions", [])),
+        "lesson_revision_count": _bounded_nonnegative_int(failure.get("lesson_revision_count"), maximum=10**12),
+    }
+
+    normalized_refs = []
+    for row in payload.get("source_refs", []) if isinstance(payload.get("source_refs"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        normalized_refs.append({
+            "event_id": _clean_state_text(row.get("event_id")) or None,
+            "session_key": _clean_state_text(row.get("session_key")) or None,
+            "event_kind": _clean_state_text(row.get("event_kind") or "event") or "event",
+            "ts": _clean_state_text(row.get("ts")) or None,
+        })
+        if len(normalized_refs) >= 32:
+            break
+    payload["source_refs"] = normalized_refs
+
+    active_items = {
+        "preferences": payload["identity_state"]["preferences"],
+        "active_projects": payload["project_state"]["active_projects"],
+        "active_goals": payload["project_state"]["active_goals"],
+        "open_loops": payload["project_state"]["open_loops"],
+        "durable_facts": payload["world_state"]["durable_facts"],
+        "patterns": payload["failure_state"]["patterns"],
+        "lessons": payload["failure_state"]["lessons"],
+    }
+    utility = payload.get("utility_state") if isinstance(payload.get("utility_state"), dict) else {}
+    prior_buckets = utility.get("bucket_scores") if isinstance(utility.get("bucket_scores"), dict) else {}
+    bucket_scores: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for bucket, items in active_items.items():
+        prior = prior_buckets.get(bucket) if isinstance(prior_buckets.get(bucket), dict) else {}
+        rows: Dict[str, Dict[str, Any]] = {}
+        for text in items:
+            key = text.lower()
+            candidate = prior.get(key) if isinstance(prior.get(key), dict) else {}
+            row = {
+                "text": text,
+                "bucket": bucket,
+                "score": round(_clamp(_coerce_float(candidate.get("score"), _base_utility_score(text, bucket)), 0.0, UTILITY_MAX_SCORE), 3),
+                "evidence_count": max(1, _bounded_nonnegative_int(candidate.get("evidence_count"), maximum=10**9, default=1)),
+                "observation_count": _bounded_nonnegative_int(candidate.get("observation_count"), maximum=10**9),
+                "last_seen_at": _clean_text(candidate.get("last_seen_at"))[:128],
+                "age_hours": round(_clamp(_coerce_float(candidate.get("age_hours"), 0.0), 0.0, 10**9), 3),
+                "freshness": (_clean_text(candidate.get("freshness")) or "fresh")[:32],
+                "confidence": round(_clamp(_coerce_float(candidate.get("confidence"), 0.0), 0.0, 1.0), 3),
+            }
+            for field in ("global_evidence_count", "global_session_count", "cross_session_count"):
+                if field in candidate:
+                    row[field] = _bounded_nonnegative_int(candidate.get(field), maximum=10**9)
+            for field in ("rollup_confidence",):
+                if field in candidate:
+                    row[field] = round(_clamp(_coerce_float(candidate.get(field), 0.0), 0.0, 1.0), 3)
+            for field in ("rollup_last_seen_at", "rollup_freshness", "rollup_match_type"):
+                if field in candidate:
+                    row[field] = _clean_state_text(candidate.get(field))
+            aliases = candidate.get("rollup_alias_members")
+            if isinstance(aliases, list):
+                row["rollup_alias_members"] = _normalize_text_list(aliases, limit=5)
+            rows[key] = row
+        bucket_scores[bucket] = rows
+    payload["utility_state"] = {
+        "version": (_clean_text(utility.get("version") or "cortex.codec.utility.v1") or "cortex.codec.utility.v1")[:128],
+        "bucket_scores": bucket_scores,
+        "summary": _utility_summary(bucket_scores),
+        "retention_policy": _codec_retention_policy(),
+    }
+
+    compression = payload.get("compression") if isinstance(payload.get("compression"), dict) else {}
+    payload["compression"] = {
+        "source_events": _bounded_nonnegative_int(compression.get("source_events", payload["source_event_count"]), maximum=10**12),
+        "raw_characters": _bounded_nonnegative_int(compression.get("raw_characters"), maximum=10**15),
+        "prompt_characters": _bounded_nonnegative_int(compression.get("prompt_characters"), maximum=10**15),
+        "ratio": round(_clamp(_coerce_float(compression.get("ratio"), 0.0), 0.0, 10**9), 3),
+    }
+    outcome = payload.get("outcome_state") if isinstance(payload.get("outcome_state"), dict) else {}
+    payload["outcome_state"] = {
+        key: _bounded_nonnegative_int(outcome.get(key), maximum=10**12)
+        for key in ("success_count", "failure_count", "neutral_count")
+    }
+    migration = payload.get("migration") if isinstance(payload.get("migration"), dict) else {}
+    payload["migration"] = {
+        "source_version": (_clean_text(migration.get("source_version") or CODEC_VERSION) or CODEC_VERSION)[:128],
+        "source_schema_version": (_clean_text(migration.get("source_schema_version") or CODEC_SCHEMA_VERSION) or CODEC_SCHEMA_VERSION)[:128],
+        "compat_mode": bool(migration.get("compat_mode")),
+    }
+    return payload
+
+
+
+def _compact_codec_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Return bounded source state; projections are rebuilt on read."""
+    if not isinstance(state, dict):
+        return {}
+    return _sanitize_codec_source_state(state)
+
+
+def _cache_codec_state(
+    session_key: str,
+    state: Dict[str, Any],
+    persist: Optional[Dict[str, Any]] = None,
+) -> None:
+    if not session_key:
+        return
+    compact = _compact_codec_state(state)
+    with _SESSION_CODEC_LOCK:
+        _SESSION_CODEC_STATE[session_key] = compact
+        if persist is not None:
+            _SESSION_CODEC_PERSIST[session_key] = dict(persist)
+        _touch_codec_session_locked(session_key)
+
 
 
 def _boost_utility_bucket(
@@ -2110,7 +2282,17 @@ def _enrich_codec_state_with_rollups(
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    if not session_key or not isinstance(state, dict) or not state or not CODEC_DURABLE_ENABLED:
+    if not session_key or not isinstance(state, dict) or not state:
+        return state
+
+    # Keep only bounded source state in caches/persistence; rebuild projections
+    # for each read so derived rollups cannot amplify durable storage.
+    if isinstance(state.get("utility_state"), dict):
+        state["utility_state"]["summary"] = _utility_summary(state["utility_state"].get("bucket_scores", {}))
+    state["promotion_state"] = _build_promotion_state(state)
+    state["schema_state"] = _export_schema_state(state)
+    state["memory_facts"] = build_codec_memory_facts(session_key=session_key, codec_state=state)
+    if not CODEC_DURABLE_ENABLED:
         return state
 
     rows = _fetch_global_codec_rows_from_l22(
@@ -2167,6 +2349,7 @@ def _enrich_codec_state_with_rollups(
         state["utility_state"]["summary"] = _utility_summary(state["utility_state"].get("bucket_scores", {}))
     state["promotion_state"] = _build_promotion_state(state)
     state["schema_state"] = _export_schema_state(state)
+    state["memory_facts"] = build_codec_memory_facts(session_key=session_key, codec_state=state)
     return state
 
 
@@ -2188,26 +2371,21 @@ def _load_codec_state_from_l22(
 
     top = candidates[0]
     meta = top.get("metadata") if isinstance(top.get("metadata"), dict) else {}
-    doc = top.get("document")
     try:
-        state = json.loads(doc)
+        raw_state = json.loads(top.get("document"))
     except Exception:
         return {}
-    if not isinstance(state, dict):
+    if not isinstance(raw_state, dict):
         return {}
-    state = _migrate_codec_state(state)
-
-    with _SESSION_CODEC_LOCK:
-        _SESSION_CODEC_STATE[session_key] = state
-        _SESSION_CODEC_PERSIST[session_key] = {
-            "fingerprint": str(meta.get("codec_fingerprint") or _state_fingerprint(state)),
-            "stored_id": str(top.get("id") or meta.get("codec_store_id") or ""),
-            "loaded_from_l22": True,
-            "generated_at": str(meta.get("codec_generated_at") or state.get("generated_at") or ""),
-        }
-        _touch_codec_session_locked(session_key)
-    return dict(state)
-
+    state = _compact_codec_state(_migrate_codec_state(raw_state))
+    persist = {
+        "fingerprint": str(meta.get("codec_fingerprint") or _state_fingerprint(state)),
+        "stored_id": str(top.get("id") or meta.get("codec_store_id") or ""),
+        "loaded_from_l22": True,
+        "generated_at": str(meta.get("codec_generated_at") or state.get("generated_at") or ""),
+    }
+    _cache_codec_state(session_key, state, persist)
+    return copy.deepcopy(state)
 
 def get_codec_state(
     session_key: str,
@@ -2225,39 +2403,26 @@ def get_codec_state(
     with _codec_session_update_lock(session_key):
         with _SESSION_CODEC_LOCK:
             _prune_codec_session_cache_locked(protected=session_key)
-            current = _SESSION_CODEC_STATE.get(session_key)
-            if isinstance(current, dict):
-                migrated = _migrate_codec_state(current)
-                _touch_codec_session_locked(session_key)
-            else:
-                migrated = None
-        if isinstance(migrated, dict):
-            enriched = _enrich_codec_state_with_rollups(
+            current = copy.deepcopy(_SESSION_CODEC_STATE.get(session_key)) if isinstance(_SESSION_CODEC_STATE.get(session_key), dict) else None
+        if isinstance(current, dict):
+            source = _compact_codec_state(_migrate_codec_state(current))
+            _cache_codec_state(session_key, source)
+            return _enrich_codec_state_with_rollups(
                 session_key,
-                migrated,
+                copy.deepcopy(source),
                 **_codec_scope_kwargs(tenant_id, workspace_id),
             )
-            with _SESSION_CODEC_LOCK:
-                _SESSION_CODEC_STATE[session_key] = enriched
-                _touch_codec_session_locked(session_key)
-            return dict(enriched)
         hydrated = _load_codec_state_from_l22(
             session_key,
             **_codec_scope_kwargs(tenant_id, workspace_id),
         )
         if hydrated:
-            enriched = _enrich_codec_state_with_rollups(
+            return _enrich_codec_state_with_rollups(
                 session_key,
-                hydrated,
+                copy.deepcopy(hydrated),
                 **_codec_scope_kwargs(tenant_id, workspace_id),
             )
-            with _SESSION_CODEC_LOCK:
-                _SESSION_CODEC_STATE[session_key] = enriched
-                _touch_codec_session_locked(session_key)
-            return dict(enriched)
         return {}
-
-
 
 def _codec_retention_priority_from_row(row: Dict[str, Any]) -> float:
     meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
@@ -2526,7 +2691,8 @@ def _persist_codec_state_to_l22_locked(
     if not session_key or not CODEC_DURABLE_ENABLED or not isinstance(state, dict) or not state:
         return {"status": "skipped"}
 
-    fingerprint = _state_fingerprint(state)
+    persisted_state = _compact_codec_state(_migrate_codec_state(state))
+    fingerprint = _state_fingerprint(persisted_state)
     with _SESSION_CODEC_LOCK:
         prior = _SESSION_CODEC_PERSIST.get(session_key) if isinstance(_SESSION_CODEC_PERSIST.get(session_key), dict) else {}
         if str(prior.get("fingerprint") or "") == fingerprint:
@@ -2537,22 +2703,19 @@ def _persist_codec_state_to_l22_locked(
             }
 
     try:
-        # Resolve through importlib so isolated tests and compatibility runtimes can
-        # supply an L22 module without depending on a stale package attribute.
         l22_router = importlib.import_module("cortex_server.routers.l22")
-
-        content = json.dumps(state, ensure_ascii=False, sort_keys=True)
-        utility_summary = state.get("utility_state", {}).get("summary", {}) if isinstance(state.get("utility_state", {}), dict) else {}
+        content = json.dumps(persisted_state, ensure_ascii=False, sort_keys=True)
+        utility_summary = persisted_state.get("utility_state", {}).get("summary", {}) if isinstance(persisted_state.get("utility_state", {}), dict) else {}
         top_items = utility_summary.get("top_items", []) if isinstance(utility_summary.get("top_items", []), list) else []
         metadata = {
             "type": "codec_state",
             "codec_session_key": session_key,
-            "codec_version": state.get("version", CODEC_VERSION),
-            "codec_state_revision": int(state.get("state_revision", 0) or 0),
-            "codec_generated_at": state.get("generated_at", _now_iso()),
-            "codec_summary": state.get("summary", ""),
+            "codec_version": persisted_state.get("version", CODEC_VERSION),
+            "codec_state_revision": int(persisted_state.get("state_revision", 0) or 0),
+            "codec_generated_at": persisted_state.get("generated_at", _now_iso()),
+            "codec_summary": persisted_state.get("summary", ""),
             "codec_fingerprint": fingerprint,
-            "codec_source_event_count": int(state.get("source_event_count", 0) or 0),
+            "codec_source_event_count": int(persisted_state.get("source_event_count", 0) or 0),
             "codec_retention_priority": round(_coerce_float(utility_summary.get("retention_priority"), 0.0), 3),
             "codec_utility_item_count": int(utility_summary.get("item_count", 0) or 0),
             "codec_top_utility_score": round(max([_coerce_float(item.get("score"), 0.0) for item in top_items] or [0.0]), 3),
@@ -2577,18 +2740,15 @@ def _persist_codec_state_to_l22_locked(
         protected_session_key=session_key,
         **_codec_scope_kwargs(tenant_id, workspace_id),
     )
-
-    with _SESSION_CODEC_LOCK:
-        _SESSION_CODEC_PERSIST[session_key] = {
-            "fingerprint": fingerprint,
-            "stored_id": result.get("id"),
-            "loaded_from_l22": False,
-            "generated_at": state.get("generated_at", ""),
-            "retention": prune,
-            "session_retention": session_prune,
-        }
-        _touch_codec_session_locked(session_key)
-
+    persist = {
+        "fingerprint": fingerprint,
+        "stored_id": result.get("id"),
+        "loaded_from_l22": False,
+        "generated_at": persisted_state.get("generated_at", ""),
+        "retention": prune,
+        "session_retention": session_prune,
+    }
+    _cache_codec_state(session_key, persisted_state, persist)
     return {
         "status": result.get("status", "stored"),
         "id": result.get("id"),
@@ -2597,7 +2757,6 @@ def _persist_codec_state_to_l22_locked(
         "retention": prune,
         "session_retention": session_prune,
     }
-
 
 def _persist_codec_state_to_l22(
     session_key: str,
@@ -2624,40 +2783,26 @@ def update_codec_state_for_session(
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     original_session_key = session_key
-    session_key = _scoped_codec_session_key(
-        original_session_key,
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-    )
+    session_key = _scoped_codec_session_key(original_session_key, tenant_id=tenant_id, workspace_id=workspace_id)
     if not session_key:
         return build_codec_state(events, previous_state={}, max_items_per_bucket=max_items_per_bucket)
 
     with _codec_session_update_lock(session_key):
-        previous = get_codec_state(
-            original_session_key,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        )
+        previous = get_codec_state(original_session_key, tenant_id=tenant_id, workspace_id=workspace_id)
         updated = build_codec_state(events, previous_state=previous, max_items_per_bucket=max_items_per_bucket)
         updated["state_revision"] = int(previous.get("state_revision", 0) or 0) + 1
-        updated = _enrich_codec_state_with_rollups(
+        source = _compact_codec_state(updated)
+        _cache_codec_state(session_key, source)
+        enriched = _enrich_codec_state_with_rollups(
             session_key,
-            updated,
+            copy.deepcopy(source),
             tenant_id=tenant_id,
             workspace_id=workspace_id,
         )
-        with _SESSION_CODEC_LOCK:
-            _SESSION_CODEC_STATE[session_key] = updated
-            _touch_codec_session_locked(session_key)
-        persist = _persist_codec_state_to_l22(
-            session_key,
-            updated,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        )
-        updated["durable_write"] = persist
-        return dict(updated)
-
+        persist = _persist_codec_state_to_l22(session_key, source, tenant_id=tenant_id, workspace_id=workspace_id)
+        result = copy.deepcopy(enriched)
+        result["durable_write"] = persist
+        return result
 
 def apply_codec_outcome_feedback_for_session(
     session_key: str,
@@ -2668,40 +2813,26 @@ def apply_codec_outcome_feedback_for_session(
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     original_session_key = session_key
-    session_key = _scoped_codec_session_key(
-        original_session_key,
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-    )
+    session_key = _scoped_codec_session_key(original_session_key, tenant_id=tenant_id, workspace_id=workspace_id)
     if not session_key:
         return {}
 
     with _codec_session_update_lock(session_key):
-        previous = get_codec_state(
-            original_session_key,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        )
+        previous = get_codec_state(original_session_key, tenant_id=tenant_id, workspace_id=workspace_id)
         updated = apply_codec_outcome_feedback(previous, outcome_event, max_items_per_bucket=max_items_per_bucket)
         updated["state_revision"] = int(previous.get("state_revision", 0) or 0) + 1
-        updated = _enrich_codec_state_with_rollups(
+        source = _compact_codec_state(updated)
+        _cache_codec_state(session_key, source)
+        enriched = _enrich_codec_state_with_rollups(
             session_key,
-            updated,
+            copy.deepcopy(source),
             tenant_id=tenant_id,
             workspace_id=workspace_id,
         )
-        with _SESSION_CODEC_LOCK:
-            _SESSION_CODEC_STATE[session_key] = updated
-            _touch_codec_session_locked(session_key)
-        persist = _persist_codec_state_to_l22(
-            session_key,
-            updated,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        )
-        updated["durable_write"] = persist
-        return dict(updated)
-
+        persist = _persist_codec_state_to_l22(session_key, source, tenant_id=tenant_id, workspace_id=workspace_id)
+        result = copy.deepcopy(enriched)
+        result["durable_write"] = persist
+        return result
 
 def get_codec_packet_for_session(
     session_key: str,

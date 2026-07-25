@@ -98,7 +98,7 @@ async def spawn_owned(
     """Own a pending spawn while allowing cancellation to return promptly."""
     spawn_task = asyncio.create_task(spawn)
     try:
-        return await asyncio.shield(spawn_task)
+        proc = await asyncio.shield(spawn_task)
     except asyncio.CancelledError:
         done, _ = await asyncio.wait({spawn_task}, timeout=grace)
         if done:
@@ -115,3 +115,12 @@ async def spawn_owned(
             spawn_task.add_done_callback(lambda task: _clean_up_late_spawn(task, stop))
             spawn_task.cancel()
         raise
+    # A cancellation can race with the shield's already-scheduled success
+    # wakeup on Python 3.11. In that case no CancelledError is injected, but
+    # the owning task remains marked as cancelling. Do not hand the child to
+    # code that will now wait indefinitely for a second cancel.
+    owner = asyncio.current_task()
+    if owner is not None and owner.cancelling():
+        await stop(proc)
+        raise asyncio.CancelledError
+    return proc

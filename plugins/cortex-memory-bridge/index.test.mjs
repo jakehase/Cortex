@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
-import plugin, { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults } from './index.ts';
+import plugin, { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, extractLatestAssistantVisibleText, extractLlmOutputText, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
 const lifecycleConfig = (overrides = {}) => ({
   stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-test-')),
@@ -33,6 +33,8 @@ const successfulCommitResponse = () => new Response(JSON.stringify({
   durable_write: { status: 'stored' },
   assurance: { memory_commit: { eligible: true } },
 }));
+const profitTournamentCorrection = `[Cortex] On July 21, you authorized the separate Profit Tournament Market Stripe account. We later verified that charges and payouts were enabled. I confused missing Hetzner credentials with a missing account and was wrong. The durable project record is corrected. Install the restricted API key and webhook secret through the secure deployment path; creating another account is not required.`;
+
 const lifecycleSpoolFiles = (stateDir) => {
   const root = path.join(stateDir, 'lifecycle-principals-v2');
   if (!fs.existsSync(root)) return [];
@@ -1425,9 +1427,9 @@ test('distinct lifecycle runs persist identical output in the same session', asy
     });
     const output = handlers.get('llm_output');
     const end = handlers.get('agent_end');
-    output({ content: 'the same legitimate durable completion' }, lifecycleContext('repeat-session'));
+    output({ content: 'the same legitimate durable completion', runId: 'run-one' }, lifecycleContext('repeat-session', { runId: 'run-one' }));
     await end({}, lifecycleContext('repeat-session', { runId: 'run-one' }));
-    output({ content: 'the same legitimate durable completion' }, lifecycleContext('repeat-session'));
+    output({ content: 'the same legitimate durable completion', runId: 'run-two' }, lifecycleContext('repeat-session', { runId: 'run-two' }));
     await end({}, lifecycleContext('repeat-session', { runId: 'run-two' }));
 
     assert.equal(requests.length, 2);
@@ -1457,6 +1459,10 @@ test('concurrent hooks with the same lifecycle run coalesce despite differing ou
       registerMemoryRuntime() {},
       registerTool() {},
     });
+    handlers.get('llm_output')(
+      { runId: 'shared-run', assistantTexts: ['authoritative durable completion for the shared run'] },
+      lifecycleContext('shared-run-session'),
+    );
     const first = handlers.get('subagent_ended')(
       { result: 'durable completion from the subagent hook', runId: 'shared-run' },
       lifecycleContext('shared-run-session'),
@@ -1901,4 +1907,128 @@ test('explicit supersession is hidden for current queries and retained for histo
   assert.deepEqual(current.results.map((row) => row.citation), ['cortex:new']);
   const history = reconcileResults('Show historical superseded Agent Work dogfood memory', rows, cfg);
   assert.ok(history.results.some((row) => row.citation === 'cortex:old'));
+});
+
+test('current OpenClaw assistant content shape extracts only the latest visible reply', () => {
+  const messages = [
+    { role: 'assistant', content: [{ type: 'thinking', thinking: 'internal', thinkingSignature: 'sig' }, { type: 'text', text: 'older answer' }] },
+    { role: 'user', content: [{ type: 'text', text: 'follow-up' }] },
+    { role: 'assistant', content: [{ type: 'thinking', thinking: 'internal', thinkingSignature: 'sig' }, { type: 'text', text: profitTournamentCorrection }] },
+  ];
+  assert.equal(extractLatestAssistantVisibleText(messages), profitTournamentCorrection);
+});
+
+test('llm_output extraction falls back to lastAssistant when assistantTexts is empty', () => {
+  const event = {
+    assistantTexts: [],
+    lastAssistant: { role: 'assistant', content: [{ type: 'text', text: profitTournamentCorrection }] },
+  };
+  assert.equal(extractLlmOutputText(event), profitTournamentCorrection);
+});
+
+test('credential discussion remains durable while concrete secret values are blocked', () => {
+  const safe = durabilityScore(profitTournamentCorrection);
+  assert.ok(safe.score >= 0.64, `expected safe correction >= 0.64, got ${safe.score}`);
+  assert.ok(!safe.reasons.includes('secret_like'));
+  const unsafe = durabilityScore('Profit Tournament API key=sk_live_ABC123456789 was configured and verified.');
+  assert.equal(unsafe.score, 0);
+  assert.ok(unsafe.reasons.includes('secret_like'));
+  for (const concreteSecret of [
+    `OpenAI key ${['sk', 'proj', 'AbCdEfGhIjKlMnOpQrStUvWx'].join('-')} was configured.`,
+    `GitHub credential ${['ghp', '1234567890abcdefghijABCDEFGHIJ'].join('_')} was installed.`,
+    `AWS credential ${['AKIA', 'IOSFODNN7EXAMPLE'].join('')} was installed.`,
+    `Slack credential ${['xoxb', '123456789012', 'abcdefghijklmnop'].join('-')} was installed.`,
+    `JWT ${['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiIxMjM0NTY3ODkwIn0', 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'].join('.')} was installed.`,
+  ]) {
+    const scored = durabilityScore(concreteSecret);
+    assert.equal(scored.score, 0, concreteSecret);
+    assert.ok(scored.reasons.includes('secret_like'), concreteSecret);
+  }
+});
+
+test('agent_end waits for correlated llm_output and persists only the latest reply', async () => {
+  const handlers = new Map();
+  const requests = [];
+  const cfg = lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0.64, retryCount: 0 });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ path: new URL(String(url)).pathname, body: JSON.parse(String(options?.body || '{}')) });
+    return successfulCommitResponse();
+  };
+  try {
+    plugin.register({
+      pluginConfig: cfg, logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); }, registerMemoryRuntime() {}, registerTool() {},
+    });
+    const ctx = lifecycleContext('shape-session', { runId: 'run-current-shape', channelId: 'whatsapp' });
+    const ended = handlers.get('agent_end')({
+      messages: [{ role: 'assistant', content: [{ type: 'text', text: 'PMHNP old project setup.' }] }],
+      success: true,
+    }, ctx);
+    handlers.get('llm_output')({ runId: 'run-current-shape', assistantTexts: [profitTournamentCorrection], lastAssistant: {} }, ctx);
+    await ended;
+    const commits = requests.filter((row) => row.path === '/nexus/commit');
+    assert.equal(commits.length, 1);
+    assert.equal(commits[0].body.response, profitTournamentCorrection.replace(/\s+/g, ' ').trim());
+    assert.equal(commits[0].body.metadata.project, 'profit-tournament');
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(cfg.stateDir, { recursive: true, force: true });
+  }
+});
+
+test('agent_end refuses stale transcript content without correlated llm_output', async () => {
+  const handlers = new Map();
+  const requests = [];
+  const cfg = lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0, retryCount: 0 });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), body: JSON.parse(String(options?.body || '{}')) });
+    return successfulCommitResponse();
+  };
+  try {
+    plugin.register({
+      pluginConfig: cfg, logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); }, registerMemoryRuntime() {}, registerTool() {},
+    });
+    const ctx = lifecycleContext('stale-session', { runId: 'stale-run-1', channelId: 'whatsapp' });
+    await assert.rejects(
+      handlers.get('agent_end')({ messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Old durable project configuration that must not be stored.' }] }] }, ctx),
+      /refused stale agent_end content/,
+    );
+    assert.equal(requests.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(cfg.stateDir, { recursive: true, force: true });
+  }
+});
+
+test('subagent_ended and agent_end coalesce one correlated lifecycle persistence', async () => {
+  const handlers = new Map();
+  const requests = [];
+  const cfg = lifecycleConfig({ enabledWriteThrough: true, minDurabilityScore: 0.64, retryCount: 0 });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ path: new URL(String(url)).pathname, body: JSON.parse(String(options?.body || '{}')) });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return successfulCommitResponse();
+  };
+  try {
+    plugin.register({
+      pluginConfig: cfg, logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); }, registerMemoryRuntime() {}, registerTool() {},
+    });
+    const ctx = lifecycleContext('shared-session', { runId: 'shared-run', channelId: 'whatsapp' });
+    handlers.get('llm_output')({ runId: 'shared-run', assistantTexts: [profitTournamentCorrection] }, ctx);
+    await Promise.all([
+      handlers.get('subagent_ended')({ runId: 'shared-run', outcome: 'ok' }, ctx),
+      handlers.get('agent_end')({ runId: 'shared-run', success: true }, ctx),
+    ]);
+    const commits = requests.filter((row) => row.path === '/nexus/commit');
+    assert.equal(commits.length, 1);
+    assert.equal(commits[0].body.response, profitTournamentCorrection.replace(/\s+/g, ' ').trim());
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(cfg.stateDir, { recursive: true, force: true });
+  }
 });

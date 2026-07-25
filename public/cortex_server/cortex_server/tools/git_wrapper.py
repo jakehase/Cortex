@@ -155,6 +155,10 @@ async def run_git_async(
         ), TERMINATE_GRACE, _stop_process), remaining)
     except asyncio.TimeoutError:
         raise GitError("Git command timed out")
+    owner = asyncio.current_task()
+    if owner is not None and owner.cancelling():
+        await _stop_process(proc)
+        raise asyncio.CancelledError
     try:
         remaining = max(0.0, deadline - asyncio.get_running_loop().time())
         out, err, output_overflowed = await _bounded_async_command(proc, remaining)

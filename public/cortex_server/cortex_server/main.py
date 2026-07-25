@@ -2014,6 +2014,12 @@ def create_app() -> FastAPI:
         except Exception as exc:
             memory_backend_check = {"ok": False, "status": "degraded", "error": f"{type(exc).__name__}: {exc}"}
         try:
+            from cortex_server.routers.l22 import probe_l22_structured_memory_readiness
+
+            structured_memory_check = probe_l22_structured_memory_readiness()
+        except Exception as exc:
+            structured_memory_check = {"ok": False, "status": "not_ready", "error": f"{type(exc).__name__}: {exc}"}
+        try:
             from cortex_server.runtime.production_build_loop import probe_runtime_delivery_readiness
 
             runtime_delivery_check = probe_runtime_delivery_readiness(
@@ -2060,6 +2066,7 @@ def create_app() -> FastAPI:
             },
             "eventLedgerDurability": event_ledger_check,
             "memoryBackendDurability": memory_backend_check,
+            "structuredMemoryDurability": structured_memory_check,
             "runtimeDelivery": {
                 "ok": bool(runtime_delivery_check.get("ready")),
                 "required": production_environment,
