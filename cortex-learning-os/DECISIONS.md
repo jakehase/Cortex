@@ -95,3 +95,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: exact execution source `bde94bf4f872a75e7c744bc9b37c9b91e41a9600`; remote artifact `artifacts/math-foundations-paired-ab-20260725T1600Z`; local returned artifact `/root/clawd/artifacts/cortex-learning-os-ab-20260725/returns/math-foundations-paired-ab-20260725T1600Z`; `54/54` trials, `27/27` valid pairs, zero tool events, usage on every trial, return-bundle checksum pass, and `464/464` manifest hashes verified.
 - Supersedes: treating the earlier single held-out pass as evidence that retrieval caused improvement.
 - Follow-up: do not promote routing from this run. If another efficacy experiment is approved, preregister harder out-of-sample paired items that reduce ceiling effects while preserving the same fail-closed causal design.
+
+## 2026-07-25 — Authorize one capped mechanism-and-utility go/no-go validation
+
+- Decision: Give the Learning OS concept one bounded efficacy test comprising a genuinely novel seeded synthetic-procedure acquisition/transfer track and a low-sensitivity private-workspace correction retrieval track. Freeze the complete program before model calls, cap it at 111 calls, require both tracks to pass fixed effect, no-regression, token, and latency gates, and keep any successful result shadow-only pending a separate integration decision.
+- Reason: The earlier generic multiplication A/B was ceiling-limited and returned zero lift, so further broad implementation without unique-information evidence would risk becoming gimmicky. Synthetic procedure transfer tests the mechanism, while recurring private corrections test practical utility.
+- Evidence: `docs/go-no-go-validation-contract.md`; `src/go-no-go-experiment.mjs`; `src/run-go-no-go-validation.mjs`; `tests/go-no-go-experiment.test.mjs`; local tests `26/26`; frozen real-fixture plan smoke; fake-worker full-lifecycle smoke with acquisition promotion, both tracks passing, and complete manifest replay.
+- Supersedes: the prior next step of an unspecified harder math efficacy test; the scope is now limited to these two stronger tests.
+- Follow-up: push the isolated branch, run remotely on Hetzner with the private fixture outside Git, return and verify all artifacts, and accept either a clean pass, honest no-go, or blocker without outcome-driven broadening.

@@ -1,6 +1,6 @@
 {
   "name": "cortex-learning-os",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,8 @@
     "dogfood:challenge": "node src/run-learning-smoke.mjs --exam exams/math-foundations/reliability-challenge.exam.json --promote-default",
     "dogfood:stress": "node src/run-learning-smoke.mjs --exam exams/math-foundations/exact-arithmetic-stress.exam.json --promote-default",
     "experiment:ab": "node src/run-ab-experiment.mjs",
-    "experiment:ab:plan": "node src/run-ab-experiment.mjs --plan-only"
+    "experiment:ab:plan": "node src/run-ab-experiment.mjs --plan-only",
+    "validate:go-no-go": "node src/run-go-no-go-validation.mjs",
+    "validate:go-no-go:plan": "node src/run-go-no-go-validation.mjs --plan-only"
   }
 }

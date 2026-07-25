@@ -5,10 +5,10 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 11:13 CDT`
+- Last updated: `2026-07-25 13:07 CDT`
 - Status: `active`
-- Current fidelity: `production_slice`
-- Package version: `0.3.0`
+- Current fidelity: `production_slice_plus_preregistered_go_no_go_harness`
+- Package version: `0.4.0`
 
 ## Current checkpoint
 
@@ -16,7 +16,7 @@ Cortex Learning OS has completed its first bounded, verifier-gated learning loop
 
 The production slice now includes:
 
-- 21 machine tests covering contracts, deterministic checkers, fail-closed promotion, retrieval limits, curriculum coverage, learning-loop behavior, paired randomization, strict Codex structured output, frozen-runtime resume enforcement, exact McNemar analysis, and Codex tool-event detection.
+- 26 machine tests covering contracts, deterministic checkers, fail-closed promotion, retrieval limits, curriculum coverage, learning-loop behavior, paired randomization, strict Codex structured output, frozen-runtime resume enforcement, exact McNemar analysis, Codex tool-event detection, dual-track go/no-go planning, cost/no-regression gates, and fail-closed fixture/runtime validation.
 - 14 JSON record schemas plus internal contract validation.
 - A 36-concept math-foundations curriculum.
 - A 30-item deterministic baseline exam, a 20-item exactness/reliability challenge, and a 20-item exact-arithmetic stress exam.
@@ -51,6 +51,15 @@ The production slice now includes:
 - Evidence gate: **not passed**. The run is mechanically green but provides no bounded evidence that the retrieval pack helped or harmed under this declared configuration.
 - Artifact verification: the control-plane return bundle checksum passed and all `464/464` manifest-listed files matched SHA-256.
 
+## Approved capped go/no-go validation
+
+- Reply anchor: Jake approved the recommendation to give the underlying lesson/retrieval idea one rigorous bounded chance: novel synthetic mechanism transfer plus recurring private-workspace utility, with no default integration unless both pass.
+- Harness: 3-call synthetic acquisition/promotion gate, then 27 mechanism pairs and 27 private-utility pairs in fresh ephemeral sessions; 111 model calls maximum.
+- Preregistered per-track gates: at least 24 valid pairs, invalid rate no greater than 10%, at least 20-point lift, exact McNemar p no greater than 0.05, at most one no-pack-only regression, mean input overhead no greater than 1,200 tokens, pack estimate no greater than 900 tokens, and median latency overhead no greater than 10 seconds.
+- Privacy: the nine-rule/27-item utility fixture is outside the public repository and passed a targeted credential/email/IP/secret-pattern scan.
+- Local validation: `npm test` passed `26/26`; real-fixture plan smoke froze 111 calls and 108 unique transfer sessions without model calls; fake-worker full lifecycle completed 105/105 calls for the reduced 24-item test fixture, promoted acquisition, passed both synthetic tracks, and replayed every manifest hash.
+- Current execution state: implementation is locally green but the real remote model program has not yet produced evidence. No go/no-go efficacy claim is available yet.
+
 Additional honest evidence:
 
 - The initial 30-item baseline scored `30/30`; the loop stopped rather than fabricating a mistake: `artifacts/math-foundations-smoke-20260725-052255174Z`.
@@ -68,9 +77,10 @@ Additional honest evidence:
 
 ## Next actions
 
-1. Preserve this completed threshold miss as an honest null result; do not enable ordinary-task retrieval routing from it.
-2. Before any new efficacy run, redesign difficulty to avoid the observed `96.3%` ceiling while retaining identical paired items, fresh sessions, deterministic grading, and frozen thresholds.
-3. Require a new preregistered out-of-sample threshold pass before considering repeated durability checks or a bounded default pre-task hook with rollback and token limits.
+1. Commit and push the isolated go/no-go harness branch; do not include the private utility fixture in Git.
+2. Sync the exact commit plus private fixture to Hetzner, freeze the real program before model calls, and verify a small remote canary.
+3. Launch the remaining capped program detached with an independent control-plane notifier and return-bundle verification.
+4. Report GO only if acquisition and both tracks pass every preregistered effect, no-regression, token, and latency gate; otherwise preserve the work as a verified memory/retrieval toolkit and stop broadening it.
 
 ## Do not use / superseded
 

@@ -32,10 +32,10 @@ export function observedToolEvents(events = []) {
 export function buildExamPrompt({ exam, learningContext = null } = {}) {
   const items = exam.items.map((item) => ({ itemId: item.itemId, prompt: item.prompt, answerFormat: item.answerFormat }));
   return [
-    'You are taking a bounded, recorded math exam for Cortex Learning OS.',
+    'You are taking a bounded, recorded evaluation for Cortex Learning OS.',
     'Answer independently without tools. Return only valid JSON with shape {"answers":[{"itemId":"...","answer":"..."}]}.',
     'Give exactly one answer for every item. Do not include reasoning, markdown, commentary, or confidence.',
-    learningContext ? `Learning context supplied for this run:\n${learningContext}` : 'No learning context is supplied for this baseline run.',
+    learningContext ? `Learning context supplied for this run:\n${learningContext}` : 'No learning context is supplied for this run.',
     `Exam title: ${exam.title}`,
     `Items:\n${JSON.stringify(items)}`
   ].join('\n\n');
