@@ -15,10 +15,14 @@ const value = (flag) => { const index = args.indexOf(flag); return index >= 0 ? 
 const has = (flag) => args.includes(flag);
 const compactTimestamp = () => new Date().toISOString().replace(/[-:.]/g, '').replace('T', '-').replace('Z', 'Z');
 const experimentId = value('--experiment-id') || `math-foundations-ab-${compactTimestamp()}`;
-const seed = value('--seed') || crypto.randomBytes(24).toString('hex');
-const pairCount = Number(value('--pairs') || 27);
-const model = value('--model') || 'gpt-5.6-sol';
-const thinking = value('--thinking') || 'low';
+const seedArgument = value('--seed');
+const pairCountArgument = value('--pairs');
+const modelArgument = value('--model');
+const thinkingArgument = value('--thinking');
+let seed = seedArgument || crypto.randomBytes(24).toString('hex');
+let pairCount = Number(pairCountArgument || 27);
+let model = modelArgument || 'gpt-5.6-sol';
+let thinking = thinkingArgument || 'low';
 const timeoutSeconds = Number(value('--timeout') || 240);
 const artifactRoot = path.resolve(value('--artifact-root') || path.join(CLOS_ROOT, 'artifacts', experimentId));
 const planOnly = has('--plan-only');
@@ -76,6 +80,17 @@ if (fs.existsSync(experimentPath)) {
   if (!resume && !planOnly) throw new Error(`artifact root already contains an experiment; use --resume to continue without rerunning completed trials: ${artifactRoot}`);
   experiment = readJson(experimentPath);
   if (experiment.experimentId !== experimentId) throw new Error('existing experimentId does not match --experiment-id');
+  const mismatches = [
+    seedArgument && experiment.seed !== seedArgument ? '--seed' : null,
+    pairCountArgument && experiment.design?.pairCount !== pairCount ? '--pairs' : null,
+    modelArgument && experiment.runtime?.model !== modelArgument ? '--model' : null,
+    thinkingArgument && experiment.runtime?.thinking !== thinkingArgument ? '--thinking' : null
+  ].filter(Boolean);
+  if (mismatches.length) throw new Error(`resume arguments conflict with frozen experiment: ${mismatches.join(', ')}`);
+  seed = experiment.seed;
+  pairCount = experiment.design.pairCount;
+  model = experiment.runtime.model;
+  thinking = experiment.runtime.thinking;
 } else {
   experiment = buildPairedExperiment({ experimentId, seed, pairCount, model, thinking });
   writeJson(experimentPath, experiment);

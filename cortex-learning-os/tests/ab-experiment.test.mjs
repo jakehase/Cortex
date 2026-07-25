@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { analyzePairedExperiment, buildPairedExperiment, exactMcNemarP } from '../src/ab-experiment.mjs';
 import { observedToolEvents } from '../src/model-answer-runner.mjs';
 
@@ -69,6 +72,20 @@ test('an invalid trial invalidates its pair and blocks an underpowered claim', (
 test('Codex structured-output schema declares an explicit string answer type', () => {
   const schema = JSON.parse(fs.readFileSync(new URL('../schemas/model-answer-output.schema.json', import.meta.url), 'utf8'));
   assert.equal(schema.properties.answers.items.properties.answer.type, 'string');
+});
+
+test('a resumed plan fails closed when explicit runtime arguments conflict with the frozen experiment', () => {
+  const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-frozen-plan-'));
+  const runner = new URL('../src/run-ab-experiment.mjs', import.meta.url);
+  try {
+    const planned = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--experiment-id', 'frozen-test', '--seed', 'fixed-seed', '--pairs', '1', '--thinking', 'low', '--artifact-root', artifactRoot], { encoding: 'utf8' });
+    assert.equal(planned.status, 0, planned.stderr);
+    const mismatch = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--resume', '--experiment-id', 'frozen-test', '--seed', 'fixed-seed', '--pairs', '1', '--thinking', 'high', '--artifact-root', artifactRoot], { encoding: 'utf8' });
+    assert.notEqual(mismatch.status, 0);
+    assert.match(mismatch.stderr, /conflict with frozen experiment: --thinking/);
+  } finally {
+    fs.rmSync(artifactRoot, { recursive: true, force: true });
+  }
 });
 
 test('Codex event validation detects command/tool use without flagging normal reasoning or final messages', () => {
