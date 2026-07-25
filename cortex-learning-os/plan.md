@@ -5,7 +5,7 @@
 - Project slug: `cortex-learning-os`
 - Plan owner: Jake + Cortex
 - Created: `2026-07-07`
-- Last updated: `2026-07-07`
+- Last updated: `2026-07-25`
 - Status: `active`
 - Fidelity target: `production_slice`
 - Primary stop condition: `all_phase_verifiers_green_or_blocker`
@@ -414,6 +414,39 @@ Stop condition:
 ```text
 dashboard separates observed exam scores from inferred expertise and includes gaps
 ```
+
+### Wave 5.5 — Retrieval-treatment A/B evidence
+
+Goal:
+
+- Test whether the promoted retrieval treatment improves performance on a bounded exact-multiplication surface without comparing mismatched task difficulty or reusing model sessions.
+
+Outputs:
+
+- immutable preregistration with generated paired items, randomization seed, arm order, model/runtime, invalid-trial policy, and fixed analysis thresholds
+- 27 identical-item pairs / 54 fresh ephemeral trials across `pack` and `no_pack` arms, with 24 valid pairs required
+- raw provider events, answer sets, deterministic verifier outputs, per-trial validity records, paired analysis, and hashed manifest
+- separate mechanical-completion and bounded-causal-evidence results
+
+Verifiers:
+
+```bash
+npm test
+npm run experiment:ab:plan -- --experiment-id <id> --seed <seed>
+npm run experiment:ab -- --experiment-id <id> --seed <seed>
+```
+
+Stop condition:
+
+```text
+all 54 preregistered fresh-session trials complete exactly once, or a durable blocker is written; retrieval benefit may be claimed only when >=24 pairs are valid, invalid-pair rate <=10%, pack lift >=10 percentage points, pack-only wins exceed no-pack-only wins, and two-sided exact McNemar p <=0.05
+```
+
+Truth boundary:
+
+- Passing supports only a bounded retrieval-context effect for the declared exact-multiplication/model/runtime configuration.
+- Completion without threshold passage is an honest null result, not a failed implementation.
+- No outcome-driven reruns, broad math-learning claim, durability claim, model-weight claim, or automatic ordinary-task routing promotion is allowed.
 
 ### Wave 6 — Quant Truth Lab extension
 

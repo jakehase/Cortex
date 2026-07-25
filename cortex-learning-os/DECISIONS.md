@@ -79,3 +79,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `git ls-remote` showed both `main` and the feature branch at `944808d729183a1ec1ed0c6c114a6f0e024d35dc` immediately after promotion; `/root/clawd/cortex-learning-os` then matched the integrated project tree across all 139 files.
 - Supersedes: feature-branch-only availability.
 - Follow-up: preserve bounded claims and proceed to randomized equal-difficulty A/B transfer testing.
+
+## 2026-07-25 — Preregister paired retrieval-versus-no-retrieval evidence
+
+- Decision: Use 27 randomized identical-item pairs (54 fresh ephemeral Codex sessions), one generated exact-multiplication item per pair, deterministic exact grading, no allowed tools, no outcome-driven reruns, and a fixed two-sided exact McNemar analysis. Require at least 24 valid pairs and report mechanical completion separately from the bounded evidence gate.
+- Reason: The prior 19/20 batch baseline and single-item post-promotion retest differ in task count and difficulty, so they cannot establish that retrieval caused the later pass. Pairing identical items removes that primary confound while fresh sessions prevent conversational carryover.
+- Evidence: `src/ab-experiment.mjs`, `src/run-ab-experiment.mjs`, `src/model-answer-runner.mjs`, `tests/ab-experiment.test.mjs`; local `npm test` `19/19`; paired plan-only and fake-worker full-lifecycle smokes green.
+- Supersedes: using the prior baseline/retest difference as retrieval-effect evidence.
+- Follow-up: recover safe free space on Hetzner, launch the frozen experiment remotely, preserve a null result honestly if the preregistered gate does not pass, and do not auto-promote ordinary-task routing from one run.

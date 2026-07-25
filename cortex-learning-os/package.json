@@ -1,6 +1,6 @@
 {
   "name": "cortex-learning-os",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,8 @@
     "promote:fixture": "node src/run-promotion.mjs --capsule fixtures/valid/capsule.json --candidate fixtures/valid/lesson-candidate.json --verifiers fixtures/valid/verifier-results.json --task 'factor an algebraic expression safely' --out artifacts/promotion-fixture",
     "dogfood:math": "node src/run-learning-smoke.mjs --promote-default",
     "dogfood:challenge": "node src/run-learning-smoke.mjs --exam exams/math-foundations/reliability-challenge.exam.json --promote-default",
-    "dogfood:stress": "node src/run-learning-smoke.mjs --exam exams/math-foundations/exact-arithmetic-stress.exam.json --promote-default"
+    "dogfood:stress": "node src/run-learning-smoke.mjs --exam exams/math-foundations/exact-arithmetic-stress.exam.json --promote-default",
+    "experiment:ab": "node src/run-ab-experiment.mjs",
+    "experiment:ab:plan": "node src/run-ab-experiment.mjs --plan-only"
   }
 }
