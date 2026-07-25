@@ -103,3 +103,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `docs/go-no-go-validation-contract.md`; `src/go-no-go-experiment.mjs`; `src/run-go-no-go-validation.mjs`; `tests/go-no-go-experiment.test.mjs`; local tests `26/26`; frozen real-fixture plan smoke; fake-worker full-lifecycle smoke with acquisition promotion, both tracks passing, and complete manifest replay.
 - Supersedes: the prior next step of an unspecified harder math efficacy test; the scope is now limited to these two stronger tests.
 - Follow-up: push the isolated branch, run remotely on Hetzner with the private fixture outside Git, return and verify all artifacts, and accept either a clean pass, honest no-go, or blocker without outcome-driven broadening.
+
+## 2026-07-25 — Accept the capped validation as a terminal no-go for broad Learning OS integration
+
+- Decision: Record program `clos-go-no-go-20260725T181142Z` as mechanically complete but program-threshold-not-passed. Preserve CLOS as a verified memory/retrieval toolkit; do not enable default routing, broadly expand the OS framing, or rerun based on outcomes.
+- Reason: Acquisition and the synthetic mechanism track passed strongly, but the private-workspace utility pack scored `27/27` versus `24/27` without the pack: `+11.11` percentage points and exact McNemar p `0.25`, below the frozen `+20` and p `≤0.05` effect requirements. The model inferred 24 of 27 utility answers without retrieval, so practical incremental value was too small for the declared gate.
+- Evidence: remote artifact `/home/jake/clawd-runs/clos-go-no-go-20260725T181142Z/artifacts/clos-go-no-go-20260725T181142Z`; returned artifact `/root/clawd/artifacts/cortex-learning-os-go-no-go-20260725/returns/clos-go-no-go-20260725T181142Z`; `111/111` model calls, `108/108` valid transfer trials, `54/54` valid pairs, zero observed tool events, return checksum pass, and `950/950` manifest hashes verified.
+- Supersedes: any expectation that a mechanism-only pass would justify default Learning OS integration.
+- Follow-up: retain the verification, promotion, provenance, expiration, rollback, and bounded retrieval machinery as a toolkit; require a separate explicit decision for any future narrow retrieval application.

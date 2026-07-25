@@ -5,7 +5,7 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 13:07 CDT`
+- Last updated: `2026-07-25 13:35 CDT`
 - Status: `active`
 - Current fidelity: `production_slice_plus_preregistered_go_no_go_harness`
 - Package version: `0.4.0`
@@ -58,7 +58,11 @@ The production slice now includes:
 - Preregistered per-track gates: at least 24 valid pairs, invalid rate no greater than 10%, at least 20-point lift, exact McNemar p no greater than 0.05, at most one no-pack-only regression, mean input overhead no greater than 1,200 tokens, pack estimate no greater than 900 tokens, and median latency overhead no greater than 10 seconds.
 - Privacy: the nine-rule/27-item utility fixture is outside the public repository and passed a targeted credential/email/IP/secret-pattern scan.
 - Local validation: `npm test` passed `26/26`; real-fixture plan smoke froze 111 calls and 108 unique transfer sessions without model calls; fake-worker full lifecycle completed 105/105 calls for the reduced 24-item test fixture, promoted acquisition, passed both synthetic tracks, and replayed every manifest hash.
-- Current execution state: implementation is locally green but the real remote model program has not yet produced evidence. No go/no-go efficacy claim is available yet.
+- Terminal execution: `111/111` model calls completed; acquisition promoted; all `108/108` transfer trials and `54/54` pairs were valid; zero observed tool events; usage recorded on every transfer trial.
+- Mechanism result: **passed** — pack `27/27`, no-pack `0/27`, absolute lift `100` points, exact McNemar p `1.5e-8`; all cost/no-regression gates passed.
+- Utility result: **threshold not passed** — pack `27/27`, no-pack `24/27`, absolute lift `11.11` points versus required `20`, exact McNemar p `0.25`; no-regression and cost gates passed but the effect gate failed.
+- Program decision: **NO-GO — preserve as verified memory/retrieval toolkit**. No default integration, broad OS claim, or outcome-driven rerun is allowed.
+- Artifact return: tarball checksum passed and the control plane verified `950/950` manifest files with zero mismatches.
 
 Additional honest evidence:
 
@@ -72,15 +76,15 @@ Additional honest evidence:
 - The randomized A/B executed successfully, but its preregistered evidence threshold did not pass: both arms scored `26/27`, lift was `0`, and exact McNemar p was `1.0`.
 - Broad or durable math improvement remains unproven.
 - Retrieval-pack benefit and harm remain unproven under the declared exact-multiplication/model/runtime configuration.
-- Ordinary Cortex task routing does not yet auto-select a Learning OS capsule outside the explicit CLOS run path.
+- The capped mechanism track proved bounded retrieval transfer for seeded novel information, but the private-workspace utility track failed its preregistered effect threshold (`+11.11` points, p `0.25`).
+- Ordinary Cortex task routing remains unchanged; the no-go result explicitly blocks default CLOS retrieval integration.
 - Model weights were not changed.
 
 ## Next actions
 
-1. Commit and push the isolated go/no-go harness branch; do not include the private utility fixture in Git.
-2. Sync the exact commit plus private fixture to Hetzner, freeze the real program before model calls, and verify a small remote canary.
-3. Launch the remaining capped program detached with an independent control-plane notifier and return-bundle verification.
-4. Report GO only if acquisition and both tracks pass every preregistered effect, no-regression, token, and latency gate; otherwise preserve the work as a verified memory/retrieval toolkit and stop broadening it.
+1. Preserve the artifact-backed no-go result; do not outcome-rerun or broaden the Learning OS program.
+2. Retain the useful verifier-gated lesson, provenance, promotion, expiration, rollback, and bounded-retrieval components as a memory/retrieval toolkit.
+3. Keep ordinary-task/default routing unchanged. Any future narrowly scoped retrieval use requires separate evidence and explicit approval.
 
 ## Do not use / superseded
 
@@ -95,6 +99,8 @@ Allowed claims:
 - Cortex Learning OS has a working, artifact-backed production slice.
 - One bounded exact-arithmetic failure was followed by passed correction, independent promotion retest, and a different held-out retest after a gated retrieval pack.
 - One scoped lesson passed the declared promotion gates and is available on the canonical capsule path.
+- In the capped go/no-go, seeded synthetic-procedure retrieval transferred perfectly across fresh sessions under the declared runtime.
+- The private-utility pack improved three of 27 paired items with no regressions, but this did not meet the preregistered utility effect threshold.
 
 Not allowed:
 
