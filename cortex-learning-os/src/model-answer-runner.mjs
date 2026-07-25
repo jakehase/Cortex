@@ -89,11 +89,11 @@ export function runCodexExam({
   learningContext = null,
   evidenceRole = 'ab_retest',
   timeoutSeconds = 240,
-  thinking = 'minimal',
+  thinking = 'low',
   model = 'gpt-5.6-sol',
   codexCommand = 'codex'
 } = {}) {
-  if (!['minimal', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
+  if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
   const prompt = buildExamPrompt({ exam, learningContext });
   const startedAt = new Date().toISOString();
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-codex-exam-'));

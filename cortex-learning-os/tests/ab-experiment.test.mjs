@@ -16,6 +16,7 @@ test('paired experiment generation is deterministic, balanced, and identical-ite
   assert.equal(first.items.length, 27);
   assert.equal(first.schedule.length, 54);
   assert.equal(first.analysisPlan.minimumValidPairs, 24);
+  assert.equal(first.runtime.thinking, 'low');
   assert.equal(new Set(first.schedule.map((row) => row.sessionId)).size, 54);
   for (const item of first.items) {
     const [left, right] = item.prompt.match(/(\d+) × (\d+)/).slice(1);
