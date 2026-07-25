@@ -1,6 +1,6 @@
 {
   "name": "cortex-learning-os",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,8 @@
     "experiment:ab": "node src/run-ab-experiment.mjs",
     "experiment:ab:plan": "node src/run-ab-experiment.mjs --plan-only",
     "validate:go-no-go": "node src/run-go-no-go-validation.mjs",
-    "validate:go-no-go:plan": "node src/run-go-no-go-validation.mjs --plan-only"
+    "validate:go-no-go:plan": "node src/run-go-no-go-validation.mjs --plan-only",
+    "validate:private-utility": "node src/run-private-utility-validation.mjs",
+    "validate:private-utility:plan": "node src/run-private-utility-validation.mjs --plan-only"
   }
 }

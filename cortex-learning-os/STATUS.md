@@ -5,10 +5,10 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 13:35 CDT`
+- Last updated: `2026-07-25 14:27 CDT`
 - Status: `active`
-- Current fidelity: `production_slice_plus_preregistered_go_no_go_harness`
-- Package version: `0.4.0`
+- Current fidelity: `production_slice_plus_corrected_private_utility_validation_harness`
+- Package version: `0.5.0`
 
 ## Current checkpoint
 
@@ -16,7 +16,7 @@ Cortex Learning OS has completed its first bounded, verifier-gated learning loop
 
 The production slice now includes:
 
-- 26 machine tests covering contracts, deterministic checkers, fail-closed promotion, retrieval limits, curriculum coverage, learning-loop behavior, paired randomization, strict Codex structured output, frozen-runtime resume enforcement, exact McNemar analysis, Codex tool-event detection, dual-track go/no-go planning, cost/no-regression gates, and fail-closed fixture/runtime validation.
+- 32 machine tests covering contracts, deterministic checkers, fail-closed promotion, retrieval limits, curriculum coverage, learning-loop behavior, paired randomization, strict Codex structured output, frozen-runtime resume enforcement, exact McNemar analysis, Codex tool-event detection, dual-track go/no-go planning, disjoint private calibration/holdout design, fact-cluster analysis, cost/no-regression gates, and fail-closed fixture/runtime validation.
 - 14 JSON record schemas plus internal contract validation.
 - A 36-concept math-foundations curriculum.
 - A 30-item deterministic baseline exam, a 20-item exactness/reliability challenge, and a 20-item exact-arithmetic stress exam.
@@ -64,6 +64,18 @@ The production slice now includes:
 - Program decision: **NO-GO — preserve as verified memory/retrieval toolkit**. No default integration, broad OS claim, or outcome-driven rerun is allowed.
 - Artifact return: tarball checksum passed and the control plane verified `950/950` manifest files with zero mismatches.
 
+## Corrected selective private-utility validation
+
+- Interpretation correction: the first utility arm was ceiling-limited. No-pack scored `24/27` while pack was perfect, so the maximum observable lift was `3/27 = 11.11` points—below the frozen 20-point gate. Its contract-level no-go remains immutable, but it cannot reliably reject broader selective private retrieval.
+- Reply anchor: Jake approved one corrected harder utility-only validation by saying “Do it” after identifying the ceiling.
+- Design: freeze both disjoint fixture pools before any model call; calibration has 12 facts / 24 open-ended no-pack sessions; held-out efficacy has 30 independent facts, two paraphrases per fact, 60 identical-item pairs / 120 fresh sessions; 144-call maximum.
+- Primary statistical unit: one private-fact cluster. Both paraphrases must pass for an arm to pass that cluster. Calibration facts contribute no held-out wins.
+- Calibration gate: at least 90% valid; no-pack item accuracy no greater than 60%; no-pack cluster accuracy no greater than 50%. A failure stops before held-out calls.
+- Held-out gate: at least 90% valid pairs/clusters, pack item accuracy at least 90%, pack cluster accuracy at least 85%, item and cluster lift at least 20 points, exact cluster-level McNemar p no greater than 0.05, at most one no-pack-only cluster, and all token/latency gates.
+- Privacy: 12 calibration facts and 30 different held-out facts are low-sensitivity, open-ended, and outside Git; no credentials, client-identifying facts, financial identifiers, email addresses, or network addresses.
+- Local validation: `npm test` passed `32/32`; real-fixture plan smoke froze 144 calls and 144 unique sessions; fake-worker full lifecycle completed `144/144`, passed calibration and all clustered held-out gates, and replayed every manifest hash.
+- Current state: implementation and private fixtures are locally green; no real corrected-test model calls have started yet.
+
 Additional honest evidence:
 
 - The initial 30-item baseline scored `30/30`; the loop stopped rather than fabricating a mistake: `artifacts/math-foundations-smoke-20260725-052255174Z`.
@@ -76,15 +88,16 @@ Additional honest evidence:
 - The randomized A/B executed successfully, but its preregistered evidence threshold did not pass: both arms scored `26/27`, lift was `0`, and exact McNemar p was `1.0`.
 - Broad or durable math improvement remains unproven.
 - Retrieval-pack benefit and harm remain unproven under the declared exact-multiplication/model/runtime configuration.
-- The capped mechanism track proved bounded retrieval transfer for seeded novel information, but the private-workspace utility track failed its preregistered effect threshold (`+11.11` points, p `0.25`).
-- Ordinary Cortex task routing remains unchanged; the no-go result explicitly blocks default CLOS retrieval integration.
+- The capped mechanism track proved bounded retrieval transfer for seeded novel information. Its first private-workspace utility arm failed the frozen effect threshold (`+11.11` points, p `0.25`) but was itself ceiling-limited, so broader selective private utility remains unresolved pending the corrected test.
+- Ordinary Cortex task routing remains unchanged; neither the mechanism pass nor the corrected-test harness approves default integration.
 - Model weights were not changed.
 
 ## Next actions
 
-1. Preserve the artifact-backed no-go result; do not outcome-rerun or broaden the Learning OS program.
-2. Retain the useful verifier-gated lesson, provenance, promotion, expiration, rollback, and bounded-retrieval components as a memory/retrieval toolkit.
-3. Keep ordinary-task/default routing unchanged. Any future narrowly scoped retrieval use requires separate evidence and explicit approval.
+1. Preserve the first utility run unchanged; never append favorable items or relabel its no-go.
+2. Commit and push the corrected utility-only harness while keeping both private fixtures outside Git.
+3. Sync exact source and fixture hashes to Hetzner, rerun local gates remotely, freeze the complete 144-call program before any validation model call, and launch detached with independent notifier/harvester.
+4. Keep ordinary-task/default routing unchanged. Even a pass permits only a selective private-retrieval shadow candidate pending separate explicit approval.
 
 ## Do not use / superseded
 

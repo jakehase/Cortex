@@ -111,3 +111,19 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: remote artifact `/home/jake/clawd-runs/clos-go-no-go-20260725T181142Z/artifacts/clos-go-no-go-20260725T181142Z`; returned artifact `/root/clawd/artifacts/cortex-learning-os-go-no-go-20260725/returns/clos-go-no-go-20260725T181142Z`; `111/111` model calls, `108/108` valid transfer trials, `54/54` valid pairs, zero observed tool events, return checksum pass, and `950/950` manifest hashes verified.
 - Supersedes: any expectation that a mechanism-only pass would justify default Learning OS integration.
 - Follow-up: retain the verification, promotion, provenance, expiration, rollback, and bounded retrieval machinery as a toolkit; require a separate explicit decision for any future narrow retrieval application.
+
+## 2026-07-25 — Correct the project-level interpretation of the first utility no-go
+
+- Decision: Keep the first utility run's frozen no-go intact, but stop treating it as a reliable rejection of broader selective private retrieval.
+- Reason: No-pack scored `24/27` and pack scored `27/27`, so the item set allowed at most `11.11` percentage points of observed lift and could not reach its 20-point gate. That is a ceiling-limited test, not evidence that a harder non-inferable private-fact workload cannot benefit.
+- Evidence: returned analysis for `clos-go-no-go-20260725T181142Z`; utility pack `27/27`, no-pack `24/27`, p `0.25`; Jake's explicit ceiling correction in the follow-up thread.
+- Supersedes: the broad wording that the terminal no-go alone justified stopping all further utility validation.
+- Follow-up: any new test must be prospective, harder in the private-information dimension, and must never append outcome-selected items to the completed run.
+
+## 2026-07-25 — Authorize one corrected open-ended private-utility validation
+
+- Decision: Run one utility-only validation with a separately frozen disjoint calibration pool and held-out pool: 12 calibration facts / 24 no-pack sessions, then—only if headroom is confirmed—30 held-out private-fact clusters / 60 paired prompts / 120 sessions. Cap the full program at 144 calls and keep all behavior shadow-only.
+- Reason: Open-ended, genuinely non-inferable private facts create meaningful headroom while a disjoint calibration gate catches another ceiling before spending the held-out budget. Treating facts as clustered statistical units prevents two paraphrases from being falsely counted as independent evidence.
+- Evidence: `docs/private-utility-validation-contract.md`; `src/private-utility-experiment.mjs`; `src/run-private-utility-validation.mjs`; `tests/private-utility-experiment.test.mjs`; local tests `32/32`; real-fixture 144-session plan smoke; fake-worker `144/144` lifecycle and manifest replay.
+- Supersedes: using the first multiple-choice utility fixture as the final project-level efficacy test.
+- Follow-up: push exact source without fixtures, freeze both fixture hashes and the full schedule before calls, execute detached on Hetzner, and accept pass, no-go, calibration stop, or blocker without outcome-driven modification.
