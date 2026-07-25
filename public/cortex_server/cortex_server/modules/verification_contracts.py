@@ -6,6 +6,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from cortex_server.modules.reasoning_approvals import grant_allows_step
+from cortex_server.modules.reasoning_safety import evaluate_step_permission
 
 
 ContractStage = Literal["pre", "post", "any"]
@@ -76,13 +77,17 @@ def evaluate_contracts(
     workflow_metadata: Optional[Dict[str, Any]] = None,
     results_by_node: Optional[Dict[str, Dict[str, Any]]] = None,
     response: Optional[Dict[str, Any]] = None,
+    user_id: Any = None,
+    role: Any = None,
+    approved: Any = None,
 ) -> Dict[str, Any]:
     normalized = [c for c in normalize_contracts(contracts) if c.stage in {stage, "any"}]
     results: List[Dict[str, Any]] = []
     overall = True
     response = response or {}
     results_by_node = results_by_node or {}
-    workflow_metadata = workflow_metadata or {}
+    workflow_metadata = dict(workflow_metadata or {})
+    step = dict(step or {})
 
     for contract in normalized:
         passed = True
@@ -109,12 +114,30 @@ def evaluate_contracts(
                 passed = observed == contract.expected
                 reason = f"path_equals:{contract.path}"
             elif contract.kind == "approval_required":
-                approval_grant = grant_allows_step(step or {}, workflow_metadata=workflow_metadata, required_scope=contract.approval_scope)
+                contract_step = step
+                risk = evaluate_step_permission(contract_step, workflow_metadata=workflow_metadata)["risk"]
+                approval_grant = grant_allows_step(
+                    contract_step,
+                    workflow_metadata=workflow_metadata,
+                    risk=risk,
+                    required_scope=contract.approval_scope,
+                )
+                grant_metadata = (
+                    approval_grant.get("metadata")
+                    if approval_grant and isinstance(approval_grant.get("metadata"), dict)
+                    else {}
+                )
+                caller_role = role.strip() if isinstance(role, str) else ""
+                authorized_role = str(grant_metadata.get("role") or "").strip()
+                authorized = bool(
+                    approval_grant
+                    and (not authorized_role or (caller_role and caller_role == authorized_role))
+                )
                 observed = {
                     "approval_scope": contract.approval_scope,
                     "approval_grant_id": approval_grant.get("grant_id") if approval_grant else None,
                 }
-                passed = bool(approval_grant)
+                passed = authorized
                 reason = f"approval_scope={contract.approval_scope}"
         except Exception as exc:  # noqa: BLE001
             passed = False

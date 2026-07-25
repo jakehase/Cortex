@@ -228,6 +228,8 @@ def build_prior_art_gate(
     structural_results: Optional[Sequence[Dict[str, Any]]] = None,
     file_results: Optional[Sequence[Dict[str, Any]]] = None,
     min_high_confidence: float = 0.58,
+    memory_available: bool = True,
+    structural_available: bool = True,
 ) -> Dict[str, Any]:
     terms = extract_prior_art_terms(
         objective=objective,
@@ -244,6 +246,17 @@ def build_prior_art_gate(
     has_prior_art = bool(high_confidence)
     failures: List[str] = []
     warnings: List[str] = []
+    unavailable_planes = []
+    # A caller cannot claim recall coverage when there was nothing real to
+    # search.  This also protects non-HTTP callers of the gate builder.
+    memory_available = bool(memory_available and terms)
+    structural_available = bool(structural_available and terms)
+    if not memory_available:
+        unavailable_planes.append("memory")
+    if not structural_available:
+        unavailable_planes.append("structural")
+    if unavailable_planes:
+        failures.append("required_recall_plane_unavailable")
     if has_prior_art and action in _NEW_ACTIONS | {"unspecified", ""}:
         failures.append("high_confidence_prior_art_requires_reuse_or_extension")
     elif has_prior_art and action in _REUSE_ACTIONS:
@@ -276,6 +289,8 @@ def build_prior_art_gate(
         "requiredAction": decision if not ok else action if action in _REUSE_ACTIONS else decision,
         "terms": terms,
         "sourceCoverage": {
+            "memoryAvailable": memory_available,
+            "structuralAvailable": structural_available,
             "memoryResultCount": len(memory_results or []),
             "structuralResultCount": len(structural_results or []),
             "fileResultCount": len(file_results or []),
@@ -288,7 +303,12 @@ def build_prior_art_gate(
         "warnings": warnings,
         "blocker": None if ok else {
             "blockerKind": "prior_art_gate_failed",
-            "blocker": "High-confidence existing capability was found; plan must reuse, extend, or explicitly be an adapter before implementation.",
+            "blocker": (
+                "Required recall evidence is unavailable; prior-art clearance cannot be trusted."
+                if unavailable_planes else
+                "High-confidence existing capability was found; plan must reuse, extend, or explicitly be an adapter before implementation."
+            ),
+            "unavailablePlanes": unavailable_planes,
         },
         "truthBoundary": "Prior-art gate is a pre-implementation recall check across memory and structural evidence. It prevents duplicate architecture; it does not prove the recalled capability is currently correct without live validation.",
     }

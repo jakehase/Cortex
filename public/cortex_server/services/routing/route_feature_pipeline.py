@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from functools import lru_cache
-from pathlib import Path
 from typing import Any, Dict, List
 
 from services.routing._compat import optional_import
@@ -18,59 +16,6 @@ _ARCHETYPE_TO_INTENT = {
     "complex_general": "qa",
     "simple_qa": "qa",
 }
-
-
-@lru_cache(maxsize=1)
-def _latency_governor():
-    module = optional_import("cortex_server.modules.latency_budget_governor")
-    governor_cls = getattr(module, "LatencyBudgetGovernor", None) if module else None
-    if governor_cls is None:
-        return None
-    try:
-        return governor_cls(artifact_dir=Path("/tmp/r9_latency_governor"))
-    except Exception:
-        return None
-
-
-@lru_cache(maxsize=1)
-def _runtime_policy_snapshot() -> Dict[str, Any]:
-    module = optional_import("cortex_server.modules.routing_autotune")
-    snapshot = getattr(module, "get_policy_snapshot", None) if module else None
-    if callable(snapshot):
-        try:
-            result = snapshot()
-            return dict(result) if isinstance(result, dict) else {}
-        except Exception:
-            return {}
-    return {}
-
-
-@lru_cache(maxsize=1)
-def _runtime_health_snapshot() -> Dict[str, Any]:
-    module = optional_import("cortex_server.modules.route_health")
-    monitor = getattr(module, "ROUTE_HEALTH", None) if module else None
-    snapshot = getattr(monitor, "snapshot", None) if monitor else None
-    if callable(snapshot):
-        try:
-            result = snapshot()
-            return dict(result) if isinstance(result, dict) else {}
-        except Exception:
-            return {}
-    return {}
-
-
-@lru_cache(maxsize=128)
-def _runtime_outcome_hint(archetype: str, query: str) -> Dict[str, Any]:
-    module = optional_import("cortex_server.modules.outcome_tuner")
-    tuner_cls = getattr(module, "OutcomeTuner", None) if module else None
-    if tuner_cls is None:
-        return {}
-    try:
-        tuner = tuner_cls(artifact_dir=Path("/opt/clawdbot/artifacts/nexus_orchestration"))
-        hint = tuner.get_policy_hint(archetype=archetype, query=query)
-        return dict(hint) if isinstance(hint, dict) else {}
-    except Exception:
-        return {}
 
 
 def _classify_task_archetype(query: str, risk_flags: List[str], complexity_gate: Dict[str, Any]) -> str | None:
@@ -119,8 +64,7 @@ def infer_intent(query: str, *, risk_flags: List[str] | None = None, complexity_
     return "qa"
 
 
-def _latency_plan(query: str, *, risk_flags: List[str], complexity_gate: Dict[str, Any]) -> Dict[str, Any]:
-    governor = _latency_governor()
+def _latency_plan(query: str, *, risk_flags: List[str], complexity_gate: Dict[str, Any], governor: Any = None) -> Dict[str, Any]:
     if governor is None:
         return {
             "archetype": _classify_task_archetype(query, risk_flags, complexity_gate) or "simple_qa",
@@ -157,7 +101,16 @@ def _health_summary(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_route_features(query: str, *, risk_flags: List[str] | None = None, historical_success: float = 0.5) -> Dict[str, Any]:
+def build_route_features(
+    query: str,
+    *,
+    risk_flags: List[str] | None = None,
+    historical_success: float = 0.5,
+    latency_governor: Any = None,
+    runtime_policy: Dict[str, Any] | None = None,
+    outcome_tuner: Any = None,
+    route_health: Any = None,
+) -> Dict[str, Any]:
     q = (query or "").strip()
     tokens = [token for token in q.lower().replace("?", " ").replace(",", " ").split() if token]
     risk_flags = list(risk_flags or [])
@@ -171,10 +124,30 @@ def build_route_features(query: str, *, risk_flags: List[str] | None = None, his
     uncertainty = 1.0 if any(k in q.lower() for k in ["maybe", "unclear", "not sure", "unknown"]) else 0.35
     urgency = 1.0 if any(k in q.lower() for k in ["urgent", "asap", "right now", "immediately"]) else 0.2
     creativity = 1.0 if intent == "creative" else 0.0
-    latency_plan = _latency_plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate)
-    runtime_policy = _runtime_policy_snapshot()
-    runtime_health = _health_summary(_runtime_health_snapshot())
-    outcome_hint = _runtime_outcome_hint(archetype, query)
+    latency_plan = _latency_plan(
+        query,
+        risk_flags=risk_flags,
+        complexity_gate=complexity_gate,
+        governor=latency_governor,
+    )
+    runtime_policy = dict(runtime_policy or {})
+    health_snapshot: Dict[str, Any] = {}
+    if isinstance(route_health, dict):
+        health_snapshot = dict(route_health)
+    elif route_health is not None and callable(getattr(route_health, "snapshot", None)):
+        try:
+            result = route_health.snapshot()
+            health_snapshot = dict(result) if isinstance(result, dict) else {}
+        except Exception:
+            health_snapshot = {}
+    runtime_health = _health_summary(health_snapshot)
+    outcome_hint: Dict[str, Any] = {}
+    if outcome_tuner is not None and callable(getattr(outcome_tuner, "get_policy_hint", None)):
+        try:
+            result = outcome_tuner.get_policy_hint(archetype=archetype, query=query)
+            outcome_hint = dict(result) if isinstance(result, dict) else {}
+        except Exception:
+            outcome_hint = {}
     budget_pressure_ms = int((latency_plan.get("escalate_on") or {}).get("budget_pressure_after_ms", 0) or 0)
     timeout_pressure = bool(runtime_health["health_degraded"]) or (budget_pressure_ms and budget_pressure_ms <= 1800)
     return {

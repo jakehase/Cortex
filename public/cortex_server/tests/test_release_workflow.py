@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from datetime import timedelta
+import asyncio
+import os
+import stat
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import pytest
+
+import cortex_server.runtime.durable_files as durable_files
+import cortex_server.runtime.release_workflow as release_workflow
 from cortex_server.runtime import (
     ReleaseWorkflowState,
+    ReleaseWorkflowStore,
     RuntimeSoakHarness,
     advance_release_workflow,
     apply_release_rollback_restore,
@@ -11,12 +20,727 @@ from cortex_server.runtime import (
     compile_release_handoff,
     evaluate_release_promotion_gate,
     record_release_fencepost,
+    record_release_artifact_receipt,
     record_release_handoff,
     repair_release_workflow,
     rollback_release_workflow,
+    normalize_session_event,
 )
+from cortex_server.runtime.session_registry import SessionRegistryStore
+from cortex_server.runtime.release_workflow import (
+    MAX_RELEASE_ARTIFACT_RECEIPTS,
+    MAX_RELEASE_HISTORY_BYTES,
+    ReleaseArtifactReceipt,
+    create_release_artifact_receipt,
+    release_canary_policy,
+)
+from cortex_server.runtime.production_build_loop import ingest_production_release_artifact
 from cortex_server.runtime.shared_process_state import SharedProcessState
 
+
+VERIFIER_ID = "independent-release-verifier"
+VERIFIER_SECRET = "release-workflow-test-secret"
+IMAGE_DIGEST = "sha256:" + "d" * 64
+IMAGE_REF = f"registry.example/cortex@{IMAGE_DIGEST}"
+IMAGE_CLAIMS = {"image_ref": IMAGE_REF, "image_digest": IMAGE_DIGEST}
+
+
+def test_release_store_rejects_opaque_id_attacks_without_unknown_read_writes(
+    tmp_path,
+):
+    root = tmp_path / "runtime_delivery" / "release_workflow"
+    store = ReleaseWorkflowStore(root)
+
+    assert store.load("unknown-release") is None
+    assert store.load_for_observation("unknown-release") is None
+    assert not root.exists()
+
+    for attack in ("../../escaped", "nested/process", ".", "a" * 129):
+        with pytest.raises(ValueError, match="bounded opaque identifier"):
+            store.load(attack)
+        with pytest.raises(ValueError, match="bounded opaque identifier"):
+            store.load_for_observation(attack)
+    assert not root.exists()
+
+    root.mkdir(parents=True)
+    outside = tmp_path / "escaped.json"
+    outside.write_text("{}", encoding="utf-8")
+    (root / "linked.json").symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes its configured store root"):
+        store.load_for_observation("linked")
+
+
+def test_release_lock_namespace_is_bounded_and_cleans_legacy_locks(tmp_path):
+    root = tmp_path / "runtime_delivery" / "release_workflow"
+    root.mkdir(parents=True)
+    legacy = root / ".old-process.json.rollback.lock"
+    legacy.touch()
+    nested_legacy = root / "attacker" / ".nested.json.rollback.lock"
+    nested_legacy.parent.mkdir()
+    nested_legacy.touch()
+
+    store = ReleaseWorkflowStore(root)
+    assert not legacy.exists()
+    assert not nested_legacy.exists()
+    assert not nested_legacy.parent.exists()
+    for index in range(256):
+        with store.release_transaction(f"process-{index}"):
+            pass
+
+    locks = list((root / ".release-locks").glob("*.lock"))
+    assert 1 <= len(locks) <= release_workflow.MAX_RELEASE_LOCK_STRIPES
+    assert all(lock.is_file() and not lock.is_symlink() for lock in locks)
+
+
+def _directory_for_fd(fd: int) -> tuple[int, int]:
+    descriptor = os.fstat(fd)
+    return descriptor.st_dev, descriptor.st_ino
+
+
+def _directory_identity(path: Path) -> tuple[int, int]:
+    descriptor = path.stat()
+    return descriptor.st_dev, descriptor.st_ino
+
+
+def test_first_release_write_fsyncs_each_new_ancestor_and_linked_store_entry(
+    tmp_path, monkeypatch
+):
+    store = ReleaseWorkflowStore(
+        tmp_path / "volume" / "runtime_delivery" / "release_workflow"
+    )
+    real_fsync = os.fsync
+    synced_directories = []
+
+    def recording_fsync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            synced_directories.append(_directory_for_fd(fd))
+        return real_fsync(fd)
+
+    monkeypatch.setattr(durable_files.os, "fsync", recording_fsync)
+    state = ReleaseWorkflowState(
+        process_id="proc_first_write_durability",
+        candidate_ref="build:first-write",
+        target_environment="production",
+        revision_id="rev_1",
+    )
+    store.save(state, actor="release-coordinator")
+
+    release_root = store.path.resolve()
+    history_root = (store.path / "history").resolve()
+    assert [
+        _directory_identity(tmp_path),
+        _directory_identity(tmp_path / "volume"),
+        _directory_identity(tmp_path / "volume" / "runtime_delivery"),
+    ] == synced_directories[:3]
+    assert _directory_identity(release_root) in synced_directories
+    assert _directory_identity(history_root) in synced_directories
+
+    artifact_store = store.artifact_store()
+    artifact_ref, _content_hash = artifact_store.put(b"first publication")
+    artifact_target = artifact_store._target(artifact_ref)
+    assert artifact_target.exists()
+    assert _directory_identity(release_root) in synced_directories
+    assert _directory_identity(artifact_store.path) in synced_directories
+    assert _directory_identity(artifact_target.parent) in synced_directories
+
+
+@pytest.mark.parametrize("failed_directory_sync", [1, 2, 3])
+def test_first_release_write_never_descends_past_an_unsynced_ancestor(
+    tmp_path, monkeypatch, failed_directory_sync
+):
+    store = ReleaseWorkflowStore(
+        tmp_path / "volume" / "runtime_delivery" / "release_workflow"
+    )
+    real_fsync = os.fsync
+    directory_sync_count = 0
+
+    def fail_selected_directory_sync(fd):
+        nonlocal directory_sync_count
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            directory_sync_count += 1
+            if directory_sync_count == failed_directory_sync:
+                raise OSError("injected ancestor fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(durable_files.os, "fsync", fail_selected_directory_sync)
+    state = ReleaseWorkflowState(
+        process_id=f"proc_sync_failure_{failed_directory_sync}",
+        candidate_ref="build:must-not-ack",
+        target_environment="production",
+        revision_id="rev_1",
+    )
+
+    with pytest.raises(OSError, match="injected ancestor fsync failure"):
+        store.save(state, actor="release-coordinator")
+
+    assert directory_sync_count == failed_directory_sync
+    assert not store._target(state.process_id).exists()
+
+
+@pytest.mark.parametrize("failed_directory_sync", [1, 2])
+def test_first_artifact_publication_never_acks_unsynced_store_topology(
+    tmp_path, monkeypatch, failed_directory_sync
+):
+    release_root = tmp_path / "release_workflow"
+    durable_files.durable_mkdir(release_root)
+    artifact_store = ReleaseWorkflowStore(release_root).artifact_store()
+    real_fsync = os.fsync
+    directory_sync_count = 0
+
+    def fail_selected_directory_sync(fd):
+        nonlocal directory_sync_count
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            directory_sync_count += 1
+            if directory_sync_count == failed_directory_sync:
+                raise OSError("injected artifact topology fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(durable_files.os, "fsync", fail_selected_directory_sync)
+
+    with pytest.raises(OSError, match="injected artifact topology fsync failure"):
+        artifact_store.put(b"must not be acknowledged")
+
+    assert directory_sync_count == failed_directory_sync
+    assert not list(artifact_store.path.glob("*/*.artifact"))
+
+
+def test_event_loop_release_lock_contention_fails_fast_without_deadlock(tmp_path):
+    first_store = ReleaseWorkflowStore(tmp_path / "release")
+    second_store = ReleaseWorkflowStore(tmp_path / "release")
+
+    async def exercise() -> None:
+        transaction = first_store.release_transaction("proc_async_lock")
+        await asyncio.to_thread(transaction.__enter__)
+        try:
+            with pytest.raises(RuntimeError, match="release transaction busy"):
+                with second_store.release_transaction("proc_async_lock"):
+                    pass
+            await asyncio.sleep(0)
+        finally:
+            await asyncio.to_thread(transaction.__exit__, None, None, None)
+
+    asyncio.run(asyncio.wait_for(exercise(), timeout=1.0))
+
+
+def _record_canary_evidence(harness, state, *, evidence_id: str, target_stage: str):
+    policy = release_canary_policy(target_stage)
+    artifact_hashes = [
+        str(row.get("content_hash") or "")
+        for row in (state.metadata.get("release_artifacts") or [])
+        if isinstance(row, dict) and row.get("artifact_kind") != "canary_evidence"
+    ]
+    claims = {
+        "policy_id": policy["policy_id"],
+        "deployment_id": f"deployment:{state.process_id}:{target_stage}",
+        "cohort_id": "canary-cohort",
+        **IMAGE_CLAIMS,
+        "traffic_volume": 1000,
+        "observation_window_seconds": 900,
+        "artifact_hashes": artifact_hashes,
+        "metrics": {"availability": 1.0, "error_rate": 0.0},
+        "thresholds": policy["thresholds"],
+    }
+    artifact_store = harness.release_store.artifact_store()
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=evidence_id,
+        payload=claims,
+        artifact_kind="canary_evidence",
+        target_stage=target_stage,
+        claims=claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    return record_release_artifact_receipt(
+        state,
+        receipt,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+
+
+def test_release_artifact_ids_are_immutable_within_revision_and_reusable_after_rollback(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    artifact_store = harness.release_store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_revisioned_artifacts",
+        candidate_ref="build:revisioned",
+        target_environment="production",
+        revision_id="rev_1",
+    )
+    first = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_release_bundle:proc_revisioned_artifacts",
+        payload={"revision": 1},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        first,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    state = state.model_copy(update={"revision_id": "rollback_server_revision"})
+    replacement = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_release_bundle:proc_revisioned_artifacts",
+        payload={"revision": 2},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        replacement,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+
+    receipts = state.metadata["release_artifacts"]
+    assert [row["revision_id"] for row in receipts] == ["rev_1", "rollback_server_revision"]
+    assert receipts[0]["content_hash"] != receipts[1]["content_hash"]
+
+
+def test_retired_verifier_only_replays_receipts_bound_to_its_active_epoch(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "release-workflow")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_retired_verifier",
+        candidate_ref="build:retired-verifier",
+        target_environment="production",
+        revision_id="rev_retired_verifier",
+    )
+    retired_id = "release-verifier-retired"
+    retired_secret = "retired-release-verifier-secret"
+    trust = {
+        retired_id: {
+            "secret": retired_secret,
+            "secret_sha256": "not-used-by-receipt-verification",
+            "activation_epoch": 1_700_000_000.0,
+            "retirement_epoch": 1_800_000_000.0,
+        }
+    }
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_historical_verifier",
+        payload={"historical": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=retired_id,
+        verifier_secret=retired_secret,
+        claims=IMAGE_CLAIMS,
+        created_at=release_workflow._now_iso(),
+    )
+
+    with pytest.raises(PermissionError, match="retired.*cannot authorize new evidence"):
+        record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials=trust,
+        )
+
+    historical_receipt = receipt.model_copy(
+        update={"acceptance_epoch": release_workflow._now().timestamp()}
+    )
+    historical = state.model_copy(
+        update={"metadata": {"release_artifacts": [historical_receipt.model_dump()]}}
+    )
+    replayed = record_release_artifact_receipt(
+        historical,
+        historical_receipt,
+        artifact_store=artifact_store,
+        verifier_credentials=trust,
+    )
+    assert replayed.metadata["release_artifacts"] == [historical_receipt.model_dump()]
+
+    late = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_after_retirement",
+        payload={"historical": False},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=retired_id,
+        verifier_secret=retired_secret,
+        claims=IMAGE_CLAIMS,
+        created_at="2030-01-01T00:00:00Z",
+    ).model_copy(
+        update={
+            "acceptance_epoch": datetime(2030, 1, 1, tzinfo=timezone.utc).timestamp()
+        }
+    )
+    with pytest.raises(PermissionError, match="outside verifier lifecycle"):
+        release_workflow.verify_release_artifact_receipt(
+            late,
+            artifact_store=artifact_store,
+            verifier_credentials=trust,
+        )
+
+
+@pytest.mark.parametrize("verifier_offset_seconds", [-120, 120])
+def test_server_acceptance_epoch_survives_clock_offset_verifier_rotation(
+    tmp_path,
+    monkeypatch,
+    verifier_offset_seconds,
+):
+    server_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    server_epoch = server_time.timestamp()
+    monkeypatch.setattr(release_workflow, "_now", lambda: server_time)
+    store = ReleaseWorkflowStore(tmp_path / f"release-{verifier_offset_seconds}")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id=f"proc_clock_offset_{verifier_offset_seconds}",
+        candidate_ref="build:clock-offset",
+        target_environment="production",
+        revision_id="rev_clock_offset",
+    )
+    verifier_id = f"offset-verifier-{verifier_offset_seconds}"
+    verifier_secret = "offset-verifier-secret"
+    active_trust = {
+        verifier_id: {
+            "secret": verifier_secret,
+            "activation_epoch": server_epoch - 1,
+            "retirement_epoch": None,
+        }
+    }
+    verifier_time = server_time + timedelta(seconds=verifier_offset_seconds)
+    verifier_created_at = verifier_time.isoformat().replace("+00:00", "Z")
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=f"artifact_clock_offset_{verifier_offset_seconds}",
+        payload={"offset": verifier_offset_seconds},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=verifier_id,
+        verifier_secret=verifier_secret,
+        created_at=verifier_created_at,
+    )
+
+    admitted = record_release_artifact_receipt(
+        state,
+        receipt,
+        artifact_store=artifact_store,
+        verifier_credentials=active_trust,
+    )
+    durable_receipt = ReleaseArtifactReceipt.model_validate(
+        admitted.metadata["release_artifacts"][0]
+    )
+    assert durable_receipt.acceptance_epoch == server_epoch
+    assert durable_receipt.created_at == verifier_created_at
+
+    rotated_trust = {
+        verifier_id: {
+            **active_trust[verifier_id],
+            "retirement_epoch": server_epoch + 1,
+        }
+    }
+    release_workflow.verify_release_artifact_receipt(
+        durable_receipt,
+        artifact_store=artifact_store,
+        verifier_credentials=rotated_trust,
+    )
+
+
+@pytest.mark.parametrize("verifier_offset_seconds", [-301, 301])
+def test_server_rejects_verifier_evidence_outside_bounded_clock_skew(
+    tmp_path,
+    monkeypatch,
+    verifier_offset_seconds,
+):
+    server_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    server_epoch = server_time.timestamp()
+    monkeypatch.setattr(release_workflow, "_now", lambda: server_time)
+    store = ReleaseWorkflowStore(tmp_path / f"skew-{verifier_offset_seconds}")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id=f"proc_skew_{verifier_offset_seconds}",
+        candidate_ref="build:skew",
+        target_environment="production",
+        revision_id="rev_skew",
+    )
+    verifier_time = server_time + timedelta(seconds=verifier_offset_seconds)
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=f"artifact_skew_{verifier_offset_seconds}",
+        payload={"offset": verifier_offset_seconds},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier="skew-verifier",
+        verifier_secret="skew-verifier-secret",
+        created_at=verifier_time.isoformat().replace("+00:00", "Z"),
+    )
+    trust = {
+        "skew-verifier": {
+            "secret": "skew-verifier-secret",
+            "activation_epoch": server_epoch - 1,
+            "retirement_epoch": None,
+        }
+    }
+
+    with pytest.raises(PermissionError, match="clock skew"):
+        record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials=trust,
+        )
+
+
+def test_verifier_cannot_supply_server_acceptance_epoch(tmp_path, monkeypatch):
+    server_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(release_workflow, "_now", lambda: server_time)
+    store = ReleaseWorkflowStore(tmp_path / "server-owned-acceptance")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_server_owned_acceptance",
+        candidate_ref="build:server-owned-acceptance",
+        target_environment="production",
+        revision_id="rev_server_owned_acceptance",
+    )
+    receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact_server_owned_acceptance",
+        payload={"forged": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        created_at=release_workflow._now_iso(),
+    ).model_copy(update={"acceptance_epoch": server_time.timestamp() - 1})
+
+    with pytest.raises(ValueError, match="assigned by the server"):
+        record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+
+def test_signed_canary_evidence_cannot_define_or_evade_server_thresholds(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    state = ReleaseWorkflowState(
+        process_id="proc_immutable_canary_policy",
+        candidate_ref="build:unsafe",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    artifact_store = harness.release_store.artifact_store()
+    policy = release_canary_policy("production")
+    weak_claims = {
+        "policy_id": policy["policy_id"],
+        "deployment_id": "deployment:unsafe",
+        "cohort_id": "one-request",
+        **IMAGE_CLAIMS,
+        "traffic_volume": 1,
+        "observation_window_seconds": 1,
+        "artifact_hashes": [],
+        "metrics": {"availability": 0.0, "error_rate": 0.99},
+        "thresholds": {
+            "minimum_traffic": 1,
+            "minimum_observation_seconds": 1,
+            "minimum_availability": 0.0,
+            "maximum_error_rate": 0.99,
+            "rollback_error_rate": 1.0,
+        },
+    }
+    weak_receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="evidence:caller-policy",
+        payload=weak_claims,
+        artifact_kind="canary_evidence",
+        target_stage="production",
+        claims=weak_claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+
+    with pytest.raises(ValueError, match="does not echo the immutable server release policy"):
+        record_release_artifact_receipt(
+            state,
+            weak_receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+    unhealthy_claims = {**weak_claims, "thresholds": policy["thresholds"]}
+    unhealthy_receipt = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="evidence:unhealthy",
+        payload=unhealthy_claims,
+        artifact_kind="canary_evidence",
+        target_stage="production",
+        claims=unhealthy_claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    with pytest.raises(ValueError, match="does not satisfy the immutable server release policy"):
+        record_release_artifact_receipt(
+            state,
+            unhealthy_receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+    for artifact_id, malformed in (
+        ("evidence:boolean-metrics", {**unhealthy_claims, "traffic_volume": 1000, "observation_window_seconds": 900, "metrics": {"availability": True, "error_rate": False}}),
+        ("evidence:boolean-traffic", {**unhealthy_claims, "traffic_volume": True, "observation_window_seconds": 900, "metrics": {"availability": 1.0, "error_rate": 0.0}}),
+    ):
+        malformed_receipt = create_release_artifact_receipt(
+            state,
+            artifact_store=artifact_store,
+            artifact_id=artifact_id,
+            payload=malformed,
+            artifact_kind="canary_evidence",
+            target_stage="production",
+            claims=malformed,
+            producer="canary-runner",
+            verifier=VERIFIER_ID,
+            verifier_secret=VERIFIER_SECRET,
+        )
+        with pytest.raises(ValueError, match="strict server evidence schema"):
+            record_release_artifact_receipt(
+                state,
+                malformed_receipt,
+                artifact_store=artifact_store,
+                verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+            )
+
+
+def test_canary_evidence_for_a_different_image_digest_cannot_authorize_promotion(
+    tmp_path,
+):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(
+        process_id="proc_image_mismatch",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id="proc_image_mismatch",
+        candidate_ref="build:image-mismatch",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="build_verified",
+    )
+    artifact_store = harness.release_store.artifact_store()
+    bundle_id = "artifact_release_bundle:proc_image_mismatch"
+    bundle = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=bundle_id,
+        payload={"published": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        bundle,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    wrong_digest = "sha256:" + "e" * 64
+    policy = release_canary_policy("canary_verified")
+    claims = {
+        "policy_id": policy["policy_id"],
+        "deployment_id": "deployment:wrong-image",
+        "cohort_id": "canary-cohort",
+        "image_ref": f"registry.example/cortex@{wrong_digest}",
+        "image_digest": wrong_digest,
+        "traffic_volume": 1000,
+        "observation_window_seconds": 900,
+        "artifact_hashes": [bundle.content_hash],
+        "metrics": {"availability": 1.0, "error_rate": 0.0},
+        "thresholds": policy["thresholds"],
+    }
+    evidence_id = "evidence:wrong-image"
+    evidence = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=evidence_id,
+        payload=claims,
+        artifact_kind="canary_evidence",
+        target_stage="canary_verified",
+        claims=claims,
+        producer="canary-runner",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        evidence,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    message = harness.mailbox.send(
+        process_id=state.process_id,
+        from_agent="builder",
+        to_agent="verifier",
+        kind="handoff",
+        revision_id=state.revision_id,
+        dedupe_key="wrong-image-evidence",
+        payload={"objective": "verify"},
+    )
+    harness.mailbox.receive(
+        to_agent="verifier",
+        process_id=state.process_id,
+        expected_revision_id=state.revision_id,
+        reject_stale_revision=True,
+    )
+    acknowledged = harness.mailbox.acknowledge(
+        message.message_id,
+        actor="verifier",
+        result_receipt={
+            "candidate_ref": state.candidate_ref,
+            "release_id": state.release_id,
+            "revision_id": state.revision_id,
+            "result": "approved",
+            "evidence_receipts": [evidence_id],
+        },
+    )
+    state = record_release_handoff(state, acknowledged, stage="canary_verified")
+
+    gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        target_stage="canary_verified",
+        mailbox_messages=harness.mailbox.list(process_id=state.process_id),
+        dependability_report={"success": True},
+        required_artifacts=[bundle_id],
+        required_handoff_count=1,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+
+    assert gate["checks"]["image_digest_ready"] is True
+    assert gate["checks"]["handoff_receipts_ok"] is False
+    assert gate["safe_push"] is False
+    assert gate["invalid_evidence_receipt_ids"] == [evidence_id]
 
 
 def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
@@ -34,6 +758,25 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         current_stage="build_verified",
     )
     harness.release_store.save(state, actor="release-coordinator", provenance={"phase": "seed"})
+    artifact_store = harness.release_store.artifact_store()
+    bundle_id = "artifact_release_bundle:proc_release_history"
+    bundle = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id=bundle_id,
+        payload={"candidate_ref": state.candidate_ref, "published": True},
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+        claims=IMAGE_CLAIMS,
+    )
+    state = record_release_artifact_receipt(
+        state,
+        bundle,
+        artifact_store=artifact_store,
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
 
     handoff = compile_release_handoff(
         state=state,
@@ -56,11 +799,49 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         payload={"objective": handoff.objective},
     )
     harness.mailbox.receive(to_agent="verifier", process_id="proc_release_history", expected_revision_id="rev_1", reject_stale_revision=True)
-    acked = harness.mailbox.acknowledge(message.message_id)
-    state = record_release_handoff(state, acked, stage="build_verified")
-
-    fencepost = capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified")
+    acked = harness.mailbox.acknowledge(
+        message.message_id,
+        actor="verifier",
+        result_receipt={
+            "candidate_ref": state.candidate_ref,
+            "release_id": state.release_id,
+            "revision_id": state.revision_id,
+            "result": "approved",
+            "evidence_receipts": ["evidence:canary-verification"],
+        },
+    )
+    state = record_release_handoff(state, acked, stage="canary_verified")
+    fencepost = capture_release_rollback_fencepost(
+        snapshot=snapshot,
+        shared_state=shared_state,
+        stage="build_verified",
+        image_ref=IMAGE_REF,
+        image_digest=IMAGE_DIGEST,
+    )
     state = record_release_fencepost(state, fencepost)
+
+    unresolved_gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        target_stage="canary_verified",
+        mailbox_messages=harness.mailbox.list(process_id="proc_release_history"),
+        dependability_report={"success": True},
+        required_fencepost_stages=["build_verified"],
+        required_artifacts=[bundle_id],
+        required_handoff_count=1,
+        artifact_store=harness.release_store.artifact_store(),
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+    assert unresolved_gate["checks"]["handoff_receipts_ok"] is False
+    assert unresolved_gate["invalid_evidence_receipt_ids"] == ["evidence:canary-verification"]
+
+    state = _record_canary_evidence(
+        harness,
+        state,
+        evidence_id="evidence:canary-verification",
+        target_stage="canary_verified",
+    )
 
     gate = evaluate_release_promotion_gate(
         state=state,
@@ -71,7 +852,10 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
         leases=harness.supervisor.list(process_id="proc_release_history"),
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified"],
+        required_artifacts=[bundle_id],
         required_handoff_count=1,
+        artifact_store=harness.release_store.artifact_store(),
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
     )
     promoted = advance_release_workflow(state, gate=gate, next_stage="canary_verified", actor="release-manager")
     stored = harness.release_store.save(promoted["state"], actor="release-manager", provenance={"phase": "promote_canary"})
@@ -80,6 +864,7 @@ def test_release_workflow_store_tracks_history_and_promotion_gate(tmp_path):
     assert gate["safe_push"] is True
     assert promoted["promoted"] is True
     assert stored.current_stage == "canary_verified"
+    assert stored.promotion_history[-1]["production_image_digest"] == IMAGE_DIGEST
     assert len(history) == 2
     assert history[0].change_set["created"] is True
     assert history[1].change_set["current_stage"] == "canary_verified"
@@ -98,8 +883,18 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
         target_environment="production",
         revision_id="rev_1",
         current_stage="build_verified",
+        metadata={
+            "production_image_ref": IMAGE_REF,
+            "production_image_digest": IMAGE_DIGEST,
+        },
     )
-    fencepost = capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified")
+    fencepost = capture_release_rollback_fencepost(
+        snapshot=snapshot,
+        shared_state=shared_state,
+        stage="build_verified",
+        image_ref=IMAGE_REF,
+        image_digest=IMAGE_DIGEST,
+    )
     state = record_release_fencepost(state, fencepost)
 
     gate = evaluate_release_promotion_gate(
@@ -120,10 +915,483 @@ def test_release_workflow_rollback_uses_fencepost_restore_bundle(tmp_path):
     assert rolled["restore_state"]["lifecycle_state"] == "waiting"
     assert rolled["restore_state"]["shared_state_revision_id"] == "rev_1"
     assert rolled["restore_state"]["waiting_steps"] == ["build"]
+    assert rolled["production_image_digest"] == IMAGE_DIGEST
+    assert "CORTEX_IMAGE_REPOSITORY=registry.example/cortex" in rolled["operator_rollback_command"]
+    assert f"CORTEX_IMAGE_DIGEST={'d' * 64}" in rolled["operator_rollback_command"]
+    assert "CORTEX_IMAGE_REF=" not in rolled["operator_rollback_command"]
+    assert "--no-build --pull never" in rolled["operator_rollback_command"]
+
+
+def test_operator_rollback_command_assigns_every_production_compose_image_variable():
+    command = release_workflow.operator_rollback_command(IMAGE_REF, IMAGE_DIGEST)
+    compose = (Path(__file__).parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+
+    required = set(
+        release_workflow.re.findall(r"\$\{(CORTEX_IMAGE_[A-Z]+):\?", compose)
+    )
+    assigned = set(
+        release_workflow.re.findall(r"\b(CORTEX_IMAGE_[A-Z]+)=", command)
+    )
+
+    assert required == {"CORTEX_IMAGE_REPOSITORY", "CORTEX_IMAGE_DIGEST"}
+    assert required <= assigned
+    assert command.count("CORTEX_IMAGE_REPOSITORY=registry.example/cortex") == 2
+    assert command.count(f"CORTEX_IMAGE_DIGEST={'d' * 64}") == 2
+
+
+def test_same_digest_receipt_flood_is_bounded_before_state_or_history_amplification(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    artifact_store = store.artifact_store()
+    state = ReleaseWorkflowState(
+        process_id="proc_receipt_quota",
+        candidate_ref="build:receipt-quota",
+        target_environment="production",
+        revision_id="rev_receipt_quota",
+    )
+
+    for index in range(MAX_RELEASE_ARTIFACT_RECEIPTS):
+        receipt = create_release_artifact_receipt(
+            state,
+            artifact_store=artifact_store,
+            artifact_id=f"artifact-{index}",
+            payload=b"x",
+            artifact_kind="release_bundle",
+            producer="builder",
+            verifier=VERIFIER_ID,
+            verifier_secret=VERIFIER_SECRET,
+            claims={"index": index},
+        )
+        state = record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+    assert artifact_store.storage_usage_bytes() == 1
+    overflow = create_release_artifact_receipt(
+        state,
+        artifact_store=artifact_store,
+        artifact_id="artifact-overflow",
+        payload=b"x",
+        artifact_kind="release_bundle",
+        producer="builder",
+        verifier=VERIFIER_ID,
+        verifier_secret=VERIFIER_SECRET,
+    )
+    with pytest.raises(ValueError, match="receipt count"):
+        record_release_artifact_receipt(
+            state,
+            overflow,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+
+
+def test_same_digest_receipt_history_uses_bounded_hash_linked_deltas(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    artifact_store = store.artifact_store()
+    state = store.save(
+        ReleaseWorkflowState(
+            process_id="proc_receipt_history_delta",
+            candidate_ref="build:receipt-history-delta",
+            target_environment="production",
+            revision_id="rev_receipt_history_delta",
+        ),
+        actor="release-manager",
+    )
+
+    for index in range(40):
+        receipt = create_release_artifact_receipt(
+            state,
+            artifact_store=artifact_store,
+            artifact_id=f"artifact-{index}",
+            payload=b"x",
+            artifact_kind="release_bundle",
+            producer="builder",
+            verifier=VERIFIER_ID,
+            verifier_secret=VERIFIER_SECRET,
+            claims={"index": index},
+        )
+        state = record_release_artifact_receipt(
+            state,
+            receipt,
+            artifact_store=artifact_store,
+            verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+        )
+        state = store.save(
+            state,
+            actor=VERIFIER_ID,
+            provenance={
+                "scenario": "production_artifact_ingestion",
+                "artifact_id": receipt.artifact_id,
+                "content_hash": receipt.content_hash,
+            },
+        )
+
+    history = store.history(state.process_id)
+    assert history[-1].state["history_format"] == "cortex.release-history-artifact-delta.v1"
+    assert history[-1].state["artifact_receipt"]["artifact_id"] == "artifact-39"
+    assert len(history[-1].state["state_sha256"]) == 64
+    assert store._history_target(state.process_id).stat().st_size < 2 * 1024 * 1024
+
+
+def test_release_save_rejects_history_growth_at_immutable_boundary(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    state = ReleaseWorkflowState(
+        process_id="proc_history_quota",
+        candidate_ref="build:history-quota",
+        target_environment="production",
+        revision_id="rev_history_quota",
+    )
+    history_target = store._history_target(state.process_id)
+    history_target.parent.mkdir(parents=True)
+    with history_target.open("wb") as handle:
+        handle.truncate(MAX_RELEASE_HISTORY_BYTES)
+
+    with pytest.raises(ValueError, match="history quota"):
+        store.save(state, actor="release-manager")
+
+
+def test_ordinary_history_growth_cannot_consume_rollback_recovery_frame(
+    tmp_path,
+    monkeypatch,
+):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_history_rollback_reserve"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:history-rollback-reserve",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=seeded["snapshot"],
+            shared_state=seeded["shared_state"],
+            stage="build_verified",
+        ),
+    )
+    stored = harness.release_store.save(state, actor="release-manager")
+    history_target = harness.release_store._history_target(process_id)
+    recovery_frame_bytes = 64 * 1024
+    monkeypatch.setattr(
+        release_workflow,
+        "MAX_RELEASE_HISTORY_BYTES",
+        history_target.stat().st_size + recovery_frame_bytes,
+    )
+    monkeypatch.setattr(
+        release_workflow,
+        "RELEASE_HISTORY_RECOVERY_RESERVE_BYTES",
+        recovery_frame_bytes,
+    )
+
+    with pytest.raises(ValueError, match="history quota"):
+        harness.release_store.save(stored, actor="release-manager")
+
+    restored = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+        actor="release-manager",
+        reason="canary_failure_at_history_boundary",
+        idempotency_key="history-boundary-rollback-1",
+    )
+
+    assert restored["applied"] is True
+    assert restored["state"].current_stage == "build_verified"
+    assert harness.release_store.load(process_id).metadata["rollback_applied"] is True
+    assert len(harness.release_store.history(process_id)) == 2
+
+
+def test_release_history_repairs_only_a_torn_final_frame_before_append(tmp_path):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    state = store.save(
+        ReleaseWorkflowState(
+            process_id="proc_torn_history",
+            candidate_ref="build:torn-history",
+            target_environment="production",
+            revision_id="rev_torn_history",
+        ),
+        actor="release-manager",
+    )
+    history_target = store._history_target(state.process_id)
+    with history_target.open("ab") as handle:
+        handle.write(b'{"history_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    persisted = store.save(state, actor="release-manager")
+    rows = store.history(state.process_id)
+    assert persisted.persistence_revision == 2
+    assert [row.provenance["persistence_revision"] for row in rows] == [1, 2]
+    assert b'"history_id":"torn' not in history_target.read_bytes()
+
+
+def test_release_store_recovers_crash_after_history_before_state_publication(
+    tmp_path, monkeypatch
+):
+    store = ReleaseWorkflowStore(tmp_path / "runtime_delivery" / "release_workflow")
+    state = store.save(
+        ReleaseWorkflowState(
+            process_id="proc_release_crash_atomic",
+            candidate_ref="build:crash-atomic",
+            target_environment="production",
+            revision_id="rev_crash_atomic",
+        ),
+        actor="release-manager",
+    )
+    real_publish = store._publish_stage
+    injected = {"raised": False}
+
+    def crash_before_state(stage, target):
+        if target == store._target(state.process_id) and not injected["raised"]:
+            injected["raised"] = True
+            raise OSError("injected crash after release history")
+        return real_publish(stage, target)
+
+    monkeypatch.setattr(store, "_publish_stage", crash_before_state)
+    with pytest.raises(OSError, match="injected crash"):
+        store.save(state, actor="release-manager")
+
+    recovered_store = ReleaseWorkflowStore(
+        tmp_path / "runtime_delivery" / "release_workflow"
+    )
+    recovered = recovered_store.load(state.process_id)
+    assert recovered.persistence_revision == 2
+    assert [
+        row.provenance["persistence_revision"]
+        for row in recovered_store.history(state.process_id)
+    ] == [1, 2]
+    assert not recovered_store._save_intent_target(state.process_id).exists()
+    assert not recovered_store._save_stage_target(state.process_id).exists()
+
+
+def test_repeated_rollback_never_selects_a_retained_forward_fencepost(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(
+        process_id="proc_strictly_prior_rollback",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id="proc_strictly_prior_rollback",
+        candidate_ref="build:rollback-topology",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    for stage in ("build_verified", "canary_verified", "production"):
+        state = record_release_fencepost(
+            state,
+            capture_release_rollback_fencepost(
+                snapshot=seeded["snapshot"],
+                shared_state=seeded["shared_state"],
+                stage=stage,
+            ),
+        )
+
+    first = rollback_release_workflow(state)
+    second = rollback_release_workflow(first["state"])
+
+    assert first["state"].current_stage == "canary_verified"
+    assert [row.stage for row in first["state"].rollback_fenceposts] == ["build_verified", "canary_verified"]
+    assert second["state"].current_stage == "build_verified"
+    assert [row.stage for row in second["state"].rollback_fenceposts] == ["build_verified"]
+    with pytest.raises(KeyError, match="prior_stage"):
+        rollback_release_workflow(second["state"])
+
+
+def test_stale_promotion_save_cannot_overwrite_completed_rollback(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_stale_promotion_after_rollback"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:stale-promotion",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=seeded["snapshot"],
+            shared_state=seeded["shared_state"],
+            stage="build_verified",
+        ),
+    )
+    state = harness.release_store.save(state, actor="release-manager")
+
+    # Model a promotion paused after computing its state but before save.
+    stale_promotion = advance_release_workflow(
+        state,
+        gate={"safe_push": True, "current_revision_id": state.revision_id},
+        next_stage="production",
+        actor="release-manager",
+    )["state"]
+
+    restored = apply_release_rollback_restore(
+        state,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+        actor="operator",
+        reason="canary regression",
+    )
+
+    with pytest.raises(RuntimeError, match="persistence conflict"):
+        harness.release_store.save(stale_promotion, actor="release-manager")
+
+    persisted = harness.release_store.load(process_id)
+    assert restored["state"].current_stage == "build_verified"
+    assert persisted.current_stage == "build_verified"
+    assert persisted.status == "rolled_back"
+    assert persisted.persistence_revision == state.persistence_revision + 1
+
+
+def test_release_gate_rejects_ack_from_obsolete_candidate_even_on_current_revision(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(process_id="proc_stale_candidate", revision_id="rev_1", node_id="build", agent_id="builder")
+    state = ReleaseWorkflowState(
+        process_id="proc_stale_candidate",
+        candidate_ref="build:new",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    message = harness.mailbox.send(
+        process_id=state.process_id,
+        from_agent="verifier",
+        to_agent="release-manager",
+        kind="handoff",
+        revision_id="rev_1",
+        payload={"objective": "promote obsolete candidate"},
+        metadata={"release_id": state.release_id, "candidate_ref": "build:old", "target_stage": "production"},
+    )
+    harness.mailbox.receive(to_agent="release-manager", process_id=state.process_id, expected_revision_id="rev_1")
+    acknowledged = harness.mailbox.acknowledge(
+        message.message_id,
+        actor="release-manager",
+        result_receipt={
+            "candidate_ref": "build:old",
+            "release_id": state.release_id,
+            "revision_id": "rev_1",
+            "result": "approved",
+            "evidence_receipts": ["evidence:obsolete"],
+        },
+    )
+    state = record_release_handoff(state, acknowledged, stage="production")
+
+    gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        target_stage="production",
+        mailbox_messages=harness.mailbox.list(process_id=state.process_id),
+        dependability_report={"success": True},
+        required_handoff_count=1,
+    )
+
+    assert gate["safe_push"] is False
+    assert gate["checks"]["handoff_bindings_current"] is True
+    assert gate["checks"]["handoff_receipts_ok"] is False
+    assert gate["counts"]["stale_handoff_record_count"] == 1
+
+
+def test_release_gate_ignores_stale_handoff_history_after_current_ack(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(
+        process_id="proc_handoff_history",
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id="proc_handoff_history",
+        candidate_ref="build:new",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = _record_canary_evidence(
+        harness,
+        state,
+        evidence_id="evidence:build:new",
+        target_stage="production",
+    )
+    for candidate in ("build:old", "build:new"):
+        message = harness.mailbox.send(
+            process_id=state.process_id,
+            from_agent="verifier",
+            to_agent="release-manager",
+            kind="handoff",
+            revision_id="rev_1",
+            payload={"objective": "promote candidate"},
+            metadata={"release_id": state.release_id, "candidate_ref": candidate, "target_stage": "production"},
+        )
+        harness.mailbox.receive(
+            to_agent="release-manager",
+            process_id=state.process_id,
+            expected_revision_id="rev_1",
+        )
+        state = record_release_handoff(
+            state,
+            harness.mailbox.acknowledge(
+                message.message_id,
+                actor="release-manager",
+                result_receipt={
+                    "candidate_ref": candidate,
+                    "release_id": state.release_id,
+                    "revision_id": "rev_1",
+                    "result": "approved",
+                    "evidence_receipts": [f"evidence:{candidate}"],
+                },
+            ),
+            stage="production",
+        )
+
+    gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=seeded["snapshot"],
+        shared_state=seeded["shared_state"],
+        target_stage="production",
+        mailbox_messages=harness.mailbox.list(process_id=state.process_id),
+        dependability_report={"success": True},
+        required_handoff_count=1,
+        artifact_store=harness.release_store.artifact_store(),
+        verifier_credentials={VERIFIER_ID: VERIFIER_SECRET},
+    )
+
+    assert gate["safe_push"] is True
+    assert gate["checks"]["handoff_receipts_ok"] is True
+    assert gate["checks"]["handoff_bindings_current"] is True
+    assert gate["counts"]["stale_handoff_record_count"] == 1
 
 
 
-def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fenceposts(tmp_path):
+def test_release_repair_requeues_handoff_but_never_fabricates_missing_fenceposts(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak")
     seeded = harness._seed_waiting_process(process_id="proc_release_repair", revision_id="rev_1", node_id="build", agent_id="builder")
     snapshot = seeded["snapshot"]
@@ -146,7 +1414,7 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
         payload={"objective": "verify build"},
     )
     harness.mailbox.receive(to_agent="verifier", process_id="proc_release_repair", expected_revision_id="rev_1", reject_stale_revision=True)
-    build_acked = harness.mailbox.acknowledge(build_message.message_id)
+    build_acked = harness.mailbox.acknowledge(build_message.message_id, actor="verifier")
     state = record_release_handoff(state, build_acked, stage="build_verified")
     state = record_release_fencepost(
         state,
@@ -195,10 +1463,10 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
         reject_stale_revision=True,
     )
     dead_letter = next(row for row in harness.mailbox.list(process_id="proc_release_repair") if row.message_id == stale_message.message_id)
-    state = record_release_handoff(state, dead_letter, stage="canary_verified")
+    state = record_release_handoff(state, dead_letter, stage="production")
 
     stale_lease = harness.supervisor.assign(process_id="proc_release_repair", scope="release_promote", agent_id="release-manager", lease_seconds=1)
-    harness.supervisor.reclaim_stale(now=harness.clock_fn() + timedelta(seconds=10))
+    harness._reclaim_stale_at("proc_release_repair", harness.clock_fn() + timedelta(seconds=10))
 
     gate_before = evaluate_release_promotion_gate(
         state=state,
@@ -209,7 +1477,7 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
         leases=harness.supervisor.list(process_id="proc_release_repair"),
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified", "canary_verified"],
-        required_handoff_count=2,
+        required_handoff_count=1,
     )
     repaired = repair_release_workflow(
         state,
@@ -220,7 +1488,7 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
         gate=gate_before,
         dependability_report={"success": True},
         required_fencepost_stages=["build_verified", "canary_verified"],
-        required_handoff_count=2,
+        required_handoff_count=1,
     )
 
     action_names = [row["action"] for row in repaired["actions_taken"]]
@@ -228,14 +1496,20 @@ def test_release_repair_flow_recovers_dead_letters_revision_drift_and_missing_fe
 
     assert stale_lease.lease_id is not None
     assert gate_before["safe_push"] is False
-    assert repaired["success"] is True
-    assert repaired["gate_after"]["safe_push"] is True
+    assert gate_before["checks"]["handoff_bindings_current"] is True
+    assert repaired["success"] is False
+    assert repaired["gate_after"]["safe_push"] is False
+    assert repaired["gate_after"]["checks"]["handoff_bindings_current"] is True
+    assert repaired["gate_after"]["checks"]["handoff_receipts_ok"] is False
     assert repaired["state"].revision_id == "rev_2"
     assert "refresh_release_revision" in action_names
     assert "recover_handoff_messages" in action_names
-    assert "resolve_stale_leases" in action_names
-    assert "capture_missing_fenceposts" in action_names
-    assert all(row.delivery_status == "acked" for row in final_messages)
+    assert "stale_leases_require_fenced_takeover" in action_names
+    assert stale_lease.lease_id in {row.lease_id for row in harness.supervisor.list(process_id="proc_release_repair", status="stale")}
+    assert "missing_historical_fenceposts" in action_names
+    assert "capture_missing_fenceposts" not in action_names
+    assert not any(row.stage == "canary_verified" for row in repaired["state"].rollback_fenceposts)
+    assert any(row.delivery_status == "queued" for row in final_messages)
 
 
 
@@ -351,9 +1625,457 @@ def test_apply_release_rollback_restore_rehydrates_runtime_state_and_audit_trail
 
     assert restored["applied"] is True
     assert restored["state"].current_stage == "build_verified"
-    assert restored["state"].revision_id.endswith(".rollback")
+    assert restored["state"].revision_id.startswith("rollback_")
+    assert restored["state"].metadata["rollback_transaction_id"]
+    activation = restored["state"].metadata["rollback_activation"]
+    assert activation["artifact_revision_id"] == "rev_1"
+    assert activation["control_revision_id"] == restored["state"].revision_id
+    assert activation["fencepost_id"] == restored["fencepost"]["fencepost_id"]
     assert latest_release.metadata["rollback_applied"] is True
     assert latest_snapshot.lifecycle_state == "waiting"
     assert latest_snapshot.metadata["rollback_fencepost_id"] == restored["fencepost"]["fencepost_id"]
     assert latest_shared.revision_id == restored["state"].revision_id
     assert latest_event.kind == "release_rolled_back"
+
+    # Dependability reconciliation checkpoints from journal replay. The
+    # release rollback event must be a reset barrier so the forward canary
+    # events cannot resurrect the state that was just restored.
+    replayed_snapshot = harness._checkpoint_from_journal(process_id="proc_release_apply_rollback")
+    restore_state = restored["restore_state"]
+    for field in (
+        "lifecycle_state",
+        "active_steps",
+        "waiting_steps",
+        "completed_steps",
+        "failed_steps",
+        "assigned_agents",
+        "runtime_policy",
+        "session_state",
+        "world_state",
+        "artifact_refs",
+    ):
+        assert getattr(replayed_snapshot, field) == restore_state[field]
+
+
+def test_release_rollback_restores_authoritative_session_state_and_registry(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_session_rollback"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    registry = SessionRegistryStore(tmp_path / "sessions.json")
+    registry.register(process_id=process_id, session_id="sess-1", session_name="release worker", tool="codex")
+    registry.apply_event(normalize_session_event(process_id, "blocked", session_id="sess-1", summary="awaiting canary"))
+    captured_session = registry.apply_event(normalize_session_event(process_id, "retry-needed", session_id="sess-1", summary="retry canary"))
+    seeded["snapshot"].session_state = {
+        "authority": "derived",
+        "status": captured_session.status,
+        "retry_count": captured_session.retry_count,
+        "open_questions": list(captured_session.open_questions),
+        "sessions": [captured_session.model_dump()],
+        "watchers": [],
+    }
+    harness.snapshot_store.save(seeded["snapshot"])
+
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:session-rollback",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(snapshot=seeded["snapshot"], shared_state=seeded["shared_state"], stage="build_verified"),
+    )
+    harness.release_store.save(state)
+
+    registry.apply_event(normalize_session_event(process_id, "retry-needed", session_id="sess-1", summary="retry canary"))
+    restored = apply_release_rollback_restore(
+        state,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        session_registry=registry,
+        stage="build_verified",
+    )
+
+    restored_session = registry.get(process_id=process_id, session_id="sess-1")
+    assert restored["snapshot"].session_state == seeded["snapshot"].session_state
+    assert restored_session.status == "retry-needed"
+    assert restored_session.retry_count == 1
+    assert restored_session.open_questions == ["awaiting canary"]
+
+
+def test_release_rollback_recovers_from_partial_commit_without_duplicate_event(tmp_path, monkeypatch):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_transaction_recovery"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:transaction-recovery",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="canary_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(snapshot=seeded["snapshot"], shared_state=seeded["shared_state"], stage="build_verified"),
+    )
+    harness.release_store.save(state)
+
+    original_save = harness.snapshot_store.save
+    failures = {"remaining": 1}
+
+    def fail_once(snapshot):
+        if failures["remaining"]:
+            failures["remaining"] -= 1
+            raise OSError("snapshot disk unavailable")
+        return original_save(snapshot)
+
+    monkeypatch.setattr(harness.snapshot_store, "save", fail_once)
+    with pytest.raises(OSError, match="snapshot disk unavailable"):
+        apply_release_rollback_restore(
+            state,
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            release_store=harness.release_store,
+            journal=harness.journal,
+            stage="build_verified",
+        )
+
+    pending_intent = harness.release_store.load_rollback_intent(process_id)
+    assert pending_intent["status"] == "recovery_required"
+    assert harness.shared_state_store.load(process_id).revision_id == pending_intent["rollback_revision_id"]
+    before_revision = harness.release_store.load(process_id).persistence_revision
+    before_artifacts = sorted(harness.release_store.artifact_store().path.glob("**/*"))
+    with pytest.raises(RuntimeError, match="rollback recovery is pending"):
+        ingest_production_release_artifact(
+            release_store=harness.release_store,
+            process_id=process_id,
+            artifact_id="artifact:must-wait-for-rollback",
+            payload={"must": "not commit"},
+            artifact_kind="release_bundle",
+            producer="builder",
+            verifier=VERIFIER_ID,
+            attestation_signature="invalid-but-must-not-be-reached",
+        )
+    assert harness.release_store.load(process_id).persistence_revision == before_revision
+    assert sorted(harness.release_store.artifact_store().path.glob("**/*")) == before_artifacts
+
+    recovered = apply_release_rollback_restore(
+        state,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+    )
+    rollback_events = harness.journal.load(process_id=process_id, kinds=["release_rolled_back"])
+
+    assert recovered["applied"] is True
+    assert recovered["rollback_transaction"]["status"] == "committed"
+    assert len(rollback_events) == 1
+
+
+def test_committed_rollback_retry_returns_durable_response_without_rolling_back_again(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_idempotent_retry"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:idempotent-retry",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    for stage in ("build_verified", "canary_verified"):
+        state = record_release_fencepost(
+            state,
+            capture_release_rollback_fencepost(
+                snapshot=seeded["snapshot"],
+                shared_state=seeded["shared_state"],
+                stage=stage,
+            ),
+        )
+    stored = harness.release_store.save(state)
+
+    first = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="production_health_failure",
+        actor="release-manager",
+        idempotency_key="health-incident-001",
+    )
+    revision_after_first = harness.release_store.load(process_id).persistence_revision
+
+    # Simulate loss of the HTTP response after the committed-intent fsync.
+    retried = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="production_health_failure",
+        actor="release-manager",
+        idempotency_key="health-incident-001",
+    )
+
+    assert first["state"].current_stage == "canary_verified"
+    assert retried["state"].current_stage == "canary_verified"
+    assert retried["rollback_transaction"]["transaction_id"] == first["rollback_transaction"]["transaction_id"]
+    assert harness.release_store.load(process_id).persistence_revision == revision_after_first
+    assert len(harness.journal.load(process_id=process_id, kinds=["release_rolled_back"])) == 1
+
+    with pytest.raises(ValueError, match="different request"):
+        apply_release_rollback_restore(
+            harness.release_store.load(process_id),
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            release_store=harness.release_store,
+            journal=harness.journal,
+            reason="different failure",
+            actor="release-manager",
+            idempotency_key="health-incident-001",
+        )
+    with pytest.raises(ValueError, match="explicit target"):
+        apply_release_rollback_restore(
+            harness.release_store.load(process_id),
+            snapshot_store=harness.snapshot_store,
+            shared_state_store=harness.shared_state_store,
+            release_store=harness.release_store,
+            journal=harness.journal,
+            reason="second incident",
+            actor="release-manager",
+            idempotency_key="health-incident-002",
+        )
+
+
+def test_committed_rollback_archives_model_projection_for_idempotent_replay(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_model_projection_replay"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:model-projection-replay",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=seeded["snapshot"],
+            shared_state=seeded["shared_state"],
+            stage="canary_verified",
+        ),
+    )
+    stored = harness.release_store.save(state)
+    projection_calls = []
+
+    def project(**projection):
+        projection_calls.append(projection["intent"]["transaction_id"])
+        return {
+            "completed_projections": ["production_loop"],
+            "loop_checkpoint": {
+                "state": projection["restored_shared_state"],
+                "snapshot": projection["restored_snapshot"],
+            },
+        }
+
+    first = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="model_projection_failure",
+        actor="release-manager",
+        required_projections=["production_loop"],
+        projection_callback=project,
+        idempotency_key="model-projection-rollback-001",
+    )
+    archived = harness.release_store.load_rollback_result(
+        process_id, "model-projection-rollback-001"
+    )
+    replayed = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="model_projection_failure",
+        actor="release-manager",
+        required_projections=["production_loop"],
+        idempotency_key="model-projection-rollback-001",
+    )
+
+    archived_checkpoint = archived["committed_response"]["rollback_projections"][
+        "loop_checkpoint"
+    ]
+    assert archived_checkpoint["state"]["process_id"] == process_id
+    assert archived_checkpoint["snapshot"]["process_id"] == process_id
+    assert replayed["rollback_projections"]["loop_checkpoint"] == archived_checkpoint
+    assert replayed["rollback_transaction"]["transaction_id"] == first[
+        "rollback_transaction"
+    ]["transaction_id"]
+    assert projection_calls == [first["rollback_transaction"]["transaction_id"]]
+    assert harness.release_store.load_rollback_intent(process_id)["status"] == "committed"
+
+
+def test_archived_rollback_replay_is_stable_after_a_later_committed_rollback(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_archived_replay"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:archived-replay",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="production",
+    )
+    for stage in ("build_verified", "canary_verified"):
+        state = record_release_fencepost(
+            state,
+            capture_release_rollback_fencepost(
+                snapshot=seeded["snapshot"],
+                shared_state=seeded["shared_state"],
+                stage=stage,
+            ),
+        )
+    stored = harness.release_store.save(state)
+
+    rollback_a = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="incident-a",
+        actor="release-manager",
+        idempotency_key="archived-rollback-a",
+    )
+    rollback_b = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+        reason="incident-b",
+        actor="release-manager",
+        idempotency_key="archived-rollback-b",
+    )
+    active_revision_after_b = harness.release_store.load(process_id).persistence_revision
+
+    replay_a = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="incident-a",
+        actor="release-manager",
+        idempotency_key="archived-rollback-a",
+    )
+
+    assert rollback_a["state"].current_stage == "canary_verified"
+    assert rollback_b["state"].current_stage == "build_verified"
+    assert replay_a["state"].current_stage == rollback_a["state"].current_stage
+    assert (
+        replay_a["rollback_transaction"]["transaction_id"]
+        == rollback_a["rollback_transaction"]["transaction_id"]
+    )
+    assert harness.release_store.load(process_id).persistence_revision == active_revision_after_b
+
+
+def test_near_limit_release_state_uses_one_bounded_rollback_bundle(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    process_id = "proc_release_near_limit_rollback"
+    seeded = harness._seed_waiting_process(
+        process_id=process_id,
+        revision_id="rev_1",
+        node_id="build",
+        agent_id="builder",
+    )
+    large_value = "x" * 1_100_000
+    shared = harness.shared_state_store.save(
+        seeded["shared_state"].model_copy(
+            update={
+                "revision_id": "rev_near_limit",
+                "world_state": {"near_limit_restore_payload": large_value},
+            }
+        ),
+        expected_revision_id=seeded["shared_state"].revision_id,
+    )
+    snapshot = harness.snapshot_store.save(
+        seeded["snapshot"].model_copy(
+            update={"world_state": {"near_limit_restore_payload": large_value}}
+        )
+    )
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:near-limit-rollback",
+        target_environment="production",
+        revision_id=shared.revision_id,
+        current_stage="production",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(
+            snapshot=snapshot,
+            shared_state=shared,
+            stage="build_verified",
+        ),
+    )
+    stored = harness.release_store.save(state)
+    assert len(harness.release_store._encoded_json(stored.model_dump(), pretty=True)) > 1_000_000
+
+    first = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="near_limit_health_failure",
+        actor="release-manager",
+        idempotency_key="near-limit-health-001",
+    )
+    intent = harness.release_store.load_rollback_intent(process_id)
+    encoded_intent = harness.release_store._encoded_json(intent, pretty=True)
+    assert intent["status"] == "committed"
+    assert len(encoded_intent) < 4 * 1024 * 1024
+    assert set(intent).isdisjoint({"source_release_state", "rolled_state", "fencepost", "restore_state"})
+    assert intent["rollback_bundle"]["rolled_state"]["rollback_fenceposts"][0]["restore_state"][
+        "world_state"
+    ]["near_limit_restore_payload"] == large_value
+    assert intent["committed_response"]["version"] == "cortex.release-rollback-committed.v1"
+
+    retried = apply_release_rollback_restore(
+        harness.release_store.load(process_id),
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        reason="near_limit_health_failure",
+        actor="release-manager",
+        idempotency_key="near-limit-health-001",
+    )
+    assert retried["rollback_transaction"]["transaction_id"] == first["rollback_transaction"]["transaction_id"]

@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 
 from cortex_server.modules.level_registry import get_level_registry
+from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
 
 logger = logging.getLogger("consciousness_integration")
 
@@ -246,7 +247,16 @@ async def chain_to(
             if method.upper() == "GET":
                 resp = await client.get(url, params=payload)
             else:
-                resp = await client.post(url, json=payload or {})
+                body = dict(payload or {})
+                normalized_endpoint = endpoint.lstrip("/")
+                if normalized_endpoint.startswith(("librarian/", "l22/")) or normalized_endpoint == "knowledge/search":
+                    scope = authenticated_memory_scope_fields(
+                        body.get("tenant_id"),
+                        body.get("workspace_id"),
+                    )
+                    for key, value in scope.items():
+                        body.setdefault(key, value)
+                resp = await client.post(url, json=body)
             resp.raise_for_status()
             result = resp.json()
 

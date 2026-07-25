@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import threading
+import time
+
+import pytest
 
 from cortex_server.runtime import RuntimeSoakHarness
+import cortex_server.runtime.production_build_loop as production_build_loop
+import cortex_server.runtime.roadmap_executor as roadmap_executor
 from cortex_server.runtime.release_workflow import ReleaseWorkflowState
 from cortex_server.runtime.roadmap_executor import (
     RoadmapExecutionState,
+    RoadmapExecutionReport,
     RoadmapExecutionStore,
     RoadmapObjectiveContract,
     RoadmapPassBudget,
     RoadmapPhaseDefinition,
+    RoadmapPhaseState,
     RoadmapReportingPolicy,
     RoadmapSuccessCriterion,
     RoadmapTaskDefinition,
@@ -244,6 +252,56 @@ def _long_chain_contract(process_id: str) -> RoadmapObjectiveContract:
     )
 
 
+def test_roadmap_reconciliation_uses_the_release_process_transaction(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda _seconds: None)
+    process_id = "proc_roadmap_release_fence"
+    harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    roadmap_store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+    completed = threading.Event()
+    errors = []
+
+    def hold_release_transaction():
+        with harness.release_store.release_transaction(process_id):
+            lock_held.set()
+            release_lock.wait(timeout=10)
+
+    def reconcile():
+        try:
+            reconcile_roadmap_execution(
+                _long_chain_contract(process_id),
+                roadmap_store=roadmap_store,
+                snapshot_store=harness.snapshot_store,
+                shared_state_store=harness.shared_state_store,
+                mailbox=harness.mailbox,
+                supervisor=harness.supervisor,
+                release_store=harness.release_store,
+                controller_id="roadmap-controller",
+                controller_session_id="roadmap-session",
+                journal=harness.journal,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    holder = threading.Thread(target=hold_release_transaction)
+    worker = threading.Thread(target=reconcile)
+    holder.start()
+    assert lock_held.wait(timeout=5)
+    worker.start()
+    time.sleep(0.1)
+    assert completed.is_set() is False
+    assert roadmap_store.load_state(process_id) is None
+    release_lock.set()
+    holder.join(timeout=5)
+    worker.join(timeout=10)
+    assert errors == []
+    assert completed.is_set() is True
+    assert roadmap_store.load_state(process_id) is not None
+
+
 
 def test_roadmap_executor_persists_through_mixed_phases_until_true_completion(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
@@ -436,6 +494,7 @@ def test_roadmap_executor_persists_through_mixed_phases_until_true_completion(tm
             revision_id="rev_6",
             current_stage="production",
             status="promoted",
+            persistence_revision=release_state.persistence_revision,
             promotion_history=list(release_state.promotion_history),
             handoff_records=list(release_state.handoff_records),
             rollback_fenceposts=list(release_state.rollback_fenceposts),
@@ -809,7 +868,12 @@ def test_roadmap_executor_long_chain_reports_narrow_only_true_human_blockers(tmp
 
 
 def test_roadmap_executor_recovers_stale_controller_and_task_worker(tmp_path):
-    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    trusted_now = [datetime.now(timezone.utc)]
+    harness = RuntimeSoakHarness(
+        tmp_path / "soak",
+        sleep_fn=lambda seconds: None,
+        clock_fn=lambda: trusted_now[0],
+    )
     process_id = "proc_roadmap_takeover"
     seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="finalize", agent_id="builder")
     harness.shared_state_store.save(
@@ -895,6 +959,7 @@ def test_roadmap_executor_recovers_stale_controller_and_task_worker(tmp_path):
             active_task_ids=["finalize"],
         )
     )
+    trusted_now[0] += timedelta(seconds=5)
 
     result = reconcile_roadmap_execution(
         contract,
@@ -913,8 +978,9 @@ def test_roadmap_executor_recovers_stale_controller_and_task_worker(tmp_path):
     assert result["state"]["status"] == "active"
     assert result["state"]["recovery_count"] == 1
     assert result["state"]["controller"]["session_id"] == "sess-new"
-    assert any(action["action"] in {"release_stale_task_lease", "resolve_stale_leases"} for action in result["actions_taken"])
-    assert any(action["action"] == "dispatch_task_handoff" and action["task_id"] == "finalize" for action in result["actions_taken"])
+    assert any(action["action"] == "stale_leases_require_fenced_takeover" for action in result["actions_taken"])
+    assert any(action["action"] == "task_requires_fenced_takeover" for action in result["actions_taken"])
+    assert not any(action["action"] == "dispatch_task_handoff" and action["task_id"] == "finalize" for action in result["actions_taken"])
     assert any(task["task_id"] == "finalize" and task["status"] == "in_progress" for task in result["state"]["task_states"])
 
 
@@ -1162,3 +1228,139 @@ def test_roadmap_executor_keeps_non_human_rule_blockers_live_when_no_worker_can_
     assert result["state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
     assert result["state"]["conversation_ownership"]["owner"] == "cortex"
     assert result["state"]["conversation_ownership"]["session_key"] == "session:roadmap:followthrough"
+
+
+def test_roadmap_store_recovers_torn_projection_with_revisioned_fsynced_history(tmp_path):
+    store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    contract = RoadmapObjectiveContract(
+        objective_id="objective-durable-roadmap",
+        process_id="proc_durable_roadmap",
+        objective="Recover acknowledged roadmap state",
+    )
+    store.save_contract(contract)
+    state = store.save_state(
+        RoadmapExecutionState(
+            objective_id=contract.objective_id,
+            process_id=contract.process_id,
+            iteration_count=1,
+        )
+    )
+    state = store.save_state(state.model_copy(update={"iteration_count": 2}))
+    report = store.append_report(
+        RoadmapExecutionReport(
+            execution_id=state.execution_id,
+            objective_id=state.objective_id,
+            process_id=state.process_id,
+            iteration=2,
+            kind="checkpoint",
+            status="active",
+            summary="durable roadmap checkpoint",
+        )
+    )
+    store._state_target(state.process_id).write_bytes(b'{"iteration_count":')
+    with store._history_target(state.process_id).open("ab") as handle:
+        handle.write(b'{"state":')
+    with store._report_target(state.process_id).open("ab") as handle:
+        handle.write(b'{"report_id":')
+
+    reopened = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    recovered = reopened.load_state(state.process_id)
+    assert recovered.iteration_count == 2
+    assert recovered.persistence_revision == 2
+    assert [row.report_id for row in reopened.reports(state.process_id)] == [report.report_id]
+
+
+def test_roadmap_contract_merge_preserves_committed_persistence_revision():
+    contract = RoadmapObjectiveContract(
+        objective_id="objective-revision-propagation",
+        process_id="proc_revision_propagation",
+        objective="Preserve roadmap compare-and-swap authority",
+        phases=[RoadmapPhaseDefinition(phase_id="build", title="Build")],
+        tasks=[
+            RoadmapTaskDefinition(
+                task_id="build",
+                phase_id="build",
+                title="Build",
+                work_type="feature",
+            )
+        ],
+    )
+    previous = RoadmapExecutionState(
+        objective_id=contract.objective_id,
+        process_id=contract.process_id,
+        persistence_revision=7,
+        phase_states=[RoadmapPhaseState(phase_id="build", status="active")],
+        task_states=[
+            RoadmapTaskState(
+                task_id="build",
+                phase_id="build",
+                work_type="feature",
+                status="in_progress",
+            )
+        ],
+    )
+
+    merged = roadmap_executor._merge_state(contract, previous)
+
+    assert merged.persistence_revision == previous.persistence_revision
+
+
+def test_roadmap_store_preserves_previous_projection_when_atomic_replace_does_not_commit(tmp_path, monkeypatch):
+    store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    initial = store.save_state(
+        RoadmapExecutionState(
+            objective_id="objective-roadmap-replace",
+            process_id="proc_roadmap_replace",
+            iteration_count=1,
+        )
+    )
+    original_replace = production_build_loop.os.replace
+    failures = {"remaining": 1}
+
+    def fail_first_replace(source, target):
+        if failures["remaining"]:
+            failures["remaining"] -= 1
+            raise OSError("simulated roadmap crash before replace")
+        return original_replace(source, target)
+
+    monkeypatch.setattr(production_build_loop.os, "replace", fail_first_replace)
+    with pytest.raises(OSError, match="before replace"):
+        store.save_state(initial.model_copy(update={"iteration_count": 2}))
+
+    recovered = RoadmapExecutionStore(tmp_path / "roadmap_store").load_state(initial.process_id)
+    assert recovered.iteration_count == 1
+    assert recovered.persistence_revision == initial.persistence_revision
+
+
+def test_roadmap_store_bounds_history_and_readiness_indexes_corruption(tmp_path, monkeypatch):
+    monkeypatch.setattr(roadmap_executor, "MAX_HISTORY_RECORDS", 2)
+    store = RoadmapExecutionStore(tmp_path / "roadmap_executor")
+    contract = RoadmapObjectiveContract(
+        objective_id="objective-bounded-roadmap",
+        process_id="proc_bounded_roadmap",
+        objective="Bound roadmap history",
+    )
+    store.save_contract(contract)
+    state = store.save_state(
+        RoadmapExecutionState(objective_id=contract.objective_id, process_id=contract.process_id)
+    )
+    for iteration in range(1, 5):
+        state = store.save_state(state.model_copy(update={"iteration_count": iteration}))
+    rows = roadmap_executor.read_recoverable_jsonl(store._history_target(state.process_id))
+    assert len(rows) == 2
+    assert [row["persistence_revision"] for row in rows] == [4, 5]
+
+    consistency = production_build_loop._probe_runtime_delivery_state_consistency(
+        delivery_root=tmp_path,
+        reasoning_processes={},
+        verifier_credentials={},
+    )
+    assert consistency["ok"] is True
+    store._contract_target(state.process_id).write_text("{", encoding="utf-8")
+    corrupted = production_build_loop._probe_runtime_delivery_state_consistency(
+        delivery_root=tmp_path,
+        reasoning_processes={},
+        verifier_credentials={},
+    )
+    assert corrupted["ok"] is False
+    assert any(row["check"] == "roadmap_projection_integrity" for row in corrupted["inconsistencies"])

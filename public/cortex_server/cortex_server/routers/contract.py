@@ -1,14 +1,14 @@
 from fastapi import APIRouter
 import httpx
-from urllib.parse import quote
+import os
 
 router = APIRouter()
 
 
-def _run_checks(get_json):
+def _run_checks(request_json):
     checks = {}
 
-    status, root = get_json("/")
+    status, root = request_json("GET", "/", None)
     contract = (root or {}).get("contract", {}) if isinstance(root, dict) else {}
     checks["identity_phrase_contract_metadata_available"] = {
         "pass": status == 200 and bool(contract.get("identity_phrase")) and contract.get("activation_metadata_available") is True,
@@ -16,8 +16,7 @@ def _run_checks(get_json):
         "identity_phrase": contract.get("identity_phrase"),
     }
 
-    brainstorm_q = quote("Brainstorm: launch strategy options", safe=":")
-    status, brainstorm = get_json(f"/nexus/orchestrate?query={brainstorm_q}")
+    status, brainstorm = request_json("POST", "/nexus/orchestrate", {"query": "Brainstorm: launch strategy options"})
     rm = (brainstorm or {}).get("routing_method")
     markers = (brainstorm or {}).get("routing_markers", {}) if isinstance(brainstorm, dict) else {}
     chain = markers.get("brainstorm_chain") if isinstance(markers, dict) else []
@@ -28,8 +27,7 @@ def _run_checks(get_json):
         "routing_markers": markers,
     }
 
-    natural_brainstorm_q = quote("Give me creative ideas for launch strategy", safe=":")
-    status, natural_brainstorm = get_json(f"/nexus/orchestrate?query={natural_brainstorm_q}")
+    status, natural_brainstorm = request_json("POST", "/nexus/orchestrate", {"query": "Give me creative ideas for launch strategy"})
     nrm = (natural_brainstorm or {}).get("routing_method")
     nmarkers = (natural_brainstorm or {}).get("routing_markers", {}) if isinstance(natural_brainstorm, dict) else {}
     checks["brainstorm_trigger_natural_language"] = {
@@ -39,7 +37,7 @@ def _run_checks(get_json):
         "routing_markers": nmarkers,
     }
 
-    status, orches = get_json("/nexus/orchestrate?query=What%20is%202%2B2%3F")
+    status, orches = request_json("POST", "/nexus/orchestrate", {"query": "What is 2+2?"})
     rm2 = (orches or {}).get("routing_method") if isinstance(orches, dict) else None
     checks["routing_method_present_truthful"] = {
         "pass": status == 200 and isinstance(rm2, str) and len(rm2) > 0,
@@ -47,7 +45,7 @@ def _run_checks(get_json):
         "routing_method": rm2,
     }
 
-    status, missing = get_json("/definitely_missing_route")
+    status, missing = request_json("GET", "/definitely_missing_route", None)
     checks["404_has_no_hud_attribution"] = {
         "pass": status == 404 and isinstance(missing, dict) and ("hud" not in missing) and ("activated_levels" not in missing),
         "status": status,
@@ -79,7 +77,7 @@ async def contract_self_test(base_url: str = ""):
             (getattr(route, "path", ""), tuple(sorted(getattr(route, "methods", []) or [])))
             for route in getattr(nexus.router, "routes", [])
         }
-        has_orchestrate = any(path == "/orchestrate" and "GET" in methods for path, methods in nexus_routes)
+        has_orchestrate = any(path == "/orchestrate" and "POST" in methods for path, methods in nexus_routes)
         checks = {
             "identity_phrase_contract_metadata_available": {
                 "pass": True,
@@ -110,17 +108,20 @@ async def contract_self_test(base_url: str = ""):
             "verdict": "pass" if overall else "fail",
         }
 
-    async def _remote_get_json(path: str):
+    async def _remote_request_json(method: str, path: str, body=None):
         url = f"{base_url.rstrip('/')}{path}"
+        token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
+        header_name = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip()
+        headers = {header_name: token} if token and header_name else {}
         async with httpx.AsyncClient(timeout=6) as client:
-            r = await client.get(url)
+            r = await client.request(method, url, json=body, headers=headers)
         body = r.json() if "application/json" in (r.headers.get("content-type") or "") else None
         return r.status_code, body
 
     async def _run_remote_checks():
         checks = {}
 
-        status, health = await _remote_get_json("/health")
+        status, health = await _remote_request_json("GET", "/health")
         contract = (health or {}).get("contract", {}) if isinstance(health, dict) else {}
         checks["identity_phrase_contract_metadata_available"] = {
             "pass": status == 200 and bool(contract.get("identity_phrase")) and contract.get("activation_metadata_available") is True,
@@ -128,8 +129,9 @@ async def contract_self_test(base_url: str = ""):
             "identity_phrase": contract.get("identity_phrase"),
         }
 
-        brainstorm_q = quote("Brainstorm: launch strategy options", safe=":")
-        status, brainstorm = await _remote_get_json(f"/nexus/orchestrate?query={brainstorm_q}")
+        status, brainstorm = await _remote_request_json(
+            "POST", "/nexus/orchestrate", {"query": "Brainstorm: launch strategy options"}
+        )
         rm = (brainstorm or {}).get("routing_method")
         markers = (brainstorm or {}).get("routing_markers", {}) if isinstance(brainstorm, dict) else {}
         chain = markers.get("brainstorm_chain") if isinstance(markers, dict) else []
@@ -140,8 +142,9 @@ async def contract_self_test(base_url: str = ""):
             "routing_markers": markers,
         }
 
-        natural_brainstorm_q = quote("Give me creative ideas for launch strategy", safe=":")
-        status, natural_brainstorm = await _remote_get_json(f"/nexus/orchestrate?query={natural_brainstorm_q}")
+        status, natural_brainstorm = await _remote_request_json(
+            "POST", "/nexus/orchestrate", {"query": "Give me creative ideas for launch strategy"}
+        )
         nrm = (natural_brainstorm or {}).get("routing_method")
         nmarkers = (natural_brainstorm or {}).get("routing_markers", {}) if isinstance(natural_brainstorm, dict) else {}
         checks["brainstorm_trigger_natural_language"] = {
@@ -151,7 +154,9 @@ async def contract_self_test(base_url: str = ""):
             "routing_markers": nmarkers,
         }
 
-        status, orches = await _remote_get_json("/nexus/orchestrate?query=What%20is%202%2B2%3F")
+        status, orches = await _remote_request_json(
+            "POST", "/nexus/orchestrate", {"query": "What is 2+2?"}
+        )
         rm2 = (orches or {}).get("routing_method") if isinstance(orches, dict) else None
         checks["routing_method_present_truthful"] = {
             "pass": status == 200 and isinstance(rm2, str) and len(rm2) > 0,
@@ -159,7 +164,7 @@ async def contract_self_test(base_url: str = ""):
             "routing_method": rm2,
         }
 
-        status, missing = await _remote_get_json("/definitely_missing_route")
+        status, missing = await _remote_request_json("GET", "/definitely_missing_route")
         checks["404_has_no_hud_attribution"] = {
             "pass": status == 404 and isinstance(missing, dict) and ("hud" not in missing) and ("activated_levels" not in missing),
             "status": status,

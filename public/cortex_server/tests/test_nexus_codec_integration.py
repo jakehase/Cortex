@@ -1,5 +1,8 @@
+import asyncio
+
+import httpx
+import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 import cortex_server.modules.codec_policy as codec_policy
 import cortex_server.modules.cortex_codec as codec_module
@@ -9,8 +12,50 @@ from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.modules.cortex_codec import update_codec_state_for_session
 
 
+class _ASGIClient:
+    """Synchronous facade over HTTPX's supported ASGI transport."""
+
+    def __init__(self, app, *, raise_server_exceptions=True):
+        self.app = app
+        self.raise_server_exceptions = raise_server_exceptions
+
+    def request(self, method, path, **kwargs):
+        async def send():
+            transport = httpx.ASGITransport(app=self.app, raise_app_exceptions=self.raise_server_exceptions)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                return await client.request(method, path, **kwargs)
+
+        return asyncio.run(send())
+
+    def get(self, path, **kwargs):
+        return self.request("GET", path, **kwargs)
+
+    def post(self, path, **kwargs):
+        return self.request("POST", path, **kwargs)
+
+
+def TestClient(app, *, raise_server_exceptions=True):
+    return _ASGIClient(app, raise_server_exceptions=raise_server_exceptions)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_nexus_runtime_state(tmp_path, monkeypatch):
+    original_transaction = nexus.ExecutionTransaction
+    monkeypatch.setattr(
+        nexus,
+        "ExecutionTransaction",
+        lambda **kwargs: original_transaction(**kwargs, journal_dir=tmp_path / "transactions"),
+    )
+    monkeypatch.setattr(nexus, "_ADAPTIVE_STATE_ROOT", tmp_path / "adaptive")
+    nexus._ADAPTIVE_POLICY_STATES.clear()
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(nexus, "run_in_threadpool", run_inline)
+
+
 def test_nexus_orchestrate_surfaces_codec_context(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False})
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
 
@@ -25,8 +70,9 @@ def test_nexus_orchestrate_surfaces_codec_context(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "How should we wire Codec into the real path?"},
         headers={"x-session-id": session_key},
     )
@@ -53,8 +99,9 @@ def test_nexus_orchestrate_codec_probe_exposes_hydrated_packet_without_semantic_
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    response = client.get(
+    response = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "Expose the recovered Codec canary.", "codec_probe": "true"},
         headers={"x-session-id": session_key},
     )
@@ -67,7 +114,7 @@ def test_nexus_orchestrate_codec_probe_exposes_hydrated_packet_without_semantic_
 
 
 def test_nexus_orchestrate_records_codec_execution_artifact(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False})
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_observe_codec_execution_outcome", lambda **kwargs: {"recorded": True, "variant": "referents_plus_codec", "source": "execution_flow", "execution_metrics": {"confidence": 0.91}})
@@ -83,8 +130,9 @@ def test_nexus_orchestrate_records_codec_execution_artifact(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "How should we wire Codec into the real path?"},
         headers={"x-session-id": session_key},
     )
@@ -153,7 +201,7 @@ def test_codec_execution_outcome_shapes_confidence_from_transaction(monkeypatch)
 
 def test_nexus_orchestrate_failure_records_codec_execution_failure(monkeypatch):
     captured = {}
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: (_ for _ in ()).throw(RuntimeError("semantic failure")))
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: (_ for _ in ()).throw(RuntimeError("semantic failure")))
     monkeypatch.setattr(nexus, "_observe_codec_execution_outcome", lambda **kwargs: captured.update(kwargs) or {"recorded": True})
 
     app = FastAPI()
@@ -161,7 +209,7 @@ def test_nexus_orchestrate_failure_records_codec_execution_failure(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get("/nexus/orchestrate", params={"query": "How should we wire Codec into the real path?"}, headers={"x-session-id": "nexus-codec-execution-failure"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "How should we wire Codec into the real path?"}, headers={"x-session-id": "nexus-codec-execution-failure"})
     assert r.status_code == 500
     assert captured["explicit_success"] is False
     assert captured["note"].startswith("nexus_orchestrate_exception:")
@@ -202,9 +250,16 @@ def test_nexus_codec_status_endpoint_exposes_debug_view(monkeypatch):
 def test_nexus_codec_events_endpoint_validates_and_writes_low_latency_state(monkeypatch):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     session_key = "codec-events-endpoint-test"
+    scope = {
+        "tenant_id": "cortex-local",
+        "workspace_id": "default",
+        "agent_id": "codec-test-agent",
+        "user_id": "codec-test-user",
+        "channel_id": "codec-test-channel",
+        "session_id": session_key,
+    }
 
     app = FastAPI()
-    app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
@@ -212,6 +267,7 @@ def test_nexus_codec_events_endpoint_validates_and_writes_low_latency_state(monk
         "session_key": session_key,
         "events": [{"text": "Begin replies with [Cortex].", "tags": ["preference"], "metadata": {"source": "test"}}],
         "max_chars": 500,
+        "scope": scope,
     })
     assert response.status_code == 200, response.text
     body = response.json()
@@ -278,7 +334,7 @@ def test_nexus_codec_evaluate_endpoint_exposes_variants(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "How should I answer this with memory?"},
@@ -316,7 +372,7 @@ def test_nexus_codec_evaluate_endpoint_can_run_oracle_variants(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "What should I remember?", "run_oracle": "true"},
@@ -360,7 +416,7 @@ def test_nexus_codec_evaluate_endpoint_can_oracle_judge_variants(monkeypatch):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "What should I remember?", "run_oracle": "true", "judge_with_oracle": "true"},
@@ -393,14 +449,14 @@ def test_nexus_codec_evaluate_persists_history_and_returns_trends(monkeypatch, t
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r1 = client.get(
+    r1 = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "How should I answer this with memory?"},
     )
     assert r1.status_code == 200
 
-    r2 = client.get(
+    r2 = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "How should I answer this with memory?"},
@@ -459,14 +515,14 @@ def test_nexus_codec_corpus_replay_endpoint_returns_report_and_can_persist(monke
     client = TestClient(app)
 
     for _ in range(2):
-        r = client.get(
+        r = client.post(
             "/nexus/codec/evaluate",
             headers={"x-session-id": session_key},
             params={"eval_query": "How should I answer this with memory?"},
         )
         assert r.status_code == 200
 
-    replay = client.get(
+    replay = client.post(
         "/nexus/codec/corpus-replay",
         headers={"x-session-id": session_key},
         params={"persist_report": True},
@@ -492,7 +548,7 @@ def test_nexus_codec_corpus_replay_endpoint_returns_report_and_can_persist(monke
     assert report_body["codec"]["reports"]["count"] >= 1
     assert report_body["codec"]["reports"]["items"][0]["corpus_version"]
 
-    reexecute = client.get(
+    reexecute = client.post(
         "/nexus/codec/corpus-replay/reexecute",
         headers={"x-session-id": session_key},
     )
@@ -522,7 +578,7 @@ def test_nexus_codec_evaluate_records_policy_learning_and_policy_endpoint(monkey
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "How should I answer this with memory?"},
@@ -542,7 +598,8 @@ def test_nexus_codec_evaluate_records_policy_learning_and_policy_endpoint(monkey
     assert body2["codec_policy"]["totals"]["evaluations"] >= 1
 
 
-def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
+@pytest.mark.asyncio
+async def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -551,26 +608,24 @@ def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
-
-    r = client.post(
-        "/nexus/outcome/feedback",
-        json={
-            "query": "Plan the architecture tradeoff for this change.",
-            "policy_label": "codec",
-            "user_correction": False,
-            "recovery_needed": False,
-            "validator_pass": True,
-        },
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["success"] is True
-    assert body["codec_policy"]["recorded"] is True
-    assert body["codec_policy"]["variant"] == "referents_plus_codec"
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post(
+            "/nexus/outcome/feedback",
+            json={
+                "query": "Plan the architecture tradeoff for this change.",
+                "policy_label": "codec",
+                "user_correction": False,
+                "recovery_needed": False,
+                "validator_pass": True,
+            },
+        )
+    assert r.status_code == 422
+    assert state["totals"]["evaluations"] == 0
+    assert state["last_observation"] is None
 
 
-def test_nexus_codec_outcome_endpoint_updates_codec_policy(monkeypatch):
+def test_nexus_codec_outcome_endpoint_requires_server_observed_receipt(monkeypatch):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -591,11 +646,10 @@ def test_nexus_codec_outcome_endpoint_updates_codec_policy(monkeypatch):
             "validator_pass": True,
         },
     )
-    assert r.status_code == 200
+    assert r.status_code == 403
     body = r.json()
-    assert body["success"] is True
-    assert body["recorded"] is True
-    assert body["codec_policy"]["variant"] == "query_only"
+    assert body["detail"]["error"] == "server_observed_outcome_receipt_required"
+    assert state["totals"]["evaluations"] == 0
 
 
 def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(monkeypatch, tmp_path):
@@ -620,7 +674,7 @@ def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(monkeypa
     client = TestClient(app)
 
     for _ in range(3):
-        r = client.get(
+        r = client.post(
             "/nexus/codec/evaluate",
             headers={"x-session-id": session_key},
             params={"eval_query": "How should I answer this with memory?"},
@@ -657,7 +711,7 @@ def test_nexus_codec_evaluate_advances_rollup_autotune(monkeypatch, tmp_path):
     client = TestClient(app)
 
     for _ in range(3):
-        r = client.get(
+        r = client.post(
             "/nexus/codec/evaluate",
             headers={"x-session-id": session_key},
             params={"eval_query": "How should I answer this with memory?"},
@@ -667,7 +721,10 @@ def test_nexus_codec_evaluate_advances_rollup_autotune(monkeypatch, tmp_path):
     body = r.json()
     assert body["codec"]["evaluation"]["rollup_autotune"]["recorded"] is True
     assert body["codec"]["evaluation"]["rollup_autotune"]["runs"] >= 3
-    assert codec_module._codec_rollup_policy()["autotune"]["runs"] >= 3
+    principal, _ = nexus._authenticated_nexus_principal(None)
+    policies = nexus._adaptive_policies_for_scope(principal.storage_metadata)
+    scoped_rollup = nexus._scoped_codec_rollup_call(policies, codec_module._codec_rollup_policy)
+    assert scoped_rollup["autotune"]["runs"] >= 3
 
 
 def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(monkeypatch, tmp_path):
@@ -694,7 +751,7 @@ def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(monkeypat
     client = TestClient(app)
 
     for _ in range(3):
-        r = client.get(
+        r = client.post(
             "/nexus/codec/evaluate",
             headers={"x-session-id": session_key},
             params={"eval_query": "Plan the architecture tradeoff for this change."},
@@ -731,13 +788,13 @@ def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(monkeypatch, 
     client = TestClient(app)
 
     for _ in range(2):
-        r = client.get(
+        r = client.post(
             "/nexus/codec/evaluate",
             headers={"x-session-id": session_key},
             params={"eval_query": "How should I answer this with memory?"},
         )
         assert r.status_code == 200
-        replay = client.get(
+        replay = client.post(
             "/nexus/codec/corpus-replay",
             headers={"x-session-id": session_key},
             params={"persist_report": True},
@@ -803,7 +860,7 @@ def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(monkeypatch, 
     )
     assert plan_due.status_code == 200
 
-    scheduler = client.get("/nexus/codec/corpus-replay/scheduler")
+    scheduler = client.post("/nexus/codec/corpus-replay/scheduler")
     assert scheduler.status_code == 200
     scheduler_body = scheduler.json()
     assert scheduler_body["codec"]["scheduler"]["started"] is True
@@ -833,10 +890,11 @@ def test_nexus_codec_corpus_replay_live_reexecute_endpoint(monkeypatch, tmp_path
 
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_CODEC_EVAL_HISTORY_PATH", tmp_path / "codec_eval_history.jsonl")
+    monkeypatch.setattr(nexus, "_CODEC_LIVE_REEXEC_REPORTS_PATH", tmp_path / "codec_live_reexec_reports.jsonl")
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0, "autotune_updates": 0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
-    monkeypatch.setattr(oracle_router, "call_openclaw_local", lambda prompt, system=None: f"LIVE::{prompt[:24]}")
+    monkeypatch.setattr(oracle_router, "call_openclaw_local", lambda prompt, system=None, **_kwargs: f"LIVE::{prompt[:24]}")
 
     session_key = "nexus-codec-live-reexecute-test"
     update_codec_state_for_session(
@@ -852,14 +910,14 @@ def test_nexus_codec_corpus_replay_live_reexecute_endpoint(monkeypatch, tmp_path
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "How should I answer this with memory?"},
     )
     assert r.status_code == 200
 
-    live = client.get(
+    live = client.post(
         "/nexus/codec/corpus-replay/live-reexecute",
         headers={"x-session-id": session_key},
         params={"limit": 3, "max_variants": 3, "backend": "openclaw_local", "persist_report": True},
@@ -878,7 +936,7 @@ def test_nexus_codec_corpus_replay_live_reexecute_endpoint(monkeypatch, tmp_path
     assert backends_body["codec"]["live_reexecution_backends"]["available"] is True
     assert backends_body["codec"]["live_reexecution_backends"]["count"] >= 2
 
-    compare = client.get(
+    compare = client.post(
         "/nexus/codec/corpus-replay/live-reexecute/compare",
         headers={"x-session-id": session_key},
         params={"backends": "recorded,openclaw_local", "limit": 3, "max_variants": 3},
@@ -921,13 +979,13 @@ def test_nexus_codec_corpus_governance_endpoints(monkeypatch, tmp_path):
     client = TestClient(app)
 
     for _ in range(2):
-        r = client.get(
+        r = client.post(
             "/nexus/codec/evaluate",
             headers={"x-session-id": session_key},
             params={"eval_query": "How should I answer this with memory?"},
         )
         assert r.status_code == 200
-        replay = client.get(
+        replay = client.post(
             "/nexus/codec/corpus-replay",
             headers={"x-session-id": session_key},
             params={"persist_report": True},
@@ -974,14 +1032,14 @@ def test_nexus_codec_corpus_replay_export_endpoint(monkeypatch, tmp_path):
     app.include_router(nexus.router, prefix="/nexus")
     client = TestClient(app)
 
-    r = client.get(
+    r = client.post(
         "/nexus/codec/evaluate",
         headers={"x-session-id": session_key},
         params={"eval_query": "How should I answer this with memory?"},
     )
     assert r.status_code == 200
 
-    export = client.get(
+    export = client.post(
         "/nexus/codec/corpus-replay/export",
         headers={"x-session-id": session_key},
         params={"persist_export": True},

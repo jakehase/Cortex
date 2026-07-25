@@ -1,0 +1,31 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_2a9136862504390a",
+    "runId": "math-foundations-smoke-20260725-052939567Z-heldout-retest",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-heldout-retest-v0",
+    "itemId": "mfs-02-heldout-retest",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "e1fee08120aa88434aee3eddfc2c33f2a26a960e47671a16c23e3d7d2c1828eb",
+    "answer": "13533948026720046",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "0cf9df6b-1c56-4ad8-8e76-26f19a5d65ac",
+      "sessionId": "acf84f8c-99ff-491f-bae2-df9ef8e43b1f",
+      "usage": {
+        "input": 1673,
+        "output": 394,
+        "cacheRead": 20992,
+        "total": 23059
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:31:38.879Z",
+    "completedAt": "2026-07-25T05:31:52.231Z"
+  }
+]

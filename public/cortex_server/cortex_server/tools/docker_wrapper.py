@@ -4,8 +4,19 @@ Docker CLI Wrapper - Async wrapper for Docker operations.
 
 import asyncio
 import json
-from typing import AsyncIterator, Dict, List, Optional, Sequence, Any
+import os
+import re
+import stat
+import time
+from pathlib import Path
+from typing import AsyncIterator, Dict, List, Optional, Sequence, Tuple, Any
 from pydantic import BaseModel, Field
+from .subprocess_lifecycle import (
+    close_process_transports,
+    observe_task,
+    spawn_owned,
+    stop_process,
+)
 
 
 class DockerError(Exception):
@@ -51,51 +62,263 @@ class ContainerConfig(BaseModel):
     detach: bool = True
 
 
+DEFAULT_TIMEOUT = 60.0
+CLEANUP_GRACE = 1.0
+MAX_OUTPUT_BYTES = 1024 * 1024
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/+\-]{0,254}$")
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_RUNTIME_SOCKET_PATHS = (
+    "/run/docker.sock", "/var/run/docker.sock", "/run/containerd/containerd.sock",
+    "/run/podman/podman.sock", "/var/run/crio/crio.sock",
+)
+_SENSITIVE_PATHS = (
+    "/etc", "/proc", "/sys", "/dev",
+    "/var/lib/docker", "/var/lib/containers",
+)
+
+
+async def _stop_process(proc: Any) -> None:
+    """Terminate a child and bound both escalation reap attempts."""
+    await stop_process(proc, CLEANUP_GRACE)
+
+
+async def _spawn_owned(*args: str, **kwargs: Any) -> Any:
+    """Spawn a child without allowing cancellation to orphan it mid-creation."""
+    return await spawn_owned(
+        asyncio.create_subprocess_exec(*args, **kwargs), CLEANUP_GRACE, _stop_process
+    )
+
+
+async def _settle_tasks(tasks: List["asyncio.Task[Any]"]) -> None:
+    """Cancel and observe subprocess tasks within a finite cleanup budget."""
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    done, pending = await asyncio.wait(tasks, timeout=CLEANUP_GRACE)
+    for task in done:
+        try:
+            task.result()
+        except BaseException:
+            pass
+    for task in pending:
+        observe_task(task)
+
+
+def _identifier(value: str, kind: str) -> str:
+    if not value or value.startswith("-") or not _IDENTIFIER.fullmatch(value):
+        raise DockerError(f"Invalid Docker {kind}")
+    return value
+
+
+def _environment(env: Dict[str, str]) -> List[str]:
+    """Return deterministic Docker environment assignments with safe names."""
+    values = []
+    for key in sorted(env):
+        if not _ENV_NAME.fullmatch(key) or "\x00" in str(env[key]):
+            raise DockerError("Invalid Docker environment")
+        values.append(f"{key}={env[key]}")
+    return values
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    """Return whether either absolute path contains the other."""
+    return left == right or left in right.parents or right in left.parents
+
+
+def _mount(host: str, container: str) -> str:
+    """Resolve host mounts before launch, including symlinks, and force ro/rw modes."""
+    # This API supports Linux bind paths only.  Parse the optional mode as a
+    # deliberately small grammar instead of passing Docker ambiguous strings.
+    # In particular, a colon in the host could be a Windows drive prefix and a
+    # second colon in the container could hide an unsupported mount option.
+    if not host or ":" in host or "\x00" in host or not container or "\x00" in container:
+        raise DockerError("Invalid Docker bind mount")
+    parts = container.split(":")
+    if len(parts) == 1:
+        container, access = parts[0], "ro"
+    elif len(parts) == 2 and parts[1] in {"ro", "rw"}:
+        container, access = parts
+    else:
+        raise DockerError("Invalid Docker bind mount")
+    if not container.startswith("/"):
+        raise DockerError("Invalid Docker bind mount")
+    try:
+        resolved = Path(host).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise DockerError("Invalid Docker bind mount") from None
+    # Resolve both sides so aliases such as /var/run -> /run cannot bypass this
+    # boundary.  Reject every Unix socket as well as known runtime endpoints.
+    try:
+        is_socket = stat.S_ISSOCK(resolved.stat().st_mode)
+    except OSError:
+        raise DockerError("Invalid Docker bind mount") from None
+    runtime_sockets = {Path(p).resolve(strict=False) for p in _RUNTIME_SOCKET_PATHS}
+    if is_socket or any(_paths_overlap(resolved, socket) for socket in runtime_sockets):
+        raise DockerError("Docker runtime sockets cannot be bind mounted")
+    configured_roots = os.getenv("CORTEX_DOCKER_MOUNT_ROOTS")
+    roots = []
+    if configured_roots:
+        try:
+            for value in configured_roots.split(os.pathsep):
+                if not value or not Path(value).expanduser().is_absolute():
+                    raise ValueError
+                root = Path(value).expanduser().resolve(strict=True)
+                if root == Path("/") or not root.is_dir():
+                    raise ValueError
+                roots.append(root)
+        except (OSError, RuntimeError, ValueError):
+            roots = []
+    sensitive = tuple(Path(p).resolve(strict=False) for p in _SENSITIVE_PATHS) + (
+        (Path.home() / ".ssh").resolve(strict=False),
+        (Path.home() / ".docker").resolve(strict=False),
+    )
+    if resolved == Path("/") or any(_paths_overlap(resolved, p) for p in sensitive) or not any(resolved == root or root in resolved.parents for root in roots):
+        raise DockerError("Docker bind mount is outside configured roots")
+    return f"{resolved}:{container}:{access}"
+
+
 async def _run_cmd(
     args: List[str],
-    timeout: Optional[float] = None,
+    timeout: Optional[float] = DEFAULT_TIMEOUT,
     capture: bool = True,
 ) -> str:
     """Run a Docker CLI command."""
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE if capture else None,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    
+    deadline = time.monotonic() + (timeout or DEFAULT_TIMEOUT)
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout)
+        proc = await asyncio.wait_for(
+            _spawn_owned(
+                *args,
+                stdout=asyncio.subprocess.PIPE if capture else None,
+                stderr=asyncio.subprocess.PIPE,
+            ),
+            max(0.0, deadline - time.monotonic()),
+        )
     except asyncio.TimeoutError:
-        proc.kill()
-        raise DockerError(f"Command timed out: {' '.join(args)}")
+        raise DockerError("Docker command timed out") from None
+    
+    async def drain(stream: Any) -> Tuple[bytearray, bool]:
+        retained = bytearray()
+        overflowed = False
+        if stream is None:
+            return retained, overflowed
+        while True:
+            chunk = await stream.read(64 * 1024)
+            if not chunk:
+                return retained, overflowed
+            if len(chunk) >= MAX_OUTPUT_BYTES:
+                overflowed = overflowed or len(chunk) > MAX_OUTPUT_BYTES or bool(retained)
+                retained[:] = chunk[-MAX_OUTPUT_BYTES:]
+            else:
+                overflow = len(retained) + len(chunk) - MAX_OUTPUT_BYTES
+                if overflow > 0:
+                    overflowed = True
+                    del retained[:overflow]
+                retained.extend(chunk)
+
+    stdout_task = asyncio.create_task(drain(proc.stdout)) if capture else None
+    stderr_task = asyncio.create_task(drain(proc.stderr))
+    tasks = [asyncio.create_task(proc.wait()), stderr_task]
+    if stdout_task is not None:
+        tasks.append(stdout_task)
+    try:
+        done, pending = await asyncio.wait(
+            tasks,
+            timeout=max(0.0, deadline - time.monotonic()),
+            return_when=asyncio.FIRST_EXCEPTION,
+        )
+        for task in done:
+            if task.cancelled():
+                raise asyncio.CancelledError
+            failure = task.exception()
+            if failure is not None:
+                raise failure
+        if pending:
+            raise asyncio.TimeoutError
+        results = [task.result() for task in tasks]
+    except asyncio.TimeoutError:
+        for task in tasks:
+            task.cancel()
+        await _stop_process(proc)
+        close_process_transports(proc)
+        await _settle_tasks(tasks)
+        raise DockerError("Docker command timed out")
     except asyncio.CancelledError:
-        proc.kill()
+        for task in tasks:
+            task.cancel()
+        await _stop_process(proc)
+        close_process_transports(proc)
+        await _settle_tasks(tasks)
         raise
+    except Exception:
+        for task in tasks:
+            task.cancel()
+        await _stop_process(proc)
+        close_process_transports(proc)
+        await _settle_tasks(tasks)
+        raise DockerError("Docker command failed") from None
+
+    stderr = bytes(results[1][0])
+    stdout = bytes(results[2][0]) if stdout_task is not None else b""
+    stdout_overflowed = results[2][1] if stdout_task is not None else False
     
     if proc.returncode != 0:
-        raise DockerError(stderr.decode().strip() if stderr else "Unknown error")
+        raise DockerError((stderr or b"Unknown error").decode(errors="replace").strip())
+    if stdout_overflowed:
+        raise DockerError("Docker command output limit exceeded")
     
-    return stdout.decode() if stdout else ""
+    return stdout.decode(errors="replace") if stdout else ""
 
 
 async def _stream_cmd(args: List[str]) -> AsyncIterator[str]:
-    """Stream output from a command."""
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    
+    """Stream bounded, line-framed output under one total command deadline."""
+    deadline = time.monotonic() + DEFAULT_TIMEOUT
+    try:
+        proc = await asyncio.wait_for(
+            _spawn_owned(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            ),
+            max(0.0, deadline - time.monotonic()),
+        )
+    except asyncio.TimeoutError:
+        raise DockerError("Docker command timed out") from None
+
+    pending = bytearray()
+    output_bytes = 0
     try:
         if proc.stdout:
             while True:
-                line = await proc.stdout.readline()
-                if not line:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DockerError("Docker command timed out")
+                try:
+                    chunk = await asyncio.wait_for(proc.stdout.read(64 * 1024), remaining)
+                except asyncio.TimeoutError:
+                    raise DockerError("Docker command timed out") from None
+                if not chunk:
                     break
-                yield line.decode(errors="ignore").rstrip()
+                output_bytes += len(chunk)
+                if output_bytes > MAX_OUTPUT_BYTES:
+                    raise DockerError("Docker command output limit exceeded")
+                pending.extend(chunk)
+                while b"\n" in pending:
+                    line, _, rest = pending.partition(b"\n")
+                    pending = bytearray(rest)
+                    yield line.decode(errors="ignore").rstrip()
+            if pending:
+                yield bytes(pending).decode(errors="ignore").rstrip()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DockerError("Docker command timed out")
+        try:
+            await asyncio.wait_for(proc.wait(), remaining)
+        except asyncio.TimeoutError:
+            raise DockerError("Docker command timed out") from None
+        if proc.returncode != 0:
+            raise DockerError("Docker command failed")
     finally:
-        if proc.returncode is None:
-            proc.terminate()
+        await _stop_process(proc)
 
 
 def _parse_size_bytes(size_str: str) -> int:
@@ -139,45 +362,61 @@ class ContainerManager:
         if config.detach:
             args.append("-d")
         
+        _identifier(config.image, "image")
         if config.name:
-            args.extend(["--name", config.name])
+            args.extend(["--name", _identifier(config.name, "name")])
         
-        for k, v in config.env.items():
-            args.extend(["-e", f"{k}={v}"])
+        for assignment in _environment(config.env):
+            args.extend(["-e", assignment])
         
         for cport, hport in config.ports.items():
             args.extend(["-p", f"{hport}:{cport}"])
         
         for hpath, cpath in config.volumes.items():
-            args.extend(["-v", f"{hpath}:{cpath}"])
+            args.extend(["-v", _mount(hpath, cpath)])
         
-        args.append(config.image)
+        args.extend(["--", config.image])
         
         if config.command:
             args.extend(config.command)
         
-        container_id = (await _run_cmd(args)).strip()
-        return await self.inspect(container_id)
+        container_id = _identifier(
+            (await _run_cmd(args)).strip(), "container ID"
+        )
+        try:
+            return await self.inspect(container_id)
+        except Exception:
+            if not config.detach:
+                raise
+            # `docker run -d` returning an ID is the creation commit point.
+            # Inspection only enriches the response and must not turn that
+            # success into a retryable creation failure.
+            return Container(
+                id=container_id[:12],
+                name=config.name or "",
+                image=config.image,
+                status="",
+            )
     
     async def start(self, container_id: str) -> None:
         """Start a container."""
-        await _run_cmd(["docker", "start", container_id])
+        await _run_cmd(["docker", "start", "--", _identifier(container_id, "container ID")])
     
     async def stop(self, container_id: str, timeout: int = 10) -> None:
         """Stop a container."""
-        await _run_cmd(["docker", "stop", "-t", str(timeout), container_id])
+        await _run_cmd(["docker", "stop", "-t", str(timeout), "--", _identifier(container_id, "container ID")])
     
     async def restart(self, container_id: str) -> None:
         """Restart a container."""
-        await _run_cmd(["docker", "restart", container_id])
+        await _run_cmd(["docker", "restart", "--", _identifier(container_id, "container ID")])
     
     async def pause(self, container_id: str) -> None:
         """Pause a container."""
-        await _run_cmd(["docker", "pause", container_id])
+        await _run_cmd(["docker", "pause", "--", _identifier(container_id, "container ID")])
     
     async def unpause(self, container_id: str) -> None:
         """Unpause a container."""
-        await _run_cmd(["docker", "unpause", container_id])
+        await _run_cmd(["docker", "unpause", "--", _identifier(container_id, "container ID")])
     
     async def remove(self, container_id: str, force: bool = False, volumes: bool = False) -> None:
         """Remove a container."""
@@ -186,7 +425,7 @@ class ContainerManager:
             args.append("-f")
         if volumes:
             args.append("-v")
-        args.append(container_id)
+        args.extend(["--", _identifier(container_id, "container ID")])
         await _run_cmd(args)
     
     async def list(self, all: bool = False) -> List[Container]:
@@ -216,7 +455,7 @@ class ContainerManager:
     
     async def inspect(self, container_id: str) -> Container:
         """Inspect a container."""
-        output = await _run_cmd(["docker", "inspect", container_id])
+        output = await _run_cmd(["docker", "inspect", "--", _identifier(container_id, "container ID")])
         data = json.loads(output)[0]
         
         config = data.get("Config", {})
@@ -227,7 +466,7 @@ class ContainerManager:
             name=data.get("Name", "").lstrip("/"),
             image=config.get("Image", ""),
             status=state.get("Status", ""),
-            env=config.get("Env", []),
+            env={item.partition("=")[0]: item.partition("=")[2] for item in (config.get("Env") or []) if "=" in item},
         )
     
     async def logs(
@@ -243,7 +482,7 @@ class ContainerManager:
             args.append("-f")
         if since:
             args.extend(["--since", since])
-        args.append(container_id)
+        args.extend(["--", _identifier(container_id, "container ID")])
         
         async for line in _stream_cmd(args):
             yield line
@@ -255,7 +494,7 @@ class ContainerManager:
         stream: bool = False,
     ) -> Any:
         """Execute a command in a container."""
-        args = ["docker", "exec", container_id] + list(cmd)
+        args = ["docker", "exec", "--", _identifier(container_id, "container ID")] + list(cmd)
         
         if stream:
             return _stream_cmd(args)
@@ -268,7 +507,9 @@ class ImageManager:
     
     async def pull(self, image_name: str, tag: str = "latest") -> None:
         """Pull an image."""
-        await _run_cmd(["docker", "pull", f"{image_name}:{tag}"])
+        _identifier(image_name, "image")
+        _identifier(tag, "tag")
+        await _run_cmd(["docker", "pull", "--", f"{image_name}:{tag}"])
     
     async def build(
         self,
@@ -278,13 +519,16 @@ class ImageManager:
         build_args: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build an image."""
+        _identifier(tag, "tag")
+        if dockerfile.startswith("-") or "\x00" in dockerfile:
+            raise DockerError("Invalid Dockerfile")
         args = ["docker", "build", "-t", tag, "-f", dockerfile]
         
         if build_args:
             for k, v in build_args.items():
                 args.extend(["--build-arg", f"{k}={v}"])
         
-        args.append(path)
+        args.extend(["--", path])
         return await _run_cmd(args)
     
     async def list(self) -> List[Image]:
@@ -314,7 +558,7 @@ class ImageManager:
         args = ["docker", "rmi"]
         if force:
             args.append("-f")
-        args.append(image_id)
+        args.extend(["--", _identifier(image_id, "image ID")])
         await _run_cmd(args)
 
 
@@ -323,7 +567,7 @@ class VolumeManager:
     
     async def create(self, name: str, driver: str = "local") -> Volume:
         """Create a volume."""
-        await _run_cmd(["docker", "volume", "create", "--driver", driver, name])
+        await _run_cmd(["docker", "volume", "create", "--driver", _identifier(driver, "volume driver"), "--", _identifier(name, "volume name")])
         return await self.inspect(name)
     
     async def list(self) -> List[Volume]:
@@ -347,11 +591,11 @@ class VolumeManager:
     
     async def remove(self, name: str) -> None:
         """Remove a volume."""
-        await _run_cmd(["docker", "volume", "rm", name])
+        await _run_cmd(["docker", "volume", "rm", "--", _identifier(name, "volume name")])
     
     async def inspect(self, name: str) -> Volume:
         """Inspect a volume."""
-        output = await _run_cmd(["docker", "volume", "inspect", name])
+        output = await _run_cmd(["docker", "volume", "inspect", "--", _identifier(name, "volume name")])
         data = json.loads(output)[0]
         
         return Volume(

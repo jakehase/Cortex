@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "cortex.learning_os.lesson_candidate.v0",
+  "candidateId": "candidate_b47c4724ecde7ef6",
+  "capsuleId": "math-foundations-v0",
+  "conceptIds": [
+    "number-fractions"
+  ],
+  "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+  "supportingEvidenceIds": [
+    "verify_940d16b4527d0669",
+    "verify_d35116c39277cbab"
+  ],
+  "sourceExamIds": [
+    "math-foundations-correction-v0",
+    "math-foundations-promotion-retest-v0"
+  ],
+  "negativeExampleRefs": [
+    "mistake_48f93a3160efe7e5"
+  ],
+  "contraindications": [
+    "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+  ],
+  "requiredRetestIds": [
+    "mfs-02-promotion-retest"
+  ],
+  "contradictions": [],
+  "createdAt": "2026-07-25T05:31:38.878Z",
+  "truthBoundary": "This is a candidate lesson until every promotion gate passes."
+}

@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
 
 
 JsonDict = Dict[str, Any]
@@ -102,8 +110,9 @@ def _model_dump_compat(model: RuntimeFollowUpDispatch) -> JsonDict:
 
 
 class RuntimeFollowUpStore:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
 
     def _read_all(self) -> List[RuntimeFollowUpDispatch]:
         if not self.path.exists():
@@ -113,9 +122,37 @@ class RuntimeFollowUpStore:
         return [_model_validate_compat(dict(row)) for row in rows if isinstance(row, dict)]
 
     def _write_all(self, rows: List[RuntimeFollowUpDispatch]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = [_model_dump_compat(row) for row in rows]
-        self.path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        durable_mkdir(self.path.parent)
+        def commit() -> None:
+            temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+            try:
+                with temporary.open("xb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self.path)
+                fsync_directory(self.path.parent)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+        if self.delivery_root is None:
+            commit()
+        else:
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                process_ids = sorted({row.process_id for row in rows})
+                for process_id in process_ids:
+                    assert_process_count(self.path, process_id, delivery_root=self.delivery_root)
+                assert_runtime_delivery_capacity(
+                    delivery_root=self.delivery_root,
+                    store_root=self.path,
+                    process_id=process_ids[0] if process_ids else "follow-up-system",
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=self.path,
+                )
+                commit()
 
     def enqueue(self, record: RuntimeFollowUpDispatch | JsonDict) -> RuntimeFollowUpDispatch:
         dispatch = record if isinstance(record, RuntimeFollowUpDispatch) else _model_validate_compat(record)

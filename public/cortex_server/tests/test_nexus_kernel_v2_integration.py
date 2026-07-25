@@ -13,9 +13,9 @@ def setup_function():
 
 
 def _client(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False})
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
@@ -26,8 +26,9 @@ def _client(monkeypatch):
 def test_nexus_orchestrate_surfaces_kernel_trace_and_runtime_scoped_status(monkeypatch):
     client = _client(monkeypatch)
 
-    response = client.get(
+    response = client.post(
         "/nexus/orchestrate",
+        json={},
         params={"query": "Plan the runtime compiler rollout and benchmark strategy."},
         headers={"x-session-id": "nexus-kernel-trace"},
     )

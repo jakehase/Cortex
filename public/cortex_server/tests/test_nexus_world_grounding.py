@@ -9,9 +9,9 @@ def _client(monkeypatch):
     monkeypatch.setattr(
         nexus,
         "analyze_intent_with_oracle",
-        lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"},
+        lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"},
     )
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
@@ -36,7 +36,7 @@ def test_world_grounding_forces_live_path(monkeypatch):
     )
     client = _client(monkeypatch)
 
-    r = client.get("/nexus/orchestrate", params={"query": "What is the latest bitcoin price right now?"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "What is the latest bitcoin price right now?"})
     assert r.status_code == 200
     body = r.json()
     assert body["world_grounding"]["required"] is True
@@ -63,7 +63,7 @@ def test_world_grounding_not_required(monkeypatch):
     )
     client = _client(monkeypatch)
 
-    r = client.get("/nexus/orchestrate", params={"query": "Explain TCP in one paragraph"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Explain TCP in one paragraph"})
     assert r.status_code == 200
     body = r.json()
     assert body["world_grounding"]["required"] is False

@@ -1,29 +1,71 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import math
+import os
+import fcntl
+import re
+from contextlib import contextmanager
+import sqlite3
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
-from cortex_server.runtime.dependability import compile_dependability_repair_plan, load_dependability_report
+from cortex_server.runtime.dependability import (
+    DEPENDABILITY_CAMPAIGN_SCHEMA,
+    build_unattended_profile,
+    compile_dependability_repair_plan,
+    load_dependability_report,
+    unattended_profile_digest,
+)
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_HISTORY_BYTES,
+    MAX_HISTORY_RECORDS,
+    MAX_REPORT_BYTES,
+    MAX_REPORT_RECORDS,
+    MAX_RUNTIME_DELIVERY_OBJECT_BYTES,
+    append_bounded_jsonl,
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    bounded_jsonl_payload,
+    encoded_json,
+    read_recoverable_jsonl,
+    runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.release_workflow import (
+    RELEASE_STAGE_TOPOLOGY,
+    ReleaseArtifactReceipt,
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
     advance_release_workflow,
     capture_release_rollback_fencepost,
     compile_release_handoff,
     evaluate_release_promotion_gate,
+    prepare_release_artifact,
+    production_image_binding_from_state,
+    record_release_artifact_receipt,
     record_release_fencepost,
     record_release_handoff,
     repair_release_workflow,
+    release_artifact_storage_limits,
+    verify_release_artifact_receipt,
+    verify_release_artifact_receipt_payload,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
 
@@ -32,6 +74,1911 @@ JsonDict = Dict[str, Any]
 
 
 BUILTIN_BLOCKER_PREFIXES = ("BLOCKER:", "HUMAN:")
+REQUIRED_RELEASE_HANDOFF_RECIPIENTS = ("release-verifier", "release-manager")
+RUNTIME_DELIVERY_MOUNT_MARKER = ".cortex-durable-runtime-delivery"
+REASONING_VOLUME_MOUNT_MARKER = ".cortex-durable-reasoning"
+REASONING_AUTHORITY_SENTINEL = ".cortex-reasoning-authority"
+REASONING_AUTHORITY_SCHEMA = "cortex.reasoning-authority.v1"
+REASONING_DATABASE_NAME = "reasoning_runtime.db"
+RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID = "__cortex_manager_capability__"
+RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON = "non_mutating_manager_capability_challenge"
+MIN_PRODUCTION_SECRET_BYTES = 32
+RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v4"
+PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v3"
+OLDER_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v2"
+LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA = "cortex.release-verifier-trust.v1"
+RELEASE_VERIFIER_TRUST_FILE = ".release-verifier-trust.json"
+RELEASE_VERIFIER_TRUST_LIMIT = 4096
+MAX_RELEASE_VERIFIER_ID_BYTES = 256
+MAX_RELEASE_VERIFIER_SECRET_BYTES = 4096
+MAX_RELEASE_VERIFIER_RECORD_BYTES = 8192
+MAX_RELEASE_VERIFIER_TRUST_BYTES = MAX_RUNTIME_DELIVERY_OBJECT_BYTES
+MAX_RELEASE_CONSUMER_HEALTH_BYTES = 64 * 1024
+_CORTEX_BRAIN_STARTUP_REVISION_ID = f"cortex-brain-startup-revision:{uuid4().hex}"
+_DEPENDABILITY_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
+_DEPENDABILITY_BOOT_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+_RELEASE_VERIFIER_LIFECYCLE_LOCKS: Dict[str, threading.RLock] = {}
+_RELEASE_VERIFIER_LIFECYCLE_LOCKS_GUARD = threading.Lock()
+
+
+def current_cortex_brain_startup_revision_id() -> str:
+    """Return the server-generated identity for this cortex-brain process."""
+
+    return _CORTEX_BRAIN_STARTUP_REVISION_ID
+
+
+def _dependability_server_now() -> datetime:
+    """Return the server clock used exclusively for production campaign evidence."""
+
+    return datetime.now(timezone.utc)
+
+
+def _dependability_server_monotonic() -> float:
+    return time.monotonic()
+
+
+def _dependability_server_boot_id() -> str:
+    try:
+        boot_id = _DEPENDABILITY_BOOT_ID_PATH.read_text(encoding="ascii").strip().lower()
+    except OSError as exc:
+        raise RuntimeError("dependability campaign boot identity is unavailable") from exc
+    if not _DEPENDABILITY_BOOT_ID_RE.fullmatch(boot_id):
+        raise RuntimeError("dependability campaign boot identity is invalid")
+    return boot_id
+
+
+def _dependability_clock_divergence_seconds() -> float:
+    try:
+        value = float(
+            os.getenv("CORTEX_DEPENDABILITY_CLOCK_DIVERGENCE_SECONDS", "30")
+        )
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise RuntimeError(
+            "CORTEX_DEPENDABILITY_CLOCK_DIVERGENCE_SECONDS must be a positive finite number"
+        ) from exc
+    return min(value, 300.0)
+
+
+def _production_environment() -> bool:
+    return os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower() in {
+        "production",
+        "prod",
+        "staging",
+    }
+
+
+def _reasoning_authority_binding(
+    mount_id: str,
+    database_name: str = REASONING_DATABASE_NAME,
+) -> str:
+    return f"{REASONING_AUTHORITY_SCHEMA}:{mount_id}:{database_name}"
+
+
+def _production_request_credentials() -> Dict[str, str]:
+    credentials = {
+        name: os.getenv(name, "").strip()
+        for name in (
+            "CORTEX_WRITE_TOKEN",
+            "CORTEX_ADMIN_TOKEN",
+            "CORTEX_CODEC_ADMIN_TOKEN",
+            "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+            "NEXUS_ASSURANCE_SIGNING_KEY",
+            "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
+            "NEXUS_OUTCOME_FEEDBACK_TOKEN",
+        )
+        if os.getenv(name, "").strip()
+    }
+    raw = os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("CORTEX_MEMORY_SCOPE_CREDENTIALS must be valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError("CORTEX_MEMORY_SCOPE_CREDENTIALS must be a credential object")
+        for credential_id, record in parsed.items():
+            secret = str((record or {}).get("secret") or "").strip() if isinstance(record, dict) else ""
+            if secret:
+                credentials[f"CORTEX_MEMORY_SCOPE_CREDENTIALS:{credential_id}"] = secret
+    return credentials
+
+
+def _credential_separation_check(
+    verifier_credentials: Dict[str, str],
+    recipient_credentials: Dict[str, str],
+) -> Dict[str, Any]:
+    all_credentials = {
+        **{f"release-verifier:{identity}": secret for identity, secret in verifier_credentials.items()},
+        **{f"release-recipient:{identity}": secret for identity, secret in recipient_credentials.items()},
+        **_production_request_credentials(),
+    }
+    weak = sorted(
+        name for name, secret in all_credentials.items()
+        if len(secret.encode("utf-8")) < MIN_PRODUCTION_SECRET_BYTES
+    )
+    by_secret: Dict[str, List[str]] = {}
+    for name, secret in all_credentials.items():
+        by_secret.setdefault(secret, []).append(name)
+    reused = sorted(
+        sorted(names)
+        for names in by_secret.values()
+        if len(names) > 1
+    )
+    return {
+        "ok": not weak and not reused,
+        "minimumSecretBytes": MIN_PRODUCTION_SECRET_BYTES,
+        "weakCredentials": weak,
+        "reusedCredentialGroups": reused,
+        "error": None if not weak and not reused else "production credentials must be strong and pairwise distinct",
+    }
+
+
+def _runtime_delivery_credential_map(environment_name: str) -> Dict[str, str]:
+    raw = os.getenv(environment_name, "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{environment_name} must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"{environment_name} must map identities to secrets")
+    credentials = {
+        str(identity or "").strip(): str(secret or "").strip()
+        for identity, secret in parsed.items()
+    }
+    if any(not identity or not secret for identity, secret in credentials.items()):
+        raise RuntimeError(f"{environment_name} contains an empty identity or secret")
+    if _production_environment():
+        weak = [
+            identity for identity, secret in credentials.items()
+            if len(secret.encode("utf-8")) < MIN_PRODUCTION_SECRET_BYTES
+        ]
+        if weak:
+            raise RuntimeError(
+                f"{environment_name} secrets must contain at least {MIN_PRODUCTION_SECRET_BYTES} bytes: "
+                + ", ".join(sorted(weak))
+            )
+        if len(set(credentials.values())) != len(credentials):
+            raise RuntimeError(f"{environment_name} identities must use distinct secrets")
+    return credentials
+
+
+def _runtime_delivery_verifier_rotation_intent() -> Optional[JsonDict]:
+    """Load an explicit, generation-bound verifier rotation transition."""
+
+    raw = os.getenv("CORTEX_RELEASE_VERIFIER_ROTATION_INTENT", "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT must be valid JSON"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(
+            "CORTEX_RELEASE_VERIFIER_ROTATION_INTENT must be an object"
+        )
+    return dict(parsed)
+
+
+def _release_verifier_trust_bytes(payload: JsonDict) -> bytes:
+    return (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+
+
+def _validate_release_verifier_material(verifier_id: str, secret: str) -> None:
+    if not verifier_id or len(verifier_id.encode("utf-8")) > MAX_RELEASE_VERIFIER_ID_BYTES:
+        raise RuntimeError("release verifier identity exceeds its immutable byte limit")
+    if not secret or len(secret.encode("utf-8")) > MAX_RELEASE_VERIFIER_SECRET_BYTES:
+        raise RuntimeError(
+            f"release verifier secret exceeds its immutable byte limit: {verifier_id}"
+        )
+
+
+def _max_durable_verifier_acceptance_epoch(
+    delivery_root: Path,
+    verifier_id: str,
+) -> float:
+    """Find the latest committed or recoverable legacy acceptance boundary."""
+
+    release_root = delivery_root / "release_workflow"
+    if not release_root.exists():
+        return 0.0
+    if not release_root.is_dir() or release_root.is_symlink():
+        raise RuntimeError("durable release workflow root is invalid during verifier retirement")
+    targets = [
+        *sorted(release_root.glob("*.json")),
+        *sorted(release_root.glob(".*.json.save-state.stage")),
+    ]
+    latest = 0.0
+    for target in targets:
+        if not target.is_file() or target.is_symlink():
+            raise RuntimeError("durable release state is invalid during verifier retirement")
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError("durable release state is invalid during verifier retirement")
+        metadata = payload.get("metadata")
+        rows = metadata.get("release_artifacts", []) if isinstance(metadata, dict) else []
+        if not isinstance(rows, list):
+            raise RuntimeError("durable release receipts are invalid during verifier retirement")
+        for raw_receipt in rows:
+            if not isinstance(raw_receipt, dict):
+                raise RuntimeError("durable release receipt is invalid during verifier retirement")
+            if str(raw_receipt.get("verifier") or "") != verifier_id:
+                continue
+            acceptance = raw_receipt.get("acceptance_epoch")
+            if (
+                isinstance(acceptance, bool)
+                or not isinstance(acceptance, (int, float))
+                or not math.isfinite(float(acceptance))
+                or float(acceptance) < 0
+            ):
+                raise RuntimeError("durable release receipt acceptance epoch is invalid")
+            latest = max(latest, float(acceptance))
+    return latest
+
+
+def _persist_release_verifier_trust(
+    delivery_root: Path,
+    target: Path,
+    payload: JsonDict,
+) -> None:
+    records = payload.get("credentials")
+    if not isinstance(records, dict) or len(records) > RELEASE_VERIFIER_TRUST_LIMIT:
+        raise RuntimeError("durable release verifier trust capacity exceeded")
+    for verifier_id, record in records.items():
+        if not isinstance(record, dict):
+            raise RuntimeError("durable release verifier trust contains an invalid record")
+        encoded_record = _release_verifier_trust_bytes(
+            {"verifier_id": verifier_id, "record": record}
+        )
+        if len(encoded_record) > MAX_RELEASE_VERIFIER_RECORD_BYTES:
+            raise RuntimeError(
+                f"durable release verifier record exceeds its immutable byte limit: {verifier_id}"
+            )
+    encoded = _release_verifier_trust_bytes(payload)
+    if len(encoded) > MAX_RELEASE_VERIFIER_TRUST_BYTES:
+        raise RuntimeError("durable release verifier trust exceeds its immutable byte limit")
+    with runtime_delivery_quota_transaction(delivery_root):
+        assert_runtime_delivery_capacity(
+            delivery_root=delivery_root,
+            store_root=target,
+            process_id="__release_verifier_trust__",
+            object_bytes=len(encoded),
+            additional_bytes=len(encoded),
+            replacing=target,
+        )
+        _atomic_write_json(target, payload)
+    _fsync_directory(delivery_root)
+
+
+@contextmanager
+def _release_verifier_lifecycle_transaction(
+    delivery_root: Path,
+    active_credentials: Dict[str, str],
+    *,
+    now: Optional[datetime] = None,
+    rotation_intent: Optional[JsonDict] = None,
+):
+    """Serialize activation, server acceptance ordinals, and explicit retirement."""
+
+    delivery_root = Path(delivery_root).resolve()
+    normalized_active = {
+        str(verifier_id or "").strip(): str(secret or "").strip()
+        for verifier_id, secret in active_credentials.items()
+    }
+    for verifier_id, secret in normalized_active.items():
+        _validate_release_verifier_material(verifier_id, secret)
+
+    def normalize_rotation_intent(
+        value: Any,
+        *,
+        allowed_phases: set[str],
+        source: str,
+    ) -> Optional[JsonDict]:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+        phase = str(value.get("phase") or "").strip()
+        generation = value.get("generation")
+        expected_generation = value.get("expected_generation")
+        if (
+            phase not in allowed_phases
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation <= 0
+            or isinstance(expected_generation, bool)
+            or not isinstance(expected_generation, int)
+            or expected_generation < 0
+            or generation != expected_generation + 1
+        ):
+            raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+
+        normalized_ids: Dict[str, List[str]] = {}
+        for field in ("activate_verifier_ids", "retire_verifier_ids"):
+            raw_ids = value.get(field)
+            if not isinstance(raw_ids, list):
+                raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+            ids = [str(identity or "").strip() for identity in raw_ids]
+            if (
+                not ids
+                or any(
+                    not identity
+                    or len(identity.encode("utf-8")) > MAX_RELEASE_VERIFIER_ID_BYTES
+                    for identity in ids
+                )
+                or len(set(ids)) != len(ids)
+            ):
+                raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+            normalized_ids[field] = sorted(ids)
+        if set(normalized_ids["activate_verifier_ids"]) & set(
+            normalized_ids["retire_verifier_ids"]
+        ):
+            raise RuntimeError(f"{source} release verifier rotation intent is invalid")
+        return {
+            "phase": phase,
+            "generation": int(generation),
+            "expected_generation": int(expected_generation),
+            **normalized_ids,
+        }
+
+    requested_rotation = normalize_rotation_intent(
+        rotation_intent,
+        allowed_phases={"overlap", "drained"},
+        source="requested",
+    )
+
+    target = delivery_root / RELEASE_VERIFIER_TRUST_FILE
+    lock_target = delivery_root / f"{RELEASE_VERIFIER_TRUST_FILE}.lock"
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        raise ValueError("release verifier trust time must be timezone-aware")
+    current = current.astimezone(timezone.utc)
+    current_iso = _now_iso(current)
+    current_epoch = current.timestamp()
+
+    def trust_epoch(value: Any, *, field: str) -> float:
+        if isinstance(value, bool):
+            raise RuntimeError(f"durable release verifier trust {field} is invalid")
+        if isinstance(value, (int, float)):
+            epoch = float(value)
+        else:
+            try:
+                observed = datetime.fromisoformat(
+                    str(value or "").replace("Z", "+00:00")
+                )
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"durable release verifier trust {field} is invalid"
+                ) from exc
+            if observed.tzinfo is None:
+                raise RuntimeError(
+                    f"durable release verifier trust {field} is invalid"
+                )
+            epoch = observed.astimezone(timezone.utc).timestamp()
+        if not math.isfinite(epoch) or epoch < 0:
+            raise RuntimeError(f"durable release verifier trust {field} is invalid")
+        return epoch
+
+    durable_mkdir(delivery_root)
+    lock_key = str(lock_target)
+    with _RELEASE_VERIFIER_LIFECYCLE_LOCKS_GUARD:
+        thread_lock = _RELEASE_VERIFIER_LIFECYCLE_LOCKS.setdefault(
+            lock_key,
+            threading.RLock(),
+        )
+    with thread_lock, lock_target.open("a+b") as lock_handle:
+        os.chmod(lock_target, 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            payload: JsonDict = {
+                "schema_version": RELEASE_VERIFIER_TRUST_SCHEMA,
+                "credentials": {},
+                "updated_at": current_iso,
+                "last_lifecycle_generation": 0,
+                "configuration_generation": 0,
+                "rotation_intent": None,
+            }
+            initializing_trust = not target.exists()
+            if not initializing_trust:
+                loaded = json.loads(target.read_text(encoding="utf-8"))
+                if not isinstance(loaded, dict) or loaded.get("schema_version") not in {
+                    LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA,
+                    OLDER_RELEASE_VERIFIER_TRUST_SCHEMA,
+                    PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA,
+                    RELEASE_VERIFIER_TRUST_SCHEMA,
+                }:
+                    raise RuntimeError("durable release verifier trust has an invalid schema")
+                payload = dict(loaded)
+            loaded_schema = str(payload.get("schema_version") or "")
+            raw_records = payload.get("credentials")
+            if not isinstance(raw_records, dict):
+                raise RuntimeError("durable release verifier trust credentials are invalid")
+            raw_generation = payload.get("last_lifecycle_generation", 0)
+            if (
+                isinstance(raw_generation, bool)
+                or not isinstance(raw_generation, int)
+                or raw_generation < 0
+            ):
+                raise RuntimeError("durable release verifier trust generation is invalid")
+            last_generation = int(raw_generation)
+            if loaded_schema == RELEASE_VERIFIER_TRUST_SCHEMA:
+                raw_configuration_generation = payload.get("configuration_generation")
+                if (
+                    isinstance(raw_configuration_generation, bool)
+                    or not isinstance(raw_configuration_generation, int)
+                    or raw_configuration_generation < 0
+                ):
+                    raise RuntimeError(
+                        "durable release verifier configuration generation is invalid"
+                    )
+                configuration_generation = int(raw_configuration_generation)
+                persisted_rotation = normalize_rotation_intent(
+                    payload.get("rotation_intent"),
+                    allowed_phases={"overlap", "completed"},
+                    source="durable",
+                )
+                if (
+                    persisted_rotation is not None
+                    and persisted_rotation["generation"] != configuration_generation
+                ):
+                    raise RuntimeError(
+                        "durable release verifier rotation generation is invalid"
+                    )
+                if configuration_generation > 0 and persisted_rotation is None:
+                    raise RuntimeError(
+                        "durable release verifier rotation intent is missing"
+                    )
+            else:
+                configuration_generation = 0
+                persisted_rotation = None
+            trust_epoch(
+                payload.get("updated_at") or current_iso,
+                field="updated_at",
+            )
+            records: Dict[str, JsonDict] = {}
+            retired: List[str] = []
+            for identity, raw_record in raw_records.items():
+                verifier_id = str(identity or "").strip()
+                if not verifier_id or not isinstance(raw_record, dict):
+                    raise RuntimeError("durable release verifier trust contains an invalid identity")
+                secret = str(raw_record.get("secret") or "").strip()
+                _validate_release_verifier_material(verifier_id, secret)
+                digest = str(raw_record.get("secret_sha256") or "").strip()
+                expected_digest = hashlib.sha256(secret.encode("utf-8")).hexdigest() if secret else ""
+                if not secret or not hmac.compare_digest(digest, expected_digest):
+                    raise RuntimeError(f"durable release verifier trust is corrupt for {verifier_id}")
+                if loaded_schema == LEGACY_RELEASE_VERIFIER_TRUST_SCHEMA:
+                    trust_epoch(
+                        raw_record.get("first_trusted_at"),
+                        field=f"activation_epoch for {verifier_id}",
+                    )
+                    # v1 did not bind acceptance to this observation time. Use
+                    # an explicit bootstrap epoch so already-immutable receipts
+                    # retain their historical verification semantics.
+                    activation_epoch = 0.0
+                    retirement_epoch = None
+                    activation_generation = 0
+                    retirement_generation = None
+                else:
+                    activation_epoch = trust_epoch(
+                        raw_record.get("activation_epoch"),
+                        field=f"activation_epoch for {verifier_id}",
+                    )
+                    raw_retirement = raw_record.get("retirement_epoch")
+                    retirement_epoch = (
+                        None
+                        if raw_retirement is None
+                        else trust_epoch(
+                            raw_retirement,
+                            field=f"retirement_epoch for {verifier_id}",
+                        )
+                    )
+                    if (
+                        retirement_epoch is not None
+                        and retirement_epoch < activation_epoch
+                    ):
+                        raise RuntimeError(
+                            f"durable release verifier trust lifecycle is invalid for {verifier_id}"
+                        )
+                    if loaded_schema in {
+                        PREVIOUS_RELEASE_VERIFIER_TRUST_SCHEMA,
+                        RELEASE_VERIFIER_TRUST_SCHEMA,
+                    }:
+                        raw_activation_generation = raw_record.get("activation_generation")
+                        raw_retirement_generation = raw_record.get("retirement_generation")
+                        if (
+                            isinstance(raw_activation_generation, bool)
+                            or not isinstance(raw_activation_generation, int)
+                            or raw_activation_generation < 0
+                            or isinstance(raw_retirement_generation, bool)
+                            or (
+                                raw_retirement_generation is not None
+                                and (
+                                    not isinstance(raw_retirement_generation, int)
+                                    or raw_retirement_generation <= raw_activation_generation
+                                )
+                            )
+                        ):
+                            raise RuntimeError(
+                                f"durable release verifier trust generation is invalid for {verifier_id}"
+                            )
+                        activation_generation = int(raw_activation_generation)
+                        retirement_generation = (
+                            None
+                            if raw_retirement_generation is None
+                            else int(raw_retirement_generation)
+                        )
+                        last_generation = max(
+                            last_generation,
+                            activation_generation,
+                            retirement_generation or 0,
+                        )
+                    else:
+                        activation_generation = 0
+                        retirement_generation = None
+                        if retirement_epoch is not None:
+                            latest_acceptance = _max_durable_verifier_acceptance_epoch(
+                                delivery_root,
+                                verifier_id,
+                            )
+                            retirement_epoch = max(
+                                retirement_epoch,
+                                math.nextafter(latest_acceptance, math.inf),
+                            )
+                            last_generation += 1
+                            retirement_generation = last_generation
+                if verifier_id in normalized_active and not hmac.compare_digest(
+                    secret, normalized_active[verifier_id]
+                ):
+                    raise RuntimeError(
+                        f"release verifier identity {verifier_id} cannot be reused with different key material"
+                    )
+                if verifier_id in normalized_active and retirement_epoch is not None:
+                    raise RuntimeError(
+                        f"retired release verifier identity cannot be reactivated: {verifier_id}"
+                    )
+                records[verifier_id] = {
+                    "secret": secret,
+                    "secret_sha256": digest,
+                    "activation_epoch": activation_epoch,
+                    "retirement_epoch": retirement_epoch,
+                    "activation_generation": activation_generation,
+                    "retirement_generation": retirement_generation,
+                }
+
+            added: List[str] = []
+            transition_changed = False
+            allowed_additions: set[str] = set()
+            if initializing_trust:
+                if requested_rotation is not None:
+                    raise RuntimeError(
+                        "release verifier rotation cannot precede trust bootstrap"
+                    )
+                allowed_additions = set(normalized_active)
+            elif requested_rotation is None:
+                unknown = set(normalized_active) - set(records)
+                if unknown:
+                    raise RuntimeError(
+                        "release verifier activation requires an explicit rotation intent: "
+                        + ", ".join(sorted(unknown))
+                    )
+            elif requested_rotation["phase"] == "overlap":
+                activate_ids = set(requested_rotation["activate_verifier_ids"])
+                retire_ids = set(requested_rotation["retire_verifier_ids"])
+                if not activate_ids <= set(normalized_active) or not retire_ids <= set(
+                    normalized_active
+                ):
+                    raise RuntimeError(
+                        "release verifier overlap must configure activating and retiring identities"
+                    )
+                if not retire_ids <= set(records) or any(
+                    records[verifier_id].get("retirement_epoch") is not None
+                    for verifier_id in retire_ids
+                ):
+                    raise RuntimeError(
+                        "release verifier overlap retirement set is not durably active"
+                    )
+                unknown = set(normalized_active) - set(records)
+                if not unknown <= activate_ids:
+                    raise RuntimeError(
+                        "release verifier overlap contains an activation outside its intent"
+                    )
+                durable_request = {
+                    **requested_rotation,
+                    "phase": "overlap",
+                }
+                if (
+                    configuration_generation
+                    == requested_rotation["expected_generation"]
+                    and requested_rotation["generation"]
+                    == configuration_generation + 1
+                ):
+                    if persisted_rotation is not None and persisted_rotation.get(
+                        "phase"
+                    ) == "overlap":
+                        raise RuntimeError(
+                            "release verifier overlap generation has not drained"
+                        )
+                    configuration_generation = requested_rotation["generation"]
+                    persisted_rotation = durable_request
+                    transition_changed = True
+                elif not (
+                    configuration_generation == requested_rotation["generation"]
+                    and persisted_rotation == durable_request
+                ):
+                    raise RuntimeError(
+                        "release verifier rotation compare-and-set generation mismatch"
+                    )
+                allowed_additions = activate_ids
+            else:
+                activate_ids = set(requested_rotation["activate_verifier_ids"])
+                retire_ids = set(requested_rotation["retire_verifier_ids"])
+                if not activate_ids <= set(normalized_active) or retire_ids & set(
+                    normalized_active
+                ):
+                    raise RuntimeError(
+                        "drained release verifier rotation has an invalid active set"
+                    )
+                if set(normalized_active) - set(records):
+                    raise RuntimeError(
+                        "drained release verifier rotation cannot activate identities"
+                    )
+                expected_overlap = {
+                    **requested_rotation,
+                    "phase": "overlap",
+                    "generation": requested_rotation["expected_generation"],
+                    "expected_generation": requested_rotation["expected_generation"] - 1,
+                }
+                completed_rotation = {
+                    **requested_rotation,
+                    "phase": "completed",
+                }
+                if requested_rotation["expected_generation"] <= 0:
+                    raise RuntimeError(
+                        "release verifier rotation compare-and-set generation mismatch"
+                    )
+                if (
+                    configuration_generation
+                    == requested_rotation["expected_generation"]
+                    and persisted_rotation == expected_overlap
+                ):
+                    if not retire_ids <= set(records) or any(
+                        records[verifier_id].get("retirement_epoch") is not None
+                        for verifier_id in retire_ids
+                    ):
+                        raise RuntimeError(
+                            "release verifier retirement set is not durably active"
+                        )
+                    for verifier_id in sorted(retire_ids):
+                        record = records[verifier_id]
+                        latest_acceptance = _max_durable_verifier_acceptance_epoch(
+                            delivery_root,
+                            verifier_id,
+                        )
+                        record["retirement_epoch"] = max(
+                            float(record["activation_epoch"]),
+                            current_epoch,
+                            math.nextafter(latest_acceptance, math.inf),
+                        )
+                        last_generation += 1
+                        record["retirement_generation"] = last_generation
+                        retired.append(verifier_id)
+                    configuration_generation = requested_rotation["generation"]
+                    persisted_rotation = completed_rotation
+                    transition_changed = True
+                elif not (
+                    configuration_generation == requested_rotation["generation"]
+                    and persisted_rotation == completed_rotation
+                    and all(
+                        records[verifier_id].get("retirement_epoch") is not None
+                        for verifier_id in retire_ids
+                    )
+                ):
+                    raise RuntimeError(
+                        "release verifier rotation compare-and-set generation mismatch"
+                    )
+
+            for verifier_id, secret in sorted(normalized_active.items()):
+                existing = records.get(verifier_id)
+                if existing is not None and not hmac.compare_digest(str(existing.get("secret") or ""), secret):
+                    raise RuntimeError(
+                        f"release verifier identity {verifier_id} cannot be reused with different key material"
+                    )
+                if existing is None:
+                    if verifier_id not in allowed_additions:
+                        raise RuntimeError(
+                            f"release verifier activation is not authorized by rotation intent: {verifier_id}"
+                        )
+                    if initializing_trust:
+                        activation_generation = 0
+                    else:
+                        last_generation += 1
+                        activation_generation = last_generation
+                    records[verifier_id] = {
+                        "secret": secret,
+                        "secret_sha256": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                        "activation_epoch": 0.0 if initializing_trust else current_epoch,
+                        "retirement_epoch": None,
+                        "activation_generation": activation_generation,
+                        "retirement_generation": None,
+                    }
+                    added.append(verifier_id)
+            if len(records) > RELEASE_VERIFIER_TRUST_LIMIT:
+                raise RuntimeError("durable release verifier trust capacity exceeded")
+
+            trust_changed = (
+                not target.exists()
+                or loaded_schema != RELEASE_VERIFIER_TRUST_SCHEMA
+                or bool(added)
+                or bool(retired)
+                or transition_changed
+            )
+            updated_payload = {
+                "schema_version": RELEASE_VERIFIER_TRUST_SCHEMA,
+                "credentials": records,
+                "updated_at": current_iso if trust_changed else str(payload.get("updated_at") or current_iso),
+                "last_lifecycle_generation": last_generation,
+                "configuration_generation": configuration_generation,
+                "rotation_intent": persisted_rotation,
+            }
+            if trust_changed:
+                _persist_release_verifier_trust(delivery_root, target, updated_payload)
+            os.chmod(target, 0o600)
+            lifecycle = {
+                "credentials": {
+                    verifier_id: dict(record) for verifier_id, record in records.items()
+                },
+                "payload": updated_payload,
+            }
+            check = {
+                "ok": True,
+                "path": str(target),
+                "activeVerifierIds": sorted(
+                    verifier_id
+                    for verifier_id, record in records.items()
+                    if record.get("retirement_epoch") is None
+                ),
+                "configuredVerifierIds": sorted(normalized_active),
+                "historicalVerifierIds": sorted(
+                    verifier_id
+                    for verifier_id, record in records.items()
+                    if record.get("retirement_epoch") is not None
+                ),
+                "trustedVerifierCount": len(records),
+                "addedVerifierIds": sorted(added),
+                "retiredVerifierIds": sorted(retired),
+                "configurationGeneration": configuration_generation,
+                "rotationIntent": (
+                    None if persisted_rotation is None else dict(persisted_rotation)
+                ),
+                "error": None,
+            }
+            lifecycle["check"] = check
+
+            def allocate_acceptance_generation(verifier_id: str) -> int:
+                record = records.get(str(verifier_id or "").strip())
+                if record is None or record.get("retirement_generation") is not None:
+                    raise PermissionError(
+                        f"release artifact verifier is not durably active: {verifier_id}"
+                    )
+                generation = int(lifecycle["payload"]["last_lifecycle_generation"]) + 1
+                lifecycle["payload"]["last_lifecycle_generation"] = generation
+                lifecycle["payload"]["updated_at"] = _now_iso()
+                _persist_release_verifier_trust(
+                    delivery_root,
+                    target,
+                    lifecycle["payload"],
+                )
+                return generation
+
+            lifecycle["allocate_acceptance_generation"] = allocate_acceptance_generation
+            yield lifecycle
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _durable_release_verifier_credentials(
+    delivery_root: Path,
+    active_credentials: Dict[str, str],
+    *,
+    now: Optional[datetime] = None,
+    rotation_intent: Optional[JsonDict] = None,
+) -> tuple[Dict[str, JsonDict], JsonDict]:
+    """Persist verifier lifecycles while retaining bounded historical verification."""
+
+    with _release_verifier_lifecycle_transaction(
+        delivery_root,
+        active_credentials,
+        now=now,
+        rotation_intent=rotation_intent,
+    ) as lifecycle:
+        return lifecycle["credentials"], lifecycle["check"]
+
+
+def runtime_delivery_recipient_credentials() -> Dict[str, str]:
+    """Return recipient-only credentials used by the public handoff consumer API."""
+
+    return _runtime_delivery_credential_map("CORTEX_AGENT_ACK_CREDENTIALS")
+
+
+def runtime_delivery_verifier_credentials() -> Dict[str, str]:
+    """Return active attestation-only credentials for verifier challenges."""
+
+    return _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
+
+
+def runtime_delivery_verifier_capability_signature(
+    *,
+    verifier: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.verifier_capability.v1",
+        "verifier": str(verifier or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def runtime_delivery_release_observation_signature(
+    *,
+    controller: str,
+    nonce: str,
+    requested_at: str,
+    process_id: str,
+    release_id: str,
+    revision_id: str,
+    target_stage: str,
+    secret: str,
+) -> str:
+    """Authenticate one fresh, completely bound release health observation."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.release_observation.v1",
+        "controller": str(controller or "").strip(),
+        "nonce": str(nonce or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+        "process_id": str(process_id or "").strip(),
+        "release_id": str(release_id or "").strip(),
+        "revision_id": str(revision_id or "").strip(),
+        "target_stage": str(target_stage or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hmac.new(
+        signing_secret.encode("utf-8"), canonical, hashlib.sha256
+    ).hexdigest()
+
+
+def validate_production_delivery_credentials() -> Dict[str, Any]:
+    """Validate all independent production signing authorities before serving."""
+
+    release_artifact_storage_limits()
+    verifier_credentials = _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
+    recipient_credentials = runtime_delivery_recipient_credentials()
+    if not verifier_credentials:
+        raise RuntimeError("production requires release verifier credentials")
+    required_server_credentials = (
+        "CORTEX_WRITE_TOKEN",
+        "CORTEX_ADMIN_TOKEN",
+        "CORTEX_CODEC_ADMIN_TOKEN",
+        "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
+        "NEXUS_ASSURANCE_SIGNING_KEY",
+        "NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY",
+        "NEXUS_OUTCOME_FEEDBACK_TOKEN",
+    )
+    missing_server = [name for name in required_server_credentials if not os.getenv(name, "").strip()]
+    if missing_server:
+        raise RuntimeError("production requires independent server credentials: " + ", ".join(missing_server))
+    missing = [name for name in REQUIRED_RELEASE_HANDOFF_RECIPIENTS if not recipient_credentials.get(name)]
+    if missing:
+        raise RuntimeError("production requires release recipient credentials: " + ", ".join(missing))
+    separation = _credential_separation_check(verifier_credentials, recipient_credentials)
+    if not separation["ok"]:
+        raise RuntimeError(str(separation["error"]))
+    return separation
+
+
+def runtime_delivery_handoff_claim_signature(
+    *,
+    recipient: str,
+    process_id: str,
+    expected_revision_id: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    """Sign one revision-bound handoff claim without transmitting its secret."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.handoff_claim.v1",
+        "recipient": str(recipient or "").strip(),
+        "process_id": str(process_id or "").strip(),
+        "expected_revision_id": str(expected_revision_id or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def runtime_delivery_handoff_discovery_signature(
+    *,
+    recipient: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    """Sign a recipient-scoped claim-next request without controller state."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.handoff_discovery.v1",
+        "recipient": str(recipient or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def runtime_delivery_artifact_fetch_signature(
+    *,
+    recipient: str,
+    process_id: str,
+    release_id: str,
+    revision_id: str,
+    artifact_ref: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    """Bind an artifact read to one authenticated release consumer and revision."""
+
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.artifact_fetch.v1",
+        "recipient": str(recipient or "").strip(),
+        "process_id": str(process_id or "").strip(),
+        "release_id": str(release_id or "").strip(),
+        "revision_id": str(revision_id or "").strip(),
+        "artifact_ref": str(artifact_ref or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def runtime_delivery_manager_rollback_signature(
+    *,
+    process_id: str,
+    release_id: str,
+    revision_id: str,
+    idempotency_key: str,
+    reason: str,
+    request_id: str,
+    requested_at: str,
+    secret: str,
+) -> str:
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    payload = {
+        "version": "cortex.runtime_delivery.manager_rollback.v1",
+        "process_id": str(process_id or "").strip(),
+        "release_id": str(release_id or "").strip(),
+        "revision_id": str(revision_id or "").strip(),
+        "idempotency_key": str(idempotency_key or "").strip(),
+        "reason": str(reason or "").strip(),
+        "request_id": str(request_id or "").strip(),
+        "requested_at": str(requested_at or "").strip(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(signing_secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
+def _probe_runtime_delivery_state_consistency(
+    *,
+    delivery_root: Path,
+    reasoning_processes: Dict[str, Dict[str, Any]],
+    verifier_credentials: Dict[str, str],
+) -> JsonDict:
+    """Validate every release-owned projection from one fail-closed view."""
+
+    release_root = delivery_root / "release_workflow"
+    release_store = ReleaseWorkflowStore(release_root)
+    snapshot_store = ProcessSnapshotStore(delivery_root / "snapshots")
+    shared_state_store = SharedProcessStateStore(delivery_root / "shared_state")
+    loop_store = ProductionBuildLoopStore(delivery_root / "production_build_loop")
+    pending: List[str] = []
+    pending_bootstraps: List[str] = []
+    errors: List[JsonDict] = []
+
+    from cortex_server.runtime.watchers import WatcherRuntimeStore
+
+    invalid_watcher_ids = WatcherRuntimeStore(delivery_root / "watchers.json").invalid_file_watcher_ids()
+    if invalid_watcher_ids:
+        errors.append(
+            {
+                "process_id": None,
+                "check": "watcher_workspace_attestation",
+                "error": "unattested file watchers require safe migration: " + ", ".join(sorted(invalid_watcher_ids)),
+            }
+        )
+
+    # Roadmap execution is an acknowledged production projection too. Validate
+    # every surviving authority, including framed histories and reports, even
+    # when no release workflow has been initialized for that roadmap.
+    from cortex_server.runtime.roadmap_executor import RoadmapExecutionStore
+
+    roadmap_root = delivery_root / "roadmap_executor"
+    roadmap_store = RoadmapExecutionStore(roadmap_root)
+    roadmap_sources: Dict[str, set[str]] = {}
+    for directory, suffix, source in (
+        ("contracts", ".json", "contract"),
+        ("state", ".json", "state"),
+        ("history", ".jsonl", "history"),
+        ("reports", ".jsonl", "reports"),
+    ):
+        for target in (roadmap_root / directory).glob(f"*{suffix}"):
+            roadmap_sources.setdefault(target.name.removesuffix(suffix), set()).add(source)
+    for process_id, sources in sorted(roadmap_sources.items()):
+        try:
+            contract = roadmap_store.load_contract(process_id)
+            state = roadmap_store.load_state(process_id)
+            if contract is None or state is None:
+                raise ValueError(
+                    "roadmap authoritative projection is incomplete: " + ", ".join(sorted(sources))
+                )
+            if contract.process_id != process_id or state.process_id != process_id:
+                raise ValueError("roadmap process identity mismatch")
+            if state.objective_id != contract.objective_id:
+                raise ValueError("roadmap state objective does not match its contract")
+            if state.persistence_revision < 1:
+                raise ValueError("roadmap state lacks a committed persistence revision")
+            read_recoverable_jsonl(roadmap_store._history_target(process_id))
+            roadmap_store.reports(process_id)
+        except (OSError, RuntimeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+            errors.append(
+                {
+                    "process_id": process_id,
+                    "check": "roadmap_projection_integrity",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    for intent_path in sorted(release_root.glob(".*.json.rollback-intent.json")):
+        try:
+            intent = json.loads(intent_path.read_text(encoding="utf-8"))
+            if not isinstance(intent, dict):
+                raise ValueError("rollback intent must be an object")
+            process_id = str(intent.get("process_id") or "").strip()
+            if not process_id:
+                raise ValueError("rollback intent process_id is missing")
+            if intent.get("status") in {"in_progress", "recovery_required"}:
+                pending.append(process_id)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(
+                {
+                    "process_id": None,
+                    "check": "rollback_intent_integrity",
+                    "error": f"{intent_path.name}: {type(exc).__name__}: {exc}",
+                }
+            )
+
+    state_paths = [
+        path
+        for path in sorted(release_root.glob("*.json"))
+        if not path.name.startswith(".")
+    ]
+    release_state_ids = {path.stem for path in state_paths}
+    bootstrap_root = delivery_root / "release_bootstrap_intents"
+    for intent_path in sorted(bootstrap_root.glob("*.json")):
+        try:
+            payload = json.loads(intent_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or payload.get("version") != "cortex.runtime-delivery.release-bootstrap.v1":
+                raise ValueError("bootstrap intent has an invalid schema")
+            process_id = str(payload.get("process_id") or "").strip()
+            if not process_id or not isinstance(payload.get("request"), dict) or not isinstance(payload.get("contract"), dict):
+                raise ValueError("bootstrap intent is incomplete")
+            if str((payload.get("contract") or {}).get("process_id") or "") != process_id:
+                raise ValueError("bootstrap intent contract identity mismatch")
+            pending_bootstraps.append(process_id)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(
+                {
+                    "process_id": None,
+                    "check": "release_bootstrap_intent_integrity",
+                    "error": f"{intent_path.name}: {type(exc).__name__}: {exc}",
+                }
+            )
+    projection_sources = _runtime_delivery_projection_sources(
+        delivery_root,
+        reasoning_processes=reasoning_processes,
+    )
+    release_owned_sources = {
+        "release_history",
+        "rollback_intent",
+        "production_contract",
+        "production_state",
+        "production_history",
+        "production_report",
+        "release_mailbox",
+        "reasoning_runtime_delivery",
+    }
+    for orphan_process_id, sources in sorted(projection_sources.items()):
+        if (
+            orphan_process_id in release_state_ids
+            or orphan_process_id in pending_bootstraps
+            or not (sources & release_owned_sources)
+        ):
+            continue
+        errors.append(
+            {
+                "process_id": orphan_process_id,
+                "check": "release_projection_consistency",
+                "error": (
+                    "release workflow is missing while authoritative projections survive: "
+                    + ", ".join(sorted(sources))
+                ),
+            }
+        )
+    for state_path in state_paths:
+        process_id = state_path.stem
+        try:
+            with release_store.release_transaction(process_id):
+                intent = release_store.load_rollback_intent(process_id)
+                if intent and intent.get("status") in {"in_progress", "recovery_required"}:
+                    raise RuntimeError("rollback intent requires recovery")
+                state = release_store.load(process_id)
+                if state is None:
+                    raise ValueError("release workflow is missing")
+                process_id = state.process_id
+                snapshot = snapshot_store.load(process_id)
+                shared_state = shared_state_store.load(process_id)
+                loop_state = loop_store.load_state(process_id)
+                process = reasoning_processes.get(process_id)
+                missing = [
+                    name
+                    for name, value in (
+                        ("snapshot", snapshot),
+                        ("shared_state", shared_state),
+                        ("production_loop", loop_state),
+                        ("reasoning_process", process),
+                    )
+                    if value is None
+                ]
+                if missing:
+                    raise ValueError("missing authoritative projections: " + ", ".join(missing))
+                assert snapshot is not None and shared_state is not None and loop_state is not None and process is not None
+
+                mismatches: List[str] = []
+                if state.revision_id != shared_state.revision_id:
+                    mismatches.append("release.revision_id != shared_state.revision_id")
+                if loop_state.current_revision_id != shared_state.revision_id:
+                    mismatches.append("loop.current_revision_id != shared_state.revision_id")
+                if loop_state.current_snapshot_id != snapshot.snapshot_id:
+                    mismatches.append("loop.current_snapshot_id != snapshot.snapshot_id")
+                if loop_state.current_stage != state.current_stage:
+                    mismatches.append("loop.current_stage != release.current_stage")
+
+                workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+                metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+                projection = metadata.get("runtime_delivery") if isinstance(metadata.get("runtime_delivery"), dict) else {}
+                expected_projection = {
+                    "release_id": state.release_id,
+                    "release_stage": state.current_stage,
+                    "release_status": state.status,
+                    "shared_state_revision_id": shared_state.revision_id,
+                    "snapshot_id": snapshot.snapshot_id,
+                    "loop_id": loop_state.loop_id,
+                    "loop_status": loop_state.status,
+                    "loop_iteration": loop_state.iteration_count,
+                    "loop_persistence_revision": loop_state.persistence_revision,
+                    "release_persistence_revision": state.persistence_revision,
+                    "snapshot_persistence_revision": snapshot.persistence_revision,
+                }
+                for field, expected in expected_projection.items():
+                    if projection.get(field) != expected:
+                        mismatches.append(f"runtime_delivery.{field} is stale")
+                if metadata.get("release_stage") != state.current_stage:
+                    mismatches.append("workflow.release_stage is stale")
+                if metadata.get("release_status") != state.status:
+                    mismatches.append("workflow.release_status is stale")
+                if metadata.get("delivery_revision_id") != shared_state.revision_id:
+                    mismatches.append("workflow.delivery_revision_id is stale")
+                workflow_policy = dict(((metadata.get("policy") or {}).get("settings") or {}))
+                if workflow_policy != dict(snapshot.runtime_policy or {}):
+                    mismatches.append("workflow policy differs from snapshot.runtime_policy")
+
+                nodes = process.get("nodes") if isinstance(process.get("nodes"), dict) else {}
+                expected_node_statuses = {
+                    **{node_id: "running" for node_id in snapshot.active_steps},
+                    **{node_id: "waiting" for node_id in snapshot.waiting_steps},
+                    **{node_id: "completed" for node_id in snapshot.completed_steps},
+                    **{node_id: "failed" for node_id in snapshot.failed_steps},
+                }
+                for node_id, expected_status in expected_node_statuses.items():
+                    observed_status = str((nodes.get(node_id) or {}).get("status") or "")
+                    if observed_status != expected_status:
+                        mismatches.append(f"reasoning node {node_id} is {observed_status or 'missing'}, expected {expected_status}")
+
+                rollback_transaction_id = str((state.metadata or {}).get("rollback_transaction_id") or "").strip()
+                if rollback_transaction_id:
+                    if str((loop_state.metadata or {}).get("last_rollback_transaction_id") or "") != rollback_transaction_id:
+                        mismatches.append("loop rollback transaction marker is stale")
+                    if str(metadata.get("last_runtime_delivery_rollback_transaction_id") or "") != rollback_transaction_id:
+                        mismatches.append("reasoning rollback transaction marker is stale")
+
+                artifact_store = release_store.artifact_store()
+                active_receipts: Dict[str, ReleaseArtifactReceipt] = {}
+                evidence_revision_id, activation_error = _active_release_evidence_revision(
+                    state,
+                    rollback_transaction_id=rollback_transaction_id,
+                )
+                if activation_error:
+                    mismatches.append(activation_error)
+                for raw_receipt in state.metadata.get("release_artifacts") or []:
+                    receipt = ReleaseArtifactReceipt.model_validate(raw_receipt)
+                    verify_release_artifact_receipt(
+                        receipt,
+                        artifact_store=artifact_store,
+                        verifier_credentials=verifier_credentials,
+                    )
+                    if receipt.release_id == state.release_id and receipt.revision_id == evidence_revision_id:
+                        if receipt.candidate_ref != state.candidate_ref or receipt.validation_outcome != "passed":
+                            mismatches.append(f"active artifact {receipt.artifact_id} has invalid release binding")
+                        else:
+                            active_receipts[receipt.artifact_id] = receipt
+
+                # Draft releases have not crossed an evidence gate yet. Every
+                # promoted stage must retain the immutable, revision-bound
+                # evidence that made that stage admissible. Older valid
+                # receipts remain audit history and are integrity-checked
+                # above, but do not satisfy the active revision's gate.
+                contract = loop_store.load_contract(process_id)
+                if state.current_stage != "draft":
+                    if contract is None:
+                        mismatches.append("production contract is missing")
+                    else:
+                        required_artifacts = _stage_gate_for(contract, state.current_stage).required_artifacts
+                        for artifact_id in required_artifacts:
+                            receipt = active_receipts.get(artifact_id)
+                            if receipt is None:
+                                mismatches.append(f"required active artifact {artifact_id} is missing")
+                            elif (
+                                artifact_id.startswith("artifact_release_bundle:")
+                                and receipt.artifact_kind != "release_bundle"
+                            ) or (
+                                artifact_id.startswith("artifact_smoke_report:")
+                                and receipt.artifact_kind != "smoke_report"
+                            ):
+                                mismatches.append(f"required active artifact {artifact_id} has the wrong kind")
+
+                if mismatches:
+                    raise ValueError("; ".join(mismatches))
+        except (OSError, RuntimeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+            errors.append(
+                {
+                    "process_id": process_id,
+                    "check": "release_projection_consistency",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    pending = sorted(set(pending))
+    pending_bootstraps = sorted(set(pending_bootstraps))
+    for process_id in pending_bootstraps:
+        errors.append(
+            {
+                "process_id": process_id,
+                "check": "release_bootstrap_recovery_pending",
+                "error": "durable release bootstrap intent requires startup recovery",
+            }
+        )
+    for process_id in pending:
+        errors.append(
+            {
+                "process_id": process_id,
+                "check": "rollback_recovery_pending",
+                "error": "rollback intent is in_progress or recovery_required",
+            }
+        )
+    return {
+        "ok": not errors,
+        "releaseCount": len(release_state_ids),
+        "pendingRollbackProcessIds": pending,
+        "pendingBootstrapProcessIds": pending_bootstraps,
+        "inconsistencies": errors,
+        "error": None if not errors else "runtime delivery projections require recovery",
+    }
+
+
+def _active_release_evidence_revision(
+    state: ReleaseWorkflowState,
+    *,
+    rollback_transaction_id: str,
+) -> tuple[str, Optional[str]]:
+    """Resolve a server-sealed rollback's restored artifact revision."""
+
+    if state.status != "rolled_back":
+        return state.revision_id, None
+    activation = (state.metadata or {}).get("rollback_activation")
+    if not isinstance(activation, dict):
+        return state.revision_id, "rollback activation record is missing"
+    fencepost_id = str(activation.get("fencepost_id") or "")
+    activation_fencepost = next(
+        (row for row in state.rollback_fenceposts if row.fencepost_id == fencepost_id),
+        None,
+    )
+    artifact_revision_id = str(activation.get("artifact_revision_id") or "")
+    valid_activation = bool(
+        activation.get("version") == "cortex.release.rollback-activation.v1"
+        and str(activation.get("transaction_id") or "") == rollback_transaction_id
+        and str(activation.get("control_revision_id") or "") == state.revision_id
+        and str(activation.get("stage") or "") == state.current_stage
+        and activation_fencepost is not None
+        and activation_fencepost.stage == state.current_stage
+        and activation_fencepost.shared_state_revision_id == artifact_revision_id
+    )
+    if not valid_activation:
+        return state.revision_id, "rollback activation record does not match its fencepost"
+    return artifact_revision_id, None
+
+
+def _runtime_delivery_projection_sources(
+    delivery_root: Path,
+    *,
+    reasoning_processes: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, set[str]]:
+    """Index the union of durable runtime-delivery authorities by process."""
+
+    sources: Dict[str, set[str]] = {}
+
+    def add(process_id: str, source: str) -> None:
+        normalized = str(process_id or "").strip()
+        if normalized:
+            sources.setdefault(normalized, set()).add(source)
+
+    release_root = delivery_root / "release_workflow"
+    for target in release_root.glob("*.json"):
+        if not target.name.startswith("."):
+            add(target.stem, "release_state")
+    for target in (release_root / "history").glob("*.jsonl"):
+        add(target.stem, "release_history")
+    for target in release_root.glob(".*.json.rollback-intent.json"):
+        name = target.name.removeprefix(".").removesuffix(".json.rollback-intent.json")
+        add(name, "rollback_intent")
+
+    loop_root = delivery_root / "production_build_loop"
+    for directory, suffix, source in (
+        ("contracts", ".json", "production_contract"),
+        ("state", ".json", "production_state"),
+        ("history", ".jsonl", "production_history"),
+        ("reports", ".jsonl", "production_report"),
+    ):
+        for target in (loop_root / directory).glob(f"*{suffix}"):
+            add(target.name.removesuffix(suffix), source)
+
+    for directory, source in (("snapshots", "snapshot"), ("shared_state", "shared_state")):
+        for target in (delivery_root / directory).glob("*.json"):
+            add(target.stem, source)
+
+    mailbox_path = delivery_root / "mailbox.json"
+    if mailbox_path.exists():
+        payload = json.loads(mailbox_path.read_text(encoding="utf-8"))
+        rows = payload if isinstance(payload, list) else payload.get("messages", []) if isinstance(payload, dict) else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            if (
+                "release" in str(row.get("kind") or "").lower()
+                or any(key in metadata for key in ("release_id", "target_stage", "release_stage"))
+            ):
+                add(str(row.get("process_id") or ""), "release_mailbox")
+
+    for process_id, process in (reasoning_processes or {}).items():
+        workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+        projection = metadata.get("runtime_delivery") if isinstance(metadata.get("runtime_delivery"), dict) else {}
+        if projection.get("release_id") or isinstance(metadata.get("production_build_loop"), dict):
+            add(process_id, "reasoning_runtime_delivery")
+    return sources
+
+
+def probe_runtime_delivery_readiness(root: str | Path) -> JsonDict:
+    """Fail closed unless release credentials and the durable delivery mount are usable."""
+
+    checks: Dict[str, Dict[str, Any]] = {}
+    verifier_credentials: Dict[str, str] = {}
+    recipient_credentials: Dict[str, str] = {}
+    try:
+        verifier_credentials = _runtime_delivery_credential_map("CORTEX_RELEASE_VERIFIER_CREDENTIALS")
+        checks["releaseVerifierCredentials"] = {
+            "ok": bool(verifier_credentials),
+            "configuredVerifierCount": len(verifier_credentials),
+            "error": None if verifier_credentials else "no release verifier credentials configured",
+        }
+    except RuntimeError as exc:
+        checks["releaseVerifierCredentials"] = {
+            "ok": False,
+            "configuredVerifierCount": 0,
+            "error": str(exc),
+        }
+
+    try:
+        recipient_credentials = runtime_delivery_recipient_credentials()
+        missing_recipients = [
+            recipient
+            for recipient in REQUIRED_RELEASE_HANDOFF_RECIPIENTS
+            if not recipient_credentials.get(recipient)
+        ]
+        checks["releaseRecipientCredentials"] = {
+            "ok": not missing_recipients,
+            "requiredRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
+            "missingRecipients": missing_recipients,
+            "error": None if not missing_recipients else "required release recipient credentials are missing",
+        }
+
+    except RuntimeError as exc:
+        checks["releaseRecipientCredentials"] = {
+            "ok": False,
+            "requiredRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
+            "missingRecipients": list(REQUIRED_RELEASE_HANDOFF_RECIPIENTS),
+            "error": str(exc),
+        }
+
+    if _production_environment():
+        expected_brain_instance = current_cortex_brain_startup_revision_id()
+        try:
+            checks["credentialSeparation"] = _credential_separation_check(
+                verifier_credentials,
+                recipient_credentials,
+            )
+        except RuntimeError as exc:
+            checks["credentialSeparation"] = {
+                "ok": False,
+                "minimumSecretBytes": MIN_PRODUCTION_SECRET_BYTES,
+                "weakCredentials": [],
+                "reusedCredentialGroups": [],
+                "error": str(exc),
+            }
+
+        consumer_health: Dict[str, Dict[str, Any]] = {}
+        for recipient, variable in (
+            ("release-verifier", "CORTEX_RELEASE_VERIFIER_HEALTH_URL"),
+            ("release-manager", "CORTEX_RELEASE_MANAGER_HEALTH_URL"),
+        ):
+            url = os.getenv(variable, "").strip()
+            error: Optional[str] = None
+            if not url:
+                error = f"{variable} is not configured"
+            else:
+                try:
+                    with urlopen(url, timeout=2.0) as response:
+                        if int(getattr(response, "status", 0) or 0) != 200:
+                            raise RuntimeError(f"consumer health returned HTTP {getattr(response, 'status', 0)}")
+                        encoded = response.read(MAX_RELEASE_CONSUMER_HEALTH_BYTES + 1)
+                    if len(encoded) > MAX_RELEASE_CONSUMER_HEALTH_BYTES:
+                        raise RuntimeError("consumer health response exceeds immutable bound")
+                    payload = json.loads(encoded.decode("utf-8"))
+                    if not isinstance(payload, dict):
+                        raise RuntimeError("consumer health returned a non-object response")
+                    if payload.get("ready") is not True or payload.get("capability_verified") is not True:
+                        raise RuntimeError("consumer has not completed a capability exchange")
+                    if str(payload.get("recipient") or "") != recipient:
+                        raise RuntimeError("consumer health role does not match its required worker")
+                    observed_instance = str(payload.get("cortex_brain_startup_revision_id") or "")
+                    if not hmac.compare_digest(observed_instance, expected_brain_instance):
+                        raise RuntimeError("consumer capability exchange belongs to a different cortex-brain instance")
+                except (
+                    HTTPError,
+                    URLError,
+                    OSError,
+                    RuntimeError,
+                    TimeoutError,
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                ) as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+            consumer_health[recipient] = {
+                "ok": error is None,
+                "url": url or None,
+                "expectedCortexBrainStartupRevisionId": expected_brain_instance,
+                "error": error,
+            }
+        checks["releaseConsumers"] = {
+            "ok": all(row["ok"] for row in consumer_health.values()),
+            "consumers": consumer_health,
+        }
+
+    delivery_root = Path(root)
+    handoff_receipt_root = delivery_root / "handoff_claim_receipts"
+    try:
+        handoff_receipt_retention = min(
+            max(int(os.getenv("CORTEX_HANDOFF_CLAIM_MAX_SKEW_SECONDS", "300")), 30),
+            900,
+        )
+    except ValueError:
+        handoff_receipt_retention = 300
+    try:
+        handoff_receipt_count = sum(1 for _ in handoff_receipt_root.glob("*.json")) if handoff_receipt_root.exists() else 0
+        handoff_receipt_error = None if handoff_receipt_count <= 4096 else "handoff claim receipt capacity exceeded"
+    except OSError as exc:
+        handoff_receipt_count = -1
+        handoff_receipt_error = f"{type(exc).__name__}: {exc}"
+    checks["handoffClaimReceiptCapacity"] = {
+        "ok": handoff_receipt_error is None,
+        "path": str(handoff_receipt_root),
+        "count": handoff_receipt_count,
+        "maximum": 4096,
+        "retentionSeconds": handoff_receipt_retention,
+        "error": handoff_receipt_error,
+    }
+    mount_id = os.getenv("CORTEX_RUNTIME_DELIVERY_MOUNT_ID", "").strip()
+    marker_path = delivery_root / RUNTIME_DELIVERY_MOUNT_MARKER
+    durable_error: Optional[str] = None
+    observed_mount_id: Optional[str] = None
+    try:
+        if not delivery_root.is_absolute():
+            raise RuntimeError("runtime delivery root must be an absolute path")
+        if not mount_id:
+            raise RuntimeError("CORTEX_RUNTIME_DELIVERY_MOUNT_ID is not configured")
+        observed_mount_id = marker_path.read_text(encoding="utf-8").strip()
+        if not hmac.compare_digest(observed_mount_id, mount_id):
+            raise RuntimeError("runtime delivery volume identity mismatch")
+        probe_path = delivery_root / f".cortex-readiness-{os.getpid()}-{uuid4().hex}"
+        try:
+            with probe_path.open("xb") as handle:
+                handle.write(b"runtime-delivery-ready\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            if probe_path.exists():
+                probe_path.unlink()
+        _fsync_directory(delivery_root)
+    except (OSError, RuntimeError) as exc:
+        durable_error = f"{type(exc).__name__}: {exc}"
+    checks["durableRuntimeDeliveryRoot"] = {
+        "ok": durable_error is None,
+        "path": str(delivery_root),
+        "markerPath": str(marker_path),
+        "configuredMountId": mount_id or None,
+        "observedMountId": observed_mount_id,
+        "error": durable_error,
+    }
+    try:
+        capacity = runtime_delivery_capacity(delivery_root)
+        checks["runtimeDeliveryCapacity"] = {
+            **capacity,
+            "error": None if capacity["ok"] else "runtime delivery operational quota exhausted",
+        }
+    except OSError as exc:
+        checks["runtimeDeliveryCapacity"] = {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    if _production_environment():
+        try:
+            if durable_error is not None:
+                raise RuntimeError("durable runtime delivery root is unavailable")
+            verifier_credentials, trust_check = _durable_release_verifier_credentials(
+                delivery_root,
+                verifier_credentials,
+                rotation_intent=_runtime_delivery_verifier_rotation_intent(),
+            )
+            checks["releaseVerifierTrust"] = trust_check
+            checks["historicalCredentialSeparation"] = _credential_separation_check(
+                {
+                    identity: str(record.get("secret") or "")
+                    for identity, record in verifier_credentials.items()
+                    if isinstance(record, dict)
+                },
+                recipient_credentials,
+            )
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            checks["releaseVerifierTrust"] = {
+                "ok": False,
+                "path": str(delivery_root / RELEASE_VERIFIER_TRUST_FILE),
+                "activeVerifierIds": sorted(verifier_credentials),
+                "historicalVerifierIds": [],
+                "trustedVerifierCount": 0,
+                "addedVerifierIds": [],
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            checks["historicalCredentialSeparation"] = {
+                "ok": False,
+                "minimumSecretBytes": MIN_PRODUCTION_SECRET_BYTES,
+                "weakCredentials": [],
+                "reusedCredentialGroups": [],
+                "error": "durable release verifier trust is unavailable",
+            }
+
+        reasoning_path = Path(
+            os.getenv("REASONING_STORE_DB_PATH", "/opt/clawdbot/reasoning/reasoning_runtime.db")
+        )
+        reasoning_mount_id = os.getenv("CORTEX_REASONING_MOUNT_ID", "").strip()
+        reasoning_marker_path = reasoning_path.parent / REASONING_VOLUME_MOUNT_MARKER
+        reasoning_authority_path = reasoning_path.parent / REASONING_AUTHORITY_SENTINEL
+        reasoning_error: Optional[str] = None
+        quick_check: Optional[str] = None
+        missing_process_ids: List[str] = []
+        reasoning_processes: Dict[str, Dict[str, Any]] = {}
+        try:
+            if not reasoning_path.is_absolute():
+                raise RuntimeError("reasoning store path must be absolute")
+            if reasoning_path.parent.is_symlink() or not reasoning_path.parent.is_dir():
+                raise RuntimeError("reasoning store volume is missing or invalid")
+            if not reasoning_mount_id:
+                raise RuntimeError("CORTEX_REASONING_MOUNT_ID is not configured")
+            if reasoning_marker_path.is_symlink() or not reasoning_marker_path.is_file():
+                raise RuntimeError("reasoning store volume marker is missing or invalid")
+            observed_reasoning_mount_id = reasoning_marker_path.read_text(
+                encoding="utf-8"
+            ).strip()
+            if not hmac.compare_digest(observed_reasoning_mount_id, reasoning_mount_id):
+                raise RuntimeError("reasoning store volume identity mismatch")
+            if reasoning_authority_path.is_symlink() or not reasoning_authority_path.is_file():
+                raise RuntimeError("reasoning store authority sentinel is missing or invalid")
+            observed_reasoning_authority = reasoning_authority_path.read_text(
+                encoding="utf-8"
+            ).strip()
+            if not hmac.compare_digest(
+                observed_reasoning_authority,
+                _reasoning_authority_binding(reasoning_mount_id, reasoning_path.name),
+            ):
+                raise RuntimeError("reasoning store authority identity mismatch")
+            if reasoning_path.is_symlink() or not reasoning_path.is_file():
+                raise RuntimeError("reasoning store database is missing or invalid")
+            persisted_release_ids = {
+                process_id
+                for process_id, sources in _runtime_delivery_projection_sources(delivery_root).items()
+                if sources
+                & {
+                    "release_state",
+                    "release_history",
+                    "rollback_intent",
+                    "production_contract",
+                    "production_state",
+                    "production_history",
+                    "production_report",
+                    "release_mailbox",
+                }
+            }
+            release_root = delivery_root / "release_workflow"
+            for state_path in [*release_root.glob("*.json"), *release_root.glob(".*.rollback-intent.json")]:
+                payload = json.loads(state_path.read_text(encoding="utf-8"))
+                process_id = str(payload.get("process_id") or "").strip() if isinstance(payload, dict) else ""
+                if process_id:
+                    persisted_release_ids.add(process_id)
+            with sqlite3.connect(f"file:{reasoning_path}?mode=ro", uri=True, timeout=2.0) as connection:
+                connection.execute("PRAGMA query_only = ON")
+                row = connection.execute("PRAGMA quick_check").fetchone()
+                schema_rows = connection.execute(
+                    "SELECT type, name FROM sqlite_master "
+                    "WHERE (type = 'table' OR type = 'index') AND name IN (?, ?, ?, ?)",
+                    (
+                        "reasoning_documents",
+                        "reasoning_events",
+                        "idx_reasoning_documents_ns_updated",
+                        "idx_reasoning_events_ns_parent_created",
+                    ),
+                ).fetchall()
+                document_columns = {
+                    str(column[1])
+                    for column in connection.execute(
+                        "PRAGMA table_info(reasoning_documents)"
+                    ).fetchall()
+                }
+                event_columns = {
+                    str(column[1])
+                    for column in connection.execute(
+                        "PRAGMA table_info(reasoning_events)"
+                    ).fetchall()
+                }
+                process_rows = connection.execute(
+                    "SELECT doc_id, payload FROM reasoning_documents WHERE namespace = ?",
+                    ("reasoning_processes",),
+                ).fetchall()
+            quick_check = str(row[0] if row else "")
+            if quick_check != "ok":
+                raise RuntimeError(f"reasoning store quick_check failed: {quick_check}")
+            observed_schema = {(str(row[0]), str(row[1])) for row in schema_rows}
+            required_schema = {
+                ("table", "reasoning_documents"),
+                ("table", "reasoning_events"),
+                ("index", "idx_reasoning_documents_ns_updated"),
+                ("index", "idx_reasoning_events_ns_parent_created"),
+            }
+            missing_schema = sorted(
+                name for _item_type, name in required_schema - observed_schema
+            )
+            if missing_schema:
+                raise RuntimeError(
+                    "reasoning store schema is incomplete: " + ", ".join(missing_schema)
+                )
+            required_document_columns = {
+                "namespace", "doc_id", "created_at", "updated_at", "payload"
+            }
+            required_event_columns = {
+                "namespace",
+                "parent_id",
+                "event_id",
+                "created_at",
+                "updated_at",
+                "payload",
+            }
+            if not required_document_columns.issubset(document_columns):
+                raise RuntimeError("reasoning_documents schema is incomplete")
+            if not required_event_columns.issubset(event_columns):
+                raise RuntimeError("reasoning_events schema is incomplete")
+            process_ids = {str(row[0]) for row in process_rows}
+            for row in process_rows:
+                payload = json.loads(str(row[1]))
+                if not isinstance(payload, dict):
+                    raise RuntimeError(f"reasoning process {row[0]} payload is invalid")
+                reasoning_processes[str(row[0])] = payload
+            missing_process_ids = sorted(persisted_release_ids - process_ids)
+            if missing_process_ids:
+                raise RuntimeError(
+                    "persisted release state references missing runtime processes: "
+                    + ", ".join(missing_process_ids)
+                )
+        except (OSError, RuntimeError, sqlite3.Error) as exc:
+            reasoning_error = f"{type(exc).__name__}: {exc}"
+        except (json.JSONDecodeError, ValueError) as exc:
+            reasoning_error = f"{type(exc).__name__}: invalid persisted release state: {exc}"
+        checks["durableReasoningStore"] = {
+            "ok": reasoning_error is None,
+            "path": str(reasoning_path),
+            "markerPath": str(reasoning_marker_path),
+            "authorityPath": str(reasoning_authority_path),
+            "configuredMountId": reasoning_mount_id or None,
+            "quickCheck": quick_check,
+            "missingProcessIds": missing_process_ids,
+            "error": reasoning_error,
+        }
+        try:
+            checks["runtimeDeliveryConsistency"] = _probe_runtime_delivery_state_consistency(
+                delivery_root=delivery_root,
+                reasoning_processes=reasoning_processes,
+                verifier_credentials=verifier_credentials,
+            )
+        except (OSError, RuntimeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+            checks["runtimeDeliveryConsistency"] = {
+                "ok": False,
+                "releaseCount": 0,
+                "pendingRollbackProcessIds": [],
+                "inconsistencies": [],
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+    ready = all(check["ok"] for check in checks.values())
+    return {
+        "status": "ready" if ready else "not_ready",
+        "ready": ready,
+        "service": "cortex-runtime-delivery",
+        "checks": checks,
+    }
+
+
+def _fsync_directory(path: Path) -> None:
+    fsync_directory(path)
+
+
+def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    durable_mkdir(path.parent)
+    encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _read_recoverable_jsonl(path: Path) -> List[Dict[str, Any]]:
+    """Read committed JSONL records, ignoring only a torn final record."""
+
+    if not path.exists():
+        return []
+    encoded = path.read_bytes()
+    lines = encoded.splitlines(keepends=True)
+    rows: List[Dict[str, Any]] = []
+    for index, raw_line in enumerate(lines):
+        complete = raw_line.endswith(b"\n")
+        text = raw_line.strip()
+        if not text:
+            continue
+        try:
+            payload = json.loads(text.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            if index == len(lines) - 1 and not complete:
+                break
+            raise
+        if not isinstance(payload, dict):
+            raise ValueError(f"JSONL record in {path} must be an object")
+        if index == len(lines) - 1 and not complete:
+            # A complete-looking record without its frame delimiter may still
+            # be the prefix of a larger write, so it is not committed.
+            break
+        rows.append(payload)
+    return rows
+
+
+def _append_fsynced_jsonl(path: Path, payload: Dict[str, Any]) -> None:
+    durable_mkdir(path.parent)
+    if path.exists():
+        encoded = path.read_bytes()
+        if encoded and not encoded.endswith(b"\n"):
+            # Validate the committed prefix before discarding only the torn
+            # tail. A corrupt interior record remains a hard error.
+            _read_recoverable_jsonl(path)
+            committed_length = encoded.rfind(b"\n") + 1
+            with path.open("r+b") as handle:
+                handle.truncate(committed_length)
+                handle.flush()
+                os.fsync(handle.fileno())
+    row = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+    with path.open("ab") as handle:
+        handle.write(row)
+        handle.flush()
+        os.fsync(handle.fileno())
+    _fsync_directory(path.parent)
+
+
+def _configured_stage_plan(stages: Sequence[str], *, target_environment: str) -> List[str]:
+    cleaned = [str(stage or "").strip() for stage in (stages or [])]
+    if any(not stage for stage in cleaned):
+        raise ValueError("promotion_stages must not contain empty values")
+    if len(set(cleaned)) != len(cleaned):
+        raise ValueError("promotion_stages must not contain duplicate stages")
+    if "draft" in cleaned:
+        raise ValueError("draft is an initialization stage and cannot appear in promotion_stages")
+
+    target = str(target_environment or "").strip()
+    if target != RELEASE_STAGE_TOPOLOGY[-1]:
+        raise ValueError("ordinary production contracts must target production")
+    mandatory = list(RELEASE_STAGE_TOPOLOGY[1:])
+    if cleaned and cleaned != mandatory:
+        raise ValueError(
+            "promotion_stages must exactly match build_verified -> canary_verified -> production"
+        )
+    return mandatory
 
 
 class ProductionCompletionCriterion(BaseModel):
@@ -132,6 +2079,8 @@ class ProductionPassBudget(BaseModel):
         number = int(value or 0)
         if number <= 0:
             raise ValueError("budget values must be positive")
+        if number > 32:
+            raise ValueError("budget values must not exceed the immutable limit of 32")
         return number
 
     @field_validator("validation_mode")
@@ -199,7 +2148,7 @@ class ProductionBuildContract(BaseModel):
     stage_gates: List[ProductionStageGate] = Field(default_factory=list)
     completion_criteria: List[ProductionCompletionCriterion] = Field(default_factory=list)
     blocker_rules: List[ProductionBlockerRule] = Field(default_factory=list)
-    dependability_profile: str | JsonDict = "24h"
+    dependability_profile: str = "24h"
     controller_scope: str = "production_build_loop"
     controller_lease_seconds: int = 180
     worker_lease_seconds: int = 180
@@ -223,6 +2172,18 @@ class ProductionBuildContract(BaseModel):
             raise ValueError("promotion_stages must not contain empty values")
         return cleaned
 
+    @field_validator("dependability_profile", mode="before")
+    @classmethod
+    def _validate_server_dependability_policy(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("production dependability_profile must be a server-owned policy identifier")
+        policy_id = value.strip().lower()
+        try:
+            build_unattended_profile(policy_id)
+        except KeyError as exc:
+            raise ValueError(f"unknown server-owned production dependability policy: {value}") from exc
+        return policy_id
+
     @field_validator("controller_lease_seconds", "worker_lease_seconds")
     @classmethod
     def _validate_positive(cls, value: int) -> int:
@@ -230,6 +2191,11 @@ class ProductionBuildContract(BaseModel):
         if number <= 0:
             raise ValueError("lease seconds must be positive")
         return number
+
+    @model_validator(mode="after")
+    def _validate_mandatory_stage_topology(self) -> "ProductionBuildContract":
+        _configured_stage_plan(self.promotion_stages, target_environment=self.target_environment)
+        return self
 
 
 class BuildLoopControllerOwner(BaseModel):
@@ -256,6 +2222,7 @@ class ProductionBuildLoopState(BaseModel):
     loop_id: str = Field(default_factory=lambda: f"loop_{uuid4().hex[:16]}")
     contract_id: str
     process_id: str
+    persistence_revision: int = 0
     status: str = "active"
     liveness: str = "live"
     terminal_state: Optional[str] = None
@@ -294,7 +2261,7 @@ class ProductionBuildLoopState(BaseModel):
             raise ValueError("must be non-empty")
         return text
 
-    @field_validator("iteration_count", "checkpoint_count", "recovery_count")
+    @field_validator("persistence_revision", "iteration_count", "checkpoint_count", "recovery_count")
     @classmethod
     def _validate_non_negative(cls, value: int) -> int:
         number = int(value or 0)
@@ -359,12 +2326,50 @@ class ProductionBuildLoopStore:
     def _report_target(self, process_id: str) -> Path:
         return self._root() / "reports" / f"{process_id}.jsonl"
 
+    def _lock_target(self, process_id: str) -> Path:
+        return self._root() / "locks" / f"{process_id}.lock"
+
+    @contextmanager
+    def _locked(self, process_id: str, *, exclusive: bool):
+        target = self._lock_target(process_id)
+        durable_mkdir(target.parent)
+        with target.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def save_contract(self, contract: ProductionBuildContract | Dict[str, Any]) -> ProductionBuildContract:
         record = _contract_validate(contract if isinstance(contract, dict) else _contract_dump(contract))
-        target = self._contract_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_contract_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        return record
+        with self._locked(record.process_id, exclusive=True):
+            target = self._contract_target(record.process_id)
+            current = None
+            if target.exists():
+                current = _contract_validate(json.loads(target.read_text(encoding="utf-8")))
+            if current is not None and current.contract_id != record.contract_id:
+                raise RuntimeError(
+                    "production build contract identity conflict: "
+                    f"stored={current.contract_id}, received={record.contract_id}"
+                )
+            payload = _contract_dump(record)
+            encoded = encoded_json(payload, pretty=True)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                assert_process_count(
+                    self._root(),
+                    record.process_id,
+                    delivery_root=self._root().parent,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=target,
+                )
+                _atomic_write_json(target, payload)
+            return record
 
     def load_contract(self, process_id: str) -> Optional[ProductionBuildContract]:
         target = self._contract_target(process_id)
@@ -374,54 +2379,121 @@ class ProductionBuildLoopStore:
 
     def save_state(self, state: ProductionBuildLoopState | Dict[str, Any]) -> ProductionBuildLoopState:
         record = _state_validate(state if isinstance(state, dict) else _state_dump(state))
-        target = self._state_target(record.process_id)
-        current = self.load_state(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_state_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        history_row = {
-            "ts": _now_iso(),
-            "loop_id": record.loop_id,
-            "contract_id": record.contract_id,
-            "process_id": record.process_id,
-            "status": record.status,
-            "iteration_count": record.iteration_count,
-            "checkpoint_count": record.checkpoint_count,
-            "recovery_count": record.recovery_count,
-            "previous_status": current.status if current else None,
-            "state": _state_dump(record),
-        }
-        history_target = self._history_target(record.process_id)
-        history_target.parent.mkdir(parents=True, exist_ok=True)
-        with history_target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(history_row, sort_keys=True) + "\n")
-        return record
+        with self._locked(record.process_id, exclusive=True):
+            target = self._state_target(record.process_id)
+            current = self._load_state_unlocked(record.process_id)
+            expected_revision = int(record.persistence_revision or 0)
+            if current is None:
+                if expected_revision != 0:
+                    raise RuntimeError("production build loop persistence revision conflict")
+                next_revision = 1
+            else:
+                if current.loop_id != record.loop_id or current.contract_id != record.contract_id:
+                    raise RuntimeError("production build loop identity conflict")
+                if expected_revision != current.persistence_revision:
+                    raise RuntimeError("production build loop persistence revision conflict")
+                next_revision = current.persistence_revision + 1
+            record = _state_validate({**_state_dump(record), "persistence_revision": next_revision})
+            state_payload = _state_dump(record)
+            history_row = {
+                "ts": _now_iso(),
+                "loop_id": record.loop_id,
+                "contract_id": record.contract_id,
+                "process_id": record.process_id,
+                "persistence_revision": record.persistence_revision,
+                "status": record.status,
+                "iteration_count": record.iteration_count,
+                "checkpoint_count": record.checkpoint_count,
+                "recovery_count": record.recovery_count,
+                "previous_status": current.status if current else None,
+                "state": state_payload,
+            }
+            history_target = self._history_target(record.process_id)
+            state_encoded = encoded_json(state_payload, pretty=True)
+            history_encoded = encoded_json(history_row)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                history_payload = bounded_jsonl_payload(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=max(len(state_encoded), len(history_encoded)),
+                    additional_bytes=len(state_encoded) + len(history_payload),
+                    replacements=(
+                        (target, len(state_encoded)),
+                        (history_target, len(history_payload)),
+                    ),
+                )
+                _atomic_write_json(target, state_payload)
+                append_bounded_jsonl(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
+            return record
 
-    def load_state(self, process_id: str) -> Optional[ProductionBuildLoopState]:
+    def _load_state_unlocked(self, process_id: str) -> Optional[ProductionBuildLoopState]:
         target = self._state_target(process_id)
         if not target.exists():
             return None
-        return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+        try:
+            return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError, ValueError):
+            # Pre-hardening direct writes could leave the projection truncated.
+            # Recover the newest committed snapshot from the fsynced history so
+            # durable rollback intent recovery can continue on startup.
+            for row in reversed(_read_recoverable_jsonl(self._history_target(process_id))):
+                state = row.get("state")
+                if not isinstance(state, dict):
+                    continue
+                try:
+                    return _state_validate(state)
+                except (ValidationError, ValueError, TypeError):
+                    continue
+            return None
+
+    def load_state(self, process_id: str) -> Optional[ProductionBuildLoopState]:
+        with self._locked(process_id, exclusive=False):
+            return self._load_state_unlocked(process_id)
 
     def append_report(self, report: ProductionBuildLoopReport | Dict[str, Any]) -> ProductionBuildLoopReport:
         record = _report_validate(report if isinstance(report, dict) else _report_dump(report))
-        target = self._report_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_report_dump(record), sort_keys=True) + "\n")
+        with self._locked(record.process_id, exclusive=True):
+            target = self._report_target(record.process_id)
+            payload = _report_dump(record)
+            encoded = encoded_json(payload)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                report_payload = bounded_jsonl_payload(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(report_payload),
+                    replacements=((target, len(report_payload)),),
+                )
+                append_bounded_jsonl(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
         return record
 
     def reports(self, process_id: str) -> List[ProductionBuildLoopReport]:
         target = self._report_target(process_id)
-        if not target.exists():
-            return []
-        rows: List[ProductionBuildLoopReport] = []
-        with target.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                rows.append(_report_validate(json.loads(text)))
-        return rows
+        return [_report_validate(row) for row in _read_recoverable_jsonl(target)]
 
 
 
@@ -471,6 +2543,14 @@ def _now(now: Optional[datetime] = None) -> datetime:
     return now or datetime.now(timezone.utc)
 
 
+def _promotion_lease_margin_seconds() -> float:
+    try:
+        configured = float(os.getenv("CORTEX_PROMOTION_LEASE_MIN_REMAINING_SECONDS", "1"))
+    except ValueError:
+        configured = 1.0
+    return min(max(configured, 1.0), 60.0)
+
+
 
 def _now_iso(now: Optional[datetime] = None) -> str:
     return _now(now).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -500,6 +2580,16 @@ def _dedupe_rows(rows: Sequence[str]) -> List[str]:
         if text and text not in out:
             out.append(text)
     return out
+
+
+def _persistence_rows_digest(rows: Sequence[Any]) -> str:
+    payload = [
+        row.model_dump() if hasattr(row, "model_dump") else row.dict() if hasattr(row, "dict") else row
+        for row in rows
+    ]
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
 
 
 
@@ -792,6 +2882,7 @@ def _production_next_action(
     next_stage: Optional[str],
     snapshot: Optional[ProcessSnapshot],
     budget_exhausted: bool,
+    release_gate: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     budget_payload = budget.model_dump() if hasattr(budget, "model_dump") else budget.dict()
     if bool(completion.get("all_required_satisfied")) and not blockers:
@@ -821,6 +2912,16 @@ def _production_next_action(
             "budget": budget_payload,
         }
     if next_stage:
+        gate_checks = dict((release_gate or {}).get("checks") or {})
+        if release_gate is not None and not bool(release_gate.get("safe_push")) and not gate_checks.get("handoff_receipts_ok", True):
+            return {
+                "kind": "await_release_approval",
+                "status": "active",
+                "stage": next_stage,
+                "summary": f"Await independent recipient approval for {next_stage}",
+                "pass_index": pass_index,
+                "budget": budget_payload,
+            }
         return {
             "kind": "promote_stage",
             "status": "active",
@@ -880,7 +2981,7 @@ def _production_progress_record(
         "assign_worker_lease",
         "dispatch_resume_handoff",
         "resume_process",
-        "refresh_shared_state_revision",
+        "record_dependability_cycle",
     }
     reasons: List[str] = []
     if previous_state is None:
@@ -993,6 +3094,7 @@ def _checkpoint_from_journal(
     return snapshot_store.save(
         ProcessSnapshot(
             process_id=process_id,
+            persistence_revision=previous.persistence_revision if previous else 0,
             last_event_id=replayed.get("last_event_id"),
             event_count=int(replayed.get("event_count", 0) or 0),
             lifecycle_state=str(replayed.get("lifecycle_state") or "created"),
@@ -1022,12 +3124,10 @@ def _checkpoint_from_journal(
 
 
 def _stage_plan(contract: ProductionBuildContract) -> List[str]:
-    explicit = _dedupe_rows(list(contract.promotion_stages or []))
-    if explicit:
-        if contract.target_environment not in explicit:
-            return explicit + [contract.target_environment]
-        return explicit
-    return _dedupe_rows(["build_verified", "canary_verified", contract.target_environment])
+    return _configured_stage_plan(
+        contract.promotion_stages,
+        target_environment=contract.target_environment,
+    )
 
 
 
@@ -1041,8 +3141,14 @@ def _release_artifact_ids(snapshot: ProcessSnapshot, release_state: Optional[Rel
         str(row.get("artifact_id") or "")
         for row in ((release_state.metadata or {}).get("release_artifacts") or [])
         if isinstance(row, dict)
+        and str(row.get("release_id") or "") == release_state.release_id
+        and str(row.get("candidate_ref") or "") == release_state.candidate_ref
+        and str(row.get("revision_id") or "") == release_state.revision_id
+        and str(row.get("validation_outcome") or "") == "passed"
     ] if release_state else []
-    return _dedupe_rows(list(snapshot.artifact_refs) + release_artifacts)
+    # Snapshot artifact references are operational outputs, not signed release
+    # receipts. They cannot satisfy production release criteria by themselves.
+    return _dedupe_rows(release_artifacts)
 
 
 
@@ -1130,15 +3236,19 @@ def evaluate_production_completion(
 
     required_rows = [row for row in criteria_rows if row.get("required")]
     satisfied_required = [row for row in required_rows if row.get("satisfied")]
+    has_required_criteria = bool(required_rows)
+    all_required_satisfied = has_required_criteria and len(required_rows) == len(satisfied_required)
     return {
         "process_id": contract.process_id,
         "current_stage": current_stage or None,
         "criteria": criteria_rows,
         "required_total": len(required_rows),
         "required_satisfied": len(satisfied_required),
-        "all_required_satisfied": len(required_rows) == len(satisfied_required),
+        "all_required_satisfied": all_required_satisfied,
+        "contract_valid": has_required_criteria,
+        "contract_errors": [] if has_required_criteria else ["at least one required completion criterion is required"],
         "operator_summary": (
-            f"completion {'ready' if len(required_rows) == len(satisfied_required) else 'pending'} for {contract.process_id}: "
+            f"completion {'ready' if all_required_satisfied else 'pending'} for {contract.process_id}: "
             f"{len(satisfied_required)}/{len(required_rows)} required criteria satisfied"
         ),
     }
@@ -1284,8 +3394,7 @@ def _claim_controller(
     now: Optional[datetime] = None,
 ) -> JsonDict:
     scope = f"{contract.controller_scope}:{contract.process_id}"
-    current_time = _now(now)
-    supervisor.reclaim_stale(now=current_time)
+    supervisor.reclaim_stale(process_id=contract.process_id)
 
     stale_scope_leases = [
         row
@@ -1293,9 +3402,6 @@ def _claim_controller(
         if row.scope == scope
     ]
     actions: List[JsonDict] = []
-    for row in stale_scope_leases:
-        resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "controller_takeover"})
-        actions.append({"action": "release_stale_controller", "lease_id": resolved.lease_id})
 
     active_scope_leases = [
         row
@@ -1324,18 +3430,36 @@ def _claim_controller(
             }
         )
     elif lease is None:
-        lease = supervisor.assign(
-            process_id=contract.process_id,
-            scope=scope,
-            agent_id=controller_id,
-            lease_seconds=contract.controller_lease_seconds,
-            metadata={
+        lease_metadata = {
                 "session_id": controller_session_id,
                 "contract_id": contract.contract_id,
                 "objective": contract.objective,
-            },
-        )
-        actions.append({"action": "claim_controller", "lease_id": lease.lease_id})
+        }
+        if stale_scope_leases:
+            stale, lease = supervisor.takeover_stale(
+                stale_scope_leases[0].lease_id,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append(
+                {
+                    "action": "fenced_controller_takeover",
+                    "lease_id": lease.lease_id,
+                    "generation": lease.generation,
+                    "superseded_lease_id": stale.lease_id,
+                }
+            )
+            recovery = True
+        else:
+            lease = supervisor.assign(
+                process_id=contract.process_id,
+                scope=scope,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append({"action": "claim_controller", "lease_id": lease.lease_id, "generation": lease.generation})
         previous_session = str(previous_state.controller.session_id if previous_state and previous_state.controller else "").strip()
         if previous_session and previous_session != controller_session_id:
             recovery = True
@@ -1356,6 +3480,251 @@ def _claim_controller(
 
 
 
+_DEPENDABILITY_CAMPAIGN_CHECKS = {
+    "policy_binding_ok",
+    "campaign_binding_ok",
+    "campaign_timestamps_ok",
+    "campaign_continuity_ok",
+    "elapsed_duration_ok",
+    "campaign_cycles_ok",
+}
+
+
+def _production_dependability_binding(
+    contract: ProductionBuildContract,
+    *,
+    shared_state: SharedProcessState,
+    release_state: Optional[ReleaseWorkflowState],
+) -> JsonDict:
+    binding: JsonDict = {
+        "contract_id": contract.contract_id,
+        "revision_id": shared_state.revision_id,
+    }
+    if release_state is not None:
+        binding.update(
+            {
+                "release_id": release_state.release_id,
+                "candidate_ref": release_state.candidate_ref,
+                "revision_id": release_state.revision_id,
+            }
+        )
+    return binding
+
+
+def _advance_production_dependability_campaign(
+    contract: ProductionBuildContract,
+    *,
+    existing: Optional[JsonDict],
+    binding: JsonDict,
+    preliminary_report: JsonDict,
+    snapshot: ProcessSnapshot,
+    now: Optional[datetime] = None,
+) -> tuple[JsonDict, List[JsonDict]]:
+    """Record at most one genuine, scheduled observation cycle per server pass."""
+
+    # `now` also drives deterministic watchdog/reconciliation behavior and can
+    # originate in an operator request. It must never timestamp release soak
+    # evidence; only the server clock may do that.
+    current = _dependability_server_now()
+    if current.tzinfo is None:
+        raise ValueError("dependability campaign server time must be timezone-aware")
+    current_monotonic = float(_dependability_server_monotonic())
+    current_boot_id = _dependability_server_boot_id()
+    if not math.isfinite(current_monotonic) or current_monotonic < 0:
+        raise RuntimeError("dependability campaign monotonic clock is invalid")
+    current_iso = _now_iso(current)
+    profile_spec = build_unattended_profile(contract.dependability_profile)
+    policy_digest = unattended_profile_digest(contract.dependability_profile)
+    expected = {
+        "process_id": contract.process_id,
+        "policy_id": contract.dependability_profile,
+        "policy_digest": policy_digest,
+        **dict(binding),
+    }
+    campaign = dict(existing or {})
+    actions: List[JsonDict] = []
+    binding_matches = (
+        bool(campaign)
+        and campaign.get("schema_version") == DEPENDABILITY_CAMPAIGN_SCHEMA
+        and all(
+            str(campaign.get(key) or "") == str(value or "")
+            for key, value in expected.items()
+        )
+    )
+    static_healthy = all(
+        bool(value)
+        for name, value in dict(preliminary_report.get("checks") or {}).items()
+        if name not in _DEPENDABILITY_CAMPAIGN_CHECKS
+    )
+    existing_receipts = list(campaign.get("cycle_receipts") or []) if isinstance(campaign.get("cycle_receipts"), list) else []
+    continuity_reason: Optional[str] = None
+    continuity_ok = False
+    if binding_matches:
+        try:
+            started_at = datetime.fromisoformat(
+                str(campaign["started_at"]).replace("Z", "+00:00")
+            )
+            previous_end = datetime.fromisoformat(
+                str(campaign["observation_end_at"]).replace("Z", "+00:00")
+            )
+            started_monotonic = float(campaign["started_monotonic"])
+            previous_end_monotonic = float(campaign["observation_end_monotonic"])
+            if started_at.tzinfo is None or previous_end.tzinfo is None:
+                raise ValueError
+            monotonic_delta = current_monotonic - previous_end_monotonic
+            wall_delta = (current - previous_end).total_seconds()
+            total_monotonic = current_monotonic - started_monotonic
+            total_wall = (current - started_at).total_seconds()
+            if str(campaign.get("boot_id") or "") != current_boot_id:
+                continuity_reason = "boot_identity_changed"
+            elif (
+                not all(
+                    math.isfinite(value)
+                    for value in (
+                        started_monotonic,
+                        previous_end_monotonic,
+                        monotonic_delta,
+                        total_monotonic,
+                    )
+                )
+                or started_monotonic < 0
+                or previous_end_monotonic < started_monotonic
+                or monotonic_delta < 0
+                or total_monotonic < 0
+                or wall_delta < 0
+                or total_wall < 0
+            ):
+                continuity_reason = "monotonic_discontinuity"
+            elif (
+                abs(wall_delta - monotonic_delta)
+                > _dependability_clock_divergence_seconds()
+                or abs(total_wall - total_monotonic)
+                > _dependability_clock_divergence_seconds()
+            ):
+                continuity_reason = "wall_clock_divergence"
+            else:
+                continuity_ok = True
+        except (KeyError, TypeError, ValueError):
+            continuity_reason = "monotonic_evidence_invalid"
+
+    campaign_complete = (
+        binding_matches
+        and continuity_ok
+        and len(existing_receipts) >= int(profile_spec["campaign_cycles"])
+    )
+    recovered_from_unhealthy = bool(
+        binding_matches
+        and static_healthy
+        and not campaign_complete
+        and str(campaign.get("observation_status") or "") != "healthy"
+    )
+    if (
+        not binding_matches
+        or not continuity_ok
+        or (not static_healthy and not campaign_complete)
+        or recovered_from_unhealthy
+    ):
+        previous_campaign_id = str(campaign.get("campaign_id") or "") or None
+        campaign = {
+            "schema_version": DEPENDABILITY_CAMPAIGN_SCHEMA,
+            "campaign_id": f"depcamp_{uuid4().hex[:20]}",
+            **expected,
+            "boot_id": current_boot_id,
+            "started_at": current_iso,
+            "started_monotonic": current_monotonic,
+            "observation_end_at": current_iso,
+            "observation_end_monotonic": current_monotonic,
+            "observation_status": "healthy" if static_healthy else "unhealthy",
+            "cycle_receipts": [],
+        }
+        actions.append(
+            {
+                "action": "start_dependability_campaign",
+                "campaign_id": campaign["campaign_id"],
+                "replaced_campaign_id": previous_campaign_id,
+                "reason": (
+                    "release_binding_changed"
+                    if not binding_matches and existing
+                    else continuity_reason
+                    if continuity_reason
+                    else "static_dependability_recovered"
+                    if recovered_from_unhealthy
+                    else "static_dependability_not_ready"
+                    if not static_healthy
+                    else "initial_campaign"
+                ),
+            }
+        )
+        if not static_healthy:
+            return campaign, actions
+
+    if not static_healthy:
+        # A completed campaign is immutable historical evidence. A transient
+        # current-health failure still blocks the report, but cannot erase the
+        # genuine elapsed duration and cycle receipts already observed.
+        return campaign, actions
+
+    if campaign_complete:
+        return campaign, actions
+
+    campaign["observation_end_at"] = current_iso
+    campaign["observation_end_monotonic"] = current_monotonic
+    receipts = [dict(row) for row in list(campaign.get("cycle_receipts") or []) if isinstance(row, dict)]
+    elapsed_seconds = max(
+        0.0, current_monotonic - float(campaign["started_monotonic"])
+    )
+    required_cycles = int(profile_spec["campaign_cycles"])
+    duration_seconds = float(profile_spec["intended_duration_hours"]) * 3600.0
+    interval_seconds = duration_seconds / required_cycles
+    current_slot = min(required_cycles, int(elapsed_seconds // interval_seconds)) if interval_seconds > 0 else required_cycles
+    next_cycle = len(receipts) + 1
+    if next_cycle <= required_cycles and current_slot > next_cycle:
+        previous_campaign_id = str(campaign["campaign_id"])
+        campaign = {
+            "schema_version": DEPENDABILITY_CAMPAIGN_SCHEMA,
+            "campaign_id": f"depcamp_{uuid4().hex[:20]}",
+            **expected,
+            "boot_id": current_boot_id,
+            "started_at": current_iso,
+            "started_monotonic": current_monotonic,
+            "observation_end_at": current_iso,
+            "observation_end_monotonic": current_monotonic,
+            "observation_status": "healthy",
+            "cycle_receipts": [],
+        }
+        actions.append(
+            {
+                "action": "start_dependability_campaign",
+                "campaign_id": campaign["campaign_id"],
+                "replaced_campaign_id": previous_campaign_id,
+                "reason": "missed_observation_window",
+            }
+        )
+        return campaign, actions
+    if next_cycle <= required_cycles and current_slot == next_cycle:
+        receipt = {
+            "receipt_id": f"depcycle_{uuid4().hex[:20]}",
+            "campaign_id": campaign["campaign_id"],
+            "cycle_number": next_cycle,
+            "boot_id": current_boot_id,
+            "observed_at": current_iso,
+            "observed_monotonic": current_monotonic,
+            "snapshot_id": snapshot.snapshot_id,
+            **expected,
+        }
+        receipts.append(receipt)
+        campaign["cycle_receipts"] = receipts
+        actions.append(
+            {
+                "action": "record_dependability_cycle",
+                "campaign_id": campaign["campaign_id"],
+                "receipt_id": receipt["receipt_id"],
+                "cycle_number": next_cycle,
+            }
+        )
+    return campaign, actions
+
+
 def repair_production_dependability(
     contract: ProductionBuildContract,
     *,
@@ -1365,8 +3734,11 @@ def repair_production_dependability(
     mailbox: AgentMailbox,
     supervisor: AgentSupervisor,
     controller_id: str,
+    campaign_evidence: Optional[JsonDict] = None,
+    evidence_binding: Optional[JsonDict] = None,
     now: Optional[datetime] = None,
 ) -> JsonDict:
+    effective_now = _dependability_server_now() if isinstance(contract, ProductionBuildContract) else now
     before = load_dependability_report(
         process_id=contract.process_id,
         snapshot_store=snapshot_store,
@@ -1375,7 +3747,9 @@ def repair_production_dependability(
         mailbox=mailbox,
         supervisor=supervisor,
         profile=contract.dependability_profile,
-        now=now,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=evidence_binding,
+        now=effective_now,
     )
     actions_taken: List[JsonDict] = []
     if before.get("success"):
@@ -1387,26 +3761,26 @@ def repair_production_dependability(
             "success": True,
         }
 
-    current_time = _now(now)
     plan = compile_dependability_repair_plan(before)
     shared_state = shared_state_store.load(contract.process_id)
     current_revision_id = shared_state.revision_id if shared_state else None
 
-    reclaimed = supervisor.reclaim_stale(now=current_time)
+    reclaimed = supervisor.reclaim_stale(process_id=contract.process_id)
     if reclaimed:
         actions_taken.append({"action": "reclaim_stale", "lease_ids": [row.lease_id for row in reclaimed if row.process_id == contract.process_id]})
 
     stale_leases = supervisor.list(process_id=contract.process_id, status="stale")
     if stale_leases:
-        resolved_ids: List[str] = []
-        for row in stale_leases:
-            resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "production_dependability_repair"})
-            resolved_ids.append(resolved.lease_id)
-        actions_taken.append({"action": "resolve_stale_leases", "lease_ids": resolved_ids})
+        actions_taken.append(
+            {
+                "action": "stale_leases_require_fenced_takeover",
+                "lease_ids": [row.lease_id for row in stale_leases],
+                "blocking": True,
+            }
+        )
 
     dead_letters = mailbox.list(process_id=contract.process_id, delivery_statuses=["dead_letter"])
     recovered_ids: List[str] = []
-    acked_ids: List[str] = []
     for row in dead_letters:
         recovered = mailbox.recover_dead_letter(
             row.message_id,
@@ -1414,19 +3788,8 @@ def repair_production_dependability(
             recovery_reason="production_loop_revision_realign",
         )
         recovered_ids.append(recovered.message_id)
-        accepted = mailbox.receive(
-            to_agent=recovered.to_agent,
-            process_id=contract.process_id,
-            include_inflight=True,
-            expected_revision_id=current_revision_id,
-            reject_stale_revision=True,
-        )
-        for accepted_row in accepted:
-            if accepted_row.message_id == recovered.message_id:
-                mailbox.acknowledge(accepted_row.message_id)
-                acked_ids.append(accepted_row.message_id)
     if recovered_ids:
-        actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "acked_ids": acked_ids})
+        actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "recipient_ack_required": True})
 
     if any(check in before.get("failing_checks", []) for check in ["checkpoint_freshness_ok", "snapshot_event_gap_ok", "replay_matches_snapshot"]):
         checkpoint = _checkpoint_from_journal(
@@ -1441,30 +3804,39 @@ def repair_production_dependability(
 
     snapshot = snapshot_store.load(contract.process_id)
     shared_state = shared_state_store.load(contract.process_id)
-    if snapshot and shared_state and any(check in before.get("failing_checks", []) for check in ["revision_history_ok", "revision_head_ok", "replay_matches_shared_state"]):
+    parity_failures = {"revision_head_ok", "replay_matches_shared_state"}.intersection(before.get("failing_checks", []))
+    if snapshot and shared_state and parity_failures:
         history_count = len(shared_state_store.history(contract.process_id)) + 1
-        refreshed_revision = f"{shared_state.revision_id}.repair{history_count}"
         refreshed = shared_state_store.save(
             SharedProcessState(
                 process_id=contract.process_id,
-                revision_id=refreshed_revision,
+                revision_id=f"{shared_state.revision_id}.parity{history_count}",
                 goals=list(shared_state.goals),
                 active_plan_node_ids=list(snapshot.active_steps or snapshot.waiting_steps or shared_state.active_plan_node_ids),
                 open_decisions=list(shared_state.open_decisions),
-                runtime_constraints={**dict(shared_state.runtime_constraints), "production_dependability_repaired": True},
-                world_state={**dict(shared_state.world_state), **dict(snapshot.world_state), "production_dependability_repaired": True},
+                runtime_constraints=dict(shared_state.runtime_constraints),
+                world_state={**dict(shared_state.world_state), **dict(snapshot.world_state)},
                 belief_refs=_dedupe_rows(list(shared_state.belief_refs) + list(snapshot.belief_refs)),
                 open_questions=list(shared_state.open_questions),
                 agent_ownership={**dict(shared_state.agent_ownership), **dict(snapshot.assigned_agents)},
                 operator_overrides=dict(shared_state.operator_overrides),
-                metadata={**dict(shared_state.metadata), "production_dependability_repaired": True, "repair_actor": controller_id},
+                metadata={**dict(shared_state.metadata), "parity_reconciled_by": controller_id},
             ),
             expected_revision_id=shared_state.revision_id,
             actor=controller_id,
-            provenance={"scenario": "production_build_loop", "action": "refresh_shared_state_revision"},
+            provenance={
+                "scenario": "production_build_loop",
+                "action": "reconcile_shared_state_parity",
+                "failing_checks": sorted(parity_failures),
+            },
         )
-        current_revision_id = refreshed.revision_id
-        actions_taken.append({"action": "refresh_shared_state_revision", "revision_id": refreshed.revision_id})
+        actions_taken.append(
+            {
+                "action": "reconcile_shared_state_parity",
+                "revision_id": refreshed.revision_id,
+                "failing_checks": sorted(parity_failures),
+            }
+        )
 
     after = load_dependability_report(
         process_id=contract.process_id,
@@ -1474,7 +3846,9 @@ def repair_production_dependability(
         mailbox=mailbox,
         supervisor=supervisor,
         profile=contract.dependability_profile,
-        now=now,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=evidence_binding,
+        now=effective_now,
     )
     return {
         "before": before,
@@ -1524,7 +3898,24 @@ def recover_production_worker(
         for row in supervisor.list(process_id=contract.process_id, status="active")
         if row.scope == node_id
     ]
+    stale_scope_leases = [
+        row
+        for row in supervisor.list(process_id=contract.process_id, status="stale")
+        if row.scope == node_id
+    ]
     if not active_scope_leases:
+        if stale_scope_leases:
+            return {
+                "recovered": False,
+                "actions_taken": [
+                    {
+                        "action": "worker_requires_fenced_takeover",
+                        "node_id": node_id,
+                        "lease_ids": [row.lease_id for row in stale_scope_leases],
+                        "blocking": True,
+                    }
+                ],
+            }
         lease = supervisor.assign(
             process_id=contract.process_id,
             scope=node_id,
@@ -1547,17 +3938,15 @@ def recover_production_worker(
             "objective": contract.objective,
             "node_id": node_id,
             "loop_scope": contract.controller_scope,
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
+        },
+        metadata={
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
+            "lease_scope": lease.scope,
         },
     )
-    accepted = mailbox.receive(
-        to_agent=agent_id,
-        process_id=contract.process_id,
-        include_inflight=True,
-        expected_revision_id=shared_state.revision_id,
-        reject_stale_revision=True,
-    )
-    if any(row.message_id == handoff.message_id for row in accepted):
-        mailbox.acknowledge(handoff.message_id)
     actions_taken.append({"action": "dispatch_resume_handoff", "message_id": handoff.message_id, "agent_id": agent_id})
 
     if snapshot.lifecycle_state in {"waiting", "blocked", "created", "rolled_back"}:
@@ -1601,10 +3990,234 @@ def recover_production_worker(
 
 
 def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> ProductionStageGate:
-    for gate in contract.stage_gates:
-        if gate.stage == stage:
-            return gate
-    return ProductionStageGate(stage=stage)
+    plan = _stage_plan(contract)
+    stage_index = plan.index(stage) if stage in plan else 0
+    prior_stages = plan[:stage_index]
+    if stage == "canary_verified":
+        prior_stages = _dedupe_rows(["build_verified"] + prior_stages)
+    if stage == contract.target_environment:
+        prior_stages = _dedupe_rows(["build_verified", "canary_verified"] + prior_stages)
+    release_bundle = f"artifact_release_bundle:{contract.process_id}"
+    smoke_report = f"artifact_smoke_report:{contract.process_id}"
+    is_target = stage == contract.target_environment
+    requires_independent_handoff = bool(
+        stage_index > 0 or stage in {"canary_verified", contract.target_environment}
+    )
+    recipient = "release-manager" if is_target else "release-verifier"
+    mandatory = ProductionStageGate(
+        stage=stage,
+        required_fencepost_stages=prior_stages,
+        required_artifacts=[release_bundle] + ([smoke_report] if is_target else []),
+        required_handoff_count=1 if requires_independent_handoff else 0,
+        allowed_lifecycle_states=["waiting", "completed"] if requires_independent_handoff else ["waiting", "running", "completed"],
+        require_dependability=True,
+        metadata={
+            "default_evidence_gate": True,
+            **(
+                {
+                    "handoff": {
+                        "to_agent": recipient,
+                        "scope": f"release:{stage}",
+                        "expected_output": f"Acknowledge revision-bound verification evidence for {stage}",
+                        "relevant_artifact_ids": [release_bundle] + ([smoke_report] if is_target else []),
+                    }
+                }
+                if requires_independent_handoff
+                else {}
+            ),
+        },
+    )
+    configured = next((gate for gate in contract.stage_gates if gate.stage == stage), None)
+    if configured is None:
+        return mandatory
+    mandatory_handoff = dict(mandatory.metadata.get("handoff") or {})
+    configured_handoff = dict(configured.metadata.get("handoff") or {})
+    metadata = {**dict(configured.metadata), **dict(mandatory.metadata)}
+    if mandatory_handoff:
+        metadata["handoff"] = {
+            **mandatory_handoff,
+            **configured_handoff,
+            "to_agent": mandatory_handoff["to_agent"],
+        }
+    allowed_lifecycle = [
+        value for value in mandatory.allowed_lifecycle_states
+        if value in set(configured.allowed_lifecycle_states)
+    ]
+    return ProductionStageGate(
+        stage=stage,
+        required_fencepost_stages=_dedupe_rows(
+            list(mandatory.required_fencepost_stages) + list(configured.required_fencepost_stages)
+        ),
+        required_artifacts=_dedupe_rows(
+            list(mandatory.required_artifacts) + list(configured.required_artifacts)
+        ),
+        required_handoff_count=max(mandatory.required_handoff_count, configured.required_handoff_count),
+        allowed_active_agents=_dedupe_rows(list(configured.allowed_active_agents)),
+        allowed_lifecycle_states=allowed_lifecycle or list(mandatory.allowed_lifecycle_states),
+        require_dependability=True,
+        metadata=metadata,
+    )
+
+
+def ingest_production_release_artifact(
+    *,
+    release_store: ReleaseWorkflowStore,
+    process_id: str,
+    artifact_id: str,
+    payload: Any,
+    artifact_kind: str,
+    producer: str,
+    verifier: str,
+    attestation_signature: str,
+    validation_outcome: str = "passed",
+    target_stage: Optional[str] = None,
+    claims: Optional[Dict[str, Any]] = None,
+    created_at: Optional[str] = None,
+) -> JsonDict:
+    """Ingest an externally verified output without trusting its claimed hash."""
+
+    limits = release_artifact_storage_limits()
+    encoded, content_hash = prepare_release_artifact(
+        payload,
+        max_bytes=limits.max_artifact_bytes,
+    )
+    release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
+    preflight_state = release_store.load(process_id)
+    if preflight_state is None:
+        raise KeyError(f"release workflow not found: {process_id}")
+    receipt_created_at = str(created_at or _now_iso())
+
+    def _receipt_for_state(state: ReleaseWorkflowState) -> ReleaseArtifactReceipt:
+        return ReleaseArtifactReceipt(
+            artifact_id=artifact_id,
+            artifact_ref=content_hash,
+            content_hash=content_hash,
+            artifact_kind=artifact_kind,
+            target_stage=target_stage,
+            candidate_ref=state.candidate_ref,
+            release_id=state.release_id,
+            revision_id=state.revision_id,
+            producer=producer,
+            verifier=verifier,
+            validation_outcome=validation_outcome,
+            claims=dict(claims or {}),
+            created_at=receipt_created_at,
+            attestation_signature=attestation_signature,
+        )
+
+    active_credentials = _runtime_delivery_credential_map(
+        "CORTEX_RELEASE_VERIFIER_CREDENTIALS"
+    )
+    # Authenticate the supplied bytes without assigning server acceptance.
+    # Durable activation and the acceptance ordinal are serialized below.
+    verify_release_artifact_receipt_payload(
+        _receipt_for_state(preflight_state),
+        encoded=encoded,
+        verifier_credentials=active_credentials,
+        require_current_verifier=True,
+    )
+    delivery_root = release_store.path.parent.resolve()
+    with _release_verifier_lifecycle_transaction(
+        delivery_root,
+        active_credentials,
+        rotation_intent=_runtime_delivery_verifier_rotation_intent(),
+    ) as lifecycle:
+        with release_store.release_transaction(process_id):
+            release_store.assert_mutation_allowed(process_id, operation="release artifact ingestion")
+            state = release_store.load(process_id)
+            if state is None:
+                raise KeyError(f"release workflow not found: {process_id}")
+            artifact_store = release_store.artifact_store()
+            artifact_ref = content_hash
+            receipt = _receipt_for_state(state)
+            receipt_identity = (state.release_id, state.revision_id, artifact_id)
+            existing_receipt = next(
+                (
+                    row
+                    for row in list((state.metadata or {}).get("release_artifacts") or [])
+                    if isinstance(row, dict)
+                    and (
+                        str(row.get("release_id") or ""),
+                        str(row.get("revision_id") or ""),
+                        str(row.get("artifact_id") or ""),
+                    ) == receipt_identity
+                ),
+                None,
+            )
+            acceptance_generation = (
+                None
+                if existing_receipt is not None
+                else lifecycle["allocate_acceptance_generation"](verifier)
+            )
+            updated = record_release_artifact_receipt(
+                state,
+                receipt,
+                encoded_artifact=encoded,
+                verifier_credentials=lifecycle["credentials"],
+                server_acceptance_generation=acceptance_generation,
+            )
+            receipt = ReleaseArtifactReceipt.model_validate(
+                next(
+                    row
+                    for row in updated.metadata["release_artifacts"]
+                    if (
+                        str(row.get("release_id") or ""),
+                        str(row.get("revision_id") or ""),
+                        str(row.get("artifact_id") or ""),
+                    ) == receipt_identity
+                )
+            )
+            current_refs = [
+                str(row.get("artifact_ref") or "")
+                for row in list((state.metadata or {}).get("release_artifacts") or [])
+                if isinstance(row, dict)
+            ]
+            with artifact_store.publication_transaction():
+                artifact_store.prune_orphans(
+                    release_store.referenced_artifact_refs(),
+                    grace_seconds=limits.orphan_grace_seconds,
+                )
+                artifact_store.assert_release_capacity(
+                    current_refs,
+                    content_hash=content_hash,
+                    encoded_size=len(encoded),
+                    release_quota_bytes=limits.release_quota_bytes,
+                )
+                artifact_ref, content_hash, created = artifact_store.publish_prepared(
+                    encoded,
+                    content_hash,
+                    store_quota_bytes=limits.store_quota_bytes,
+                )
+                try:
+                    persisted = release_store.save(
+                        updated,
+                        actor=verifier,
+                        provenance={
+                            "scenario": "production_artifact_ingestion",
+                            "artifact_id": artifact_id,
+                            "content_hash": content_hash,
+                            "verifier": verifier,
+                            "verifier_acceptance_generation": receipt.acceptance_generation,
+                        },
+                    )
+                except BaseException:
+                    try:
+                        durable_refs = release_store.referenced_artifact_refs()
+                    except Exception:
+                        # Reference enumeration is authoritative only when it
+                        # completes. A pending save intent may already make this
+                        # artifact restart-recoverable, so uncertainty retains
+                        # it for later recovery/orphan pruning.
+                        durable_refs = None
+                    if created and durable_refs is not None and artifact_ref not in durable_refs:
+                        artifact_store.remove_publication(artifact_ref)
+                    raise
+    return {
+        "state": persisted,
+        "receipt": receipt,
+        "artifact_ref": artifact_ref,
+        "content_hash": content_hash,
+    }
 
 
 
@@ -1638,7 +4251,14 @@ def _maybe_dispatch_release_handoff(
         return {"state": release_state, "actions_taken": []}
 
     required_handoffs = max(1, int(gate_spec.required_handoff_count or 0))
-    stage_records = [row for row in release_state.handoff_records if str(row.get("stage") or "").strip() == next_stage]
+    stage_records = [
+        row
+        for row in release_state.handoff_records
+        if str(row.get("stage") or "").strip() == next_stage
+        and str(row.get("revision_id") or "").strip() == shared_state.revision_id
+        and str(row.get("release_id") or "").strip() == release_state.release_id
+        and str(row.get("candidate_ref") or "").strip() == release_state.candidate_ref
+    ]
     acked_count = sum(1 for row in stage_records if str(row.get("delivery_status") or "") == "acked")
     if acked_count >= required_handoffs:
         return {"state": release_state, "actions_taken": []}
@@ -1648,10 +4268,16 @@ def _maybe_dispatch_release_handoff(
     scope = str(handoff_config.get("scope") or f"release:{release_state.current_stage or 'draft'}:{next_stage}").strip()
     objective = str(handoff_config.get("objective") or f"Promote release candidate from {release_state.current_stage} to {next_stage}").strip()
     expected_output = str(handoff_config.get("expected_output") or f"Return an ack and readiness evidence for {next_stage}").strip()
-    dedupe_key = str(
-        handoff_config.get("dedupe_key")
-        or f"release-stage:{release_state.process_id}:{release_state.release_id}:{release_state.current_stage}:{next_stage}:{shared_state.revision_id}"
-    ).strip()
+    configured_dedupe = str(handoff_config.get("dedupe_key") or "").strip()
+    server_dedupe = (
+        f"release-stage:{release_state.process_id}:{release_state.release_id}:"
+        f"{release_state.current_stage}:{next_stage}:{shared_state.revision_id}"
+    )
+    dedupe_key = (
+        f"{server_dedupe}:namespace:{hashlib.sha256(configured_dedupe.encode('utf-8')).hexdigest()[:16]}"
+        if configured_dedupe
+        else server_dedupe
+    )
     lease_seconds = max(1, int(handoff_config.get("lease_seconds", 300) or 300))
 
     actions_taken: List[JsonDict] = []
@@ -1709,28 +4335,36 @@ def _maybe_dispatch_release_handoff(
             "expected_output": handoff.expected_output,
             "open_questions": list(handoff.open_questions or []),
             "assumptions": list(handoff.assumptions or []),
+            "relevant_artifacts": [
+                row.model_dump() if hasattr(row, "model_dump") else row.dict()
+                for row in handoff.relevant_artifacts
+            ],
+            "relevant_evidence": [
+                row.model_dump() if hasattr(row, "model_dump") else row.dict()
+                for row in handoff.relevant_evidence
+            ],
+            "artifact_receipts": [
+                dict(row)
+                for row in (release_state.metadata.get("release_artifacts") or [])
+                if isinstance(row, dict)
+                and str(row.get("release_id") or "") == release_state.release_id
+                and str(row.get("revision_id") or "") == release_state.revision_id
+            ],
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
         },
         metadata={
             "release_id": release_state.release_id,
+            "candidate_ref": release_state.candidate_ref,
             "transition": f"{release_state.current_stage}->{next_stage}",
             "target_stage": next_stage,
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.generation,
+            "lease_scope": lease.scope,
         },
     )
     release_state = record_release_handoff(release_state, message, stage=next_stage, notes="auto-dispatched by production build loop")
     actions_taken.append({"action": "dispatch_release_handoff", "message_id": message.message_id, "target_stage": next_stage, "to_agent": to_agent})
-
-    accepted = mailbox.receive(
-        to_agent=to_agent,
-        process_id=release_state.process_id,
-        include_inflight=True,
-        expected_revision_id=shared_state.revision_id,
-        reject_stale_revision=True,
-    )
-    accepted_map = {row.message_id: row for row in accepted}
-    if message.message_id in accepted_map:
-        acked = mailbox.acknowledge(message.message_id)
-        release_state = record_release_handoff(release_state, acked, stage=next_stage, notes="auto-acked by production build loop")
-        actions_taken.append({"action": "ack_release_handoff", "message_id": acked.message_id, "target_stage": next_stage, "to_agent": to_agent})
 
     return {"state": release_state, "actions_taken": actions_taken}
 
@@ -1746,6 +4380,8 @@ def advance_production_release_loop(
     mailbox: AgentMailbox,
     supervisor: AgentSupervisor,
     release_store: ReleaseWorkflowStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
     controller_id: str,
     budget: Optional[ProductionPassBudget] = None,
 ) -> JsonDict:
@@ -1758,13 +4394,59 @@ def advance_production_release_loop(
     last_gate: Optional[JsonDict] = None
     stage_advances = 0
     stage_advance_limit = max(1, int((budget.max_stage_advances_per_pass if budget is not None else 1) or 1))
+    artifact_store = release_store.artifact_store()
+    verifier_credentials: Optional[Dict[str, Any]] = None
+    if _production_environment():
+        active_verifier_credentials = _runtime_delivery_credential_map(
+            "CORTEX_RELEASE_VERIFIER_CREDENTIALS"
+        )
+        if not active_verifier_credentials:
+            raise RuntimeError("production requires release verifier credentials")
+        verifier_credentials, _ = _durable_release_verifier_credentials(
+            release_store.path.parent,
+            active_verifier_credentials,
+            rotation_intent=_runtime_delivery_verifier_rotation_intent(),
+        )
 
     for _ in range(len(_stage_plan(contract)) + 1):
+        captured_current_fencepost = False
         next_stage = _next_stage(contract, release_state.current_stage)
         if not next_stage:
             break
         if stage_advances >= stage_advance_limit:
             break
+        if (
+            release_state.current_stage != "draft"
+            and not any(row.stage == release_state.current_stage for row in release_state.rollback_fenceposts)
+        ):
+            image_ref, image_digest = production_image_binding_from_state(release_state)
+            prior_fencepost = capture_release_rollback_fencepost(
+                snapshot=snapshot,
+                shared_state=shared_state,
+                stage=release_state.current_stage,
+                image_ref=image_ref,
+                image_digest=image_digest,
+                metadata={"captured_by": "production_build_loop", "pre_promotion": True},
+            )
+            release_state = release_store.save(
+                record_release_fencepost(release_state, prior_fencepost),
+                actor=controller_id,
+                provenance={
+                    "scenario": "production_build_loop",
+                    "action": "capture_pre_promotion_fencepost",
+                    "stage": release_state.current_stage,
+                    "iteration": loop_state.iteration_count + 1,
+                },
+            )
+            actions_taken.append(
+                {
+                    "action": "capture_release_fencepost",
+                    "stage": release_state.current_stage,
+                    "fencepost_id": prior_fencepost.fencepost_id,
+                    "timing": "pre_promotion",
+                }
+            )
+            captured_current_fencepost = True
         gate_spec = _stage_gate_for(contract, next_stage)
         handoff_dispatch = _maybe_dispatch_release_handoff(
             release_state,
@@ -1786,13 +4468,16 @@ def advance_production_release_loop(
             + list(snapshot.assigned_agents.values())
             + list(shared_state.agent_ownership.values())
         )
+        observed_mailbox = mailbox.list(process_id=contract.process_id)
+        _, observed_leases = supervisor.list_with_revision()
+        observed_mailbox_digest = _persistence_rows_digest(observed_mailbox)
         gate = evaluate_release_promotion_gate(
             state=release_state,
             snapshot=snapshot,
             shared_state=shared_state,
             target_stage=next_stage,
-            mailbox_messages=mailbox.list(process_id=contract.process_id),
-            leases=supervisor.list(process_id=contract.process_id),
+            mailbox_messages=observed_mailbox,
+            leases=observed_leases,
             dependability_report=dependability_report,
             required_fencepost_stages=list(gate_spec.required_fencepost_stages),
             required_artifacts=list(gate_spec.required_artifacts),
@@ -1800,6 +4485,8 @@ def advance_production_release_loop(
             allowed_active_agents=allowed_active_agents,
             allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
             require_dependability=bool(gate_spec.require_dependability),
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
         last_gate = gate
         if not gate.get("safe_push"):
@@ -1818,6 +4505,8 @@ def advance_production_release_loop(
                 allowed_active_agents=allowed_active_agents,
                 allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
                 require_dependability=bool(gate_spec.require_dependability),
+                artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
             )
             release_state = release_store.save(
                 repaired["state"],
@@ -1835,24 +4524,161 @@ def advance_production_release_loop(
             )
             if not bool((last_gate or {}).get("safe_push")):
                 break
+            # The repair path can mutate leases and mailbox state. Re-evaluate
+            # against a fresh, revision-bound view before promotion.
+            observed_mailbox = mailbox.list(process_id=contract.process_id)
+            _, observed_leases = supervisor.list_with_revision()
+            observed_mailbox_digest = _persistence_rows_digest(observed_mailbox)
+            last_gate = evaluate_release_promotion_gate(
+                state=release_state,
+                snapshot=snapshot,
+                shared_state=shared_state,
+                target_stage=next_stage,
+                mailbox_messages=observed_mailbox,
+                leases=observed_leases,
+                dependability_report=dependability_report,
+                required_fencepost_stages=list(gate_spec.required_fencepost_stages),
+                required_artifacts=list(gate_spec.required_artifacts),
+                required_handoff_count=int(gate_spec.required_handoff_count or 0),
+                allowed_active_agents=allowed_active_agents,
+                allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
+                require_dependability=bool(gate_spec.require_dependability),
+                artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
+            )
+            if not bool(last_gate.get("safe_push")):
+                break
 
-        promoted = advance_release_workflow(
-            release_state,
-            gate=last_gate,
-            next_stage=next_stage,
-            actor=controller_id,
-        )
-        if not promoted.get("promoted"):
-            break
-        release_state = release_store.save(
-            promoted["state"],
-            actor=controller_id,
-            provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
-        )
+        if release_state.current_stage != "draft" and not captured_current_fencepost:
+            image_ref, image_digest = production_image_binding_from_state(release_state)
+            pre_promotion_fencepost = capture_release_rollback_fencepost(
+                snapshot=snapshot,
+                shared_state=shared_state,
+                stage=release_state.current_stage,
+                image_ref=image_ref,
+                image_digest=image_digest,
+                metadata={"captured_by": "production_build_loop", "pre_promotion": True},
+            )
+            release_state = release_store.save(
+                record_release_fencepost(release_state, pre_promotion_fencepost),
+                actor=controller_id,
+                provenance={
+                    "scenario": "production_build_loop",
+                    "action": "refresh_pre_promotion_fencepost",
+                    "stage": release_state.current_stage,
+                    "iteration": loop_state.iteration_count + 1,
+                },
+            )
+            actions_taken.append(
+                {
+                    "action": "capture_release_fencepost",
+                    "stage": release_state.current_stage,
+                    "fencepost_id": pre_promotion_fencepost.fencepost_id,
+                    "timing": "pre_promotion",
+                }
+            )
+
+        release_store.assert_mutation_allowed(contract.process_id, operation="release promotion")
+        approved_handoffs = [
+            row
+            for row in release_state.handoff_records
+            if str(row.get("stage") or "").strip() == next_stage
+            and str(row.get("delivery_status") or "").strip() == "acked"
+        ]
+        handoff_scope = str(handoff_config.get("scope") or f"release:{next_stage}").strip()
+        for handoff_row in approved_handoffs:
+            lease_id = str(handoff_row.get("lease_id") or "").strip()
+            generation = handoff_row.get("lease_generation")
+            if not lease_id or generation is None or str(handoff_row.get("lease_scope") or "").strip() != handoff_scope:
+                continue
+            try:
+                lease = supervisor.complete_active_generation(
+                    lease_id,
+                    generation=int(generation),
+                    metadata={"resolution": "release_approval_recorded", "stage": next_stage},
+                )
+            except (KeyError, RuntimeError, ValueError) as exc:
+                actions_taken.append(
+                    {"action": "reject_stale_approval_generation", "lease_id": lease_id, "stage": next_stage, "reason": str(exc)}
+                )
+                continue
+            actions_taken.append(
+                {"action": "release_approval_scope", "lease_id": lease.lease_id, "stage": next_stage}
+            )
+        with supervisor.promotion_snapshot(
+            process_id=contract.process_id,
+            minimum_remaining_seconds=_promotion_lease_margin_seconds(),
+        ) as (_, commit_leases):
+            authoritative_release = release_store.load(contract.process_id)
+            authoritative_snapshot = snapshot_store.load(contract.process_id)
+            authoritative_shared = shared_state_store.load(contract.process_id)
+            current_mailbox = mailbox.list(process_id=contract.process_id)
+            current_mailbox_digest = _persistence_rows_digest(current_mailbox)
+            stale_gate_inputs = bool(
+                authoritative_release is None
+                or authoritative_release.persistence_revision != release_state.persistence_revision
+                or authoritative_snapshot is None
+                or authoritative_snapshot.persistence_revision != snapshot.persistence_revision
+                or authoritative_shared is None
+                or authoritative_shared.revision_id != shared_state.revision_id
+                or current_mailbox_digest != observed_mailbox_digest
+            )
+            if stale_gate_inputs:
+                actions_taken.append({"action": "abort_stale_promotion_inputs", "target_stage": next_stage})
+                break
+            controller_scope = f"{contract.controller_scope}:{contract.process_id}"
+            gate_commit_leases = [row for row in commit_leases if row.scope != controller_scope]
+            if any(row.status == "active" for row in gate_commit_leases):
+                actions_taken.append({"action": "abort_active_commit_leases", "target_stage": next_stage})
+                break
+            last_gate = evaluate_release_promotion_gate(
+                state=authoritative_release,
+                snapshot=authoritative_snapshot,
+                shared_state=authoritative_shared,
+                target_stage=next_stage,
+                mailbox_messages=current_mailbox,
+                leases=gate_commit_leases,
+                dependability_report=dependability_report,
+                required_fencepost_stages=list(gate_spec.required_fencepost_stages),
+                required_artifacts=list(gate_spec.required_artifacts),
+                required_handoff_count=int(gate_spec.required_handoff_count or 0),
+                allowed_active_agents=allowed_active_agents,
+                allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
+                require_dependability=bool(gate_spec.require_dependability),
+                artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
+            )
+            if not bool(last_gate.get("safe_push")):
+                actions_taken.append({"action": "abort_unhealthy_commit_leases", "target_stage": next_stage})
+                break
+            promoted = advance_release_workflow(
+                authoritative_release,
+                gate=last_gate,
+                next_stage=next_stage,
+                actor=controller_id,
+                metadata={
+                    "dependability_policy_id": str(dependability_report.get("policy_id") or ""),
+                    "dependability_policy_digest": str(dependability_report.get("policy_digest") or ""),
+                    "dependability_campaign_id": str(((dependability_report.get("campaign") or {}).get("campaign_id")) or ""),
+                },
+            )
+            if not promoted.get("promoted"):
+                break
+            # The supervisor read lock remains held through this durable save;
+            # no heartbeat, reclaim, release, or assignment can invalidate the
+            # commit-time lease evidence until promotion is committed.
+            release_state = release_store.save(
+                promoted["state"],
+                actor=controller_id,
+                provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
+            )
+        image_ref, image_digest = production_image_binding_from_state(release_state)
         release_fencepost = capture_release_rollback_fencepost(
             snapshot=snapshot,
             shared_state=shared_state,
             stage=next_stage,
+            image_ref=image_ref,
+            image_digest=image_digest,
             metadata={"captured_by": "production_build_loop", "post_promotion": True},
         )
         release_state = release_store.save(
@@ -1895,10 +4721,10 @@ def _reconcile_production_build_loop_pass(
     pass_index: int = 1,
     watchdog_context: Optional[Dict[str, Any]] = None,
 ) -> JsonDict:
-    loop_store.save_contract(contract)
     previous_state = loop_store.load_state(contract.process_id)
     state = previous_state or ProductionBuildLoopState(contract_id=contract.contract_id, process_id=contract.process_id)
     budget = contract.execution_budget
+    dependability_now = _dependability_server_now()
 
     ownership = _claim_controller(
         contract,
@@ -1910,11 +4736,28 @@ def _reconcile_production_build_loop_pass(
     )
     controller = ownership["owner"]
     ownership_actions = list(ownership.get("actions") or [])
+    if not bool(ownership.get("owned_by_current_session")):
+        raise PermissionError(
+            f"production build loop controller is already owned for {contract.process_id}: "
+            f"controller={controller.controller_id}, session={controller.session_id}"
+        )
+    loop_store.save_contract(contract)
 
     snapshot = snapshot_store.load(contract.process_id)
     shared_state = shared_state_store.load(contract.process_id)
     if snapshot is None or shared_state is None:
         raise ValueError("snapshot and shared state are required for production build loop")
+    release_state = release_store.load(contract.process_id)
+    dependability_binding = _production_dependability_binding(
+        contract,
+        shared_state=shared_state,
+        release_state=release_state,
+    )
+    campaign_evidence = (
+        dict((state.metadata or {}).get("dependability_campaign") or {})
+        if isinstance((state.metadata or {}).get("dependability_campaign"), dict)
+        else {}
+    )
 
     dependability = repair_production_dependability(
         contract,
@@ -1924,11 +4767,71 @@ def _reconcile_production_build_loop_pass(
         mailbox=mailbox,
         supervisor=supervisor,
         controller_id=controller_id,
-        now=now,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=dependability_binding,
+        now=dependability_now,
     )
     snapshot = snapshot_store.load(contract.process_id) or snapshot
     shared_state = shared_state_store.load(contract.process_id) or shared_state
     release_state = release_store.load(contract.process_id)
+    dependability_binding = _production_dependability_binding(
+        contract,
+        shared_state=shared_state,
+        release_state=release_state,
+    )
+    preliminary_dependability = load_dependability_report(
+        process_id=contract.process_id,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
+        journal=journal,
+        mailbox=mailbox,
+        supervisor=supervisor,
+        profile=contract.dependability_profile,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=dependability_binding,
+        now=dependability_now,
+    )
+    campaign_evidence, campaign_actions = _advance_production_dependability_campaign(
+        contract,
+        existing=campaign_evidence,
+        binding=dependability_binding,
+        preliminary_report=preliminary_dependability,
+        snapshot=snapshot,
+        now=dependability_now,
+    )
+    state = loop_store.save_state(
+        ProductionBuildLoopState(
+            **{
+                **_state_dump(state),
+                "controller": controller,
+                "current_revision_id": shared_state.revision_id,
+                "current_snapshot_id": snapshot.snapshot_id,
+                "current_stage": release_state.current_stage if release_state else state.current_stage,
+                "metadata": {
+                    **dict(state.metadata or {}),
+                    "dependability_policy_id": contract.dependability_profile,
+                    "dependability_policy_digest": unattended_profile_digest(contract.dependability_profile),
+                    "dependability_campaign": campaign_evidence,
+                },
+            }
+        )
+    )
+    dependability_after_now = _dependability_server_now()
+    dependable_after = load_dependability_report(
+        process_id=contract.process_id,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
+        journal=journal,
+        mailbox=mailbox,
+        supervisor=supervisor,
+        profile=contract.dependability_profile,
+        campaign_evidence=campaign_evidence,
+        evidence_binding=dependability_binding,
+        now=dependability_after_now,
+    )
+    dependability["after"] = dependable_after
+    dependability["success"] = bool(dependable_after.get("success"))
+    dependability.setdefault("actions_taken", []).extend(campaign_actions)
 
     blockers_before_recovery = detect_true_blockers(
         contract,
@@ -1938,7 +4841,10 @@ def _reconcile_production_build_loop_pass(
     )
 
     worker_recovery = {"recovered": False, "actions_taken": []}
-    if not blockers_before_recovery and snapshot.lifecycle_state != "completed":
+    # A release workflow must remain quiescent while an independent recipient
+    # evaluates promotion evidence. Resuming a worker changes the lifecycle to
+    # running and would invalidate the mandatory release gate.
+    if not blockers_before_recovery and snapshot.lifecycle_state != "completed" and release_state is None:
         worker_recovery = recover_production_worker(
             contract,
             snapshot_store=snapshot_store,
@@ -1960,6 +4866,8 @@ def _reconcile_production_build_loop_pass(
         mailbox=mailbox,
         supervisor=supervisor,
         release_store=release_store,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
         controller_id=controller_id,
         budget=budget,
     )
@@ -2021,6 +4929,7 @@ def _reconcile_production_build_loop_pass(
         next_stage=release_progress.get("next_stage"),
         snapshot=snapshot,
         budget_exhausted=budget_exhausted,
+        release_gate=release_progress.get("last_gate"),
     )
     continuation = _production_continuation(status=status, blockers=blockers, next_action=next_action)
     pass_objective = str(next_action.get("summary") or next_action.get("kind") or contract.objective)
@@ -2209,6 +5118,7 @@ def _reconcile_production_build_loop_pass(
         loop_id=state.loop_id,
         contract_id=contract.contract_id,
         process_id=contract.process_id,
+        persistence_revision=state.persistence_revision,
         status=status,
         liveness=str(review_plan.get("liveness") or ("terminal" if status == "completed" else "live")),
         terminal_state=review_plan.get("terminal_state"),
@@ -2275,7 +5185,7 @@ def _reconcile_production_build_loop_pass(
             "watchdog": dict(watchdog_context or {}),
         },
     )
-    loop_store.save_state(updated_state)
+    updated_state = loop_store.save_state(updated_state)
 
     if status in {"blocked", "completed"}:
         supervisor.resolve(controller.lease_id, status="released", metadata={"resolution": status})
@@ -2299,7 +5209,7 @@ def _reconcile_production_build_loop_pass(
     }
 
 
-def reconcile_production_build_loop(
+def _reconcile_production_build_loop_transaction(
     contract: ProductionBuildContract,
     *,
     loop_store: ProductionBuildLoopStore,
@@ -2424,7 +5334,7 @@ def reconcile_production_build_loop(
                     },
                 }
             )
-            loop_store.save_state(persisted_state)
+            persisted_state = loop_store.save_state(persisted_state)
             final_result["state"] = _state_dump(persisted_state)
             final_result["continuation"] = continuation
             final_result["next_action"] = next_action
@@ -2434,6 +5344,46 @@ def reconcile_production_build_loop(
     final_state.setdefault("metadata", {})["chained_passes"] = chained_passes
     final_result["state"] = final_state
     return final_result
+
+
+def reconcile_production_build_loop(
+    contract: ProductionBuildContract,
+    *,
+    loop_store: ProductionBuildLoopStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    journal: ProcessJournal,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    release_store: ReleaseWorkflowStore,
+    controller_id: str,
+    controller_session_id: str,
+    now: Optional[datetime] = None,
+    watchdog_context: Optional[Dict[str, Any]] = None,
+) -> JsonDict:
+    # Promotion, artifact ingestion, and rollback all use this same process
+    # fence. It covers every chained pass and the final loop projection so a
+    # rollback cannot be followed by a stale promotion or loop-state save.
+    with release_store.release_transaction(contract.process_id):
+        intent = release_store.load_rollback_intent(contract.process_id)
+        if intent and intent.get("status") in {"in_progress", "recovery_required"}:
+            raise RuntimeError(
+                f"release rollback recovery required before reconciliation: {contract.process_id}"
+            )
+        return _reconcile_production_build_loop_transaction(
+            contract,
+            loop_store=loop_store,
+            snapshot_store=snapshot_store,
+            shared_state_store=shared_state_store,
+            journal=journal,
+            mailbox=mailbox,
+            supervisor=supervisor,
+            release_store=release_store,
+            controller_id=controller_id,
+            controller_session_id=controller_session_id,
+            now=now,
+            watchdog_context=watchdog_context,
+        )
 
 
 __all__ = [
@@ -2447,11 +5397,27 @@ __all__ = [
     "ProductionCompletionCriterion",
     "ProductionPassBudget",
     "ProductionStageGate",
+    "REQUIRED_RELEASE_HANDOFF_RECIPIENTS",
+    "RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID",
+    "RUNTIME_DELIVERY_MANAGER_CAPABILITY_REASON",
+    "RUNTIME_DELIVERY_MOUNT_MARKER",
     "advance_production_release_loop",
+    "current_cortex_brain_startup_revision_id",
     "detect_true_blockers",
     "evaluate_production_completion",
+    "ingest_production_release_artifact",
+    "probe_runtime_delivery_readiness",
     "reconcile_production_build_loop",
     "recover_production_worker",
     "repair_production_dependability",
+    "runtime_delivery_handoff_claim_signature",
+    "runtime_delivery_handoff_discovery_signature",
+    "runtime_delivery_artifact_fetch_signature",
+    "runtime_delivery_manager_rollback_signature",
+    "runtime_delivery_recipient_credentials",
+    "runtime_delivery_release_observation_signature",
+    "runtime_delivery_verifier_capability_signature",
+    "runtime_delivery_verifier_credentials",
+    "validate_production_delivery_credentials",
     "ValidationError",
 ]

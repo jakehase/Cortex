@@ -7,7 +7,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentSupervisor
-from cortex_server.runtime.dependability import build_unattended_profile, compile_dependability_repair_plan, load_dependability_report
+from cortex_server.runtime.dependability import (
+    DEPENDABILITY_CAMPAIGN_SCHEMA,
+    _dependability_boot_id,
+    build_unattended_profile,
+    compile_dependability_repair_plan,
+    load_dependability_report,
+    unattended_profile_digest,
+)
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_resume import load_runtime_resume_state
@@ -18,9 +25,12 @@ from cortex_server.runtime.release_workflow import (
     advance_release_workflow,
     capture_release_rollback_fencepost,
     compile_release_handoff,
+    create_release_artifact_receipt,
     evaluate_release_promotion_gate,
+    record_release_artifact_receipt,
     record_release_fencepost,
     record_release_handoff,
+    release_canary_policy,
     repair_release_workflow,
     rollback_release_workflow,
 )
@@ -30,6 +40,11 @@ from cortex_server.runtime.shared_process_state import SharedProcessState, Share
 JsonDict = Dict[str, Any]
 SleepFn = Callable[[float], None]
 ClockFn = Callable[[], datetime]
+
+
+def _soak_monotonic_now() -> float:
+    return time.monotonic()
+
 
 SOAK_PROFILES: Dict[str, Dict[str, Any]] = {
     "2h": {
@@ -150,12 +165,22 @@ class RuntimeSoakHarness:
         self.root = Path(root)
         self.sleep_fn = sleep_fn or time.sleep
         self.clock_fn = clock_fn or _utc_now
-        self.snapshot_store = ProcessSnapshotStore(self.root / "snapshots")
+        self.snapshot_store = ProcessSnapshotStore(self.root / "snapshots", delivery_root=self.root)
         self.shared_state_store = SharedProcessStateStore(self.root / "shared_state")
         self.release_store = ReleaseWorkflowStore(self.root / "release_state")
-        self.journal = ProcessJournal(self.root / "runtime" / "processes.jsonl")
-        self.mailbox = AgentMailbox(self.root / "runtime" / "mailbox.json")
-        self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json")
+        self.journal = ProcessJournal(self.root / "runtime" / "processes.jsonl", delivery_root=self.root)
+        self.mailbox = AgentMailbox(self.root / "runtime" / "mailbox.json", delivery_root=self.root)
+        self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json", clock_fn=self.clock_fn, delivery_root=self.root)
+
+    def _reclaim_stale_at(self, process_id: str, observed_at: datetime) -> List[Any]:
+        """Advance only the deterministic soak clock, never a product request clock."""
+
+        supervisor = AgentSupervisor(
+            self.root / "runtime" / "leases.json",
+            clock_fn=lambda: observed_at,
+            delivery_root=self.root,
+        )
+        return supervisor.reclaim_stale(process_id=process_id)
 
     def _seed_waiting_process(
         self,
@@ -261,6 +286,7 @@ class RuntimeSoakHarness:
         self.snapshot_store.save(
             ProcessSnapshot(
                 process_id=process_id,
+                persistence_revision=snapshot.persistence_revision,
                 last_event_id=resumed.event_id,
                 event_count=4,
                 lifecycle_state="running",
@@ -389,7 +415,10 @@ class RuntimeSoakHarness:
     ) -> JsonDict:
         self._seed_waiting_process(process_id=process_id, revision_id=revision_id, node_id=node_id, agent_id=agent_id)
         lease = self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=agent_id, lease_seconds=lease_seconds)
-        reclaimed = self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=int(reclaim_after_seconds)))
+        reclaimed = self._reclaim_stale_at(
+            process_id,
+            self.clock_fn() + timedelta(seconds=int(reclaim_after_seconds)),
+        )
         stale_detected = any(row.lease_id == lease.lease_id and row.status == "stale" for row in reclaimed)
         return {
             "scenario": "stale_agent",
@@ -419,7 +448,7 @@ class RuntimeSoakHarness:
         except ValueError as exc:
             duplicate_claim_blocked = True
             duplicate_claim_error = str(exc)
-        reclaimed = self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=120))
+        reclaimed = self._reclaim_stale_at(process_id, self.clock_fn() + timedelta(seconds=120))
         replacement = self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=second_agent_id, lease_seconds=60)
         return {
             "scenario": "duplicate_claim_block",
@@ -711,6 +740,7 @@ class RuntimeSoakHarness:
         return self.snapshot_store.save(
             ProcessSnapshot(
                 process_id=process_id,
+                persistence_revision=previous.persistence_revision if previous else 0,
                 last_event_id=replayed.get("last_event_id"),
                 event_count=int(replayed.get("event_count", 0) or 0),
                 lifecycle_state=str(replayed.get("lifecycle_state") or "created"),
@@ -752,6 +782,7 @@ class RuntimeSoakHarness:
         cycle_index: int,
         actor: str,
         final: bool = False,
+        dependability_campaign: Optional[JsonDict] = None,
     ) -> SharedProcessState:
         goals = [
             "sustain unattended multi-agent continuity",
@@ -782,6 +813,11 @@ class RuntimeSoakHarness:
                     "cycle_index": cycle_index,
                     "completed_nodes": list(completed_node_ids),
                     "final": final,
+                    **(
+                        {"dependability_campaign": dict(dependability_campaign)}
+                        if dependability_campaign is not None
+                        else {}
+                    ),
                 },
             ),
             expected_revision_id=expected_revision_id,
@@ -823,9 +859,29 @@ class RuntimeSoakHarness:
         belief_refs: List[str] = []
         owner_map: Dict[str, str] = {}
         timeline: List[JsonDict] = []
+        campaign_started_at = self.clock_fn()
+        campaign_started_monotonic = _soak_monotonic_now()
+        campaign_boot_id = _dependability_boot_id()
+        required_cycles = int(profile_spec.get("campaign_cycles", 0) or 0)
+        interval_seconds = float(profile_spec.get("intended_duration_hours", 0) or 0) * 3600.0 / required_cycles
+        campaign_evidence: JsonDict = {
+            "schema_version": DEPENDABILITY_CAMPAIGN_SCHEMA,
+            "campaign_id": f"depcamp_{process_id}",
+            "process_id": process_id,
+            "policy_id": str(profile_spec["profile"]),
+            "policy_digest": unattended_profile_digest(profile),
+            "boot_id": campaign_boot_id,
+            "started_at": campaign_started_at.isoformat(),
+            "started_monotonic": campaign_started_monotonic,
+            "observation_end_at": campaign_started_at.isoformat(),
+            "observation_end_monotonic": campaign_started_monotonic,
+            "observation_status": "healthy",
+            "cycle_receipts": [],
+        }
 
         for idx in range(total_cycles):
             cycle_number = idx + 1
+            self.sleep_fn(interval_seconds)
             node_id = nodes[idx % len(nodes)]
             agent_id = agents[idx % len(agents)]
             next_node = nodes[(idx + 1) % len(nodes)] if idx + 1 < total_cycles else None
@@ -856,7 +912,7 @@ class RuntimeSoakHarness:
                 reject_stale_revision=True,
             )
             if any(row.message_id == handoff.message_id for row in accepted):
-                self.mailbox.acknowledge(handoff.message_id)
+                self.mailbox.acknowledge(handoff.message_id, actor=agent_id)
 
             resumed = self.journal.append(
                 process_id=process_id,
@@ -955,6 +1011,25 @@ class RuntimeSoakHarness:
             )
             next_revision_id = f"rev_{cycle_number + 1}"
             final_cycle = cycle_number == total_cycles
+            observed_at = self.clock_fn()
+            observed_monotonic = _soak_monotonic_now()
+            campaign_evidence["observation_end_at"] = observed_at.isoformat()
+            campaign_evidence["observation_end_monotonic"] = observed_monotonic
+            if cycle_number <= required_cycles:
+                campaign_evidence["cycle_receipts"].append(
+                    {
+                        "receipt_id": f"depcycle_{process_id}_{cycle_number}",
+                        "campaign_id": campaign_evidence["campaign_id"],
+                        "cycle_number": cycle_number,
+                        "boot_id": campaign_boot_id,
+                        "observed_at": observed_at.isoformat(),
+                        "observed_monotonic": observed_monotonic,
+                        "snapshot_id": snapshot.snapshot_id,
+                        "process_id": process_id,
+                        "policy_id": str(profile_spec["profile"]),
+                        "policy_digest": campaign_evidence["policy_digest"],
+                    }
+                )
             world_state = {
                 **dict(snapshot.world_state),
                 "campaign_cycle": cycle_number,
@@ -974,6 +1049,7 @@ class RuntimeSoakHarness:
                 cycle_index=cycle_number,
                 actor=agent_id,
                 final=final_cycle,
+                dependability_campaign=campaign_evidence,
             )
             self.supervisor.heartbeat(
                 lease.lease_id,
@@ -1003,7 +1079,8 @@ class RuntimeSoakHarness:
             journal=self.journal,
             mailbox=self.mailbox,
             supervisor=self.supervisor,
-            profile=profile_spec,
+            profile=profile,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         return {
@@ -1036,6 +1113,11 @@ class RuntimeSoakHarness:
         shared_state = self.shared_state_store.load(process_id)
         if snapshot is None or shared_state is None:
             raise ValueError("snapshot and shared state are required to inject unattended failures")
+        campaign_evidence = (
+            dict((shared_state.metadata or {}).get("dependability_campaign") or {})
+            if isinstance((shared_state.metadata or {}).get("dependability_campaign"), dict)
+            else {}
+        )
         stale_lease = self.supervisor.assign(
             process_id=process_id,
             scope=stale_scope,
@@ -1043,8 +1125,9 @@ class RuntimeSoakHarness:
             lease_seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180),
             metadata={"campaign": True, "injected": True, "fault": "stale_lease"},
         )
-        self.supervisor.reclaim_stale(
-            now=self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1)
+        self._reclaim_stale_at(
+            process_id,
+            self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1),
         )
         stale_message = self.mailbox.send(
             process_id=process_id,
@@ -1079,6 +1162,7 @@ class RuntimeSoakHarness:
             mailbox=self.mailbox,
             supervisor=self.supervisor,
             profile=profile_spec,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         return {
@@ -1097,6 +1181,12 @@ class RuntimeSoakHarness:
         profile: str | Dict[str, Any] = "24h",
     ) -> JsonDict:
         profile_spec = build_unattended_profile(profile) if isinstance(profile, str) else dict(profile or {})
+        shared_state = self.shared_state_store.load(process_id)
+        campaign_evidence = (
+            dict((shared_state.metadata or {}).get("dependability_campaign") or {})
+            if shared_state is not None and isinstance((shared_state.metadata or {}).get("dependability_campaign"), dict)
+            else {}
+        )
         before = load_dependability_report(
             process_id=process_id,
             snapshot_store=self.snapshot_store,
@@ -1105,17 +1195,18 @@ class RuntimeSoakHarness:
             mailbox=self.mailbox,
             supervisor=self.supervisor,
             profile=profile_spec,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         repair_plan = compile_dependability_repair_plan(before)
         actions_taken: List[JsonDict] = []
-        shared_state = self.shared_state_store.load(process_id)
         current_revision_id = shared_state.revision_id if shared_state else None
 
         active_leases = self.supervisor.list(process_id=process_id, status="active")
         if active_leases:
-            reclaimed = self.supervisor.reclaim_stale(
-                now=self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1)
+            reclaimed = self._reclaim_stale_at(
+                process_id,
+                self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1),
             )
             if reclaimed:
                 actions_taken.append({"action": "reclaim_stale", "lease_ids": [row.lease_id for row in reclaimed]})
@@ -1146,7 +1237,7 @@ class RuntimeSoakHarness:
                 )
                 for accepted_row in accepted:
                     if accepted_row.message_id == recovered.message_id:
-                        self.mailbox.acknowledge(accepted_row.message_id)
+                        self.mailbox.acknowledge(accepted_row.message_id, actor=recovered.to_agent)
                         acked_ids.append(accepted_row.message_id)
         if recovered_ids:
             actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "acked_ids": acked_ids})
@@ -1160,27 +1251,6 @@ class RuntimeSoakHarness:
             )
             actions_taken.append({"action": "checkpoint_from_journal", "snapshot_id": checkpoint.snapshot_id})
 
-        snapshot = self.snapshot_store.load(process_id)
-        shared_state = self.shared_state_store.load(process_id)
-        if snapshot and shared_state and any(check in before.get("failing_checks", []) for check in ["revision_history_ok", "revision_head_ok", "replay_matches_shared_state"]):
-            next_revision_index = len(self.shared_state_store.history(process_id)) + 1
-            refreshed = self._campaign_shared_state(
-                process_id=process_id,
-                revision_id=f"rev_repair_{next_revision_index}",
-                expected_revision_id=shared_state.revision_id,
-                active_node_ids=list(snapshot.active_steps or snapshot.waiting_steps),
-                completed_node_ids=list(snapshot.completed_steps),
-                belief_refs=list(snapshot.belief_refs),
-                owner_map=dict(snapshot.assigned_agents),
-                world_state={**dict(snapshot.world_state), "watchdog_repaired": True},
-                profile_spec=profile_spec,
-                cycle_index=int((snapshot.metadata or {}).get("campaign_cycle", next_revision_index) or next_revision_index),
-                actor="watchdog",
-                final=snapshot.lifecycle_state == "completed",
-            )
-            current_revision_id = refreshed.revision_id
-            actions_taken.append({"action": "refresh_shared_state_revision", "revision_id": refreshed.revision_id})
-
         after = load_dependability_report(
             process_id=process_id,
             snapshot_store=self.snapshot_store,
@@ -1189,6 +1259,7 @@ class RuntimeSoakHarness:
             mailbox=self.mailbox,
             supervisor=self.supervisor,
             profile=profile_spec,
+            campaign_evidence=campaign_evidence,
             now=self.clock_fn(),
         )
         return {
@@ -1317,6 +1388,84 @@ class RuntimeSoakHarness:
             actor="release-coordinator",
             provenance={"scenario": "release_delivery", "phase": "seed"},
         )
+        artifact_store = self.release_store.artifact_store()
+        verifier_id = "soak-independent-release-verifier"
+        verifier_secret = f"soak-release-verifier:{process_id}"
+        verifier_credentials = {verifier_id: verifier_secret}
+
+        def _record_stage_evidence(
+            active_state: ReleaseWorkflowState,
+            *,
+            target_stage: str,
+        ) -> tuple[ReleaseWorkflowState, str]:
+            artifact_hashes: List[str] = []
+            image_digest = "sha256:" + "b" * 64
+            image_ref = f"registry.example/cortex@{image_digest}"
+            for artifact_id, artifact_kind in (
+                (artifact_release_bundle, "release_bundle"),
+                (artifact_smoke_report, "smoke_report"),
+            ):
+                receipt = create_release_artifact_receipt(
+                    active_state,
+                    artifact_store=artifact_store,
+                    artifact_id=artifact_id,
+                    payload={
+                        "artifact_id": artifact_id,
+                        "candidate_ref": active_state.candidate_ref,
+                        "revision_id": active_state.revision_id,
+                        "validation": "passed",
+                    },
+                    artifact_kind=artifact_kind,
+                    producer="soak-build-worker",
+                    verifier=verifier_id,
+                    verifier_secret=verifier_secret,
+                    claims=(
+                        {"image_ref": image_ref, "image_digest": image_digest}
+                        if artifact_kind == "release_bundle"
+                        else None
+                    ),
+                )
+                active_state = record_release_artifact_receipt(
+                    active_state,
+                    receipt,
+                    artifact_store=artifact_store,
+                    verifier_credentials=verifier_credentials,
+                )
+                artifact_hashes.append(receipt.content_hash)
+
+            evidence_id = f"evidence:{process_id}:{target_stage}"
+            canary_policy = release_canary_policy(target_stage)
+            claims = {
+                "policy_id": canary_policy["policy_id"],
+                "deployment_id": f"deployment:{process_id}:{target_stage}",
+                "cohort_id": "soak-canary-cohort",
+                "image_ref": image_ref,
+                "image_digest": image_digest,
+                "traffic_volume": 1000,
+                "observation_window_seconds": 900,
+                "artifact_hashes": artifact_hashes,
+                "metrics": {"availability": 0.999, "error_rate": 0.001},
+                "thresholds": canary_policy["thresholds"],
+            }
+            evidence = create_release_artifact_receipt(
+                active_state,
+                artifact_store=artifact_store,
+                artifact_id=evidence_id,
+                payload=claims,
+                artifact_kind="canary_evidence",
+                target_stage=target_stage,
+                claims=claims,
+                producer="soak-canary-runner",
+                verifier=verifier_id,
+                verifier_secret=verifier_secret,
+            )
+            active_state = record_release_artifact_receipt(
+                active_state,
+                evidence,
+                artifact_store=artifact_store,
+                verifier_credentials=verifier_credentials,
+            )
+            return active_state, evidence_id
 
         verify_handoff = compile_release_handoff(
             state=release_state,
@@ -1349,9 +1498,6 @@ class RuntimeSoakHarness:
             expected_revision_id=shared_state.revision_id,
             reject_stale_revision=True,
         )
-        verify_acked = self.mailbox.acknowledge(verify_message.message_id)
-        release_state = record_release_handoff(release_state, verify_acked, stage="build_verified")
-        self.supervisor.release(verifier_lease.lease_id)
 
         artifact_event_1 = self.journal.append(
             process_id=process_id,
@@ -1388,6 +1534,27 @@ class RuntimeSoakHarness:
             metadata={"captured_by": "verifier"},
         )
         release_state = record_release_fencepost(release_state, build_fencepost)
+        release_state, canary_evidence_id = _record_stage_evidence(
+            release_state,
+            target_stage="canary_verified",
+        )
+        verify_acked = self.mailbox.acknowledge(
+            verify_message.message_id,
+            actor="verifier",
+            result_receipt={
+                "candidate_ref": release_state.candidate_ref,
+                "release_id": release_state.release_id,
+                "revision_id": release_state.revision_id,
+                "result": "approved",
+                "evidence_receipts": [canary_evidence_id],
+            },
+        )
+        release_state = record_release_handoff(
+            release_state,
+            verify_acked,
+            stage="canary_verified",
+        )
+        self.supervisor.release(verifier_lease.lease_id)
         self.release_store.save(
             release_state,
             actor="verifier",
@@ -1405,6 +1572,8 @@ class RuntimeSoakHarness:
             required_fencepost_stages=["build_verified"],
             required_artifacts=required_artifacts,
             required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
         canary_promotion = advance_release_workflow(
             release_state,
@@ -1448,6 +1617,32 @@ class RuntimeSoakHarness:
             metadata={"release_stage": "canary_verified"},
             world_state_overrides={"release_stage": "canary_verified", "canary": "healthy"},
         )
+        canary_fencepost = capture_release_rollback_fencepost(
+            snapshot=snapshot,
+            shared_state=shared_state,
+            stage="canary_verified",
+            latest_event=self.journal.latest(process_id=process_id),
+            metadata={"captured_by": "soak-canary-verifier", "pre_promotion": True},
+        )
+        release_state = release_state.model_copy(
+            update={
+                "revision_id": shared_state.revision_id,
+                "metadata": {
+                    **dict(release_state.metadata or {}),
+                    "release_artifacts": [],
+                },
+            }
+        )
+        release_state = record_release_fencepost(release_state, canary_fencepost)
+        release_state, production_evidence_id = _record_stage_evidence(
+            release_state,
+            target_stage="production",
+        )
+        self.release_store.save(
+            release_state,
+            actor=verifier_id,
+            provenance={"scenario": "release_delivery", "phase": "production_evidence"},
+        )
 
         promote_handoff = compile_release_handoff(
             state=release_state,
@@ -1473,9 +1668,9 @@ class RuntimeSoakHarness:
             dedupe_key=f"release_promote:{process_id}",
             payload={"objective": promote_handoff.objective, "scope": promote_handoff.scope},
         )
-        release_state = record_release_handoff(release_state, stale_promote_message, stage="canary_verified")
+        release_state = record_release_handoff(release_state, stale_promote_message, stage="production")
         stale_lease = self.supervisor.assign(process_id=process_id, scope="release_promote", agent_id="release-manager", lease_seconds=1)
-        self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=10))
+        self._reclaim_stale_at(process_id, self.clock_fn() + timedelta(seconds=10))
         self.mailbox.receive(
             to_agent="release-manager",
             process_id=process_id,
@@ -1486,7 +1681,7 @@ class RuntimeSoakHarness:
             (row for row in self.mailbox.list(process_id=process_id) if row.message_id == stale_promote_message.message_id),
             stale_promote_message,
         )
-        release_state = record_release_handoff(release_state, stale_message, stage="canary_verified")
+        release_state = record_release_handoff(release_state, stale_message, stage="production")
 
         production_gate_before = evaluate_release_promotion_gate(
             state=release_state,
@@ -1498,9 +1693,11 @@ class RuntimeSoakHarness:
             dependability_report={"success": True, "profile": "release_gate"},
             required_fencepost_stages=required_fenceposts,
             required_artifacts=required_artifacts,
-            required_handoff_count=2,
+            required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
-        repaired = repair_release_workflow(
+        recovery = repair_release_workflow(
             release_state,
             snapshot=snapshot,
             shared_state=shared_state,
@@ -1510,7 +1707,107 @@ class RuntimeSoakHarness:
             dependability_report={"success": True, "profile": "release_gate"},
             required_fencepost_stages=required_fenceposts,
             required_artifacts=required_artifacts,
-            required_handoff_count=2,
+            required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
+        )
+        recovered_messages = self.mailbox.receive(
+            to_agent="release-manager",
+            process_id=process_id,
+            expected_revision_id=shared_state.revision_id,
+            reject_stale_revision=True,
+        )
+        if len(recovered_messages) != 1:
+            raise RuntimeError("release repair did not redeliver exactly one production approval")
+        production_acked = self.mailbox.acknowledge(
+            recovered_messages[0].message_id,
+            actor="release-manager",
+            result_receipt={
+                "candidate_ref": recovery["state"].candidate_ref,
+                "release_id": recovery["state"].release_id,
+                "revision_id": recovery["state"].revision_id,
+                "result": "approved",
+                "evidence_receipts": [production_evidence_id],
+            },
+        )
+        release_state = record_release_handoff(
+            recovery["state"],
+            production_acked,
+            stage="production",
+        )
+        # The expired generation is never made promotion-safe. Model an
+        # operator's fenced termination proof, then issue fresh work bound to
+        # the successor generation and complete that exact live generation.
+        self.supervisor.resolve(
+            stale_lease.lease_id,
+            status="revoked",
+            metadata={"termination_proof": "soak-worker-fenced", "terminated_generation": stale_lease.generation},
+        )
+        successor = self.supervisor.assign(
+            process_id=process_id,
+            scope=stale_lease.scope,
+            agent_id="release-manager",
+            lease_seconds=60,
+            metadata={"takeover_proof": "soak-worker-fenced"},
+        )
+        successor_message = self.mailbox.send(
+            process_id=process_id,
+            from_agent="verifier",
+            to_agent="release-manager",
+            kind="handoff",
+            revision_id=shared_state.revision_id,
+            dedupe_key=f"release_promote:{process_id}:generation:{successor.generation}",
+            payload={
+                "objective": promote_handoff.objective,
+                "scope": promote_handoff.scope,
+                "lease_id": successor.lease_id,
+                "lease_generation": successor.generation,
+            },
+            metadata={
+                "release_id": release_state.release_id,
+                "candidate_ref": release_state.candidate_ref,
+                "target_stage": "production",
+                "lease_id": successor.lease_id,
+                "lease_generation": successor.generation,
+                "lease_scope": successor.scope,
+            },
+        )
+        self.mailbox.receive(
+            to_agent="release-manager",
+            process_id=process_id,
+            expected_revision_id=shared_state.revision_id,
+            reject_stale_revision=True,
+        )
+        successor_acked = self.mailbox.acknowledge(
+            successor_message.message_id,
+            actor="release-manager",
+            result_receipt={
+                "candidate_ref": release_state.candidate_ref,
+                "release_id": release_state.release_id,
+                "revision_id": release_state.revision_id,
+                "result": "approved",
+                "evidence_receipts": [production_evidence_id],
+            },
+        )
+        release_state = record_release_handoff(release_state, successor_acked, stage="production")
+        self.supervisor.complete_active_generation(
+            successor.lease_id,
+            generation=successor.generation,
+            metadata={"acknowledged_message_id": successor_acked.message_id},
+        )
+        repaired = repair_release_workflow(
+            release_state,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            mailbox=self.mailbox,
+            supervisor=self.supervisor,
+            target_stage="production",
+            dependability_report={"success": True, "profile": "release_gate"},
+            required_fencepost_stages=required_fenceposts,
+            required_artifacts=required_artifacts,
+            required_handoff_count=1,
+            artifact_store=artifact_store,
+            verifier_credentials=verifier_credentials,
         )
         release_state = repaired["state"]
         self.release_store.save(

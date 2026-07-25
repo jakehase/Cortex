@@ -7,7 +7,7 @@ from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
 def _client(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
 
@@ -25,7 +25,7 @@ def _client(monkeypatch):
 
 def test_brainstorm_trigger_forces_chain(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Brainstorm: product launch ideas"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Brainstorm: product launch ideas"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_method"] == "brainstorm_chain_forced"
@@ -35,7 +35,7 @@ def test_brainstorm_trigger_forces_chain(monkeypatch):
 
 def test_orchestrated_response_has_contract_and_routing_method(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "What is 2+2?"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "What is 2+2?"})
     assert r.status_code == 200
     body = r.json()
     assert isinstance(body.get("routing_method"), str) and body["routing_method"]

@@ -1,0 +1,22 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_940d16b4527d0669",
+    "attemptId": "attempt_71d64617b87f3848",
+    "examId": "math-foundations-correction-v0",
+    "itemId": "mfs-02-correction",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "23996758480",
+    "failureReason": null,
+    "evidenceRole": "correction",
+    "evidence": [
+      "./verifier_results.json#verify_940d16b4527d0669"
+    ]
+  }
+]

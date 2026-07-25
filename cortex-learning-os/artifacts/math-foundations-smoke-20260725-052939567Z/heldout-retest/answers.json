@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "cortex.learning_os.answer_set.v0",
+  "runId": "math-foundations-smoke-20260725-052939567Z-heldout-retest",
+  "answers": [
+    {
+      "itemId": "mfs-02-heldout-retest",
+      "answer": "13533948026720046"
+    }
+  ],
+  "answerSource": {
+    "kind": "openclaw_agent",
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "gatewayRunId": "0cf9df6b-1c56-4ad8-8e76-26f19a5d65ac",
+    "sessionId": "acf84f8c-99ff-491f-bae2-df9ef8e43b1f",
+    "usage": {
+      "input": 1673,
+      "output": 394,
+      "cacheRead": 20992,
+      "total": 23059
+    }
+  },
+  "evidenceRole": "heldout_retest",
+  "toolsUsed": [],
+  "startedAt": "2026-07-25T05:31:38.879Z",
+  "completedAt": "2026-07-25T05:31:52.231Z"
+}

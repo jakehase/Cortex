@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 import time
+import uuid
 from collections import Counter
 from pathlib import Path
 from statistics import mean
@@ -30,7 +31,46 @@ def avg(values: List[float]) -> float:
 
 
 def load_json(path: Path) -> JsonDict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object in {path}")
+    return payload
+
+
+def validate_round(result: JsonDict) -> None:
+    """Reject empty or fabricated benchmark output before it enters a soak."""
+    summary = result.get("summary")
+    cases = result.get("cases")
+    if not isinstance(summary, dict) or not isinstance(cases, list) or not cases:
+        raise ValueError("benchmark report requires a summary and non-empty cases")
+    total_runs = summary.get("total_runs")
+    if not isinstance(total_runs, int) or isinstance(total_runs, bool) or total_runs <= 0:
+        raise ValueError("benchmark report total_runs must be a positive integer")
+    if total_runs < len(cases):
+        raise ValueError("benchmark report total_runs is smaller than its case count")
+
+
+def atomic_write(path: Path, content: str) -> None:
+    """Replace a report only after its complete contents reach stable storage."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def summarize_round(result: JsonDict, *, round_index: int, started_at: float, finished_at: float) -> JsonDict:
@@ -167,13 +207,17 @@ def main() -> int:
     parser.add_argument("--duration-seconds", type=int, default=1800)
     parser.add_argument("--iterations-per-round", type=int, default=3)
     parser.add_argument("--config-id", default="unknown")
+    parser.add_argument("--run-id", default=None)
+    parser.add_argument("--stage", default=None)
     args = parser.parse_args()
 
     output_prefix = Path(args.output_prefix)
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
     rounds: List[JsonDict] = []
     started = time.time()
-    deadline = started + max(1, int(args.duration_seconds))
+    monotonic_started = time.monotonic()
+    requested_duration = max(1, int(args.duration_seconds))
+    deadline = monotonic_started + requested_duration
     round_index = 0
 
     while True:
@@ -194,13 +238,14 @@ def main() -> int:
             ]
             proc = subprocess.run(cmd, capture_output=True, text=True, check=True, env=os.environ.copy())
             result = load_json(tmp_json)
+            validate_round(result)
             finished = time.time()
             row = summarize_round(result, round_index=round_index, started_at=round_started, finished_at=finished)
             row["command"] = cmd
             row["stdout_tail"] = (proc.stdout or "")[-4000:]
             row["stderr_tail"] = (proc.stderr or "")[-4000:]
             rounds.append(row)
-        if time.time() >= deadline:
+        if time.monotonic() >= deadline:
             break
 
     report = aggregate_soak(
@@ -210,8 +255,14 @@ def main() -> int:
         corpus=args.corpus,
         iterations_per_round=max(1, int(args.iterations_per_round)),
     )
-    (output_prefix.with_suffix(".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
-    (output_prefix.with_suffix(".md")).write_text(render_markdown(report), encoding="utf-8")
+    report["run_id"] = args.run_id or uuid.uuid4().hex
+    report["stage"] = args.stage
+    report["date"] = os.getenv("CORTEX_RUNTIME_QUALIFICATION_DATE")
+    report["requested_duration_seconds"] = requested_duration
+    report["duration_seconds"] = round(max(0.0, time.monotonic() - monotonic_started), 3)
+    report["successful_exit"] = True
+    atomic_write(output_prefix.with_suffix(".json"), json.dumps(report, indent=2) + "\n")
+    atomic_write(output_prefix.with_suffix(".md"), render_markdown(report))
     print(json.dumps(report.get("summary") or {}, indent=2))
     return 0
 

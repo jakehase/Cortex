@@ -1,12 +1,14 @@
 """Q&A Fastlane v1 micro retrieval.
 
-Adds lightweight automatic reranking by source trust + lexical relevance.
+This module only ranks evidence supplied by a real retrieval backend.  It must
+never manufacture query-shaped snippets: an empty candidate set means that the
+fastlane has no grounding and its caller must escalate.
 """
 from __future__ import annotations
 
-from typing import List, Dict, Any
 import re
 import time
+from typing import Any, Dict, List, Optional
 
 
 SOURCE_PRIOR = {
@@ -37,33 +39,60 @@ def _score_item(query: str, item: Dict[str, Any]) -> float:
     return round((0.50 * rel) + (0.30 * prior) + (0.20 * freshness), 4)
 
 
-def retrieve_top3(query: str, max_items: int = 3, timeout_ms: int = 350) -> List[Dict[str, Any]]:
+def _normalized_candidate(query: str, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return a grounded candidate or reject untraceable/query-echo evidence."""
+    if not isinstance(item, dict):
+        return None
+    source = str(item.get("source") or "").strip()
+    snippet = re.sub(r"\s+", " ", str(item.get("snippet") or "")).strip()
+    provenance = str(
+        item.get("provenance")
+        or item.get("url")
+        or item.get("memory_id")
+        or item.get("document_id")
+        or ""
+    ).strip()
+    if not source or not snippet or not provenance:
+        return None
+
+    query_tokens = set(_tokenize(query))
+    snippet_tokens = set(_tokenize(snippet))
+    independent_tokens = snippet_tokens - query_tokens
+    # Generic wrappers around the query are not evidence, even if a caller
+    # labels them as memory or documentation.
+    if query_tokens and query_tokens.issubset(snippet_tokens) and len(independent_tokens) <= 3:
+        return None
+
+    try:
+        freshness = max(0.0, min(1.0, float(item.get("freshness", 0.7))))
+    except (TypeError, ValueError):
+        freshness = 0.7
+    return {
+        "source": source[:80],
+        "snippet": snippet[:1200],
+        "freshness": freshness,
+        "provenance": provenance[:500],
+        "grounded": True,
+    }
+
+
+def retrieve_top3(
+    query: str,
+    max_items: int = 3,
+    timeout_ms: int = 350,
+    *,
+    candidates: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     start = time.time()
     cap = max(1, min(max_items, 3))
 
-    candidates = [
-        {
-            "source": "recent_memory",
-            "snippet": f"Recent context for: {query}",
-            "freshness": 0.98,
-        },
-        {
-            "source": "curated_memory",
-            "snippet": f"Curated note for: {query}",
-            "freshness": 0.90,
-        },
-        {
-            "source": "docs",
-            "snippet": f"Docs snippet for: {query}",
-            "freshness": 0.75,
-        },
-    ]
-
     ranked: List[Dict[str, Any]] = []
-    for item in candidates:
+    for item in candidates or []:
         if (time.time() - start) * 1000 > timeout_ms:
             break
-        row = dict(item)
+        row = _normalized_candidate(query, item)
+        if row is None:
+            continue
         row["score"] = _score_item(query, row)
         ranked.append(row)
 

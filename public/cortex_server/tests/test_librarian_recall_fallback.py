@@ -1,5 +1,10 @@
-import cortex_server.routers.librarian as librarian
+import asyncio
+import os
+import threading
+
 import pytest
+
+import cortex_server.routers.librarian as librarian
 
 
 @pytest.fixture(autouse=True)
@@ -26,8 +31,145 @@ def test_robust_search_falls_back_to_lexical(monkeypatch):
     out = librarian.robust_search("outage rollback status", n_results=2, allow_fallback=True)
     assert out["search_mode"] == "lexical_fallback"
     assert out["degraded"] is True
+    assert out["available"] is True
     assert len(out["results"]) >= 1
     assert any("recall_mode" in (row.get("metadata") or {}) for row in out["results"])
+
+
+def test_robust_search_reports_unavailable_when_semantic_and_fallback_queries_fail(monkeypatch):
+    def _unavailable(*args, **kwargs):
+        raise RuntimeError("memory backend unavailable")
+
+    monkeypatch.setattr(librarian.collection, "query", _unavailable)
+    monkeypatch.setattr(librarian.collection, "get", _unavailable)
+    monkeypatch.setattr(librarian, "_canonical_project_search_rows", lambda *a, **k: [])
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda *a, **k: [])
+    monkeypatch.setattr(librarian, "_local_file_memory_search_rows", lambda *a, **k: [])
+
+    out = librarian.robust_search("new primitive", n_results=2, allow_fallback=True)
+    assert out["search_mode"] == "lexical_fallback"
+    assert out["results"] == []
+    assert out["available"] is False
+
+
+def test_fallback_availability_opens_existing_file_for_nonwriting_append_probe(monkeypatch, tmp_path):
+    fallback = tmp_path / "fallback.jsonl"
+    original = b'{"kept": true}\n'
+    fallback.write_bytes(original)
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", fallback)
+    real_open = os.open
+    observed = []
+
+    def recording_open(path, flags, *args, **kwargs):
+        observed.append(flags)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(librarian.os, "open", recording_open)
+    assert librarian._fallback_store_appendable() is True
+    assert fallback.read_bytes() == original
+    assert observed and observed[0] & os.O_APPEND
+    assert observed[0] & os.O_WRONLY
+    assert not observed[0] & os.O_CREAT
+
+
+def test_fallback_availability_rejects_open_errors_nonregular_files_and_symlinks(monkeypatch, tmp_path):
+    fallback = tmp_path / "fallback.jsonl"
+    fallback.write_text("unchanged\n")
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", fallback)
+    monkeypatch.setattr(librarian.os, "open", lambda *a, **k: (_ for _ in ()).throw(PermissionError()))
+    assert librarian._fallback_store_appendable() is False
+
+    directory = tmp_path / "fallback-dir"
+    directory.mkdir()
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", directory)
+    assert librarian._fallback_store_appendable() is False
+
+    link = tmp_path / "fallback-link"
+    link.symlink_to(fallback)
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", link)
+    assert librarian._fallback_store_appendable() is False
+
+
+def test_fallback_availability_checks_creation_feasibility_for_missing_file(monkeypatch, tmp_path):
+    fallback = tmp_path / "missing" / "nested" / "fallback.jsonl"
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", fallback)
+    monkeypatch.setattr(librarian.os, "access", lambda path, mode: path == tmp_path)
+    assert librarian._fallback_store_appendable() is True
+
+    monkeypatch.setattr(librarian.os, "access", lambda path, mode: False)
+    assert librarian._fallback_store_appendable() is False
+
+
+@pytest.mark.asyncio
+async def test_librarian_status_is_unavailable_when_embedding_and_fallback_are_unavailable(monkeypatch, tmp_path):
+    fallback = tmp_path / "fallback.jsonl"
+    fallback.write_text("unchanged\n")
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", fallback)
+    monkeypatch.setattr(librarian, "_embedding_health_snapshot", lambda: {"status": "degraded"})
+    monkeypatch.setattr(librarian.collection, "count", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+    monkeypatch.setattr(librarian.os, "open", lambda *a, **k: (_ for _ in ()).throw(PermissionError()))
+
+    status = await librarian.librarian_status()
+
+    assert status["success"] is False
+    assert status["status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_librarian_status_probes_collection_instead_of_trusting_fresh_health_cache(monkeypatch):
+    monkeypatch.setattr(librarian, "_embedding_health_snapshot", lambda: {"status": "ok"})
+    monkeypatch.setattr(librarian.collection, "count", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+    monkeypatch.setattr(librarian, "_fallback_store_appendable", lambda: False)
+
+    status = await librarian.librarian_status()
+
+    assert status["success"] is False
+    assert status["status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_librarian_status_accepts_live_collection_despite_stale_degraded_cache(monkeypatch):
+    monkeypatch.setattr(librarian, "_embedding_health_snapshot", lambda: {"status": "degraded"})
+    monkeypatch.setattr(librarian.collection, "count", lambda: 0)
+    monkeypatch.setattr(librarian, "_fallback_store_appendable", lambda: False)
+
+    status = await librarian.librarian_status()
+
+    assert status["success"] is True
+    assert status["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_librarian_status_accepts_fallback_when_collection_probe_fails(monkeypatch):
+    monkeypatch.setattr(librarian.collection, "count", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+    monkeypatch.setattr(librarian, "_fallback_store_appendable", lambda: True)
+
+    status = await librarian.librarian_status()
+
+    assert status["success"] is True
+    assert status["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_librarian_status_probes_timeout_without_blocking_event_loop(monkeypatch):
+    release = threading.Event()
+
+    def blocked_count():
+        release.wait(timeout=1.0)
+        return 0
+
+    monkeypatch.setattr(librarian.collection, "count", blocked_count)
+    monkeypatch.setattr(librarian, "_fallback_store_appendable", lambda: False)
+    monkeypatch.setattr(librarian, "_COLLECTION_HEALTH_TIMEOUT_SECONDS", 0.02)
+    try:
+        statuses = await asyncio.wait_for(
+            asyncio.gather(*(librarian.librarian_status() for _ in range(4))),
+            timeout=0.25,
+        )
+    finally:
+        release.set()
+
+    assert all(status["success"] is False for status in statuses)
 
 
 def test_robust_search_exact_lexical_requires_actual_contains(monkeypatch):

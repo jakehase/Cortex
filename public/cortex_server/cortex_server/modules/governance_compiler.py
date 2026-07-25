@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping, Optional
 
 from cortex_server.modules.latency_budget_governor import classify_task_archetype
 from cortex_server.modules.reasoning_beliefs import select_influential_beliefs
@@ -9,7 +9,15 @@ from cortex_server.modules.reasoning_subsystem_adapters import _routing_choice_f
 from cortex_server.modules.routing_autotune import get_policy_snapshot
 
 
-def compile_workflow_policy(*, name: str, goal: str = "", description: str = "", steps: List[Dict[str, Any]] | None = None, metadata: Dict[str, Any] | None = None) -> Dict[str, Any]:
+def compile_workflow_policy(
+    *,
+    name: str,
+    goal: str = "",
+    description: str = "",
+    steps: List[Dict[str, Any]] | None = None,
+    metadata: Dict[str, Any] | None = None,
+    belief_scope: Optional[Mapping[str, object]] = None,
+) -> Dict[str, Any]:
     steps = list(steps or [])
     metadata = dict(metadata or {})
     query = " ".join(x for x in [name, goal, description] if x).strip()
@@ -19,20 +27,25 @@ def compile_workflow_policy(*, name: str, goal: str = "", description: str = "",
     belief_predicates = [str(x) for x in (metadata.get("policy_belief_predicates") or []) if str(x).strip()]
     policy_task_id = str(metadata.get("task_id") or metadata.get("kernel_task_id") or "").strip() or None
     belief_query = None if (belief_subjects or belief_predicates) else query
-    belief_influences = select_influential_beliefs(
+    # A caller that has not supplied an authenticated scope must not consult a
+    # compatibility/global belief namespace.  Unscoped internal compilations
+    # remain deterministic and simply have no belief influences.
+    belief_influences = [] if belief_scope is None else select_influential_beliefs(
         task_id=policy_task_id,
         subjects=belief_subjects or None,
         predicates=belief_predicates or None,
         query=belief_query,
         limit=6,
+        scope=belief_scope,
     )
-    if not belief_influences:
+    if belief_scope is not None and not belief_influences:
         belief_influences = select_influential_beliefs(
             task_id=None,
             subjects=belief_subjects or None,
             predicates=belief_predicates or None,
             query=belief_query,
             limit=6,
+            scope=belief_scope,
         )
     belief_ids = [str(row.get("claim_id") or "") for row in belief_influences if str(row.get("claim_id") or "").strip()]
 
@@ -484,7 +497,10 @@ def compile_workflow_policy(*, name: str, goal: str = "", description: str = "",
 
     return {
         "archetype": archetype,
-        "belief_influences": belief_influences,
+        # Belief values, provenance, and error text are never copied into a
+        # workflow policy response.  Opaque claim ids are sufficient for
+        # traceability and can only be explained through a scoped endpoint.
+        "belief_influences": [{"claim_id": claim_id} for claim_id in belief_ids],
         "belief_influence_ids": belief_ids,
         "dependency_density": round(dependency_density, 3),
         "root_count": root_count,

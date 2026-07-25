@@ -3,7 +3,7 @@ Pydantic models for request/response validation.
 """
 
 from typing import Dict, List, Optional, Any, Generic, TypeVar
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 
 T = TypeVar("T")
 
@@ -55,28 +55,49 @@ class GraphNeighborRequest(BaseModel):
 
 
 # Parser Request Models
-class ParsePythonRequest(BaseModel):
-    code: Optional[str] = None
-    file_path: Optional[str] = None
+class ParserRequest(BaseModel):
+    class Config:
+        extra = "forbid"
 
 
-class ParsePDFRequest(BaseModel):
-    file_path: str
+class ParsePythonRequest(ParserRequest):
+    code: Optional[str] = Field(default=None, max_length=2_000_000)
+    file_path: Optional[str] = Field(default=None, max_length=4096)
+
+    @root_validator(skip_on_failure=True)
+    def exactly_one_source(cls, values):
+        if bool(values.get("code")) == bool(values.get("file_path")):
+            raise ValueError("Exactly one of code or file_path must be provided")
+        if values.get("code") and len(values["code"].encode("utf-8")) > 2_000_000:
+            raise ValueError("Code exceeds byte limit")
+        return values
+
+
+class ParsePDFRequest(ParserRequest):
+    file_path: str = Field(max_length=4096)
     extract_structure: bool = True
 
 
-class ParseJavaScriptRequest(BaseModel):
-    code: Optional[str] = None
-    file_path: Optional[str] = None
+class ParseJavaScriptRequest(ParserRequest):
+    code: Optional[str] = Field(default=None, max_length=2_000_000)
+    file_path: Optional[str] = Field(default=None, max_length=4096)
+
+    @root_validator(skip_on_failure=True)
+    def exactly_one_source(cls, values):
+        if bool(values.get("code")) == bool(values.get("file_path")):
+            raise ValueError("Exactly one of code or file_path must be provided")
+        if values.get("code") and len(values["code"].encode("utf-8")) > 2_000_000:
+            raise ValueError("Code exceeds byte limit")
+        return values
 
 
-class ParseDirectoryRequest(BaseModel):
-    directory: str
+class ParseDirectoryRequest(ParserRequest):
+    directory: str = Field(max_length=4096)
     recursive: bool = True
     exclude_patterns: List[str] = Field(default_factory=lambda: [
         "**/venv/**", "**/.venv/**", "**/__pycache__/**", 
         "**/.git/**", "**/node_modules/**"
-    ])
+    ], max_items=100)
 
 
 # Tool Request Models

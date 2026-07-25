@@ -40,6 +40,7 @@ class ParserConfig:
     max_file_bytes: Optional[int] = 2_000_000
     extract_docstrings: bool = True
     extract_type_annotations: bool = True
+    max_records: int = 20_000
 
 
 class PythonParser(ast.NodeVisitor):
@@ -67,17 +68,30 @@ class PythonParser(ast.NodeVisitor):
     def _add_node(self, node: Dict[str, Any]) -> str:
         """Add a node if it doesn't exist."""
         node_id = node.get("id")
-        if node_id and node_id not in self._node_ids:
+        if node_id and node_id not in self._node_ids and len(self.nodes) + len(self.edges) < self.config.max_records:
             self.nodes.append(node)
             self._node_ids.add(node_id)
         return node_id
     
     def _add_edge(self, edge: Dict[str, Any]) -> None:
         """Add an edge."""
-        self.edges.append(edge)
+        if len(self.nodes) + len(self.edges) < self.config.max_records:
+            self.edges.append(edge)
     
     def parse_file(self, filepath: str) -> ParseResult:
         """Parse a Python file and return extracted entities."""
+        try:
+            limit = self.config.max_file_bytes
+            with open(filepath, "rb") as f:
+                raw = f.read(limit + 1 if limit else -1)
+        except Exception as e:
+            result = ParseResult()
+            result.errors.append(ParseError(filepath, f"IO error: {e}"))
+            return result
+        return self.parse_bytes(raw, filepath)
+
+    def parse_bytes(self, raw: bytes, filepath: str) -> ParseResult:
+        """Parse an already-opened immutable snapshot."""
         result = ParseResult()
         self.current_file = filepath
         self.module_name = Path(filepath).stem
@@ -86,17 +100,16 @@ class PythonParser(ast.NodeVisitor):
         self._node_ids = set()
         
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                source = f.read()
+            limit = self.config.max_file_bytes
+            if limit and len(raw) > limit:
+                result.errors.append(ParseError(filepath, f"File too large: exceeds {limit} bytes"))
+                return result
+            source = raw.decode("utf-8")
         except Exception as e:
             result.errors.append(ParseError(filepath, f"IO error: {e}"))
             return result
         
         # Check file size
-        if self.config.max_file_bytes and len(source) > self.config.max_file_bytes:
-            result.errors.append(ParseError(filepath, f"File too large: {len(source)} bytes"))
-            return result
-        
         try:
             tree = ast.parse(source, filename=filepath)
         except SyntaxError as e:

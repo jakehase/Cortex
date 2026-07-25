@@ -32,6 +32,62 @@ def test_choose_route_prefers_deliberate_for_coding_and_research_for_live_resear
     assert choose_route(research)["selected"]["chain_id"] == "research_grounded"
 
 
+def test_adaptive_route_inputs_are_explicit_and_principal_noninterfering():
+    class Governor:
+        def __init__(self, cheap_route):
+            self.cheap_route = cheap_route
+
+        def plan(self, *_args, **_kwargs):
+            return {
+                "archetype": "simple_qa",
+                "cheap_route": self.cheap_route,
+                "max_latency_ms": 2200,
+                "max_context_tokens": 1200,
+                "prefetch_enabled": False,
+                "prefetch_targets": [],
+                "escalate_on": {},
+            }
+
+    class Tuner:
+        def __init__(self, recommendation):
+            self.recommendation = recommendation
+
+        def get_policy_hint(self, **_kwargs):
+            return {"stage": "recommend", "recommended_policy": self.recommendation, "decision_confidence": 0.99}
+
+    features_a = build_route_features(
+        "Explain TCP in one paragraph",
+        latency_governor=Governor("tenant-a-route"),
+        runtime_policy={"complexity_hard_threshold": 0.1},
+        outcome_tuner=Tuner("deliberate_council"),
+        route_health={"dependencies": {"tenant-a": {"healthy": False}}},
+    )
+    features_b = build_route_features(
+        "Explain TCP in one paragraph",
+        latency_governor=Governor("tenant-b-route"),
+        runtime_policy={"complexity_hard_threshold": 0.9},
+        outcome_tuner=Tuner("fastlane_memory"),
+        route_health={"dependencies": {"tenant-b": {"healthy": True}}},
+    )
+    decision_a = choose_route(
+        features_a,
+        runtime_policy={"complexity_hard_threshold": 0.1},
+        policy_hint={"stage": "recommend", "recommended_policy": "deliberate_council"},
+    )
+    decision_b = choose_route(
+        features_b,
+        runtime_policy={"complexity_hard_threshold": 0.9},
+        policy_hint={"stage": "recommend", "recommended_policy": "fastlane_memory"},
+    )
+
+    assert features_a["route_context"]["cheap_route"] == "tenant-a-route"
+    assert features_b["route_context"]["cheap_route"] == "tenant-b-route"
+    assert features_a["route_context"]["health"]["unhealthy_dependencies"] == ["tenant-a"]
+    assert features_b["route_context"]["health"]["unhealthy_dependencies"] == []
+    assert decision_a["runtime_policy"] != decision_b["runtime_policy"]
+    assert decision_a["policy_hint"] != decision_b["policy_hint"]
+
+
 def test_counterfactual_replay_evaluator_uses_real_harness_shape(tmp_path: Path):
     rows = [
         {"query": "Explain TCP", "risk_flags": [], "complexity_hard": False, "quality": 0.72, "tokens": 200},

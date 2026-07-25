@@ -10,6 +10,11 @@ import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.modules.reasoning_planner import ReasoningPlanGraph
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_delivery_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+
+
 def _graph() -> ReasoningPlanGraph:
     return ReasoningPlanGraph(
         name="operator_control_plan",

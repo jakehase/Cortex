@@ -1,11 +1,21 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import pytest
 
 import cortex_server.modules.reasoning_approvals as approvals
 import cortex_server.modules.reasoning_beliefs as beliefs
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.modules.reasoning_planner import ReasoningPlanGraph
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_delivery_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "default_reasoning_beliefs.json")
+    monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", tmp_path / "default_reasoning_beliefs.db")
 
 
 
@@ -31,6 +41,87 @@ def _graph() -> ReasoningPlanGraph:
             },
         ],
     )
+
+
+def _principal_request(*, user_id: str = "runtime-user"):
+    principal = SimpleNamespace(
+        role="principal",
+        credential_id="runtime-tests",
+        tenant_id="runtime-tenant",
+        workspace_id="runtime-workspace",
+        storage_workspace_id="runtime-storage-workspace",
+        agent_id="runtime-agent",
+        user_id=user_id,
+        channel_id="runtime-api",
+        session_id=f"runtime-session-{user_id}",
+    )
+    return SimpleNamespace(state=SimpleNamespace(cortex_principal=principal))
+
+
+def _principal_scope(request):
+    principal = request.state.cortex_principal
+    return {
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.storage_workspace_id,
+        "agent_id": principal.agent_id,
+        "user_id": principal.user_id,
+        "channel_id": principal.channel_id,
+        "session_id": principal.session_id,
+    }
+
+
+def test_runtime_plan_binds_authenticated_principal_server_side(monkeypatch):
+    captured = {}
+    graph = _graph()
+    graph.metadata.update(
+        {
+            "tenant_id": "forged-tenant",
+            "storage_workspace_id": "forged-workspace",
+            "user_id": "mallory",
+            "agent_id": "mallory-agent",
+            "owner": "mallory",
+            "principal": {"tenant_id": "forged-principal"},
+        }
+    )
+    request = orchestrator.RuntimePlanRequest(graph=graph)
+    principal = SimpleNamespace(
+        role="principal",
+        credential_id="readers",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        storage_workspace_id="principal-workspace-a",
+        agent_id="agent-alice",
+        user_id="alice",
+        channel_id="api",
+        session_id="alice-session",
+    )
+
+    monkeypatch.setattr(orchestrator, "_store_workflow_from_plan", lambda value, **_kwargs: {"metadata": value.metadata})
+    monkeypatch.setattr(orchestrator, "_runtime_delivery_stores", lambda: {})
+
+    def schedule(value, **_kwargs):
+        captured["request"] = value
+        return {"success": True, "process": {}}
+
+    monkeypatch.setattr(orchestrator.runtime_service, "schedule_runtime_plan", schedule)
+    result = asyncio.run(
+        orchestrator.schedule_plan_runtime(
+            request,
+            SimpleNamespace(state=SimpleNamespace(cortex_principal=principal)),
+        )
+    )
+
+    assert result["success"] is True
+    metadata = captured["request"].graph.metadata
+    assert metadata["tenant_id"] == "tenant-a"
+    assert metadata["workspace_id"] == "workspace-a"
+    assert metadata["storage_workspace_id"] == "principal-workspace-a"
+    assert metadata["user_id"] == "alice"
+    assert metadata["agent_id"] == "agent-alice"
+    assert metadata["owner"] == "alice"
+    assert metadata["principal"]["tenant_id"] == "tenant-a"
+    assert captured["request"].options.owner == "alice"
+    assert captured["request"].options.session_key == "alice-session"
 
 
 
@@ -77,7 +168,8 @@ def test_orchestrator_runtime_executes_due_nodes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(orchestrator, "_execute_single_step", fake_execute_single_step)
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=_graph())))
+    principal_request = _principal_request()
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=_graph()), principal_request))
     process_id = scheduled["process"]["process_id"]
 
     first_tick = asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=True)))
@@ -85,7 +177,7 @@ def test_orchestrator_runtime_executes_due_nodes(tmp_path, monkeypatch):
     assert first_tick["executed_count"] == 2
     assert [item["node_id"] for item in first_tick["executed"]] == ["fetch", "summarize"]
 
-    process_view = asyncio.run(orchestrator.get_runtime_process_view(process_id))
+    process_view = asyncio.run(orchestrator.get_runtime_process_view(process_id, principal_request))
     assert process_view["process"]["status"] == "completed"
     assert process_view["process"]["nodes"]["fetch"]["status"] == "completed"
     assert process_view["process"]["nodes"]["summarize"]["status"] == "completed"
@@ -761,6 +853,7 @@ def test_runtime_belief_explain_route_exposes_evidence_chain(tmp_path, monkeypat
     monkeypatch.setattr(orchestrator, "explain_belief", beliefs.explain_belief)
     orchestrator.workflows.clear()
 
+    principal_request = _principal_request()
     claim = beliefs.upsert_belief(
         subject="process:demo:node:fetch",
         predicate="status",
@@ -769,9 +862,10 @@ def test_runtime_belief_explain_route_exposes_evidence_chain(tmp_path, monkeypat
         source_type="runtime_execution",
         source_ref="fetch",
         note="node execution result",
+        scope=_principal_scope(principal_request),
     )
 
-    explained = asyncio.run(orchestrator.get_runtime_belief(claim["claim_id"]))
+    explained = asyncio.run(orchestrator.get_runtime_belief(claim["claim_id"], principal_request))
 
     assert explained["success"] is True
     assert explained["belief"]["claim_id"] == claim["claim_id"]
@@ -823,10 +917,11 @@ def test_runtime_tick_links_produced_beliefs_to_step_result(tmp_path, monkeypatc
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    principal_request = _principal_request()
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     process_id = scheduled["process"]["process_id"]
     tick = asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=True)))
-    explained = asyncio.run(orchestrator.explain_runtime_process(process_id))
+    explained = asyncio.run(orchestrator.explain_runtime_process(process_id, belief_scope=_principal_scope(principal_request)))
 
     result = tick["executed"][0]["result"]
     assert result["produced_belief_count"] >= 2
@@ -841,10 +936,12 @@ def test_runtime_belief_conflicts_route_returns_conflicts(tmp_path, monkeypatch)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "belief_conflicts", beliefs.belief_conflicts)
 
-    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id="task_conflicts", source_type="pytest")
-    beliefs.upsert_belief(subject="repo", predicate="status", value="red", task_id="task_conflicts", source_type="pytest", conflict_mode="contradict")
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id="task_conflicts", source_type="pytest", scope=scope)
+    beliefs.upsert_belief(subject="repo", predicate="status", value="red", task_id="task_conflicts", source_type="pytest", conflict_mode="contradict", scope=scope)
 
-    result = asyncio.run(orchestrator.get_runtime_belief_conflicts(subject="repo", predicate="status", limit=10))
+    result = asyncio.run(orchestrator.get_runtime_belief_conflicts(principal_request, subject="repo", predicate="status", limit=10))
 
     assert result["success"] is True
     assert result["count"] >= 1
@@ -857,10 +954,12 @@ def test_runtime_belief_lineage_route_returns_chain(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "trace_belief_lineage", beliefs.trace_belief_lineage)
 
-    first = beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id="task_lineage_route", source_type="pytest")
-    second = beliefs.upsert_belief(subject="repo", predicate="status", value="red", task_id="task_lineage_route", source_type="pytest", conflict_mode="contradict")
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    first = beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id="task_lineage_route", source_type="pytest", scope=scope)
+    second = beliefs.upsert_belief(subject="repo", predicate="status", value="red", task_id="task_lineage_route", source_type="pytest", conflict_mode="contradict", scope=scope)
 
-    result = asyncio.run(orchestrator.get_runtime_belief_lineage(second["claim_id"]))
+    result = asyncio.run(orchestrator.get_runtime_belief_lineage(second["claim_id"], principal_request))
 
     assert result["success"] is True
     assert result["belief"]["claim_id"] == second["claim_id"]
@@ -895,14 +994,16 @@ def test_process_explain_includes_step_belief_influences(tmp_path, monkeypatch):
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     process_id = scheduled["process"]["process_id"]
     task_id = scheduled["process"]["task_id"]
 
-    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest")
-    beliefs.upsert_belief(subject="svc", predicate="latency", value=10, task_id=task_id, source_type="probe")
+    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest", scope=scope)
+    beliefs.upsert_belief(subject="svc", predicate="latency", value=10, task_id=task_id, source_type="probe", scope=scope)
 
-    explained = asyncio.run(orchestrator.explain_runtime_process(process_id))
+    explained = asyncio.run(orchestrator.explain_runtime_process(process_id, belief_scope=scope))
     influence = explained["step_belief_influences"][0]
 
     assert influence["node_id"] == "fetch"
@@ -956,15 +1057,17 @@ def test_runtime_process_persists_captured_belief_context_snapshot(tmp_path, mon
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     process_id = scheduled["process"]["process_id"]
     task_id = scheduled["process"]["task_id"]
-    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest")
+    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest", scope=scope)
 
     asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=True)))
-    explained = asyncio.run(orchestrator.explain_runtime_process(process_id))
+    explained = asyncio.run(orchestrator.explain_runtime_process(process_id, belief_scope=scope))
     influence = explained["step_belief_influences"][0]
-    process_view = asyncio.run(orchestrator.get_runtime_process_view(process_id))
+    process_view = asyncio.run(orchestrator.get_runtime_process_view(process_id, principal_request))
 
     assert influence["captured_at_execution"] is True
     assert influence["belief_count"] >= 1
@@ -974,13 +1077,17 @@ def test_runtime_process_persists_captured_belief_context_snapshot(tmp_path, mon
 
 def test_workflow_policy_carries_belief_influence_ids(tmp_path, monkeypatch):
     db_path = tmp_path / "reasoning_runtime.db"
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
     monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "select_influential_beliefs", beliefs.select_influential_beliefs)
     orchestrator.workflows.clear()
 
-    claim = beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest")
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    claim = beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest", scope=scope)
 
     graph = ReasoningPlanGraph(
         name="repo status workflow",
@@ -990,7 +1097,7 @@ def test_workflow_policy_carries_belief_influence_ids(tmp_path, monkeypatch):
         ],
     )
 
-    created = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    created = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     workflow = asyncio.run(orchestrator.get_workflow(created["workflow_id"]))["workflow"]
     policy = workflow["metadata"]["policy"]
 
@@ -1044,14 +1151,16 @@ def test_process_explain_reports_belief_context_delta(tmp_path, monkeypatch):
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     process_id = scheduled["process"]["process_id"]
     task_id = scheduled["process"]["task_id"]
-    first = beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest")
+    first = beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest", scope=scope)
 
     asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=True)))
-    beliefs.upsert_belief(subject="repo", predicate="status", value="red", task_id=task_id, source_type="pytest", conflict_mode="contradict")
-    explained = asyncio.run(orchestrator.explain_runtime_process(process_id))
+    beliefs.upsert_belief(subject="repo", predicate="status", value="red", task_id=task_id, source_type="pytest", conflict_mode="contradict", scope=scope)
+    explained = asyncio.run(orchestrator.explain_runtime_process(process_id, belief_scope=scope))
     influence = explained["step_belief_influences"][0]
 
     assert influence["captured_at_execution"] is True
@@ -1063,6 +1172,8 @@ def test_process_explain_reports_belief_context_delta(tmp_path, monkeypatch):
 
 def test_runtime_policy_explain_route_returns_decision_belief_links(tmp_path, monkeypatch):
     db_path = tmp_path / "reasoning_runtime.db"
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
     monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
@@ -1070,7 +1181,9 @@ def test_runtime_policy_explain_route_returns_decision_belief_links(tmp_path, mo
     monkeypatch.setattr(orchestrator, "explain_belief", beliefs.explain_belief)
     orchestrator.workflows.clear()
 
-    claim = beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest")
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    claim = beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest", scope=scope)
 
     graph = ReasoningPlanGraph(
         name="repo status workflow",
@@ -1080,9 +1193,9 @@ def test_runtime_policy_explain_route_returns_decision_belief_links(tmp_path, mo
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     process_id = scheduled["process"]["process_id"]
-    explained = asyncio.run(orchestrator.explain_runtime_policy(process_id))
+    explained = asyncio.run(orchestrator.explain_runtime_policy(process_id, principal_request))
 
     assert explained["success"] is True
     assert claim["claim_id"] in explained["policy"]["belief_influence_ids"]
@@ -1137,13 +1250,15 @@ def test_process_explain_includes_operator_summaries_and_impact_attribution(tmp_
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     process_id = scheduled["process"]["process_id"]
     task_id = scheduled["process"]["task_id"]
-    claim = beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest")
+    claim = beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest", scope=scope)
 
     asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=True)))
-    explained = asyncio.run(orchestrator.explain_runtime_process(process_id))
+    explained = asyncio.run(orchestrator.explain_runtime_process(process_id, belief_scope=scope))
     influence = explained["step_belief_influences"][0]
 
     assert influence["operator_summary"]
@@ -1156,6 +1271,8 @@ def test_process_explain_includes_operator_summaries_and_impact_attribution(tmp_
 
 def test_runtime_policy_explain_includes_operator_summaries(tmp_path, monkeypatch):
     db_path = tmp_path / "reasoning_runtime.db"
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
     monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
@@ -1164,7 +1281,9 @@ def test_runtime_policy_explain_includes_operator_summaries(tmp_path, monkeypatc
     monkeypatch.setattr(orchestrator, "get_belief", beliefs.get_belief)
     orchestrator.workflows.clear()
 
-    beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest")
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest", scope=scope)
 
     graph = ReasoningPlanGraph(
         name="policy summary workflow",
@@ -1174,8 +1293,8 @@ def test_runtime_policy_explain_includes_operator_summaries(tmp_path, monkeypatc
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
-    explained = asyncio.run(orchestrator.explain_runtime_policy(scheduled["process"]["process_id"]))
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
+    explained = asyncio.run(orchestrator.explain_runtime_policy(scheduled["process"]["process_id"], principal_request))
 
     assert explained["decision_explanations"]
     assert all(row["operator_summary"] for row in explained["decision_explanations"])
@@ -1228,11 +1347,13 @@ def test_process_explain_includes_epistemic_timeline_and_execution_trace(tmp_pat
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
     task_id = scheduled["process"]["task_id"]
-    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest")
+    beliefs.upsert_belief(subject="repo", predicate="status", value="green", task_id=task_id, source_type="pytest", scope=scope)
     asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=True)))
-    explained = asyncio.run(orchestrator.explain_runtime_process(scheduled["process"]["process_id"]))
+    explained = asyncio.run(orchestrator.explain_runtime_process(scheduled["process"]["process_id"], belief_scope=scope))
 
     assert explained["execution_trace"]
     assert explained["epistemic_timeline"]
@@ -1244,6 +1365,8 @@ def test_policy_explain_includes_policy_outcome_evaluation(tmp_path, monkeypatch
     db_path = tmp_path / "reasoning_runtime.db"
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
     monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
@@ -1252,7 +1375,9 @@ def test_policy_explain_includes_policy_outcome_evaluation(tmp_path, monkeypatch
     monkeypatch.setattr(orchestrator, "get_belief", beliefs.get_belief)
     orchestrator.workflows.clear()
 
-    beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest")
+    principal_request = _principal_request()
+    scope = _principal_scope(principal_request)
+    beliefs.upsert_belief(subject="repo", predicate="status", value="green", source_type="pytest", scope=scope)
 
     graph = ReasoningPlanGraph(
         name="policy outcome workflow",
@@ -1262,8 +1387,8 @@ def test_policy_explain_includes_policy_outcome_evaluation(tmp_path, monkeypatch
         ],
     )
 
-    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph)))
-    explained = asyncio.run(orchestrator.explain_runtime_policy(scheduled["process"]["process_id"]))
+    scheduled = asyncio.run(orchestrator.schedule_plan_runtime(orchestrator.RuntimePlanRequest(graph=graph), principal_request))
+    explained = asyncio.run(orchestrator.explain_runtime_policy(scheduled["process"]["process_id"], principal_request))
 
     assert explained["policy_outcome_evaluation"]
     assert all(row["operator_summary"] for row in explained["policy_outcome_evaluation"])
@@ -1346,6 +1471,8 @@ def test_policy_explain_includes_incident_report_and_postmortem(tmp_path, monkey
     db_path = tmp_path / "reasoning_runtime.db"
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
+    monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     orchestrator.workflows.clear()
 
@@ -1360,6 +1487,8 @@ def test_postmortem_exposes_rerun_recommendations_and_policy_hooks(tmp_path, mon
     db_path = tmp_path / "reasoning_runtime.db"
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(beliefs, "DEFAULT_STATE_PATH", tmp_path / "reasoning_beliefs.json")
+    monkeypatch.setattr(beliefs, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     orchestrator.workflows.clear()
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -9,9 +8,20 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from cortex_server.modules.route_health import ROUTE_HEALTH, RouteHealthMonitor
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_RUNTIME_DELIVERY_OBJECT_BYTES,
+    append_bounded_jsonl,
+    assert_runtime_delivery_volume_capacity,
+    bounded_jsonl_payload,
+    encoded_json,
+    read_recoverable_jsonl,
+    runtime_delivery_quota_transaction,
+)
 
 
 JsonDict = Dict[str, Any]
+MAX_DELIVERY_DEAD_LETTERS = 4096
+MAX_DELIVERY_DEAD_LETTER_BYTES = 32 * 1024 * 1024
 
 
 def _now_iso() -> str:
@@ -44,30 +54,43 @@ class DeliveryDeadLetterEntry(BaseModel):
 
 
 class DeliveryDeadLetterStore:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else self.path.parent
 
     def append(self, entry: DeliveryDeadLetterEntry | Dict[str, Any]) -> DeliveryDeadLetterEntry:
         model = entry if isinstance(entry, DeliveryDeadLetterEntry) else (DeliveryDeadLetterEntry.model_validate(entry) if hasattr(DeliveryDeadLetterEntry, "model_validate") else DeliveryDeadLetterEntry.parse_obj(entry))
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = model.model_dump() if hasattr(model, "model_dump") else model.dict()
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+        encoded = encoded_json(payload)
+        if len(encoded) > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+            raise ValueError("delivery dead-letter record exceeds immutable object quota")
+        with runtime_delivery_quota_transaction(self.delivery_root):
+            projected = bounded_jsonl_payload(
+                self.path,
+                payload,
+                max_records=MAX_DELIVERY_DEAD_LETTERS,
+                max_bytes=MAX_DELIVERY_DEAD_LETTER_BYTES,
+            )
+            assert_runtime_delivery_volume_capacity(
+                self.delivery_root,
+                additional_bytes=len(projected),
+            )
+            append_bounded_jsonl(
+                self.path,
+                payload,
+                max_records=MAX_DELIVERY_DEAD_LETTERS,
+                max_bytes=MAX_DELIVERY_DEAD_LETTER_BYTES,
+            )
         return model
 
     def list(self, *, dependency: Optional[str] = None) -> List[DeliveryDeadLetterEntry]:
         if not self.path.exists():
             return []
         rows: List[DeliveryDeadLetterEntry] = []
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                raw = json.loads(text)
-                if dependency and str(raw.get("dependency") or "") != dependency:
-                    continue
-                rows.append(DeliveryDeadLetterEntry.model_validate(raw) if hasattr(DeliveryDeadLetterEntry, "model_validate") else DeliveryDeadLetterEntry.parse_obj(raw))
+        for raw in read_recoverable_jsonl(self.path):
+            if dependency and str(raw.get("dependency") or "") != dependency:
+                continue
+            rows.append(DeliveryDeadLetterEntry.model_validate(raw) if hasattr(DeliveryDeadLetterEntry, "model_validate") else DeliveryDeadLetterEntry.parse_obj(raw))
         return rows
 
 

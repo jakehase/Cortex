@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "cortex.learning_os.run_manifest.v0",
+  "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+  "generatedAt": "2026-07-25T05:31:15.534Z",
+  "files": [
+    {
+      "path": "exam.json",
+      "sha256": "8f5f5000c2244c995783e91d37177a3b14ccb131a87a490eed3a83a7b1e3d008"
+    },
+    {
+      "path": "answers.json",
+      "sha256": "187694fab7e1332bce8bd58a0179f312eb049ee5a74e6d446a47c8cef65a3025"
+    },
+    {
+      "path": "attempts.json",
+      "sha256": "ee4549e3b2c60dd9f695627fedf61745674b1309485599c99e3bd95139b6d50c"
+    },
+    {
+      "path": "verifier_results.json",
+      "sha256": "42ed9654c70e0bbb1fd9fd6e57e76ca03fc2efc5857fec6b9d24e80b31759533"
+    },
+    {
+      "path": "score_summary.json",
+      "sha256": "ccbc96b48e327f38151a3cdd6f22f27ab2defc4ea9cc3804aa8a694b87f919d2"
+    }
+  ],
+  "commands": [
+    "openclaw agent --session-id math-foundations-smoke-20260725-052939567Z-baseline --thinking off --json --timeout 240"
+  ],
+  "truthBoundary": "This score applies only to the named deterministic exam and recorded answer set."
+}

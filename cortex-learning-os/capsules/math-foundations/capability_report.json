@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "cortex.learning_os.capability_report.v0",
+  "generatedAt": "2026-07-25T05:31:52.232Z",
+  "capsuleId": "math-foundations-v0",
+  "examMatrix": [
+    {
+      "examId": "math-foundations-exact-arithmetic-stress-v0",
+      "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+      "score": 0.95,
+      "passed": true,
+      "itemCount": 20,
+      "evidenceRefs": [
+        "baseline/score_summary.json"
+      ]
+    },
+    {
+      "examId": "math-foundations-correction-v0",
+      "runId": "math-foundations-smoke-20260725-052939567Z-correction",
+      "score": 1,
+      "passed": true,
+      "itemCount": 1,
+      "evidenceRefs": [
+        "correction/score_summary.json"
+      ]
+    },
+    {
+      "examId": "math-foundations-promotion-retest-v0",
+      "runId": "math-foundations-smoke-20260725-052939567Z-promotion-retest",
+      "score": 1,
+      "passed": true,
+      "itemCount": 1,
+      "evidenceRefs": [
+        "promotion-retest/score_summary.json"
+      ]
+    },
+    {
+      "examId": "math-foundations-heldout-retest-v0",
+      "runId": "math-foundations-smoke-20260725-052939567Z-heldout-retest",
+      "score": 1,
+      "passed": true,
+      "itemCount": 1,
+      "evidenceRefs": [
+        "heldout-retest/score_summary.json"
+      ]
+    }
+  ],
+  "learningOutcome": {
+    "schemaVersion": "cortex.learning_os.learning_outcome.v0",
+    "generatedAt": "2026-07-25T05:31:52.232Z",
+    "status": "green",
+    "reason": null,
+    "learningLoopCompleted": true,
+    "improvementObserved": true,
+    "conceptId": "number-fractions",
+    "baselineFailureItemId": "mfs-02",
+    "heldoutRetestItemId": "mfs-02-heldout-retest",
+    "promotionDigest": "b23e7f7130be75d85c31bd154e00747acbd2e7860577dcb69e9589537b9a1d5c",
+    "comparisonLimitations": [
+      "The baseline is a multi-item batch while correction and retest phases contain one item each.",
+      "The held-out item differs from the failed baseline item and may differ in difficulty.",
+      "The observed sequence does not isolate retrieval-pack causality from added focus or repeated practice."
+    ],
+    "truthBoundary": "Improvement means one failed baseline concept was followed by a pass on a different held-out item after a gated retrieval pack. It does not isolate causality or prove broad or durable math improvement."
+  },
+  "allowedClaims": [
+    "learning_capsule_initialized",
+    "bounded_learning_loop_completed_for_number-fractions",
+    "baseline_failure_followed_by_heldout_pass_for_number-fractions"
+  ],
+  "rejectedClaims": [
+    "general_domain_mastery",
+    "expert_mathematician",
+    "model_weight_learning",
+    "broad_math_improvement"
+  ],
+  "openGaps": [
+    "More held-out items and repeated sessions are required to establish durable transfer.",
+    "One bounded lesson cannot establish broad domain competence.",
+    "Model weights were not changed."
+  ],
+  "truthBoundary": "Observed scores and a bounded retest support only the named item/concept claims; they do not prove general expertise or durable model-level learning."
+}

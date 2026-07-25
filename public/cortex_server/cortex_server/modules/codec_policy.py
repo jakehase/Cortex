@@ -1,22 +1,26 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import re
 import threading
-from datetime import datetime, timezone, timedelta
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
-
-
-_SESSION_TURN_LOCK = threading.Lock()
-_SESSION_LAST_TURN: Dict[str, Dict[str, Any]] = {}
+from typing import Any, Callable, Dict, Iterator, Optional
 
 from cortex_server.modules.latency_budget_governor import classify_task_archetype
 
 
-_LOCK = threading.Lock()
+_SESSION_TURN_LOCK = threading.Lock()
+_SESSION_LAST_TURN: Dict[str, Dict[str, Any]] = {}
+_SESSION_TURN_MAX = max(32, min(int(os.getenv("CODEC_SESSION_TURN_MAX", "1024")), 8192))
+_LOCK = threading.RLock()
+_TRANSACTION_LOCAL = threading.local()
 _STATE_PATH = Path(os.getenv("CODEC_POLICY_STATE_PATH", "/opt/clawdbot/state/cortex_codec_policy.json"))
 _VARIANTS = ("query_only", "referents_only", "referents_plus_codec")
 PASSIVE_SIGNAL_MIN_CONFIDENCE = float(os.getenv("CODEC_PASSIVE_MIN_CONFIDENCE", "0.6"))
@@ -165,6 +169,7 @@ def _default_archetype_row(archetype: str) -> Dict[str, Any]:
 def _default_state() -> Dict[str, Any]:
     return {
         "version": "cortex.codec.policy.v1",
+        "state_revision": 0,
         "enabled": True,
         "last_updated": "",
         "totals": {
@@ -185,26 +190,137 @@ def _default_state() -> Dict[str, Any]:
     }
 
 
+def _load_state_unlocked() -> Dict[str, Any]:
+    state = _default_state()
+    try:
+        if _STATE_PATH.exists():
+            raw = json.loads(_STATE_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                state.update({k: v for k, v in raw.items() if k in state})
+    except Exception:
+        pass
+    if not isinstance(state.get("archetypes"), dict):
+        state["archetypes"] = {}
+    state["state_revision"] = max(0, int(state.get("state_revision", 0) or 0))
+    return state
+
+
+@contextmanager
+def _state_file_lock(*, exclusive: bool) -> Iterator[None]:
+    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = _STATE_PATH.with_name(f"{_STATE_PATH.name}.lock")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        yield
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def _atomic_save_state_unlocked(state: Dict[str, Any]) -> None:
+    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    last_updated = _now_iso()
+    next_revision = max(0, int(state.get("state_revision", 0) or 0)) + 1
+    persisted_state = {**state, "last_updated": last_updated, "state_revision": next_revision}
+    payload = json.dumps(persisted_state, ensure_ascii=False, indent=2)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{_STATE_PATH.name}.",
+        suffix=".tmp",
+        dir=str(_STATE_PATH.parent),
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, _STATE_PATH)
+        directory_fd = os.open(_STATE_PATH.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        state["last_updated"] = last_updated
+        state["state_revision"] = next_revision
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+
+
 def load_state() -> Dict[str, Any]:
     with _LOCK:
-        state = _default_state()
+        if bool(getattr(_TRANSACTION_LOCAL, "active", False)):
+            return _load_state_unlocked()
         try:
-            if _STATE_PATH.exists():
-                raw = json.loads(_STATE_PATH.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    state.update({k: v for k, v in raw.items() if k in state})
-        except Exception:
-            pass
-        if not isinstance(state.get("archetypes"), dict):
-            state["archetypes"] = {}
-        return state
+            with _state_file_lock(exclusive=False):
+                return _load_state_unlocked()
+        except OSError:
+            # Policy reads remain fail-soft when the configured state mount is
+            # unavailable or read-only. Mutating transactions still surface a
+            # persistence error instead of falsely acknowledging a write.
+            return _load_state_unlocked()
 
 
 def save_state(state: Dict[str, Any]) -> None:
     with _LOCK:
-        _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        state["last_updated"] = _now_iso()
-        _STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        if bool(getattr(_TRANSACTION_LOCAL, "active", False)):
+            _atomic_save_state_unlocked(state)
+            return
+        with _state_file_lock(exclusive=True):
+            _atomic_save_state_unlocked(state)
+
+
+_DEFAULT_LOAD_STATE = load_state
+_DEFAULT_SAVE_STATE = save_state
+
+
+@contextmanager
+def _state_transaction() -> Iterator[None]:
+    with _LOCK:
+        if bool(getattr(_TRANSACTION_LOCAL, "active", False)):
+            yield
+            return
+        use_file_lock = load_state is _DEFAULT_LOAD_STATE and save_state is _DEFAULT_SAVE_STATE
+        if use_file_lock:
+            with _state_file_lock(exclusive=True):
+                _TRANSACTION_LOCAL.active = True
+                try:
+                    yield
+                finally:
+                    _TRANSACTION_LOCAL.active = False
+            return
+        _TRANSACTION_LOCAL.active = True
+        try:
+            yield
+        finally:
+            _TRANSACTION_LOCAL.active = False
+
+
+def _transactional_state_update(function: Callable[..., Dict[str, Any]]) -> Callable[..., Dict[str, Any]]:
+    @wraps(function)
+    def wrapped(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        with _state_transaction():
+            return function(*args, **kwargs)
+
+    return wrapped
+
+
+def _record_policy_total(total_name: str, *, last_observation: Optional[Dict[str, Any]] = None) -> None:
+    with _state_transaction():
+        state = load_state()
+        totals = state.setdefault("totals", {})
+        totals[total_name] = int(totals.get(total_name, 0) or 0) + 1
+        if last_observation is not None:
+            state["last_observation"] = last_observation
+        save_state(state)
 
 
 def _archetype_row(state: Dict[str, Any], archetype: str) -> Dict[str, Any]:
@@ -272,6 +388,7 @@ def _recompute_autotune(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
+@_transactional_state_update
 def observe_codec_eval_history(
     *,
     query: str,
@@ -412,6 +529,7 @@ def _recompute_recommendation(row: Dict[str, Any]) -> Dict[str, Any]:
     return recommendation
 
 
+@_transactional_state_update
 def observe_codec_evaluation(
     *,
     query: str,
@@ -667,6 +785,14 @@ def register_codec_session_turn(
     if not session_key or variant not in _VARIANTS or not (query or "").strip():
         return {"recorded": False, "reason": "invalid_session_turn"}
     with _SESSION_TURN_LOCK:
+        for key, row in list(_SESSION_LAST_TURN.items()):
+            age = _age_seconds(row.get("recorded_at"))
+            if age is not None and age > max(30, PASSIVE_TURN_MAX_AGE_SECONDS):
+                _SESSION_LAST_TURN.pop(key, None)
+        while len(_SESSION_LAST_TURN) >= _SESSION_TURN_MAX and session_key not in _SESSION_LAST_TURN:
+            _SESSION_LAST_TURN.pop(next(iter(_SESSION_LAST_TURN)))
+        if session_key in _SESSION_LAST_TURN:
+            _SESSION_LAST_TURN.pop(session_key, None)
         _SESSION_LAST_TURN[session_key] = {
             "query": query,
             "query_hash": hashlib.sha256((query or "").encode("utf-8")).hexdigest()[:16],
@@ -696,10 +822,7 @@ def observe_passive_codec_feedback(session_key: str, followup_query: str, verifi
 
     age_seconds = _age_seconds(last_turn.get("recorded_at"))
     if age_seconds is not None and age_seconds > max(30, PASSIVE_TURN_MAX_AGE_SECONDS):
-        state = load_state()
-        totals = state.setdefault("totals", {})
-        totals["stale_turns"] = int(totals.get("stale_turns", 0) or 0) + 1
-        state["last_observation"] = {
+        _record_policy_total("stale_turns", last_observation={
             "ts": _now_iso(),
             "session_key": session_key,
             "source": "passive_followup",
@@ -707,8 +830,7 @@ def observe_passive_codec_feedback(session_key: str, followup_query: str, verifi
             "reason": "stale_turn",
             "age_seconds": age_seconds,
             "variant": last_turn.get("variant"),
-        }
-        save_state(state)
+        })
         with _SESSION_TURN_LOCK:
             _SESSION_LAST_TURN.pop(session_key, None)
         return {"recorded": False, "reason": "stale_turn", "age_seconds": age_seconds}
@@ -731,10 +853,7 @@ def observe_passive_codec_feedback(session_key: str, followup_query: str, verifi
         )
     )
     if should_try_verifier:
-        state = load_state()
-        totals = state.setdefault("totals", {})
-        totals["passive_verifier_used"] = int(totals.get("passive_verifier_used", 0) or 0) + 1
-        save_state(state)
+        _record_policy_total("passive_verifier_used")
         try:
             verifier_result = verifier({
                 "session_key": session_key,
@@ -761,16 +880,10 @@ def observe_passive_codec_feedback(session_key: str, followup_query: str, verifi
                 "verifier_model_confidence": verifier_conf,
                 "verifier_model_reason": verifier_result.get("reason"),
             }
-            state = load_state()
-            totals = state.setdefault("totals", {})
-            totals["passive_verifier_promoted"] = int(totals.get("passive_verifier_promoted", 0) or 0) + 1
-            save_state(state)
+            _record_policy_total("passive_verifier_promoted")
 
     if float(signal.get("confidence", 0.0) or 0.0) < PASSIVE_SIGNAL_MIN_CONFIDENCE:
-        state = load_state()
-        totals = state.setdefault("totals", {})
-        totals["passive_feedback_ignored"] = int(totals.get("passive_feedback_ignored", 0) or 0) + 1
-        state["last_observation"] = {
+        _record_policy_total("passive_feedback_ignored", last_observation={
             "ts": _now_iso(),
             "session_key": session_key,
             "source": "passive_followup",
@@ -780,8 +893,7 @@ def observe_passive_codec_feedback(session_key: str, followup_query: str, verifi
             "verifier": verifier_result,
             "age_seconds": age_seconds,
             "variant": last_turn.get("variant"),
-        }
-        save_state(state)
+        })
         return {"recorded": False, "reason": "low_confidence_or_no_signal", "signal": signal, "verifier": verifier_result, "age_seconds": age_seconds}
 
     result = observe_codec_outcome(
@@ -905,6 +1017,7 @@ def infer_codec_variant(policy_label: Optional[str] = None, *, query: str = "") 
 
 
 
+@_transactional_state_update
 def observe_codec_outcome(
     *,
     query: str,

@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import json
+import fcntl
+import hashlib
+import hmac
+import os
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    runtime_delivery_quota_transaction,
+)
 
 
 
@@ -17,6 +29,71 @@ def _now_iso() -> str:
 
 def _message_id() -> str:
     return f"msg_{uuid4().hex[:16]}"
+
+
+def _ack_credentials() -> Dict[str, str]:
+    raw = os.getenv("CORTEX_AGENT_ACK_CREDENTIALS", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("CORTEX_AGENT_ACK_CREDENTIALS must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("CORTEX_AGENT_ACK_CREDENTIALS must map agent IDs to secrets")
+    credentials = {
+        str(agent or "").strip(): str(secret or "").strip()
+        for agent, secret in parsed.items()
+    }
+    if any(not agent or not secret for agent, secret in credentials.items()):
+        raise RuntimeError("CORTEX_AGENT_ACK_CREDENTIALS contains an empty agent or secret")
+    return credentials
+
+
+def release_ack_authentication_required() -> bool:
+    return os.getenv("CORTEX_ENV", "development").strip().lower() == "production" or bool(
+        os.getenv("CORTEX_AGENT_ACK_CREDENTIALS", "").strip()
+    )
+
+
+def _acknowledgement_message(
+    message: "AgentMessage",
+    *,
+    actor: str,
+    result_receipt: Dict[str, Any],
+) -> bytes:
+    return json.dumps(
+        {
+            "version": "cortex.mailbox.ack.v1",
+            "message_id": message.message_id,
+            "process_id": message.process_id,
+            "to_agent": message.to_agent,
+            "actor": str(actor or "").strip(),
+            "revision_id": message.revision_id,
+            "payload": message.payload,
+            "metadata": message.metadata,
+            "result_receipt": dict(result_receipt or {}),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def agent_acknowledgement_signature(
+    message: "AgentMessage",
+    *,
+    actor: str,
+    result_receipt: Dict[str, Any],
+    secret: str,
+) -> str:
+    signing_secret = str(secret or "").strip()
+    if not signing_secret:
+        return ""
+    return hmac.new(
+        signing_secret.encode("utf-8"),
+        _acknowledgement_message(message, actor=actor, result_receipt=result_receipt),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 class AgentMessage(BaseModel):
@@ -37,6 +114,8 @@ class AgentMessage(BaseModel):
     attempt_count: int = 0
     last_attempt_at: Optional[str] = None
     acked_at: Optional[str] = None
+    acked_by: Optional[str] = None
+    ack_receipt: Optional[Dict[str, Any]] = None
     dead_lettered_at: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -104,20 +183,105 @@ def _model_dump_compat(model: AgentMessage) -> Dict[str, Any]:
 
 
 class AgentMailbox:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, delivery_root: Optional[str | Path] = None):
         self.path = Path(path)
+        self.delivery_root = Path(delivery_root) if delivery_root is not None else None
+
+    @property
+    def _lock_path(self) -> Path:
+        return self.path.with_name(f".{self.path.name}.lock")
+
+    @contextmanager
+    def _locked(self, *, exclusive: bool):
+        durable_mkdir(self.path.parent)
+        with self._lock_path.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _atomic_replace(path: Path, payload: bytes) -> None:
+        durable_mkdir(path.parent)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            fsync_directory(path.parent)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _read_envelope_unlocked(self) -> tuple[int, List[AgentMessage]]:
+        if not self.path.exists():
+            return 0, []
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            revision, raw_rows = 0, data
+        elif isinstance(data, dict):
+            if data.get("version") != "cortex.agent_mailbox.v2":
+                raise ValueError("unsupported agent mailbox envelope")
+            revision = int(data.get("persistence_revision", 0) or 0)
+            raw_rows = data.get("messages")
+            if revision < 0 or not isinstance(raw_rows, list):
+                raise ValueError("invalid agent mailbox envelope")
+        else:
+            raise ValueError("agent mailbox must contain an envelope or legacy message list")
+        return revision, [
+            _model_validate_compat(dict(row))
+            for row in raw_rows
+            if isinstance(row, dict)
+        ]
 
     def _read_all(self) -> List[AgentMessage]:
-        if not self.path.exists():
-            return []
-        data = json.loads(self.path.read_text(encoding="utf-8"))
-        rows = data if isinstance(data, list) else []
-        return [_model_validate_compat(dict(row)) for row in rows if isinstance(row, dict)]
+        with self._locked(exclusive=False):
+            return self._read_envelope_unlocked()[1]
 
-    def _write_all(self, rows: List[AgentMessage]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = [_model_dump_compat(row) for row in rows]
-        self.path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    def _write_all_unlocked(
+        self,
+        rows: List[AgentMessage],
+        *,
+        expected_revision: int,
+    ) -> int:
+        observed_revision, _ = self._read_envelope_unlocked()
+        if observed_revision != expected_revision:
+            raise RuntimeError(
+                f"agent mailbox persistence conflict: expected {expected_revision}, observed {observed_revision}"
+            )
+        next_revision = observed_revision + 1
+        payload = {
+            "version": "cortex.agent_mailbox.v2",
+            "persistence_revision": next_revision,
+            "messages": [_model_dump_compat(row) for row in rows],
+        }
+        encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        if self.delivery_root is None:
+            self._atomic_replace(self.path, encoded)
+        else:
+            with runtime_delivery_quota_transaction(self.delivery_root):
+                process_ids = sorted({row.process_id for row in rows})
+                for process_id in process_ids:
+                    assert_process_count(
+                        self.path,
+                        process_id,
+                        delivery_root=self.delivery_root,
+                    )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self.delivery_root,
+                    store_root=self.path,
+                    process_id=process_ids[0] if process_ids else "mailbox-system",
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=self.path,
+                )
+                self._atomic_replace(self.path, encoded)
+        return next_revision
 
     def send(self, message: Optional[AgentMessage | Dict[str, Any]] = None, **kwargs: Any) -> AgentMessage:
         if isinstance(message, AgentMessage):
@@ -130,21 +294,22 @@ class AgentMailbox:
             record = _model_validate_compat(message)
         else:
             record = AgentMessage(**kwargs)
-        rows = self._read_all()
-        if record.dedupe_key:
-            for row in rows:
-                if (
-                    row.process_id == record.process_id
-                    and row.from_agent == record.from_agent
-                    and row.to_agent == record.to_agent
-                    and row.kind == record.kind
-                    and row.dedupe_key == record.dedupe_key
-                    and row.delivery_status != "dead_letter"
-                ):
-                    return row
-        rows.append(record)
-        self._write_all(rows)
-        return record
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope_unlocked()
+            if record.dedupe_key:
+                for row in rows:
+                    if (
+                        row.process_id == record.process_id
+                        and row.from_agent == record.from_agent
+                        and row.to_agent == record.to_agent
+                        and row.kind == record.kind
+                        and row.dedupe_key == record.dedupe_key
+                        and row.delivery_status != "dead_letter"
+                    ):
+                        return row
+            rows.append(record)
+            self._write_all_unlocked(rows, expected_revision=revision)
+            return record
 
     def list(
         self,
@@ -154,7 +319,8 @@ class AgentMailbox:
         from_agent: Optional[str] = None,
         delivery_statuses: Optional[Sequence[str]] = None,
     ) -> List[AgentMessage]:
-        rows = self._read_all()
+        with self._locked(exclusive=False):
+            rows = self._read_envelope_unlocked()[1]
         allowed = {str(x).strip() for x in (delivery_statuses or []) if str(x).strip()}
         filtered: List[AgentMessage] = []
         for row in rows:
@@ -178,54 +344,135 @@ class AgentMailbox:
         expected_revision_id: Optional[str] = None,
         reject_stale_revision: bool = False,
     ) -> List[AgentMessage]:
-        claimable_statuses = ["queued"] + (["inflight"] if include_inflight else [])
-        rows = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=claimable_statuses)
-        updated = self._read_all()
-        by_id = {row.message_id: row for row in updated}
-        now = _now_iso()
-        expected = str(expected_revision_id or "").strip() or None
-        for row in rows:
-            stored = by_id.get(row.message_id)
-            if not stored:
-                continue
-            observed = str(stored.revision_id or "").strip() or None
-            stale_revision = bool(expected and observed and observed != expected)
-            if stale_revision:
-                metadata = dict(stored.metadata or {})
-                metadata.update(
-                    {
+        claimable_statuses = {"queued"} | ({"inflight"} if include_inflight else set())
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope_unlocked()
+            now = _now_iso()
+            expected = str(expected_revision_id or "").strip() or None
+            accepted: List[AgentMessage] = []
+            changed = False
+            for stored in rows:
+                if process_id and stored.process_id != process_id:
+                    continue
+                if stored.to_agent != to_agent or stored.delivery_status not in claimable_statuses:
+                    continue
+                observed = str(stored.revision_id or "").strip() or None
+                stale_revision = bool(expected and observed and observed != expected)
+                if stale_revision:
+                    stored.metadata = {
+                        **dict(stored.metadata or {}),
                         "rejection_reason": "stale_revision",
                         "expected_revision_id": expected,
                         "observed_revision_id": observed,
                     }
-                )
-                stored.metadata = metadata
-                if reject_stale_revision and stored.delivery_status != "dead_letter":
-                    stored.delivery_status = "dead_letter"
-                    stored.dead_lettered_at = now
-                continue
-            if stored.delivery_status == "queued":
-                stored.delivery_status = "inflight"
-                stored.attempt_count += 1
-                stored.last_attempt_at = now
-        self._write_all(list(by_id.values()))
-        accepted = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=["inflight"])
-        if expected:
-            accepted = [row for row in accepted if not row.revision_id or str(row.revision_id).strip() == expected]
-        return accepted
+                    if reject_stale_revision and stored.delivery_status != "dead_letter":
+                        stored.delivery_status = "dead_letter"
+                        stored.dead_lettered_at = now
+                    changed = True
+                    continue
+                if stored.delivery_status == "queued":
+                    stored.delivery_status = "inflight"
+                    stored.attempt_count += 1
+                    stored.last_attempt_at = now
+                    changed = True
+                accepted.append(stored)
+            if changed:
+                self._write_all_unlocked(rows, expected_revision=revision)
+            return accepted
 
     def _mutate(self, message_id: str, mutate_fn) -> AgentMessage:
-        rows = self._read_all()
-        for row in rows:
-            if row.message_id == message_id:
-                mutate_fn(row)
-                self._write_all(rows)
-                return row
+        with self._locked(exclusive=True):
+            revision, rows = self._read_envelope_unlocked()
+            for row in rows:
+                if row.message_id == message_id:
+                    mutate_fn(row)
+                    self._write_all_unlocked(rows, expected_revision=revision)
+                    return row
         raise KeyError(f"message not found: {message_id}")
 
-    def acknowledge(self, message_id: str) -> AgentMessage:
+    def bind_claim_payload(
+        self,
+        message_id: str,
+        *,
+        payload: Dict[str, Any],
+        expected_revision_id: Optional[str] = None,
+    ) -> AgentMessage:
+        """Persist the exact payload a recipient will sign for acknowledgement."""
+
+        expected = str(expected_revision_id or "").strip() or None
+
+        def _bind(row: AgentMessage) -> None:
+            if row.delivery_status != "inflight":
+                raise ValueError("mailbox claim payload can only be bound while inflight")
+            observed = str(row.revision_id or "").strip() or None
+            if expected is not None and observed != expected:
+                raise ValueError("mailbox claim payload revision changed")
+            row.payload = dict(payload or {})
+
+        return self._mutate(message_id, _bind)
+
+    def acknowledge(
+        self,
+        message_id: str,
+        *,
+        actor: str,
+        result_receipt: Optional[Dict[str, Any]] = None,
+        actor_signature: Optional[str] = None,
+    ) -> AgentMessage:
         now = _now_iso()
-        return self._mutate(message_id, lambda row: (setattr(row, "delivery_status", "acked"), setattr(row, "acked_at", now)))
+        acknowledged_by = str(actor or "").strip()
+
+        def _acknowledge(row: AgentMessage):
+            if acknowledged_by != row.to_agent:
+                raise PermissionError("only the intended recipient may acknowledge a mailbox message")
+            if row.delivery_status != "inflight":
+                raise ValueError("mailbox message must be received before acknowledgement")
+            receipt = dict(result_receipt or {})
+            is_release_handoff = bool((row.metadata or {}).get("target_stage"))
+            if is_release_handoff:
+                expected = {
+                    "candidate_ref": str((row.metadata or {}).get("candidate_ref") or ""),
+                    "release_id": str((row.metadata or {}).get("release_id") or ""),
+                    "revision_id": str(row.revision_id or ""),
+                }
+                if any(str(receipt.get(key) or "") != value for key, value in expected.items()):
+                    raise ValueError("release acknowledgement receipt is not bound to the candidate and revision")
+                if str(receipt.get("result") or "") not in {"approved", "rejected"}:
+                    raise ValueError("release acknowledgement requires an immutable result")
+                evidence = receipt.get("evidence_receipts")
+                if not isinstance(evidence, list) or not evidence or any(not str(value or "").strip() for value in evidence):
+                    raise ValueError("release acknowledgement requires evidence receipts")
+            authentication = "development-actor-assertion"
+            if is_release_handoff and release_ack_authentication_required():
+                credentials = _ack_credentials()
+                secret = credentials.get(acknowledged_by, "")
+                expected_signature = agent_acknowledgement_signature(
+                    row,
+                    actor=acknowledged_by,
+                    result_receipt=receipt,
+                    secret=secret,
+                )
+                if not secret or not hmac.compare_digest(str(actor_signature or ""), expected_signature):
+                    raise PermissionError("release acknowledgement requires authenticated recipient signature")
+                authentication = "hmac-sha256"
+            canonical = _acknowledgement_message(
+                row,
+                actor=acknowledged_by,
+                result_receipt=receipt,
+            )
+            row.delivery_status = "acked"
+            row.acked_at = now
+            row.acked_by = acknowledged_by
+            row.ack_receipt = {
+                "version": "cortex.mailbox.ack.v1",
+                "actor": acknowledged_by,
+                "authentication": authentication,
+                "bound_message_hash": hashlib.sha256(canonical).hexdigest(),
+                "result_receipt": receipt,
+                "acked_at": now,
+            }
+
+        return self._mutate(message_id, _acknowledge)
 
     def retry(self, message_id: str) -> AgentMessage:
         return self._mutate(message_id, lambda row: (setattr(row, "delivery_status", "queued"), setattr(row, "dead_lettered_at", None)))

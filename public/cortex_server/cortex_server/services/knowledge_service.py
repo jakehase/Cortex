@@ -2,6 +2,7 @@
 Knowledge Graph Service - Business logic for graph operations.
 """
 
+import hashlib
 from typing import Dict, List, Optional, Any
 from cortex_server.knowledge.graph import Graph, Node, Edge, NodeType, EdgeType
 from cortex_server.models.requests import (
@@ -15,19 +16,29 @@ class KnowledgeService:
     def __init__(self):
         self.graph = Graph()
     
-    async def query(self, request: GraphQueryRequest) -> Dict[str, Any]:
+    @staticmethod
+    def _scoped_id(value: str, tenant_id: str, storage_workspace_id: str) -> str:
+        prefix = "scope:" + hashlib.sha256(
+            f"{tenant_id}\0{storage_workspace_id}".encode("utf-8")
+        ).hexdigest()[:24] + ":"
+        raw = str(value or "").strip()
+        return raw if raw.startswith(prefix) else prefix + raw
+
+    async def query(self, request: GraphQueryRequest, *, tenant_id: Optional[str] = None, storage_workspace_id: Optional[str] = None) -> Dict[str, Any]:
         """Query the knowledge graph."""
         node_type = None
         if request.node_type:
             try:
                 node_type = NodeType(request.node_type)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                raise ValueError(f"invalid node_type: {request.node_type}") from exc
         
         nodes = self.graph.query(
             node_type=node_type,
             name_pattern=request.query if request.query else None,
-            limit=request.limit
+            limit=request.limit,
+            tenant_id=tenant_id,
+            storage_workspace_id=storage_workspace_id,
         )
         
         return {
@@ -35,15 +46,17 @@ class KnowledgeService:
             "count": len(nodes),
         }
     
-    async def create_node(self, request: GraphNodeCreateRequest) -> Dict[str, Any]:
+    async def create_node(self, request: GraphNodeCreateRequest, *, tenant_id: str, storage_workspace_id: str) -> Dict[str, Any]:
         """Create a new node."""
         node = Node(
-            id=request.id or f"{request.type}:{request.name}",
+            id=self._scoped_id(request.id or f"{request.type}:{request.name}", tenant_id, storage_workspace_id),
             type=NodeType(request.type),
             name=request.name,
             uri=request.uri,
             language=request.language,
             metadata=request.metadata,
+            tenant_id=tenant_id,
+            storage_workspace_id=storage_workspace_id,
         )
         self.graph.add_node(node)
         return node.dict()
@@ -55,16 +68,18 @@ class KnowledgeService:
             return node.dict()
         return None
     
-    async def create_edge(self, request: GraphEdgeCreateRequest) -> Dict[str, Any]:
+    async def create_edge(self, request: GraphEdgeCreateRequest, *, tenant_id: str, storage_workspace_id: str) -> Dict[str, Any]:
         """Create a new edge."""
         edge = Edge(
-            id=request.id or f"{request.type}:{request.source_id}:{request.target_id}",
+            id=self._scoped_id(request.id or f"{request.type}:{request.source_id}:{request.target_id}", tenant_id, storage_workspace_id),
             type=EdgeType(request.type),
-            source_id=request.source_id,
-            target_id=request.target_id,
+            source_id=self._scoped_id(request.source_id, tenant_id, storage_workspace_id),
+            target_id=self._scoped_id(request.target_id, tenant_id, storage_workspace_id),
             weight=request.weight,
             context=request.context,
             metadata=request.metadata,
+            tenant_id=tenant_id,
+            storage_workspace_id=storage_workspace_id,
         )
         self.graph.add_edge(edge)
         return edge.dict()
@@ -73,17 +88,21 @@ class KnowledgeService:
         self,
         node_id: str,
         edge_type: Optional[str] = None,
-        direction: str = "out"
+        direction: str = "out",
+        limit: int = 100,
     ) -> Dict[str, Any]:
         """Get neighbors of a node."""
         etype = None
         if edge_type:
             try:
                 etype = EdgeType(edge_type)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                raise ValueError(f"invalid edge_type: {edge_type}") from exc
+        if direction not in {"out", "in", "both"}:
+            raise ValueError("direction must be one of: out, in, both")
         
-        neighbors = self.graph.get_neighbors(node_id, etype, direction)
+        bounded_limit = max(1, min(100, int(limit)))
+        neighbors = self.graph.get_neighbors(node_id, etype, direction, bounded_limit)
         return {
             "node_id": node_id,
             "neighbors": neighbors,

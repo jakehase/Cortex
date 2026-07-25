@@ -1,9 +1,13 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/memory-core';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 type BridgeConfig = {
   baseUrl?: string;
   searchPath?: string;
   storePath?: string;
+  assurancePath?: string;
   codecEventsPath?: string;
   timeoutMs?: number;
   retryCount?: number;
@@ -22,6 +26,32 @@ type BridgeConfig = {
   explicitBoost?: number;
   corroborationBoost?: number;
   hardQueryCandidateCount?: number;
+  maxResponseBytes?: number;
+  lifecycleMaxInFlight?: number;
+  lifecycleMaxPending?: number;
+  lifecycleSpoolMaxRecords?: number;
+  recentOutputMaxChars?: number;
+  stateDir?: string;
+  writeToken?: string;
+  writeTokenHeader?: string;
+  tenantId?: string;
+  workspaceId?: string;
+  agentId?: string;
+  userId?: string;
+  preferConfiguredUserId?: boolean;
+  channelId?: string;
+  sessionId?: string;
+  scopeCredentialId?: string;
+  scopeHmacSecret?: string;
+  allowUnsignedLocalDevelopment?: boolean;
+  sessionIdentityHmacSecret?: string;
+};
+
+type TrustedPrincipalContext = {
+  sessionKey: string;
+  userId: string;
+  channelId: string;
+  agentId: string;
 };
 
 type MemoryCandidate = {
@@ -59,6 +89,834 @@ type ReconcileResult = {
   conflicts: Array<{ entity?: string; attribute?: string; paths: string[]; values: string[] }>;
 };
 
+const LIFECYCLE_DEDUP_MAX_ENTRIES = 4096;
+const LIFECYCLE_DEDUP_TTL_MS = 10 * 60 * 1000;
+const LIFECYCLE_MAX_IN_FLIGHT = 64;
+const LIFECYCLE_MAX_PENDING = 256;
+const LIFECYCLE_SPOOL_MAX_RECORDS = 4096;
+const LIFECYCLE_SPOOL_MAX_RECORD_BYTES = 256 * 1024;
+const LIFECYCLE_NAMESPACE_INODE_BUDGET = 8;
+const LIFECYCLE_ROOT_INODE_RESERVE = 16;
+const RECENT_OUTPUT_MAX_ENTRIES = 1024;
+const RECENT_OUTPUT_TTL_MS = 10 * 60 * 1000;
+const RECENT_OUTPUT_MAX_CHARS = 4096;
+
+function lifecyclePersistenceKey(session: string, payload: string): string {
+  const sessionBytes = Buffer.from(session, 'utf8');
+  const payloadBytes = Buffer.from(payload, 'utf8');
+  const encodedLength = (length: number) => {
+    const buffer = Buffer.allocUnsafe(8);
+    buffer.writeBigUInt64BE(BigInt(length));
+    return buffer;
+  };
+  const digest = createHash('sha256')
+    .update(encodedLength(sessionBytes.length))
+    .update(sessionBytes)
+    .update(encodedLength(payloadBytes.length))
+    .update(payloadBytes)
+    .digest('hex');
+  return `${session}:${digest}`;
+}
+
+function lifecycleIdentity(event: any, ctx: any): string | undefined {
+  for (const field of ['runId', 'run_id', 'completionId', 'completion_id']) {
+    for (const source of [ctx, event]) {
+      const value = source?.[field];
+      if (typeof value === 'string' && value.trim()) {
+        const digest = createHash('sha256').update(value.trim(), 'utf8').digest('hex');
+        return `${field.replace('_', '').toLowerCase()}:${digest}`;
+      }
+    }
+  }
+  return undefined;
+}
+
+class ExpiringLruMap<T> {
+  private readonly entries = new Map<string, { value: T; expiresAt: number }>();
+  private readonly maxEntries: number;
+  private readonly ttlMs: number;
+
+  constructor(maxEntries: number, ttlMs: number) {
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || !Number.isSafeInteger(ttlMs) || ttlMs < 1) {
+      throw new Error('ExpiringLruMap requires positive integer bounds');
+    }
+    this.maxEntries = maxEntries;
+    this.ttlMs = ttlMs;
+  }
+
+  get(key: string, now = Date.now()): T | undefined {
+    this.pruneExpired(now);
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: string, value: T, now = Date.now()): void {
+    this.pruneExpired(now);
+    this.entries.delete(key);
+    while (this.entries.size >= this.maxEntries) {
+      const oldest = this.entries.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
+    this.entries.set(key, { value, expiresAt: now + this.ttlMs });
+  }
+
+  delete(key: string): boolean { return this.entries.delete(key); }
+
+  get size(): number { return this.entries.size; }
+
+  private pruneExpired(now: number): void {
+    for (const [key, entry] of this.entries) {
+      if (entry.expiresAt <= now) this.entries.delete(key);
+    }
+  }
+}
+
+class ExpiringLruSet {
+  private readonly entries = new Map<string, number>();
+  private readonly maxEntries: number;
+  private readonly ttlMs: number;
+
+  constructor(maxEntries: number, ttlMs: number) {
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || !Number.isSafeInteger(ttlMs) || ttlMs < 1) {
+      throw new Error('ExpiringLruSet requires positive integer bounds');
+    }
+    this.maxEntries = maxEntries;
+    this.ttlMs = ttlMs;
+  }
+
+  has(key: string, now = Date.now()): boolean {
+    this.pruneExpired(now);
+    const expiresAt = this.entries.get(key);
+    if (expiresAt === undefined) return false;
+    // Reinsert to make successful lookups the most-recently-used entries.
+    this.entries.delete(key);
+    this.entries.set(key, expiresAt);
+    return true;
+  }
+
+  add(key: string, now = Date.now()): void {
+    this.pruneExpired(now);
+    this.entries.delete(key);
+    while (this.entries.size >= this.maxEntries) {
+      const oldest = this.entries.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
+    this.entries.set(key, now + this.ttlMs);
+  }
+
+  private pruneExpired(now: number): void {
+    for (const [key, expiresAt] of this.entries) {
+      if (expiresAt <= now) this.entries.delete(key);
+    }
+  }
+}
+
+type LifecycleSpoolRecord = {
+  version: 3;
+  key: string;
+  createdAt: string;
+  principal: LifecyclePrincipal;
+  event: { result: string; messages: Array<{ role: 'user'; content: string }> };
+  context: {
+    sessionKey: string;
+    sessionId: string;
+    channelId: string;
+    agentId: string;
+    userId: string;
+    idempotencyKey: string;
+  };
+  fallbackText: string;
+  assuranceReceipt?: string;
+};
+
+type LifecyclePrincipal = {
+  version: 1;
+  tenant_id: string;
+  workspace_id: string;
+  scope_credential_id: string;
+  agent_id: string;
+  user_id: string;
+  channel_id: string;
+  session_id: string;
+};
+
+const LIFECYCLE_PRINCIPAL_FIELDS: Array<keyof Omit<LifecyclePrincipal, 'version'>> = [
+  'tenant_id',
+  'workspace_id',
+  'scope_credential_id',
+  'agent_id',
+  'user_id',
+  'channel_id',
+  'session_id',
+];
+
+function isLifecyclePrincipal(value: unknown): value is LifecyclePrincipal {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const principal = value as Record<string, unknown>;
+  return principal.version === 1
+    && LIFECYCLE_PRINCIPAL_FIELDS.every((field) => {
+      const entry = principal[field];
+      return typeof entry === 'string' && entry.length > 0 && entry.length <= 2048;
+    });
+}
+
+function isLifecycleSpoolRecord(value: unknown): value is LifecycleSpoolRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, any>;
+  const event = record.event;
+  const context = record.context;
+  return [2, 3].includes(Number(record.version))
+    && typeof record.key === 'string' && record.key.length > 0 && record.key.length <= 2048
+    && typeof record.createdAt === 'string' && record.createdAt.length <= 64
+    && isLifecyclePrincipal(record.principal)
+    && typeof record.fallbackText === 'string' && record.fallbackText.length <= 65_536
+    && event && typeof event === 'object' && typeof event.result === 'string' && event.result.length <= 65_536
+    && Array.isArray(event.messages) && event.messages.length <= 1
+    && event.messages.every((message: any) => message?.role === 'user' && typeof message.content === 'string' && message.content.length <= 2000)
+    && context && typeof context === 'object'
+    && ['sessionKey', 'sessionId', 'channelId', 'agentId', 'userId', 'idempotencyKey']
+      .every((field) => typeof context[field] === 'string' && context[field].length <= 2048)
+    && (record.assuranceReceipt === undefined
+      || (typeof record.assuranceReceipt === 'string' && record.assuranceReceipt.length > 0 && record.assuranceReceipt.length <= 16_384));
+}
+
+type LifecycleLockOwner = {
+  version: 1;
+  pid: number;
+  startIdentity: string;
+  token: string;
+  createdAt: string;
+};
+type LifecycleLockContender = LifecycleLockOwner & { ticket: number | null };
+const LIFECYCLE_MALFORMED_LOCK_GRACE_MS = 30_000;
+
+function fsyncLifecycleDirectory(directory: string): void {
+  if (process.platform === 'win32') return;
+  const fd = fs.openSync(directory, 'r');
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+
+function durableLifecycleMkdir(directory: string): void {
+  const target = path.resolve(directory);
+  const missing: string[] = [];
+  let cursor = target;
+  while (!fs.existsSync(cursor)) {
+    missing.push(cursor);
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  for (const child of missing.reverse()) {
+    const parent = path.dirname(child);
+    let created = false;
+    try {
+      fs.mkdirSync(child, { mode: 0o700 });
+      created = true;
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST' || !fs.statSync(child).isDirectory()) throw error;
+    }
+    try {
+      fs.chmodSync(child, 0o700);
+      if (created) fsyncLifecycleDirectory(parent);
+    } catch (error) {
+      // A failed parent fsync cannot be reported as durable.  Remove the
+      // still-empty link where possible so retry must recreate and resync it.
+      if (created) try { fs.rmdirSync(child); } catch {}
+      throw error;
+    }
+  }
+  if (!fs.statSync(target).isDirectory()) throw new Error(`lifecycle state path is not a directory: ${target}`);
+  try { fs.chmodSync(target, 0o700); } catch {}
+}
+
+function boundedLifecycleDirectoryEntries(directory: string, maximum: number): fs.Dirent[] {
+  const entries: fs.Dirent[] = [];
+  const handle = fs.opendirSync(directory);
+  try {
+    while (true) {
+      const entry = handle.readSync();
+      if (!entry) break;
+      if (entries.length >= maximum) {
+        throw new Error(`Cortex lifecycle directory exceeds bounded enumeration limit ${maximum}: ${directory}`);
+      }
+      entries.push(entry);
+    }
+  } finally {
+    handle.closeSync();
+  }
+  return entries;
+}
+
+function lifecycleProcessStartIdentity(pid: number): string | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    if (close < 0) return null;
+    // /proc/<pid>/stat field 22 is process start time. The tail begins at
+    // field 3, so zero-based tail index 19 is the stable boot-relative ID.
+    return stat.slice(close + 2).split(' ')[19] || null;
+  } catch { return null; }
+}
+
+function lifecycleProcessIsAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error: any) { return error?.code === 'EPERM'; }
+}
+
+function parseLifecycleLockOwner(text: string): LifecycleLockOwner | null {
+  try {
+    const owner = JSON.parse(text) as Record<string, unknown>;
+    return owner?.version === 1
+      && Number.isSafeInteger(owner.pid) && Number(owner.pid) > 0
+      && typeof owner.startIdentity === 'string' && owner.startIdentity.length > 0 && owner.startIdentity.length <= 256
+      && typeof owner.token === 'string' && owner.token.length > 0 && owner.token.length <= 256
+      && typeof owner.createdAt === 'string' && owner.createdAt.length > 0 && owner.createdAt.length <= 64
+      ? owner as LifecycleLockOwner
+      : null;
+  } catch { return null; }
+}
+
+function lifecycleOwnerIsDefinitelyStale(owner: LifecycleLockOwner): boolean {
+  if (!lifecycleProcessIsAlive(owner.pid)) return true;
+  const observed = lifecycleProcessStartIdentity(owner.pid);
+  return observed !== null && observed !== owner.startIdentity;
+}
+
+function unlinkLifecycleLockIfOwned(lockPath: string, token: string): boolean {
+  try {
+    const owner = parseLifecycleLockOwner(fs.readFileSync(lockPath, 'utf8'));
+    if (!owner || owner.token !== token) return false;
+    fs.unlinkSync(lockPath);
+    fsyncLifecycleDirectory(path.dirname(lockPath));
+    return true;
+  } catch { return false; }
+}
+
+function lifecycleMalformedEntryIsStale(entry: string): boolean {
+  try {
+    const first = fs.statSync(entry);
+    if (Date.now() - first.mtimeMs < LIFECYCLE_MALFORMED_LOCK_GRACE_MS) return false;
+    const second = fs.statSync(entry);
+    return first.dev === second.dev && first.ino === second.ino
+      && first.size === second.size && first.mtimeMs === second.mtimeMs;
+  } catch { return false; }
+}
+
+function createLifecycleLock(lockPath: string): { fd: number; owner: LifecycleLockOwner } {
+  const owner: LifecycleLockOwner = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: lifecycleProcessStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+  };
+  const temporary = `${lockPath}.${process.pid}.${owner.token}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(owner));
+    fs.fsyncSync(fd);
+    // A hard-link publish is exclusive and exposes only a complete owner.
+    fs.linkSync(temporary, lockPath);
+    try { fs.unlinkSync(temporary); } catch {}
+    fsyncLifecycleDirectory(path.dirname(lockPath));
+    return { fd, owner };
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+
+function lifecycleLockSleep(): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+}
+
+function publishLifecycleContender(guardPath: string, contender: LifecycleLockContender): string {
+  const entry = path.join(guardPath, `${contender.pid}-${contender.token}`);
+  const temporary = `${entry}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(contender));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(temporary, entry);
+    fsyncLifecycleDirectory(guardPath);
+    return entry;
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+
+function readLifecycleContenders(guardPath: string): Array<{
+  path: string;
+  owner: LifecycleLockContender | null;
+  staleMalformed: boolean;
+}> {
+  const contenders = [];
+  for (const name of fs.readdirSync(guardPath)) {
+    if (name.endsWith('.tmp')) continue;
+    const entry = path.join(guardPath, name);
+    let text = '';
+    try { text = fs.readFileSync(entry, 'utf8'); } catch { continue; }
+    const parsed = parseLifecycleLockOwner(text);
+    let ticket: unknown;
+    try { ticket = (JSON.parse(text) as Record<string, unknown>).ticket; } catch {}
+    const owner = parsed && (ticket === null || (Number.isSafeInteger(ticket) && Number(ticket) > 0))
+      ? { ...parsed, ticket: ticket as number | null }
+      : null;
+    contenders.push({
+      path: entry,
+      owner,
+      staleMalformed: !owner && lifecycleMalformedEntryIsStale(entry),
+    });
+  }
+  return contenders;
+}
+
+function acquireLifecycleReclamationGuard(
+  lockPath: string,
+  deadline: number,
+): { entry: string; owner: LifecycleLockContender } {
+  const guardPath = `${lockPath}.guard`;
+  durableLifecycleMkdir(guardPath);
+  const base: LifecycleLockContender = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: lifecycleProcessStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+    ticket: null,
+  };
+  const entry = publishLifecycleContender(guardPath, base);
+  try {
+    let maximumTicket = 0;
+    for (const contender of readLifecycleContenders(guardPath)) {
+      if (contender.path === entry) continue;
+      if (contender.owner && lifecycleOwnerIsDefinitelyStale(contender.owner)) {
+        unlinkLifecycleLockIfOwned(contender.path, contender.owner.token);
+      } else if (!contender.owner && contender.staleMalformed) {
+        try { fs.unlinkSync(contender.path); } catch {}
+      } else if (contender.owner?.ticket) {
+        maximumTicket = Math.max(maximumTicket, contender.owner.ticket);
+      }
+    }
+    const owner = { ...base, ticket: maximumTicket + 1 };
+    const replacement = `${entry}.ticket`;
+    const replacementFd = fs.openSync(replacement, 'wx', 0o600);
+    try {
+      fs.writeFileSync(replacementFd, JSON.stringify(owner));
+      fs.fsyncSync(replacementFd);
+    } finally { fs.closeSync(replacementFd); }
+    fs.renameSync(replacement, entry);
+    fsyncLifecycleDirectory(guardPath);
+    while (true) {
+      let blocked = false;
+      for (const contender of readLifecycleContenders(guardPath)) {
+        if (contender.path === entry) continue;
+        if (contender.owner && lifecycleOwnerIsDefinitelyStale(contender.owner)) {
+          unlinkLifecycleLockIfOwned(contender.path, contender.owner.token);
+          continue;
+        }
+        if (!contender.owner && contender.staleMalformed) {
+          try { fs.unlinkSync(contender.path); } catch {}
+          continue;
+        }
+        if (!contender.owner || contender.owner.ticket === null
+          || contender.owner.ticket < owner.ticket
+          || (contender.owner.ticket === owner.ticket && contender.owner.token < owner.token)) blocked = true;
+      }
+      if (!blocked) return { entry, owner };
+      if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool reclamation guard');
+      lifecycleLockSleep();
+    }
+  } catch (error) {
+    unlinkLifecycleLockIfOwned(entry, base.token);
+    throw error;
+  }
+}
+
+function withLifecycleDirectoryLock<T>(lockPath: string, operation: () => T): T {
+  const deadline = Date.now() + 10_000;
+  const guard = acquireLifecycleReclamationGuard(lockPath, deadline);
+  let lockFd: number | undefined;
+  let owner: LifecycleLockOwner | undefined;
+  try {
+    while (lockFd === undefined) {
+      try {
+        ({ fd: lockFd, owner } = createLifecycleLock(lockPath));
+      } catch (error: any) {
+        if (error?.code !== 'EEXIST') throw error;
+        try {
+          const existing = parseLifecycleLockOwner(fs.readFileSync(lockPath, 'utf8'));
+          if (existing && lifecycleOwnerIsDefinitelyStale(existing)) {
+            unlinkLifecycleLockIfOwned(lockPath, existing.token);
+          } else if (!existing && lifecycleMalformedEntryIsStale(lockPath)) {
+            const first = fs.statSync(lockPath);
+            const second = fs.statSync(lockPath);
+            if (first.dev === second.dev && first.ino === second.ino) fs.unlinkSync(lockPath);
+          }
+        } catch {}
+        if (Date.now() >= deadline) throw new Error('timed out acquiring Cortex lifecycle spool lock');
+        lifecycleLockSleep();
+      }
+    }
+    return operation();
+  } finally {
+    if (lockFd !== undefined) fs.closeSync(lockFd);
+    if (owner) unlinkLifecycleLockIfOwned(lockPath, owner.token);
+    unlinkLifecycleLockIfOwned(guard.entry, guard.owner.token);
+  }
+}
+
+class DurableLifecycleSpool {
+  private readonly filePath: string;
+  private readonly lockPath: string;
+  private readonly maxRecords: number;
+  private readonly records = new Map<string, LifecycleSpoolRecord>();
+
+  constructor(stateDir: string, maxRecords: number) {
+    this.filePath = path.join(stateDir, 'lifecycle-spool.json');
+    this.lockPath = path.join(stateDir, '.lifecycle-spool.lock');
+    this.maxRecords = maxRecords;
+    durableLifecycleMkdir(stateDir);
+    this.withLock(() => this.reload());
+  }
+
+  entries(): LifecycleSpoolRecord[] {
+    return this.withLock(() => {
+      this.reload();
+      return [...this.records.values()].map((record) => ({ ...record }));
+    });
+  }
+
+  has(key: string): boolean { return this.withLock(() => { this.reload(); return this.records.has(key); }); }
+
+  get size(): number { return this.withLock(() => { this.reload(); return this.records.size; }); }
+
+  put(record: LifecycleSpoolRecord): LifecycleSpoolRecord {
+    return this.withLock(() => {
+      this.reload();
+      const existing = this.records.get(record.key);
+      if (existing) return { ...existing };
+      if (this.records.size >= this.maxRecords) {
+        throw new Error(`lifecycle spool exhausted at ${this.maxRecords} records`);
+      }
+      const persisted = { ...record, version: 3 } as LifecycleSpoolRecord;
+      this.records.set(record.key, persisted);
+      this.flush();
+      return { ...persisted };
+    });
+  }
+
+  retainReceipt(key: string, candidateReceipt: string, replaceReceipt = ''): string {
+    return this.withLock(() => {
+      this.reload();
+      const record = this.records.get(key);
+      if (!record) throw new Error('cannot retain an assurance receipt for a missing lifecycle record');
+      const existingReceipt = String(record.assuranceReceipt || '').trim();
+      const expectedReceipt = String(replaceReceipt || '').trim();
+      if (existingReceipt && (!expectedReceipt || existingReceipt !== expectedReceipt)) return existingReceipt;
+      const receipt = String(candidateReceipt || '').trim();
+      if (!receipt || receipt.length > 16_384) throw new Error('invalid assurance receipt for lifecycle spool');
+      record.assuranceReceipt = receipt;
+      this.records.set(key, record);
+      this.flush();
+      return receipt;
+    });
+  }
+
+  ack(key: string): void {
+    this.withLock(() => {
+      this.reload();
+      if (!this.records.delete(key)) return;
+      this.flush();
+    });
+  }
+
+  removeIfEmpty(): boolean {
+    return this.withLock(() => {
+      this.reload();
+      if (this.records.size > 0) return false;
+      try { fs.unlinkSync(this.filePath); } catch (error: any) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+      this.fsyncDirectory();
+      // Keep the namespace directory as the stable lock namespace. Removing it
+      // can let a concurrent process lock a different inode and lose records.
+      return true;
+    });
+  }
+
+  private withLock<T>(operation: () => T): T {
+    return withLifecycleDirectoryLock(this.lockPath, operation);
+  }
+
+  private reload(): void {
+    this.records.clear();
+    if (!fs.existsSync(this.filePath)) return;
+    const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
+    if (!Array.isArray(parsed) || parsed.length > this.maxRecords || !parsed.every(isLifecycleSpoolRecord)) {
+      throw new Error('invalid Cortex lifecycle spool; refusing to discard pending persistence records');
+    }
+    for (const rawRecord of parsed) {
+      const record = rawRecord as any;
+      this.records.set(record.key, { ...record, version: 3 });
+    }
+  }
+
+  private fsyncDirectory(): void {
+    fsyncLifecycleDirectory(path.dirname(this.filePath));
+  }
+
+  private flush(): void {
+    const directory = path.dirname(this.filePath);
+    const temporary = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(temporary, 'wx', 0o600);
+      fs.writeFileSync(fd, JSON.stringify([...this.records.values()]), 'utf8');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
+      fs.renameSync(temporary, this.filePath);
+      this.fsyncDirectory();
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+      try { fs.unlinkSync(temporary); } catch {}
+    }
+  }
+}
+
+class DurableLifecycleQuota {
+  private readonly root: string;
+  private readonly maxRecords: number;
+  private readonly maxNamespaces: number;
+  private readonly maxInodes: number;
+  private readonly maxBytes: number;
+  private readonly lockPath: string;
+
+  constructor(root: string, maxRecords: number) {
+    this.root = root;
+    this.maxRecords = maxRecords;
+    this.maxNamespaces = Math.max(1, maxRecords);
+    this.maxInodes = (this.maxNamespaces * LIFECYCLE_NAMESPACE_INODE_BUDGET)
+      + LIFECYCLE_ROOT_INODE_RESERVE;
+    this.maxBytes = Math.max(LIFECYCLE_SPOOL_MAX_RECORD_BYTES, maxRecords * LIFECYCLE_SPOOL_MAX_RECORD_BYTES);
+    this.lockPath = path.join(root, '.lifecycle-spool-global.lock');
+  }
+
+  runExclusive<T>(operation: () => T): T {
+    return withLifecycleDirectoryLock(this.lockPath, operation);
+  }
+
+  private usage(): { namespaces: number; inodes: number; records: number; bytes: number } {
+    let namespaces = 0;
+    let inodes = 0;
+    let records = 0;
+    let bytes = 0;
+    const rootEntries = boundedLifecycleDirectoryEntries(
+      this.root,
+      this.maxNamespaces + LIFECYCLE_ROOT_INODE_RESERVE,
+    );
+    for (const entry of rootEntries) {
+      const entryPath = path.join(this.root, entry.name);
+      inodes += 1;
+      if (entry.isFile()) {
+        bytes += fs.statSync(entryPath).size;
+        continue;
+      }
+      if (!entry.isDirectory()) continue;
+      const principalNamespace = /^[0-9a-f]{64}$/.test(entry.name);
+      if (principalNamespace) namespaces += 1;
+      const pending = [{ directory: entryPath, maximum: principalNamespace
+        ? LIFECYCLE_NAMESPACE_INODE_BUDGET
+        : this.maxInodes }];
+      while (pending.length > 0) {
+        const { directory, maximum } = pending.pop()!;
+        const children = boundedLifecycleDirectoryEntries(directory, maximum);
+        for (const child of children) {
+          const childPath = path.join(directory, child.name);
+          inodes += 1;
+          if (inodes > this.maxInodes) {
+            throw new Error(`lifecycle spool exhausted across principals at ${this.maxInodes} inodes`);
+          }
+          if (child.isDirectory()) {
+            pending.push({ directory: childPath, maximum });
+          } else if (child.isFile()) {
+            bytes += fs.statSync(childPath).size;
+          }
+        }
+      }
+      if (!principalNamespace) continue;
+      const spoolFile = path.join(entryPath, 'lifecycle-spool.json');
+      if (!fs.existsSync(spoolFile)) continue;
+      const raw = fs.readFileSync(spoolFile, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || !parsed.every(isLifecycleSpoolRecord)) {
+        throw new Error('invalid Cortex lifecycle spool during global quota reconciliation');
+      }
+      records += parsed.length;
+    }
+    if (namespaces > this.maxNamespaces) {
+      throw new Error(`lifecycle spool exhausted across principals at ${this.maxNamespaces} namespaces`);
+    }
+    if (records > this.maxRecords) {
+      throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
+    }
+    if (bytes > this.maxBytes) {
+      throw new Error(`lifecycle spool exhausted across principals at ${this.maxBytes} bytes`);
+    }
+    return { namespaces, inodes, records, bytes };
+  }
+
+  restartEntries(): fs.Dirent[] {
+    this.usage();
+    return boundedLifecycleDirectoryEntries(
+      this.root,
+      this.maxNamespaces + LIFECYCLE_ROOT_INODE_RESERVE,
+    );
+  }
+
+  spoolForNamespace(namespace: string): DurableLifecycleSpool {
+    if (!/^[0-9a-f]{64}$/.test(namespace)) throw new Error('invalid lifecycle principal namespace');
+    return this.runExclusive(() => {
+      const namespaceDir = path.join(this.root, namespace);
+      if (fs.existsSync(namespaceDir)) {
+        if (!fs.statSync(namespaceDir).isDirectory()) throw new Error('lifecycle principal namespace is not a directory');
+        this.usage();
+        return new DurableLifecycleSpool(namespaceDir, this.maxRecords);
+      }
+      const usage = this.usage();
+      if (usage.records >= this.maxRecords) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
+      }
+      if (usage.namespaces >= this.maxNamespaces) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxNamespaces} namespaces`);
+      }
+      if (usage.inodes + 2 > this.maxInodes) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxInodes} inodes`);
+      }
+      durableLifecycleMkdir(namespaceDir);
+      try {
+        return new DurableLifecycleSpool(namespaceDir, this.maxRecords);
+      } catch (error) {
+        this.reapNamespace(namespace);
+        throw error;
+      }
+    });
+  }
+
+  entries(namespace: string, spool: DurableLifecycleSpool): LifecycleSpoolRecord[] {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      return spool.entries();
+    });
+  }
+
+  put(namespace: string, spool: DurableLifecycleSpool, record: LifecycleSpoolRecord): LifecycleSpoolRecord {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      const existing = spool.has(record.key);
+      const usage = this.usage();
+      if (!existing && usage.records >= this.maxRecords) {
+        throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
+      }
+      const persisted = { ...record, version: 3 } as LifecycleSpoolRecord;
+      const encodedRecordBytes = Buffer.byteLength(JSON.stringify(persisted), 'utf8');
+      if (encodedRecordBytes > LIFECYCLE_SPOOL_MAX_RECORD_BYTES) {
+        throw new Error(`lifecycle spool record exceeds ${LIFECYCLE_SPOOL_MAX_RECORD_BYTES} bytes`);
+      }
+      if (!existing) {
+        const spoolFile = path.join(this.root, namespace, 'lifecycle-spool.json');
+        const currentBytes = fs.existsSync(spoolFile) ? fs.statSync(spoolFile).size : 0;
+        const projectedBytes = usage.bytes - currentBytes
+          + Buffer.byteLength(JSON.stringify([...spool.entries(), persisted]), 'utf8');
+        if (projectedBytes > this.maxBytes) {
+          throw new Error(`lifecycle spool exhausted across principals at ${this.maxBytes} bytes`);
+        }
+      }
+      return spool.put(record);
+    });
+  }
+
+  retainReceipt(
+    namespace: string,
+    spool: DurableLifecycleSpool,
+    key: string,
+    receipt: string,
+    replaceReceipt = '',
+  ): string {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      return spool.retainReceipt(key, receipt, replaceReceipt);
+    });
+  }
+
+  acknowledge(namespace: string, spool: DurableLifecycleSpool, key: string): boolean {
+    return this.runExclusive(() => {
+      this.assertNamespace(namespace);
+      spool.ack(key);
+      return this.removeIfEmptyLocked(namespace, spool);
+    });
+  }
+
+  removeIfEmpty(namespace: string, spool: DurableLifecycleSpool): boolean {
+    return this.runExclusive(() => {
+      if (!fs.existsSync(path.join(this.root, namespace))) return true;
+      this.assertNamespace(namespace);
+      return this.removeIfEmptyLocked(namespace, spool);
+    });
+  }
+
+  reapNamespace(namespace: string): boolean {
+    if (!/^[0-9a-f]{64}$/.test(namespace)) return false;
+    const namespaceDir = path.join(this.root, namespace);
+    const guardDir = path.join(namespaceDir, '.lifecycle-spool.lock.guard');
+    try { fs.rmdirSync(guardDir); } catch (error: any) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTEMPTY') throw error;
+    }
+    try {
+      fs.rmdirSync(namespaceDir);
+      fsyncLifecycleDirectory(this.root);
+      return true;
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return true;
+      if (error?.code === 'ENOTEMPTY') return false;
+      throw error;
+    }
+  }
+
+  private assertNamespace(namespace: string): void {
+    if (!/^[0-9a-f]{64}$/.test(namespace)) throw new Error('invalid lifecycle principal namespace');
+    const namespaceDir = path.join(this.root, namespace);
+    if (!fs.existsSync(namespaceDir) || !fs.statSync(namespaceDir).isDirectory()) {
+      throw new Error('lifecycle principal namespace is no longer admitted');
+    }
+  }
+
+  private removeIfEmptyLocked(namespace: string, spool: DurableLifecycleSpool): boolean {
+    if (!spool.removeIfEmpty()) return false;
+    return this.reapNamespace(namespace);
+  }
+}
+
+function quarantineLifecycleFile(filePath: string, reason: string): string {
+  const suffix = `${reason}.${Date.now()}.${process.pid}.${Math.random().toString(16).slice(2)}.quarantine`;
+  const destination = `${filePath}.${suffix}`;
+  fs.renameSync(filePath, destination);
+  fsyncLifecycleDirectory(path.dirname(filePath));
+  return destination;
+}
+
 const SearchSchema = {
   type: 'object', additionalProperties: false, required: ['query'],
   properties: { query: { type: 'string', minLength: 1 }, maxResults: { type: 'number', minimum: 1, maximum: 50 }, minScore: { type: 'number', minimum: 0, maximum: 1 } },
@@ -68,25 +926,57 @@ const GetSchema = {
   properties: { path: { type: 'string' }, from: { type: 'number' }, lines: { type: 'number' } },
 } as const;
 
-function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount'>> & BridgeConfig {
+function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'codecEventsPath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount' | 'maxResponseBytes' | 'lifecycleMaxInFlight' | 'lifecycleMaxPending' | 'lifecycleSpoolMaxRecords' | 'recentOutputMaxChars' | 'stateDir'>> & BridgeConfig {
   const cfg = (pluginConfig ?? {}) as BridgeConfig;
+  const writeTokenHeader = cfg.writeTokenHeader ?? 'x-cortex-write-token';
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(writeTokenHeader)) throw new Error('invalid Cortex write-token header name');
   return {
-    baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
+    baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:8888').replace(/\/$/, ''),
     searchPath: cfg.searchPath ?? '/knowledge/search',
-    storePath: cfg.storePath ?? '/l22/store',
+    storePath: cfg.storePath ?? '/nexus/commit',
+    assurancePath: cfg.assurancePath ?? '/nexus/assurance/receipt',
     codecEventsPath: cfg.codecEventsPath ?? '/nexus/codec/events',
     timeoutMs: cfg.timeoutMs ?? 12000,
     retryCount: cfg.retryCount ?? 2,
     retryBackoffMs: cfg.retryBackoffMs ?? 350,
     enabledWriteThrough: cfg.enabledWriteThrough ?? false,
     enabledCodecContinuity: cfg.enabledCodecContinuity ?? true,
+    maxResponseBytes: cfg.maxResponseBytes ?? 1_048_576,
+    lifecycleMaxInFlight: Number.isSafeInteger(cfg.lifecycleMaxInFlight) && Number(cfg.lifecycleMaxInFlight) > 0
+      ? Math.min(4096, Number(cfg.lifecycleMaxInFlight))
+      : LIFECYCLE_MAX_IN_FLIGHT,
+    lifecycleMaxPending: Number.isSafeInteger(cfg.lifecycleMaxPending) && Number(cfg.lifecycleMaxPending) > 0
+      ? Math.min(16_384, Number(cfg.lifecycleMaxPending))
+      : LIFECYCLE_MAX_PENDING,
+    lifecycleSpoolMaxRecords: Number.isSafeInteger(cfg.lifecycleSpoolMaxRecords) && Number(cfg.lifecycleSpoolMaxRecords) > 0
+      ? Math.min(65_536, Number(cfg.lifecycleSpoolMaxRecords))
+      : LIFECYCLE_SPOOL_MAX_RECORDS,
+    recentOutputMaxChars: Number.isSafeInteger(cfg.recentOutputMaxChars) && Number(cfg.recentOutputMaxChars) > 0
+      ? Math.min(65_536, Number(cfg.recentOutputMaxChars))
+      : RECENT_OUTPUT_MAX_CHARS,
+    writeToken: typeof cfg.writeToken === 'string' ? cfg.writeToken : '',
+    writeTokenHeader: writeTokenHeader.toLowerCase(),
+    tenantId: typeof cfg.tenantId === 'string' ? cfg.tenantId.trim() : 'cortex-local',
+    workspaceId: typeof cfg.workspaceId === 'string' ? cfg.workspaceId.trim() : 'default',
+    agentId: typeof cfg.agentId === 'string' && cfg.agentId.trim() ? cfg.agentId.trim() : 'main',
+    userId: typeof cfg.userId === 'string' && cfg.userId.trim() ? cfg.userId.trim() : 'local-user',
+    preferConfiguredUserId: cfg.preferConfiguredUserId === true,
+    channelId: typeof cfg.channelId === 'string' && cfg.channelId.trim() ? cfg.channelId.trim() : 'local-channel',
+    sessionId: typeof cfg.sessionId === 'string' && cfg.sessionId.trim() ? cfg.sessionId.trim() : 'global-session',
+    scopeCredentialId: typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '',
+    scopeHmacSecret: typeof cfg.scopeHmacSecret === 'string' ? cfg.scopeHmacSecret : '',
+    allowUnsignedLocalDevelopment: cfg.allowUnsignedLocalDevelopment === true,
+    sessionIdentityHmacSecret: typeof cfg.sessionIdentityHmacSecret === 'string' ? cfg.sessionIdentityHmacSecret : '',
+    stateDir: typeof cfg.stateDir === 'string' && cfg.stateDir.trim()
+      ? cfg.stateDir.trim()
+      : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-memory-bridge'),
     curatedBoost: cfg.curatedBoost ?? 0.24,
     projectFactBoost: cfg.projectFactBoost ?? 0.12,
     durableCandidatePenalty: cfg.durableCandidatePenalty ?? 0.14,
     noisyWhatsappPenalty: cfg.noisyWhatsappPenalty ?? 0.26,
     noisyPatternPenalty: cfg.noisyPatternPenalty ?? 0.2,
     minDurabilityScore: cfg.minDurabilityScore ?? 0.72,
-    writeTags: Array.isArray(cfg.writeTags) ? cfg.writeTags.map((x) => String(x)) : ['durable-memory', 'auto-curated'],
+    writeTags: Array.isArray(cfg.writeTags) ? cfg.writeTags.map((x) => String(x)) : ['durable-memory', 'assurance-candidate'],
     conflictPenalty: cfg.conflictPenalty ?? 0.18,
     recencyBoost: cfg.recencyBoost ?? 0.12,
     explicitBoost: cfg.explicitBoost ?? 0.14,
@@ -505,19 +1395,246 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
 }
 
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function cortexWriteHeaders(cfg: Pick<BridgeConfig, 'writeToken' | 'writeTokenHeader'>): Record<string, string> {
+  return cfg.writeToken ? { [cfg.writeTokenHeader || 'x-cortex-write-token']: cfg.writeToken } : {};
+}
+function captureTrustedPrincipalContext(ctx: any): TrustedPrincipalContext {
+  return Object.freeze({
+    sessionKey: String(ctx?.sessionKey || ctx?.sessionId || '').trim(),
+    userId: String(ctx?.userId || ctx?.requesterSenderId || '').trim(),
+    channelId: String(ctx?.channelId || ctx?.messageChannel || '').trim(),
+    agentId: String(ctx?.agentId || '').trim(),
+  });
+}
+function requireTrustedPrincipalContext(ctx: TrustedPrincipalContext): TrustedPrincipalContext {
+  const missing = (Object.entries(ctx) as Array<[keyof TrustedPrincipalContext, string]>)
+    .filter(([, value]) => !value)
+    .map(([field]) => field);
+  if (missing.length) {
+    throw new Error(`memory_search requires trusted invocation context: missing ${missing.join(', ')}`);
+  }
+  return ctx;
+}
+function scopedIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string> {
+  const rawSession = String(ctx?.sessionKey || ctx?.sessionId || cfg.sessionId || '').trim();
+  const sessionSecret = String(cfg.sessionIdentityHmacSecret || '');
+  if (!sessionSecret) throw new Error('sessionIdentityHmacSecret is required for canonical Cortex session identity');
+  const sessionDigest = createHmac('sha256', sessionSecret).update(rawSession, 'utf8').digest('hex');
+  const scope = {
+    tenant_id: String(cfg.tenantId || '').trim(),
+    workspace_id: String(cfg.workspaceId || '').trim(),
+    agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
+    user_id: String(
+      cfg.preferConfiguredUserId === true
+        ? (cfg.userId || ctx?.userId)
+        : (ctx?.userId || cfg.userId),
+    ).trim(),
+    channel_id: String(ctx?.channelId || cfg.channelId || '').trim(),
+    session_id: `openclaw-${sessionDigest}`,
+  };
+  if (Object.values(scope).some((value) => !value)) throw new Error('every Cortex principal scope dimension is required');
+  return scope;
+}
+function memoryScopeFields(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
+  const secret = String(cfg.scopeHmacSecret || '');
+  const tenantId = String(scope.tenant_id || '').trim();
+  const workspaceId = String(scope.workspace_id || '').trim();
+  if (!tenantId || !workspaceId) throw new Error('tenantId and workspaceId are required for scoped Cortex memory access');
+  const credentialId = String(cfg.scopeCredentialId || '').trim();
+  if (!secret.trim() || !credentialId) {
+    if (cfg.allowUnsignedLocalDevelopment === true && tenantId === 'cortex-local' && workspaceId === 'default') {
+      return { tenant_id: tenantId, workspace_id: workspaceId };
+    }
+    throw new Error('scopeCredentialId and scopeHmacSecret are required for Cortex memory access unless allowUnsignedLocalDevelopment is explicitly enabled for cortex-local/default');
+  }
+  const signature = createHmac('sha256', secret)
+    .update(['cortex.memory.principal.v2', credentialId, tenantId, workspaceId, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n'), 'utf8')
+    .digest('hex');
+  return { tenant_id: tenantId, workspace_id: workspaceId, scope_credential_id: credentialId, scope_signature: signature };
+}
+function scopedHeaders(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
+  const memoryScope = memoryScopeFields(cfg, scope);
+  return {
+    ...cortexWriteHeaders(cfg),
+    'x-cortex-tenant-id': memoryScope.tenant_id,
+    'x-cortex-workspace-id': memoryScope.workspace_id,
+    'x-cortex-agent-id': scope.agent_id,
+    'x-cortex-user-id': scope.user_id,
+    'x-cortex-channel-id': scope.channel_id,
+    'x-cortex-session-id': scope.session_id,
+    ...(memoryScope.scope_credential_id ? { 'x-cortex-scope-credential-id': memoryScope.scope_credential_id } : {}),
+    ...(memoryScope.scope_signature ? { 'x-cortex-scope-signature': memoryScope.scope_signature } : {}),
+  };
+}
+function boundedLifecycleIdentity(value: unknown, field: string, maxLength: number): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) throw new Error(`lifecycle callback requires trusted ${field}`);
+  if (normalized.length > maxLength) throw new Error(`lifecycle callback ${field} exceeds ${maxLength} characters`);
+  return normalized;
+}
+function canonicalLifecycleContext(cfg: BridgeConfig, ctx: any = {}, idempotencyKey = ''): LifecycleSpoolRecord['context'] {
+  const session = boundedLifecycleIdentity(
+    ctx?.sessionKey || ctx?.sessionId,
+    'session identity',
+    512,
+  );
+  return {
+    sessionKey: session,
+    sessionId: session,
+    // OpenClaw lifecycle hooks are not guaranteed to repeat fixed principal
+    // dimensions. They must still provide the per-run session identity; the
+    // remaining values may fall back only to this plugin's configured scope.
+    // Cortex subsequently verifies the complete HMAC-signed scope against the
+    // credential allow-list, so these defaults cannot broaden authorization.
+    channelId: boundedLifecycleIdentity(ctx?.channelId || ctx?.messageChannel || cfg.channelId, 'channel identity', 256),
+    agentId: boundedLifecycleIdentity(ctx?.agentId || cfg.agentId, 'agent identity', 256),
+    userId: boundedLifecycleIdentity(ctx?.userId || ctx?.requesterSenderId || cfg.userId, 'user identity', 256),
+    idempotencyKey,
+  };
+}
+function lifecyclePrincipal(cfg: BridgeConfig, context: LifecycleSpoolRecord['context']): LifecyclePrincipal {
+  const scope = scopedIdentity(cfg, context);
+  return {
+    version: 1,
+    tenant_id: scope.tenant_id,
+    workspace_id: scope.workspace_id,
+    scope_credential_id: String(cfg.scopeCredentialId || '').trim() || 'unsigned-local-development',
+    agent_id: scope.agent_id,
+    user_id: scope.user_id,
+    channel_id: scope.channel_id,
+    session_id: scope.session_id,
+  };
+}
+function lifecyclePrincipalNamespace(cfg: BridgeConfig, principal: LifecyclePrincipal): string {
+  const scopeSecret = String(cfg.scopeHmacSecret || '');
+  const namespaceSecret = scopeSecret.trim() ? scopeSecret : String(cfg.sessionIdentityHmacSecret || '');
+  if (!namespaceSecret.trim()) throw new Error('lifecycle principal namespace requires a provisioned HMAC secret');
+  const canonical = JSON.stringify([
+    'cortex.lifecycle.principal.v2',
+    ...LIFECYCLE_PRINCIPAL_FIELDS.map((field) => principal[field]),
+  ]);
+  return createHmac('sha256', namespaceSecret).update(canonical, 'utf8').digest('hex');
+}
+function lifecyclePrincipalsEqual(left: LifecyclePrincipal, right: LifecyclePrincipal): boolean {
+  return left.version === right.version
+    && LIFECYCLE_PRINCIPAL_FIELDS.every((field) => left[field] === right[field]);
+}
+function loadLifecycleSpools(
+  cfg: ReturnType<typeof resolveConfig>,
+  logger: { warn?: (message: string) => void },
+): { root: string; spools: Map<string, DurableLifecycleSpool>; quota: DurableLifecycleQuota } {
+  const stateRoot = cfg.stateDir;
+  durableLifecycleMkdir(stateRoot);
+
+  const legacyFile = path.join(stateRoot, 'lifecycle-spool.json');
+  if (fs.existsSync(legacyFile)) {
+    const quarantined = quarantineLifecycleFile(legacyFile, 'legacy-unscoped');
+    logger.warn?.(`cortex-memory-bridge: quarantined unscoped lifecycle spool at ${quarantined}`);
+  }
+
+  const principalRoot = path.join(stateRoot, 'lifecycle-principals-v2');
+  durableLifecycleMkdir(principalRoot);
+  const quota = new DurableLifecycleQuota(principalRoot, cfg.lifecycleSpoolMaxRecords);
+  return quota.runExclusive(() => {
+    const spools = new Map<string, DurableLifecycleSpool>();
+    let loadedRecords = 0;
+    const entries = quota.restartEntries()
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
+      const namespaceDir = path.join(principalRoot, entry.name);
+      const spoolFile = path.join(namespaceDir, 'lifecycle-spool.json');
+      if (!fs.existsSync(spoolFile)) {
+        quota.reapNamespace(entry.name);
+        continue;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
+      } catch (error) {
+        throw new Error(`invalid Cortex lifecycle spool; refusing replay: ${String(error)}`);
+      }
+      if (!Array.isArray(parsed)) {
+        throw new Error('invalid Cortex lifecycle spool; refusing replay');
+      }
+      if (parsed.length > cfg.lifecycleSpoolMaxRecords) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'global-quota-overflow');
+        logger.warn?.(`cortex-memory-bridge: quarantined oversized lifecycle spool for bounded recovery at ${quarantined}`);
+        continue;
+      }
+      if (parsed.length === 0) {
+        try { fs.unlinkSync(spoolFile); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+        quota.reapNamespace(entry.name);
+        continue;
+      }
+      if (parsed.every((record: any) => record?.version === 1 && !record?.principal)) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'legacy-unscoped');
+        logger.warn?.(`cortex-memory-bridge: quarantined unscoped lifecycle spool at ${quarantined}`);
+        continue;
+      }
+      if (!parsed.every(isLifecycleSpoolRecord)) {
+        throw new Error('invalid Cortex lifecycle spool; refusing replay');
+      }
+      const records = parsed as LifecycleSpoolRecord[];
+      const matchesActivePrincipal = records.every((record) => {
+        try {
+          const currentContext = canonicalLifecycleContext(cfg, record.context, record.key);
+          const currentPrincipal = lifecyclePrincipal(cfg, currentContext);
+          const currentNamespace = lifecyclePrincipalNamespace(cfg, currentPrincipal);
+          return currentNamespace === entry.name
+            && record.key.startsWith(`${currentNamespace}:`)
+            && lifecyclePrincipalsEqual(record.principal, currentPrincipal);
+        } catch {
+          return false;
+        }
+      });
+      if (!matchesActivePrincipal) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'principal-scope-mismatch');
+        logger.warn?.(`cortex-memory-bridge: quarantined lifecycle spool with inactive principal scope at ${quarantined}`);
+        continue;
+      }
+      if (loadedRecords + records.length > cfg.lifecycleSpoolMaxRecords) {
+        const quarantined = quarantineLifecycleFile(spoolFile, 'global-quota-overflow');
+        logger.warn?.(`cortex-memory-bridge: quarantined overflow lifecycle spool for bounded recovery at ${quarantined}`);
+        continue;
+      }
+      loadedRecords += records.length;
+      spools.set(entry.name, new DurableLifecycleSpool(namespaceDir, cfg.lifecycleSpoolMaxRecords));
+    }
+    return { root: principalRoot, spools, quota };
+  });
+}
+function searchResponseUnavailable(response: any): string | null {
+  if (!response || typeof response !== 'object') return 'invalid search response';
+  if (response.disabled === true || response.available === false) return String(response.error || response.warning || 'search backend unavailable');
+  if (typeof response.error === 'string' && response.error.trim()) return response.error.trim();
+  const mode = String(response.search_mode ?? response.mode ?? '').trim().toLowerCase();
+  if (['disabled', 'error', 'failed', 'none', 'unavailable'].includes(mode)) return String(response.warning || `search mode ${mode}`);
+  return null;
+}
 function retryableError(error: unknown): boolean {
   const msg = String((error as any)?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
 }
-async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250) {
+async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576, writeHeaders: Record<string, string> = {}) {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      return await res.json();
+      const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify(body), signal: controller.signal });
+      const cap = maxResponseBytes;
+      const declared = Number(res.headers.get('content-length'));
+      if (Number.isFinite(declared) && declared > cap) {
+        try { void res.body?.cancel().catch(() => {}); } catch {}
+        throw new Error(`response exceeds ${cap} bytes`);
+      }
+      const reader = res.body?.getReader(); let size = 0; const chunks: Uint8Array[] = [];
+      if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > cap) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${cap} bytes`); } chunks.push(value); }
+      const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      const text = new TextDecoder().decode(bytes);
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${text.slice(0, 300)}`);
+      return text ? JSON.parse(text) : {};
     } catch (error) {
       lastError = error;
       if (attempt >= retryCount || !retryableError(error)) throw error;
@@ -556,66 +1673,32 @@ function extractText(value: unknown): string {
   return Object.values(obj).map(extractText).filter(Boolean).join('\n');
 }
 
-export function extractLatestAssistantVisibleText(messages: unknown): string {
+function extractAssistantVisibleText(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  return messages
+    .filter((m) => m && typeof m === 'object' && (m as Record<string, unknown>).role === 'assistant')
+    .map((m) => extractText((m as Record<string, unknown>).content ?? m))
+    .filter(Boolean)
+    .join('\n');
+}
+function extractLatestUserText(messages: unknown): string {
   if (!Array.isArray(messages)) return '';
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (!message || typeof message !== 'object' || (message as Record<string, unknown>).role !== 'assistant') continue;
-    const text = extractText((message as Record<string, unknown>).content ?? message).trim();
-    if (text) return text.slice(-12000);
+    if (!message || typeof message !== 'object' || (message as Record<string, unknown>).role !== 'user') continue;
+    const text = extractText((message as Record<string, unknown>).content ?? message).replace(/\s+/g, ' ').trim();
+    if (text) return text;
   }
   return '';
-}
-export function extractLlmOutputText(event: any): string {
-  const assistantTexts = extractText(event?.assistantTexts).trim();
-  if (assistantTexts) return assistantTexts.slice(-12000);
-  return extractText(event?.lastAssistant).trim().slice(-12000);
-}
-const LLM_OUTPUT_WAIT_MS = 250;
-const OUTPUT_CACHE_TTL_MS = 60_000;
-const OUTPUT_CACHE_MAX = 512;
-const OUTPUT_WAITER_MAX = 256;
-const LIFECYCLE_IN_FLIGHT_MAX = 256;
-const LIFECYCLE_COMPLETED_MAX = 1024;
-const LIFECYCLE_COMPLETED_TTL_MS = 15 * 60_000;
-
-function lifecyclePrincipal(ctx: any): string {
-  return [
-    String(ctx?.agentId ?? 'main').trim() || 'main',
-    String(ctx?.userId ?? 'local-user').trim() || 'local-user',
-    String(ctx?.channelId ?? 'local-channel').trim() || 'local-channel',
-    String(ctx?.sessionKey ?? ctx?.sessionId ?? 'local-session').trim() || 'local-session',
-  ].join('|');
-}
-function lifecycleIdentity(event: any, ctx: any): string {
-  return String(event?.runId ?? ctx?.runId ?? '').trim();
-}
-function outputCorrelationKey(event: any, ctx: any): string {
-  const principal = lifecyclePrincipal(ctx);
-  const identity = lifecycleIdentity(event, ctx);
-  return identity ? `${principal}|run:${identity}` : principal;
-}
-function lifecyclePersistenceKey(event: any, ctx: any, text = ''): string {
-  const identity = lifecycleIdentity(event, ctx);
-  const principal = lifecyclePrincipal(ctx);
-  return identity ? `${principal}|run:${identity}` : `${principal}|legacy:${normalizeQuery(text).slice(-512)}`;
 }
 function detectProjectSlug(text: string): string | null {
   const t = normalizeQuery(text);
   if (/\bmailchimp\b/.test(t)) return 'mailchimp';
   if (/\bpmhnp\b|\bclaim guard\b/.test(t)) return 'pmhnp-claim-guard';
-  if (/\bprofit tournament\b/.test(t)) return 'profit-tournament';
-  if (/\bcortex memory\b|\bmemory system\b/.test(t)) return 'cortex-memory';
-  if (/\bai os\b/.test(t)) return 'ai-os';
-  if (/\bagent work\b/.test(t)) return 'agent-work';
   return null;
 }
 function containsSecretLike(text: string): boolean {
-  return /-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text)
-    || /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_-]{6,}\b/.test(text)
-    || /\bwhsec_[A-Za-z0-9_-]{8,}\b/.test(text)
-    || /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i.test(text)
-    || /\b(?:password|passphrase|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|webhook[_ -]?secret|secret|token)\b\s*(?::|=|\bis\b)\s*["'`]?[^\s"'`]{8,}/i.test(text);
+  return /\b(api[_-]?key|token|password|secret|bearer|ssh-rsa|BEGIN [A-Z ]+ PRIVATE KEY)\b/i.test(text);
 }
 function summarizeShape(value: unknown, depth = 0): unknown {
   if (depth > 2) return typeof value;
@@ -639,9 +1722,7 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
   if (/\bremember this\b|\bplease remember\b|\bmy preference\b|\bi prefer\b|\bcall me\b|\btimezone\b|\bpronouns\b/i.test(t)) { score += 0.45; reasons.push('explicit_preference'); kind = 'preference'; }
   if (/\bdecision\b|\bwe decided\b|\bthe plan is\b|\bfrom now on\b|\bdefault to\b|\balways use\b/i.test(t)) { score += 0.35; reasons.push('decision'); kind = 'decision'; }
   if (/\breply-anchor context .* primary\b|\breply anchor .* primary\b|\bpersistence first\b/i.test(t)) { score += 0.2; reasons.push('anti_drift_or_lesson'); if (kind === 'transient') kind = 'decision'; }
-  if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b|\bimplemented\b|\bdeployed\b|\bverified\b|\bconfigured\b|\bauthorized\b|\benabled\b/i.test(t)) { score += 0.3; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
-  if (/\bcorrection\b|\bcorrected\b|\bsupersed(?:e|ed)\b|\bwas wrong\b/i.test(t)) { score += 0.22; reasons.push('correction'); if (kind === 'transient') kind = 'fact'; }
-  if (/\b(?:uuid|account id|project id|calendar id|entity id)\b/i.test(t) || /\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/i.test(t) || /\bacct_[A-Za-z0-9]+\b/.test(t)) { score += 0.46; reasons.push('stable_identifier'); kind = 'stable_identifier'; }
+  if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b/i.test(t)) { score += 0.22; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
   if (detectProjectSlug(t)) { score += 0.16; reasons.push('named_project'); if (kind === 'transient') kind = 'fact'; }
   if (/\b(today|right now|currently|just now|this morning|tonight|lol|haha|thanks|ok|okay|sure)\b/i.test(t)) { score -= 0.18; reasons.push('transient_chat'); }
   if (/https?:\/\/\S+/.test(t) && t.length < 140) { score -= 0.18; reasons.push('bare_link'); }
@@ -651,220 +1732,409 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
 function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: any, text: string, dur: ReturnType<typeof durabilityScore>) {
   const project = detectProjectSlug(text);
   const tags = Array.from(new Set([...(cfg.writeTags || []), ...dur.reasons, ...(project ? [project] : [])]));
-  let source = 'openclaw-agent-end';
+  let source = 'openclaw-lifecycle-candidate';
   let topic: string | undefined;
   if (dur.kind === 'project_state') {
-    source = 'curated-project-facts';
+    source = 'openclaw-project-state-candidate';
     topic = project ? `${project}-canonical-status` : 'canonical-project-status';
   } else if (dur.kind === 'preference') {
-    source = 'curated-preferences-priorities';
+    source = 'openclaw-preference-candidate';
     topic = 'preferences';
   } else if (dur.kind === 'decision') {
-    source = 'curated-anti-drift';
+    source = 'openclaw-decision-candidate';
     topic = project ? `${project}-durable-decision` : 'durable-decision';
   }
   return {
     channel: ctx?.channelId ?? 'unknown',
     sessionKey: ctx?.sessionKey ?? undefined,
     source,
-    quality: 'curated',
+    quality: 'candidate',
+    assurance_status: 'unvalidated',
     memory_kind: dur.kind,
     tags,
     project: project ?? undefined,
     topic,
     fact_key: topic ? `${project ?? 'global'}:${topic}` : undefined,
     memory_status: 'active',
-    authority_rank: source.startsWith('curated-') ? 65 : 30,
+    authority_rank: 30,
     memory_schema_version: 'cortex.memory.governance.v1',
     correction_memory: /\bcorrection\s*:|\bcorrected\b|\bcurrent canonical status\b/i.test(text),
   };
 }
 
-async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string): Promise<boolean> {
-  if (cfg.enabledCodecContinuity === false) return true;
-  const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
-  if (!sessionKey) return true;
-  const text = (String(fallbackText || '').trim()
-    || extractLatestAssistantVisibleText(event?.messages)
-    || extractText(event?.result))
-    .replace(/\s+/g, ' ').trim().slice(-2400);
-  if (text.length < 20 || containsSecretLike(text)) return true;
+async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
+  if (cfg.enabledCodecContinuity === false) return 'disabled' as const;
+  if (!String(cfg.sessionIdentityHmacSecret || '').trim()) {
+    api.logger.warn?.('cortex-memory-bridge: Codec continuity requires sessionIdentityHmacSecret shared with cortex-route-gate');
+    return 'failed' as const;
+  }
+  const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '').trim();
+  if (!rawSessionKey) return 'failed' as const;
+  const text = [extractAssistantVisibleText(event?.messages), extractText(event?.result), String(fallbackText || '')]
+    .filter(Boolean).join('\n').replace(/\s+/g, ' ').trim().slice(-2400);
+  if (text.length < 20 || containsSecretLike(text)) return 'skipped' as const;
   try {
-    await postJson(cfg.baseUrl, cfg.codecEventsPath, {
+    const scope = scopedIdentity(cfg, ctx);
+    const sessionKey = scope.session_id;
+    const response = await postJson(cfg.baseUrl, cfg.codecEventsPath, {
+      idempotency_key: ctx?.idempotencyKey,
       session_key: sessionKey,
-      events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown' } }],
+      events: [{ text, tags: ['openclaw', 'session-continuity'], metadata: { source: 'cortex-memory-bridge', channel: ctx?.channelId ?? 'unknown', scope } }],
       max_chars: 1200,
-    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
-    return true;
+      scope,
+      ...memoryScopeFields(cfg, scope),
+    }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, scopedHeaders(cfg, scope));
+    if (response?.success !== true) throw new Error('Codec continuity endpoint did not confirm the write');
+    return 'succeeded' as const;
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed: ${String(error)}`);
-    return false;
+    return 'failed' as const;
   }
 }
-async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string): Promise<boolean> {
-  if (!cfg.enabledWriteThrough) return true;
-  const text = (String(fallbackText || '').trim()
-    || extractLatestAssistantVisibleText(event?.messages)
-    || extractText(event?.result))
-    .replace(/\s+/g, ' ').trim();
+async function maybeWriteThrough(
+  api: OpenClawPluginApi,
+  cfg: ReturnType<typeof resolveConfig>,
+  event: any,
+  ctx: any,
+  fallbackText?: string,
+  retainedReceipt?: string,
+  retainReceipt?: (receipt: string, replaceReceipt?: string) => string,
+) {
+  if (!cfg.enabledWriteThrough) return 'disabled' as const;
+  const text = [
+    extractAssistantVisibleText(event?.messages),
+    extractText(event?.result),
+    String(fallbackText || ''),
+  ].filter(Boolean).join('\n').replace(/\s+/g, ' ').trim();
   if (!text) {
     api.logger.info?.('cortex-memory-bridge: write-through skipped (no extractable text)');
-    return true;
+    return 'skipped' as const;
   }
   const recent = text.slice(-2000);
   const dur = durabilityScore(recent);
   if (dur.score < cfg.minDurabilityScore) {
     api.logger.info?.(`cortex-memory-bridge: write-through skipped (score=${dur.score.toFixed(2)} < min=${cfg.minDurabilityScore.toFixed(2)} reasons=${dur.reasons.join(',') || 'none'})`);
-    return true;
+    return 'skipped' as const;
   }
   const senderScoped = buildWriteThroughMetadata(cfg, ctx, recent, dur);
   try {
-    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
-    api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
-    return true;
+    const scope = scopedIdentity(cfg, ctx);
+    const userQuery = extractLatestUserText(event?.messages) || `Review OpenClaw ${dur.kind} memory candidate`;
+    const interaction = {
+      query: userQuery.slice(-2000),
+      response: recent,
+      levels_used: [7, 22],
+    };
+    const headers = scopedHeaders(cfg, scope);
+    const issueReceipt = async (replaceReceipt = '') => {
+      const receiptResponse = await postJson(cfg.baseUrl, cfg.assurancePath || '/nexus/assurance/receipt', interaction,
+        cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+      if (receiptResponse?.success !== true || typeof receiptResponse?.receipt !== 'string' || !receiptResponse.receipt) {
+        throw new Error('canonical memory assurance endpoint did not issue a receipt');
+      }
+      const issuedReceipt = String(receiptResponse.receipt);
+      // The server receipt is the only durable-write identity. Persist it
+      // before commit so response loss and process restart retry the same JTI.
+      return retainReceipt?.(issuedReceipt, replaceReceipt) || issuedReceipt;
+    };
+    let assuranceReceipt = String(retainedReceipt || '').trim() || await issueReceipt();
+    const commit = () => postJson(cfg.baseUrl, cfg.storePath, {
+        ...interaction,
+        assurance_receipt: assuranceReceipt,
+        metadata: { ...senderScoped, scope },
+      }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+    let response: any;
+    try {
+      response = await commit();
+    } catch (error) {
+      if (!/assurance_receipt_expired_without_commit/.test(String((error as any)?.message || error || ''))) throw error;
+      // Nexus consulted its durable ledger and proved this expired receipt did
+      // not commit. Only that explicit proof permits a new server identity.
+      assuranceReceipt = await issueReceipt(assuranceReceipt);
+      response = await commit();
+    }
+    const committed = response?.success === true
+      && response?.committed === true
+      && response?.durable_write?.status === 'stored'
+      && response?.assurance?.memory_commit?.eligible === true;
+    if (committed) {
+      api.logger.info?.(`cortex-memory-bridge: assurance gate committed durable memory (${dur.kind}, score=${dur.score.toFixed(2)})`);
+      return 'succeeded' as const;
+    }
+    if (response?.committed === false && response?.durable_write?.status === 'skipped' && response?.assurance?.memory_commit?.eligible === false) {
+      api.logger.info?.(`cortex-memory-bridge: assurance gate rejected durable memory candidate (${dur.kind})`);
+      return 'skipped' as const;
+    }
+    throw new Error('canonical memory commit did not confirm a durable write');
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: write-through failed: ${String(error)}`);
-    return false;
+    return 'failed' as const;
   }
 }
 
 const plugin = {
   id: 'cortex-memory-bridge',
   name: 'Cortex Memory Bridge',
-  description: 'Bridge from OpenClaw memory_search into Cortex /knowledge/search with optional durable-memory write-through.',
+  description: 'Bridge from OpenClaw memory_search into Cortex with assurance-gated durable persistence and Codec continuity.',
   kind: 'memory',
   register(api: OpenClawPluginApi) {
-    const recentOutputBySession = new Map<string, { text: string; expiresAt: number }>();
-    const outputWaiters = new Map<string, Set<(text?: string) => void>>();
-    const lifecycleInFlight = new Map<string, Promise<boolean>>();
-    const lifecycleCompleted = new Map<string, number>();
-    let outputWaiterCount = 0;
-
-    const pruneOutputCache = () => {
-      const now = Date.now();
-      for (const [key, entry] of recentOutputBySession) {
-        if (entry.expiresAt <= now) recentOutputBySession.delete(key);
+    const initialConfig = resolveConfig(api.pluginConfig);
+    if (!String(initialConfig.sessionIdentityHmacSecret || '').trim()) {
+      throw new Error('cortex-memory-bridge requires an explicitly provisioned sessionIdentityHmacSecret shared with cortex-route-gate for memory_search and default-on Codec continuity');
+    }
+    const scopeCredentialId = String(initialConfig.scopeCredentialId || '').trim();
+    const scopeHmacSecret = String(initialConfig.scopeHmacSecret || '');
+    const hasScopeCredentialId = scopeCredentialId.length > 0;
+    const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
+    if (hasScopeCredentialId !== hasScopeHmacSecret) {
+      throw new Error('cortex-memory-bridge requires scopeCredentialId and scopeHmacSecret together');
+    }
+    if (hasScopeCredentialId && !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/.test(scopeCredentialId)) {
+      throw new Error('cortex-memory-bridge scopeCredentialId must be a bounded opaque identifier');
+    }
+    if (!hasScopeCredentialId) {
+      if (initialConfig.allowUnsignedLocalDevelopment !== true) {
+        throw new Error('cortex-memory-bridge requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
       }
-      while (recentOutputBySession.size > OUTPUT_CACHE_MAX) {
-        const oldest = recentOutputBySession.keys().next().value;
-        if (typeof oldest !== 'string') break;
-        recentOutputBySession.delete(oldest);
+      if (initialConfig.tenantId !== 'cortex-local' || initialConfig.workspaceId !== 'default') {
+        throw new Error('cortex-memory-bridge allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
       }
+    }
+    if (!String(initialConfig.writeToken || '').trim() && initialConfig.allowUnsignedLocalDevelopment !== true) {
+      throw new Error('cortex-memory-bridge requires writeToken outside explicit unsigned local development');
+    }
+    const recentOutputMaxChars = initialConfig.recentOutputMaxChars;
+    const lifecycleState = initialConfig.enabledWriteThrough || initialConfig.enabledCodecContinuity
+      ? loadLifecycleSpools(initialConfig, api.logger)
+      : null;
+    const spools = lifecycleState?.spools ?? new Map<string, DurableLifecycleSpool>();
+    const spoolForPrincipal = (principalNamespace: string) => {
+      const existing = spools.get(principalNamespace);
+      if (existing && fs.existsSync(path.join(lifecycleState!.root, principalNamespace))) return existing;
+      if (existing) spools.delete(principalNamespace);
+      if (!lifecycleState) throw new Error('lifecycle spool is unavailable while persistence is disabled');
+      const created = lifecycleState.quota.spoolForNamespace(principalNamespace);
+      spools.set(principalNamespace, created);
+      return created;
     };
-    const setOutput = (key: string, text: string) => {
-      if (!key || !text) return;
-      recentOutputBySession.delete(key);
-      recentOutputBySession.set(key, { text: text.slice(-12000), expiresAt: Date.now() + OUTPUT_CACHE_TTL_MS });
-      pruneOutputCache();
-      const waiters = outputWaiters.get(key);
-      if (!waiters) return;
-      outputWaiters.delete(key);
-      for (const resolve of waiters) resolve(text.slice(-12000));
-    };
-    const getOutput = (key: string): string | undefined => {
-      pruneOutputCache();
-      const entry = recentOutputBySession.get(key);
-      if (!entry) return undefined;
-      recentOutputBySession.delete(key);
-      recentOutputBySession.set(key, entry);
-      return entry.text;
-    };
-    const clearOutput = (key: string, expected?: string) => {
-      const current = recentOutputBySession.get(key);
-      if (current && (!expected || current.text === expected)) recentOutputBySession.delete(key);
-    };
-    const waitForOutput = (key: string): Promise<string | undefined> => {
-      const current = getOutput(key);
-      if (current) return Promise.resolve(current);
-      if (outputWaiterCount >= OUTPUT_WAITER_MAX) return Promise.reject(new Error('Cortex lifecycle output rendezvous is at capacity'));
-      return new Promise((resolve) => {
-        let settled = false;
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const finish = (text?: string) => {
-          if (settled) return;
-          settled = true;
-          if (timer) clearTimeout(timer);
-          const waiters = outputWaiters.get(key);
-          if (waiters) {
-            waiters.delete(finish);
-            if (!waiters.size) outputWaiters.delete(key);
-          }
-          outputWaiterCount = Math.max(0, outputWaiterCount - 1);
-          resolve(text);
-        };
-        const waiters = outputWaiters.get(key) ?? new Set<(text?: string) => void>();
-        waiters.add(finish);
-        outputWaiters.set(key, waiters);
-        outputWaiterCount += 1;
-        timer = setTimeout(() => finish(undefined), LLM_OUTPUT_WAIT_MS);
-      });
-    };
-    const pruneCompleted = () => {
-      const now = Date.now();
-      for (const [key, expiresAt] of lifecycleCompleted) {
-        if (expiresAt <= now) lifecycleCompleted.delete(key);
-      }
-      while (lifecycleCompleted.size > LIFECYCLE_COMPLETED_MAX) {
-        const oldest = lifecycleCompleted.keys().next().value;
-        if (typeof oldest !== 'string') break;
-        lifecycleCompleted.delete(oldest);
+    const acknowledgeSpoolRecord = (principalNamespace: string, principalSpool: DurableLifecycleSpool, key: string) => {
+      if (lifecycleState!.quota.acknowledge(principalNamespace, principalSpool, key)) {
+        spools.delete(principalNamespace);
       }
     };
-    const persistLifecycle = async (key: string, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string): Promise<boolean> => {
-      pruneCompleted();
-      if (lifecycleCompleted.has(key)) return true;
-      const existing = lifecycleInFlight.get(key);
-      if (existing) return existing;
-      if (lifecycleInFlight.size >= LIFECYCLE_IN_FLIGHT_MAX) throw new Error('Cortex lifecycle persistence is at capacity');
-      const job = (async () => {
-        const writeThrough = await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-        const codec = await maybeWriteCodecContinuity(api, cfg, event, ctx, fallbackText);
-        return writeThrough && codec;
-      })();
-      lifecycleInFlight.set(key, job);
-      try {
-        const persisted = await job;
-        if (persisted) {
-          lifecycleCompleted.delete(key);
-          lifecycleCompleted.set(key, Date.now() + LIFECYCLE_COMPLETED_TTL_MS);
-          pruneCompleted();
-        }
-        return persisted;
-      } finally {
-        if (lifecycleInFlight.get(key) === job) lifecycleInFlight.delete(key);
-      }
+    const principalBinding = (ctx: any) => {
+      const context = canonicalLifecycleContext(initialConfig, ctx);
+      const principal = lifecyclePrincipal(initialConfig, context);
+      return { context, principal, namespace: lifecyclePrincipalNamespace(initialConfig, principal) };
     };
-    const handleLifecycle = async (kind: 'agent_end' | 'subagent_ended', event: any, ctx: any) => {
-      const cfg = resolveConfig(api.pluginConfig);
-      const principal = lifecyclePrincipal(ctx);
+    const recentOutputByPrincipal = new ExpiringLruMap<string>(RECENT_OUTPUT_MAX_ENTRIES, RECENT_OUTPUT_TTL_MS);
+    const completed = new ExpiringLruSet(LIFECYCLE_DEDUP_MAX_ENTRIES, LIFECYCLE_DEDUP_TTL_MS);
+    const inFlight = new Map<string, Promise<boolean>>();
+    const queued = new Map<string, Promise<boolean>>();
+    const pending: Array<{ key: string; start: () => Promise<boolean>; resolve: (value: boolean) => void }> = [];
+    let refillSpool = () => {};
+    const makePersistenceKey = (principalNamespace: string, event: any, ctx: any, fallback?: string) => {
       const identity = lifecycleIdentity(event, ctx);
-      const correlationKey = outputCorrelationKey(event, ctx);
-      let fallbackText = identity ? getOutput(correlationKey) : getOutput(principal);
-      let persistenceKey = lifecyclePersistenceKey(event, ctx, fallbackText || extractText(event?.result));
-      const alreadyScheduled = lifecycleInFlight.has(persistenceKey) || lifecycleCompleted.has(persistenceKey);
-      if (!fallbackText && identity && !alreadyScheduled) fallbackText = await waitForOutput(correlationKey);
-      if (!fallbackText && identity && !alreadyScheduled) {
-        throw new Error(`Cortex lifecycle persistence refused stale ${kind} content because authoritative llm_output did not arrive`);
-      }
-      persistenceKey = lifecyclePersistenceKey(event, ctx, fallbackText || extractText(event?.result));
-      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: ${kind} shape ${JSON.stringify({ principal, identity: identity || null, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      const persisted = await persistLifecycle(persistenceKey, cfg, event, ctx, fallbackText);
-      if (!persisted && kind === 'agent_end') throw new Error('Cortex lifecycle persistence failed; output retained for retry');
-      if (fallbackText) {
-        clearOutput(correlationKey, fallbackText);
-        clearOutput(principal, fallbackText);
+      const payload = identity ? `lifecycle:${identity}` : `content:${String(fallback || '').slice(-recentOutputMaxChars)}`;
+      return lifecyclePersistenceKey(principalNamespace, payload);
+    };
+    const boundedLifecycleEvent = (event: any, cfg: ReturnType<typeof resolveConfig>) => {
+      const userText = extractLatestUserText(event?.messages).slice(-2000);
+      const assistantText = extractAssistantVisibleText(event?.messages);
+      const resultText = extractText(event?.result);
+      const boundedText = [assistantText, resultText]
+        .filter(Boolean)
+        .join('\n')
+        .slice(-cfg.recentOutputMaxChars);
+      return {
+        result: boundedText,
+        messages: userText ? [{ role: 'user' as const, content: userText }] : [],
+      };
+    };
+    const drainPending = () => {
+      while (pending.length > 0 && inFlight.size < initialConfig.lifecycleMaxInFlight) {
+        const job = pending.shift()!;
+        queued.delete(job.key);
+        const active = job.start();
+        inFlight.set(job.key, active);
+        void active.then(job.resolve);
       }
     };
+    const persistLifecycle = (
+      persistenceKey: string,
+      cfg: ReturnType<typeof resolveConfig>,
+      event: any,
+      ctx: any,
+      fallbackText?: string,
+      storedPrincipal?: LifecyclePrincipal,
+      storedReceipt?: string,
+    ) => {
+      if (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity) {
+        api.logger.warn?.('cortex-memory-bridge: lifecycle persistence is disabled; output remains unacknowledged');
+        return Promise.resolve(false);
+      }
+      let context: LifecycleSpoolRecord['context'];
+      let principal: LifecyclePrincipal;
+      let principalNamespace: string;
+      try {
+        context = canonicalLifecycleContext(cfg, ctx, persistenceKey);
+        principal = lifecyclePrincipal(cfg, context);
+        principalNamespace = lifecyclePrincipalNamespace(cfg, principal);
+        if (!persistenceKey.startsWith(`${principalNamespace}:`)) {
+          throw new Error('lifecycle persistence key does not match the complete principal');
+        }
+        if (storedPrincipal && !lifecyclePrincipalsEqual(storedPrincipal, principal)) {
+          throw new Error('stored lifecycle principal does not match the active callback identity');
+        }
+      } catch (error) {
+        api.logger.warn?.(`cortex-memory-bridge: refused lifecycle persistence with incomplete or mismatched principal: ${String(error)}`);
+        return Promise.resolve(false);
+      }
+      let principalSpool: DurableLifecycleSpool;
+      try {
+        principalSpool = spoolForPrincipal(principalNamespace);
+      } catch (error) {
+        api.logger.warn?.(`cortex-memory-bridge: lifecycle namespace admission failed: ${String(error)}`);
+        return Promise.resolve(false);
+      }
+      if (completed.has(persistenceKey)) {
+        try { acknowledgeSpoolRecord(principalNamespace, principalSpool, persistenceKey); } catch (error) {
+          api.logger.warn?.(`cortex-memory-bridge: failed to acknowledge completed lifecycle spool record: ${String(error)}`);
+          return Promise.resolve(false);
+        }
+        return Promise.resolve(true);
+      }
+      const existing = inFlight.get(persistenceKey);
+      if (existing) return existing;
+      const waiting = queued.get(persistenceKey);
+      if (waiting) return waiting;
+      const boundedEvent = boundedLifecycleEvent(event, cfg);
+      const boundedFallback = String(fallbackText || '').slice(-cfg.recentOutputMaxChars);
+      const boundedContext = context;
+      const retainedSpoolRecord = lifecycleState!.quota.entries(principalNamespace, principalSpool)
+        .find((record) => record.key === persistenceKey);
+      const activeReceipt = String(storedReceipt || retainedSpoolRecord?.assuranceReceipt || '').trim();
+      let spoolRecord: LifecycleSpoolRecord = {
+        version: 3,
+        key: persistenceKey,
+        createdAt: new Date().toISOString(),
+        principal,
+        event: boundedEvent,
+        context: boundedContext,
+        fallbackText: boundedFallback,
+        ...(activeReceipt ? { assuranceReceipt: activeReceipt } : {}),
+      };
+      try {
+        // The first process to persist this lifecycle identity owns its
+        // canonical payload and any retained receipt. Later processes adopt it.
+        spoolRecord = lifecycleState!.quota.put(principalNamespace, principalSpool, spoolRecord);
+      } catch (error) {
+        try {
+          if (lifecycleState!.quota.removeIfEmpty(principalNamespace, principalSpool)) spools.delete(principalNamespace);
+        } catch {}
+        api.logger.warn?.(`cortex-memory-bridge: failed to durably spool lifecycle output: ${String(error)}`);
+        return Promise.resolve(false);
+      }
+      const start = () => (async () => {
+        const writeThroughStatus = await maybeWriteThrough(
+          api,
+          cfg,
+          spoolRecord.event,
+          spoolRecord.context,
+          spoolRecord.fallbackText,
+          spoolRecord.assuranceReceipt,
+          (receipt, replaceReceipt) => {
+            const canonicalReceipt = lifecycleState!.quota.retainReceipt(
+              principalNamespace,
+              principalSpool,
+              spoolRecord.key,
+              receipt,
+              replaceReceipt,
+            );
+            spoolRecord.assuranceReceipt = canonicalReceipt;
+            return canonicalReceipt;
+          },
+        );
+        const codecStatus = await maybeWriteCodecContinuity(
+          api,
+          cfg,
+          spoolRecord.event,
+          spoolRecord.context,
+          spoolRecord.fallbackText,
+        );
+        const enabled = [writeThroughStatus, codecStatus].some((status) => status !== 'disabled');
+        const succeeded = enabled && ![writeThroughStatus, codecStatus].includes('failed');
+        if (!succeeded) return false;
+        try {
+          acknowledgeSpoolRecord(principalNamespace, principalSpool, persistenceKey);
+        } catch (error) {
+          api.logger.warn?.(`cortex-memory-bridge: durable write succeeded but spool acknowledgment failed: ${String(error)}`);
+          return false;
+        }
+        completed.add(persistenceKey);
+        queueMicrotask(refillSpool);
+        return true;
+      })().finally(() => {
+        inFlight.delete(persistenceKey);
+        drainPending();
+      });
+      if (inFlight.size >= cfg.lifecycleMaxInFlight) {
+        if (pending.length >= cfg.lifecycleMaxPending) {
+          api.logger.warn?.(`cortex-memory-bridge: lifecycle persistence queue exhausted at ${cfg.lifecycleMaxPending}; output retained for caller retry`);
+          return Promise.resolve(false);
+        }
+        let resolvePending!: (value: boolean) => void;
+        const waitingPromise = new Promise<boolean>((resolve) => { resolvePending = resolve; });
+        queued.set(persistenceKey, waitingPromise);
+        pending.push({ key: persistenceKey, start, resolve: resolvePending });
+        api.logger.warn?.(`cortex-memory-bridge: lifecycle persistence backpressured (${pending.length}/${cfg.lifecycleMaxPending} queued)`);
+        return waitingPromise;
+      }
+      const active = start();
+      inFlight.set(persistenceKey, active);
+      return active;
+    };
+    refillSpool = () => {
+      const cfg = initialConfig;
+      if (!lifecycleState || (!cfg.enabledWriteThrough && !cfg.enabledCodecContinuity)) return;
+      const schedulingLimit = cfg.lifecycleMaxInFlight + cfg.lifecycleMaxPending;
+      for (const [principalNamespace, principalSpool] of spools.entries()) {
+        let records: LifecycleSpoolRecord[];
+        try {
+          records = lifecycleState.quota.entries(principalNamespace, principalSpool);
+        } catch (error) {
+          spools.delete(principalNamespace);
+          api.logger.warn?.(`cortex-memory-bridge: skipped stale lifecycle namespace during replay: ${String(error)}`);
+          continue;
+        }
+        for (const record of records) {
+          if (inFlight.size + queued.size >= schedulingLimit) return;
+          if (inFlight.has(record.key) || queued.has(record.key) || completed.has(record.key)) continue;
+          const replay = persistLifecycle(
+            record.key,
+            cfg,
+            record.event,
+            record.context,
+            record.fallbackText,
+            record.principal,
+            record.assuranceReceipt,
+          );
+          void replay.then((succeeded) => {
+            if (!succeeded) api.logger.warn?.(`cortex-memory-bridge: lifecycle spool replay remains pending key=${record.key.slice(0, 80)}`);
+          });
+        }
+      }
+    };
+    queueMicrotask(refillSpool);
 
     api.registerMemoryRuntime({
-      async getMemorySearchManager(params: { agentId: string }) {
+      async getMemorySearchManager(params: { agentId?: string; sessionKey?: string; sessionId?: string; userId?: string; requesterSenderId?: string; channelId?: string; messageChannel?: string }) {
         try {
           const mod = await import('./manager.mjs');
           const manager = await mod.CortexMemorySearchManager.create({
-            cfg: (api.pluginConfig ?? {}) as Record<string, unknown>,
-            agentId: params?.agentId ?? 'main',
+            cfg: initialConfig,
+            agentId: params?.agentId,
+            invocationContext: captureTrustedPrincipalContext(params),
           });
           return { manager };
         } catch (error) {
@@ -880,10 +2150,14 @@ const plugin = {
       async closeAllMemorySearchManagers() {},
     });
 
-    api.registerTool(() => ({
-      label: 'Memory Search', name: 'memory_search', description: 'Search Cortex-backed memory over HTTP.', parameters: SearchSchema,
-      execute: async (_toolCallId, params) => {
-        const cfg = resolveConfig(api.pluginConfig);
+    api.registerTool((toolContext: any = {}) => {
+      // Tool arguments are model-controlled; capture principal identity only from
+      // OpenClaw's trusted factory context and freeze it before execution.
+      const invocationContext = captureTrustedPrincipalContext(toolContext);
+      return {
+        label: 'Memory Search', name: 'memory_search', description: 'Search Cortex-backed memory over HTTP.', parameters: SearchSchema,
+        execute: async (_toolCallId, params) => {
+        const cfg = initialConfig;
         const query = String((params as { query: string }).query ?? '');
         const requestedMax = Number((params as { maxResults?: number }).maxResults ?? 5);
         const classification = classifyQuery(query);
@@ -894,12 +2168,28 @@ const plugin = {
             ? Math.max(requestedMax, Math.max(cfg.hardQueryCandidateCount, 20))
             : Math.max(requestedMax, 8);
         try {
-          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+          const scope = scopedIdentity(cfg, requireTrustedPrincipalContext(invocationContext));
+          const headers = scopedHeaders(cfg, scope);
+          const response = await postJson(cfg.baseUrl, cfg.searchPath, {
+            query,
+            n_results: fetchCount,
+            scope,
+            ...memoryScopeFields(cfg, scope),
+          }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+          const unavailable = searchResponseUnavailable(response);
+          if (unavailable) throw new Error(`Cortex memory search unavailable: ${unavailable}`);
           let rawItems = Array.isArray(response?.results) ? response.results : [];
           if (recentSummaryQuery && !rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) {
             const seen = new Set(rawItems.map((item: any) => String(item?.id ?? '')));
             for (const expandedQuery of [`recent status summary ${query}`.trim(), `question: ${query} answer:`.trim(), 'Cortex memory bridge repair completed']) {
-              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, {
+                query: expandedQuery,
+                n_results: fetchCount,
+                scope,
+                ...memoryScopeFields(cfg, scope),
+              }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs, cfg.maxResponseBytes, headers);
+              const expandedUnavailable = searchResponseUnavailable(expanded);
+              if (expandedUnavailable) throw new Error(`Cortex memory search unavailable: ${expandedUnavailable}`);
               const extra = Array.isArray(expanded?.results) ? expanded.results : [];
               for (const item of extra) {
                 const id = String(item?.id ?? '');
@@ -931,7 +2221,8 @@ const plugin = {
           return JSON.stringify({ results: [], disabled: true, error: error instanceof Error ? error.message : String(error) });
         }
       },
-    }), { names: ['memory_search'] });
+      };
+    }, { names: ['memory_search'] });
 
     api.registerTool(() => ({
       label: 'Memory Get', name: 'memory_get', description: 'Stub: Cortex does not currently expose OpenClaw-compatible file snippet reads.', parameters: GetSchema,
@@ -942,22 +2233,45 @@ const plugin = {
     }), { names: ['memory_get'] });
 
     api.on('llm_output', (event: any, ctx: any) => {
-      const text = extractLlmOutputText(event).replace(/\s+/g, ' ').trim();
+      const text = extractText(event);
       if (!text) return;
-      const principal = lifecyclePrincipal(ctx);
-      setOutput(outputCorrelationKey(event, ctx), text);
-      setOutput(principal, text);
+      try {
+        const binding = principalBinding(ctx);
+        recentOutputByPrincipal.set(binding.namespace, text.slice(-recentOutputMaxChars));
+      } catch (error) {
+        api.logger.warn?.(`cortex-memory-bridge: refused recent output with incomplete principal: ${String(error)}`);
+        throw error;
+      }
     });
 
     api.on('subagent_ended', async (event: any, ctx: any) => {
-      await handleLifecycle('subagent_ended', event, ctx);
+      const cfg = initialConfig;
+      const binding = principalBinding(ctx);
+      const fallbackText = recentOutputByPrincipal.get(binding.namespace);
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: subagent_ended shape ${JSON.stringify({ principal: binding.namespace, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      const persistenceKey = makePersistenceKey(binding.namespace, event, ctx, fallbackText || extractText(event?.result));
+      await persistLifecycle(persistenceKey, cfg, { result: event?.result, messages: event?.messages }, binding.context, fallbackText);
     });
 
     api.on('agent_end', async (event: any, ctx: any) => {
-      await handleLifecycle('agent_end', event, ctx);
+      const cfg = initialConfig;
+      const binding = principalBinding(ctx);
+      const fallbackText = recentOutputByPrincipal.get(binding.namespace);
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ principal: binding.namespace, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      const persistenceKey = makePersistenceKey(binding.namespace, event, ctx, fallbackText || extractText(event?.result));
+      const persisted = await persistLifecycle(persistenceKey, cfg, event, binding.context, fallbackText);
+      if (persisted) {
+        recentOutputByPrincipal.delete(binding.namespace);
+      } else {
+        throw new Error('Cortex lifecycle persistence failed; output retained for retry');
+      }
     });
   },
 };
 
 export default plugin;
-export { durabilityScore, buildWriteThroughMetadata, reconcileResults };
+export { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults, withLifecycleDirectoryLock };

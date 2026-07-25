@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Callable, Any
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
+from .subprocess_lifecycle import spawn_owned, stop_process
+
 
 class FFmpegError(Exception):
     """FFmpeg execution error."""
@@ -47,6 +49,102 @@ class FFmpegJob(BaseModel):
 TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 SPEED_RE = re.compile(r"speed=([\d\.]+)x")
 PROGRESS_RE = re.compile(r"size=\s*(\d+)kB")
+DEFAULT_TIMEOUT = 300.0
+MAX_OUTPUT_CHARS = 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
+MAX_PROGRESS_LINE_BYTES = 64 * 1024
+CLEANUP_REAP_GRACE = 1.0
+SPAWN_CANCEL_GRACE = 0.05
+
+
+async def _bounded_drain(stream: Any) -> bytearray:
+    tail = bytearray()
+    while True:
+        chunk = await stream.read(READ_CHUNK_BYTES)
+        if not chunk:
+            return tail
+        if len(chunk) >= MAX_OUTPUT_CHARS:
+            tail[:] = chunk[-MAX_OUTPUT_CHARS:]
+        else:
+            overflow = len(tail) + len(chunk) - MAX_OUTPUT_CHARS
+            if overflow > 0:
+                del tail[:overflow]
+            tail.extend(chunk)
+
+
+def _append_bounded(buffer: bytearray, chunk: bytes, limit: int) -> None:
+    if len(chunk) >= limit:
+        buffer[:] = chunk[-limit:]
+        return
+    overflow = len(buffer) + len(chunk) - limit
+    if overflow > 0:
+        del buffer[:overflow]
+    buffer.extend(chunk)
+
+
+async def _stop_process(proc: Any) -> None:
+    """Terminate, escalate, and reap within finite grace periods."""
+    await stop_process(proc, CLEANUP_REAP_GRACE)
+
+
+def _close_process_transports(proc: Any) -> None:
+    """Close subprocess pipes/transport without depending on their public shape."""
+    for stream_name in ("stdout", "stderr", "stdin"):
+        stream = getattr(proc, stream_name, None)
+        transport = getattr(stream, "_transport", None)
+        if transport is not None:
+            try:
+                transport.close()
+            except BaseException:
+                pass
+    transport = getattr(proc, "_transport", None)
+    if transport is not None:
+        try:
+            transport.close()
+        except BaseException:
+            pass
+
+
+async def _settle_tasks(tasks: List[asyncio.Task[Any]], deadline: float) -> None:
+    """Cancel and observe tasks, never waiting beyond the operation deadline."""
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    if not tasks:
+        return
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining > 0:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True), remaining
+            )
+        except asyncio.TimeoutError:
+            pass
+    # A cancelled stream read normally settles on the next loop turn. Observe
+    # it even when the deadline has just elapsed, without extending the budget.
+    await asyncio.sleep(0)
+
+
+async def _stop_at_deadline(proc: Any) -> None:
+    """Best-effort stop/reap with a separate, finite cleanup budget."""
+    await stop_process(proc, CLEANUP_REAP_GRACE)
+
+
+async def _spawn_owned(*args: str, **kwargs: Any) -> Any:
+    """Spawn a child without allowing cancellation to orphan it mid-creation."""
+    return await spawn_owned(
+        asyncio.create_subprocess_exec(*args, **kwargs),
+        SPAWN_CANCEL_GRACE,
+        _stop_process,
+    )
+
+
+async def _spawn_before(deadline: float, *args: str, **kwargs: Any) -> Any:
+    """Spawn within a deadline while retaining ownership on cancellation."""
+    return await asyncio.wait_for(
+        _spawn_owned(*args, **kwargs),
+        max(0.0, deadline - asyncio.get_running_loop().time()),
+    )
 
 
 class FFmpegWrapper:
@@ -85,57 +183,112 @@ class FFmpegWrapper:
         Raises:
             FFmpegError on failure or timeout
         """
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        timeout_seconds = timeout or DEFAULT_TIMEOUT
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        proc = None
+        stdout_task: Optional[asyncio.Task[Any]] = None
+        stderr_task: Optional[asyncio.Task[Any]] = None
+
+        try:
+            proc = await _spawn_before(
+                deadline,
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except asyncio.TimeoutError:
+            raise FFmpegError(f"ffmpeg timed out after {timeout_seconds}s")
         
-        stderr_lines = []
-        
-        async def read_stderr():
+        stderr_tail = bytearray()
+
+        async def read_stderr() -> None:
+            progress_buffer = bytearray()
+
+            def parse_progress(record: bytes) -> None:
+                if not on_progress:
+                    return
+                text = record.decode(errors="replace")
+                current_time = self._parse_time(text)
+                speed = self._parse_speed(text)
+                if current_time is not None and speed is not None:
+                    on_progress(current_time, total_time or 0.0, speed)
+
             while True:
-                try:
-                    line = await proc.stderr.readline()
-                    if not line:
-                        break
-                    text = line.decode(errors="replace").strip()
-                    stderr_lines.append(text)
-                    
-                    if on_progress:
-                        current_time = self._parse_time(text)
-                        speed = self._parse_speed(text)
-                        if current_time is not None and speed is not None:
-                            on_progress(current_time, total_time or 0.0, speed)
-                except Exception:
+                chunk = await proc.stderr.read(READ_CHUNK_BYTES)
+                if not chunk:
                     break
+                _append_bounded(stderr_tail, chunk, MAX_OUTPUT_CHARS)
+
+                # ffmpeg commonly refreshes progress with CR, though LF is also
+                # used. Keep partial records independently bounded so an
+                # untrusted newline-free record cannot grow without limit.
+                start = 0
+                for index, byte in enumerate(chunk):
+                    if byte not in (10, 13):
+                        continue
+                    _append_bounded(progress_buffer, chunk[start:index], MAX_PROGRESS_LINE_BYTES)
+                    parse_progress(progress_buffer)
+                    progress_buffer.clear()
+                    start = index + 1
+                _append_bounded(progress_buffer, chunk[start:], MAX_PROGRESS_LINE_BYTES)
+
+            if progress_buffer:
+                parse_progress(progress_buffer)
         
+        stdout_task = asyncio.create_task(_bounded_drain(proc.stdout))
         stderr_task = asyncio.create_task(read_stderr())
+        drain_tasks = [stdout_task, stderr_task]
         
         try:
-            await asyncio.wait_for(proc.wait(), timeout=timeout)
+            await asyncio.wait_for(proc.wait(), max(0.0, deadline - loop.time()))
+            await asyncio.wait_for(
+                asyncio.gather(*drain_tasks), max(0.0, deadline - loop.time())
+            )
         except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await _settle_tasks(drain_tasks, deadline)
+            # The direct child may already be reaped while a descendant still
+            # owns a pipe. Otherwise stop it, but do not let cleanup become a
+            # second, unbounded timeout window.
+            if proc.returncode is None and deadline > loop.time():
+                try:
+                    await asyncio.wait_for(
+                        _stop_process(proc), max(0.0, deadline - loop.time())
+                    )
+                except asyncio.TimeoutError:
+                    await _stop_at_deadline(proc)
+            else:
+                await _stop_at_deadline(proc)
             raise FFmpegError(
-                f"ffmpeg timed out after {timeout}s",
-                "\n".join(stderr_lines),
+                f"ffmpeg timed out after {timeout_seconds}s",
+                stderr_tail.decode(errors="replace"),
             )
         except asyncio.CancelledError:
-            proc.kill()
-            await proc.wait()
+            try:
+                await _stop_process(proc)
+            except BaseException:
+                _close_process_transports(proc)
+            await _settle_tasks(drain_tasks, deadline)
             raise
-        finally:
-            await stderr_task
+        except Exception:
+            # A drain can fail independently (including in a progress
+            # callback). Retain ownership of the subprocess and both pipe
+            # tasks before propagating the original failure.
+            try:
+                await _stop_process(proc)
+            except BaseException:
+                _close_process_transports(proc)
+            await _settle_tasks(drain_tasks, deadline)
+            raise
         
         if proc.returncode != 0:
             raise FFmpegError(
                 f"ffmpeg failed with exit code {proc.returncode}",
-                "\n".join(stderr_lines),
+                stderr_tail.decode(errors="replace"),
                 proc.returncode,
             )
         
-        return "\n".join(stderr_lines)
+        return stderr_tail.decode(errors="replace")
     
     def build_convert_args(self, job: FFmpegJob) -> List[str]:
         """Build ffmpeg arguments for convert operation."""
@@ -229,7 +382,8 @@ class FFmpegWrapper:
         )
         
         args = self.build_convert_args(job)
-        args += ["-vn", "-ar", "44100", "-ac", "2", "-b:a", "192k"]
+        output = args.pop()
+        args += ["-vn", "-ar", "44100", "-ac", "2", "-b:a", "192k", output]
         
         # Get duration for progress
         total_time = None
@@ -272,8 +426,11 @@ class FFmpegWrapper:
         
         return await self.run(args, timeout=timeout)
     
-    async def get_info(self, input_path: str) -> Dict[str, Any]:
+    async def get_info(self, input_path: str, timeout: Optional[float] = None) -> Dict[str, Any]:
         """Get media file information using ffprobe."""
+        timeout_seconds = timeout or DEFAULT_TIMEOUT
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
         args = [
             self.ffprobe_bin,
             "-v", "error",
@@ -282,18 +439,37 @@ class FFmpegWrapper:
             input_path,
         ]
         
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            proc = await _spawn_before(
+                deadline,
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except asyncio.TimeoutError:
+            raise FFmpegError("ffprobe timed out")
         
-        out, err = await proc.communicate()
+        try:
+            tasks = [asyncio.create_task(proc.wait()),
+                     asyncio.create_task(_bounded_drain(proc.stdout)),
+                     asyncio.create_task(_bounded_drain(proc.stderr))]
+            values = await asyncio.wait_for(
+                asyncio.gather(*tasks), max(0.0, deadline - loop.time())
+            )
+            out, err = bytes(values[1]), bytes(values[2])
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            for task in tasks:
+                task.cancel()
+            await _stop_process(proc)
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise FFmpegError("ffprobe timed out")
         
         if proc.returncode != 0:
-            raise FFmpegError("ffprobe failed", err.decode())
+            raise FFmpegError("ffprobe failed", err.decode(errors="replace"))
         
-        return json.loads(out.decode())
+        return json.loads(out.decode(errors="replace"))
     
     @staticmethod
     def _parse_time(line: str) -> Optional[float]:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import fcntl
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -12,7 +14,21 @@ from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.dependability import load_dependability_report
-from cortex_server.runtime.production_build_loop import repair_production_dependability
+from cortex_server.runtime.production_build_loop import _atomic_write_json, repair_production_dependability
+from cortex_server.runtime.durable_files import durable_mkdir
+from cortex_server.runtime.runtime_delivery_quota import (
+    MAX_HISTORY_BYTES,
+    MAX_HISTORY_RECORDS,
+    MAX_REPORT_BYTES,
+    MAX_REPORT_RECORDS,
+    append_bounded_jsonl,
+    assert_process_count,
+    assert_runtime_delivery_capacity,
+    bounded_jsonl_payload,
+    encoded_json,
+    read_recoverable_jsonl,
+    runtime_delivery_quota_transaction,
+)
 from cortex_server.runtime.release_workflow import ReleaseWorkflowState, ReleaseWorkflowStore
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
 
@@ -711,6 +727,8 @@ class RoadmapPassBudget(BaseModel):
         number = int(value or 0)
         if number <= 0:
             raise ValueError("budget values must be positive")
+        if number > 32:
+            raise ValueError("budget values must not exceed the immutable limit of 32")
         return number
 
     @field_validator("validation_mode")
@@ -859,6 +877,7 @@ class RoadmapExecutionState(BaseModel):
     iteration_count: int = 0
     checkpoint_count: int = 0
     recovery_count: int = 0
+    persistence_revision: int = 0
     controller: Optional[RoadmapControllerOwner] = None
     active_phase_id: Optional[str] = None
     active_task_ids: List[str] = Field(default_factory=list)
@@ -895,7 +914,7 @@ class RoadmapExecutionState(BaseModel):
             raise ValueError("must be non-empty")
         return text
 
-    @field_validator("iteration_count", "checkpoint_count", "recovery_count")
+    @field_validator("iteration_count", "checkpoint_count", "recovery_count", "persistence_revision")
     @classmethod
     def _validate_non_negative(cls, value: int) -> int:
         number = int(value or 0)
@@ -961,69 +980,170 @@ class RoadmapExecutionStore:
     def _report_target(self, process_id: str) -> Path:
         return self._root() / "reports" / f"{process_id}.jsonl"
 
+    def _lock_target(self, process_id: str) -> Path:
+        return self._root() / "locks" / f"{process_id}.lock"
+
+    @contextmanager
+    def _locked(self, process_id: str, *, exclusive: bool):
+        target = self._lock_target(process_id)
+        durable_mkdir(target.parent)
+        with target.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def save_contract(self, contract: RoadmapObjectiveContract | Dict[str, Any]) -> RoadmapObjectiveContract:
         record = _contract_validate(contract if isinstance(contract, dict) else _contract_dump(contract))
-        target = self._contract_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_contract_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        with self._locked(record.process_id, exclusive=True):
+            target = self._contract_target(record.process_id)
+            current = None
+            if target.exists():
+                current = _contract_validate(json.loads(target.read_text(encoding="utf-8")))
+            if current is not None and current.objective_id != record.objective_id:
+                raise RuntimeError("roadmap objective contract identity conflict")
+            payload = _contract_dump(record)
+            encoded = encoded_json(payload, pretty=True)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                assert_process_count(
+                    self._root(),
+                    record.process_id,
+                    delivery_root=self._root().parent,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(encoded),
+                    replacing=target,
+                )
+                _atomic_write_json(target, payload)
         return record
 
     def load_contract(self, process_id: str) -> Optional[RoadmapObjectiveContract]:
-        target = self._contract_target(process_id)
-        if not target.exists():
-            return None
-        return _contract_validate(json.loads(target.read_text(encoding="utf-8")))
+        with self._locked(process_id, exclusive=False):
+            target = self._contract_target(process_id)
+            if not target.exists():
+                return None
+            return _contract_validate(json.loads(target.read_text(encoding="utf-8")))
 
     def save_state(self, state: RoadmapExecutionState | Dict[str, Any]) -> RoadmapExecutionState:
         record = _state_validate(state if isinstance(state, dict) else _state_dump(state))
-        target = self._state_target(record.process_id)
-        current = self.load_state(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_state_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        history_row = {
-            "ts": _now_iso(),
-            "execution_id": record.execution_id,
-            "objective_id": record.objective_id,
-            "process_id": record.process_id,
-            "status": record.status,
-            "iteration_count": record.iteration_count,
-            "checkpoint_count": record.checkpoint_count,
-            "recovery_count": record.recovery_count,
-            "previous_status": current.status if current else None,
-            "state": _state_dump(record),
-        }
-        history_target = self._history_target(record.process_id)
-        history_target.parent.mkdir(parents=True, exist_ok=True)
-        with history_target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(history_row, sort_keys=True) + "\n")
+        with self._locked(record.process_id, exclusive=True):
+            target = self._state_target(record.process_id)
+            current = self._load_state_unlocked(record.process_id)
+            if current is None:
+                if record.persistence_revision != 0:
+                    raise RuntimeError("roadmap execution persistence revision conflict")
+                next_revision = 1
+            else:
+                if current.execution_id != record.execution_id or current.objective_id != record.objective_id:
+                    raise RuntimeError("roadmap execution identity conflict")
+                if record.persistence_revision != current.persistence_revision:
+                    raise RuntimeError("roadmap execution persistence revision conflict")
+                next_revision = current.persistence_revision + 1
+            record = _state_validate({**_state_dump(record), "persistence_revision": next_revision})
+            payload = _state_dump(record)
+            history_row = {
+                "ts": _now_iso(),
+                "execution_id": record.execution_id,
+                "objective_id": record.objective_id,
+                "process_id": record.process_id,
+                "persistence_revision": record.persistence_revision,
+                "status": record.status,
+                "iteration_count": record.iteration_count,
+                "checkpoint_count": record.checkpoint_count,
+                "recovery_count": record.recovery_count,
+                "previous_status": current.status if current else None,
+                "state": payload,
+            }
+            state_encoded = encoded_json(payload, pretty=True)
+            history_encoded = encoded_json(history_row)
+            history_target = self._history_target(record.process_id)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                history_payload = bounded_jsonl_payload(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=max(len(state_encoded), len(history_encoded)),
+                    additional_bytes=len(state_encoded) + len(history_payload),
+                    replacements=(
+                        (target, len(state_encoded)),
+                        (history_target, len(history_payload)),
+                    ),
+                )
+                _atomic_write_json(target, payload)
+                append_bounded_jsonl(
+                    history_target,
+                    history_row,
+                    max_records=MAX_HISTORY_RECORDS,
+                    max_bytes=MAX_HISTORY_BYTES,
+                )
         return record
 
-    def load_state(self, process_id: str) -> Optional[RoadmapExecutionState]:
+    def _load_state_unlocked(self, process_id: str) -> Optional[RoadmapExecutionState]:
         target = self._state_target(process_id)
-        if not target.exists():
-            return None
-        return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+        if target.exists():
+            try:
+                return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError, ValueError):
+                pass
+        for row in reversed(read_recoverable_jsonl(self._history_target(process_id))):
+            state = row.get("state")
+            if isinstance(state, dict):
+                try:
+                    return _state_validate(state)
+                except (ValidationError, ValueError, TypeError):
+                    continue
+        return None
+
+    def load_state(self, process_id: str) -> Optional[RoadmapExecutionState]:
+        with self._locked(process_id, exclusive=False):
+            return self._load_state_unlocked(process_id)
 
     def append_report(self, report: RoadmapExecutionReport | Dict[str, Any]) -> RoadmapExecutionReport:
         record = _report_validate(report if isinstance(report, dict) else _report_dump(report))
-        target = self._report_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_report_dump(record), sort_keys=True) + "\n")
+        with self._locked(record.process_id, exclusive=True):
+            target = self._report_target(record.process_id)
+            payload = _report_dump(record)
+            encoded = encoded_json(payload)
+            with runtime_delivery_quota_transaction(self._root().parent):
+                report_payload = bounded_jsonl_payload(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=self._root().parent,
+                    store_root=self._root(),
+                    process_id=record.process_id,
+                    object_bytes=len(encoded),
+                    additional_bytes=len(report_payload),
+                    replacements=((target, len(report_payload)),),
+                )
+                append_bounded_jsonl(
+                    target,
+                    payload,
+                    max_records=MAX_REPORT_RECORDS,
+                    max_bytes=MAX_REPORT_BYTES,
+                )
         return record
 
     def reports(self, process_id: str) -> List[RoadmapExecutionReport]:
-        target = self._report_target(process_id)
-        if not target.exists():
-            return []
-        rows: List[RoadmapExecutionReport] = []
-        with target.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                rows.append(_report_validate(json.loads(text)))
-        return rows
+        with self._locked(process_id, exclusive=False):
+            return [
+                _report_validate(row)
+                for row in read_recoverable_jsonl(self._report_target(process_id))
+            ]
 
 
 
@@ -1768,14 +1888,10 @@ def _claim_controller(
     now: Optional[datetime] = None,
 ) -> JsonDict:
     scope = f"{contract.controller_scope}:{contract.process_id}"
-    current_time = _now(now)
-    supervisor.reclaim_stale(now=current_time)
+    supervisor.reclaim_stale(process_id=contract.process_id)
 
     stale_scope_leases = [row for row in supervisor.list(process_id=contract.process_id, status="stale") if row.scope == scope]
     actions: List[JsonDict] = []
-    for row in stale_scope_leases:
-        resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "controller_takeover"})
-        actions.append({"action": "release_stale_controller", "lease_id": resolved.lease_id})
 
     active_scope_leases = [row for row in supervisor.list(process_id=contract.process_id, status="active") if row.scope == scope]
     lease: Optional[AgentLease] = None
@@ -1800,18 +1916,36 @@ def _claim_controller(
             }
         )
     elif lease is None:
-        lease = supervisor.assign(
-            process_id=contract.process_id,
-            scope=scope,
-            agent_id=controller_id,
-            lease_seconds=contract.controller_lease_seconds,
-            metadata={
+        lease_metadata = {
                 "session_id": controller_session_id,
                 "objective_id": contract.objective_id,
                 "objective": contract.objective,
-            },
-        )
-        actions.append({"action": "claim_controller", "lease_id": lease.lease_id})
+        }
+        if stale_scope_leases:
+            stale, lease = supervisor.takeover_stale(
+                stale_scope_leases[0].lease_id,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append(
+                {
+                    "action": "fenced_controller_takeover",
+                    "lease_id": lease.lease_id,
+                    "generation": lease.generation,
+                    "superseded_lease_id": stale.lease_id,
+                }
+            )
+            recovery = True
+        else:
+            lease = supervisor.assign(
+                process_id=contract.process_id,
+                scope=scope,
+                agent_id=controller_id,
+                lease_seconds=contract.controller_lease_seconds,
+                metadata=lease_metadata,
+            )
+            actions.append({"action": "claim_controller", "lease_id": lease.lease_id, "generation": lease.generation})
         previous_session = str(previous_state.controller.session_id if previous_state and previous_state.controller else "").strip()
         if previous_session and previous_session != controller_session_id:
             recovery = True
@@ -1899,6 +2033,7 @@ def _merge_state(contract: RoadmapObjectiveContract, previous_state: Optional[Ro
         iteration_count=previous_state.iteration_count,
         checkpoint_count=previous_state.checkpoint_count,
         recovery_count=previous_state.recovery_count,
+        persistence_revision=previous_state.persistence_revision,
         controller=previous_state.controller,
         active_phase_id=previous_state.active_phase_id,
         active_task_ids=list(previous_state.active_task_ids),
@@ -2046,8 +2181,7 @@ def _dispatch_ready_tasks(
     budget: Optional[RoadmapPassBudget] = None,
     now: Optional[datetime] = None,
 ) -> JsonDict:
-    current_time = _now(now)
-    supervisor.reclaim_stale(now=current_time)
+    supervisor.reclaim_stale(process_id=contract.process_id)
 
     phase_state_map = _phase_status_map(state)
     task_state_map = _task_status_map(state)
@@ -2073,11 +2207,6 @@ def _dispatch_ready_tasks(
         agent_id = _select_task_agent(task, contract=contract, snapshot=snapshot, shared_state=shared_state, controller_id=controller_id)
         scope = str((task.metadata or {}).get("lease_scope") or _task_scope(task.task_id)).strip() or _task_scope(task.task_id)
         stale_leases = [row for row in supervisor.list(process_id=contract.process_id, status="stale") if row.scope == scope]
-        for row in stale_leases:
-            supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "roadmap_task_takeover", "task_id": task.task_id})
-            actions_taken.append({"action": "release_stale_task_lease", "lease_id": row.lease_id, "task_id": task.task_id})
-            recovery = True
-
         active_leases = [row for row in supervisor.list(process_id=contract.process_id, status="active") if row.scope == scope]
         lease: Optional[AgentLease] = None
         if active_leases:
@@ -2086,21 +2215,32 @@ def _dispatch_ready_tasks(
                 lease = supervisor.heartbeat(lease.lease_id, lease_seconds=contract.worker_lease_seconds)
                 actions_taken.append({"action": "heartbeat_task_lease", "lease_id": lease.lease_id, "task_id": task.task_id, "agent_id": agent_id})
             else:
-                supervisor.resolve(lease.lease_id, status="released", metadata={"resolution": "roadmap_task_reassigned", "task_id": task.task_id})
-                recovery = True
-                actions_taken.append({"action": "reassign_task_lease", "lease_id": lease.lease_id, "task_id": task.task_id, "from_agent": lease.agent_id, "to_agent": agent_id})
-                lease = None
+                active_task_ids.append(task.task_id)
+                actions_taken.append({"action": "task_lease_owner_held", "lease_id": lease.lease_id, "task_id": task.task_id, "owner": lease.agent_id, "requested_agent": agent_id})
+                continue
 
         if lease is None:
+            lease_metadata = {"objective_id": contract.objective_id, "task_id": task.task_id, "work_type": task.work_type}
+            if stale_leases:
+                active_task_ids.append(task.task_id)
+                actions_taken.append(
+                    {
+                        "action": "task_requires_fenced_takeover",
+                        "task_id": task.task_id,
+                        "lease_ids": [row.lease_id for row in stale_leases],
+                        "blocking": True,
+                    }
+                )
+                continue
             lease = supervisor.assign(
                 process_id=contract.process_id,
                 scope=scope,
                 agent_id=agent_id,
                 lease_seconds=contract.worker_lease_seconds,
-                metadata={"objective_id": contract.objective_id, "task_id": task.task_id, "work_type": task.work_type},
+                metadata=lease_metadata,
             )
             task_state.attempt_count = int(task_state.attempt_count or 0) + 1
-            actions_taken.append({"action": "assign_task_lease", "lease_id": lease.lease_id, "task_id": task.task_id, "agent_id": agent_id})
+            actions_taken.append({"action": "assign_task_lease", "lease_id": lease.lease_id, "generation": lease.generation, "task_id": task.task_id, "agent_id": agent_id})
             if task_state.started_at is not None:
                 recovery = True
 
@@ -2119,8 +2259,18 @@ def _dispatch_ready_tasks(
                 "summary": task.summary,
                 "work_type": task.work_type,
                 "success_criteria": list(task.success_criteria or []),
+                "lease_id": lease.lease_id,
+                "lease_generation": lease.generation,
             },
-            metadata={"objective_id": contract.objective_id, "task_id": task.task_id, "phase_id": task.phase_id, "work_type": task.work_type},
+            metadata={
+                "objective_id": contract.objective_id,
+                "task_id": task.task_id,
+                "phase_id": task.phase_id,
+                "work_type": task.work_type,
+                "lease_id": lease.lease_id,
+                "lease_generation": lease.generation,
+                "lease_scope": lease.scope,
+            },
         )
         actions_taken.append({"action": "dispatch_task_handoff", "message_id": handoff.message_id, "task_id": task.task_id, "agent_id": agent_id})
         accepted = mailbox.receive(
@@ -2133,7 +2283,7 @@ def _dispatch_ready_tasks(
         accepted_ids = {row.message_id for row in accepted}
         message_status = handoff.delivery_status
         if handoff.message_id in accepted_ids:
-            acked = mailbox.acknowledge(handoff.message_id)
+            acked = mailbox.acknowledge(handoff.message_id, actor=agent_id)
             message_status = acked.delivery_status
             actions_taken.append({"action": "ack_task_handoff", "message_id": acked.message_id, "task_id": task.task_id, "agent_id": agent_id})
         task_state.assigned_agent_id = agent_id
@@ -2636,6 +2786,7 @@ def _reconcile_roadmap_execution_pass(
         iteration_count=next_iteration,
         checkpoint_count=int(state.checkpoint_count or 0) + (1 if report_record is not None else 0),
         recovery_count=int(state.recovery_count or 0) + (1 if ownership.get("recovery") or dispatch.get("recovery") else 0),
+        persistence_revision=state.persistence_revision,
         controller=controller,
         active_phase_id=state.active_phase_id,
         active_task_ids=list(state.active_task_ids),
@@ -2704,7 +2855,7 @@ def _reconcile_roadmap_execution_pass(
             "watchdog": dict(watchdog_context or {}),
         },
     )
-    roadmap_store.save_state(updated_state)
+    updated_state = roadmap_store.save_state(updated_state)
 
     if status in {"blocked", "completed"}:
         supervisor.resolve(controller.lease_id, status="released", metadata={"resolution": status})
@@ -2723,7 +2874,7 @@ def _reconcile_roadmap_execution_pass(
     }
 
 
-def reconcile_roadmap_execution(
+def _reconcile_roadmap_execution_locked(
     contract: RoadmapObjectiveContract,
     *,
     roadmap_store: RoadmapExecutionStore,
@@ -3060,7 +3211,7 @@ def reconcile_roadmap_execution(
                     },
                 }
             )
-            roadmap_store.save_state(persisted_state)
+            persisted_state = roadmap_store.save_state(persisted_state)
             if status == "completed" and persisted_state.controller is not None:
                 supervisor.resolve(persisted_state.controller.lease_id, status="released", metadata={"resolution": status})
             final_result["state"] = _state_dump(persisted_state)
@@ -3076,6 +3227,44 @@ def reconcile_roadmap_execution(
     final_state.setdefault("metadata", {})["chained_passes"] = chained_passes
     final_result["state"] = final_state
     return final_result
+
+
+def reconcile_roadmap_execution(
+    contract: RoadmapObjectiveContract,
+    *,
+    roadmap_store: RoadmapExecutionStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    release_store: Optional[ReleaseWorkflowStore],
+    controller_id: str,
+    controller_session_id: str,
+    journal: Any = None,
+    now: Optional[datetime] = None,
+    watchdog_context: Optional[Dict[str, Any]] = None,
+) -> JsonDict:
+    kwargs = {
+        "roadmap_store": roadmap_store,
+        "snapshot_store": snapshot_store,
+        "shared_state_store": shared_state_store,
+        "mailbox": mailbox,
+        "supervisor": supervisor,
+        "release_store": release_store,
+        "controller_id": controller_id,
+        "controller_session_id": controller_session_id,
+        "journal": journal,
+        "now": now,
+        "watchdog_context": watchdog_context,
+    }
+    if release_store is None:
+        return _reconcile_roadmap_execution_locked(contract, **kwargs)
+    with release_store.release_transaction(contract.process_id):
+        release_store.assert_mutation_allowed(
+            contract.process_id,
+            operation="roadmap reconciliation",
+        )
+        return _reconcile_roadmap_execution_locked(contract, **kwargs)
 
 
 __all__ = [

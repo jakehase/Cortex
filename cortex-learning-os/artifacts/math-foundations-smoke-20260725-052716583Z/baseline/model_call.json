@@ -1,0 +1,384 @@
+{
+  "runId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+  "status": "ok",
+  "summary": "completed",
+  "result": {
+    "payloads": [
+      {
+        "text": "{\"answers\":[{\"itemId\":\"mfc-01\",\"answer\":\"426763565\"},{\"itemId\":\"mfc-02\",\"answer\":\"6975757441\"},{\"itemId\":\"mfc-03\",\"answer\":\"15890700\"},{\"itemId\":\"mfc-04\",\"answer\":\"143450\"},{\"itemId\":\"mfc-05\",\"answer\":\"171\"},{\"itemId\":\"mfc-06\",\"answer\":\"49\"},{\"itemId\":\"mfc-07\",\"answer\":\"7679/9269\"},{\"itemId\":\"mfc-08\",\"answer\":\"33250/18241\"},{\"itemId\":\"mfc-09\",\"answer\":\"5580127\"},{\"itemId\":\"mfc-10\",\"answer\":\"3678090\"},{\"itemId\":\"mfc-11\",\"answer\":\"27720\"},{\"itemId\":\"mfc-12\",\"answer\":\"12\"},{\"itemId\":\"mfc-13\",\"answer\":\"71\"},{\"itemId\":\"mfc-14\",\"answer\":\"5/33\"},{\"itemId\":\"mfc-15\",\"answer\":\"1334961\"},{\"itemId\":\"mfc-16\",\"answer\":\"18\"},{\"itemId\":\"mfc-17\",\"answer\":\"119/24\"},{\"itemId\":\"mfc-18\",\"answer\":\"20312/49\"},{\"itemId\":\"mfc-19\",\"answer\":\"250\"},{\"itemId\":\"mfc-20\",\"answer\":\"14.7786\"}]}",
+        "mediaUrl": null
+      }
+    ],
+    "meta": {
+      "durationMs": 43490,
+      "agentMeta": {
+        "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "agentHarnessId": "pi",
+        "usage": {
+          "input": 22951,
+          "output": 1766,
+          "total": 24717
+        },
+        "lastCallUsage": {
+          "input": 22951,
+          "output": 1766,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 24717
+        },
+        "promptTokens": 22951
+      },
+      "aborted": false,
+      "systemPromptReport": {
+        "source": "run",
+        "generatedAt": 1784957239733,
+        "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+        "sessionKey": "agent:main:explicit:math-foundations-smoke-20260725-052716583z-baseline",
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "workspaceDir": "/root/clawd",
+        "bootstrapMaxChars": 12000,
+        "bootstrapTotalMaxChars": 60000,
+        "bootstrapTruncation": {
+          "warningMode": "once",
+          "warningShown": true,
+          "promptWarningSignature": "{\"bootstrapMaxChars\":12000,\"bootstrapTotalMaxChars\":60000,\"files\":[{\"path\":\"/root/clawd/AGENTS.md\",\"rawChars\":25944,\"injectedChars\":11999,\"causes\":[\"per-file-limit\"]},{\"path\":\"/root/clawd/MEMORY.md\",\"rawChars\":12729,\"injectedChars\":11999,\"causes\":[\"per-file-limit\"]},{\"path\":\"/root/clawd/TOOLS.md\",\"rawChars\":14771,\"injectedChars\":11999,\"causes\":[\"per-file-limit\"]}]}",
+          "warningSignaturesSeen": [
+            "{\"bootstrapMaxChars\":12000,\"bootstrapTotalMaxChars\":60000,\"files\":[{\"path\":\"/root/clawd/AGENTS.md\",\"rawChars\":25944,\"injectedChars\":11999,\"causes\":[\"per-file-limit\"]},{\"path\":\"/root/clawd/MEMORY.md\",\"rawChars\":12729,\"injectedChars\":11999,\"causes\":[\"per-file-limit\"]},{\"path\":\"/root/clawd/TOOLS.md\",\"rawChars\":14771,\"injectedChars\":11999,\"causes\":[\"per-file-limit\"]}]}"
+          ],
+          "truncatedFiles": 3,
+          "nearLimitFiles": 3,
+          "totalNearLimit": false
+        },
+        "sandbox": {
+          "mode": "off",
+          "sandboxed": false
+        },
+        "systemPrompt": {
+          "chars": 70725,
+          "projectContextChars": 41487,
+          "nonProjectContextChars": 29238
+        },
+        "injectedWorkspaceFiles": [
+          {
+            "name": "AGENTS.md",
+            "path": "/root/clawd/AGENTS.md",
+            "missing": false,
+            "rawChars": 25944,
+            "injectedChars": 11999,
+            "truncated": true
+          },
+          {
+            "name": "SOUL.md",
+            "path": "/root/clawd/SOUL.md",
+            "missing": false,
+            "rawChars": 1664,
+            "injectedChars": 1664,
+            "truncated": false
+          },
+          {
+            "name": "TOOLS.md",
+            "path": "/root/clawd/TOOLS.md",
+            "missing": false,
+            "rawChars": 14771,
+            "injectedChars": 11999,
+            "truncated": true
+          },
+          {
+            "name": "IDENTITY.md",
+            "path": "/root/clawd/IDENTITY.md",
+            "missing": false,
+            "rawChars": 633,
+            "injectedChars": 633,
+            "truncated": false
+          },
+          {
+            "name": "USER.md",
+            "path": "/root/clawd/USER.md",
+            "missing": false,
+            "rawChars": 2817,
+            "injectedChars": 2817,
+            "truncated": false
+          },
+          {
+            "name": "HEARTBEAT.md",
+            "path": "/root/clawd/HEARTBEAT.md",
+            "missing": false,
+            "rawChars": 3338,
+            "injectedChars": 3338,
+            "truncated": false
+          },
+          {
+            "name": "BOOTSTRAP.md",
+            "path": "/root/clawd/BOOTSTRAP.md",
+            "missing": true,
+            "rawChars": 0,
+            "injectedChars": 0,
+            "truncated": false
+          },
+          {
+            "name": "MEMORY.md",
+            "path": "/root/clawd/MEMORY.md",
+            "missing": false,
+            "rawChars": 12729,
+            "injectedChars": 11999,
+            "truncated": true
+          }
+        ],
+        "skills": {
+          "promptChars": 8223,
+          "entries": [
+            {
+              "name": "clawd-benchmark-incident-audit",
+              "blockChars": 481
+            },
+            {
+              "name": "clawd-benchmark-orchestration",
+              "blockChars": 508
+            },
+            {
+              "name": "clawd-brownfield-transfer-benchmark",
+              "blockChars": 486
+            },
+            {
+              "name": "clawd-campaign-truth-audit",
+              "blockChars": 468
+            },
+            {
+              "name": "clawd-external-action-guardrails",
+              "blockChars": 489
+            },
+            {
+              "name": "clawd-git-auth-and-export-recovery",
+              "blockChars": 469
+            },
+            {
+              "name": "clawd-personal-ops-routing",
+              "blockChars": 434
+            },
+            {
+              "name": "clawd-remote-execution-boundary",
+              "blockChars": 454
+            },
+            {
+              "name": "clawd-research-and-synthesis",
+              "blockChars": 467
+            },
+            {
+              "name": "clawd-status-memory-handoff",
+              "blockChars": 480
+            },
+            {
+              "name": "clawd-task-intake-routing",
+              "blockChars": 536
+            },
+            {
+              "name": "clawd-workspace-quarantine",
+              "blockChars": 463
+            },
+            {
+              "name": "healthcheck",
+              "blockChars": 271
+            },
+            {
+              "name": "node-connect",
+              "blockChars": 272
+            },
+            {
+              "name": "skill-creator",
+              "blockChars": 257
+            },
+            {
+              "name": "taskflow",
+              "blockChars": 272
+            },
+            {
+              "name": "taskflow-inbox-triage",
+              "blockChars": 282
+            },
+            {
+              "name": "tmux",
+              "blockChars": 246
+            },
+            {
+              "name": "video-frames",
+              "blockChars": 220
+            },
+            {
+              "name": "weather",
+              "blockChars": 242
+            }
+          ]
+        },
+        "tools": {
+          "listChars": 0,
+          "schemaChars": 17259,
+          "entries": [
+            {
+              "name": "read",
+              "summaryChars": 298,
+              "schemaChars": 304,
+              "propertiesCount": 3
+            },
+            {
+              "name": "edit",
+              "summaryChars": 326,
+              "schemaChars": 834,
+              "propertiesCount": 2
+            },
+            {
+              "name": "write",
+              "summaryChars": 127,
+              "schemaChars": 225,
+              "propertiesCount": 2
+            },
+            {
+              "name": "apply_patch",
+              "summaryChars": 132,
+              "schemaChars": 153,
+              "propertiesCount": 1
+            },
+            {
+              "name": "exec",
+              "summaryChars": 539,
+              "schemaChars": 1155,
+              "propertiesCount": 12
+            },
+            {
+              "name": "process",
+              "summaryChars": 416,
+              "schemaChars": 961,
+              "propertiesCount": 12
+            },
+            {
+              "name": "cron",
+              "summaryChars": 3726,
+              "schemaChars": 6700,
+              "propertiesCount": 13
+            },
+            {
+              "name": "image_generate",
+              "summaryChars": 387,
+              "schemaChars": 2169,
+              "propertiesCount": 14
+            },
+            {
+              "name": "update_plan",
+              "summaryChars": 251,
+              "schemaChars": 574,
+              "propertiesCount": 2
+            },
+            {
+              "name": "sessions_list",
+              "summaryChars": 225,
+              "schemaChars": 432,
+              "propertiesCount": 9
+            },
+            {
+              "name": "sessions_history",
+              "summaryChars": 180,
+              "schemaChars": 161,
+              "propertiesCount": 3
+            },
+            {
+              "name": "sessions_send",
+              "summaryChars": 208,
+              "schemaChars": 274,
+              "propertiesCount": 5
+            },
+            {
+              "name": "sessions_spawn",
+              "summaryChars": 466,
+              "schemaChars": 1559,
+              "propertiesCount": 19
+            },
+            {
+              "name": "sessions_yield",
+              "summaryChars": 97,
+              "schemaChars": 60,
+              "propertiesCount": 1
+            },
+            {
+              "name": "subagents",
+              "summaryChars": 105,
+              "schemaChars": 191,
+              "propertiesCount": 4
+            },
+            {
+              "name": "session_status",
+              "summaryChars": 336,
+              "schemaChars": 89,
+              "propertiesCount": 2
+            },
+            {
+              "name": "web_fetch",
+              "summaryChars": 129,
+              "schemaChars": 374,
+              "propertiesCount": 3
+            },
+            {
+              "name": "image",
+              "summaryChars": 260,
+              "schemaChars": 342,
+              "propertiesCount": 6
+            },
+            {
+              "name": "cortex_browse",
+              "summaryChars": 69,
+              "schemaChars": 238,
+              "propertiesCount": 4
+            },
+            {
+              "name": "cortex_browser_status",
+              "summaryChars": 60,
+              "schemaChars": 76,
+              "propertiesCount": 0
+            },
+            {
+              "name": "memory_search",
+              "summaryChars": 38,
+              "schemaChars": 231,
+              "propertiesCount": 3
+            },
+            {
+              "name": "memory_get",
+              "summaryChars": 78,
+              "schemaChars": 157,
+              "propertiesCount": 3
+            }
+          ]
+        }
+      },
+      "finalPromptText": "[Sat 2026-07-25 00:27 CDT] You are taking a bounded, recorded math exam for Cortex Learning OS.\n\nAnswer independently without tools. Return only valid JSON with shape {\"answers\":[{\"itemId\":\"...\",\"answer\":\"...\"}]}.\n\nGive exactly one answer for every item. Do not include reasoning, markdown, commentary, or confidence.\n\nNo learning context is supplied for this baseline run.\n\nExam title: Math Foundations Exactness and Reliability Challenge v0\n\nItems:\n[{\"itemId\":\"mfc-01\",\"prompt\":\"Compute exactly: 98,765 × 4,321.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-02\",\"prompt\":\"Compute exactly: 17^8.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-03\",\"prompt\":\"Compute the integer binomial coefficient C(50,6).\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-04\",\"prompt\":\"Compute exactly the sum 1^2+2^2+...+75^2.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-05\",\"prompt\":\"Compute the determinant of [[3, 1, 4, 2], [0, 5, 2, 1], [2, 0, 3, 6], [1, 2, 0, 4]].\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-06\",\"prompt\":\"Compute the least nonnegative residue of 7^222 modulo 1000.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-07\",\"prompt\":\"Compute exactly: 17/23 + 29/31 - 11/13. Give a fraction or decimal.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-08\",\"prompt\":\"Solve exactly for x: (17/19)x - 23/29 = 31/37. Give a fraction or decimal.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-09\",\"prompt\":\"Compute exactly the finite sum 7+21+63+...+7×3^12.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-10\",\"prompt\":\"Evaluate exactly 3x^5-7x^4+11x^2-13 at x=17.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-11\",\"prompt\":\"Compute lcm(168, 180, 231).\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-12\",\"prompt\":\"Compute gcd(123456, 789012).\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-13\",\"prompt\":\"Find the least positive integer x such that 37x ≡ 1 (mod 101).\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-14\",\"prompt\":\"A 12-person committee chooses 5 members uniformly. What is the probability two specified people are both selected?\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-15\",\"prompt\":\"How many derangements are there of 10 distinct objects?\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-16\",\"prompt\":\"For fair coin tosses, what is the expected waiting time until HHTH first appears?\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-17\",\"prompt\":\"Three fair six-sided dice are rolled. Compute the expected value of their maximum.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-18\",\"prompt\":\"Compute the population variance of [12, 17, 23, 31, 44, 58, 71]. Give a fraction or decimal.\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-19\",\"prompt\":\"Compute det([[7, 2, 1], [3, 5, 4], [6, 0, 8]]).\",\"answerFormat\":\"number\"},{\"itemId\":\"mfc-20\",\"prompt\":\"A value increases by 37%, then decreases by 29%, then increases by 18%. What is the net percent change from the original? Give the signed percentage number.\",\"answerFormat\":\"number\"}]\n\n[Bootstrap truncation warning]\nSome workspace bootstrap files were truncated before injection.\nTreat Project Context as partial and read the relevant files directly if details seem missing.\n- AGENTS.md: 25944 raw -> 11999 injected (~54% removed; max/file).\n- TOOLS.md: 14771 raw -> 11999 injected (~19% removed; max/file).\n- MEMORY.md: 12729 raw -> 11999 injected (~6% removed; max/file).\n- If unintentional, raise agents.defaults.bootstrapMaxChars and/or agents.defaults.bootstrapTotalMaxChars.",
+      "finalAssistantVisibleText": "{\"answers\":[{\"itemId\":\"mfc-01\",\"answer\":\"426763565\"},{\"itemId\":\"mfc-02\",\"answer\":\"6975757441\"},{\"itemId\":\"mfc-03\",\"answer\":\"15890700\"},{\"itemId\":\"mfc-04\",\"answer\":\"143450\"},{\"itemId\":\"mfc-05\",\"answer\":\"171\"},{\"itemId\":\"mfc-06\",\"answer\":\"49\"},{\"itemId\":\"mfc-07\",\"answer\":\"7679/9269\"},{\"itemId\":\"mfc-08\",\"answer\":\"33250/18241\"},{\"itemId\":\"mfc-09\",\"answer\":\"5580127\"},{\"itemId\":\"mfc-10\",\"answer\":\"3678090\"},{\"itemId\":\"mfc-11\",\"answer\":\"27720\"},{\"itemId\":\"mfc-12\",\"answer\":\"12\"},{\"itemId\":\"mfc-13\",\"answer\":\"71\"},{\"itemId\":\"mfc-14\",\"answer\":\"5/33\"},{\"itemId\":\"mfc-15\",\"answer\":\"1334961\"},{\"itemId\":\"mfc-16\",\"answer\":\"18\"},{\"itemId\":\"mfc-17\",\"answer\":\"119/24\"},{\"itemId\":\"mfc-18\",\"answer\":\"20312/49\"},{\"itemId\":\"mfc-19\",\"answer\":\"250\"},{\"itemId\":\"mfc-20\",\"answer\":\"14.7786\"}]}",
+      "finalAssistantRawText": "{\"answers\":[{\"itemId\":\"mfc-01\",\"answer\":\"426763565\"},{\"itemId\":\"mfc-02\",\"answer\":\"6975757441\"},{\"itemId\":\"mfc-03\",\"answer\":\"15890700\"},{\"itemId\":\"mfc-04\",\"answer\":\"143450\"},{\"itemId\":\"mfc-05\",\"answer\":\"171\"},{\"itemId\":\"mfc-06\",\"answer\":\"49\"},{\"itemId\":\"mfc-07\",\"answer\":\"7679/9269\"},{\"itemId\":\"mfc-08\",\"answer\":\"33250/18241\"},{\"itemId\":\"mfc-09\",\"answer\":\"5580127\"},{\"itemId\":\"mfc-10\",\"answer\":\"3678090\"},{\"itemId\":\"mfc-11\",\"answer\":\"27720\"},{\"itemId\":\"mfc-12\",\"answer\":\"12\"},{\"itemId\":\"mfc-13\",\"answer\":\"71\"},{\"itemId\":\"mfc-14\",\"answer\":\"5/33\"},{\"itemId\":\"mfc-15\",\"answer\":\"1334961\"},{\"itemId\":\"mfc-16\",\"answer\":\"18\"},{\"itemId\":\"mfc-17\",\"answer\":\"119/24\"},{\"itemId\":\"mfc-18\",\"answer\":\"20312/49\"},{\"itemId\":\"mfc-19\",\"answer\":\"250\"},{\"itemId\":\"mfc-20\",\"answer\":\"14.7786\"}]}",
+      "replayInvalid": false,
+      "livenessState": "working",
+      "stopReason": "stop",
+      "executionTrace": {
+        "winnerProvider": "openai-codex",
+        "winnerModel": "gpt-5.6-sol",
+        "attempts": [
+          {
+            "provider": "openai-codex",
+            "model": "gpt-5.6-sol",
+            "result": "success",
+            "stage": "assistant"
+          }
+        ],
+        "fallbackUsed": false,
+        "runner": "embedded"
+      },
+      "requestShaping": {
+        "authMode": "auth-profile",
+        "thinking": "off"
+      },
+      "completion": {
+        "stopReason": "stop",
+        "finishReason": "stop"
+      }
+    }
+  }
+}

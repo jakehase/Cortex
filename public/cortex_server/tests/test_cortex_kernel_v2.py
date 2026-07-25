@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from cortex_server.modules import cortex_kernel_v2 as kernel_v2
 
 
@@ -237,3 +239,102 @@ def test_scope_specific_env_prefixes_apply_to_non_oracle_runtimes(monkeypatch):
     assert trace["settings"]["mode"] == "shadow"
     assert trace["settings"]["scope"] == "nexus"
     assert trace["plan"]["lane"] == "deep"
+
+
+def test_kernel_concurrent_session_and_pending_retention_is_capacity_bounded(monkeypatch):
+    monkeypatch.setenv("ORACLE_KERNEL_V2_SESSION_CAPACITY", "8")
+    monkeypatch.setenv("ORACLE_KERNEL_V2_PENDING_CAPACITY", "8")
+
+    def prepare(index):
+        return kernel_v2.prepare_request(
+            f"Remember bounded kernel request {index}.",
+            session_key=f"session:bounded:{index}",
+        )
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        traces = list(executor.map(prepare, range(40)))
+
+    snapshot = kernel_v2.performance_snapshot()
+    retention = snapshot["telemetry"]["retention"]
+
+    assert len({trace["request_id"] for trace in traces}) == 40
+    assert len(kernel_v2._SESSIONS) == 8
+    assert len(kernel_v2._PENDING) == 8
+    assert retention["sessions"]["current"] == 8
+    assert retention["pending"]["current"] == 8
+    assert retention["evictions"]["session_capacity"] == 32
+    assert retention["evictions"]["pending_capacity"] == 32
+    assert kernel_v2.finalize_request(
+        traces[0]["request_id"],
+        response="expired",
+        actual_lane="semantic_guardrail_memory",
+    ) == {"recorded": False, "reason": "missing_trace"}
+
+
+def test_kernel_retention_capacity_is_partitioned_by_runtime(monkeypatch):
+    monkeypatch.setenv("ORACLE_KERNEL_V2_SESSION_CAPACITY", "8")
+    monkeypatch.setenv("ORACLE_KERNEL_V2_PENDING_CAPACITY", "8")
+    monkeypatch.setenv("NEXUS_KERNEL_V2_SESSION_CAPACITY", "1")
+    monkeypatch.setenv("NEXUS_KERNEL_V2_PENDING_CAPACITY", "1")
+
+    oracle = kernel_v2.prepare_request(
+        "Remember the Oracle-only context.",
+        session_key="shared-session",
+        runtime="oracle",
+    )
+    nexus_first = kernel_v2.prepare_request(
+        "Remember the first Nexus context.",
+        session_key="nexus-one",
+        runtime="nexus",
+        surface="orchestrate",
+    )
+    nexus_second = kernel_v2.prepare_request(
+        "Remember the second Nexus context.",
+        session_key="nexus-two",
+        runtime="nexus",
+        surface="orchestrate",
+    )
+
+    assert oracle["request_id"] in kernel_v2._PENDING
+    assert nexus_first["request_id"] not in kernel_v2._PENDING
+    assert nexus_second["request_id"] in kernel_v2._PENDING
+    assert any(state.get("runtime") == "oracle" for state in kernel_v2._SESSIONS.values())
+    assert sum(state.get("runtime") == "nexus" for state in kernel_v2._SESSIONS.values()) == 1
+    assert kernel_v2.performance_snapshot(runtime="oracle")["telemetry"]["retention"]["sessions"]["current"] == 1
+    assert kernel_v2.performance_snapshot(runtime="nexus")["telemetry"]["retention"]["sessions"]["current"] == 1
+
+
+def test_kernel_expires_abandoned_pending_and_inactive_sessions(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setenv("ORACLE_KERNEL_V2_SESSION_TTL_SECONDS", "2")
+    monkeypatch.setenv("ORACLE_KERNEL_V2_PENDING_TTL_SECONDS", "2")
+    monkeypatch.setattr(kernel_v2.time, "monotonic", lambda: clock[0])
+    trace = kernel_v2.prepare_request(
+        "Remember this request only briefly.",
+        session_key="session:ttl",
+    )
+
+    clock[0] = 103.0
+    retention = kernel_v2.performance_snapshot()["telemetry"]["retention"]
+
+    assert retention["sessions"]["current"] == 0
+    assert retention["pending"]["current"] == 0
+    assert retention["evictions"]["session_ttl"] == 1
+    assert retention["evictions"]["pending_ttl"] == 1
+    assert kernel_v2.finalize_request(
+        trace["request_id"],
+        response="too late",
+        actual_lane="semantic_guardrail_memory",
+    )["reason"] == "missing_trace"
+
+
+def test_kernel_hashes_oversized_client_session_identifiers(monkeypatch):
+    monkeypatch.setenv("ORACLE_KERNEL_V2_SESSION_KEY_MAX_CHARS", "64")
+    oversized = "client-session-" + ("z" * 500)
+
+    trace = kernel_v2.prepare_request("Remember bounded identity.", session_key=oversized)
+
+    assert trace["session_key"].startswith("sha256:")
+    assert trace["contract"]["session_key"] == trace["session_key"]
+    assert len(trace["session_key"]) == 71
+    assert oversized not in kernel_v2._SESSIONS

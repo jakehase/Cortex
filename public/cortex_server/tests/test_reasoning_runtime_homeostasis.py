@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.modules import reasoning_runtime_execution as runtime_execution
@@ -19,6 +21,11 @@ PROTECTIVE_SNAPSHOT = {
         "escalation_debt": 0.29,
     }
 }
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_delivery_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
 
 
 

@@ -1,4 +1,22 @@
+import copy
+import multiprocessing
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import pytest
+
 import cortex_server.modules.codec_policy as codec_policy
+
+
+def _write_policy_observations_in_process(state_path: str, count: int) -> None:
+    codec_policy._STATE_PATH = Path(state_path)
+    for _ in range(count):
+        codec_policy.observe_codec_evaluation(
+            query="Plan the concurrent policy persistence architecture.",
+            winner="referents_plus_codec",
+            judge_method="heuristic",
+        )
 
 
 def test_codec_policy_prefers_codec_with_rollout_and_boost(monkeypatch):
@@ -520,3 +538,87 @@ def test_codec_policy_autotune_can_reduce_rollout_from_eval_history(monkeypatch)
 
     assert policy["autotune"]["action"] == "decrease_rollout"
     assert policy["rollout_delta"] < 0
+
+
+def test_codec_policy_threaded_observations_use_one_read_modify_write_transaction(monkeypatch):
+    holder = {"state": codec_policy._default_state()}
+
+    def load_state():
+        snapshot = copy.deepcopy(holder["state"])
+        time.sleep(0.005)
+        return snapshot
+
+    def save_state(state):
+        holder["state"] = copy.deepcopy(state)
+
+    monkeypatch.setattr(codec_policy, "load_state", load_state)
+    monkeypatch.setattr(codec_policy, "save_state", save_state)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(
+            lambda _: codec_policy.observe_codec_evaluation(
+                query="Plan the concurrent policy persistence architecture.",
+                winner="referents_plus_codec",
+                judge_method="heuristic",
+            ),
+            range(24),
+        ))
+
+    state = holder["state"]
+    row = next(iter(state["archetypes"].values()))
+    assert state["totals"]["evaluations"] == 24
+    assert row["evaluations"] == 24
+    assert row["variants"]["referents_plus_codec"]["wins"] == 24
+
+
+def test_codec_policy_interprocess_writers_preserve_all_observations(monkeypatch, tmp_path):
+    state_path = tmp_path / "codec-policy.json"
+    monkeypatch.setattr(codec_policy, "_STATE_PATH", state_path)
+    codec_policy.save_state(codec_policy._default_state())
+    context = multiprocessing.get_context("fork")
+    processes = [
+        context.Process(target=_write_policy_observations_in_process, args=(str(state_path), 8))
+        for _ in range(3)
+    ]
+
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=15)
+
+    assert [process.exitcode for process in processes] == [0, 0, 0]
+    state = codec_policy.load_state()
+    row = next(iter(state["archetypes"].values()))
+    assert state["version"] == "cortex.codec.policy.v1"
+    assert state["state_revision"] == 25
+    assert state["totals"]["evaluations"] == 24
+    assert row["evaluations"] == 24
+
+
+def test_codec_policy_atomic_replace_preserves_previous_version_on_failure(monkeypatch, tmp_path):
+    state_path = tmp_path / "codec-policy.json"
+    monkeypatch.setattr(codec_policy, "_STATE_PATH", state_path)
+    codec_policy.save_state(codec_policy._default_state())
+    previous_bytes = state_path.read_bytes()
+    state = codec_policy.load_state()
+    state["totals"]["evaluations"] = 99
+
+    def interrupted_replace(*args, **kwargs):
+        raise OSError("simulated interrupted replace")
+
+    monkeypatch.setattr(codec_policy.os, "replace", interrupted_replace)
+    with pytest.raises(OSError, match="simulated interrupted replace"):
+        codec_policy.save_state(state)
+
+    assert state_path.read_bytes() == previous_bytes
+    assert codec_policy.load_state()["state_revision"] == 1
+    assert not list(tmp_path.glob(".codec-policy.json.*.tmp"))
+
+
+def test_codec_policy_read_falls_back_when_lock_directory_is_unavailable(monkeypatch):
+    monkeypatch.setattr(codec_policy, "_STATE_PATH", Path("/proc/cortex-codec-policy.json"))
+
+    state = codec_policy.load_state()
+
+    assert state["version"] == "cortex.codec.policy.v1"
+    assert state["state_revision"] == 0

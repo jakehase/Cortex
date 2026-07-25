@@ -1,12 +1,31 @@
 from __future__ import annotations
 
 import json
+import fcntl
+import hashlib
+import os
+import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+from cortex_server.runtime.runtime_delivery_quota import (
+    assert_runtime_delivery_capacity,
+    assert_process_count,
+    bounded_jsonl_payload,
+    encoded_json,
+    read_recoverable_jsonl,
+    runtime_delivery_quota_transaction,
+)
+
+
+MAX_SHARED_STATE_HISTORY_RECORDS = 4096
+MAX_SHARED_STATE_HISTORY_BYTES = 128 * 1024 * 1024
 
 
 
@@ -207,6 +226,8 @@ def _state_change_set(before: Optional[SharedProcessState], after: SharedProcess
 class SharedProcessStateStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self._thread_lock = threading.RLock()
+        self._transaction_state = threading.local()
 
     def _target(self, process_id: Optional[str] = None) -> Path:
         if self.path.suffix:
@@ -223,30 +244,205 @@ class SharedProcessStateStore:
             return self.path.with_name(self.path.name + f".{process_id}.history.jsonl")
         return self.path / "history" / f"{process_id}.jsonl"
 
-    def _append_history(self, record: SharedStateRevisionRecord) -> None:
-        target = self._history_target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_revision_record_dump_compat(record), sort_keys=True) + "\n")
+    def _lock_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.transaction.lock")
 
-    def history(self, process_id: str) -> List[SharedStateRevisionRecord]:
+    def _save_intent_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.save-intent.json")
+
+    def _state_stage_target(self, process_id: str) -> Path:
+        target = self._target(process_id)
+        return target.with_name(f".{target.name}.save-state.stage")
+
+    def _history_stage_target(self, process_id: str) -> Path:
+        target = self._history_target(process_id)
+        return target.with_name(f".{target.name}.save-history.stage")
+
+    @contextmanager
+    def transaction(self, process_id: str):
+        """Serialize load/CAS/publish/history across threads and processes."""
+
+        with self._thread_lock:
+            active_processes = set(getattr(self._transaction_state, "active_processes", set()))
+            if process_id in active_processes:
+                yield
+                return
+            lock_target = self._lock_target(process_id)
+            durable_mkdir(lock_target.parent)
+            with lock_target.open("a+b") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                active_processes.add(process_id)
+                self._transaction_state.active_processes = active_processes
+                try:
+                    yield
+                finally:
+                    active_processes.remove(process_id)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _atomic_replace(path: Path, payload: bytes) -> None:
+        durable_mkdir(path.parent)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            fsync_directory(path.parent)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    @staticmethod
+    def _publish_stage(stage: Path, target: Path) -> None:
+        if not stage.is_file() or stage.is_symlink():
+            raise RuntimeError(f"shared state recovery stage is missing: {stage}")
+        durable_mkdir(target.parent)
+        os.replace(stage, target)
+        fsync_directory(target.parent)
+
+    @staticmethod
+    def _remove_durable(path: Path) -> None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return
+        fsync_directory(path.parent)
+
+    @staticmethod
+    def _payload_hash(payload: bytes) -> str:
+        return hashlib.sha256(payload).hexdigest()
+
+    def _read_history_unlocked(self, process_id: str) -> List[SharedStateRevisionRecord]:
         target = self._history_target(process_id)
         if not target.exists():
             return []
-        rows: List[SharedStateRevisionRecord] = []
-        with target.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                rows.append(_revision_record_validate_compat(json.loads(text)))
-        return rows
+        return [
+            _revision_record_validate_compat(row)
+            for row in read_recoverable_jsonl(target)
+        ]
 
-    def load(self, process_id: Optional[str] = None) -> Optional[SharedProcessState]:
+    def _load_unlocked(self, process_id: str) -> Optional[SharedProcessState]:
         target = self._target(process_id)
         if not target.exists():
             return None
         return _model_validate_compat(json.loads(target.read_text(encoding="utf-8")))
+
+    @staticmethod
+    def _validate_revision_chain(
+        rows: List[SharedStateRevisionRecord],
+        current: Optional[SharedProcessState],
+    ) -> None:
+        for index, row in enumerate(rows):
+            if index and row.parent_revision_id != rows[index - 1].revision_id:
+                raise RuntimeError("shared state history revision chain is broken")
+            if current is not None and row.process_id != current.process_id:
+                raise RuntimeError("shared state history process identity is inconsistent")
+        if current is None:
+            if rows:
+                raise RuntimeError("shared state history exists without an authoritative state")
+        elif not rows or rows[-1].revision_id != current.revision_id:
+            raise RuntimeError("authoritative shared state revision is missing from history")
+
+    def _recover_pending_save(self, process_id: str) -> None:
+        intent_target = self._save_intent_target(process_id)
+        state_stage = self._state_stage_target(process_id)
+        history_stage = self._history_stage_target(process_id)
+        if not intent_target.exists():
+            # Stages created before the intent became durable were never
+            # committed and are safe to discard under the process lock.
+            self._remove_durable(state_stage)
+            self._remove_durable(history_stage)
+            return
+        intent = json.loads(intent_target.read_text(encoding="utf-8"))
+        if (
+            not isinstance(intent, dict)
+            or intent.get("version") != "cortex.shared-state-save-intent.v1"
+            or str(intent.get("process_id") or "") != process_id
+        ):
+            raise RuntimeError("shared state save intent is invalid")
+        expected_state_hash = str(intent.get("state_sha256") or "")
+        expected_history_hash = str(intent.get("history_sha256") or "")
+        intended_revision = str(intent.get("revision_id") or "")
+        parent_revision = str(intent.get("parent_revision_id") or "") or None
+        target = self._target(process_id)
+        history_target = self._history_target(process_id)
+
+        state_source = state_stage if state_stage.exists() else target
+        history_source = history_stage if history_stage.exists() else history_target
+        state_payload = state_source.read_bytes()
+        history_payload = history_source.read_bytes()
+        if (
+            self._payload_hash(state_payload) != expected_state_hash
+            or self._payload_hash(history_payload) != expected_history_hash
+        ):
+            raise RuntimeError("shared state save intent payload hash mismatch")
+        intended_state = _model_validate_compat(json.loads(state_payload))
+        intended_history = [
+            _revision_record_validate_compat(row)
+            for row in read_recoverable_jsonl(history_source)
+        ]
+        if (
+            intended_state.process_id != process_id
+            or intended_state.revision_id != intended_revision
+            or not intended_history
+            or intended_history[-1].revision_id != intended_revision
+            or intended_history[-1].parent_revision_id != parent_revision
+        ):
+            raise RuntimeError("shared state save intent is not revision bound")
+        current = self._load_unlocked(process_id)
+        if current is not None and current.revision_id not in {parent_revision, intended_revision}:
+            raise RuntimeError("shared state advanced past an unresolved save intent")
+        self._validate_revision_chain(intended_history, intended_state)
+        if history_stage.exists():
+            self._publish_stage(history_stage, history_target)
+        if state_stage.exists():
+            self._publish_stage(state_stage, target)
+        self._remove_durable(intent_target)
+        self._validate_revision_chain(
+            self._read_history_unlocked(process_id), self._load_unlocked(process_id)
+        )
+
+    def _history_payload(self, record: SharedStateRevisionRecord) -> bytes:
+        target = self._history_target(record.process_id)
+        return bounded_jsonl_payload(
+            target,
+            _revision_record_dump_compat(record),
+            max_records=MAX_SHARED_STATE_HISTORY_RECORDS,
+            max_bytes=MAX_SHARED_STATE_HISTORY_BYTES,
+        )
+
+    def history(self, process_id: str) -> List[SharedStateRevisionRecord]:
+        with self.transaction(process_id):
+            self._recover_pending_save(process_id)
+            rows = self._read_history_unlocked(process_id)
+            self._validate_revision_chain(rows, self._load_unlocked(process_id))
+            return rows
+
+    def load(self, process_id: Optional[str] = None) -> Optional[SharedProcessState]:
+        resolved_process = str(process_id or "").strip()
+        if not resolved_process:
+            target = self._target(process_id)
+            intent_target = target.with_name(f".{target.name}.save-intent.json")
+            source = intent_target if intent_target.exists() else target
+            if not source.exists():
+                return None
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            resolved_process = str(payload.get("process_id") or "").strip()
+            if not resolved_process:
+                raise RuntimeError("shared state process identity is missing")
+        with self.transaction(resolved_process):
+            self._recover_pending_save(resolved_process)
+            current = self._load_unlocked(resolved_process)
+            self._validate_revision_chain(
+                self._read_history_unlocked(resolved_process), current
+            )
+            return current
 
     def detect_conflict(self, *, process_id: str, expected_revision_id: Optional[str]) -> Dict[str, Any]:
         current = self.load(process_id)
@@ -274,29 +470,81 @@ class SharedProcessStateStore:
         provenance: Optional[Dict[str, Any]] = None,
     ) -> SharedProcessState:
         record = state if isinstance(state, SharedProcessState) else _model_validate_compat(dict(state))
-        current = self.load(record.process_id)
-        conflict = self.detect_conflict(process_id=record.process_id, expected_revision_id=expected_revision_id)
-        if conflict["conflict"]:
-            raise SharedStateConflictError(
-                process_id=record.process_id,
-                expected_revision_id=conflict.get("expected_revision_id"),
-                observed_revision_id=conflict.get("observed_revision_id"),
-                message=conflict.get("operator_summary"),
+        with self.transaction(record.process_id):
+            self._recover_pending_save(record.process_id)
+            current = self._load_unlocked(record.process_id)
+            self._validate_revision_chain(
+                self._read_history_unlocked(record.process_id), current
             )
-        target = self._target(record.process_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(_model_dump_compat(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        self._append_history(
-            SharedStateRevisionRecord(
+            expected = str(expected_revision_id or "").strip() or None
+            observed = current.revision_id if current else None
+            if expected is not None and observed is not None and expected != observed:
+                raise SharedStateConflictError(
+                    process_id=record.process_id,
+                    expected_revision_id=expected,
+                    observed_revision_id=observed,
+                )
+            target = self._target(record.process_id)
+            state_payload = _model_dump_compat(record)
+            revision_record = SharedStateRevisionRecord(
                 process_id=record.process_id,
                 revision_id=record.revision_id,
                 parent_revision_id=current.revision_id if current else None,
                 actor=str(actor or "").strip() or None,
                 provenance=dict(provenance or {}),
                 change_set=_state_change_set(current, record),
-                state=_model_dump_compat(record),
+                state=state_payload,
             )
-        )
+            state_encoded = encoded_json(state_payload, pretty=True)
+            history_target = self._history_target(record.process_id)
+            store_root = self.path.parent if self.path.suffix else self.path
+            delivery_root = self.path.parent
+            with runtime_delivery_quota_transaction(delivery_root):
+                assert_process_count(
+                    store_root,
+                    record.process_id,
+                    delivery_root=delivery_root,
+                )
+                history_payload = self._history_payload(revision_record)
+                history_row_bytes = len(encoded_json(_revision_record_dump_compat(revision_record)))
+                intent_target = self._save_intent_target(record.process_id)
+                intent_payload = encoded_json(
+                    {
+                        "version": "cortex.shared-state-save-intent.v1",
+                        "process_id": record.process_id,
+                        "revision_id": record.revision_id,
+                        "parent_revision_id": current.revision_id if current else None,
+                        "state_sha256": self._payload_hash(state_encoded),
+                        "history_sha256": self._payload_hash(history_payload),
+                    },
+                    pretty=True,
+                )
+                assert_runtime_delivery_capacity(
+                    delivery_root=delivery_root,
+                    store_root=store_root,
+                    process_id=record.process_id,
+                    object_bytes=max(len(state_encoded), history_row_bytes),
+                    additional_bytes=(
+                        len(state_encoded) + len(history_payload) + len(intent_payload)
+                    ),
+                    replacements=(
+                        (target, len(state_encoded)),
+                        (history_target, len(history_payload)),
+                        (intent_target, len(intent_payload)),
+                    ),
+                )
+                state_stage = self._state_stage_target(record.process_id)
+                history_stage = self._history_stage_target(record.process_id)
+                self._atomic_replace(state_stage, state_encoded)
+                self._atomic_replace(history_stage, history_payload)
+                self._atomic_replace(intent_target, intent_payload)
+                self._publish_stage(history_stage, history_target)
+                self._publish_stage(state_stage, target)
+                self._remove_durable(intent_target)
+                self._validate_revision_chain(
+                    self._read_history_unlocked(record.process_id),
+                    self._load_unlocked(record.process_id),
+                )
         return record
 
     def load_revision(self, process_id: str, revision_id: str) -> Optional[SharedProcessState]:
@@ -321,38 +569,47 @@ class SharedProcessStateStore:
         new_revision_id: Optional[str] = None,
         provenance: Optional[Dict[str, Any]] = None,
     ) -> SharedProcessState:
-        current = self.load(process_id)
-        if current is None:
-            raise KeyError(f"shared state not found: {process_id}")
-        target = self.load_revision(process_id, to_revision_id)
-        if target is None:
-            raise KeyError(f"shared state revision not found: {process_id}:{to_revision_id}")
-        rollback_revision_id = str(new_revision_id or f"{to_revision_id}_rollback").strip()
-        rolled = SharedProcessState(
-            process_id=target.process_id,
-            revision_id=rollback_revision_id,
-            goals=list(target.goals),
-            active_plan_node_ids=list(target.active_plan_node_ids),
-            open_decisions=list(target.open_decisions),
-            runtime_constraints=dict(target.runtime_constraints),
-            world_state=dict(target.world_state),
-            belief_refs=list(target.belief_refs),
-            open_questions=list(target.open_questions),
-            agent_ownership=dict(target.agent_ownership),
-            operator_overrides=dict(target.operator_overrides),
-            metadata={
-                **dict(target.metadata),
-                "rollback_from_revision_id": current.revision_id,
-                "rollback_to_revision_id": target.revision_id,
-                "rollback_reason": str(reason or "rollback").strip() or "rollback",
-            },
-        )
-        return self.save(
-            rolled,
-            expected_revision_id=current.revision_id,
-            actor=actor,
-            provenance={**dict(provenance or {}), "rollback": True, "to_revision_id": target.revision_id},
-        )
+        with self.transaction(process_id):
+            current = self.load(process_id)
+            if current is None:
+                raise KeyError(f"shared state not found: {process_id}")
+            target = self.load_revision(process_id, to_revision_id)
+            if target is None:
+                raise KeyError(f"shared state revision not found: {process_id}:{to_revision_id}")
+            rollback_revision_id = str(new_revision_id or f"{to_revision_id}_rollback").strip()
+            rolled = SharedProcessState(
+                process_id=target.process_id,
+                revision_id=rollback_revision_id,
+                goals=list(target.goals),
+                active_plan_node_ids=list(target.active_plan_node_ids),
+                open_decisions=list(target.open_decisions),
+                runtime_constraints=dict(target.runtime_constraints),
+                world_state=dict(target.world_state),
+                belief_refs=list(target.belief_refs),
+                open_questions=list(target.open_questions),
+                agent_ownership=dict(target.agent_ownership),
+                operator_overrides=dict(target.operator_overrides),
+                metadata={
+                    **dict(target.metadata),
+                    "rollback_from_revision_id": current.revision_id,
+                    "rollback_to_revision_id": target.revision_id,
+                    "rollback_reason": str(reason or "rollback").strip() or "rollback",
+                    **(
+                        {
+                            "rollback_transaction_id": str((provenance or {}).get("rollback_transaction_id") or ""),
+                            "rollback_fencepost_id": str((provenance or {}).get("fencepost_id") or ""),
+                        }
+                        if (provenance or {}).get("rollback_transaction_id")
+                        else {}
+                    ),
+                },
+            )
+            return self.save(
+                rolled,
+                expected_revision_id=current.revision_id,
+                actor=actor,
+                provenance={**dict(provenance or {}), "rollback": True, "to_revision_id": target.revision_id},
+            )
 
 
 __all__ = [

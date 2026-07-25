@@ -1,0 +1,28 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify-algebra-1",
+    "attemptId": "attempt-algebra-1",
+    "examId": "algebra-baseline",
+    "itemId": "algebra-correction-item",
+    "verifierId": "deterministic-symbolic-check",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "evidenceRole": "correction",
+    "evidence": ["artifacts/math/algebra-1.json"]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify-probability-1",
+    "attemptId": "attempt-probability-1",
+    "examId": "probability-baseline",
+    "itemId": "probability-retest-item",
+    "verifierId": "deterministic-probability-check",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "evidenceRole": "retest",
+    "evidence": ["artifacts/math/probability-1.json"]
+  }
+]

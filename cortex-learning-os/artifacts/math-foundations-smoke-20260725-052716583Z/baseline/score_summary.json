@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "cortex.learning_os.exam_run_summary.v0",
+  "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+  "capsuleId": "math-foundations-v0",
+  "examId": "math-foundations-reliability-challenge-v0",
+  "generatedAt": "2026-07-25T05:28:02.630Z",
+  "itemCount": 20,
+  "passedItemCount": 20,
+  "failedItemCount": 0,
+  "errorItemCount": 0,
+  "score": 1,
+  "passThreshold": 0.9,
+  "passed": true,
+  "truthBoundary": "This score applies only to the named deterministic exam and recorded answer set."
+}

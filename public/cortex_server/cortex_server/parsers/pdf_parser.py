@@ -7,6 +7,35 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 import statistics
+import io
+import logging
+import multiprocessing
+import time
+
+
+logger = logging.getLogger(__name__)
+
+
+def _page_worker(connection, raw, page_index, page_num, doc_id, config):
+    """Child entry point; never return library exception details to the parent."""
+    try:
+        import pdfplumber
+
+        parser = object.__new__(PDFParser)
+        parser.config = config
+        parser._pdfplumber = pdfplumber
+        with pdfplumber.open(io.BytesIO(raw)) as pdf:
+            page = pdf.pages[page_index]
+            parser._preflight_page(page, decode=True)
+            result = parser._parse_page(page, page_num, doc_id, preflight=False)
+        connection.send(("ok", result))
+    except BaseException:
+        try:
+            connection.send(("error", None))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    finally:
+        connection.close()
 
 
 @dataclass
@@ -18,6 +47,16 @@ class PDFParserConfig:
     min_heading_length: int = 3
     max_heading_length: int = 200
     debug: bool = False
+    max_file_bytes: int = 20_000_000
+    max_pages: int = 500
+    max_text_bytes: int = 10_000_000
+    max_page_result_bytes: int = 8_000_000
+    max_page_result_records: int = 200_000
+    max_page_content_bytes: int = 5_000_000
+    max_page_objects: int = 200_000
+    max_page_chars: int = 200_000
+    page_timeout_seconds: float = 10.0
+    total_timeout_seconds: float = 60.0
 
 
 @dataclass
@@ -49,10 +88,26 @@ class PDFParser:
     
     def parse_file(self, path: str) -> PDFParseResult:
         """Parse a PDF file and return extracted entities."""
+        try:
+            with open(path, "rb") as source:
+                raw = source.read(self.config.max_file_bytes + 1)
+        except Exception:
+            logger.exception("Unable to read PDF input")
+            return PDFParseResult(error="PDF parsing failed")
+        return self.parse_bytes(raw, path)
+
+    def parse_bytes(self, raw: bytes, path: str) -> PDFParseResult:
+        """Parse an already-opened immutable snapshot."""
         result = PDFParseResult()
         
         try:
-            with self._pdfplumber.open(path) as pdf:
+            if len(raw) > self.config.max_file_bytes:
+                result.error = f"PDF exceeds {self.config.max_file_bytes} byte limit"
+                return result
+            with self._pdfplumber.open(io.BytesIO(raw)) as pdf:
+                if len(pdf.pages) > self.config.max_pages:
+                    result.error = f"PDF exceeds {self.config.max_pages} page limit"
+                    return result
                 # Extract metadata
                 doc_meta = pdf.metadata or {}
                 
@@ -75,18 +130,156 @@ class PDFParser:
                 }
                 
                 # Parse each page
+                text_bytes = 0
+                page_result_bytes = 0
+                page_result_records = 0
+                deadline = time.monotonic() + self.config.total_timeout_seconds
                 for i, page in enumerate(pdf.pages, start=1):
-                    page_result = self._parse_page(page, i, result.document["id"])
+                    # This cheap parent-side check rejects streams with trustworthy
+                    # size metadata without asking pdfminer to decode their contents.
+                    self._preflight_page(page)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("PDF parsing deadline exceeded")
+                    page_result = self._parse_page_bounded(
+                        raw, i - 1, i, result.document["id"], remaining
+                    )
+                    text_bytes += len(page_result.get("metadata", {}).get("text", "").encode("utf-8"))
+                    if text_bytes > self.config.max_text_bytes:
+                        result.document = None
+                        result.pages = []
+                        result.error = f"PDF text exceeds {self.config.max_text_bytes} byte limit"
+                        return result
+                    encoded_page = json.dumps(
+                        page_result, ensure_ascii=False, separators=(",", ":")
+                    ).encode("utf-8")
+                    page_result_bytes += len(encoded_page)
+                    structures = page_result.get("metadata", {}).get("structures", [])
+                    page_result_records += 1 + (len(structures) if isinstance(structures, list) else 0)
+                    if (
+                        page_result_bytes > self.config.max_page_result_bytes
+                        or page_result_records > self.config.max_page_result_records
+                    ):
+                        result.document = None
+                        result.pages = []
+                        result.error = "PDF page results exceed aggregate limit"
+                        return result
                     result.pages.append(page_result)
                     
-        except Exception as e:
-            result.error = str(e)
+        except Exception:
+            logger.exception("PDF library failed while parsing document")
+            result.document = None
+            result.pages = []
+            result.error = "PDF parsing failed"
         
         return result
+
+    def _parse_page_bounded(
+        self, raw: bytes, page_index: int, page_num: int, doc_id: str, remaining: float
+    ) -> Dict[str, Any]:
+        """Decode and materialize one page in a process that can be killed."""
+        # fork avoids copying the input immediately on POSIX.  Fall back to the
+        # platform default where it is unavailable.
+        methods = multiprocessing.get_all_start_methods()
+        context = multiprocessing.get_context("fork" if "fork" in methods else methods[0])
+        parent, child = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_page_worker,
+            args=(child, raw, page_index, page_num, doc_id, self.config),
+            daemon=True,
+        )
+        timeout = min(self.config.page_timeout_seconds, remaining)
+        started = False
+        child_closed = False
+        try:
+            process.start()
+            started = True
+            child.close()
+            child_closed = True
+            if not parent.poll(timeout):
+                raise TimeoutError("PDF page parsing timed out")
+            status, payload = parent.recv()
+            if status != "ok":
+                raise RuntimeError("PDF page parsing failed")
+            return payload
+        finally:
+            if not child_closed:
+                child.close()
+            parent.close()
+            if started and process.is_alive():
+                process.terminate()
+            if started:
+                process.join(timeout=1.0)
+            if started and process.is_alive():  # defensive for unusual terminate implementations
+                process.kill()
+                process.join(timeout=1.0)
+            if started and process.is_alive():
+                raise RuntimeError("PDF page worker could not be stopped")
+
+    def _preflight_page(self, page, decode: bool = False) -> None:
+        """Inspect low-level content metadata without materializing layout objects."""
+        page_obj = getattr(page, "page_obj", None)
+        attrs = getattr(page_obj, "attrs", {}) or {}
+        contents = attrs.get("Contents")
+        streams = self._content_streams(contents)
+        if len(streams) > self.config.max_page_objects:
+            raise ValueError("PDF page object limit exceeded")
+
+        total = 0
+        decoded_total = 0
+        for stream in streams:
+            stream_attrs = getattr(stream, "attrs", {}) or {}
+            declared = stream_attrs.get("Length", 0)
+            try:
+                declared = int(declared)
+            except (TypeError, ValueError):
+                declared = 0
+            raw_data = getattr(stream, "rawdata", None)
+            raw_length = len(raw_data) if isinstance(raw_data, (bytes, bytearray)) else 0
+            total += max(declared, raw_length)
+            if total > self.config.max_page_content_bytes:
+                raise ValueError("PDF page content limit exceeded")
+            if decode:
+                decoder = getattr(stream, "get_data", None)
+                if callable(decoder):
+                    decoded = decoder()
+                    decoded_total += len(decoded)
+                    if decoded_total > self.config.max_page_content_bytes:
+                        raise ValueError("PDF page decoded content limit exceeded")
+
+    def _content_streams(self, value) -> List[Any]:
+        """Resolve content references iteratively, with a hard traversal bound."""
+        pending = [value]
+        streams: List[Any] = []
+        seen = set()
+        while pending:
+            if len(seen) > self.config.max_page_objects:
+                raise ValueError("PDF page object limit exceeded")
+            item = pending.pop()
+            if item is None:
+                continue
+            marker = id(item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            resolver = getattr(item, "resolve", None)
+            if callable(resolver):
+                item = resolver()
+            if isinstance(item, (list, tuple)):
+                pending.extend(item)
+            elif item is not None:
+                streams.append(item)
+        return streams
     
-    def _parse_page(self, page, page_num: int, doc_id: str) -> Dict[str, Any]:
+    def _parse_page(
+        self, page, page_num: int, doc_id: str, preflight: bool = True
+    ) -> Dict[str, Any]:
         """Parse a single page."""
+        if preflight:
+            self._preflight_page(page)
         chars = page.chars or []
+        if len(chars) > self.config.max_page_objects or len(chars) > self.config.max_page_chars:
+            raise ValueError("PDF page character limit exceeded")
         
         if not chars:
             return {

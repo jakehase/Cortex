@@ -58,6 +58,18 @@ class ConsciousnessBus:
                 "callback": callback,
             })
 
+    def unsubscribe(
+        self,
+        level_name: str,
+        callback: Callable[[str, str, Any], None],
+    ) -> None:
+        """Remove registrations for a level/callback pair."""
+        with self._lock:
+            self._subscribers = [
+                sub for sub in self._subscribers
+                if sub["level_name"] != level_name or sub["callback"] is not callback
+            ]
+
     # ── Shared State ──
 
     def write_shared(self, key: str, value: Any):

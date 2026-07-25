@@ -1,0 +1,145 @@
+# Cortex Learning OS Decisions
+
+Append-only durable decisions for the project. Keep current state in `STATUS.md`; keep strategy in `plan.md`.
+
+## Decision entry format
+
+```markdown
+## YYYY-MM-DD — <short decision title>
+
+- Decision: <what changed>
+- Reason: <why>
+- Evidence: <commit/artifact/check>
+- Supersedes: <older path/decision or n/a>
+- Follow-up: <next action or n/a>
+```
+
+## Decisions
+
+## 2026-07-07 — Create Cortex Learning OS as a verifier-gated learning layer
+
+- Decision: Create `/root/clawd/cortex-learning-os` as the canonical project path for a learning layer built from capsules, curricula, practice attempts, verifiers, mistake ledgers, lesson promotion gates, and retrieval packs.
+- Reason: Jake asked to turn the memory-system learning idea into a plan; the system should learn through exams and verified lessons, not raw memory volume or model-weight changes.
+- Evidence: `/root/clawd/cortex-learning-os/plan.md`; `/root/clawd/docs/PLAN_INDEX.md`; `cd /root/clawd && node scripts/plan-doctor.mjs` returned `ok` with `0` errors, `5` indexed plans, and `17` pre-existing backup/DR plan-like warnings.
+- Supersedes: Chat-only brainstorming about “Cortex Learning OS.”
+- Follow-up: Start Wave 1 schema design.
+
+## 2026-07-07 — Expand CLOS plan into execution checklist and estimates
+
+- Decision: Keep initial implementation code local to `/root/clawd/cortex-learning-os`, and expand the plan with detailed stages A-I, token/time estimates, token budget rules, confusion-prevention rules, and pre-code decisions.
+- Reason: Jake asked to make the plan thorough, organized, and detailed enough to prevent confusion, including estimates for token usage and time.
+- Evidence: `/root/clawd/cortex-learning-os/plan.md` sections 18-21; `cd /root/clawd && node scripts/plan-doctor.mjs` returned `ok` with `0` errors, `5` indexed plans, and `17` pre-existing backup/DR plan-like warnings.
+- Supersedes: The earlier high-level wave list as the only implementation guide.
+- Follow-up: Start Stage A local scaffold when implementation is requested.
+
+## 2026-07-07 — Confirm Cortex Learning OS plan already follows detailed planning standard
+
+- Decision: Keep Cortex Learning OS as the reference example for the new detailed planning style, with only the estimate section title normalized to the shared template wording.
+- Reason: It already contains detailed stages, acceptance checks, estimates, confusion-prevention rules, and open decisions before code starts.
+- Evidence: `/root/clawd/cortex-learning-os/plan.md` sections 18-21.
+- Supersedes: n/a.
+- Follow-up: Use Stage A local scaffold when implementation begins.
+
+## 2026-07-07 — Complete Stage A local scaffold
+
+- Decision: Add a dependency-light local scaffold for Cortex Learning OS under `/root/clawd/cortex-learning-os`.
+- Reason: Jake asked to execute low-token setup items first; Stage A is useful scaffolding without the heavier schema/capsule authoring work.
+- Evidence: `package.json`, `src/paths.mjs`, `src/json.mjs`, `src/hash.mjs`, `src/validate-fixtures.mjs`, `tests/scaffold.test.mjs`.
+- Supersedes: Planning-only state for Stage A.
+- Follow-up: Stage B schema design remains next and is intentionally deferred until requested because it is more token-intensive.
+
+## 2026-07-25 — Restart on an isolated branch and preserve the dormant prototype
+
+- Decision: Base the restart on `origin/main` in worktree `/root/clawd/worktrees/cortex-learning-os-v0-20260725`, branch `feat/cortex-learning-os-v0-20260725`, and preserve the prior local prototype as commit `cb7b93007` before extending it.
+- Reason: The original `/root/clawd/cortex-learning-os` directory was untracked inside a dirty, diverged memory-repair branch. Isolating the work prevented unrelated workspace changes from contaminating CLOS history.
+- Evidence: commit `cb7b93007`; the preserved package passed its original `9/9` tests and fixture validation before extension.
+- Supersedes: untracked-only local prototype state.
+- Follow-up: merge/push the production slice through the authoritative remote default branch after final validation.
+
+## 2026-07-25 — Quarantine a false-negative derangement verifier run
+
+- Decision: Reject and quarantine run `math-foundations-smoke-20260725-052532795Z`; add regression checks for `D_6=265`, `D_8=14833`, `D_9=133496`, and `D_10=1334961`.
+- Reason: The generated deterministic oracle incorrectly expected `0`, while Cortex's baseline and correction answers were correct. Promoting that “mistake” would teach a false lesson.
+- Evidence: `artifacts/_quarantine/false-derangement-oracle-20260725-052532795Z/QUARANTINE.md`; `tests/math-foundations.test.mjs`.
+- Supersedes: the run's original `blocked_correction_failed` interpretation.
+- Follow-up: keep verifier regression fixtures as first-class evidence and never use the quarantined run for capability claims.
+
+## 2026-07-25 — Complete and promote the first bounded learning loop
+
+- Decision: Accept the exact-arithmetic stress run as the first qualified CLOS learning-loop proof and write its trusted lesson, retrieval pack, capability report, and qualified-run pointer to the canonical math-foundations capsule paths.
+- Reason: The recorded model run produced a real deterministic baseline failure, passed a correction and independent promotion retest, satisfied all 10 promotion gates, and passed a different held-out item after loading the promoted retrieval pack.
+- Evidence: implementation commit `b03add355`; `artifacts/math-foundations-smoke-20260725-052939567Z`; `artifacts/latest-qualified-run.json`; manifest replay `36/36`; local tests `14/14`.
+- Supersedes: planning/scaffold-only CLOS status.
+- Follow-up: run equal-difficulty randomized A/B retests before claiming retrieval causality or durable transfer.
+
+## 2026-07-25 — Promote the qualified slice to the authoritative remote default branch
+
+- Decision: Push `feat/cortex-learning-os-v0-20260725`, then fast-forward remote `main` after confirming `origin/main` remained an ancestor and the diff touched only `cortex-learning-os/` plus `docs/PLAN_INDEX.md`.
+- Reason: The accepted production slice must live on the canonical default path and authoritative remote, not remain an opt-in local worktree.
+- Evidence: `git ls-remote` showed both `main` and the feature branch at `944808d729183a1ec1ed0c6c114a6f0e024d35dc` immediately after promotion; `/root/clawd/cortex-learning-os` then matched the integrated project tree across all 139 files.
+- Supersedes: feature-branch-only availability.
+- Follow-up: preserve bounded claims and proceed to randomized equal-difficulty A/B transfer testing.
+
+## 2026-07-25 — Preregister paired retrieval-versus-no-retrieval evidence
+
+- Decision: Use 27 randomized identical-item pairs (54 fresh ephemeral Codex sessions), one generated exact-multiplication item per pair, deterministic exact grading, no allowed tools, no outcome-driven reruns, and a fixed two-sided exact McNemar analysis. Require at least 24 valid pairs and report mechanical completion separately from the bounded evidence gate.
+- Reason: The prior 19/20 batch baseline and single-item post-promotion retest differ in task count and difficulty, so they cannot establish that retrieval caused the later pass. Pairing identical items removes that primary confound while fresh sessions prevent conversational carryover.
+- Evidence: `src/ab-experiment.mjs`, `src/run-ab-experiment.mjs`, `src/model-answer-runner.mjs`, `tests/ab-experiment.test.mjs`; local `npm test` `19/19`; paired plan-only and fake-worker full-lifecycle smokes green.
+- Supersedes: using the prior baseline/retest difference as retrieval-effect evidence.
+- Follow-up: recover safe free space on Hetzner, launch the frozen experiment remotely, preserve a null result honestly if the preregistered gate does not pass, and do not auto-promote ordinary-task routing from one run.
+
+## 2026-07-25 — Preserve the paired retrieval A/B as a mechanically green null result
+
+- Decision: Record experiment `math-foundations-paired-ab-20260725T1600Z` as completed but threshold-not-passed, and make no retrieval-benefit, retrieval-harm, broad-learning, durability, mastery, or model-weight claim from it.
+- Reason: All 27 pairs were valid, but pack and no-pack each passed 26/27; the paired lift was `0`, pack-only and no-pack-only wins were tied `1–1`, and the exact two-sided McNemar p-value was `1.0`. The `96.3%` accuracy in both arms also indicates a ceiling-limited efficacy test.
+- Evidence: exact execution source `bde94bf4f872a75e7c744bc9b37c9b91e41a9600`; remote artifact `artifacts/math-foundations-paired-ab-20260725T1600Z`; local returned artifact `/root/clawd/artifacts/cortex-learning-os-ab-20260725/returns/math-foundations-paired-ab-20260725T1600Z`; `54/54` trials, `27/27` valid pairs, zero tool events, usage on every trial, return-bundle checksum pass, and `464/464` manifest hashes verified.
+- Supersedes: treating the earlier single held-out pass as evidence that retrieval caused improvement.
+- Follow-up: do not promote routing from this run. If another efficacy experiment is approved, preregister harder out-of-sample paired items that reduce ceiling effects while preserving the same fail-closed causal design.
+
+## 2026-07-25 — Authorize one capped mechanism-and-utility go/no-go validation
+
+- Decision: Give the Learning OS concept one bounded efficacy test comprising a genuinely novel seeded synthetic-procedure acquisition/transfer track and a low-sensitivity private-workspace correction retrieval track. Freeze the complete program before model calls, cap it at 111 calls, require both tracks to pass fixed effect, no-regression, token, and latency gates, and keep any successful result shadow-only pending a separate integration decision.
+- Reason: The earlier generic multiplication A/B was ceiling-limited and returned zero lift, so further broad implementation without unique-information evidence would risk becoming gimmicky. Synthetic procedure transfer tests the mechanism, while recurring private corrections test practical utility.
+- Evidence: `docs/go-no-go-validation-contract.md`; `src/go-no-go-experiment.mjs`; `src/run-go-no-go-validation.mjs`; `tests/go-no-go-experiment.test.mjs`; local tests `26/26`; frozen real-fixture plan smoke; fake-worker full-lifecycle smoke with acquisition promotion, both tracks passing, and complete manifest replay.
+- Supersedes: the prior next step of an unspecified harder math efficacy test; the scope is now limited to these two stronger tests.
+- Follow-up: push the isolated branch, run remotely on Hetzner with the private fixture outside Git, return and verify all artifacts, and accept either a clean pass, honest no-go, or blocker without outcome-driven broadening.
+
+## 2026-07-25 — Accept the capped validation as a terminal no-go for broad Learning OS integration
+
+- Decision: Record program `clos-go-no-go-20260725T181142Z` as mechanically complete but program-threshold-not-passed. Preserve CLOS as a verified memory/retrieval toolkit; do not enable default routing, broadly expand the OS framing, or rerun based on outcomes.
+- Reason: Acquisition and the synthetic mechanism track passed strongly, but the private-workspace utility pack scored `27/27` versus `24/27` without the pack: `+11.11` percentage points and exact McNemar p `0.25`, below the frozen `+20` and p `≤0.05` effect requirements. The model inferred 24 of 27 utility answers without retrieval, so practical incremental value was too small for the declared gate.
+- Evidence: remote artifact `/home/jake/clawd-runs/clos-go-no-go-20260725T181142Z/artifacts/clos-go-no-go-20260725T181142Z`; returned artifact `/root/clawd/artifacts/cortex-learning-os-go-no-go-20260725/returns/clos-go-no-go-20260725T181142Z`; `111/111` model calls, `108/108` valid transfer trials, `54/54` valid pairs, zero observed tool events, return checksum pass, and `950/950` manifest hashes verified.
+- Supersedes: any expectation that a mechanism-only pass would justify default Learning OS integration.
+- Follow-up: retain the verification, promotion, provenance, expiration, rollback, and bounded retrieval machinery as a toolkit; require a separate explicit decision for any future narrow retrieval application.
+
+## 2026-07-25 — Correct the project-level interpretation of the first utility no-go
+
+- Decision: Keep the first utility run's frozen no-go intact, but stop treating it as a reliable rejection of broader selective private retrieval.
+- Reason: No-pack scored `24/27` and pack scored `27/27`, so the item set allowed at most `11.11` percentage points of observed lift and could not reach its 20-point gate. That is a ceiling-limited test, not evidence that a harder non-inferable private-fact workload cannot benefit.
+- Evidence: returned analysis for `clos-go-no-go-20260725T181142Z`; utility pack `27/27`, no-pack `24/27`, p `0.25`; Jake's explicit ceiling correction in the follow-up thread.
+- Supersedes: the broad wording that the terminal no-go alone justified stopping all further utility validation.
+- Follow-up: any new test must be prospective, harder in the private-information dimension, and must never append outcome-selected items to the completed run.
+
+## 2026-07-25 — Authorize one corrected open-ended private-utility validation
+
+- Decision: Run one utility-only validation with a separately frozen disjoint calibration pool and held-out pool: 12 calibration facts / 24 no-pack sessions, then—only if headroom is confirmed—30 held-out private-fact clusters / 60 paired prompts / 120 sessions. Cap the full program at 144 calls and keep all behavior shadow-only.
+- Reason: Open-ended, genuinely non-inferable private facts create meaningful headroom while a disjoint calibration gate catches another ceiling before spending the held-out budget. Treating facts as clustered statistical units prevents two paraphrases from being falsely counted as independent evidence.
+- Evidence: `docs/private-utility-validation-contract.md`; `src/private-utility-experiment.mjs`; `src/run-private-utility-validation.mjs`; `tests/private-utility-experiment.test.mjs`; local tests `32/32`; real-fixture 144-session plan smoke; fake-worker `144/144` lifecycle and manifest replay.
+- Supersedes: using the first multiple-choice utility fixture as the final project-level efficacy test.
+- Follow-up: push exact source without fixtures, freeze both fixture hashes and the full schedule before calls, execute detached on Hetzner, and accept pass, no-go, calibration stop, or blocker without outcome-driven modification.
+
+## 2026-07-25 — Accept the corrected validation as a selective shadow candidate
+
+- Decision: Accept validation `clos-private-utility-20260725T192921Z` as a bounded pass for `go_selective_private_retrieval_shadow_candidate`; do not interpret it as default answer-path approval, broad ordinary-task utility, autonomous learning, durability, or model-weight learning.
+- Reason: The disjoint calibration confirmed no-pack headroom, and the frozen held-out treatment cleared every validity, effect, no-regression, token, and latency gate at both item and clustered-fact levels.
+- Evidence: returned `analysis.json` and `campaign_state.json` under `/root/clawd/artifacts/cortex-learning-os-private-utility-20260725/returns/clos-private-utility-20260725T192921Z`; `144/144` completed calls; calibration `24/24` valid with no-pack cluster accuracy `0/12`; held-out pack/no-pack item accuracy `60/60` versus `4/60`; clustered accuracy `30/30` versus `1/30`; cluster lift `96.67` points; exact McNemar p `4e-9`; zero no-pack-only clusters; maximum pack `271` tokens; return manifest `1,218/1,218` verified.
+- Supersedes: the unresolved status of broader selective private utility after the first ceiling-limited fixture, while preserving that first run's immutable contract-level no-go.
+- Follow-up: implement only a privacy-safe observe-only shadow and gather live backend evidence before proposing any answer influence.
+
+## 2026-07-25 — Enable selective private retrieval only as an isolated shadow observer
+
+- Decision: Make selective private retrieval default-on in `observe_only` mode behind an immediate kill switch. Nexus may classify and asynchronously retrieve a bounded principal-scoped candidate pack, but candidate content cannot enter routing, prompt context, reasoning, tools, or user-visible answers. Record only capped content-free telemetry joined by opaque observation IDs.
+- Reason: The corrected validation justifies measuring the candidate against the real authenticated retrieval backend, but it does not prove live classifier precision, production retrieval quality, or causal answer benefit. Shadow isolation collects those facts without changing behavior or exposing private content.
+- Evidence: `public/cortex_server/cortex_server/modules/private_retrieval_shadow.py`; Nexus integration and authenticated status endpoint in `public/cortex_server/cortex_server/routers/nexus.py`; route-gate isolation and telemetry in `plugins/cortex-route-gate/index.ts`; deployment controls in `public/docker-compose.yml`; contract in `public/cortex_server/docs/private-retrieval-shadow.md`; Python and Node tests covering eligibility, sensitive exclusions, principal isolation, bounded packs, failures, concurrency, atomic capped persistence, prompt/cache isolation, and no-content telemetry.
+- Supersedes: validation-harness-only availability of the selective private retrieval candidate.
+- Follow-up: inspect shadow eligibility/retrieval/latency evidence; require a separate explicit treatment/control promotion decision before any answer-path use.

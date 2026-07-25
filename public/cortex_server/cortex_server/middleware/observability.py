@@ -26,25 +26,34 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         except Exception as exc:  # noqa: BLE001
             error = exc
             status_code = 500
+            # Re-raise while this handler is active so the original exception
+            # and traceback survive; the finally block remains best-effort.
+            raise
         finally:
             latency_ms = (time.perf_counter() - start) * 1000.0
             request_id = getattr(request.state, "request_id", "unknown")
-            path = request.url.path
+            route = request.scope.get("route")
+            # Starlette resolves the route during call_next. Using its template
+            # prevents IDs and arbitrary 404 paths from becoming metric labels.
+            path = getattr(route, "path", None) or "<unmatched>"
             method = request.method
 
             if response is not None:
                 try:
                     response.headers["X-Process-Time-Ms"] = f"{latency_ms:.2f}"
-                except Exception:
+                except BaseException:
                     pass
 
-            record_http_request(
-                path=path,
-                method=method,
-                status=status_code,
-                latency_ms=latency_ms,
-                request_id=request_id,
-            )
+            try:
+                record_http_request(
+                    path=path,
+                    method=method,
+                    status=status_code,
+                    latency_ms=latency_ms,
+                    request_id=request_id,
+                )
+            except BaseException:  # observability must never affect the application
+                pass
 
             event = {
                 "event": "http_request",
@@ -55,7 +64,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 "latency_ms": round(latency_ms, 2),
                 "error": error.__class__.__name__ if error else None,
             }
-            logger.info(json.dumps(event, separators=(",", ":")))
-
-        if error is not None:
-            raise error
+            try:
+                logger.info(json.dumps(event, separators=(",", ":")))
+            except BaseException:  # broken logging handlers are non-fatal
+                pass

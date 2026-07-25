@@ -2,11 +2,12 @@
 Knowledge Graph Router - API endpoints for graph operations.
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
+from typing import Annotated, Optional, List, Dict, Any
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import os
 import tempfile
 from cortex_server.models.requests import (
@@ -14,7 +15,15 @@ from cortex_server.models.requests import (
     GraphQueryResponse, GraphNodeResponse, GraphEdgeResponse
 )
 from cortex_server.services.knowledge_service import KnowledgeService
-from cortex_server.routers.librarian import collection, robust_search
+from cortex_server.routers.librarian import (
+    DEFAULT_TENANT_ID,
+    DEFAULT_WORKSPACE_ID,
+    MemoryPrincipalScope,
+    MemoryScopeId,
+    _authenticated_memory_principal_scope,
+    collection,
+    robust_search,
+)
 from cortex_server.knowledge.graph import NodeType, EdgeType
 from cortex_server.modules.prior_art_gate import build_prior_art_gate, extract_prior_art_terms
 
@@ -24,33 +33,151 @@ service = KnowledgeService()
 _DEFAULT_DURABLE_MEMORY_ROOTS = [Path("/root/clawd/memory")]
 _DEFAULT_CODEBASE_INDEX_ROOT = Path("/root/clawd/artifacts/cortex-codebase-memory")
 
+BoundedKnowledgeText = Annotated[str, Field(max_length=16_384)]
+
+MAX_GRAPH_STRING_LENGTH = 16_384
+MAX_GRAPH_TYPE_LENGTH = 256
+MAX_GRAPH_LANGUAGE_LENGTH = 256
+MAX_GRAPH_METADATA_BYTES = 65_536
+MAX_GRAPH_METADATA_DEPTH = 8
+MAX_GRAPH_METADATA_NODES = 1_000
+MAX_GRAPH_METADATA_STRING = 16_384
+MAX_GRAPH_METADATA_KEY = 256
+
+
+def _validate_graph_metadata(value: Dict[str, Any]) -> Dict[str, Any]:
+    nodes = 0
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        nodes += 1
+        if nodes > MAX_GRAPH_METADATA_NODES:
+            raise ValueError("metadata has too many values")
+        if depth > MAX_GRAPH_METADATA_DEPTH:
+            raise ValueError("metadata is too deeply nested")
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if not isinstance(key, str) or len(key) > MAX_GRAPH_METADATA_KEY:
+                    raise ValueError("metadata keys must be bounded strings")
+                pending.append((child, depth + 1))
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+        elif isinstance(item, str):
+            if len(item) > MAX_GRAPH_METADATA_STRING:
+                raise ValueError("metadata string is too long")
+        elif item is not None and not isinstance(item, (bool, int, float)):
+            raise ValueError("metadata contains an unsupported value")
+
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("metadata must be finite JSON") from exc
+    if len(encoded) > MAX_GRAPH_METADATA_BYTES:
+        raise ValueError("metadata exceeds byte limit")
+    return value
+
+
+class BoundedGraphNodeCreateRequest(GraphNodeCreateRequest):
+    id: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    type: str = Field(max_length=MAX_GRAPH_TYPE_LENGTH)
+    name: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
+    uri: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    language: Optional[str] = Field(default=None, max_length=MAX_GRAPH_LANGUAGE_LENGTH)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
+
+    _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
+
+
+class BoundedGraphEdgeCreateRequest(GraphEdgeCreateRequest):
+    id: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    type: str = Field(max_length=MAX_GRAPH_TYPE_LENGTH)
+    source_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
+    target_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
+    context: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
+
+    _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
+
 
 class KnowledgeSearchRequest(BaseModel):
-    query: str
-    n_results: int = 5
+    query: str = Field(..., max_length=16_384)
+    n_results: int = Field(5, ge=1, le=100)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
+
+
+class BoundedGraphQueryRequest(GraphQueryRequest):
+    query: str = Field(..., max_length=16_384)
+    limit: int = Field(100, ge=1, le=100)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class StructuralSearchRequest(BaseModel):
-    query: str = ""
+    query: BoundedKnowledgeText = ""
     node_type: Optional[str] = None
-    limit: int = 25
+    limit: int = Field(25, ge=1, le=100)
     include_neighbors: bool = False
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class PriorArtGateRequest(BaseModel):
-    objective: str
-    planned_capabilities: List[str] = []
-    planned_paths: List[str] = []
-    proposed_action: str = "unspecified"
-    n_results: int = 5
+    objective: str = Field(..., max_length=32_768)
+    planned_capabilities: List[BoundedKnowledgeText] = Field(default_factory=list, max_items=100)
+    planned_paths: List[BoundedKnowledgeText] = Field(default_factory=list, max_items=100)
+    proposed_action: str = Field("unspecified", max_length=64)
+    n_results: int = Field(5, ge=1, le=20)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class ImpactRequest(BaseModel):
-    query: Optional[str] = None
-    node_id: Optional[str] = None
+    query: Optional[BoundedKnowledgeText] = None
+    node_id: Optional[BoundedKnowledgeText] = None
     edge_type: Optional[str] = None
     direction: str = "both"
-    limit: int = 10
+    limit: int = Field(10, ge=1, le=50)
+    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
+    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
+    scope: Optional[MemoryPrincipalScope] = None
+    scope_credential_id: Optional[MemoryScopeId] = None
+    scope_signature: Optional[str] = Field(None, max_length=256)
+
+
+def _graph_principal(request):
+    return _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
+    )
 
 
 def _node_to_dict(node) -> Optional[Dict[str, Any]]:
@@ -442,11 +569,12 @@ async def knowledge_status():
         except Exception:
             memory_count = None
 
+        available = memory_count is not None
         return {
-            "success": True,
+            "success": available,
             "level": 22,
             "name": "Mnemosyne",
-            "status": "active",
+            "status": "active" if available else "unavailable",
             "capabilities": [
                 "knowledge_graph",
                 "semantic_search",
@@ -487,16 +615,28 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+        principal = _authenticated_memory_principal_scope(
+            request.tenant_id,
+            request.workspace_id,
+            request.scope_signature,
+            scope=request.scope,
+            scope_credential_id=request.scope_credential_id,
+        )
+        tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+
         result = robust_search(
             query=request.query,
             n_results=request.n_results,
             allow_fallback=True,
+            tenant_id=tenant,
+            workspace_id=workspace,
         )
         return {
             "query": request.query,
             "results": result.get("results", []),
             "search_mode": result.get("search_mode", "semantic"),
             "degraded": bool(result.get("degraded", False)),
+            "available": bool(result.get("available", True)),
             "warning": result.get("warning"),
         }
     except HTTPException:
@@ -507,11 +647,18 @@ async def search_knowledge(request: KnowledgeSearchRequest):
             "results": [],
             "search_mode": "error",
             "degraded": True,
+            "available": False,
             "error": str(e),
         }
 
 
-@router.post("/prior-art-gate")
+@router.post(
+    "/prior-art-gate",
+    openapi_extra={
+        "x-cortex-read-policy": "principal_semantic_read",
+        "x-cortex-principal-scope-required": True,
+    },
+)
 async def prior_art_gate(request: PriorArtGateRequest):
     """Pre-implementation recall gate for existing capabilities.
 
@@ -519,6 +666,15 @@ async def prior_art_gate(request: PriorArtGateRequest):
     durable memory plus the structural code graph and requires a reuse/extend/
     adapter decision when high-confidence prior art exists.
     """
+    principal = _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
+    )
+    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+
     try:
         terms = extract_prior_art_terms(
             objective=request.objective,
@@ -526,6 +682,8 @@ async def prior_art_gate(request: PriorArtGateRequest):
             planned_paths=request.planned_paths,
         )
         memory_rows: List[Dict[str, Any]] = []
+        memory_query_succeeded = False
+        memory_query_failed = False
         for query in [*request.planned_capabilities, *terms[:6]]:
             if not str(query or "").strip():
                 continue
@@ -534,16 +692,30 @@ async def prior_art_gate(request: PriorArtGateRequest):
                     query=str(query),
                     n_results=max(1, min(int(request.n_results or 5), 10)),
                     allow_fallback=True,
+                    tenant_id=tenant,
+                    workspace_id=workspace,
                 )
-                memory_rows.extend(result.get("results", []) or [])
+                if result.get("available") is not True:
+                    memory_query_failed = True
+                else:
+                    memory_query_succeeded = True
+                    memory_rows.extend(result.get("results", []) or [])
             except Exception:
-                continue
+                memory_query_failed = True
+        memory_available = memory_query_succeeded and not memory_query_failed
 
         structural_rows: List[Dict[str, Any]] = []
+        structural_query_succeeded = False
+        structural_query_failed = False
         seen_nodes = set()
         for term in terms[:8]:
             try:
-                for node in service.graph.query(name_pattern=term, limit=max(1, min(int(request.n_results or 5), 10))):
+                for node in service.graph.query(
+                    name_pattern=term,
+                    limit=max(1, min(int(request.n_results or 5), 10)),
+                    tenant_id=tenant,
+                    storage_workspace_id=workspace,
+                ):
                     node_dict = _node_to_dict(node)
                     node_id = node_dict.get("id") if isinstance(node_dict, dict) else None
                     if node_id and node_id in seen_nodes:
@@ -551,8 +723,10 @@ async def prior_art_gate(request: PriorArtGateRequest):
                     if node_id:
                         seen_nodes.add(node_id)
                     structural_rows.append({"node": node_dict})
+                structural_query_succeeded = True
             except Exception:
-                continue
+                structural_query_failed = True
+        structural_available = structural_query_succeeded and not structural_query_failed
 
         gate = build_prior_art_gate(
             objective=request.objective,
@@ -561,6 +735,8 @@ async def prior_art_gate(request: PriorArtGateRequest):
             proposed_action=request.proposed_action,
             memory_results=memory_rows,
             structural_results=structural_rows,
+            memory_available=memory_available,
+            structural_available=structural_available,
         )
         return {"success": gate.get("ok", False), **gate}
     except Exception as e:
@@ -575,11 +751,18 @@ async def prior_art_gate(request: PriorArtGateRequest):
 
 
 @router.post("/query")
-async def query_graph(request: GraphQueryRequest):
+async def query_graph(request: BoundedGraphQueryRequest):
     """Query the knowledge graph."""
     try:
-        result = await service.query(request)
+        principal = _graph_principal(request)
+        result = await service.query(
+            request,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
         return {"success": True, "data": result, "error": None}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
@@ -602,16 +785,19 @@ async def structural_search(request: StructuralSearchRequest):
     functions, routes, and nearby dependency edges.
     """
     try:
+        principal = _graph_principal(request)
         node_type = None
         if request.node_type:
             try:
                 node_type = NodeType(request.node_type)
             except ValueError:
-                node_type = None
+                raise HTTPException(status_code=422, detail="invalid node_type")
         nodes = service.graph.query(
             node_type=node_type,
             name_pattern=request.query or None,
             limit=request.limit,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
         )
         results = []
         for node in nodes:
@@ -619,10 +805,18 @@ async def structural_search(request: StructuralSearchRequest):
             if request.include_neighbors:
                 item["neighbors"] = [
                     _neighbor_to_dict(n)
-                    for n in service.graph.get_neighbors(node.id, direction="both")[:25]
+                    for n in service.graph.get_neighbors(
+                        node.id,
+                        direction="both",
+                        limit=25,
+                        tenant_id=principal.tenant_id,
+                        storage_workspace_id=principal.storage_workspace_id,
+                    )
                 ]
             results.append(item)
         return {"success": True, "query": request.query, "results": results, "count": len(results)}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "query": request.query, "results": [], "count": 0, "error": str(e)}
 
@@ -631,13 +825,23 @@ async def structural_search(request: StructuralSearchRequest):
 async def structural_impact(request: ImpactRequest):
     """Return dependency/call/import neighborhood for a node or symbol query."""
     try:
+        principal = _graph_principal(request)
         nodes = []
         if request.node_id:
-            node = service.graph.get_node(request.node_id)
+            node = service.graph.get_node(
+                request.node_id,
+                tenant_id=principal.tenant_id,
+                storage_workspace_id=principal.storage_workspace_id,
+            )
             if node:
                 nodes = [node]
         elif request.query:
-            nodes = service.graph.query(name_pattern=request.query, limit=request.limit)
+            nodes = service.graph.query(
+                name_pattern=request.query,
+                limit=request.limit,
+                tenant_id=principal.tenant_id,
+                storage_workspace_id=principal.storage_workspace_id,
+            )
         else:
             raise HTTPException(status_code=400, detail="node_id or query is required")
 
@@ -646,11 +850,20 @@ async def structural_impact(request: ImpactRequest):
             try:
                 edge_type = EdgeType(request.edge_type)
             except ValueError:
-                edge_type = None
+                raise HTTPException(status_code=422, detail="invalid edge_type")
 
         impacts = []
         for node in nodes[: max(1, min(50, request.limit or 10))]:
-            neighbors = service.graph.get_neighbors(node.id, edge_type=edge_type, direction=request.direction)
+            if request.direction not in {"out", "in", "both"}:
+                raise HTTPException(status_code=422, detail="invalid direction")
+            neighbors = service.graph.get_neighbors(
+                node.id,
+                edge_type=edge_type,
+                direction=request.direction,
+                limit=request.limit,
+                tenant_id=principal.tenant_id,
+                storage_workspace_id=principal.storage_workspace_id,
+            )
             impacts.append({
                 "node": _node_to_dict(node),
                 "neighbors": [_neighbor_to_dict(n) for n in neighbors[:100]],
@@ -664,11 +877,18 @@ async def structural_impact(request: ImpactRequest):
 
 
 @router.post("/nodes")
-async def create_node(request: GraphNodeCreateRequest):
+async def create_node(request: BoundedGraphNodeCreateRequest):
     """Create a new node in the graph."""
     try:
-        result = await service.create_node(request)
+        principal = _graph_principal(request)
+        result = await service.create_node(
+            request,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
         return {"success": True, "data": result, "error": None}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
@@ -688,20 +908,34 @@ async def get_node(node_id: str):
 
 
 @router.post("/edges")
-async def create_edge(request: GraphEdgeCreateRequest):
+async def create_edge(request: BoundedGraphEdgeCreateRequest):
     """Create a new edge in the graph."""
     try:
-        result = await service.create_edge(request)
+        principal = _graph_principal(request)
+        result = await service.create_edge(
+            request,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
         return {"success": True, "data": result, "error": None}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
 
 @router.get("/nodes/{node_id}/neighbors")
-async def get_neighbors(node_id: str, edge_type: str = None, direction: str = "out"):
+async def get_neighbors(
+    node_id: str,
+    edge_type: str = None,
+    direction: str = "out",
+    limit: int = Query(100, ge=1, le=100),
+):
     """Get neighbors of a node."""
     try:
-        result = await service.get_neighbors(node_id, edge_type, direction)
+        result = await service.get_neighbors(node_id, edge_type, direction, limit)
         return {"success": True, "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         return {"success": False, "error": str(e)}

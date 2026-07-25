@@ -1,0 +1,21 @@
+{
+  "name": "cortex-learning-os",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "validate:fixtures": "node src/validate-fixtures.mjs",
+    "exam:fixture": "node src/run-exam.mjs --capsule capsules/math-foundations/capsule.json --exam exams/math-foundations/baseline.exam.json --answers fixtures/valid/math-baseline-answers.json --out artifacts/math-baseline-fixture --run-id math-baseline-fixture",
+    "promote:fixture": "node src/run-promotion.mjs --capsule fixtures/valid/capsule.json --candidate fixtures/valid/lesson-candidate.json --verifiers fixtures/valid/verifier-results.json --task 'factor an algebraic expression safely' --out artifacts/promotion-fixture",
+    "dogfood:math": "node src/run-learning-smoke.mjs --promote-default",
+    "dogfood:challenge": "node src/run-learning-smoke.mjs --exam exams/math-foundations/reliability-challenge.exam.json --promote-default",
+    "dogfood:stress": "node src/run-learning-smoke.mjs --exam exams/math-foundations/exact-arithmetic-stress.exam.json --promote-default",
+    "experiment:ab": "node src/run-ab-experiment.mjs",
+    "experiment:ab:plan": "node src/run-ab-experiment.mjs --plan-only",
+    "validate:go-no-go": "node src/run-go-no-go-validation.mjs",
+    "validate:go-no-go:plan": "node src/run-go-no-go-validation.mjs --plan-only",
+    "validate:private-utility": "node src/run-private-utility-validation.mjs",
+    "validate:private-utility:plan": "node src/run-private-utility-validation.mjs --plan-only"
+  }
+}

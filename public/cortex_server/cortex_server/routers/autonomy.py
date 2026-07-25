@@ -32,6 +32,7 @@ from cortex_server.middleware.event_ledger_middleware import (
     get_event_health,
     get_recent_events,
 )
+from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
 
 router = APIRouter()
 
@@ -263,6 +264,7 @@ def _persist_l22(content: str, tags: Optional[List[str]] = None, metadata: Optio
                 "content": content,
                 "tags": _dedupe_str_list(tags or []),
                 "metadata": metadata or {},
+                **authenticated_memory_scope_fields(),
             },
             timeout_s=6.0,
         )
@@ -446,14 +448,21 @@ async def autonomy_status():
     personality = state.get("personality_contract") or {}
     adaptation = state.get("adaptation_loop") or {}
     immune = state.get("immune_system") or {}
+    durable_health = dict(event_health.get("durable") or {})
+    nervous_system_healthy = (
+        durable_health.get("status") == "healthy"
+        and int(durable_health.get("writes_succeeded", 0) or 0) > 0
+        and int(durable_health.get("write_failures", 0) or 0) == 0
+        and int(durable_health.get("records_dropped", 0) or 0) == 0
+    )
 
     return {
-        "success": True,
+        "success": nervous_system_healthy,
         "name": "Autonomy Control Plane",
-        "status": "active",
+        "status": "active" if nervous_system_healthy else "degraded",
         "pillars": {
             "one_will": bool((one_will.get("mission") or "").strip()),
-            "one_nervous_system": os.path.exists(EVENT_LEDGER_PATH),
+            "one_nervous_system": nervous_system_healthy,
             "one_immune_system": bool(immune.get("auto_heal_enabled", True)),
             "one_memory": os.path.exists(DECISION_LOG_PATH),
             "one_personality_contract": bool((personality.get("identity_phrase") or "").strip()),

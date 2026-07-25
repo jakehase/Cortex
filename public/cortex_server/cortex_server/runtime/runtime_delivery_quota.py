@@ -1,0 +1,1161 @@
+"""Shared bounded persistence admission for the runtime-delivery volume."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+import fcntl
+import hashlib
+import hmac
+import json
+import math
+import os
+from pathlib import Path
+import re
+import stat
+import threading
+import time
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from uuid import UUID, uuid4
+
+from cortex_server.runtime.durable_files import durable_mkdir, fsync_directory
+
+
+MAX_RUNTIME_DELIVERY_OBJECT_BYTES = 4 * 1024 * 1024
+MAX_RUNTIME_DELIVERY_PROCESS_BYTES = 64 * 1024 * 1024
+MAX_RUNTIME_DELIVERY_STORE_BYTES = 512 * 1024 * 1024
+MAX_RUNTIME_DELIVERY_VOLUME_BYTES = 1536 * 1024 * 1024
+RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES = 128 * 1024 * 1024
+RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES = 32 * 1024 * 1024
+MAX_RUNTIME_DELIVERY_PROCESSES = 4096
+MAX_HISTORY_RECORDS = 256
+MAX_HISTORY_BYTES = 32 * 1024 * 1024
+MAX_REPORT_RECORDS = 256
+MAX_REPORT_BYTES = 16 * 1024 * 1024
+MAX_SESSION_EVENT_PROJECTION_BYTES = 32 * 1024 * 1024
+RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS = 10 * 60
+RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE = ".runtime-delivery-physical-recovery-reserve"
+_PENDING_ROLLBACK_STATUS = frozenset({"in_progress", "recovery_required"})
+_RECOVERY_PROCESS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+_LOCKS: Dict[str, threading.RLock] = {}
+_LOCKS_GUARD = threading.Lock()
+_TRANSACTION_STATE = threading.local()
+_ACTIVE_RESERVATION_TOKENS: set[tuple[str, str]] = set()
+_ACTIVE_RESERVATION_TOKENS_LOCK = threading.Lock()
+
+
+def _wall_time() -> float:
+    """Return wall time for non-authoritative reservation diagnostics."""
+
+    return time.time()
+
+
+def _monotonic() -> float:
+    """Return the host monotonic clock used to bound reservation leases."""
+
+    return time.monotonic()
+
+
+class RuntimeDeliveryQuotaError(ValueError):
+    """A write would consume bounded operational or recovery capacity."""
+
+
+def encoded_json(payload: Dict[str, Any], *, pretty: bool = False) -> bytes:
+    return (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2 if pretty else None,
+            separators=None if pretty else (",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _usage(root: Path) -> int:
+    total = 0
+    if not root.exists():
+        return 0
+    try:
+        if root.is_file() and not root.is_symlink():
+            return int(root.stat().st_size)
+    except FileNotFoundError:
+        return 0
+    for candidate in root.rglob("*"):
+        try:
+            if ".runtime-delivery-reservations" in candidate.parts:
+                continue
+            if candidate.name == RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE:
+                continue
+            if candidate.is_file() and not candidate.is_symlink():
+                total += candidate.stat().st_size
+        except FileNotFoundError:
+            continue
+    return total
+
+
+def _process_owned_paths(delivery_root: Path, process_id: str) -> List[Path]:
+    """Return exact durable paths owned by one immutable process identity."""
+
+    if not delivery_root.exists():
+        return []
+    process_digest = hashlib.sha256(process_id.encode("utf-8")).hexdigest()
+    canonical_names = {
+        f"{process_id}.json",
+        f"{process_id}.jsonl",
+        f".{process_id}.json.rollback-intent.json",
+        f".{process_id}.json.save-intent.json",
+    }
+    owned: List[Path] = []
+    for candidate in delivery_root.rglob("*"):
+        try:
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+            relative_parts = candidate.relative_to(delivery_root).parts
+            canonical = candidate.name in canonical_names
+            hashed_rollback_result = (
+                len(relative_parts) >= 3
+                and relative_parts[-3] == "rollback_results"
+                and relative_parts[-2] == process_digest
+                and candidate.suffix == ".json"
+            )
+            if canonical or hashed_rollback_result:
+                owned.append(candidate)
+        except FileNotFoundError:
+            continue
+    return owned
+
+
+def _resolved_replacements(
+    delivery_root: Path,
+    replacements: Sequence[Tuple[Path, int]],
+) -> List[Tuple[Path, int]]:
+    resolved: List[Tuple[Path, int]] = []
+    seen: set[Path] = set()
+    for raw_path, raw_size in replacements:
+        target = Path(raw_path).resolve()
+        try:
+            target.relative_to(delivery_root)
+        except ValueError as exc:
+            raise ValueError("runtime delivery replacement must be inside delivery_root") from exc
+        if target in seen:
+            raise ValueError("runtime delivery replacement paths must be unique")
+        size = int(raw_size)
+        if size < 0:
+            raise ValueError("runtime delivery replacement size must be non-negative")
+        seen.add(target)
+        resolved.append((target, size))
+    return resolved
+
+
+def _volume_usage(delivery_root: Path) -> int:
+    """Account the capacity-isolated runtime-delivery tree."""
+
+    return _usage(Path(delivery_root).resolve())
+
+
+def _physical_reserve_enabled() -> bool:
+    return os.getenv("CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE", "false").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _physical_reserve_path(delivery_root: Path) -> Path:
+    return Path(delivery_root).resolve() / RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE
+
+
+def _physical_reserve_bytes(delivery_root: Path) -> int:
+    target = _physical_reserve_path(delivery_root)
+    try:
+        return int(target.stat().st_size) if target.is_file() and not target.is_symlink() else 0
+    except FileNotFoundError:
+        return 0
+
+
+def _physical_reserve_allocated_bytes(delivery_root: Path) -> int:
+    target = _physical_reserve_path(delivery_root)
+    try:
+        stat = target.stat()
+        if not target.is_file() or target.is_symlink():
+            return 0
+        # POSIX st_blocks is reported in 512-byte units and proves the reserve
+        # is allocated rather than merely a sparse logical file.
+        return int(stat.st_blocks) * 512
+    except FileNotFoundError:
+        return 0
+
+
+def _resize_physical_reserve(delivery_root: Path, size: int) -> None:
+    if not _physical_reserve_enabled():
+        return
+    root = Path(delivery_root).resolve()
+    durable_mkdir(root)
+    target = _physical_reserve_path(root)
+    requested = max(0, int(size))
+    if (
+        _physical_reserve_bytes(root) == requested
+        and _physical_reserve_allocated_bytes(root) >= requested
+    ):
+        return
+    if target.is_file() and not target.is_symlink():
+        try:
+            flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(target, flags)
+            try:
+                current = int(os.fstat(fd).st_size)
+                if requested >= current:
+                    if not hasattr(os, "posix_fallocate"):
+                        raise OSError("posix_fallocate is required for the recovery reserve")
+                    os.posix_fallocate(fd, 0, requested)
+                os.ftruncate(fd, requested)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            fsync_directory(root)
+            return
+        except OSError as exc:
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery physical recovery reserve could not be resized"
+            ) from exc
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        try:
+            if not hasattr(os, "posix_fallocate"):
+                raise OSError("posix_fallocate is required for the recovery reserve")
+            os.posix_fallocate(fd, 0, requested)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, target)
+        fsync_directory(root)
+    except OSError as exc:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve could not be allocated"
+        ) from exc
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _filesystem_available(delivery_root: Path) -> int:
+    root = Path(delivery_root).resolve()
+    probe = root if root.exists() else root.parent
+    stats = os.statvfs(probe)
+    return int(stats.f_bavail) * int(stats.f_frsize)
+
+
+def runtime_delivery_capacity(delivery_root: Path) -> Dict[str, int | bool]:
+    root = Path(delivery_root).resolve()
+    used = _volume_usage(root)
+    reserved = _active_reservation_bytes_unlocked(root, prune_stale=False)
+    available = _filesystem_available(root)
+    operational_limit = MAX_RUNTIME_DELIVERY_VOLUME_BYTES - RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+    physical_reserve = _physical_reserve_bytes(root)
+    physical_reserve_allocated = _physical_reserve_allocated_bytes(root)
+    reserve_enforced = _physical_reserve_enabled()
+    return {
+        "ok": (
+            used + reserved <= operational_limit
+            and (
+                physical_reserve == RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                and physical_reserve_allocated >= RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                if reserve_enforced
+                else available - reserved >= RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+            )
+        ),
+        "usedBytes": used,
+        "reservedBytes": reserved,
+        "operationalLimitBytes": operational_limit,
+        "volumeLimitBytes": MAX_RUNTIME_DELIVERY_VOLUME_BYTES,
+        "recoveryReserveBytes": RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES,
+        "filesystemAvailableBytes": available,
+        "physicalRecoveryReserveBytes": physical_reserve,
+        "physicalRecoveryReserveAllocatedBytes": physical_reserve_allocated,
+        "physicalRecoveryReserveEnforced": reserve_enforced,
+        "operationalRemainingBytes": max(0, operational_limit - used - reserved),
+        "recoveryRemainingBytes": max(0, MAX_RUNTIME_DELIVERY_VOLUME_BYTES - used - reserved),
+    }
+
+
+def _validated_pending_startup_recovery_intents(delivery_root: Path) -> List[Dict[str, Any]]:
+    """Return path-bound rollback intents safe to use for startup ordering."""
+
+    pending: List[Dict[str, Any]] = []
+    for release_root in (
+        Path(delivery_root).resolve() / "release_workflow",
+        Path(delivery_root).resolve() / "rollback_transactions",
+    ):
+        if not release_root.is_dir() or release_root.is_symlink():
+            continue
+        for target in sorted(release_root.glob(".*.json.rollback-intent.json")):
+            try:
+                if target.is_symlink() or not target.is_file():
+                    continue
+                if target.stat().st_size > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+                    continue
+                payload = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            process_id = str(payload.get("process_id") or "").strip() if isinstance(payload, dict) else ""
+            transaction_id = str(payload.get("transaction_id") or "").strip() if isinstance(payload, dict) else ""
+            expected = release_root / f".{process_id}.json.rollback-intent.json"
+            if (
+                isinstance(payload, dict)
+                and payload.get("status") in _PENDING_ROLLBACK_STATUS
+                and _RECOVERY_PROCESS_ID_RE.fullmatch(process_id)
+                and 0 < len(transaction_id.encode("utf-8")) <= 256
+                and target == expected
+            ):
+                pending.append(payload)
+    return pending
+
+
+def _verify_preallocated_recovery_reserve(root: Path) -> Dict[str, int | bool]:
+    target = _physical_reserve_path(root)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(target, flags)
+    except OSError as exc:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve durability cannot be proven"
+        ) from exc
+    try:
+        observed = os.fstat(descriptor)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    fsync_directory(root)
+    allocated = int(observed.st_blocks) * 512
+    if (
+        not stat.S_ISREG(observed.st_mode)
+        or int(observed.st_size) != RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+        or allocated < RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+    ):
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve durability cannot be proven"
+        )
+    capacity = runtime_delivery_capacity(root)
+    if not bool(capacity["ok"]):
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve capacity verification failed"
+        )
+    return capacity
+
+
+def preallocate_runtime_delivery_recovery_reserve(delivery_root: Path) -> Dict[str, int | bool]:
+    """Prepare startup capacity without overtaking a durable rollback."""
+
+    if not _physical_reserve_enabled():
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery physical recovery reserve must be enabled before startup"
+        )
+    root = Path(delivery_root)
+    if not root.is_absolute():
+        raise RuntimeDeliveryQuotaError("runtime delivery root must be absolute")
+    root = root.resolve()
+    with _runtime_delivery_quota_lock(root):
+        pending = _validated_pending_startup_recovery_intents(root)
+        if pending:
+            # A prior rollback may have consumed physical reserve and crashed
+            # while the released blocks were occupied.  The host preflight
+            # must preserve that reduced file until application startup can
+            # replay the validated intent under this same quota lock.
+            physical_size = _physical_reserve_bytes(root)
+            physical_allocated = _physical_reserve_allocated_bytes(root)
+            minimum_recovery_size = max(
+                0,
+                RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                - RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES,
+            )
+            if (
+                physical_size < minimum_recovery_size
+                or physical_size > RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                or physical_allocated < physical_size
+            ):
+                raise RuntimeDeliveryQuotaError(
+                    "runtime delivery pending rollback reserve is missing or invalid"
+                )
+            return {
+                **runtime_delivery_capacity(root),
+                "startupRecoveryPending": True,
+                "pendingRecoveryIntentCount": len(pending),
+            }
+        _resize_physical_reserve(root, RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES)
+        return {
+            **_verify_preallocated_recovery_reserve(root),
+            "startupRecoveryPending": False,
+            "pendingRecoveryIntentCount": 0,
+        }
+
+
+@contextmanager
+def _runtime_delivery_quota_lock(delivery_root: Path) -> Iterator[bool]:
+    """Hold the aggregate quota lock without changing recovery capacity."""
+
+    root = Path(delivery_root).resolve()
+    durable_mkdir(root)
+    lock_target = root / ".runtime-delivery-volume-quota.lock"
+    lock_key = str(lock_target)
+    with _LOCKS_GUARD:
+        thread_lock = _LOCKS.setdefault(lock_key, threading.RLock())
+    with thread_lock:
+        depths = dict(getattr(_TRANSACTION_STATE, "depths", {}))
+        if int(depths.get(lock_key, 0) or 0) > 0:
+            depths[lock_key] += 1
+            _TRANSACTION_STATE.depths = depths
+            try:
+                yield False
+            finally:
+                depths[lock_key] -= 1
+                _TRANSACTION_STATE.depths = depths
+            return
+        with lock_target.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            depths[lock_key] = 1
+            _TRANSACTION_STATE.depths = depths
+            try:
+                yield True
+            finally:
+                depths.pop(lock_key, None)
+                _TRANSACTION_STATE.depths = depths
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _startup_recovery_active(delivery_root: Path) -> bool:
+    lock_key = str(Path(delivery_root).resolve() / ".runtime-delivery-volume-quota.lock")
+    return int(
+        dict(getattr(_TRANSACTION_STATE, "startup_recoveries", {})).get(lock_key, 0)
+        or 0
+    ) > 0
+
+
+@contextmanager
+def runtime_delivery_startup_recovery_transaction(delivery_root: Path) -> Iterator[None]:
+    """Serialize fresh-process rollback replay ahead of ordinary admission."""
+
+    root = Path(delivery_root).resolve()
+    lock_key = str(root / ".runtime-delivery-volume-quota.lock")
+    with _runtime_delivery_quota_lock(root):
+        active = dict(getattr(_TRANSACTION_STATE, "startup_recoveries", {}))
+        active[lock_key] = int(active.get(lock_key, 0) or 0) + 1
+        _TRANSACTION_STATE.startup_recoveries = active
+        try:
+            yield
+        finally:
+            active[lock_key] -= 1
+            if active[lock_key] <= 0:
+                active.pop(lock_key, None)
+            _TRANSACTION_STATE.startup_recoveries = active
+
+
+@contextmanager
+def runtime_delivery_quota_transaction(delivery_root: Path) -> Iterator[None]:
+    root = Path(delivery_root).resolve()
+    with _runtime_delivery_quota_lock(root) as outermost:
+        if outermost and not _recovery_admission(root):
+            if _validated_pending_startup_recovery_intents(root):
+                raise RuntimeDeliveryQuotaError(
+                    "runtime delivery rollback recovery must complete before generic quota transactions"
+                )
+            _resize_physical_reserve(
+                root,
+                RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES,
+            )
+        yield
+
+
+def _matching_recovery_intent(
+    delivery_root: Path,
+    *,
+    process_id: str,
+    transaction_id: str,
+    statuses: Sequence[str],
+    intent_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    process = str(process_id or "").strip()
+    transaction = str(transaction_id or "").strip()
+    if not process or not transaction:
+        return None
+    candidates: List[Path] = []
+    if intent_path is not None:
+        candidates.append(Path(intent_path))
+    roots = (
+        delivery_root / "release_workflow",
+        delivery_root / "rollback_transactions",
+    )
+    for root in roots:
+        if not root.exists():
+            continue
+        candidates.extend(root.glob(".*.rollback-intent.json"))
+    for target in candidates:
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and str(payload.get("process_id") or "") == process
+            and str(payload.get("transaction_id") or "") == transaction
+            and payload.get("status") in set(statuses)
+        ):
+            return payload
+    return None
+
+
+def _pending_recovery_intent(
+    delivery_root: Path,
+    *,
+    process_id: str,
+    transaction_id: str,
+    intent_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    return _matching_recovery_intent(
+        delivery_root,
+        process_id=process_id,
+        transaction_id=transaction_id,
+        statuses=("in_progress", "recovery_required"),
+        intent_path=intent_path,
+    )
+
+
+@contextmanager
+def runtime_delivery_recovery_transaction(
+    delivery_root: Path,
+    *,
+    process_id: str,
+    transaction_id: str,
+    intent_path: Optional[Path] = None,
+) -> Iterator[None]:
+    """Admit bounded reserve writes only for an already durable rollback."""
+
+    root = Path(delivery_root).resolve()
+    lock_key = str(root / ".runtime-delivery-volume-quota.lock")
+    with _runtime_delivery_quota_lock(root):
+        intent = _pending_recovery_intent(
+            root,
+            process_id=process_id,
+            transaction_id=transaction_id,
+            intent_path=intent_path,
+        )
+        if intent is None:
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery recovery reserve requires a durable pending rollback intent"
+            )
+        recoveries = dict(getattr(_TRANSACTION_STATE, "recoveries", {}))
+        existing = recoveries.get(lock_key)
+        if existing is not None and existing != (str(process_id), str(transaction_id)):
+            raise RuntimeDeliveryQuotaError("runtime delivery recovery transaction identity conflict")
+        recoveries[lock_key] = (str(process_id), str(transaction_id))
+        _TRANSACTION_STATE.recoveries = recoveries
+        try:
+            recovery_reserve_target = max(
+                0,
+                RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+                - RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES,
+            )
+            existing_reserve = _physical_reserve_bytes(root)
+            # Recovery consumes, but never allocates, physical capacity.  On a
+            # restart a partially consumed reserve is therefore preserved
+            # instead of being grown before the durable rollback can resume.
+            if existing_reserve > recovery_reserve_target:
+                _resize_physical_reserve(root, recovery_reserve_target)
+            yield
+        finally:
+            committed = _matching_recovery_intent(
+                root,
+                process_id=process_id,
+                transaction_id=transaction_id,
+                statuses=("committed",),
+                intent_path=intent_path,
+            ) is not None
+            if existing is None:
+                recoveries.pop(lock_key, None)
+            else:
+                recoveries[lock_key] = existing
+            _TRANSACTION_STATE.recoveries = recoveries
+            if committed and not _startup_recovery_active(root):
+                try:
+                    _resize_physical_reserve(root, RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES)
+                except RuntimeDeliveryQuotaError:
+                    # The rollback itself is already durably committed.
+                    # Readiness remains failed until capacity cleanup permits
+                    # replenishment; never rewrite a committed intent solely
+                    # because post-commit reserve growth is unavailable.
+                    pass
+
+
+def _recovery_admission(delivery_root: Path) -> bool:
+    lock_key = str(Path(delivery_root).resolve() / ".runtime-delivery-volume-quota.lock")
+    return lock_key in dict(getattr(_TRANSACTION_STATE, "recoveries", {}))
+
+
+def _quota_transaction_active(delivery_root: Path) -> bool:
+    lock_key = str(
+        Path(delivery_root).resolve() / ".runtime-delivery-volume-quota.lock"
+    )
+    return int(dict(getattr(_TRANSACTION_STATE, "depths", {})).get(lock_key, 0) or 0) > 0
+
+
+def _assert_volume_projection(root: Path, *, additional_bytes: int) -> None:
+    reservations = _active_reservation_bytes_unlocked(root, prune_stale=True)
+    additional = max(0, int(additional_bytes))
+    projected_volume = _volume_usage(root) + reservations + additional
+    recovery = _recovery_admission(root)
+    operational_limit = MAX_RUNTIME_DELIVERY_VOLUME_BYTES - RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+    admission_limit = (
+        min(
+            MAX_RUNTIME_DELIVERY_VOLUME_BYTES,
+            operational_limit + RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES,
+        )
+        if recovery
+        else operational_limit
+    )
+    if projected_volume > admission_limit:
+        detail = "bounded rollback recovery capacity exceeded" if recovery else "recovery reserve preserved"
+        raise RuntimeDeliveryQuotaError(f"runtime delivery volume quota exceeded; {detail}")
+    if _physical_reserve_enabled():
+        required_filesystem_headroom = 0
+    else:
+        required_filesystem_headroom = max(
+            0,
+            RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES
+            - (RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES if recovery else 0),
+        )
+    if _filesystem_available(root) - reservations - additional < required_filesystem_headroom:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery filesystem headroom is below the bounded recovery reserve"
+            if recovery
+            else "runtime delivery filesystem headroom is below the recovery reserve"
+        )
+
+
+def _process_start_ticks(pid: int) -> str:
+    raw = (Path("/proc") / str(int(pid)) / "stat").read_text(encoding="utf-8")
+    close = raw.rfind(")")
+    if close < 0:
+        raise RuntimeError("process identity stat is malformed")
+    fields = raw[close + 1 :].split()
+    if len(fields) <= 19 or not fields[19].isdigit():
+        raise RuntimeError("process identity start time is malformed")
+    return fields[19]
+
+
+def _boot_id() -> str:
+    value = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    try:
+        parsed = UUID(value)
+    except (ValueError, AttributeError) as exc:
+        raise RuntimeError("process boot identity is malformed") from exc
+    if str(parsed) != value.lower():
+        raise RuntimeError("process boot identity is malformed")
+    return str(parsed)
+
+
+def _current_process_identity() -> Dict[str, Any]:
+    """Return the kernel identity of this exact process instance."""
+
+    pid = os.getpid()
+    try:
+        return {
+            "pid": pid,
+            "process_start_ticks": _process_start_ticks(pid),
+            "boot_id": _boot_id(),
+        }
+    except (OSError, RuntimeError) as exc:
+        raise RuntimeDeliveryQuotaError(
+            "runtime delivery reservation process identity is unavailable"
+        ) from exc
+
+
+def _legacy_reservation_owner_proven_dead(pid: int) -> bool:
+    """Reclaim an old PID-only record only when the kernel proves no PID exists."""
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _reservation_process_identity(payload: Dict[str, Any]) -> Tuple[int, str, str]:
+    pid = int(payload["pid"])
+    owner_boot_id = str(payload["boot_id"])
+    owner_start_ticks = str(payload["process_start_ticks"])
+    try:
+        parsed_boot_id = UUID(owner_boot_id)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("invalid reservation process identity") from exc
+    if (
+        pid <= 0
+        or pid > 2_147_483_647
+        or str(parsed_boot_id) != owner_boot_id.lower()
+        or not owner_start_ticks.isdigit()
+        or len(owner_start_ticks) > 32
+    ):
+        raise ValueError("invalid reservation process identity")
+    return pid, str(parsed_boot_id), owner_start_ticks
+
+
+def _reservation_owner_state(
+    payload: Dict[str, Any],
+    *,
+    current_boot_id: Optional[str],
+) -> str:
+    """Classify a v2 owner as exact, gone, or unknown without PID-only trust."""
+
+    pid, owner_boot_id, owner_start_ticks = _reservation_process_identity(payload)
+    if current_boot_id is None:
+        return "unknown"
+    if owner_boot_id != current_boot_id:
+        return "gone"
+    try:
+        observed_start_ticks = _process_start_ticks(pid)
+    except FileNotFoundError:
+        return "gone"
+    except (OSError, RuntimeError):
+        return "unknown"
+    return "exact" if observed_start_ticks == owner_start_ticks else "gone"
+
+
+def _reservation_token_key(delivery_root: Path, token: str) -> tuple[str, str]:
+    return str(Path(delivery_root).resolve()), str(token)
+
+
+def _reservation_token_is_active(delivery_root: Path, token: str) -> bool:
+    with _ACTIVE_RESERVATION_TOKENS_LOCK:
+        return _reservation_token_key(delivery_root, token) in _ACTIVE_RESERVATION_TOKENS
+
+
+def _release_runtime_delivery_reservation(
+    delivery_root: Path,
+    *,
+    token: str,
+) -> None:
+    """Durably free one exact owned token even while rollback recovery is pending."""
+
+    root = Path(delivery_root).resolve()
+    normalized_token = str(token or "")
+    if not re.fullmatch(r"[0-9a-f]{32}", normalized_token):
+        raise RuntimeDeliveryQuotaError("runtime delivery reservation token is invalid")
+    reservation_root = root / ".runtime-delivery-reservations"
+    target = reservation_root / f"{normalized_token}.json"
+    with _runtime_delivery_quota_lock(root):
+        try:
+            target_stat = target.lstat()
+        except FileNotFoundError:
+            return
+        if target.is_symlink() or not stat.S_ISREG(target_stat.st_mode):
+            raise RuntimeDeliveryQuotaError("runtime delivery reservation target is invalid")
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            payload_token = str(payload.get("token") or target.stem)
+            payload_identity = _reservation_process_identity(payload)
+            current_identity = _current_process_identity()
+        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery reservation payload is invalid"
+            ) from exc
+        if (
+            payload.get("version") != "cortex.runtime-delivery-reservation.v2"
+            or not hmac.compare_digest(payload_token, normalized_token)
+            or payload_identity
+            != (
+                int(current_identity["pid"]),
+                str(current_identity["boot_id"]),
+                str(current_identity["process_start_ticks"]),
+            )
+        ):
+            raise RuntimeDeliveryQuotaError(
+                "runtime delivery reservation token does not match its durable record"
+            )
+        target.unlink()
+        fsync_directory(reservation_root)
+
+
+def _active_reservation_bytes_unlocked(delivery_root: Path, *, prune_stale: bool) -> int:
+    """Charge reservations and lazily renew expired identity leases.
+
+    A lease only bounds how long the stored kernel identity may be trusted
+    without revalidation. Expiry alone never proves owner death and never frees
+    capacity. Mutating renewal and reclamation are restricted to the aggregate
+    volume transaction.
+    """
+
+    reservation_root = delivery_root / ".runtime-delivery-reservations"
+    if not reservation_root.exists():
+        return 0
+    current_monotonic = float(_monotonic())
+    if not math.isfinite(current_monotonic):
+        raise RuntimeDeliveryQuotaError("runtime delivery monotonic clock is invalid")
+    may_mutate = bool(prune_stale and _quota_transaction_active(delivery_root))
+    current_boot_id: Optional[str] = None
+    boot_id_observed = False
+    deleted = False
+    total = 0
+    for target in reservation_root.glob("*.json"):
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid reservation payload")
+            pid = int(payload["pid"])
+            reserved_bytes = int(payload["reserved_bytes"])
+            if pid <= 0 or pid > 2_147_483_647 or reserved_bytes <= 0:
+                raise ValueError("invalid reservation size")
+            version = str(payload.get("version") or "")
+            if version == "cortex.runtime-delivery-reservation.v1":
+                if _legacy_reservation_owner_proven_dead(pid):
+                    if may_mutate:
+                        target.unlink()
+                        deleted = True
+                    continue
+                # A live or unverifiable PID-only legacy record has no safe PID
+                # reuse fence. Keep it charged rather than infer free capacity.
+                total += reserved_bytes
+                continue
+            if version != "cortex.runtime-delivery-reservation.v2":
+                raise ValueError("invalid reservation version")
+            _pid, owner_boot_id, _owner_start_ticks = _reservation_process_identity(payload)
+            reservation_token = str(payload.get("token") or target.stem)
+            if not re.fullmatch(r"[0-9a-f]{32}", reservation_token):
+                raise ValueError("invalid reservation token")
+            created_at = float(payload["created_at"])
+            heartbeat_monotonic = float(payload["heartbeat_monotonic"])
+            lease_expires_monotonic = float(payload["lease_expires_monotonic"])
+            lease_duration = lease_expires_monotonic - heartbeat_monotonic
+            if (
+                not math.isfinite(created_at)
+                or not math.isfinite(heartbeat_monotonic)
+                or not math.isfinite(lease_expires_monotonic)
+                or heartbeat_monotonic < 0
+                or lease_duration <= 0
+                or lease_duration > RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS
+            ):
+                raise ValueError("invalid reservation lease")
+            if not boot_id_observed:
+                try:
+                    current_boot_id = _boot_id()
+                except (OSError, RuntimeError):
+                    current_boot_id = None
+                boot_id_observed = True
+            if (
+                current_boot_id is not None
+                and owner_boot_id != current_boot_id
+            ):
+                owner_state = "gone"
+            elif current_monotonic < lease_expires_monotonic:
+                # The lease is a bounded cache of an already proven exact
+                # process identity. Wall time never controls reclamation.
+                owner_state = "exact"
+            else:
+                owner_state = _reservation_owner_state(
+                    payload,
+                    current_boot_id=current_boot_id,
+                )
+            if owner_state == "gone":
+                if may_mutate:
+                    target.unlink()
+                    deleted = True
+                continue
+            if (
+                owner_state == "exact"
+                and _pid == os.getpid()
+                and current_monotonic >= lease_expires_monotonic
+                and not _reservation_token_is_active(delivery_root, reservation_token)
+            ):
+                if may_mutate:
+                    target.unlink()
+                    deleted = True
+                    continue
+            if (
+                owner_state == "exact"
+                and current_monotonic >= lease_expires_monotonic
+                and may_mutate
+            ):
+                renewed = dict(payload)
+                renewed["heartbeat_monotonic"] = current_monotonic
+                renewed["lease_expires_monotonic"] = (
+                    current_monotonic + RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS
+                )
+                _atomic_write_bytes(target, encoded_json(renewed))
+            total += reserved_bytes
+        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+            # An invalid reservation cannot safely be treated as free capacity.
+            total += MAX_SESSION_EVENT_PROJECTION_BYTES
+    if deleted:
+        fsync_directory(reservation_root)
+    return total
+
+
+@contextmanager
+def runtime_delivery_capacity_reservation(
+    delivery_root: Path,
+    *,
+    reserved_bytes: int,
+) -> Iterator[None]:
+    root = Path(delivery_root).resolve()
+    requested = int(reserved_bytes)
+    if requested <= 0:
+        raise ValueError("runtime delivery reservation must be positive")
+    token = uuid4().hex
+    target = root / ".runtime-delivery-reservations" / f"{token}.json"
+    with runtime_delivery_quota_transaction(root):
+        assert_runtime_delivery_volume_capacity(root, additional_bytes=requested)
+        identity = _current_process_identity()
+        heartbeat_monotonic = float(_monotonic())
+        if not math.isfinite(heartbeat_monotonic) or heartbeat_monotonic < 0:
+            raise RuntimeDeliveryQuotaError("runtime delivery monotonic clock is invalid")
+        _atomic_write_bytes(
+            target,
+            encoded_json(
+                {
+                    "version": "cortex.runtime-delivery-reservation.v2",
+                    "token": token,
+                    **identity,
+                    "created_at": _wall_time(),
+                    "heartbeat_monotonic": heartbeat_monotonic,
+                    "lease_expires_monotonic": (
+                        heartbeat_monotonic + RUNTIME_DELIVERY_RESERVATION_TIMEOUT_SECONDS
+                    ),
+                    "reserved_bytes": requested,
+                }
+            ),
+        )
+        with _ACTIVE_RESERVATION_TOKENS_LOCK:
+            _ACTIVE_RESERVATION_TOKENS.add(_reservation_token_key(root, token))
+    try:
+        yield
+    finally:
+        try:
+            _release_runtime_delivery_reservation(root, token=token)
+        finally:
+            with _ACTIVE_RESERVATION_TOKENS_LOCK:
+                _ACTIVE_RESERVATION_TOKENS.discard(
+                    _reservation_token_key(root, token)
+                )
+
+
+def assert_runtime_delivery_capacity(
+    *,
+    delivery_root: Path,
+    store_root: Path,
+    process_id: str,
+    object_bytes: int,
+    additional_bytes: int,
+    replacing: Optional[Path] = None,
+    replacements: Optional[Sequence[Tuple[Path, int]]] = None,
+) -> None:
+    if object_bytes > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+        raise ValueError(
+            f"runtime delivery object exceeds {MAX_RUNTIME_DELIVERY_OBJECT_BYTES} bytes"
+        )
+    process = str(process_id or "").strip()
+    if not process:
+        raise ValueError("runtime delivery process_id is required for quota admission")
+    root = Path(delivery_root).resolve()
+    store = Path(store_root).resolve()
+    projected_replacements = list(replacements or [])
+    if replacing is not None:
+        projected_replacements.append((replacing, int(additional_bytes)))
+    projected_replacements = _resolved_replacements(root, projected_replacements)
+    current_replaced = sum(
+        path.stat().st_size
+        for path, _new_size in projected_replacements
+        if path.exists()
+    )
+    final_replacement_bytes = sum(new_size for _path, new_size in projected_replacements)
+    final_added = final_replacement_bytes if projected_replacements else int(additional_bytes)
+    store_usage = _usage(store)
+    projected_store = store_usage - current_replaced + final_added
+    if projected_store > MAX_RUNTIME_DELIVERY_STORE_BYTES:
+        raise ValueError("runtime delivery store quota exceeded")
+    # Process ownership is derived from exact server-owned layouts across the
+    # complete delivery root.  Canonical projections use an exact basename;
+    # rollback idempotency results use the exact SHA-256 process namespace.
+    # Explicit replacement targets cover suffix-style stores and are projected
+    # atomically even when their basename does not embed the process identity.
+    process_paths = set(_process_owned_paths(root, process))
+    process_paths.update(path for path, _new_size in projected_replacements if path.exists())
+    process_usage = sum(
+        path.stat().st_size
+        for path in process_paths
+        if path.exists() and path.is_file() and not path.is_symlink()
+    )
+    process_replaced = sum(
+        path.stat().st_size
+        for path, _new_size in projected_replacements
+        if path.exists() and path.is_file() and not path.is_symlink()
+    )
+    process_added = sum(
+        new_size
+        for _path, new_size in projected_replacements
+    ) if projected_replacements else int(additional_bytes)
+    projected_process = process_usage - process_replaced + process_added
+    if projected_process > MAX_RUNTIME_DELIVERY_PROCESS_BYTES:
+        raise ValueError("runtime delivery process quota exceeded")
+    # Atomic replacement temporarily needs the old and new object together.
+    _assert_volume_projection(root, additional_bytes=additional_bytes)
+
+
+def assert_runtime_delivery_volume_capacity(delivery_root: Path, *, additional_bytes: int) -> None:
+    root = Path(delivery_root).resolve()
+    _assert_volume_projection(root, additional_bytes=additional_bytes)
+
+
+def assert_process_count(store_root: Path, process_id: str, *, delivery_root: Optional[Path] = None) -> None:
+    process = str(process_id or "").strip()
+    if not process:
+        raise ValueError("runtime delivery process_id is required for quota admission")
+    contracts = Path(store_root) / "contracts"
+    target = contracts / f"{process}.json"
+    root = Path(delivery_root).resolve() if delivery_root is not None else Path(store_root).resolve()
+    process_ids = {
+        candidate.stem
+        for candidate in root.rglob("contracts/*.json")
+        if candidate.is_file() and not candidate.is_symlink()
+    }
+    release_root = root / "release_workflow"
+    if release_root.exists():
+        process_ids.update(
+            candidate.stem
+            for candidate in release_root.glob("*.json")
+            if candidate.is_file() and not candidate.is_symlink() and not candidate.name.startswith(".")
+        )
+    registry_target = root / ".runtime-delivery-processes.json"
+    if registry_target.exists():
+        try:
+            registry = json.loads(registry_target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("runtime delivery process registry is corrupt") from exc
+        if (
+            not isinstance(registry, dict)
+            or registry.get("version") != "cortex.runtime-delivery-processes.v1"
+            or not isinstance(registry.get("process_ids"), list)
+            or any(not isinstance(value, str) or not value for value in registry["process_ids"])
+        ):
+            raise ValueError("runtime delivery process registry is invalid")
+        process_ids.update(registry["process_ids"])
+    if process not in process_ids and len(process_ids) >= MAX_RUNTIME_DELIVERY_PROCESSES:
+        raise ValueError("runtime delivery process count exceeds immutable limit")
+    if process in process_ids and registry_target.exists():
+        return
+    process_ids.add(process)
+    encoded = encoded_json(
+        {
+            "version": "cortex.runtime-delivery-processes.v1",
+            "process_ids": sorted(process_ids),
+        },
+        pretty=True,
+    )
+    if len(encoded) > MAX_RUNTIME_DELIVERY_OBJECT_BYTES:
+        raise ValueError("runtime delivery process registry exceeds immutable object quota")
+    _assert_volume_projection(root, additional_bytes=len(encoded))
+    _atomic_write_bytes(registry_target, encoded)
+
+
+def read_recoverable_jsonl(path: Path) -> List[Dict[str, Any]]:
+    if not path.exists():
+        return []
+    raw = path.read_bytes()
+    rows: List[Dict[str, Any]] = []
+    lines = raw.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if not line.endswith(b"\n"):
+            if index == len(lines) - 1:
+                break
+            raise ValueError(f"incomplete non-final JSONL record in {path}")
+        try:
+            row = json.loads(line)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            if index == len(lines) - 1:
+                break
+            raise ValueError(f"invalid non-final JSONL record in {path}") from exc
+        if not isinstance(row, dict):
+            raise ValueError(f"JSONL record in {path} must be an object")
+        rows.append(row)
+    return rows
+
+
+def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+    durable_mkdir(path.parent)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def append_bounded_jsonl(
+    path: Path,
+    row: Dict[str, Any],
+    *,
+    max_records: int,
+    max_bytes: int,
+) -> None:
+    _atomic_write_bytes(
+        path,
+        bounded_jsonl_payload(
+            path,
+            row,
+            max_records=max_records,
+            max_bytes=max_bytes,
+        ),
+    )
+
+
+def bounded_jsonl_payload(
+    path: Path,
+    row: Dict[str, Any],
+    *,
+    max_records: int,
+    max_bytes: int,
+) -> bytes:
+    rows = read_recoverable_jsonl(path)
+    rows.append(dict(row))
+    rows = rows[-max_records:]
+    encoded_rows = [encoded_json(candidate) for candidate in rows]
+    while encoded_rows and sum(len(candidate) for candidate in encoded_rows) > max_bytes:
+        encoded_rows.pop(0)
+    if not encoded_rows:
+        raise ValueError(f"runtime delivery JSONL record exceeds {max_bytes} bytes")
+    return b"".join(encoded_rows)
+
+
+__all__ = [
+    "MAX_HISTORY_BYTES",
+    "MAX_HISTORY_RECORDS",
+    "MAX_REPORT_BYTES",
+    "MAX_REPORT_RECORDS",
+    "MAX_SESSION_EVENT_PROJECTION_BYTES",
+    "MAX_RUNTIME_DELIVERY_OBJECT_BYTES",
+    "RUNTIME_DELIVERY_RECOVERY_RESERVE_BYTES",
+    "RUNTIME_DELIVERY_RECOVERY_TRANSACTION_BYTES",
+    "RUNTIME_DELIVERY_PHYSICAL_RESERVE_FILE",
+    "RuntimeDeliveryQuotaError",
+    "append_bounded_jsonl",
+    "bounded_jsonl_payload",
+    "assert_process_count",
+    "assert_runtime_delivery_capacity",
+    "assert_runtime_delivery_volume_capacity",
+    "encoded_json",
+    "read_recoverable_jsonl",
+    "preallocate_runtime_delivery_recovery_reserve",
+    "runtime_delivery_capacity",
+    "runtime_delivery_capacity_reservation",
+    "runtime_delivery_quota_transaction",
+    "runtime_delivery_recovery_transaction",
+    "runtime_delivery_startup_recovery_transaction",
+]

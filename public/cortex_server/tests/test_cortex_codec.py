@@ -1,8 +1,11 @@
 import sys
+import time
 import types
+from concurrent.futures import ThreadPoolExecutor
 
 import cortex_server.modules.cortex_codec as codec_module
 from cortex_server.modules.cortex_codec import (
+    apply_codec_outcome_feedback_for_session,
     apply_codec_outcome_feedback,
     build_codec_state,
     compress_codec_for_prompt,
@@ -161,6 +164,129 @@ def test_session_codec_store_shares_state_and_packet(monkeypatch):
     assert packet["available"] is True
     assert "[Cortex]" in packet["packet"] or "Projects:" in packet["packet"]
     assert packet["summary"]
+
+
+def test_session_codec_store_is_isolated_by_memory_scope(monkeypatch):
+    session_key = "shared-scoped-codec-session"
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+
+    update_codec_state_for_session(
+        session_key,
+        [{"text": "Start replies with [TenantA].", "tags": ["preference"]}],
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    update_codec_state_for_session(
+        session_key,
+        [{"text": "Start replies with [TenantB].", "tags": ["preference"]}],
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+    )
+
+    tenant_a = get_codec_packet_for_session(
+        session_key,
+        max_chars=500,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    tenant_b = get_codec_packet_for_session(
+        session_key,
+        max_chars=500,
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+    )
+    default_scope = get_codec_packet_for_session(session_key, max_chars=500)
+
+    assert "TenantA" in tenant_a["packet"]
+    assert "TenantB" not in tenant_a["packet"]
+    assert "TenantB" in tenant_b["packet"]
+    assert "TenantA" not in tenant_b["packet"]
+    assert tenant_a["storage_session_key"] != tenant_b["storage_session_key"]
+    assert default_scope["available"] is False
+
+
+def test_same_session_codec_updates_are_serialized_and_versioned(monkeypatch):
+    session_key = "codec-concurrent-session"
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+    with codec_module._SESSION_CODEC_LOCK:
+        codec_module._SESSION_CODEC_STATE.pop(session_key, None)
+        codec_module._SESSION_CODEC_PERSIST.pop(session_key, None)
+        codec_module._SESSION_CODEC_ACCESS.pop(session_key, None)
+
+    initial = update_codec_state_for_session(
+        session_key,
+        [{"text": "Remember this stable Codec session.", "tags": ["preference"]}],
+    )
+    original_apply = codec_module.apply_codec_outcome_feedback
+
+    def delayed_apply(*args, **kwargs):
+        time.sleep(0.01)
+        return original_apply(*args, **kwargs)
+
+    monkeypatch.setattr(codec_module, "apply_codec_outcome_feedback", delayed_apply)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(
+            lambda index: apply_codec_outcome_feedback_for_session(
+                session_key,
+                {"status": "success", "text": f"Concurrent outcome {index} passed."},
+            ),
+            range(8),
+        ))
+
+    final_state = get_codec_state(session_key)
+
+    assert final_state["outcome_state"]["success_count"] == 8
+    assert final_state["state_revision"] == initial["state_revision"] + 8
+    assert sorted(result["state_revision"] for result in results) == list(range(2, 10))
+
+
+def test_codec_session_cache_is_capacity_and_ttl_bounded(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+    monkeypatch.setattr(codec_module, "CODEC_SESSION_CACHE_MAX", 2)
+    monkeypatch.setattr(codec_module, "CODEC_SESSION_TTL_SECONDS", 10)
+    monkeypatch.setattr(codec_module.time, "monotonic", lambda: clock[0])
+    with codec_module._SESSION_CODEC_LOCK:
+        codec_module._SESSION_CODEC_STATE.clear()
+        codec_module._SESSION_CODEC_PERSIST.clear()
+        codec_module._SESSION_CODEC_ACCESS.clear()
+        codec_module._SESSION_CODEC_EVICTIONS.update({"ttl": 0, "capacity": 0})
+
+    for index in range(3):
+        clock[0] = float(index)
+        update_codec_state_for_session(
+            f"codec-cache-{index}",
+            [{"text": f"Prefer bounded cache entry {index}.", "tags": ["preference"]}],
+        )
+
+    with codec_module._SESSION_CODEC_LOCK:
+        assert len(codec_module._SESSION_CODEC_STATE) == 2
+        assert "codec-cache-0" not in codec_module._SESSION_CODEC_STATE
+    assert codec_module._codec_cache_retention_snapshot()["evictions"]["capacity"] == 1
+
+    clock[0] = 20.0
+    retention = codec_module._codec_cache_retention_snapshot()
+
+    assert retention["active_sessions"] == 0
+    assert retention["evictions"]["ttl"] == 2
+
+
+def test_codec_hashes_oversized_session_keys_before_storage(monkeypatch):
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+    monkeypatch.setattr(codec_module, "CODEC_SESSION_KEY_MAX_CHARS", 64)
+    oversized = "tenant-controlled-" + ("x" * 500)
+
+    state = update_codec_state_for_session(
+        oversized,
+        [{"text": "Prefer normalized session storage.", "tags": ["preference"]}],
+    )
+    packet = get_codec_packet_for_session(oversized)
+
+    assert state["state_revision"] == 1
+    assert packet["available"] is True
+    assert packet["storage_session_key"].startswith("sha256:")
+    assert len(packet["storage_session_key"]) == 71
+    assert oversized not in codec_module._SESSION_CODEC_STATE
 
 
 
@@ -468,6 +594,24 @@ def test_codec_retention_policy_can_keep_high_priority_overflow(monkeypatch):
     assert "fp-important" in result["kept_fingerprints"]
     assert result["policy"]["min_priority_to_preserve"] == 7.0
     assert set(deleted) == {"id4", "id5"}
+
+
+def test_codec_durable_session_quota_prunes_oldest_sessions(monkeypatch):
+    rows = [
+        {"id": "id-new", "metadata": {"codec_session_key": "session-new"}, "generated_at": "2026-07-15T03:00:00Z"},
+        {"id": "id-middle", "metadata": {"codec_session_key": "session-middle"}, "generated_at": "2026-07-15T02:00:00Z"},
+        {"id": "id-old", "metadata": {"codec_session_key": "session-old"}, "generated_at": "2026-07-15T01:00:00Z"},
+    ]
+    deleted = []
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_MAX_SESSIONS", 2)
+    monkeypatch.setattr(codec_module, "_fetch_global_codec_rows_from_l22", lambda **kwargs: rows if not deleted else rows[:2])
+    monkeypatch.setattr(codec_module, "_delete_codec_rows_from_l22", lambda ids: deleted.extend(ids) or len(ids))
+
+    result = codec_module._prune_codec_sessions_in_l22(protected_session_key="session-new")
+
+    assert result["status"] == "pruned"
+    assert result["session_limit"] == 2
+    assert deleted == ["id-old"]
 
 
 def test_codec_fact_revision_supersedes_prior_fact():

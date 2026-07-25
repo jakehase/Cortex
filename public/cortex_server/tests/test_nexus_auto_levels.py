@@ -6,8 +6,8 @@ from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
 def _client(monkeypatch):
-    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
-    monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
@@ -20,7 +20,7 @@ def _has_level(body, level):
 
 def test_translation_auto_activation(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Translate this release note to Spanish"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Translate this release note to Spanish"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["translation_triggered"] is True
@@ -29,7 +29,7 @@ def test_translation_auto_activation(monkeypatch):
 
 def test_schedule_auto_activation(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Remind me tomorrow at 9am to send the weekly report"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Remind me tomorrow at 9am to send the weekly report"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["schedule_triggered"] is True
@@ -38,7 +38,7 @@ def test_schedule_auto_activation(monkeypatch):
 
 def test_mediation_auto_activation(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Help mediate a conflict between product and engineering"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Help mediate a conflict between product and engineering"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["mediation_triggered"] is True
@@ -47,7 +47,7 @@ def test_mediation_auto_activation(monkeypatch):
 
 def test_forecast_auto_activation(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Forecast demand for next quarter based on current trend"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Forecast demand for next quarter based on current trend"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["forecast_triggered"] is True
@@ -56,7 +56,7 @@ def test_forecast_auto_activation(monkeypatch):
 
 def test_training_auto_activation(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Create a training plan and learning path to onboard new backend engineers"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Create a training plan and learning path to onboard new backend engineers"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["training_triggered"] is True
@@ -65,7 +65,7 @@ def test_training_auto_activation(monkeypatch):
 
 def test_ethics_auto_activation(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Assess ethical and compliance risks for this AI rollout"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Assess ethical and compliance risks for this AI rollout"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["ethics_triggered"] is True
@@ -74,7 +74,7 @@ def test_ethics_auto_activation(monkeypatch):
 
 def test_rollback_planning_not_forced_incident(monkeypatch):
     client = _client(monkeypatch)
-    r = client.get("/nexus/orchestrate", params={"query": "Need architecture blueprint with rollback plan for API boundary changes"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "Need architecture blueprint with rollback plan for API boundary changes"})
     assert r.status_code == 200
     body = r.json()
     assert body["routing_markers"]["incident_triggered"] is False

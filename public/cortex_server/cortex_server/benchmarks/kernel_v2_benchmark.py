@@ -79,9 +79,9 @@ class BenchmarkHarness:
             patch.object(oracle, "_strict_micro_fast_answer", self._fake_strict_micro_fast_answer),
             patch.object(oracle, "_semantic_guardrail_response", self._fake_semantic_guardrail_response),
             patch.object(oracle, "_best_effort_answer", self._fake_best_effort_answer),
-            patch.object(nexus, "analyze_intent_with_oracle", lambda q: {"confidence": 0.0, "levels": [], "reasoning": "benchmark-stub", "method": "benchmark_stub"}),
+            patch.object(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "benchmark-stub", "method": "benchmark_stub"}),
             patch.object(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False}),
-            patch.object(nexus, "_architect_healthy", lambda: True),
+            patch.object(nexus, "_architect_healthy", lambda *_args, **_kwargs: True),
             patch.object(meta_conductor, "_probe_level", self._fake_probe_level),
         ]
         for item in self._patches:
@@ -112,7 +112,7 @@ class BenchmarkHarness:
     def _warmup(self) -> None:
         warmups = [
             ("POST", "/oracle/chat", None, None, {"prompt": "What is the capital of Texas?", "priority": "normal"}),
-            ("GET", "/nexus/orchestrate", {"query": "What is the capital of Texas?"}, {"x-session-id": "benchmark-warmup-nexus"}, None),
+            ("POST", "/nexus/orchestrate", None, {"x-session-id": "benchmark-warmup-nexus"}, {"query": "What is the capital of Texas?"}),
             ("POST", "/meta_conductor/orchestrate", None, None, {"query": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.", "target_levels": [33, 34]}),
         ]
         for method, path, params, headers, payload in warmups:
@@ -155,7 +155,17 @@ class BenchmarkHarness:
             return {"lane": "semantic_guardrail_factual", "response": "Austin."}
         return None
 
-    def _fake_best_effort_answer(self, prompt: str, system: Optional[str] = None, priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[JsonDict] = None):
+    def _fake_best_effort_answer(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        priority: Optional[str] = None,
+        depth_mode: Optional[str] = None,
+        routing_priors: Optional[JsonDict] = None,
+        adaptive_policies=None,
+        backend_policy_override: Optional[JsonDict] = None,
+        principal_scope_key: str = "benchmark-principal",
+    ):
         normalized = self._normalize(prompt)
         tail = normalized[-320:]
 

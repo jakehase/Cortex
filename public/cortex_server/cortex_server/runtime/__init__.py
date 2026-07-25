@@ -1,8 +1,8 @@
-from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
+from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage, agent_acknowledgement_signature
 from cortex_server.runtime.agent_work_dsl import AgentWorkPermissions, AgentWorkSurface, CortexAgentWorkHandoff, compile_handoff_to_agent_work_spec
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.context_views import HandoffContextView, WorkingContextView, compile_handoff_context_view, compile_working_context_view, revision_guard
-from cortex_server.runtime.dependability import UNATTENDED_PROFILES, build_unattended_profile, compile_dependability_repair_plan, compile_dependability_report, load_dependability_report
+from cortex_server.runtime.dependability import UNATTENDED_PROFILES, build_unattended_profile, compile_dependability_repair_plan, compile_dependability_report, load_dependability_report, unattended_profile_digest
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
@@ -64,6 +64,7 @@ from cortex_server.runtime.roadmap_executor import (
     reconcile_roadmap_execution,
 )
 from cortex_server.runtime.release_workflow import (
+    ReleaseArtifactReceipt,
     ReleaseRollbackFencepost,
     ReleaseWorkflowHistoryRecord,
     ReleaseWorkflowState,
@@ -76,6 +77,7 @@ from cortex_server.runtime.release_workflow import (
     evaluate_release_promotion_gate,
     record_release_fencepost,
     record_release_handoff,
+    record_release_artifact_receipt,
     repair_release_workflow,
     rollback_release_workflow,
 )
@@ -86,6 +88,7 @@ __all__ = [
     "AgentLease",
     "AgentMailbox",
     "AgentMessage",
+    "agent_acknowledgement_signature",
     "AgentWorkPermissions",
     "AgentWorkSurface",
     "AgentSupervisor",
@@ -146,6 +149,7 @@ __all__ = [
     "session_plane_blocker_entry",
     "session_plane_is_blocking",
     "ReleaseRollbackFencepost",
+    "ReleaseArtifactReceipt",
     "ReleaseWorkflowHistoryRecord",
     "ReleaseWorkflowState",
     "ReleaseWorkflowStore",
@@ -182,6 +186,7 @@ __all__ = [
     "evaluate_release_promotion_gate",
     "record_release_fencepost",
     "record_release_handoff",
+    "record_release_artifact_receipt",
     "compile_operator_summary",
     "reconcile_production_build_loop",
     "reconcile_roadmap_execution",
@@ -194,5 +199,6 @@ __all__ = [
     "normalize_session_event",
     "detect_stale_revision",
     "load_dependability_report",
+    "unattended_profile_digest",
     "load_runtime_resume_state",
 ]

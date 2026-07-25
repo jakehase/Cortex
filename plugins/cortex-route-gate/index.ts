@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 type RouteLevel = { level: number; name?: string; reason?: string; method?: string; score?: number };
+type LiveRouteLevel = RouteLevel & { always_on?: boolean };
 type RoutePlan = {
   recommendedLevels: RouteLevel[];
   routingMethod?: string;
@@ -65,8 +67,140 @@ type PendingCreativitySuppression = {
 
 type LastGoodRoutePlan = {
   savedAt: string;
+  provenance: string;
+  scopeTag: string;
   plan: RoutePlan;
+  tag: string;
 };
+
+type PrincipalStatePaths = {
+  scopeTag: string;
+  root: string;
+  stats: string;
+  history: string;
+  promptHistory: string;
+  creativityRetry: string;
+  creativityMetrics: string;
+  privateRetrievalShadowTelemetry: string;
+  lastGoodPlan: string;
+};
+
+type PrivateRetrievalShadowMarker = {
+  schemaVersion: string;
+  mode: 'observe_only';
+  enabled: boolean;
+  killSwitch: boolean;
+  eligible: boolean;
+  selectionReason: string;
+  factClass: string;
+  answerInfluence: false;
+  candidateContentExposed: false;
+  scheduled: boolean;
+  observationId?: string;
+};
+
+const ALLOWED_CORTEX_LEVELS = new Set(Array.from({ length: 38 }, (_, index) => index + 1));
+const ROUTE_PLAN_KEYS = new Set(['recommendedLevels', 'routingMethod', 'reasoning', 'routingError', 'routingMarkers', 'workflowCheckpoint']);
+const ROUTE_LEVEL_KEYS = new Set(['level', 'name', 'reason', 'method', 'score']);
+const LIVE_ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_KEYS, 'always_on']);
+const CHECKPOINT_KEYS = new Set(['checkpoint_id', 'state_machine', 'current_state', 'retry_policy', 'levels', 'durable_store']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+function hasOnlyKeys(value: Record<string, unknown>, allowed: Set<string>): boolean {
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+function isBoundedString(value: unknown, maxLength = 8_192, allowEmpty = true): value is string {
+  return typeof value === 'string' && value.length <= maxLength && (allowEmpty || value.length > 0);
+}
+function isJsonMetadata(value: unknown, depth = 0): boolean {
+  if (value === null || typeof value === 'boolean') return true;
+  if (typeof value === 'string') return value.length <= 16_384;
+  if (typeof value === 'number') return Number.isFinite(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER;
+  if (depth >= 8) return false;
+  if (Array.isArray(value)) return value.length <= 128 && value.every((item) => isJsonMetadata(item, depth + 1));
+  if (!isRecord(value) || Object.keys(value).length > 128) return false;
+  return Object.entries(value).every(([key, item]) => key.length <= 256 && isJsonMetadata(item, depth + 1));
+}
+function isWorkflowCheckpoint(value: unknown): boolean {
+  if (!isRecord(value) || !hasOnlyKeys(value, CHECKPOINT_KEYS)) return false;
+  if (!isBoundedString(value.checkpoint_id, 128, false)) return false;
+  if (!Array.isArray(value.state_machine) || value.state_machine.length < 1 || value.state_machine.length > 32 || !value.state_machine.every((item) => isBoundedString(item, 128, false))) return false;
+  if (!isBoundedString(value.current_state, 128, false) || !isBoundedString(value.durable_store, 4_096, false)) return false;
+  if (!isRecord(value.retry_policy) || !hasOnlyKeys(value.retry_policy, new Set(['max_attempts', 'backoff_ms']))) return false;
+  const maxAttempts = value.retry_policy.max_attempts;
+  const backoffMs = value.retry_policy.backoff_ms;
+  if (!Number.isInteger(maxAttempts) || (maxAttempts as number) < 0 || (maxAttempts as number) > 100) return false;
+  if (!Number.isInteger(backoffMs) || (backoffMs as number) < 0 || (backoffMs as number) > 3_600_000) return false;
+  return Array.isArray(value.levels) && value.levels.length <= 38
+    && value.levels.every((level) => Number.isInteger(level) && ALLOWED_CORTEX_LEVELS.has(level as number));
+}
+function isRouteLevel(value: unknown): value is RouteLevel {
+  if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_LEVEL_KEYS)) return false;
+  if (!Number.isInteger(value.level) || !ALLOWED_CORTEX_LEVELS.has(value.level as number)) return false;
+  for (const field of ['name', 'reason', 'method'] as const) {
+    if (value[field] !== undefined && !isBoundedString(value[field], 4_096)) return false;
+  }
+  return value.score === undefined || (typeof value.score === 'number' && Number.isFinite(value.score) && value.score >= 0 && value.score <= 1);
+}
+function isLiveRouteLevel(value: unknown): value is LiveRouteLevel {
+  if (!isRecord(value) || !hasOnlyKeys(value, LIVE_ROUTE_LEVEL_KEYS)) return false;
+  const { always_on: alwaysOn, ...routeLevel } = value;
+  return (alwaysOn === undefined || typeof alwaysOn === 'boolean') && isRouteLevel(routeLevel);
+}
+function isRoutePlan(value: unknown): value is RoutePlan {
+  if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_PLAN_KEYS)) return false;
+  if (!Array.isArray(value.recommendedLevels) || value.recommendedLevels.length < 1 || value.recommendedLevels.length > 64 || !value.recommendedLevels.every(isRouteLevel)) return false;
+  if (value.routingMethod !== undefined && !isBoundedString(value.routingMethod, 1_024)) return false;
+  if (value.routingError !== undefined && !isBoundedString(value.routingError, 8_192)) return false;
+  if (value.reasoning !== undefined && (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item)))) return false;
+  if (value.routingMarkers !== undefined && (!isRecord(value.routingMarkers) || !isJsonMetadata(value.routingMarkers))) return false;
+  return value.workflowCheckpoint === undefined || isWorkflowCheckpoint(value.workflowCheckpoint);
+}
+function isLastGoodRoutePlan(value: unknown): value is LastGoodRoutePlan {
+  return isRecord(value)
+    && hasOnlyKeys(value, new Set(['savedAt', 'provenance', 'scopeTag', 'plan', 'tag']))
+    && isBoundedString(value.savedAt, 64, false)
+    && isBoundedString(value.provenance, 2_048, false)
+    && typeof value.scopeTag === 'string'
+    && /^[0-9a-f]{64}$/.test(value.scopeTag)
+    && typeof value.tag === 'string'
+    && /^[0-9a-f]{64}$/.test(value.tag)
+    && isRoutePlan(value.plan);
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
+}
+
+function cachePayload(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'scopeTag' | 'plan'>): string {
+  return canonicalJson({ savedAt: cache.savedAt, provenance: cache.provenance, scopeTag: cache.scopeTag, plan: cache.plan });
+}
+
+function signRouteCache(cache: Pick<LastGoodRoutePlan, 'savedAt' | 'provenance' | 'scopeTag' | 'plan'>, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(cachePayload(cache), 'utf8').digest('hex');
+}
+
+function verifyRouteCache(cache: unknown, secret: string | null): cache is LastGoodRoutePlan {
+  if (!secret || !isLastGoodRoutePlan(cache)) return false;
+  const supplied = Buffer.from(cache.tag, 'hex');
+  const expected = Buffer.from(signRouteCache(cache, secret), 'hex');
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+function liveRouteLevels(value: unknown): LiveRouteLevel[] | null {
+  if (!isRecord(value)) return null;
+  const levels = value.recommended_levels ?? value.recommended;
+  if (!Array.isArray(levels) || levels.length < 1 || levels.length > 64 || !levels.every(isLiveRouteLevel)) return null;
+  if (value.routing_method !== undefined && !isBoundedString(value.routing_method, 1_024)) return null;
+  if (value.reasoning !== undefined && (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item)))) return null;
+  if (value.routing_markers !== undefined && (!isRecord(value.routing_markers) || !isJsonMetadata(value.routing_markers))) return null;
+  if (value.workflow_checkpoint !== undefined && !isWorkflowCheckpoint(value.workflow_checkpoint)) return null;
+  return levels;
+}
 
 type RunState = {
   prompt: string;
@@ -76,15 +210,61 @@ type RunState = {
   startedAt: number;
   toolCalls: { toolName: string; ok: boolean; durationMs?: number; error?: string }[];
   observedSignals: string[];
+  privateRetrievalShadow?: PrivateRetrievalShadowMarker;
+  outputObserved: boolean;
   selfModel?: CapabilitySelfModel;
   predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
   creativity?: CreativityProfile;
   creativityAudit?: CreativityAudit;
+  statePaths: PrincipalStatePaths;
 };
 
+function privateRetrievalShadowMarker(plan: RoutePlan): PrivateRetrievalShadowMarker | undefined {
+  const value = plan.routingMarkers?.private_retrieval_shadow;
+  const allowedReasons = new Set([
+    'disabled', 'kill_switch', 'empty_query', 'query_too_large', 'sensitive_lookup_blocked',
+    'action_or_generation_request', 'external_volatile_lookup', 'not_fact_lookup', 'no_private_anchor',
+    'selective_private_fact_lookup', 'principal_rate_limited', 'global_capacity_limited',
+    'executor_unavailable', 'observer_unavailable',
+  ]);
+  const allowedFactClasses = new Set(['unknown', 'private_fact', 'preference', 'prior_decision', 'project_state', 'operational_setting']);
+  if (!isRecord(value) || value.mode !== 'observe_only' || value.answerInfluence !== false || value.candidateContentExposed !== false) return undefined;
+  if (value.schemaVersion !== 'cortex.private_retrieval_shadow.v1' || typeof value.enabled !== 'boolean' || typeof value.killSwitch !== 'boolean') return undefined;
+  if (typeof value.eligible !== 'boolean' || typeof value.scheduled !== 'boolean') return undefined;
+  if (typeof value.selectionReason !== 'string' || !allowedReasons.has(value.selectionReason)) return undefined;
+  if (typeof value.factClass !== 'string' || !allowedFactClasses.has(value.factClass)) return undefined;
+  if (value.observationId !== undefined && (typeof value.observationId !== 'string' || !/^[0-9a-f]{32}$/.test(value.observationId))) return undefined;
+  if (value.scheduled !== (typeof value.observationId === 'string') || (value.scheduled && !value.eligible)) return undefined;
+  return {
+    schemaVersion: value.schemaVersion,
+    mode: 'observe_only',
+    enabled: value.enabled,
+    killSwitch: value.killSwitch,
+    eligible: value.eligible,
+    selectionReason: value.selectionReason,
+    factClass: value.factClass,
+    answerInfluence: false,
+    candidateContentExposed: false,
+    scheduled: value.scheduled,
+    ...(typeof value.observationId === 'string' ? { observationId: value.observationId } : {}),
+  };
+}
+
+function routePlanForCache(plan: RoutePlan): RoutePlan {
+  if (!plan.routingMarkers?.private_retrieval_shadow) return plan;
+  const routingMarkers = { ...plan.routingMarkers };
+  delete routingMarkers.private_retrieval_shadow;
+  return { ...plan, routingMarkers };
+}
+
 function normalizeBaseUrl(value: unknown): string {
-  const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:18888';
+  const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:8888';
   return text.endsWith('/') ? text.slice(0, -1) : text;
+}
+function normalizeWriteTokenHeader(value: unknown): string {
+  if (value === undefined) return 'x-cortex-write-token';
+  if (typeof value !== 'string' || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(value)) throw new Error('invalid Cortex write-token header name');
+  return value.toLowerCase();
 }
 function asBool(value: unknown, fallback: boolean): boolean { return typeof value === 'boolean' ? value : fallback; }
 function asNumber(value: unknown, fallback: number): number { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
@@ -186,19 +366,21 @@ function tailIntentText(prompt: string): string {
   const tokens = normalizePrompt(prompt).split(' ').filter(Boolean);
   return tokens.slice(-48).join(' ').trim();
 }
-function isOracleExecutorPrompt(prompt: string): boolean {
-  const normalized = normalizePrompt(prompt);
-  return normalized.includes('host-side oracle executor for cortex')
-    || normalized.includes('return only the answer text that oracle should say');
-}
 function isInternalOracleSession(sessionKey: string): boolean {
   const key = String(sessionKey || '').trim().toLowerCase();
   return key.startsWith('oracle-prod-bridge-short-')
     || key.startsWith('oracle-prod-bridge-general-')
     || key.startsWith('oracle-gateway-');
 }
-function shouldBypassRouteGate(prompt: string, sessionKey?: string): boolean {
-  return isInternalOracleSession(String(sessionKey || '')) || isOracleExecutorPrompt(prompt);
+function shouldBypassRouteGate(sessionKey?: string): boolean {
+  return isInternalOracleSession(String(sessionKey || ''));
+}
+function opaqueSessionIdentity(sessionKey: string, secret: string | null): string {
+  const key = String(sessionKey || '').trim();
+  if (!key) throw new Error('routing requires a non-empty trusted session identity');
+  if (!secret) throw new Error('routing requires a keyed session identity secret');
+  const digest = crypto.createHmac('sha256', secret).update(key, 'utf8').digest('hex');
+  return `openclaw-${digest}`;
 }
 function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, eligible = true): CreativityProfile {
   const focus = intentText.trim();
@@ -334,14 +516,33 @@ function uniqueLevels(levels: RouteLevel[]): RouteLevel[] {
   }
   return out;
 }
-async function postJson(url: string, body: unknown, timeoutMs: number): Promise<any> {
+
+function normalizeLiveLevels(levels: RouteLevel[]): RouteLevel[] {
+  const mandatory: RouteLevel[] = [
+    { level: 24, name: 'Nexus', reason: 'mandatory upstream routing' },
+    { level: 5, name: 'Oracle', reason: 'baseline reasoning' },
+  ];
+  const deduplicated = uniqueLevels(levels);
+  const byLevel = new Map(deduplicated.map((item) => [item.level, item]));
+  const nonMandatory = deduplicated.filter((item) => item.level !== 24 && item.level !== 5);
+  return [byLevel.get(24) || mandatory[0], ...nonMandatory.slice(0, 62), byLevel.get(5) || mandatory[1]];
+}
+async function postJson(url: string, body: unknown, timeoutMs: number, maxResponseBytes = 1_048_576, writeHeaders: Record<string, string> = {}): Promise<any> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal,
+      method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify(body), signal: ctrl.signal,
     });
-    const text = await res.text();
+    const declared = Number(res.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maxResponseBytes) {
+      try { void res.body?.cancel().catch(() => {}); } catch {}
+      throw new Error(`response exceeds ${maxResponseBytes} bytes`);
+    }
+    const reader = res.body?.getReader(); let size = 0; const chunks: Uint8Array[] = [];
+    if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > maxResponseBytes) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${maxResponseBytes} bytes`); } chunks.push(value); }
+    const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const text = new TextDecoder().decode(bytes);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
     return text ? JSON.parse(text) : {};
   } finally { clearTimeout(t); }
@@ -358,9 +559,284 @@ function classifyTask(prompt: string): string {
 function loadJson<T>(targetPath: string, fallback: T): T {
   try { return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as T; } catch { return fallback; }
 }
-function saveJson(targetPath: string, value: unknown) {
+type LockOwner = { version: 1; pid: number; startIdentity: string; token: string; createdAt: string };
+type LockContender = LockOwner & { ticket: number | null };
+const MALFORMED_LOCK_GRACE_MS = 30_000;
+function processStartIdentity(pid: number): string | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    const fields = stat.slice(close + 2).split(' ');
+    return fields[19] || null;
+  } catch { return null; }
+}
+function processIsAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error: any) { return error?.code === 'EPERM'; }
+}
+function parseLockOwner(text: string): LockOwner | null {
+  try {
+    const value = JSON.parse(text);
+    return isRecord(value) && value.version === 1 && Number.isInteger(value.pid) && (value.pid as number) > 0
+      && isBoundedString(value.startIdentity, 256, false) && isBoundedString(value.token, 256, false)
+      && isBoundedString(value.createdAt, 64, false) ? value as LockOwner : null;
+  } catch {
+    const [pidText, createdText] = text.trim().split(/\s+/);
+    const pid = Number(pidText);
+    return Number.isInteger(pid) && pid > 0 && Number.isFinite(Number(createdText))
+      ? { version: 1, pid, startIdentity: '', token: `legacy:${pidText}:${createdText}`, createdAt: new Date(Number(createdText)).toISOString() }
+      : null;
+  }
+}
+function ownerIsDefinitelyStale(owner: LockOwner): boolean {
+  if (!processIsAlive(owner.pid)) return true;
+  if (!owner.startIdentity) return false;
+  const actualIdentity = processStartIdentity(owner.pid);
+  return actualIdentity !== null && actualIdentity !== owner.startIdentity;
+}
+function unlinkIfOwned(lock: string, token: string): boolean {
+  try {
+    const owner = parseLockOwner(fs.readFileSync(lock, 'utf8'));
+    if (!owner || owner.token !== token) return false;
+    fs.unlinkSync(lock);
+    return true;
+  } catch { return false; }
+}
+function malformedLockIsStale(lock: string): boolean {
+  try {
+    const first = fs.statSync(lock);
+    if (Date.now() - first.mtimeMs < MALFORMED_LOCK_GRACE_MS) return false;
+    if (parseLockOwner(fs.readFileSync(lock, 'utf8'))) return false;
+    const second = fs.statSync(lock);
+    return first.dev === second.dev && first.ino === second.ino
+      && first.size === second.size && first.mtimeMs === second.mtimeMs;
+  } catch { return false; }
+}
+function malformedContenderIsStale(entry: string): boolean {
+  try {
+    const first = fs.statSync(entry);
+    if (Date.now() - first.mtimeMs < MALFORMED_LOCK_GRACE_MS) return false;
+    const second = fs.statSync(entry);
+    return first.dev === second.dev && first.ino === second.ino
+      && first.size === second.size && first.mtimeMs === second.mtimeMs;
+  } catch { return false; }
+}
+function createCompleteLock(lock: string): { fd: number; owner: LockOwner } {
+  const owner: LockOwner = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: processStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: crypto.randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+  };
+  const temporary = `${lock}.${process.pid}.${owner.token}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx');
+    fs.writeFileSync(fd, JSON.stringify(owner));
+    fs.fsyncSync(fd);
+    // Publishing a hard link is exclusive and atomic: readers can only observe
+    // either no lock or the complete, fsynced owner record.
+    fs.linkSync(temporary, lock);
+    // The temporary name is only cleanup after the lock has been published;
+    // failure to remove that alias must not abandon the live lock.
+    try { fs.unlinkSync(temporary); } catch {}
+    return { fd, owner };
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+function sleepForLock(): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+}
+function publishContender(guard: string, contender: LockContender): string {
+  const entry = path.join(guard, `${contender.pid}-${contender.token}`);
+  const temporary = `${entry}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temporary, 'wx');
+    fs.writeFileSync(fd, JSON.stringify(contender));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(temporary, entry);
+    return entry;
+  } catch (error) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+function readContenders(guard: string): Array<{ path: string; owner: LockContender | null; staleMalformed: boolean }> {
+  const result: Array<{ path: string; owner: LockContender | null; staleMalformed: boolean }> = [];
+  for (const name of fs.readdirSync(guard)) {
+    if (name.endsWith('.tmp')) continue;
+    const entry = path.join(guard, name);
+    let text = '';
+    try { text = fs.readFileSync(entry, 'utf8'); } catch { continue; }
+    const parsed = parseLockOwner(text) as LockContender | null;
+    let ticket: unknown;
+    try { const raw = JSON.parse(text); ticket = isRecord(raw) ? raw.ticket : undefined; } catch {}
+    const owner = parsed && (ticket === null || (Number.isSafeInteger(ticket) && (ticket as number) > 0))
+      ? { ...parsed, ticket: ticket as number | null } : null;
+    result.push({
+      path: entry,
+      owner,
+      staleMalformed: !owner && malformedContenderIsStale(entry),
+    });
+  }
+  return result;
+}
+function acquireReclamationGuard(lock: string, deadline: number): { entry: string; owner: LockContender } {
+  const guard = `${lock}.guard`;
+  fs.mkdirSync(guard, { recursive: true });
+  const base: LockContender = {
+    version: 1,
+    pid: process.pid,
+    startIdentity: processStartIdentity(process.pid) || `runtime:${process.pid}`,
+    token: crypto.randomBytes(24).toString('hex'),
+    createdAt: new Date().toISOString(),
+    ticket: null,
+  };
+  const entry = publishContender(guard, base);
+  try {
+    let maxTicket = 0;
+    for (const contender of readContenders(guard)) {
+      if (contender.path === entry) continue;
+      if (contender.owner && ownerIsDefinitelyStale(contender.owner)) unlinkIfOwned(contender.path, contender.owner.token);
+      else if (!contender.owner && contender.staleMalformed) try { fs.unlinkSync(contender.path); } catch {}
+      else if (contender.owner?.ticket) maxTicket = Math.max(maxTicket, contender.owner.ticket);
+    }
+    const owner = { ...base, ticket: maxTicket + 1 };
+    const replacement = `${entry}.ticket`;
+    fs.writeFileSync(replacement, JSON.stringify(owner), { flag: 'wx' });
+    fs.renameSync(replacement, entry);
+    while (true) {
+      let blocked = false;
+      for (const contender of readContenders(guard)) {
+        if (contender.path === entry) continue;
+        if (contender.owner && ownerIsDefinitelyStale(contender.owner)) { unlinkIfOwned(contender.path, contender.owner.token); continue; }
+        if (!contender.owner && contender.staleMalformed) { try { fs.unlinkSync(contender.path); } catch {}; continue; }
+        if (!contender.owner || contender.owner.ticket === null
+          || contender.owner.ticket < owner.ticket
+          || (contender.owner.ticket === owner.ticket && contender.owner.token < owner.token)) blocked = true;
+      }
+      if (!blocked) return { entry, owner };
+      if (Date.now() >= deadline) throw new Error(`timed out acquiring state lock ${lock}`);
+      sleepForLock();
+    }
+  } catch (error) {
+    unlinkIfOwned(entry, base.token);
+    throw error;
+  }
+}
+function withFileLock<T>(targetPath: string, transaction: () => T): T {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, JSON.stringify(value, null, 2));
+  const lock = `${targetPath}.lock`;
+  const deadline = Date.now() + 5_000;
+  const guard = acquireReclamationGuard(lock, deadline);
+  let lockFd: number | undefined;
+  let owner: LockOwner | undefined;
+  try { while (lockFd === undefined) {
+    try {
+      ({ fd: lockFd, owner } = createCompleteLock(lock));
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      try {
+        const existing = parseLockOwner(fs.readFileSync(lock, 'utf8'));
+        if (existing && ownerIsDefinitelyStale(existing)) unlinkIfOwned(lock, existing.token);
+        else if (!existing && malformedLockIsStale(lock)) fs.unlinkSync(lock);
+      } catch {}
+      if (Date.now() >= deadline) throw new Error(`timed out acquiring state lock ${lock}`);
+      sleepForLock();
+    }
+  }
+    return transaction();
+  } finally {
+    if (lockFd !== undefined) fs.closeSync(lockFd);
+    if (owner) unlinkIfOwned(lock, owner.token);
+    unlinkIfOwned(guard.entry, guard.owner.token);
+  }
+}
+
+function reclaimWriteTemporaries(targetPath: string): void {
+  const directory = path.dirname(targetPath);
+  const basename = path.basename(targetPath).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const temporaryName = new RegExp(`^${basename}\\.\\d+\\.\\d+\\.tmp$`);
+  const flags = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
+  let dirFd: number | undefined;
+  try {
+    const named = fs.lstatSync(directory);
+    if (!named.isDirectory()) {
+      throw new Error(`state directory changed while reclaiming temporary files for ${targetPath}`);
+    }
+    let opened = named;
+    let reclamationDirectory = directory;
+    try {
+      dirFd = fs.openSync(directory, flags);
+      opened = fs.fstatSync(dirFd);
+      if (!opened.isDirectory() || opened.dev !== named.dev || opened.ino !== named.ino) {
+        throw new Error(`state directory changed while reclaiming temporary files for ${targetPath}`);
+      }
+      const procDirectory = `/proc/self/fd/${dirFd}`;
+      try {
+        const procStat = fs.statSync(procDirectory);
+        if (!procStat.isDirectory() || procStat.dev !== opened.dev || procStat.ino !== opened.ino) throw new Error('directory descriptor identity mismatch');
+        reclamationDirectory = procDirectory;
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+        // Non-Linux platforms do not expose directory descriptors through /proc.
+      }
+    } catch (error: any) {
+      if (dirFd !== undefined || process.platform !== 'win32' || !['EISDIR', 'EPERM', 'EINVAL', 'ENOTSUP'].includes(error?.code)) throw error;
+      // Windows cannot open a directory as a file descriptor. The named path
+      // is revalidated before every deletion below.
+    }
+    for (const name of fs.readdirSync(reclamationDirectory)) {
+      if (!temporaryName.test(name)) continue;
+      if (reclamationDirectory === directory) {
+        const current = fs.lstatSync(directory);
+        if (!current.isDirectory() || current.dev !== opened.dev || current.ino !== opened.ino) {
+          throw new Error(`state directory changed while reclaiming temporary files for ${targetPath}`);
+        }
+      }
+      try { fs.unlinkSync(path.join(reclamationDirectory, name)); } catch (error: any) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    }
+  } finally {
+    if (dirFd !== undefined) fs.closeSync(dirFd);
+  }
+}
+
+function writeJsonAtomic(targetPath: string, value: unknown) {
+  reclaimWriteTemporaries(targetPath);
+  const tmp = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    const fd = fs.openSync(tmp, 'wx', 0o600);
+    try { fs.writeFileSync(fd, JSON.stringify(value, null, 2)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, targetPath);
+    fs.chmodSync(targetPath, 0o600);
+    if (process.platform !== 'win32') {
+      const dirFd = fs.openSync(path.dirname(targetPath), 'r');
+      try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    }
+  } finally {
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
+
+function saveJson(targetPath: string, value: unknown) {
+  withFileLock(targetPath, () => writeJsonAtomic(targetPath, value));
+}
+function updateJson<T, R>(targetPath: string, fallback: T, mutate: (value: T) => R): R {
+  return withFileLock(targetPath, () => {
+    const value = loadJson(targetPath, fallback);
+    const result = mutate(value);
+    writeJsonAtomic(targetPath, value);
+    return result;
+  });
 }
 function buildFailureModes(prompt: string, plan: RoutePlan): string[] {
   const task = classifyTask(prompt);
@@ -382,9 +858,12 @@ function loadStats(statsPath: string): RouteStats {
   } catch {}
   return { version: 1, updatedAt: nowIso(), byLevel: {}, byTask: {} };
 }
-function saveStats(statsPath: string, stats: RouteStats) {
-  fs.mkdirSync(path.dirname(statsPath), { recursive: true });
-  fs.writeFileSync(statsPath, JSON.stringify({ ...stats, updatedAt: nowIso() }, null, 2));
+function updateStats(statsPath: string, mutate: (stats: RouteStats) => void) {
+  withFileLock(statsPath, () => {
+    const stats = loadStats(statsPath);
+    mutate(stats);
+    writeJsonAtomic(statsPath, { ...stats, updatedAt: nowIso() });
+  });
 }
 function scoreLevel(level: RouteLevel, stats: RouteStats, taskClass: string): number {
   const base = typeof level.score === 'number' ? level.score : 0.5;
@@ -537,33 +1016,157 @@ export default function register(api: any) {
   const cfg = api.pluginConfig || api.config || {};
   if (!asBool(cfg.enabled, true)) return;
 
+  const sessionIdentityHmacSecret = typeof cfg.sessionIdentityHmacSecret === 'string' && cfg.sessionIdentityHmacSecret.trim().length > 0
+    ? String(cfg.sessionIdentityHmacSecret)
+    : null;
+  if (!sessionIdentityHmacSecret) {
+    throw new Error('cortex-route-gate requires an explicitly provisioned keyed session identity secret (sessionIdentityHmacSecret) shared with cortex-memory-bridge');
+  }
+
   const baseUrl = normalizeBaseUrl(cfg.baseUrl);
   const requireRouting = asBool(cfg.requireRouting, true);
   const timeoutMs = asNumber(cfg.timeoutMs, 8000);
+  const maxResponseBytes = asNumber(cfg.maxResponseBytes, 1_048_576);
+  const maxRoutingPromptBytes = asNumber(cfg.maxRoutingPromptBytes, 262_144);
+  const writeToken = typeof cfg.writeToken === 'string' && cfg.writeToken.length > 0 ? String(cfg.writeToken) : null;
+  const writeTokenHeader = normalizeWriteTokenHeader(cfg.writeTokenHeader);
+  const writeHeaders = writeToken ? { [writeTokenHeader]: writeToken } : {};
+  const configuredTenantId = typeof cfg.tenantId === 'string' && cfg.tenantId.trim() ? cfg.tenantId.trim() : '';
+  const configuredWorkspaceId = typeof cfg.workspaceId === 'string' && cfg.workspaceId.trim() ? cfg.workspaceId.trim() : '';
+  const scopeCredentialId = typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '';
+  const scopeHmacSecret = typeof cfg.scopeHmacSecret === 'string' ? String(cfg.scopeHmacSecret) : '';
+  const hasScopeCredentialId = scopeCredentialId.length > 0;
+  const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
+  const allowUnsignedLocalDevelopment = cfg.allowUnsignedLocalDevelopment === true;
+  const preferConfiguredUserId = cfg.preferConfiguredUserId === true;
+  // Tenant/workspace are instance configuration, while agent/user/channel and
+  // session are per-callback identities. Local instance defaults remain valid.
+  const tenantId = configuredTenantId || 'cortex-local';
+  const workspaceId = configuredWorkspaceId || 'default';
+  const boundedOpaqueId = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
+  if (hasScopeCredentialId !== hasScopeHmacSecret) {
+    throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret together');
+  }
+  if (hasScopeCredentialId && !boundedOpaqueId.test(scopeCredentialId)) {
+    throw new Error('cortex-route-gate scopeCredentialId must be a bounded opaque identifier');
+  }
+  if (!hasScopeCredentialId) {
+    if (!allowUnsignedLocalDevelopment) {
+      throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
+    }
+    if (tenantId !== 'cortex-local' || workspaceId !== 'default') {
+      throw new Error('cortex-route-gate allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
+    }
+  }
+  if (!writeToken && !allowUnsignedLocalDevelopment) {
+    throw new Error('cortex-route-gate requires writeToken outside explicit unsigned local development');
+  }
+  const maxCachedPlanAgeMs = asNumber(cfg.maxCachedPlanAgeMs, 300_000);
+  // Capture once at construction so later mutation of the caller-owned config cannot change trust.
+  const routeCacheHmacSecret = typeof cfg.routeCacheHmacSecret === 'string' && cfg.routeCacheHmacSecret.length > 0
+    ? String(cfg.routeCacheHmacSecret)
+    : null;
   const maxLevels = asNumber(cfg.maxLevels, 10);
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
   const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);
   const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
   const creativityAuditEnabled = asBool(cfg.creativityAuditEnabled, true);
   const creativityAuditOverlapThreshold = asNumber(cfg.creativityAuditOverlapThreshold, 0.34);
+  const privateRetrievalShadowTelemetryEnabled = asBool(cfg.privateRetrievalShadowTelemetryEnabled, true);
+  const privateRetrievalShadowTelemetryMaxRecords = clamp(Math.trunc(asNumber(cfg.privateRetrievalShadowTelemetryMaxRecords, 1_000)), 10, 10_000);
+  const oracleSessionQuarantineEnabled = asBool(cfg.oracleSessionQuarantineEnabled, false);
   const oracleSessionResetBytes = asNumber(cfg.oracleSessionResetBytes, 500_000);
   const oracleSessionDir = typeof cfg.oracleSessionDir === 'string' && cfg.oracleSessionDir.trim()
     ? cfg.oracleSessionDir.trim()
     : path.join(process.env.HOME || '/root', '.openclaw', 'agents', 'main', 'sessions');
   const stateDir = typeof cfg.stateDir === 'string' && cfg.stateDir.trim() ? cfg.stateDir.trim() : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-route-gate');
-  const statsPath = path.join(stateDir, 'adaptive-routing-stats.json');
-  const historyPath = path.join(stateDir, 'prompt-fingerprints.json');
-  const promptHistoryPath = path.join(stateDir, 'prompt-history.json');
-  const creativityRetryPath = path.join(stateDir, 'creativity-retry.json');
-  const creativityMetricsPath = path.join(stateDir, 'creativity-metrics.json');
-  const lastGoodPlanPath = path.join(stateDir, 'last-good-plan.json');
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
 
-  function quarantineOversizedOracleSessions() {
-    if (!oracleSessionResetBytes || oracleSessionResetBytes < 1024) return;
+  function principalState(ctx: any, rawSessionKey: string): { scope: Record<string, string>; sessionIdentity: string; statePaths: PrincipalStatePaths; stateKey: string } {
+    if (!rawSessionKey.trim()) throw new Error('routing requires a non-empty trusted session identity from the callback');
+    const sessionIdentity = opaqueSessionIdentity(rawSessionKey, sessionIdentityHmacSecret);
+    const scope = {
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      // Current OpenClaw prompt hooks do not always expose requesterSenderId.
+      // Fixed configured fallbacks are trusted deployment policy; callback
+      // identity still takes precedence whenever the runtime supplies it.
+      agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
+      user_id: String(
+        preferConfiguredUserId
+          ? (cfg.userId || ctx?.userId || ctx?.requesterSenderId)
+          : (ctx?.userId || ctx?.requesterSenderId || cfg.userId),
+      ).trim(),
+      channel_id: String(ctx?.channelId || ctx?.messageChannel || cfg.channelId || '').trim(),
+      session_id: sessionIdentity,
+    };
+    if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {
+      throw new Error('routing requires a complete bounded trusted Cortex principal');
+    }
+    const canonicalScope = [scope.tenant_id, scope.workspace_id, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n');
+    const scopeTag = crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.state.v1\n${canonicalScope}`, 'utf8').digest('hex');
+    const root = path.join(stateDir, 'principals', scopeTag);
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    fs.chmodSync(root, 0o700);
+    const statePaths: PrincipalStatePaths = {
+      scopeTag,
+      root,
+      stats: path.join(root, 'adaptive-routing-stats.json'),
+      history: path.join(root, 'prompt-fingerprints.json'),
+      promptHistory: path.join(root, 'prompt-history.json'),
+      creativityRetry: path.join(root, 'creativity-retry.json'),
+      creativityMetrics: path.join(root, 'creativity-metrics.json'),
+      privateRetrievalShadowTelemetry: path.join(root, 'private-retrieval-shadow-telemetry.json'),
+      lastGoodPlan: path.join(root, 'last-good-plan.json'),
+    };
+    return { scope, sessionIdentity, statePaths, stateKey: scopeTag };
+  }
+
+  function nexusPrincipalHeaders(scope: Record<string, string>, sessionIdentity: string): Record<string, string> {
+    const headers: Record<string, string> = {
+      ...writeHeaders,
+      'x-session-id': sessionIdentity,
+      'x-cortex-tenant-id': scope.tenant_id,
+      'x-cortex-workspace-id': scope.workspace_id,
+      'x-cortex-agent-id': scope.agent_id,
+      'x-cortex-user-id': scope.user_id,
+      'x-cortex-channel-id': scope.channel_id,
+      'x-cortex-session-id': scope.session_id,
+    };
+    if (scopeCredentialId && scopeHmacSecret) {
+      if (!boundedOpaqueId.test(scopeCredentialId)) throw new Error('routing scope credential ID is invalid');
+      headers['x-cortex-scope-credential-id'] = scopeCredentialId;
+      headers['x-cortex-scope-signature'] = crypto.createHmac('sha256', scopeHmacSecret)
+        .update([
+          'cortex.memory.principal.v2',
+          scopeCredentialId,
+          scope.tenant_id,
+          scope.workspace_id,
+          scope.agent_id,
+          scope.user_id,
+          scope.channel_id,
+          scope.session_id,
+        ].join('\n'), 'utf8')
+        .digest('hex');
+    }
+    return headers;
+  }
+
+  // Legacy unscoped files are never consumed. Move them aside so an upgrade
+  // cannot silently reuse cross-principal history or route plans.
+  for (const legacyName of ['adaptive-routing-stats.json', 'prompt-fingerprints.json', 'prompt-history.json', 'creativity-retry.json', 'creativity-metrics.json', 'private-retrieval-shadow-telemetry.json', 'last-good-plan.json']) {
+    const legacyPath = path.join(stateDir, legacyName);
+    if (!fs.existsSync(legacyPath)) continue;
+    const quarantine = path.join(stateDir, 'quarantine', 'legacy-global');
+    fs.mkdirSync(quarantine, { recursive: true, mode: 0o700 });
+    fs.renameSync(legacyPath, path.join(quarantine, `${Date.now()}-${legacyName}`));
+  }
+
+  function archiveOversizedOracleSessions() {
+    if (!oracleSessionQuarantineEnabled || !oracleSessionResetBytes || oracleSessionResetBytes < 1024) return;
     try {
       const entries = fs.readdirSync(oracleSessionDir, { withFileTypes: true });
       const quarantineDir = path.join(oracleSessionDir, 'quarantine');
@@ -575,53 +1178,31 @@ export default function register(api: any) {
         const stat = fs.statSync(filePath);
         if (stat.size <= oracleSessionResetBytes) continue;
         fs.mkdirSync(quarantineDir, { recursive: true });
-        const targetPath = path.join(quarantineDir, `${sessionName}.${Date.now()}.jsonl`);
-        fs.renameSync(filePath, targetPath);
-        api.logger.warn?.(`cortex-route-gate: quarantined oversized oracle session ${entry.name} size=${stat.size}`);
+        const targetPath = path.join(quarantineDir, `${sessionName}.${Math.trunc(stat.mtimeMs)}.${stat.size}.jsonl`);
+        if (fs.existsSync(targetPath)) continue;
+        fs.copyFileSync(filePath, targetPath, fs.constants.COPYFILE_EXCL);
+        const targetFd = fs.openSync(targetPath, 'r');
+        try { fs.fsyncSync(targetFd); } finally { fs.closeSync(targetFd); }
+        api.logger.warn?.(`cortex-route-gate: archived oversized oracle session without moving the active file ${entry.name} size=${stat.size}`);
       }
     } catch (error) {
       api.logger.warn?.(`cortex-route-gate: failed to quarantine oversized oracle sessions: ${String(error)}`);
     }
   }
 
-  quarantineOversizedOracleSessions();
+  archiveOversizedOracleSessions();
 
-  function loadFingerprintHistory(): string[] {
-    try { return JSON.parse(fs.readFileSync(historyPath, 'utf8')); } catch { return []; }
-  }
-  function saveFingerprintHistory(history: string[]) {
-    const compact: string[] = [];
-    for (const item of history.slice(-200)) {
-      if (!item) continue;
-      if (compact.some((existing) => similarity(existing, item) >= 0.92)) continue;
-      compact.push(item);
-    }
-    fs.mkdirSync(path.dirname(historyPath), { recursive: true });
-    fs.writeFileSync(historyPath, JSON.stringify(compact.slice(-100), null, 2));
-  }
-  function loadPromptHistory(): PromptHistoryEntry[] {
+  function loadPromptHistory(promptHistoryPath: string): PromptHistoryEntry[] {
     try {
       const raw = JSON.parse(fs.readFileSync(promptHistoryPath, 'utf8'));
       return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') as PromptHistoryEntry[] : [];
     } catch { return []; }
   }
-  function savePromptHistory(history: PromptHistoryEntry[]) {
-    fs.mkdirSync(path.dirname(promptHistoryPath), { recursive: true });
-    fs.writeFileSync(promptHistoryPath, JSON.stringify(history.slice(-creativityHistorySize), null, 2));
-  }
-  function loadCreativityRetryState(): Record<string, CreativityAudit> {
-    try { return JSON.parse(fs.readFileSync(creativityRetryPath, 'utf8')); } catch { return {}; }
-  }
-  function saveCreativityRetryState(state: Record<string, CreativityAudit>) {
-    fs.mkdirSync(path.dirname(creativityRetryPath), { recursive: true });
-    fs.writeFileSync(creativityRetryPath, JSON.stringify(state, null, 2));
-  }
-  function loadCreativityMetrics(): any {
-    try { return JSON.parse(fs.readFileSync(creativityMetricsPath, 'utf8')); } catch { return { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }; }
-  }
-  function saveCreativityMetrics(metrics: any) {
-    fs.mkdirSync(path.dirname(creativityMetricsPath), { recursive: true });
-    fs.writeFileSync(creativityMetricsPath, JSON.stringify({ ...metrics, updatedAt: nowIso() }, null, 2));
+  function updateCreativityMetrics(creativityMetricsPath: string, mutate: (metrics: any) => void) {
+    updateJson(creativityMetricsPath, { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }, (metrics: any) => {
+      mutate(metrics);
+      metrics.updatedAt = nowIso();
+    });
   }
   function extractDeliveryKeyFromSessionKey(sessionKey: string): string | undefined {
     const match = /^agent:[^:]+:([^:]+):direct:(.+)$/.exec(sessionKey);
@@ -637,39 +1218,89 @@ export default function register(api: any) {
     }
   }
 
-  async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
+  function stateKeyForContext(ctx: any): string {
+    try {
+      return principalState(ctx, String(ctx?.sessionKey || ctx?.sessionId || '')).stateKey;
+    } catch {
+      return '';
+    }
+  }
+
+  function scopedDeliveryKey(value: string, stateKey: string): string {
+    return crypto.createHmac('sha256', sessionIdentityHmacSecret)
+      .update(`cortex.route-gate.delivery.v1\n${stateKey}\n${value}`, 'utf8')
+      .digest('hex');
+  }
+
+  async function getPlan(prompt: string, messages: unknown[], sessionKey: string | undefined, trustedContext: any): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string; statePaths: PrincipalStatePaths; stateKey: string }> {
+    const principal = principalState(trustedContext, String(sessionKey || ''));
+    const { statePaths } = principal;
+    const isolatedUserIntent = latestUserTurnText(messages);
+    const intentText = isolatedUserIntent || tailIntentText(prompt);
     let plan: RoutePlan | null = null;
     try {
-      const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs);
-      const recommended = Array.isArray(data?.recommended_levels) ? data.recommended_levels : (Array.isArray(data?.recommended) ? data.recommended : []);
-      let normalized = uniqueLevels((recommended as RouteLevel[]).slice(0, Math.max(maxLevels, 20)));
-      if (!normalized.some((x) => x.level === 24)) normalized = [{ level: 24, name: 'Nexus', reason: 'mandatory upstream routing' }, ...normalized];
-      if (!normalized.some((x) => x.level === 5)) normalized.push({ level: 5, name: 'Oracle', reason: 'baseline reasoning' });
-      plan = {
-        recommendedLevels: normalized,
-        routingMethod: typeof data?.routing_method === 'string' ? data.routing_method : 'nexus_orchestration',
-        reasoning: Array.isArray(data?.reasoning) ? data.reasoning.map((x: any) => String(x)) : [],
-        routingMarkers: typeof data?.routing_markers === 'object' && data.routing_markers ? data.routing_markers : undefined,
-        workflowCheckpoint: typeof data?.workflow_checkpoint === 'object' && data.workflow_checkpoint ? data.workflow_checkpoint : undefined,
+      if (Buffer.byteLength(prompt, 'utf8') > maxRoutingPromptBytes) {
+        throw new Error(`routing prompt exceeds ${maxRoutingPromptBytes} bytes`);
+      }
+      const data = await postJson(
+        `${baseUrl}/nexus/orchestrate`,
+        {
+          query: prompt,
+          // Always send the dedicated field so Nexus never falls back to the
+          // accumulated prompt when a structured latest-user turn is absent.
+          private_retrieval_shadow_query: isolatedUserIntent.length <= 16_384 ? isolatedUserIntent : '',
+        },
+        timeoutMs,
+        maxResponseBytes,
+        nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
+      );
+      const recommended = liveRouteLevels(data);
+      if (!recommended) throw new Error('invalid live route response schema');
+      const rawPlan: RoutePlan = {
+        recommendedLevels: normalizeLiveLevels(recommended),
+        routingMethod: data.routing_method,
+        reasoning: data.reasoning,
+        routingMarkers: data.routing_markers,
+        workflowCheckpoint: data.workflow_checkpoint,
       };
-      saveJson(lastGoodPlanPath, { savedAt: nowIso(), plan } satisfies LastGoodRoutePlan);
+      if (!isRoutePlan(rawPlan)) throw new Error('invalid normalized live route plan');
+      plan = {
+        recommendedLevels: rawPlan.recommendedLevels,
+        routingMethod: rawPlan.routingMethod || 'nexus_orchestration',
+        reasoning: rawPlan.reasoning || [],
+        routingMarkers: rawPlan.routingMarkers,
+        workflowCheckpoint: rawPlan.workflowCheckpoint,
+      };
+      if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
+      if (routeCacheHmacSecret) {
+        const cache = { savedAt: nowIso(), provenance: baseUrl, scopeTag: statePaths.scopeTag, plan: routePlanForCache(plan) };
+        const signedCache = { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan;
+        try {
+          saveJson(statePaths.lastGoodPlan, signedCache);
+        } catch (error) {
+          api.logger.warn?.(`cortex-route-gate: failed to persist last-good route plan: ${String(error)}`);
+        }
+      }
     } catch (error) {
       const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
       api.logger.warn(message);
-      const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(lastGoodPlanPath, null);
-      if (lastGoodPlan?.plan?.recommendedLevels?.length) {
-        const cachedAgeMs = Math.max(0, Date.now() - Date.parse(lastGoodPlan.savedAt || ''));
+      const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(statePaths.lastGoodPlan, null);
+      const savedAtMs = Date.parse(lastGoodPlan?.savedAt || '');
+      const cachedAgeMs = Date.now() - savedAtMs;
+      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
+      if (validCache && lastGoodPlan) {
         api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
+        const cachedPlan = routePlanForCache(lastGoodPlan.plan);
         plan = {
-          ...lastGoodPlan.plan,
+          ...cachedPlan,
           routingMethod: 'cached_fallback',
           routingError: String(error),
           reasoning: [
             `Cortex routing failed, using cached last-good route plan from ${lastGoodPlan.savedAt || 'unknown'}.`,
-            ...(lastGoodPlan.plan.reasoning || []),
+            ...(cachedPlan.reasoning || []),
           ],
           routingMarkers: {
-            ...(lastGoodPlan.plan.routingMarkers || {}),
+            ...(cachedPlan.routingMarkers || {}),
             degraded: true,
             cachedFallback: true,
             requireRouting,
@@ -678,27 +1309,16 @@ export default function register(api: any) {
           },
         };
       } else {
-        if (requireRouting) api.logger.warn('cortex-route-gate: requireRouting enabled but no cached plan was available, using minimal fallback envelope');
-        plan = {
-          recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
-          routingMethod: 'fallback',
-          routingError: String(error),
-          reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
-          routingMarkers: {
-            degraded: true,
-            cachedFallback: false,
-            requireRouting,
-          },
-        };
+        if (requireRouting) throw new Error(`routing unavailable while requireRouting is enabled: ${String(error)}`);
+        throw new Error(`routing unavailable and no valid last-good route plan exists: ${String(error)}`);
       }
     }
-    const intentText = latestUserTurnText(messages) || tailIntentText(prompt);
     const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
     const taskClass = classifyTask(intentText || prompt);
-    const stats = loadStats(statsPath);
+    const stats = loadStats(statePaths.stats);
     const selfModel = loadJson<CapabilitySelfModel>(selfModelPath, { version: 1, capabilities: {}, confidence: {}, degraded: [], recommendations: [] });
     const predictedChecks = predictCapabilityUse(intentText || prompt, selfModel);
-    const priorPromptHistory = loadPromptHistory();
+    const priorPromptHistory = loadPromptHistory(statePaths.promptHistory);
     let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(intentText, priorPromptHistory, creativityQuarantineTerms, creativityEligible) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
     let routedPlan = plan!;
     if (creativity.requested) {
@@ -713,27 +1333,51 @@ export default function register(api: any) {
     }
     const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxLevels, creativity);
     const fingerprint = fingerprintText(prompt);
-    const history = loadFingerprintHistory();
-    const duplicateRisk = history.some((x) => similarity(x, fingerprint) >= 0.9);
-    history.push(fingerprint);
-    saveFingerprintHistory(history);
-    const promptHistory = priorPromptHistory.concat([{ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) }]);
-    savePromptHistory(promptHistory);
-    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText };
+    const duplicateRisk = updateJson(statePaths.history, [] as string[], (history) => {
+      const duplicate = history.some((x) => similarity(x, fingerprint) >= 0.9);
+      history.push(fingerprint);
+      const compact: string[] = [];
+      for (const item of history.slice(-200)) {
+        if (!item) continue;
+        if (compact.some((existing) => similarity(existing, item) >= 0.92)) continue;
+        compact.push(item);
+      }
+      history.splice(0, history.length, ...compact.slice(-100));
+      return duplicate;
+    });
+    updateJson(statePaths.promptHistory, [] as PromptHistoryEntry[], (history) => {
+      history.push({ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) });
+      history.splice(0, Math.max(0, history.length - creativityHistorySize));
+    });
+    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey: principal.stateKey };
   }
 
   api.on('before_prompt_build', async (event: any, ctx: any) => {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
-    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
-    if (shouldBypassRouteGate(prompt, stateKey)) {
-      if (stateKey) runStateByKey.delete(stateKey);
-      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${stateKey || 'unknown'}`);
+    const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    if (shouldBypassRouteGate(rawSessionKey)) {
+      const bypassStateKey = stateKeyForContext(ctx);
+      if (bypassStateKey) runStateByKey.delete(bypassStateKey);
+      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${rawSessionKey || 'unknown'}`);
       return;
     }
-    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText } = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey);
-    const retryState = stateKey ? loadCreativityRetryState() : {};
-    const retryAudit = stateKey && creativity.requested ? retryState[stateKey] : undefined;
+    let route;
+    try {
+      route = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], rawSessionKey, ctx);
+    } catch (error) {
+      if (requireRouting) throw error;
+      api.logger.warn?.(`cortex-route-gate: optional routing skipped: ${String(error)}`);
+      return;
+    }
+    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey } = route;
+    const retryAudit = stateKey && creativity.requested
+      ? updateJson(statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
+          const audit = state[rawSessionKey];
+          if (audit) delete state[rawSessionKey];
+          return audit;
+        })
+      : undefined;
     if (stateKey) {
       runStateByKey.set(stateKey, {
         prompt,
@@ -743,19 +1387,22 @@ export default function register(api: any) {
         startedAt: Date.now(),
         toolCalls: [],
         observedSignals: [],
+        privateRetrievalShadow: privateRetrievalShadowMarker(plan),
+        outputObserved: false,
         selfModel,
         predictedChecks,
         creativity,
         creativityAudit: retryAudit,
+        statePaths,
       });
     }
-    if (stateKey && retryAudit && creativity.requested) { const metrics = loadCreativityMetrics(); metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; saveCreativityMetrics(metrics); delete retryState[stateKey]; saveCreativityRetryState(retryState); }
-    api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
+    if (stateKey && retryAudit && creativity.requested) updateCreativityMetrics(statePaths.creativityMetrics, (metrics) => { metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; });
+    api.logger.info?.(`cortex-route-gate: appended self-model block principal=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
     return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
 
   api.on('before_tool_call', async (event: any, ctx: any) => {
-    const rs = runStateByKey.get(String(ctx?.sessionKey || ctx?.sessionId || ''));
+    const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     if ((event?.toolName === 'web_search' || event?.toolName === 'web_fetch') && !hasLevel(rs.plan, 2)) {
       rs.observedSignals.push('web_tool_without_l2');
@@ -775,7 +1422,7 @@ export default function register(api: any) {
   });
 
   api.on('after_tool_call', async (event: any, ctx: any) => {
-    const rs = runStateByKey.get(String(ctx?.sessionKey || ctx?.sessionId || ''));
+    const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     rs.toolCalls.push({ toolName: String(event?.toolName || ''), ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined, error: event?.error ? String(event.error) : undefined });
     if (event?.error) rs.observedSignals.push(`tool_error:${String(event.toolName || 'unknown')}`);
@@ -794,11 +1441,14 @@ export default function register(api: any) {
   });
 
   api.on('llm_output', async (event: any, ctx: any) => {
-    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
-    if (!rs || !rs.creativity?.requested || !creativityAuditEnabled) return;
-    cleanupPendingCreativitySuppressions();
+    if (!rs) return;
     const output = Array.isArray(event?.assistantTexts) ? event.assistantTexts.join('\n\n') : '';
+    rs.outputObserved = Boolean(output.trim());
+    if (!rs.creativity?.requested || !creativityAuditEnabled) return;
+    cleanupPendingCreativitySuppressions();
     if (!output.trim()) return;
     const audit = auditCreativityOutput(output, rs.creativity);
     if (audit.overlapRatio < creativityAuditOverlapThreshold && audit.reasons.includes('anchor_overlap_ratio_high')) {
@@ -807,22 +1457,20 @@ export default function register(api: any) {
       audit.retryRecommended = !audit.passed;
     }
     rs.creativityAudit = audit;
-    const metrics = loadCreativityMetrics();
-    metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
-    if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
-    saveCreativityMetrics(metrics);
-    const retryState = stateKey ? loadCreativityRetryState() : undefined;
-    if (audit.passed && stateKey && retryState?.[stateKey]) {
-      delete retryState[stateKey];
-      saveCreativityRetryState(retryState);
-    }
-    if (!audit.passed && stateKey && retryState) {
-      retryState[stateKey] = audit;
-      saveCreativityRetryState(retryState);
+    updateCreativityMetrics(rs.statePaths.creativityMetrics, (metrics) => {
+      metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
+      if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
+    });
+    if (stateKey) updateJson(rs.statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
+      if (audit.passed) delete state[rawSessionKey];
+      else state[rawSessionKey] = audit;
+    });
+    if (!audit.passed && stateKey) {
       rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
       api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
 
-      const deliveryKey = extractDeliveryKeyFromSessionKey(stateKey);
+      const deliveryKeyRaw = extractDeliveryKeyFromSessionKey(rawSessionKey);
+      const deliveryKey = deliveryKeyRaw ? scopedDeliveryKey(deliveryKeyRaw, stateKey) : undefined;
       if (deliveryKey && typeof api.sendUserMessage === 'function') {
         pendingCreativitySuppressions.set(deliveryKey, {
           deliveryKey,
@@ -831,9 +1479,7 @@ export default function register(api: any) {
           retryPrompt: buildCreativityAutoRetryPrompt(audit),
           sessionKey: stateKey,
         });
-        const metrics2 = loadCreativityMetrics();
-        metrics2.counters.retryTriggered = Number(metrics2.counters.retryTriggered || 0) + 1;
-        saveCreativityMetrics(metrics2);
+        updateCreativityMetrics(rs.statePaths.creativityMetrics, (metrics) => { metrics.counters.retryTriggered = Number(metrics.counters.retryTriggered || 0) + 1; });
         rs.observedSignals.push('creativity_retry_predelivery');
         api.logger.info?.(`cortex-route-gate: scheduled pre-delivery creativity retry session=${stateKey} delivery=${deliveryKey}`);
         api.sendUserMessage(buildCreativityAutoRetryPrompt(audit), { deliverAs: 'followUp' });
@@ -843,7 +1489,12 @@ export default function register(api: any) {
 
   api.on('message_sending', async (event: any, ctx: any) => {
     cleanupPendingCreativitySuppressions();
-    const deliveryKey = `${String(ctx?.channelId || '').trim()}:${String(ctx?.accountId || 'default').trim() || 'default'}:${String(event?.to || '').trim()}`;
+    const stateKey = stateKeyForContext(ctx);
+    if (!stateKey) return;
+    const deliveryKey = scopedDeliveryKey(
+      `${String(ctx?.channelId || '').trim()}:${String(ctx?.accountId || 'default').trim() || 'default'}:${String(event?.to || '').trim()}`,
+      stateKey,
+    );
     const pending = pendingCreativitySuppressions.get(deliveryKey);
     if (!pending) return;
     const outgoing = typeof event?.content === 'string' ? event.content : '';
@@ -855,29 +1506,76 @@ export default function register(api: any) {
   });
 
   api.on('agent_end', async (event: any, ctx: any) => {
-    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
-    const stats = loadStats(statsPath);
     const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
     const success = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
-    const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
-    taskBucket.uses += 1;
-    if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
-    stats.byTask[rs.taskClass] = taskBucket;
-    for (const level of rs.plan.recommendedLevels) {
-      const bucket = stats.byLevel[String(level.level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
-      bucket.uses += 1;
-      if (success) bucket.successes += 1; else bucket.failures += 1;
-      bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
-      bucket.lastReason = success ? 'successful_run' : (rs.observedSignals[0] || 'failed_run');
-      stats.byLevel[String(level.level)] = bucket;
-    }
-    saveStats(statsPath, stats);
+    updateStats(rs.statePaths.stats, (stats) => {
+      const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
+      taskBucket.uses += 1;
+      if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
+      stats.byTask[rs.taskClass] = taskBucket;
+      for (const level of rs.plan.recommendedLevels) {
+        const bucket = stats.byLevel[String(level.level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
+        bucket.uses += 1;
+        if (success) bucket.successes += 1; else bucket.failures += 1;
+        bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
+        bucket.lastReason = success ? 'successful_run' : (rs.observedSignals[0] || 'failed_run');
+        stats.byLevel[String(level.level)] = bucket;
+      }
+    });
     if ((contradictions.contradictions || []).length > 0 && rs.observedSignals.every((x) => !x.startsWith('contradiction:'))) {
       const severe = (contradictions.contradictions || []).filter((x: any) => x?.severity === 'high').length;
       if (severe > 0) rs.observedSignals.push(`contradiction:high:${severe}`);
     }
+    if (privateRetrievalShadowTelemetryEnabled && rs.privateRetrievalShadow) {
+      const marker = rs.privateRetrievalShadow;
+      const memoryCalls = rs.toolCalls.filter((call) => call.toolName === 'memory_search');
+      try {
+        updateJson(rs.statePaths.privateRetrievalShadowTelemetry, {
+          schemaVersion: 'cortex.private_retrieval_shadow.route_gate.v1',
+          mode: 'observe_only',
+          answerInfluence: false,
+          updatedAt: nowIso(),
+          counters: { observed: 0, eligible: 0, scheduled: 0, baselineMemorySearchAttempted: 0 },
+          records: [] as any[],
+        }, (state: any) => {
+          state.schemaVersion = 'cortex.private_retrieval_shadow.route_gate.v1';
+          state.mode = 'observe_only';
+          state.answerInfluence = false;
+          state.updatedAt = nowIso();
+          state.counters = isRecord(state.counters) ? state.counters : {};
+          state.counters.observed = Number(state.counters.observed || 0) + 1;
+          if (marker.eligible) state.counters.eligible = Number(state.counters.eligible || 0) + 1;
+          if (marker.scheduled) state.counters.scheduled = Number(state.counters.scheduled || 0) + 1;
+          if (memoryCalls.length) state.counters.baselineMemorySearchAttempted = Number(state.counters.baselineMemorySearchAttempted || 0) + 1;
+          state.records = Array.isArray(state.records) ? state.records : [];
+          state.records.push({
+            completedAt: nowIso(),
+            observationId: marker.observationId || null,
+            eligible: marker.eligible,
+            scheduled: marker.scheduled,
+            selectionReason: marker.selectionReason,
+            factClass: marker.factClass,
+            answerInfluence: false,
+            candidateContentExposed: false,
+            baselineMemorySearchAttempted: memoryCalls.length > 0,
+            baselineMemorySearchSucceeded: memoryCalls.some((call) => call.ok),
+            baselineRunSucceeded: success,
+            outputObserved: rs.outputObserved,
+            qualityCompared: false,
+            qualityComparisonReason: 'shadow_candidate_content_unavailable_to_answer_path',
+          });
+          state.records.splice(0, Math.max(0, state.records.length - privateRetrievalShadowTelemetryMaxRecords));
+        });
+      } catch (error) {
+        // Shadow telemetry must never fail or delay completion of the real run.
+        api.logger.warn?.(`cortex-route-gate: private retrieval shadow telemetry failed: ${String(error)}`);
+      }
+    }
     runStateByKey.delete(stateKey);
   });
 }
+
+export { updateJson, withFileLock };

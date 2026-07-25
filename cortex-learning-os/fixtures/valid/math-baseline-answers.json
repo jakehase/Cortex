@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "cortex.learning_os.answer_set.v0",
+  "runId": "math-baseline-fixture",
+  "answers": [
+    {
+      "itemId": "mf-01",
+      "answer": 4.222222222222222
+    },
+    {
+      "itemId": "mf-02",
+      "answer": [
+        "2",
+        "3"
+      ]
+    },
+    {
+      "itemId": "mf-03",
+      "answer": 11
+    },
+    {
+      "itemId": "mf-04",
+      "answer": 6
+    },
+    {
+      "itemId": "mf-05",
+      "answer": 6
+    },
+    {
+      "itemId": "mf-06",
+      "answer": [
+        "-2",
+        "5"
+      ]
+    },
+    {
+      "itemId": "mf-07",
+      "answer": 0.375
+    },
+    {
+      "itemId": "mf-08",
+      "answer": 0.4212962962962963
+    },
+    {
+      "itemId": "mf-09",
+      "answer": 0.16666666666666666
+    },
+    {
+      "itemId": "mf-10",
+      "answer": 0.7
+    },
+    {
+      "itemId": "mf-11",
+      "answer": 0.21
+    },
+    {
+      "itemId": "mf-12",
+      "answer": 7.5
+    },
+    {
+      "itemId": "mf-13",
+      "answer": 89
+    },
+    {
+      "itemId": "mf-14",
+      "answer": 4
+    },
+    {
+      "itemId": "mf-15",
+      "answer": 3
+    },
+    {
+      "itemId": "mf-16",
+      "answer": -3
+    },
+    {
+      "itemId": "mf-17",
+      "answer": 4
+    },
+    {
+      "itemId": "mf-18",
+      "answer": [
+        "3",
+        "-2"
+      ]
+    },
+    {
+      "itemId": "mf-19",
+      "answer": 25
+    },
+    {
+      "itemId": "mf-20",
+      "answer": -0.4
+    },
+    {
+      "itemId": "mf-21",
+      "answer": 0.6
+    },
+    {
+      "itemId": "mf-22",
+      "answer": 4
+    },
+    {
+      "itemId": "mf-23",
+      "answer": 0.09090909090909091
+    },
+    {
+      "itemId": "mf-24",
+      "answer": 0.004524886877828055
+    },
+    {
+      "itemId": "mf-25",
+      "answer": 0.6666666666666666
+    },
+    {
+      "itemId": "mf-26",
+      "answer": 4
+    },
+    {
+      "itemId": "mf-27",
+      "answer": 25
+    },
+    {
+      "itemId": "mf-28",
+      "answer": 16
+    },
+    {
+      "itemId": "mf-29",
+      "answer": 0.8
+    },
+    {
+      "itemId": "mf-30",
+      "answer": 4.472222222222222
+    }
+  ],
+  "answerSource": {
+    "kind": "deterministic_fixture",
+    "truthBoundary": "Expected-answer fixture validates the runner only; it is not a Cortex capability result."
+  },
+  "toolsUsed": [],
+  "evidenceRole": "fixture",
+  "startedAt": "2026-07-25T05:00:00.000Z",
+  "completedAt": "2026-07-25T05:00:01.000Z"
+}

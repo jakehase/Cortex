@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "cortex.learning_os.lesson_candidate.v0",
+  "candidateId": "candidate-factor-before-cancel",
+  "capsuleId": "math-foundations-v0",
+  "conceptIds": ["algebra-factoring"],
+  "rule": "Factor algebraic expressions before cancelling terms, and preserve domain restrictions.",
+  "supportingEvidenceIds": ["verify-algebra-1", "verify-probability-1"],
+  "sourceExamIds": ["algebra-baseline", "probability-baseline"],
+  "negativeExampleRefs": ["mistake-cancel-domain"],
+  "contraindications": ["Do not cancel a factor at values where that factor is zero without preserving the domain exclusion."],
+  "requiredRetestIds": ["probability-retest-item"],
+  "contradictions": [],
+  "truthBoundary": "Candidate only until promotion gates pass."
+}

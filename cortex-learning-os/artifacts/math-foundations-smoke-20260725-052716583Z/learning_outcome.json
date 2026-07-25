@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "cortex.learning_os.learning_outcome.v0",
+  "generatedAt": "2026-07-25T05:28:02.633Z",
+  "status": "blocked_no_observed_mistake",
+  "reason": "The recorded baseline contained no remediable failed item; no mistake or lesson was fabricated.",
+  "learningLoopCompleted": false,
+  "improvementObserved": false,
+  "conceptId": null,
+  "baselineFailureItemId": null,
+  "heldoutRetestItemId": null,
+  "promotionDigest": null,
+  "truthBoundary": "Improvement means one failed baseline concept was later passed on a different held-out item after a gated retrieval pack. It does not prove broad or durable math improvement."
+}

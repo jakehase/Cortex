@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "cortex.learning_os.exam_run_summary.v0",
+  "runId": "math-foundations-smoke-20260725-052532795Z-correction",
+  "capsuleId": "math-foundations-v0",
+  "examId": "math-foundations-correction-v0",
+  "generatedAt": "2026-07-25T05:26:17.349Z",
+  "itemCount": 1,
+  "passedItemCount": 0,
+  "failedItemCount": 1,
+  "errorItemCount": 0,
+  "score": 0,
+  "passThreshold": 1,
+  "passed": false,
+  "truthBoundary": "This score applies only to the named deterministic exam and recorded answer set."
+}
