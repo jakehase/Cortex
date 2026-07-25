@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.promotion_report.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "candidateId",
+    "capsuleId",
+    "evaluatedAt",
+    "promoted",
+    "gates",
+    "evidenceIds",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.promotion_report.v0"
+    }
+  },
+  "additionalProperties": true
+}

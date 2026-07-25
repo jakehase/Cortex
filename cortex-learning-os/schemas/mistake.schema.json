@@ -1,1 +1,21 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"cortex.learning_os.mistake.v0","type":"object","required":["schemaVersion","mistakeId","attemptId","rootCause","correction","conceptIds","recurrenceCount"]}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.mistake.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mistakeId",
+    "attemptId",
+    "verifierResultId",
+    "rootCause",
+    "correction",
+    "conceptIds",
+    "recurrenceCount"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.mistake.v0"
+    }
+  },
+  "additionalProperties": true
+}

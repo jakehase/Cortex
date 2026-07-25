@@ -20,7 +20,15 @@ function records(file) {
   }));
 }
 
-const valid = files(path.join(CLOS_ROOT, 'fixtures/valid')).flatMap(records);
+const canonical = [
+  path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'),
+  path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json'),
+  path.join(CLOS_ROOT, 'capsules/math-foundations/capability_report.json'),
+  path.join(CLOS_ROOT, 'exams/math-foundations/baseline.exam.json'),
+  path.join(CLOS_ROOT, 'exams/math-foundations/reliability-challenge.exam.json'),
+  path.join(CLOS_ROOT, 'exams/math-foundations/exact-arithmetic-stress.exam.json')
+].filter((file) => fs.existsSync(file));
+const valid = [...files(path.join(CLOS_ROOT, 'fixtures/valid')), ...canonical].flatMap(records);
 const invalid = files(path.join(CLOS_ROOT, 'fixtures/invalid')).flatMap(records);
 const failures = [
   ...valid.filter((row) => !row.validation.ok).map((row) => ({ file: row.file, expected: 'valid', errors: row.validation.errors })),

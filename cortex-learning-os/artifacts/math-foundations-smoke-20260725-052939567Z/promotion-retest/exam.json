@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "cortex.learning_os.exam.v0",
+  "examId": "math-foundations-promotion-retest-v0",
+  "capsuleId": "math-foundations-v0",
+  "version": "0.1.0",
+  "title": "Math Foundations Promotion Retest v0",
+  "passThreshold": 1,
+  "allowedTools": [],
+  "items": [
+    {
+      "itemId": "mfs-02-promotion-retest",
+      "prompt": "Compute exactly: 85,638,100 × 592,398.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "50731839163800"
+      }
+    }
+  ],
+  "truthBoundary": "This one-item Math Foundations Promotion Retest v0 supports only the named concept and recorded run."
+}

@@ -1,0 +1,1926 @@
+{
+  "schemaVersion": "cortex.learning_os.exam.v0",
+  "examId": "math-foundations-baseline-v0",
+  "capsuleId": "math-foundations-v0",
+  "version": "0.1.0",
+  "title": "Math Foundations Baseline v0",
+  "passThreshold": 0.9,
+  "allowedTools": [],
+  "items": [
+    {
+      "itemId": "mf-01",
+      "prompt": "Solve (3/4)x - 5/6 = 7/3. Give x as a fraction or decimal.",
+      "conceptIds": [
+        "algebra-linear-equations",
+        "number-fractions"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 4.222222222222222,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "algebraic_transformation_error",
+      "lessonRule": "For a linear equation, apply the same inverse operation to both sides, preserve exact fractions, and substitute the result back to verify.",
+      "remediation": {
+        "correction": "For a linear equation, apply the same inverse operation to both sides, preserve exact fractions, and substitute the result back to verify.",
+        "lessonTemplate": {
+          "rule": "For a linear equation, apply the same inverse operation to both sides, preserve exact fractions, and substitute the result back to verify.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-01-correction",
+          "prompt": "Solve (2/3)x + 1/4 = 11/12.",
+          "conceptIds": [
+            "algebra-linear-equations",
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 1,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-01-promotion-retest",
+          "prompt": "Solve (5/6)x - 1/3 = 3/2.",
+          "conceptIds": [
+            "algebra-linear-equations",
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 2.2,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-01-heldout-retest",
+          "prompt": "Solve (7/8)x + 3/4 = 5/2.",
+          "conceptIds": [
+            "algebra-linear-equations",
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 2,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-02",
+      "prompt": "Give the real solution set of x^2 - 5x + 6 = 0 as comma-separated values.",
+      "conceptIds": [
+        "algebra-factoring",
+        "algebra-quadratics"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "set",
+      "checker": {
+        "mode": "set_equality",
+        "expected": [
+          "2",
+          "3"
+        ]
+      },
+      "mistakeCategory": "factoring_error",
+      "lessonRule": "Factor a monic quadratic by finding two numbers whose product is c and sum is b, then verify both roots in the original equation.",
+      "remediation": {
+        "correction": "Factor a monic quadratic by finding two numbers whose product is c and sum is b, then verify both roots in the original equation.",
+        "lessonTemplate": {
+          "rule": "Factor a monic quadratic by finding two numbers whose product is c and sum is b, then verify both roots in the original equation.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-02-correction",
+          "prompt": "Give the roots of x^2 - 7x + 12 = 0.",
+          "conceptIds": [
+            "algebra-factoring",
+            "algebra-quadratics"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "3",
+              "4"
+            ]
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-02-promotion-retest",
+          "prompt": "Give the roots of x^2 + x - 6 = 0.",
+          "conceptIds": [
+            "algebra-factoring",
+            "algebra-quadratics"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "-3",
+              "2"
+            ]
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-02-heldout-retest",
+          "prompt": "Give the roots of 2x^2 - 5x - 3 = 0 using decimals if needed.",
+          "conceptIds": [
+            "algebra-factoring",
+            "algebra-quadratics"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "-0.5",
+              "3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-03",
+      "prompt": "Let f(x)=x^2-3x+1. Compute 2f(-1)-f(2).",
+      "conceptIds": [
+        "functions-evaluation"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 11
+      },
+      "mistakeCategory": "signed_substitution_error",
+      "lessonRule": "Substitute signed inputs with parentheses before applying powers, then combine the evaluated terms.",
+      "remediation": {
+        "correction": "Substitute signed inputs with parentheses before applying powers, then combine the evaluated terms.",
+        "lessonTemplate": {
+          "rule": "Substitute signed inputs with parentheses before applying powers, then combine the evaluated terms.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-03-correction",
+          "prompt": "For f(x)=2x^2-x, compute f(-2).",
+          "conceptIds": [
+            "functions-evaluation"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 10
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-03-promotion-retest",
+          "prompt": "For g(x)=x^3-2x, compute g(3).",
+          "conceptIds": [
+            "functions-evaluation"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 21
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-03-heldout-retest",
+          "prompt": "For h(x)=3x^2+2, compute h(-2).",
+          "conceptIds": [
+            "functions-evaluation"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 14
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-04",
+      "prompt": "For f(x)=3x-7, compute f^{-1}(11).",
+      "conceptIds": [
+        "functions-inverse",
+        "algebra-linear-equations"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 6
+      },
+      "mistakeCategory": "inverse_function_error",
+      "lessonRule": "To evaluate an inverse, set the original output equal to the requested value and solve for the original input.",
+      "remediation": {
+        "correction": "To evaluate an inverse, set the original output equal to the requested value and solve for the original input.",
+        "lessonTemplate": {
+          "rule": "To evaluate an inverse, set the original output equal to the requested value and solve for the original input.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-04-correction",
+          "prompt": "For f(x)=2x+5, compute f^{-1}(17).",
+          "conceptIds": [
+            "functions-inverse",
+            "algebra-linear-equations"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 6
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-04-promotion-retest",
+          "prompt": "For g(x)=5x-4, compute g^{-1}(21).",
+          "conceptIds": [
+            "functions-inverse",
+            "algebra-linear-equations"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 5
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-04-heldout-retest",
+          "prompt": "For h(x)=7-2x, compute h^{-1}(-3).",
+          "conceptIds": [
+            "functions-inverse",
+            "algebra-linear-equations"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 5
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-05",
+      "prompt": "Compute the infinite sum 3 + 1.5 + 0.75 + ... .",
+      "conceptIds": [
+        "series-geometric"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 6
+      },
+      "mistakeCategory": "series_formula_error",
+      "lessonRule": "For an infinite geometric series with |r|<1, use a/(1-r); do not use the formula when the ratio does not converge.",
+      "remediation": {
+        "correction": "For an infinite geometric series with |r|<1, use a/(1-r); do not use the formula when the ratio does not converge.",
+        "lessonTemplate": {
+          "rule": "For an infinite geometric series with |r|<1, use a/(1-r); do not use the formula when the ratio does not converge.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-05-correction",
+          "prompt": "Compute 8+4+2+... .",
+          "conceptIds": [
+            "series-geometric"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 16
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-05-promotion-retest",
+          "prompt": "Compute 5+1+0.2+... .",
+          "conceptIds": [
+            "series-geometric"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 6.25
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-05-heldout-retest",
+          "prompt": "Compute 12-6+3-... .",
+          "conceptIds": [
+            "series-geometric"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 8
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-06",
+      "prompt": "Give the solution set of |2x-3|=7 as comma-separated values.",
+      "conceptIds": [
+        "algebra-absolute-value"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "set",
+      "checker": {
+        "mode": "set_equality",
+        "expected": [
+          "-2",
+          "5"
+        ]
+      },
+      "mistakeCategory": "missed_case",
+      "lessonRule": "For |u|=a with a>=0, solve both u=a and u=-a; verify both branches.",
+      "remediation": {
+        "correction": "For |u|=a with a>=0, solve both u=a and u=-a; verify both branches.",
+        "lessonTemplate": {
+          "rule": "For |u|=a with a>=0, solve both u=a and u=-a; verify both branches.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-06-correction",
+          "prompt": "Solve |x+4|=6.",
+          "conceptIds": [
+            "algebra-absolute-value"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "-10",
+              "2"
+            ]
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-06-promotion-retest",
+          "prompt": "Solve |3x-1|=8.",
+          "conceptIds": [
+            "algebra-absolute-value"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "-7/3",
+              "3"
+            ]
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-06-heldout-retest",
+          "prompt": "Solve |5-2x|=9.",
+          "conceptIds": [
+            "algebra-absolute-value"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "-2",
+              "7"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-07",
+      "prompt": "A fair coin is tossed 4 times. What is the probability of exactly 2 heads?",
+      "conceptIds": [
+        "probability-binomial"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.375,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "binomial_count_error",
+      "lessonRule": "For exactly k successes in n independent Bernoulli trials, multiply C(n,k) by p^k(1-p)^(n-k).",
+      "remediation": {
+        "correction": "For exactly k successes in n independent Bernoulli trials, multiply C(n,k) by p^k(1-p)^(n-k).",
+        "lessonTemplate": {
+          "rule": "For exactly k successes in n independent Bernoulli trials, multiply C(n,k) by p^k(1-p)^(n-k).",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-07-correction",
+          "prompt": "A fair coin is tossed 3 times. Probability of exactly 1 head?",
+          "conceptIds": [
+            "probability-binomial"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.375,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-07-promotion-retest",
+          "prompt": "A fair coin is tossed 5 times. Probability of exactly 3 heads?",
+          "conceptIds": [
+            "probability-binomial"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.3125,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-07-heldout-retest",
+          "prompt": "A fair coin is tossed 5 times. Probability of exactly 2 heads?",
+          "conceptIds": [
+            "probability-binomial"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.3125,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-08",
+      "prompt": "A fair six-sided die is rolled 3 times. What is the probability of at least one 6?",
+      "conceptIds": [
+        "probability-complements"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.4212962962962963,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "complement_rule_error",
+      "lessonRule": "For at least one success in independent trials, compute 1 minus the probability of zero successes.",
+      "remediation": {
+        "correction": "For at least one success in independent trials, compute 1 minus the probability of zero successes.",
+        "lessonTemplate": {
+          "rule": "For at least one success in independent trials, compute 1 minus the probability of zero successes.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-08-correction",
+          "prompt": "Three fair coins are tossed. Probability of at least one head?",
+          "conceptIds": [
+            "probability-complements"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.875,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-08-promotion-retest",
+          "prompt": "Two fair dice are rolled. Probability of at least one 1?",
+          "conceptIds": [
+            "probability-complements"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.3055555555555556,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-08-heldout-retest",
+          "prompt": "Three independent trials have success probability 0.2. Probability of at least one success?",
+          "conceptIds": [
+            "probability-complements"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.488,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-09",
+      "prompt": "A condition has 1% prevalence. A test has 99% sensitivity and 95% specificity. Given a positive test, what is the probability of the condition?",
+      "conceptIds": [
+        "probability-bayes"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.16666666666666666,
+        "tolerance": 1e-06
+      },
+      "mistakeCategory": "base_rate_error",
+      "lessonRule": "Bayes calculations must include the base rate: posterior = sensitivity*prevalence divided by that term plus false-positive-rate*(1-prevalence).",
+      "remediation": {
+        "correction": "Bayes calculations must include the base rate: posterior = sensitivity*prevalence divided by that term plus false-positive-rate*(1-prevalence).",
+        "lessonTemplate": {
+          "rule": "Bayes calculations must include the base rate: posterior = sensitivity*prevalence divided by that term plus false-positive-rate*(1-prevalence).",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-09-correction",
+          "prompt": "Prevalence is 2%, sensitivity 90%, specificity 90%. Probability of condition after positive?",
+          "conceptIds": [
+            "probability-bayes"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.15517241379310345,
+            "tolerance": 1e-06
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-09-promotion-retest",
+          "prompt": "Prevalence is 1%, sensitivity 100%, specificity 99%. Probability after positive?",
+          "conceptIds": [
+            "probability-bayes"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.5025125628140703,
+            "tolerance": 1e-06
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-09-heldout-retest",
+          "prompt": "Prevalence is 5%, sensitivity 80%, specificity 90%. Probability after positive?",
+          "conceptIds": [
+            "probability-bayes"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.2962962962962963,
+            "tolerance": 1e-06
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-10",
+      "prompt": "Independent events have P(A)=0.4 and P(B)=0.5. Compute P(A union B).",
+      "conceptIds": [
+        "probability-independence",
+        "probability-inclusion-exclusion"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.7,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "independence_error",
+      "lessonRule": "Use inclusion-exclusion P(A\u222aB)=P(A)+P(B)-P(A\u2229B), and replace the intersection by a product only when independence is stated.",
+      "remediation": {
+        "correction": "Use inclusion-exclusion P(A\u222aB)=P(A)+P(B)-P(A\u2229B), and replace the intersection by a product only when independence is stated.",
+        "lessonTemplate": {
+          "rule": "Use inclusion-exclusion P(A\u222aB)=P(A)+P(B)-P(A\u2229B), and replace the intersection by a product only when independence is stated.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-10-correction",
+          "prompt": "Independent A,B have probabilities 0.2 and 0.3. Find P(A union B).",
+          "conceptIds": [
+            "probability-independence",
+            "probability-inclusion-exclusion"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.44,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-10-promotion-retest",
+          "prompt": "P(A)=0.6, P(B)=0.5, P(A and B)=0.2. Find P(A union B).",
+          "conceptIds": [
+            "probability-independence",
+            "probability-inclusion-exclusion"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.9,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-10-heldout-retest",
+          "prompt": "Independent A,B have probabilities 0.7 and 0.4. Find P(A union B).",
+          "conceptIds": [
+            "probability-independence",
+            "probability-inclusion-exclusion"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.82,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-11",
+      "prompt": "For X~Bernoulli(0.3), compute Var(X).",
+      "conceptIds": [
+        "statistics-bernoulli",
+        "statistics-variance"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.21,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "variance_formula_error",
+      "lessonRule": "A Bernoulli(p) variable has variance p(1-p), not p or p^2.",
+      "remediation": {
+        "correction": "A Bernoulli(p) variable has variance p(1-p), not p or p^2.",
+        "lessonTemplate": {
+          "rule": "A Bernoulli(p) variable has variance p(1-p), not p or p^2.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-11-correction",
+          "prompt": "For Bernoulli(0.2), find variance.",
+          "conceptIds": [
+            "statistics-bernoulli",
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.16,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-11-promotion-retest",
+          "prompt": "For Bernoulli(0.6), find variance.",
+          "conceptIds": [
+            "statistics-bernoulli",
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.24,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-11-heldout-retest",
+          "prompt": "For Bernoulli(0.75), find variance.",
+          "conceptIds": [
+            "statistics-bernoulli",
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.1875,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-12",
+      "prompt": "Compute the arithmetic mean of 4, 7, 9, 10.",
+      "conceptIds": [
+        "statistics-mean"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 7.5
+      },
+      "mistakeCategory": "arithmetic_slip",
+      "lessonRule": "The arithmetic mean is the sum divided by the number of observations.",
+      "remediation": {
+        "correction": "The arithmetic mean is the sum divided by the number of observations.",
+        "lessonTemplate": {
+          "rule": "The arithmetic mean is the sum divided by the number of observations.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-12-correction",
+          "prompt": "Mean of 3,5,8,12?",
+          "conceptIds": [
+            "statistics-mean"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 7
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-12-promotion-retest",
+          "prompt": "Mean of -2,4,7?",
+          "conceptIds": [
+            "statistics-mean"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 3
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-12-heldout-retest",
+          "prompt": "Mean of 1,1,2,6?",
+          "conceptIds": [
+            "statistics-mean"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 2.5
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-13",
+      "prompt": "A score of 80 has weight 0.25 and 92 has weight 0.75. Compute the weighted mean.",
+      "conceptIds": [
+        "statistics-weighted-mean"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 89
+      },
+      "mistakeCategory": "weighting_error",
+      "lessonRule": "Multiply each value by its normalized weight and sum; verify weights total one.",
+      "remediation": {
+        "correction": "Multiply each value by its normalized weight and sum; verify weights total one.",
+        "lessonTemplate": {
+          "rule": "Multiply each value by its normalized weight and sum; verify weights total one.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-13-correction",
+          "prompt": "Values 10 and 20 have weights 0.3 and 0.7. Weighted mean?",
+          "conceptIds": [
+            "statistics-weighted-mean"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 17
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-13-promotion-retest",
+          "prompt": "Values 5,10,20 have weights 0.2,0.3,0.5. Weighted mean?",
+          "conceptIds": [
+            "statistics-weighted-mean"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 14
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-13-heldout-retest",
+          "prompt": "Values 40 and 70 have weights 1/3 and 2/3. Weighted mean?",
+          "conceptIds": [
+            "statistics-weighted-mean"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 60
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-14",
+      "prompt": "Compute the median of 2, 4, 4, 9, 100.",
+      "conceptIds": [
+        "statistics-median"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 4
+      },
+      "mistakeCategory": "median_error",
+      "lessonRule": "Sort observations first; the median is the middle value or the mean of the two middle values.",
+      "remediation": {
+        "correction": "Sort observations first; the median is the middle value or the mean of the two middle values.",
+        "lessonTemplate": {
+          "rule": "Sort observations first; the median is the middle value or the mean of the two middle values.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-14-correction",
+          "prompt": "Median of 9,1,5?",
+          "conceptIds": [
+            "statistics-median"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 5
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-14-promotion-retest",
+          "prompt": "Median of 1,3,8,10?",
+          "conceptIds": [
+            "statistics-median"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 5.5
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-14-heldout-retest",
+          "prompt": "Median of 7,2,2,9,4?",
+          "conceptIds": [
+            "statistics-median"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 4
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-15",
+      "prompt": "An observation is 85, the mean is 70, and the standard deviation is 5. Compute its z-score.",
+      "conceptIds": [
+        "statistics-z-score"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 3
+      },
+      "mistakeCategory": "standardization_error",
+      "lessonRule": "Compute z=(x-mean)/standard deviation, preserving the sign of the deviation.",
+      "remediation": {
+        "correction": "Compute z=(x-mean)/standard deviation, preserving the sign of the deviation.",
+        "lessonTemplate": {
+          "rule": "Compute z=(x-mean)/standard deviation, preserving the sign of the deviation.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-15-correction",
+          "prompt": "x=30, mean=20, sd=5. z?",
+          "conceptIds": [
+            "statistics-z-score"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 2
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-15-promotion-retest",
+          "prompt": "x=40, mean=50, sd=2. z?",
+          "conceptIds": [
+            "statistics-z-score"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": -5
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-15-heldout-retest",
+          "prompt": "x=12, mean=9, sd=1.5. z?",
+          "conceptIds": [
+            "statistics-z-score"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 2
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-16",
+      "prompt": "For f(x)=x^3-6x^2+9x, compute f'(2).",
+      "conceptIds": [
+        "calculus-derivative"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": -3
+      },
+      "mistakeCategory": "derivative_error",
+      "lessonRule": "Differentiate term by term before substituting the requested x value.",
+      "remediation": {
+        "correction": "Differentiate term by term before substituting the requested x value.",
+        "lessonTemplate": {
+          "rule": "Differentiate term by term before substituting the requested x value.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-16-correction",
+          "prompt": "For f(x)=2x^3-3x, compute f'(2).",
+          "conceptIds": [
+            "calculus-derivative"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 21
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-16-promotion-retest",
+          "prompt": "For g(x)=x^4-2x^2, compute g'(1).",
+          "conceptIds": [
+            "calculus-derivative"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-16-heldout-retest",
+          "prompt": "For h(x)=5x^2+4x-1, compute h'(-1).",
+          "conceptIds": [
+            "calculus-derivative"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": -6
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-17",
+      "prompt": "What is the minimum value of x^2-8x+20 over real x?",
+      "conceptIds": [
+        "optimization-quadratic"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 4
+      },
+      "mistakeCategory": "optimization_condition_missed",
+      "lessonRule": "Complete the square or use the vertex; distinguish the minimizing input from the minimum function value.",
+      "remediation": {
+        "correction": "Complete the square or use the vertex; distinguish the minimizing input from the minimum function value.",
+        "lessonTemplate": {
+          "rule": "Complete the square or use the vertex; distinguish the minimizing input from the minimum function value.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-17-correction",
+          "prompt": "Minimum value of x^2-6x+13?",
+          "conceptIds": [
+            "optimization-quadratic"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 4
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-17-promotion-retest",
+          "prompt": "Minimum value of 2x^2-8x+11?",
+          "conceptIds": [
+            "optimization-quadratic"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 3
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-17-heldout-retest",
+          "prompt": "Minimum value of x^2+10x+30?",
+          "conceptIds": [
+            "optimization-quadratic"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 5
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-18",
+      "prompt": "Give the minimizing point (x,y) for x^2+y^2-6x+4y as comma-separated values.",
+      "conceptIds": [
+        "optimization-multivariate"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "set",
+      "checker": {
+        "mode": "set_equality",
+        "expected": [
+          "3",
+          "-2"
+        ]
+      },
+      "mistakeCategory": "multivariate_stationary_error",
+      "lessonRule": "For a separable convex quadratic, set each partial derivative to zero and verify positive curvature.",
+      "remediation": {
+        "correction": "For a separable convex quadratic, set each partial derivative to zero and verify positive curvature.",
+        "lessonTemplate": {
+          "rule": "For a separable convex quadratic, set each partial derivative to zero and verify positive curvature.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-18-correction",
+          "prompt": "Minimizer of x^2+y^2-4x-8y?",
+          "conceptIds": [
+            "optimization-multivariate"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "2",
+              "4"
+            ]
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-18-promotion-retest",
+          "prompt": "Minimizer of 2x^2+y^2+8x-6y?",
+          "conceptIds": [
+            "optimization-multivariate"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "-2",
+              "3"
+            ]
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-18-heldout-retest",
+          "prompt": "Minimizer of x^2+3y^2-10x+12y?",
+          "conceptIds": [
+            "optimization-multivariate"
+          ],
+          "answerFormat": "set",
+          "checker": {
+            "mode": "set_equality",
+            "expected": [
+              "5",
+              "-2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-19",
+      "prompt": "A quantity rises from 80 to 100. What is the percent increase? Give a decimal probability or percentage number without the % sign.",
+      "conceptIds": [
+        "reasoning-percent-base"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 25
+      },
+      "mistakeCategory": "denominator_base_rate_error",
+      "lessonRule": "Percent change divides the change by the original value, then multiplies by 100 when the answer is requested as a percent.",
+      "remediation": {
+        "correction": "Percent change divides the change by the original value, then multiplies by 100 when the answer is requested as a percent.",
+        "lessonTemplate": {
+          "rule": "Percent change divides the change by the original value, then multiplies by 100 when the answer is requested as a percent.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-19-correction",
+          "prompt": "Rise from 50 to 65: percent increase?",
+          "conceptIds": [
+            "reasoning-percent-base"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 30
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-19-promotion-retest",
+          "prompt": "Fall from 200 to 150: percent decrease?",
+          "conceptIds": [
+            "reasoning-percent-base"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 25
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-19-heldout-retest",
+          "prompt": "Rise from 120 to 150: percent increase?",
+          "conceptIds": [
+            "reasoning-percent-base"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 25
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-20",
+      "prompt": "A game pays +10 with probability 0.2 and -3 with probability 0.8. Compute expected payoff.",
+      "conceptIds": [
+        "reasoning-expected-value"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": -0.4,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "expected_value_error",
+      "lessonRule": "Expected value is the sum of each outcome times its probability, including losses with their sign.",
+      "remediation": {
+        "correction": "Expected value is the sum of each outcome times its probability, including losses with their sign.",
+        "lessonTemplate": {
+          "rule": "Expected value is the sum of each outcome times its probability, including losses with their sign.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-20-correction",
+          "prompt": "Pay +5 with p=0.4 and -2 with p=0.6. Expected payoff?",
+          "conceptIds": [
+            "reasoning-expected-value"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.8,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-20-promotion-retest",
+          "prompt": "Pay +20 with p=0.1 and -1 otherwise. Expected payoff?",
+          "conceptIds": [
+            "reasoning-expected-value"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 1.1,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-20-heldout-retest",
+          "prompt": "Pay +4 with p=0.25 and -2 otherwise. Expected payoff?",
+          "conceptIds": [
+            "reasoning-expected-value"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": -0.5,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-21",
+      "prompt": "Given P(A and B)=0.18 and P(B)=0.3, compute P(A|B).",
+      "conceptIds": [
+        "probability-conditional"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.6,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "conditional_denominator_error",
+      "lessonRule": "Conditional probability P(A|B) divides the joint probability by P(B), provided P(B)>0.",
+      "remediation": {
+        "correction": "Conditional probability P(A|B) divides the joint probability by P(B), provided P(B)>0.",
+        "lessonTemplate": {
+          "rule": "Conditional probability P(A|B) divides the joint probability by P(B), provided P(B)>0.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-21-correction",
+          "prompt": "P(A and B)=0.12, P(B)=0.4. Find P(A|B).",
+          "conceptIds": [
+            "probability-conditional"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.3
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-21-promotion-retest",
+          "prompt": "P(C and D)=0.15, P(D)=0.25. Find P(C|D).",
+          "conceptIds": [
+            "probability-conditional"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.6
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-21-heldout-retest",
+          "prompt": "P(E and F)=0.09, P(F)=0.3. Find P(E|F).",
+          "conceptIds": [
+            "probability-conditional"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.3
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-22",
+      "prompt": "For independent fair coin tosses, what is the expected number of tosses until the pattern HT first appears?",
+      "conceptIds": [
+        "probability-waiting-time",
+        "reasoning-self-overlap"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 4
+      },
+      "mistakeCategory": "pattern_overlap_error",
+      "lessonRule": "Expected waiting time for a finite pattern must account for proper prefix-suffix self-overlap; non-overlapping length-2 patterns have expectation 4, while repeated patterns can be longer.",
+      "remediation": {
+        "correction": "Expected waiting time for a finite pattern must account for proper prefix-suffix self-overlap; non-overlapping length-2 patterns have expectation 4, while repeated patterns can be longer.",
+        "lessonTemplate": {
+          "rule": "Expected waiting time for a finite pattern must account for proper prefix-suffix self-overlap; non-overlapping length-2 patterns have expectation 4, while repeated patterns can be longer.",
+          "contraindications": [
+            "Do not substitute 2^m blindly when a pattern has a nonempty proper prefix that is also a suffix."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-22-correction",
+          "prompt": "Expected fair-coin tosses until HH first appears?",
+          "conceptIds": [
+            "probability-waiting-time",
+            "reasoning-self-overlap"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 6
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-22-promotion-retest",
+          "prompt": "Expected fair-coin tosses until HTH first appears?",
+          "conceptIds": [
+            "probability-waiting-time",
+            "reasoning-self-overlap"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 10
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-22-heldout-retest",
+          "prompt": "Expected fair-coin tosses until HHH first appears?",
+          "conceptIds": [
+            "probability-waiting-time",
+            "reasoning-self-overlap"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 14
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-23",
+      "prompt": "Two fair dice are rolled. Given that at least one die is a 6, what is the probability both dice are 6?",
+      "conceptIds": [
+        "probability-conditional",
+        "reasoning-sample-space"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.09090909090909091,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "conditioned_sample_space_error",
+      "lessonRule": "After conditioning, enumerate the reduced equally likely ordered outcomes; avoid treating the other die as unconditionally uniform.",
+      "remediation": {
+        "correction": "After conditioning, enumerate the reduced equally likely ordered outcomes; avoid treating the other die as unconditionally uniform.",
+        "lessonTemplate": {
+          "rule": "After conditioning, enumerate the reduced equally likely ordered outcomes; avoid treating the other die as unconditionally uniform.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-23-correction",
+          "prompt": "Two fair coins are tossed. Given at least one head, probability both are heads?",
+          "conceptIds": [
+            "probability-conditional",
+            "reasoning-sample-space"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.3333333333333333,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-23-promotion-retest",
+          "prompt": "Two dice are rolled. Given their sum is at least 11, probability the sum is 12?",
+          "conceptIds": [
+            "probability-conditional",
+            "reasoning-sample-space"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.3333333333333333,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-23-heldout-retest",
+          "prompt": "Two dice are rolled. Given at least one is a 5, probability both are 5?",
+          "conceptIds": [
+            "probability-conditional",
+            "reasoning-sample-space"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.09090909090909091,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-24",
+      "prompt": "Two cards are drawn uniformly without replacement from a standard 52-card deck. Probability both are aces?",
+      "conceptIds": [
+        "probability-combinatorics"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.004524886877828055,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "combinatorial_denominator_error",
+      "lessonRule": "For an unordered sample without replacement, use combinations consistently: favorable combinations divided by total combinations.",
+      "remediation": {
+        "correction": "For an unordered sample without replacement, use combinations consistently: favorable combinations divided by total combinations.",
+        "lessonTemplate": {
+          "rule": "For an unordered sample without replacement, use combinations consistently: favorable combinations divided by total combinations.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-24-correction",
+          "prompt": "Two cards without replacement: probability both kings?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.004524886877828055,
+            "tolerance": 1e-09
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-24-promotion-retest",
+          "prompt": "Two cards without replacement: probability both hearts?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.058823529411764705,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-24-heldout-retest",
+          "prompt": "Two cards without replacement: probability both are face cards (J,Q,K)?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.049773755656108594,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-25",
+      "prompt": "In the standard Monty Hall setup, you initially choose one of 3 doors, the host knows the prize location and always opens a different losing door. What is the probability of winning if you switch?",
+      "conceptIds": [
+        "probability-conditional",
+        "reasoning-sample-space"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.6666666666666666,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "host_policy_error",
+      "lessonRule": "Condition on the host policy: the initial choice retains its prior probability and the remaining unopened alternative inherits the probability mass of all initially unchosen doors.",
+      "remediation": {
+        "correction": "Condition on the host policy: the initial choice retains its prior probability and the remaining unopened alternative inherits the probability mass of all initially unchosen doors.",
+        "lessonTemplate": {
+          "rule": "Condition on the host policy: the initial choice retains its prior probability and the remaining unopened alternative inherits the probability mass of all initially unchosen doors.",
+          "contraindications": [
+            "This rule requires an informed host who always opens losing doors according to the declared protocol."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-25-correction",
+          "prompt": "Four-door variant: choose one, informed host opens two losing unchosen doors, then switch to the sole other unopened door. Win probability?",
+          "conceptIds": [
+            "probability-conditional",
+            "reasoning-sample-space"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.75
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-25-promotion-retest",
+          "prompt": "Five-door variant: choose one, informed host opens three losing unchosen doors, then switch to the sole other unopened door. Win probability?",
+          "conceptIds": [
+            "probability-conditional",
+            "reasoning-sample-space"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.8
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-25-heldout-retest",
+          "prompt": "Standard three-door Monty Hall: probability of winning if you stay?",
+          "conceptIds": [
+            "probability-conditional",
+            "reasoning-sample-space"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.3333333333333333,
+            "tolerance": 1e-09
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-26",
+      "prompt": "A random variable has mean 0 and variance 4. Compute E[X^2].",
+      "conceptIds": [
+        "statistics-variance"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 4
+      },
+      "mistakeCategory": "moment_identity_error",
+      "lessonRule": "Use Var(X)=E[X^2]-(E[X])^2, so the second moment equals variance plus the squared mean.",
+      "remediation": {
+        "correction": "Use Var(X)=E[X^2]-(E[X])^2, so the second moment equals variance plus the squared mean.",
+        "lessonTemplate": {
+          "rule": "Use Var(X)=E[X^2]-(E[X])^2, so the second moment equals variance plus the squared mean.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-26-correction",
+          "prompt": "Mean 2, variance 9. Find E[X^2].",
+          "conceptIds": [
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 13
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-26-promotion-retest",
+          "prompt": "Mean -1, variance 5. Find E[X^2].",
+          "conceptIds": [
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 6
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-26-heldout-retest",
+          "prompt": "Mean 3, variance 2. Find E[X^2].",
+          "conceptIds": [
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 11
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-27",
+      "prompt": "A rectangle has perimeter 20. What is its maximum possible area?",
+      "conceptIds": [
+        "optimization-constraints"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 25
+      },
+      "mistakeCategory": "constraint_translation_error",
+      "lessonRule": "Translate a fixed-perimeter rectangle into A=x(P/2-x), then maximize the concave quadratic; the square is optimal.",
+      "remediation": {
+        "correction": "Translate a fixed-perimeter rectangle into A=x(P/2-x), then maximize the concave quadratic; the square is optimal.",
+        "lessonTemplate": {
+          "rule": "Translate a fixed-perimeter rectangle into A=x(P/2-x), then maximize the concave quadratic; the square is optimal.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-27-correction",
+          "prompt": "Rectangle perimeter 28: maximum area?",
+          "conceptIds": [
+            "optimization-constraints"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 49
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-27-promotion-retest",
+          "prompt": "Rectangle perimeter 16: maximum area?",
+          "conceptIds": [
+            "optimization-constraints"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 16
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-27-heldout-retest",
+          "prompt": "Rectangle perimeter 30: maximum area?",
+          "conceptIds": [
+            "optimization-constraints"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 56.25
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-28",
+      "prompt": "Compute det([[2,1,0],[1,3,1],[0,2,4]]).",
+      "conceptIds": [
+        "linear-algebra-determinant"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 16
+      },
+      "mistakeCategory": "determinant_sign_error",
+      "lessonRule": "For a 3x3 determinant, use a consistent cofactor expansion and preserve alternating signs, then cross-check with row reduction.",
+      "remediation": {
+        "correction": "For a 3x3 determinant, use a consistent cofactor expansion and preserve alternating signs, then cross-check with row reduction.",
+        "lessonTemplate": {
+          "rule": "For a 3x3 determinant, use a consistent cofactor expansion and preserve alternating signs, then cross-check with row reduction.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-28-correction",
+          "prompt": "Compute det([[1,2,0],[0,3,1],[0,0,4]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 12
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-28-promotion-retest",
+          "prompt": "Compute det([[1,0,2],[2,1,0],[0,3,1]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 13
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-28-heldout-retest",
+          "prompt": "Compute det([[2,1,1],[1,2,1],[1,1,2]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 4
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-29",
+      "prompt": "In a population, P(A)=0.5, P(B)=0.4, P(C)=0.3; pairwise intersections are 0.2, 0.15, 0.1; and P(A and B and C)=0.05. Compute P(A union B union C).",
+      "conceptIds": [
+        "probability-inclusion-exclusion"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.8,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "inclusion_exclusion_sign_error",
+      "lessonRule": "For three events, add singles, subtract pairwise intersections, then add the triple intersection back once.",
+      "remediation": {
+        "correction": "For three events, add singles, subtract pairwise intersections, then add the triple intersection back once.",
+        "lessonTemplate": {
+          "rule": "For three events, add singles, subtract pairwise intersections, then add the triple intersection back once.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-29-correction",
+          "prompt": "Singles .4,.3,.2; pairs .1,.08,.05; triple .02. Union?",
+          "conceptIds": [
+            "probability-inclusion-exclusion"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.69
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-29-promotion-retest",
+          "prompt": "Singles .6,.5,.4; pairs .3,.2,.2; triple .1. Union?",
+          "conceptIds": [
+            "probability-inclusion-exclusion"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.9
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-29-heldout-retest",
+          "prompt": "Singles .3,.3,.3; pairs .1,.1,.1; triple .05. Union?",
+          "conceptIds": [
+            "probability-inclusion-exclusion"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0.65
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mf-30",
+      "prompt": "Two fair six-sided dice are rolled. Compute the expected value of the maximum of the two dice.",
+      "conceptIds": [
+        "reasoning-expected-value",
+        "probability-counting"
+      ],
+      "difficulty": "mixed",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 4.472222222222222,
+        "tolerance": 1e-09
+      },
+      "mistakeCategory": "maximum_distribution_error",
+      "lessonRule": "For a discrete maximum M, derive P(M=k) from cumulative counts or use the tail-sum identity, then weight every possible k.",
+      "remediation": {
+        "correction": "For a discrete maximum M, derive P(M=k) from cumulative counts or use the tail-sum identity, then weight every possible k.",
+        "lessonTemplate": {
+          "rule": "For a discrete maximum M, derive P(M=k) from cumulative counts or use the tail-sum identity, then weight every possible k.",
+          "contraindications": [
+            "Apply only when the stated assumptions and sample space match the rule."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mf-30-correction",
+          "prompt": "Two fair 2-sided dice labeled 1,2: expected maximum?",
+          "conceptIds": [
+            "reasoning-expected-value",
+            "probability-counting"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 1.75
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mf-30-promotion-retest",
+          "prompt": "Two fair 3-sided dice labeled 1,2,3: expected maximum?",
+          "conceptIds": [
+            "reasoning-expected-value",
+            "probability-counting"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 2.4444444444444446,
+            "tolerance": 1e-09
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mf-30-heldout-retest",
+          "prompt": "Two fair 4-sided dice labeled 1..4: expected maximum?",
+          "conceptIds": [
+            "reasoning-expected-value",
+            "probability-counting"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 3.125
+          }
+        }
+      }
+    }
+  ],
+  "truthBoundary": "A score supports only this recorded 30-item baseline under the declared no-tool conditions."
+}

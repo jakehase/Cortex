@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "cortex.learning_os.answer_set.v0",
+  "runId": "math-foundations-smoke-20260725-052532795Z-correction",
+  "answers": [
+    {
+      "itemId": "mfc-15-correction",
+      "answer": "265"
+    }
+  ],
+  "answerSource": {
+    "kind": "openclaw_agent",
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "gatewayRunId": "b7bcfd25-6fb0-44a9-a1b7-615c711fba9b",
+    "sessionId": "ff50b4ef-66ec-4576-8e03-b3fce87967f3",
+    "usage": {
+      "input": 1329,
+      "output": 23,
+      "cacheRead": 20992,
+      "total": 22344
+    }
+  },
+  "evidenceRole": "correction",
+  "toolsUsed": [],
+  "startedAt": "2026-07-25T05:26:10.854Z",
+  "completedAt": "2026-07-25T05:26:17.349Z"
+}

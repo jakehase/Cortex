@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.exam.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "examId",
+    "capsuleId",
+    "version",
+    "title",
+    "passThreshold",
+    "allowedTools",
+    "items",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.exam.v0"
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1
+    },
+    "passThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "additionalProperties": true
+}

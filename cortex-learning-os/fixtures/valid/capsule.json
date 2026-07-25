@@ -4,6 +4,8 @@
   "domain": "math-foundations",
   "version": "0.1.0",
   "trustState": "candidate",
+  "activeCurriculumId": "math-foundations-curriculum-v0",
   "activeExamIds": ["algebra-baseline", "probability-baseline"],
-  "promotionThresholds": {"minEvidence": 2, "minDistinctExams": 2, "minScore": 0.9, "retestDays": 90}
+  "promotionThresholds": {"minEvidence": 2, "minDistinctExams": 2, "minScore": 0.9, "retestDays": 90},
+  "truthBoundary": "Fixture-only capsule; no domain mastery claim."
 }

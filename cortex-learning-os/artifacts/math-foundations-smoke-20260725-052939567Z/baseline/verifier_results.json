@@ -1,0 +1,402 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_90e1e966ddd2e308",
+    "attemptId": "attempt_fd3e22826d913d83",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-01",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "144437219165251850484",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_90e1e966ddd2e308"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_36e69c4d2d428538",
+    "attemptId": "attempt_b0a1e57030ddc43f",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-02",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "failed",
+    "score": 0,
+    "reproducible": true,
+    "observed": "877136039874037161833888",
+    "failureReason": "answer did not satisfy deterministic checker",
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_36e69c4d2d428538"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_497e00302594322b",
+    "attemptId": "attempt_3b9d4030e5fdd92c",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-03",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "2731535755844480003224",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_497e00302594322b"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_d4f597553236d095",
+    "attemptId": "attempt_350695b744695a40",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-04",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "5501962306661666773158",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_d4f597553236d095"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_3666165d45b75702",
+    "attemptId": "attempt_1d62daaa99e96c12",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-05",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "737201632543569892980",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_3666165d45b75702"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_59f312f1744869d9",
+    "attemptId": "attempt_f37437c6b8c21412",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-06",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "7617014134944021951964",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_59f312f1744869d9"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_d960443561090de9",
+    "attemptId": "attempt_a3cd3a8a7a268845",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-07",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "6945405126304984198600",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_d960443561090de9"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_4be070551de503a5",
+    "attemptId": "attempt_27c81753f372d92c",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-08",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "738996775935600300022",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_4be070551de503a5"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_acb12d9ef3e5b775",
+    "attemptId": "attempt_505d2c41d5e2bdcf",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-09",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "6236761125643274862072",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_acb12d9ef3e5b775"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_8d744fb9af09c0b5",
+    "attemptId": "attempt_b47f7f23768ca086",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-10",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "1455286525974313414247",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_8d744fb9af09c0b5"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_a83f5ffba50cf006",
+    "attemptId": "attempt_a703ad18cf0d3352",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-11",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "133562282605820259646",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_a83f5ffba50cf006"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_d8b0139d8718cab7",
+    "attemptId": "attempt_ce0fbdc3642be0ed",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-12",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "6217841412743750808011",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_d8b0139d8718cab7"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_ec1d41b8aabb2d19",
+    "attemptId": "attempt_917d880ae0aebeec",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-13",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "2346781118745579829166",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_ec1d41b8aabb2d19"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_7c8386d4514af81f",
+    "attemptId": "attempt_3ee9b6e2eba08da0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-14",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "472787210702081069454",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_7c8386d4514af81f"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_12019f8b7b288e11",
+    "attemptId": "attempt_adea970aaea98193",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-15",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "8746076594774498616520",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_12019f8b7b288e11"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_d5b8245471d76643",
+    "attemptId": "attempt_2449039378c5f6d4",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-16",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "3292193888453044389600",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_d5b8245471d76643"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_375fb0948e4416a5",
+    "attemptId": "attempt_2325da605aab6723",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-17",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "7370845513528180362820",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_375fb0948e4416a5"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_2004cc1de67f980f",
+    "attemptId": "attempt_1a284add1c753d66",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-18",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "2529571613662186109532",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_2004cc1de67f980f"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_b44a11b0e85ca2d6",
+    "attemptId": "attempt_82a471a77cee78e4",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-19",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "6700100971103242932180",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_b44a11b0e85ca2d6"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_5caa41d3ba680c38",
+    "attemptId": "attempt_51da1e5887011591",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-20",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "698137755739452423357",
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_5caa41d3ba680c38"
+    ]
+  }
+]

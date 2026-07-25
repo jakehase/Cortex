@@ -1,0 +1,22 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_fa354693094869ba",
+    "attemptId": "attempt_558faec35b44eb8a",
+    "examId": "math-foundations-correction-v0",
+    "itemId": "mfc-15-correction",
+    "conceptIds": [
+      "probability-combinatorics"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "failed",
+    "score": 0,
+    "reproducible": true,
+    "observed": 265,
+    "failureReason": "answer did not satisfy deterministic checker",
+    "evidenceRole": "correction",
+    "evidence": [
+      "./verifier_results.json#verify_fa354693094869ba"
+    ]
+  }
+]

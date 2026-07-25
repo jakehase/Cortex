@@ -1,1 +1,22 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"cortex.learning_os.retrieval_pack.v0","type":"object","required":["schemaVersion","capsuleId","task","trustedLessonIds","lessons","omittedUntrustedCount"]}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.retrieval_pack.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "capsuleId",
+    "task",
+    "trustedLessonIds",
+    "lessons",
+    "omittedUntrustedCount",
+    "estimatedTokens",
+    "maxTokens",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.retrieval_pack.v0"
+    }
+  },
+  "additionalProperties": true
+}

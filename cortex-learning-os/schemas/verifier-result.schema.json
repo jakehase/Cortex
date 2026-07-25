@@ -1,1 +1,23 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"cortex.learning_os.verifier_result.v0","type":"object","required":["schemaVersion","verifierResultId","attemptId","verifierId","status","score","reproducible","evidence"],"properties":{"status":{"enum":["passed","failed","error"]},"score":{"type":"number","minimum":0,"maximum":1},"evidence":{"type":"array","minItems":1}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.verifier_result.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "verifierResultId",
+    "attemptId",
+    "examId",
+    "itemId",
+    "verifierId",
+    "status",
+    "score",
+    "reproducible",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.verifier_result.v0"
+    }
+  },
+  "additionalProperties": true
+}

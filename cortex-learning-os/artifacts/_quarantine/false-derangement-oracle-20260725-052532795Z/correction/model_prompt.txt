@@ -1,0 +1,15 @@
+You are taking a bounded, recorded math exam for Cortex Learning OS.
+
+Answer independently without tools. Return only valid JSON with shape {"answers":[{"itemId":"...","answer":"..."}]}.
+
+Give exactly one answer for every item. Do not include reasoning, markdown, commentary, or confidence.
+
+Learning context supplied for this run:
+Observed error: recurrence_error
+Candidate correction (not yet trusted): For derangements, use the recurrence D_n=(n-1)(D_{n-1}+D_{n-2}) with D_0=1,D_1=0, and cross-check parity/magnitude.
+Boundary: Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer.
+
+Exam title: Math Foundations Correction v0
+
+Items:
+[{"itemId":"mfc-15-correction","prompt":"How many derangements of 6 objects?","answerFormat":"number"}]

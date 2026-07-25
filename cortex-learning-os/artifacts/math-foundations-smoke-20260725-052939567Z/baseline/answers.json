@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "cortex.learning_os.answer_set.v0",
+  "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+  "answers": [
+    {
+      "itemId": "mfs-01",
+      "answer": "144437219165251850484"
+    },
+    {
+      "itemId": "mfs-02",
+      "answer": "877136039874037161833888"
+    },
+    {
+      "itemId": "mfs-03",
+      "answer": "2731535755844480003224"
+    },
+    {
+      "itemId": "mfs-04",
+      "answer": "5501962306661666773158"
+    },
+    {
+      "itemId": "mfs-05",
+      "answer": "737201632543569892980"
+    },
+    {
+      "itemId": "mfs-06",
+      "answer": "7617014134944021951964"
+    },
+    {
+      "itemId": "mfs-07",
+      "answer": "6945405126304984198600"
+    },
+    {
+      "itemId": "mfs-08",
+      "answer": "738996775935600300022"
+    },
+    {
+      "itemId": "mfs-09",
+      "answer": "6236761125643274862072"
+    },
+    {
+      "itemId": "mfs-10",
+      "answer": "1455286525974313414247"
+    },
+    {
+      "itemId": "mfs-11",
+      "answer": "133562282605820259646"
+    },
+    {
+      "itemId": "mfs-12",
+      "answer": "6217841412743750808011"
+    },
+    {
+      "itemId": "mfs-13",
+      "answer": "2346781118745579829166"
+    },
+    {
+      "itemId": "mfs-14",
+      "answer": "472787210702081069454"
+    },
+    {
+      "itemId": "mfs-15",
+      "answer": "8746076594774498616520"
+    },
+    {
+      "itemId": "mfs-16",
+      "answer": "3292193888453044389600"
+    },
+    {
+      "itemId": "mfs-17",
+      "answer": "7370845513528180362820"
+    },
+    {
+      "itemId": "mfs-18",
+      "answer": "2529571613662186109532"
+    },
+    {
+      "itemId": "mfs-19",
+      "answer": "6700100971103242932180"
+    },
+    {
+      "itemId": "mfs-20",
+      "answer": "698137755739452423357"
+    }
+  ],
+  "answerSource": {
+    "kind": "openclaw_agent",
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+    "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+    "usage": {
+      "input": 1943,
+      "output": 4897,
+      "cacheRead": 20992,
+      "total": 27832
+    }
+  },
+  "evidenceRole": "baseline",
+  "toolsUsed": [],
+  "startedAt": "2026-07-25T05:29:39.568Z",
+  "completedAt": "2026-07-25T05:31:15.534Z"
+}

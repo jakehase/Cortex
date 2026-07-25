@@ -1,0 +1,388 @@
+{
+  "schemaVersion": "cortex.learning_os.curriculum_graph.v0",
+  "curriculumId": "math-foundations-curriculum-v0",
+  "capsuleId": "math-foundations-v0",
+  "domain": "math-foundations",
+  "version": "0.1.0",
+  "concepts": [
+    {
+      "conceptId": "number-fractions",
+      "title": "Fractions and rational numbers",
+      "category": "algebra",
+      "prerequisites": [],
+      "outcomes": [
+        "Compute and compare rational values exactly."
+      ]
+    },
+    {
+      "conceptId": "algebra-inverse-operations",
+      "title": "Inverse operations",
+      "category": "algebra",
+      "prerequisites": [
+        "number-fractions"
+      ],
+      "outcomes": [
+        "Isolate variables without changing solution sets."
+      ]
+    },
+    {
+      "conceptId": "algebra-linear-equations",
+      "title": "Linear equations",
+      "category": "algebra",
+      "prerequisites": [
+        "algebra-inverse-operations"
+      ],
+      "outcomes": [
+        "Solve one-variable linear equations."
+      ]
+    },
+    {
+      "conceptId": "algebra-factoring",
+      "title": "Polynomial factoring",
+      "category": "algebra",
+      "prerequisites": [],
+      "outcomes": [
+        "Factor simple quadratics."
+      ]
+    },
+    {
+      "conceptId": "algebra-quadratics",
+      "title": "Quadratic equations",
+      "category": "algebra",
+      "prerequisites": [
+        "algebra-factoring"
+      ],
+      "outcomes": [
+        "Find quadratic roots."
+      ]
+    },
+    {
+      "conceptId": "algebra-absolute-value",
+      "title": "Absolute-value equations",
+      "category": "algebra",
+      "prerequisites": [
+        "algebra-linear-equations"
+      ],
+      "outcomes": [
+        "Split absolute-value equations into valid cases."
+      ]
+    },
+    {
+      "conceptId": "functions-evaluation",
+      "title": "Function evaluation",
+      "category": "functions",
+      "prerequisites": [],
+      "outcomes": [
+        "Evaluate functions at signed inputs."
+      ]
+    },
+    {
+      "conceptId": "functions-inverse",
+      "title": "Inverse functions",
+      "category": "functions",
+      "prerequisites": [
+        "functions-evaluation",
+        "algebra-linear-equations"
+      ],
+      "outcomes": [
+        "Solve for inverse outputs."
+      ]
+    },
+    {
+      "conceptId": "functions-transformations",
+      "title": "Function transformations",
+      "category": "functions",
+      "prerequisites": [
+        "functions-evaluation"
+      ],
+      "outcomes": [
+        "Reason about shifted and scaled functions."
+      ]
+    },
+    {
+      "conceptId": "series-geometric",
+      "title": "Geometric series",
+      "category": "functions",
+      "prerequisites": [
+        "number-fractions"
+      ],
+      "outcomes": [
+        "Recognize convergence and compute finite or infinite sums."
+      ]
+    },
+    {
+      "conceptId": "probability-counting",
+      "title": "Counting outcomes",
+      "category": "probability",
+      "prerequisites": [],
+      "outcomes": [
+        "Count equally likely outcomes without duplication."
+      ]
+    },
+    {
+      "conceptId": "probability-binomial",
+      "title": "Binomial probability",
+      "category": "probability",
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Compute exact success-count probabilities."
+      ]
+    },
+    {
+      "conceptId": "probability-complements",
+      "title": "Complement rule",
+      "category": "probability",
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Compute at-least-one probabilities."
+      ]
+    },
+    {
+      "conceptId": "probability-conditional",
+      "title": "Conditional probability",
+      "category": "probability",
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Condition on the declared sample space."
+      ]
+    },
+    {
+      "conceptId": "probability-bayes",
+      "title": "Bayes rule and base rates",
+      "category": "probability",
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Combine sensitivity, specificity, and prevalence."
+      ]
+    },
+    {
+      "conceptId": "probability-independence",
+      "title": "Independence",
+      "category": "probability",
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Use product rules only when independence is given."
+      ]
+    },
+    {
+      "conceptId": "probability-inclusion-exclusion",
+      "title": "Inclusion-exclusion",
+      "category": "probability",
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Correctly subtract overlap."
+      ]
+    },
+    {
+      "conceptId": "probability-waiting-time",
+      "title": "Pattern waiting times",
+      "category": "probability",
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Account for pattern self-overlap."
+      ]
+    },
+    {
+      "conceptId": "probability-combinatorics",
+      "title": "Combinatorial probability",
+      "category": "probability",
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Use combinations for unordered samples."
+      ]
+    },
+    {
+      "conceptId": "statistics-mean",
+      "title": "Arithmetic mean",
+      "category": "statistics",
+      "prerequisites": [],
+      "outcomes": [
+        "Compute sample means."
+      ]
+    },
+    {
+      "conceptId": "statistics-weighted-mean",
+      "title": "Weighted mean",
+      "category": "statistics",
+      "prerequisites": [
+        "statistics-mean"
+      ],
+      "outcomes": [
+        "Apply normalized weights."
+      ]
+    },
+    {
+      "conceptId": "statistics-median",
+      "title": "Median and robust center",
+      "category": "statistics",
+      "prerequisites": [],
+      "outcomes": [
+        "Find ordered middle values."
+      ]
+    },
+    {
+      "conceptId": "statistics-variance",
+      "title": "Variance",
+      "category": "statistics",
+      "prerequisites": [
+        "statistics-mean"
+      ],
+      "outcomes": [
+        "Connect moments and spread."
+      ]
+    },
+    {
+      "conceptId": "statistics-bernoulli",
+      "title": "Bernoulli moments",
+      "category": "statistics",
+      "prerequisites": [
+        "statistics-variance"
+      ],
+      "outcomes": [
+        "Use p(1-p) for Bernoulli variance."
+      ]
+    },
+    {
+      "conceptId": "statistics-z-score",
+      "title": "Standardization",
+      "category": "statistics",
+      "prerequisites": [
+        "statistics-mean",
+        "statistics-variance"
+      ],
+      "outcomes": [
+        "Convert observations to z-scores."
+      ]
+    },
+    {
+      "conceptId": "statistics-causation",
+      "title": "Association versus causation",
+      "category": "statistics",
+      "prerequisites": [],
+      "outcomes": [
+        "Reject unsupported causal inference."
+      ]
+    },
+    {
+      "conceptId": "calculus-derivative",
+      "title": "Derivatives",
+      "category": "optimization",
+      "prerequisites": [],
+      "outcomes": [
+        "Differentiate elementary polynomials."
+      ]
+    },
+    {
+      "conceptId": "optimization-quadratic",
+      "title": "Quadratic optimization",
+      "category": "optimization",
+      "prerequisites": [
+        "calculus-derivative"
+      ],
+      "outcomes": [
+        "Use vertices or stationary points."
+      ]
+    },
+    {
+      "conceptId": "optimization-multivariate",
+      "title": "Multivariate optimization",
+      "category": "optimization",
+      "prerequisites": [
+        "calculus-derivative"
+      ],
+      "outcomes": [
+        "Solve separable stationary conditions."
+      ]
+    },
+    {
+      "conceptId": "optimization-constraints",
+      "title": "Constrained optimization",
+      "category": "optimization",
+      "prerequisites": [
+        "optimization-quadratic"
+      ],
+      "outcomes": [
+        "Translate constraints before optimizing."
+      ]
+    },
+    {
+      "conceptId": "reasoning-percent-base",
+      "title": "Percent-change bases",
+      "category": "error-analysis",
+      "prerequisites": [
+        "number-fractions"
+      ],
+      "outcomes": [
+        "Use the original quantity as denominator."
+      ]
+    },
+    {
+      "conceptId": "reasoning-expected-value",
+      "title": "Expected value",
+      "category": "error-analysis",
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Weight every payoff by its probability."
+      ]
+    },
+    {
+      "conceptId": "reasoning-sample-space",
+      "title": "Sample-space conditioning",
+      "category": "error-analysis",
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Rebuild the sample space after conditioning."
+      ]
+    },
+    {
+      "conceptId": "reasoning-self-overlap",
+      "title": "Sequence self-overlap",
+      "category": "error-analysis",
+      "prerequisites": [
+        "probability-waiting-time"
+      ],
+      "outcomes": [
+        "Include proper prefix-suffix overlaps."
+      ]
+    },
+    {
+      "conceptId": "linear-algebra-determinant",
+      "title": "Determinants",
+      "category": "algebra",
+      "prerequisites": [],
+      "outcomes": [
+        "Compute a 3x3 determinant reproducibly."
+      ]
+    },
+    {
+      "conceptId": "reasoning-truth-boundary",
+      "title": "Capability truth boundaries",
+      "category": "error-analysis",
+      "prerequisites": [],
+      "outcomes": [
+        "Separate an observed exam result from broad mastery."
+      ]
+    }
+  ],
+  "truthBoundary": "Curriculum coverage defines intended learning surfaces only; it does not prove competence."
+}

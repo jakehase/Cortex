@@ -1,1 +1,20 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"cortex.learning_os.capability_report.v0","type":"object","required":["schemaVersion","capsuleId","examMatrix","allowedClaims","rejectedClaims","truthBoundary"]}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.capability_report.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "capsuleId",
+    "examMatrix",
+    "allowedClaims",
+    "rejectedClaims",
+    "openGaps",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.capability_report.v0"
+    }
+  },
+  "additionalProperties": true
+}

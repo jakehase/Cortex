@@ -11,7 +11,23 @@ import { buildCapabilityReport, buildRetrievalPack } from '../src/retrieval-pack
 const fixture = (name) => JSON.parse(fs.readFileSync(path.join(CLOS_ROOT, 'fixtures/valid', name), 'utf8'));
 const capsule = fixture('capsule.json');
 const candidate = fixture('lesson-candidate.json');
-const result = (id, examId) => ({ schemaVersion: SCHEMAS.verifierResult, verifierResultId: id, attemptId: `attempt-${id}`, verifierId: 'deterministic', status: 'passed', score: 1, reproducible: true, evidence: [`artifacts/${examId}.json`], examId });
+const result = (id, examId, itemId, evidenceRole = 'correction') => ({
+  schemaVersion: SCHEMAS.verifierResult,
+  verifierResultId: id,
+  attemptId: `attempt-${id}`,
+  examId,
+  itemId,
+  verifierId: 'deterministic',
+  status: 'passed',
+  score: 1,
+  reproducible: true,
+  evidenceRole,
+  evidence: [`artifacts/${examId}.json`]
+});
+const passingResults = () => [
+  result('verify-algebra-1', 'algebra-baseline', 'algebra-correction-item'),
+  result('verify-probability-1', 'probability-baseline', 'probability-retest-item', 'retest')
+];
 
 test('fixtures enforce valid and invalid Learning Capsule records', () => {
   assert.equal(validateRecord(capsule).ok, true);
@@ -22,35 +38,43 @@ test('fixtures enforce valid and invalid Learning Capsule records', () => {
 });
 
 test('promotion fails closed without enough independent evidence', () => {
-  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: [result('verify-algebra-1', 'algebra-baseline')] });
+  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: passingResults().slice(0, 1) });
   assert.equal(promotion.promoted, false);
   assert.equal(promotion.trustedLesson, null);
 });
 
 test('promotion fails closed when evidence does not cover distinct declared exams', () => {
-  const promotion = evaluatePromotion({
-    capsule,
-    candidate,
-    verifierResults: [result('verify-algebra-1', 'algebra-baseline'), result('verify-probability-1', 'algebra-baseline')]
-  });
+  const duplicateExamResults = [
+    result('verify-algebra-1', 'algebra-baseline', 'algebra-correction-item'),
+    result('verify-probability-1', 'algebra-baseline', 'probability-retest-item', 'retest')
+  ];
+  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: duplicateExamResults });
   assert.equal(promotion.promoted, false);
   assert.equal(promotion.promotionProof.gates.distinctExamCoverage, false);
 });
 
+test('promotion fails closed without a passed declared retest', () => {
+  const noRetest = passingResults().map((row) => ({ ...row, evidenceRole: 'correction' }));
+  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: noRetest });
+  assert.equal(promotion.promoted, false);
+  assert.equal(promotion.promotionProof.gates.requiredRetestPassed, false);
+});
+
 test('promotion creates a replayable trusted lesson only after every gate passes', () => {
-  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: [result('verify-algebra-1', 'algebra-baseline'), result('verify-probability-1', 'probability-baseline')], now: '2026-07-09T19:00:00.000Z' });
+  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: passingResults(), now: '2026-07-09T19:00:00.000Z' });
   assert.equal(promotion.promoted, true);
   assert.equal(validateRecord(promotion.trustedLesson).ok, true);
+  assert.equal(validateRecord(promotion.promotionProof).ok, true);
   assert.equal(promotion.trustedLesson.promotionProof.gates.contradictionFree, true);
 });
 
-test('retrieval packs omit candidates and capability reports reject general mastery', () => {
-  const trustedLesson = evaluatePromotion({ capsule, candidate, verifierResults: [result('verify-algebra-1', 'algebra-baseline'), result('verify-probability-1', 'probability-baseline')], now: '2026-07-09T19:00:00.000Z' }).trustedLesson;
-  const pack = buildRetrievalPack({ capsule, task: 'factor an algebraic expression', trustedLessons: [trustedLesson], candidateLessons: [candidate], now: '2026-07-10T00:00:00.000Z' });
+test('retrieval packs omit candidates, enforce token bounds, and capability reports reject mastery', () => {
+  const trustedLesson = evaluatePromotion({ capsule, candidate, verifierResults: passingResults(), now: '2026-07-09T19:00:00.000Z' }).trustedLesson;
+  const pack = buildRetrievalPack({ capsule, task: 'factor an algebraic expression', conceptIds: ['algebra-factoring'], trustedLessons: [trustedLesson], candidateLessons: [candidate], now: '2026-07-10T00:00:00.000Z', maxTokens: 400 });
   assert.deepEqual(pack.trustedLessonIds, [trustedLesson.lessonId]);
   assert.equal(pack.omittedUntrustedCount, 1);
-  const report = buildCapabilityReport({ capsule, examResults: [result('one', 'algebra-baseline'), result('two', 'probability-baseline')] });
-  assert.equal(report.allowedClaims.includes('passed_declared_exams_for_math-foundations'), true);
+  assert.equal(pack.estimatedTokens <= pack.maxTokens, true);
+  const report = buildCapabilityReport({ capsule, examRuns: [{ examId: 'algebra-baseline', runId: 'one', score: 1, passed: true, itemCount: 1 }] });
   assert.equal(report.rejectedClaims.includes('general_domain_mastery'), true);
 });
 

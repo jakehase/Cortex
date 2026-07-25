@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "cortex.learning_os.retrieval_pack.v0",
+  "generatedAt": "2026-07-25T05:31:38.879Z",
+  "capsuleId": "math-foundations-v0",
+  "task": "Compute exactly: 6,243,088,374 × 2,167,829.",
+  "conceptIds": [
+    "number-fractions"
+  ],
+  "trustedLessonIds": [
+    "lesson_e30152a45fdf9a6a"
+  ],
+  "lessons": [
+    {
+      "lessonId": "lesson_e30152a45fdf9a6a",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "contraindications": [
+        "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+      ],
+      "relevanceScore": 0.069,
+      "promotionProofDigest": "b23e7f7130be75d85c31bd154e00747acbd2e7860577dcb69e9589537b9a1d5c"
+    }
+  ],
+  "mistakeWarnings": [
+    {
+      "mistakeId": "mistake_48f93a3160efe7e5",
+      "rootCause": "multi_digit_arithmetic_error",
+      "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering."
+    }
+  ],
+  "omittedUntrustedCount": 1,
+  "estimatedTokens": 336,
+  "maxTokens": 900,
+  "truthBoundary": "Only promoted, unexpired trusted lessons are included. Candidate and raw notes are omitted; cited warnings are not promoted as lessons."
+}
