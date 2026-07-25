@@ -47,3 +47,27 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `package.json`, `src/paths.mjs`, `src/json.mjs`, `src/hash.mjs`, `src/validate-fixtures.mjs`, `tests/scaffold.test.mjs`.
 - Supersedes: Planning-only state for Stage A.
 - Follow-up: Stage B schema design remains next and is intentionally deferred until requested because it is more token-intensive.
+
+## 2026-07-25 — Restart on an isolated branch and preserve the dormant prototype
+
+- Decision: Base the restart on `origin/main` in worktree `/root/clawd/worktrees/cortex-learning-os-v0-20260725`, branch `feat/cortex-learning-os-v0-20260725`, and preserve the prior local prototype as commit `cb7b93007` before extending it.
+- Reason: The original `/root/clawd/cortex-learning-os` directory was untracked inside a dirty, diverged memory-repair branch. Isolating the work prevented unrelated workspace changes from contaminating CLOS history.
+- Evidence: commit `cb7b93007`; the preserved package passed its original `9/9` tests and fixture validation before extension.
+- Supersedes: untracked-only local prototype state.
+- Follow-up: merge/push the production slice through the authoritative remote default branch after final validation.
+
+## 2026-07-25 — Quarantine a false-negative derangement verifier run
+
+- Decision: Reject and quarantine run `math-foundations-smoke-20260725-052532795Z`; add regression checks for `D_6=265`, `D_8=14833`, `D_9=133496`, and `D_10=1334961`.
+- Reason: The generated deterministic oracle incorrectly expected `0`, while Cortex's baseline and correction answers were correct. Promoting that “mistake” would teach a false lesson.
+- Evidence: `artifacts/_quarantine/false-derangement-oracle-20260725-052532795Z/QUARANTINE.md`; `tests/math-foundations.test.mjs`.
+- Supersedes: the run's original `blocked_correction_failed` interpretation.
+- Follow-up: keep verifier regression fixtures as first-class evidence and never use the quarantined run for capability claims.
+
+## 2026-07-25 — Complete and promote the first bounded learning loop
+
+- Decision: Accept the exact-arithmetic stress run as the first qualified CLOS learning-loop proof and write its trusted lesson, retrieval pack, capability report, and qualified-run pointer to the canonical math-foundations capsule paths.
+- Reason: The recorded model run produced a real deterministic baseline failure, passed a correction and independent promotion retest, satisfied all 10 promotion gates, and passed a different held-out item after loading the promoted retrieval pack.
+- Evidence: implementation commit `b03add355`; `artifacts/math-foundations-smoke-20260725-052939567Z`; `artifacts/latest-qualified-run.json`; manifest replay `36/36`; local tests `14/14`.
+- Supersedes: planning/scaffold-only CLOS status.
+- Follow-up: run equal-difficulty randomized A/B retests before claiming retrieval causality or durable transfer.
