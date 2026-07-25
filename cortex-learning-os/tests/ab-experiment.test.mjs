@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { analyzePairedExperiment, buildPairedExperiment, exactMcNemarP } from '../src/ab-experiment.mjs';
 import { observedToolEvents } from '../src/model-answer-runner.mjs';
 
@@ -62,6 +63,11 @@ test('an invalid trial invalidates its pair and blocks an underpowered claim', (
   assert.equal(result.invalidPairs, 1);
   assert.equal(result.validPairs, 23);
   assert.equal(result.boundedCausalEvidence, false);
+});
+
+test('Codex structured-output schema declares an explicit string answer type', () => {
+  const schema = JSON.parse(fs.readFileSync(new URL('../schemas/model-answer-output.schema.json', import.meta.url), 'utf8'));
+  assert.equal(schema.properties.answers.items.properties.answer.type, 'string');
 });
 
 test('Codex event validation detects command/tool use without flagging normal reasoning or final messages', () => {
