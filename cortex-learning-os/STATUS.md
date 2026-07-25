@@ -5,14 +5,14 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 00:33 CDT`
+- Last updated: `2026-07-25 00:42 CDT`
 - Status: `active`
 - Current fidelity: `production_slice`
 - Package version: `0.2.0`
 
 ## Current checkpoint
 
-Cortex Learning OS has completed its first bounded, verifier-gated learning loop for the math-foundations capsule. The implementation is tracked on `feat/cortex-learning-os-v0-20260725`; the latest verified implementation commit is `b03add355` (`feat(learning-os): complete first verifier-gated learning loop`).
+Cortex Learning OS has completed its first bounded, verifier-gated learning loop for the math-foundations capsule. The implementation is integrated into the authoritative remote `main`; the verified implementation commit is `b03add355` and its first lifecycle/documentation integration commit is `944808d72`. The feature branch `feat/cortex-learning-os-v0-20260725` is preserved at that integration point.
 
 The production slice now includes:
 

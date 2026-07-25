@@ -71,3 +71,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: implementation commit `b03add355`; `artifacts/math-foundations-smoke-20260725-052939567Z`; `artifacts/latest-qualified-run.json`; manifest replay `36/36`; local tests `14/14`.
 - Supersedes: planning/scaffold-only CLOS status.
 - Follow-up: run equal-difficulty randomized A/B retests before claiming retrieval causality or durable transfer.
+
+## 2026-07-25 — Promote the qualified slice to the authoritative remote default branch
+
+- Decision: Push `feat/cortex-learning-os-v0-20260725`, then fast-forward remote `main` after confirming `origin/main` remained an ancestor and the diff touched only `cortex-learning-os/` plus `docs/PLAN_INDEX.md`.
+- Reason: The accepted production slice must live on the canonical default path and authoritative remote, not remain an opt-in local worktree.
+- Evidence: `git ls-remote` showed both `main` and the feature branch at `944808d729183a1ec1ed0c6c114a6f0e024d35dc` immediately after promotion; `/root/clawd/cortex-learning-os` then matched the integrated project tree across all 139 files.
+- Supersedes: feature-branch-only availability.
+- Follow-up: preserve bounded claims and proceed to randomized equal-difficulty A/B transfer testing.
