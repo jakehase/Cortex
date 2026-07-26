@@ -23,6 +23,7 @@ const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || 
 if (!value('--plan') || !value('--artifact-root')) throw new Error('--plan and --artifact-root are required');
 if (!fs.existsSync(planPath)) throw new Error('adaptive plan does not exist');
 const plan = readJson(planPath);
+if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('adaptive plan is unreadable or invalid JSON');
 if (model !== plan.modelRuntime?.model || thinking !== plan.modelRuntime?.thinking) throw new Error('runtime model/reasoning differs from the signed adaptive plan');
 const graph = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json'));
 const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));

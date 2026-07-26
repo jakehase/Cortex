@@ -37,6 +37,7 @@ case "$MODE" in
     NPM_SCRIPT="train:adaptive"
     [[ "$ADAPTIVE_PLAN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "adaptive mode requires a safe absolute plan path" >&2; exit 2; }
     [[ -f "$ADAPTIVE_PLAN" && ! -L "$ADAPTIVE_PLAN" ]] || { echo "adaptive plan must be a regular file" >&2; exit 2; }
+    [[ -r "$ADAPTIVE_PLAN" ]] || { echo "adaptive plan must be readable by the worker service user" >&2; exit 2; }
     ;;
   legacy)
     case "$EXAM_NAME" in

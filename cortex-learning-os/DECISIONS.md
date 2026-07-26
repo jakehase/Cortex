@@ -247,3 +247,10 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Reason: Real launch `math-training-20260726T193442Z-c47d96` proved that the empty quoted argument was lost when SSH reconstructed the remote command, shifting the Codex path into the expected-commit position. The worker correctly failed closed before state initialization and before a model call, but the launcher dry-run could not expose this transport behavior.
 - Evidence: incident artifact `/root/clawd/artifacts/cortex-learning-os-real-adaptive-20260726/incident-pre-model-argument-shift.json`; full local suite `63/63`; Hetzner transient-systemd argument smoke reached `adaptive plan must be a regular file` and did not emit `invalid expected commit`.
 - Boundary: A retry after this verified infrastructure repair is continuation of the single authorized session because the failed launch produced zero provider calls and zero learning evidence. It does not authorize outcome-driven reruns after a real attempt result.
+
+## 2026-07-26 — Prove signed-plan readability as the execution user before launch
+
+- Decision: After copying an adaptive plan, set `jake:jake` ownership and owner-only mode, verify it with `sudo -u jake -- test -r`, and require the worker itself to reject unreadable plans before creating run artifacts. The adaptive CLI must fail explicitly when JSON loading returns no object.
+- Reason: Recovery run `math-training-20260726T194031Z-3b3dfe` copied the plan through root SSH as `root:root` mode `0600`; the `jake` systemd service could stat but not read it. Generic JSON fallback then produced a misleading null dereference. This was a transport/deployment defect, not a training outcome.
+- Evidence: incident artifact `/root/clawd/artifacts/cortex-learning-os-real-adaptive-20260726/incident-pre-model-plan-permission.json`; remote ownership/readability proof; empty remote artifact root; notifier delivery record.
+- Boundary: Ownership changes apply only to the per-run signed plan. Canonical mastery stays owner-only on the control plane, and the execution worker receives no authority to mutate or sign it.

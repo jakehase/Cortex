@@ -222,10 +222,13 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   assert.match(launcher, /sudo -u jake -- "\$REMOTE_CODEX_BIN" --version/);
   assert.match(launcher, /MODE="adaptive"/);
   assert.match(launcher, /adaptive-plan/);
+  assert.match(launcher, /chown jake:jake "\$REMOTE_PLAN"/);
+  assert.match(launcher, /sudo -u jake -- test -r "\$REMOTE_PLAN"/);
   assert.match(launcher, /"\$RUN_ID" adaptive "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN"/);
   assert.match(launcher, /"\$RUN_ID" "\$EXAM" "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN"/);
   assert.match(worker, /MODE_ARG="\$\{2:-adaptive\}"/);
   assert.match(worker, /CODEX_BIN="\$\{4:-\/home\/jake\/\.local\/bin\/codex\}"/);
+  assert.match(worker, /adaptive plan must be readable by the worker service user/);
   assert.match(worker, /\[\[ -x "\$CODEX_BIN" \]\]/);
   assert.match(worker, /--codex-command "\$CODEX_BIN"/);
   assert.match(worker, /if npm run "\$NPM_SCRIPT"/);
@@ -262,4 +265,16 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   assert.equal(adaptiveArguments.status, 2);
   assert.match(adaptiveArguments.stderr, /adaptive plan must be a regular file/);
   assert.doesNotMatch(adaptiveArguments.stderr, /invalid expected commit/);
+
+  const badPlanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-bad-plan-'));
+  const badPlan = path.join(badPlanRoot, 'plan.json');
+  fs.writeFileSync(badPlan, '{not-json\n');
+  const invalidPlan = spawnSync(process.execPath, [
+    path.join(root, 'src/run-adaptive-curriculum.mjs'),
+    '--plan', badPlan,
+    '--artifact-root', path.join(badPlanRoot, 'artifacts'),
+  ], { encoding: 'utf8' });
+  fs.rmSync(badPlanRoot, { recursive: true, force: true });
+  assert.equal(invalidPlan.status, 1);
+  assert.match(invalidPlan.stderr, /adaptive plan is unreadable or invalid JSON/);
 });

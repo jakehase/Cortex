@@ -87,7 +87,9 @@ if [[ "$MODE" == "adaptive" ]]; then
   ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" mkdir -p "$(dirname "$REMOTE_PLAN")"
   ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chmod 700 "$(dirname "$REMOTE_PLAN")"
   scp -q -o BatchMode=yes -o ConnectTimeout=10 "$LOCAL_PLAN" "$SSH_HOST:$REMOTE_PLAN"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chown jake:jake "$REMOTE_PLAN"
   ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chmod 600 "$REMOTE_PLAN"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- test -r "$REMOTE_PLAN"
 fi
 
 systemd-run \

@@ -39,6 +39,8 @@ Canonical integration is complete. Implementation commit `3141a74b8c1873605e7ef9
 
 The first authorized real adaptive launch, `math-training-20260726T193442Z-c47d96`, exposed an SSH/systemd argument-boundary defect before worker state initialization or any model call: the empty adaptive exam placeholder was dropped and positional arguments shifted, so the worker failed closed with `invalid expected commit`. The launcher and worker now use explicit mode-specific non-empty argument layouts. Regression verification passed the full local `63/63` suite and a real Hetzner systemd boundary smoke that reached the intended missing-plan rejection with the exact commit, Codex path, and plan positions intact. The failed launch advanced no mastery and installed no lesson; a post-fix retry remains infrastructure recovery, not an outcome-driven rerun.
 
+The first recovery launch, `math-training-20260726T194031Z-3b3dfe`, then exposed a second pre-model boundary: `scp` created the signed plan as `root:root` mode `0600`, while the isolated worker runs as `jake`. The worker reached the adaptive CLI, but `readJson` could not read the plan and returned `null`; no provider call started and the artifact root remained empty. The launcher now transfers plan ownership to `jake`, verifies readability as the service user before starting any watcher or worker, the worker independently requires readability, and the CLI emits an explicit unreadable/invalid-plan error instead of a null dereference. Canonical mastery remains revision `0` with no applied run.
+
 ## Latest qualified evidence
 
 - Qualified pointer: `artifacts/latest-qualified-run.json`
