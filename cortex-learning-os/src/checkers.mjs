@@ -23,6 +23,15 @@ function asSet(value) {
   }).filter(Boolean))].sort();
 }
 
+function asOrderedNumericTuple(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value ?? '').trim().replace(/^[([]|[)\]]$/g, '').split(',');
+  if (values.length < 1) return null;
+  const numbers = values.map((entry) => numeric(entry));
+  return numbers.every(Number.isFinite) ? numbers : null;
+}
+
 export function checkAnswer(answer, checker = {}) {
   const mode = checker.mode;
   let passed = false;
@@ -46,6 +55,12 @@ export function checkAnswer(answer, checker = {}) {
     observed = asSet(answer);
     const expected = asSet(checker.expected);
     passed = JSON.stringify(observed) === JSON.stringify(expected);
+  } else if (mode === 'ordered_numeric_tuple') {
+    observed = asOrderedNumericTuple(answer);
+    const expected = asOrderedNumericTuple(checker.expected);
+    passed = observed !== null && expected !== null
+      && observed.length === expected.length
+      && observed.every((value, index) => value === expected[index]);
   } else {
     return { passed: false, status: 'error', observed, reason: `unsupported checker mode: ${mode}` };
   }

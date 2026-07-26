@@ -1,6 +1,6 @@
 {
   "name": "cortex-learning-os",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,10 +14,13 @@
     "train:math": "node src/run-learning-smoke.mjs --runner codex",
     "train:math:challenge": "node src/run-learning-smoke.mjs --runner codex --exam exams/math-foundations/reliability-challenge.exam.json",
     "train:math:stress": "node src/run-learning-smoke.mjs --runner codex --exam exams/math-foundations/exact-arithmetic-stress.exam.json",
+    "train:adaptive": "node src/run-adaptive-curriculum.mjs",
     "live:init": "node src/live-control.mjs init",
     "live:status": "node src/live-control.mjs status",
     "live:verify": "node src/live-control.mjs verify",
     "live:install": "node src/live-control.mjs install",
+    "live:adaptive:plan": "node src/live-control.mjs adaptive-plan",
+    "live:adaptive:apply": "node src/live-control.mjs adaptive-apply",
     "live:disable": "node src/live-control.mjs disable",
     "live:enable": "node src/live-control.mjs enable",
     "live:registry:disable": "node src/live-control.mjs registry-disable",

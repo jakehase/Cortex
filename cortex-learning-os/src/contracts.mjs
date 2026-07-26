@@ -77,7 +77,7 @@ export function validateRecord(record) {
       errors.push(...requiredErrors(item, ['itemId', 'prompt', 'conceptIds', 'answerFormat', 'checker']).map((error) => `exam item: ${error}`));
       if (ids.has(item.itemId)) errors.push(`duplicate itemId: ${item.itemId}`);
       ids.add(item.itemId);
-      if (!item.checker || !['exact_number', 'exact_integer_string', 'numeric_tolerance', 'exact_string', 'set_equality', 'multiple_choice'].includes(item.checker.mode)) {
+      if (!item.checker || !['exact_number', 'exact_integer_string', 'numeric_tolerance', 'exact_string', 'set_equality', 'ordered_numeric_tuple', 'multiple_choice'].includes(item.checker.mode)) {
         errors.push(`unsupported checker mode for ${item.itemId || '<missing>'}`);
       }
     }

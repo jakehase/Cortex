@@ -19,6 +19,12 @@ The canonical starter capsule is `capsules/math-foundations/`:
 - narrowly scoped OpenClaw prompt integration with expiry and kill switches
 - content-free answer-influence telemetry
 - detached Hetzner Codex training, control-plane re-verification, and automatic qualified-lesson installation
+- deterministic adaptive planning over the complete prerequisite graph
+- owner-only HMAC-signed mastery with 0/1/7/30/90-day review stages
+- seeded, locally replayable exercise families for all 36 curriculum concepts
+- failure-gated structured model-derived candidates that cannot copy fixed exam templates
+- preregistered paired candidate-context versus no-context promotion analysis
+- worker-only mastery proposals with independent control-plane policy and grading replay
 
 The latest qualified run pointer is `artifacts/latest-qualified-run.json`. The live architecture and exact claim boundary are defined in [`docs/live-math-integration-contract.md`](docs/live-math-integration-contract.md).
 
@@ -34,10 +40,14 @@ npm run dogfood:stress
 npm run train:math
 npm run train:math:challenge
 npm run train:math:stress
+npm run train:adaptive -- --plan <frozen-plan.json> --artifact-root <dir> --source-commit <sha>
 npm run live:status
 npm run live:verify
-./scripts/launch-live-math-training.sh --exam stress --dry-run
-./scripts/launch-live-math-training.sh --exam stress
+npm run live:adaptive:plan -- --run-id <id> --seed <seed> --source-commit <sha> --out <plan.json>
+npm run live:adaptive:apply -- --artifact-root <returned-dir> --source-commit <sha>
+./scripts/launch-live-math-training.sh --dry-run
+./scripts/launch-live-math-training.sh
+./scripts/launch-live-math-training.sh --exam stress # explicit legacy diagnostic
 npm run experiment:ab:plan -- --experiment-id <id> --seed <seed>
 npm run experiment:ab -- --experiment-id <id> --seed <seed>
 npm run validate:go-no-go:plan -- --program-id <id> --seed <seed> --utility-fixture <private-json> --artifact-root <dir>
@@ -52,6 +62,10 @@ npm run validate:novel-math:verify -- --artifact-root <dir> --out <verification-
 ```
 
 `dogfood:*` uses isolated, non-delivering `openclaw agent` sessions. A run writes immutable evidence under `artifacts/<run-id>/`. With `--promote-default`, canonical capsule files change only after every promotion gate and the held-out retest pass.
+
+The detached launcher now defaults to adaptive curriculum mode. The control plane verifies signed mastery, selects one action from the frozen policy, and creates a digest-bound plan before any remote work. The remote worker may emit generated exercises, model provenance, deterministic grading records, candidate/paired evidence, and a proposed mastery delta. It cannot write canonical mastery or the live registry. After return, `adaptive-apply` checks exact manifest coverage and source identity, regenerates every item, re-grades every answer, replays candidate validation and exact paired analysis, reconstructs the delta, and only then atomically signs mastery. A lesson is installed only when the paired threshold passes and the concept has an approved narrow activation profile.
+
+Fixed exams remain available only through explicit `--exam baseline|challenge|stress`. They retain the v0.7 behavior and artifact verifier for diagnostics and historical reproducibility.
 
 `experiment:ab` preregisters and runs a randomized paired comparison of the promoted retrieval treatment against no retrieval context. The default plan has 27 identical-item pairs / 54 fresh ephemeral Codex sessions, three pairs above the 24-valid-pair minimum; the separate ≤10% invalid-rate gate permits at most two invalid pairs. It uses deterministic grading, no allowed tools, fixed exact-McNemar analysis, and no outcome-driven reruns. Use `--plan-only` to inspect and freeze the full schedule before model calls; use `--resume` only to continue missing trials without rerunning any completed or invalid trial.
 
@@ -74,9 +88,11 @@ capsules/math-foundations/latest_retrieval_pack.json
 capsules/math-foundations/capability_report.json
 artifacts/latest-qualified-run.json
 /root/.openclaw/cortex-learning-os/live-registry.json
+/root/.openclaw/cortex-learning-os/mastery.json
+/root/.openclaw/cortex-learning-os/mastery.hmac
 /root/.openclaw/cortex-learning-os/telemetry.json
 ```
 
 ## Truth boundary
 
-A green learning-loop run proves only that the declared bounded loop completed for the named evidence. A live telemetry record with `answerInfluence=true` proves that a signed, scoped lesson entered that prompt; it does not by itself prove the lesson caused a better answer. A completed A/B run proves retrieval benefit only if all preregistered validity, lift, and exact-test gates pass; mechanical completion is reported separately. None of these results proves general mathematical expertise, durability beyond `retestAfter`, model-weight learning, or improvement outside the declared scope.
+A green learning-loop run proves only that the declared bounded loop completed for the named evidence. An adaptive mastery record proves the named fresh exercises were independently replayed under the frozen policy; it does not prove general concept mastery. A live telemetry record with `answerInfluence=true` proves that a signed, scoped lesson entered that prompt; it does not by itself prove the lesson caused a better answer. A completed paired run supports candidate-context benefit only if all preregistered validity, lift, no-regression, and exact-test gates pass; mechanical completion is reported separately. None of these results proves general mathematical expertise, durability beyond completed due reviews or `retestAfter`, model-weight learning, autonomous self-improvement, or improvement outside the declared scope.

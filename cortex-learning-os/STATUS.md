@@ -5,25 +5,35 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-26 11:49 CDT`
-- Status: `active_live_math_training_no_lesson_verified`
-- Current fidelity: `production_slice_live_scoped_math_plus_selective_private_retrieval_shadow_observer`
-- Package version: `0.7.0`
+- Last updated: `2026-07-26`
+- Status: `adaptive_curriculum_v0_8_production_slice_implemented_no_live_adaptive_run`
+- Current fidelity: `production_slice_adaptive_math_plus_live_scoped_math_plus_selective_private_retrieval_shadow_observer`
+- Package version: `0.8.0`
 
 ## Current checkpoint
 
-Cortex Learning OS v0.7 is integrated into the canonical OpenClaw answer path for narrowly matched, independently promoted real math lessons. The first post-integration stress run installed `lesson_aadf75a434c4a1a9`; deterministic semantic deduplication then removed its older equivalent registry record while preserving both source artifact sets and a pre-change registry backup. Signed registry revision `3` is valid with one enabled, unexpired exact-multiplication lesson. Follow-up challenge run `math-training-20260726T163228Z-72fb6d` scored `20/20`; the control plane independently replayed all baseline evidence and correctly installed no lesson. The separate selective private-retrieval subsystem remains observe-only and cannot affect answers.
+Cortex Learning OS v0.8 now contains the frozen adaptive-curriculum production slice. The default detached launcher freezes one control-plane-selected curriculum action; the remote worker can collect evidence and propose a delta only; the harvester independently regenerates items, re-grades answers, replays model provenance/candidate/paired policy, signs canonical mastery, and conditionally updates the existing signed lesson registry. The v0.7 fixed-exam path remains available explicitly. No real adaptive training session, adaptive mastery claim, or new empirical lesson promotion occurred in this implementation job. Historical v0.7 live lesson and no-mistake evidence remains unchanged, and the separate selective private-retrieval subsystem remains observe-only.
 
 The production slice now includes:
 
-- 54 machine tests covering contracts, deterministic checkers, fail-closed promotion, independent replay against hostile self-reported promotion and no-lesson artifacts, deterministic live semantic deduplication, signed-registry tamper rejection, expiry, live scope classification, training-session isolation, content-free telemetry, real Codex math-loop execution, exact remote-Codex runtime preflight, paired randomization, strict structured output, and prior benchmark contracts.
-- 14 JSON record schemas plus internal contract validation.
+- 63 machine tests, including 9 new adaptive tests for graph/planner behavior, the complete generator catalog, signed mastery, candidate quarantine, paired pass/null outcomes, hostile artifact replay, idempotence, and budget exhaustion.
+- 19 JSON record/output schemas plus internal contract validation.
 - A 36-concept math-foundations curriculum.
+- A checked-in digest-bound adaptive policy with prerequisite gates, 0/1/7/30/90-day review stages, finite session budgets, candidate limits, and exact paired thresholds.
+- Deterministic seeded exercise families and local oracles for every role across all 36 concepts.
+- A signed atomic canonical mastery store and pure replayable transitions with pending prerequisite repair and run-ID idempotence.
+- Manifest-digest-bound run receipts: an exact retry is idempotent, while artifact substitution under a reused run ID fails closed.
+- A strict structured no-tool model candidate path that is allowed only after independently graded failure and rejects answer leakage and fixed-template copying.
+- A six-pair fresh-session candidate-context/no-context gate requiring all valid pairs, at least 83% candidate accuracy, at least 50-point lift, no control-only regression, and exact McNemar p at most 0.05.
+- Adaptive worker artifacts, inert proposed deltas, independent control-plane replay/application, and adaptive-default launcher/worker/harvester integration.
+- A signed provider/model/reasoning/read-only runtime contract, terminal `blocked` publication for structured blockers, ordered-coordinate checking, exact rational Bernoulli verification, and bounded consecutive-failure remediation.
 - A 30-item deterministic baseline exam, a 20-item exactness/reliability challenge, and a 20-item exact-arithmetic stress exam.
 - Recorded no-tool OpenClaw/Cortex answer capture with provider/model/usage provenance.
 - Attempt records, verifier results, mistake records, candidate lessons, promotion reports, trusted lessons, retrieval packs, capability reports, and hashed manifests.
 - Canonical default capsule files under `capsules/math-foundations/`.
 - A preregistered randomized paired A/B harness for 27 identical-item pairs / 54 fresh Codex sessions, at least 24 valid pairs, deterministic grading, fail-closed invalid-trial handling, and separate mechanical versus evidence thresholds.
+
+Release verification for this implementation passed locally and on the exact Hetzner candidate mirror: `npm test` `63/63`, fixture validation `12` valid plus `1` intentionally invalid with zero unexpected failures, syntax/schema checks, isolated signed adaptive-plan smoke, and root plan-doctor `0` errors / `0` warnings. The remote verification state is `/home/jake/clawd-runs/cortex-learning-os-adaptive-verify-20260726/artifacts/state.json`. No live adaptive model session was run.
 
 ## Latest qualified evidence
 

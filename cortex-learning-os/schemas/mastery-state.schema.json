@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.mastery_state.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "revision",
+    "curriculumId",
+    "capsuleId",
+    "policyDigest",
+    "updatedAt",
+    "concepts",
+    "pendingRepairs",
+    "appliedRunIds",
+    "appliedRunReceipts",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.mastery_state.v1"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "curriculumId": {
+      "type": "string"
+    },
+    "capsuleId": {
+      "type": "string"
+    },
+    "policyDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "concepts": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "pendingRepairs": {
+      "type": "array"
+    },
+    "appliedRunIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "appliedRunReceipts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runId", "artifactManifestDigest"],
+        "properties": {
+          "runId": { "type": "string" },
+          "artifactManifestDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "keyId",
+        "digest"
+      ]
+    }
+  }
+}

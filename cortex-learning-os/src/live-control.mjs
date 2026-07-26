@@ -5,10 +5,18 @@ import path from 'node:path';
 import { validateRecord } from './contracts.mjs';
 import { gradeExam } from './exam-runner.mjs';
 import { sha256File } from './hash.mjs';
-import { readJson } from './json.mjs';
+import { readJson, writeJson } from './json.mjs';
 import { buildMistakes, distillCandidate, selectRemediableFailure } from './learning-loop.mjs';
 import { CLOS_ROOT } from './paths.mjs';
 import { evaluatePromotion } from './promotion.mjs';
+import { loadAdaptivePolicy } from './adaptive-policy.mjs';
+import { buildAdaptiveSessionPlan } from './adaptive-session.mjs';
+import { verifyAdaptiveArtifacts } from './adaptive-verifier.mjs';
+import {
+  applyMasteryDelta,
+  atomicWriteMasteryState,
+  initializeMasteryStore,
+} from './mastery-state.mjs';
 import {
   ACTIVATION_PROFILES,
   LESSON_SCHEMA,
@@ -32,6 +40,26 @@ const has = (flag) => args.includes(flag);
 const stateRoot = path.resolve(value('--state-root', path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-learning-os')));
 const registryPath = path.resolve(value('--registry', path.join(stateRoot, 'live-registry.json')));
 const secretPath = path.resolve(value('--secret', path.join(stateRoot, 'registry.hmac')));
+const masteryPath = path.resolve(value('--mastery', path.join(stateRoot, 'mastery.json')));
+const masterySecretPath = path.resolve(value('--mastery-secret', path.join(stateRoot, 'mastery.hmac')));
+
+function adaptiveInputs(now = new Date().toISOString()) {
+  const graph = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json'));
+  const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));
+  const { policy } = loadAdaptivePolicy();
+  const store = initializeMasteryStore({
+    statePath: masteryPath,
+    secretPath: masterySecretPath,
+    graph,
+    policy,
+    now,
+  });
+  const fixedTemplates = ['baseline.exam.json', 'reliability-challenge.exam.json', 'exact-arithmetic-stress.exam.json']
+    .flatMap((name) => readJson(path.join(CLOS_ROOT, 'exams/math-foundations', name))?.items || [])
+    .map((item) => item.remediation?.lessonTemplate?.rule)
+    .filter(Boolean);
+  return { graph, capsule, policy, fixedTemplates, ...store };
+}
 
 function fail(message, details = {}) {
   console.error(JSON.stringify({ ok: false, command, error: message, ...details }, null, 2));
@@ -327,19 +355,139 @@ function contentFreeStatus(registry) {
   };
 }
 
+function contentFreeMasteryStatus(state) {
+  const counts = {};
+  for (const record of Object.values(state.concepts)) counts[record.state] = (counts[record.state] || 0) + 1;
+  return {
+    schemaVersion: state.schemaVersion,
+    revision: state.revision,
+    curriculumId: state.curriculumId,
+    capsuleId: state.capsuleId,
+    policyDigest: state.policyDigest,
+    updatedAt: state.updatedAt,
+    appliedRunCount: state.appliedRunIds.length,
+    pendingRepairCount: state.pendingRepairs.length,
+    conceptStateCounts: counts,
+    signatureValid: true,
+  };
+}
+
 try {
   if (command === 'init') {
     const { registry } = initializeRegistry({ registryPath, secretPath, force: has('--force') });
-    console.log(JSON.stringify({ ...contentFreeStatus(registry), initialized: true, secretPath }, null, 2));
+    const adaptive = adaptiveInputs();
+    console.log(JSON.stringify({
+      ...contentFreeStatus(registry),
+      initialized: true,
+      secretPath,
+      mastery: contentFreeMasteryStatus(adaptive.state),
+    }, null, 2));
   } else {
     const secret = readRegistrySecret(secretPath);
     const registry = loadSignedRegistry(registryPath, secret, { allowExpiredLessons: true });
     if (command === 'status' || command === 'verify') {
-      console.log(JSON.stringify(contentFreeStatus(registry), null, 2));
+      const status = contentFreeStatus(registry);
+      const masteryExists = fs.existsSync(masteryPath);
+      const masterySecretExists = fs.existsSync(masterySecretPath);
+      if (masteryExists !== masterySecretExists) throw new Error('mastery store is incomplete');
+      if (masteryExists) {
+        const adaptive = adaptiveInputs();
+        status.mastery = contentFreeMasteryStatus(adaptive.state);
+      }
+      console.log(JSON.stringify(status, null, 2));
     } else if (command === 'verify-no-observed-mistake') {
       const artifactRoot = path.resolve(value('--artifact-root', ''));
       if (!value('--artifact-root')) throw new Error('--artifact-root is required');
       console.log(JSON.stringify(independentlyVerifyNoObservedMistake(artifactRoot), null, 2));
+    } else if (command === 'adaptive-plan') {
+      const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
+      const runId = value('--run-id');
+      const seed = value('--seed');
+      const out = value('--out');
+      if (!runId || !seed || !out) throw new Error('--run-id, --seed, and --out are required');
+      const adaptive = adaptiveInputs();
+      const plan = buildAdaptiveSessionPlan({
+        runId,
+        graph: adaptive.graph,
+        policy: adaptive.policy,
+        mastery: adaptive.state,
+        sourceCommit,
+        seed,
+        signingSecret: adaptive.secret,
+      });
+      const outPath = path.resolve(out);
+      writeJson(outPath, plan);
+      fs.chmodSync(outPath, 0o600);
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        out: outPath,
+        runId,
+        masteryRevision: plan.masteryRevision,
+        action: plan.action,
+        policyDigest: plan.policyDigest,
+        truthBoundary: plan.truthBoundary,
+      }, null, 2));
+    } else if (command === 'adaptive-apply') {
+      const artifactRoot = path.resolve(value('--artifact-root', ''));
+      const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
+      if (!value('--artifact-root') || !sourceCommit) throw new Error('--artifact-root and --source-commit are required');
+      const adaptive = adaptiveInputs();
+      const replay = verifyAdaptiveArtifacts({
+        artifactRoot,
+        graph: adaptive.graph,
+        policy: adaptive.policy,
+        capsule: adaptive.capsule,
+        currentMastery: adaptive.state,
+        expectedSourceCommit: sourceCommit,
+        fixedTemplates: adaptive.fixedTemplates,
+        planSecret: adaptive.secret,
+      });
+      let mastery = adaptive.state;
+      if (replay.recomputedDelta && !replay.alreadyApplied) {
+        mastery = applyMasteryDelta({
+          state: adaptive.state,
+          delta: replay.recomputedDelta,
+          graph: adaptive.graph,
+          policy: adaptive.policy,
+          artifactManifestDigest: replay.artifactManifestDigest,
+        });
+        mastery = atomicWriteMasteryState(masteryPath, mastery, adaptive.secret, { graph: adaptive.graph, policy: adaptive.policy });
+      }
+      let updatedRegistry = registry;
+      let installedLessonId = null;
+      if (replay.liveEntry) {
+        installedLessonId = replay.liveEntry.lessonId;
+        const existing = registry.lessons.find((lesson) => lesson.lessonId === installedLessonId);
+        if (!existing || canonicalJson(existing) !== canonicalJson(replay.liveEntry)) {
+          const deduplicated = deduplicateLiveLessons([
+            ...registry.lessons.filter((lesson) => lesson.lessonId !== installedLessonId),
+            replay.liveEntry,
+          ]);
+          updatedRegistry = atomicWriteSignedRegistry(registryPath, {
+            ...registry,
+            revision: registry.revision + 1,
+            updatedAt: new Date().toISOString(),
+            lessons: deduplicated.lessons,
+          }, secret);
+          const retained = deduplicated.lessons.find((lesson) => liveLessonSemanticKey(lesson) === liveLessonSemanticKey(replay.liveEntry));
+          installedLessonId = retained?.lessonId || installedLessonId;
+        }
+      }
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        runId: replay.plan.runId,
+        artifactStatus: replay.summary.status,
+        masteryRevision: mastery.revision,
+        masteryApplied: Boolean(replay.recomputedDelta && !replay.alreadyApplied),
+        alreadyApplied: replay.alreadyApplied,
+        candidateThresholdPassed: replay.analysis?.thresholdPassed ?? null,
+        installedLessonId,
+        registryRevision: updatedRegistry.revision,
+        registrySignatureValid: true,
+        truthBoundary: 'The control plane independently replayed generated items, deterministic grading, provenance, policy, paired analysis, and the proposed delta before signing any canonical state.',
+      }, null, 2));
     } else if (command === 'install') {
       const artifactRoot = path.resolve(value('--artifact-root', ''));
       if (!value('--artifact-root')) throw new Error('--artifact-root is required');

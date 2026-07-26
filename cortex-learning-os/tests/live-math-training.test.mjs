@@ -220,16 +220,23 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   const launcher = fs.readFileSync(launcherPath, 'utf8');
   const worker = fs.readFileSync(workerPath, 'utf8');
   assert.match(launcher, /sudo -u jake -- "\$REMOTE_CODEX_BIN" --version/);
-  assert.match(launcher, /remote-math-training-worker\.sh" "\$RUN_ID" "\$EXAM" "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN"/);
-  assert.match(worker, /CODEX_BIN="\$\{4:-\/home\/jake\/\.local\/bin\/codex\}"/);
+  assert.match(launcher, /MODE="adaptive"/);
+  assert.match(launcher, /adaptive-plan/);
+  assert.match(launcher, /remote-math-training-worker\.sh" "\$RUN_ID" "\$MODE" "\$EXAM" "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN"/);
+  assert.match(worker, /MODE_ARG="\$\{2:-adaptive\}"/);
+  assert.match(worker, /CODEX_BIN="\$\{5:-\/home\/jake\/\.local\/bin\/codex\}"/);
   assert.match(worker, /\[\[ -x "\$CODEX_BIN" \]\]/);
   assert.match(worker, /--codex-command "\$CODEX_BIN"/);
   assert.match(worker, /if npm run "\$NPM_SCRIPT"/);
   assert.match(worker, /write_state candidate_no_lesson/);
+  assert.match(worker, /write_state candidate_adaptive/);
   assert.doesNotMatch(worker, /set \+e\s+npm run/);
   const harvester = fs.readFileSync(harvesterPath, 'utf8');
-  assert.match(harvester, /"candidate_green", "candidate_no_lesson"/);
+  assert.match(harvester, /"candidate_green", "candidate_no_lesson", "candidate_adaptive"/);
   assert.match(harvester, /"verify-no-observed-mistake"/);
+  assert.match(harvester, /"adaptive-apply"/);
+  assert.match(harvester, /TERMINAL = \{"blocked", "completed", "failed"\}/);
+  assert.match(harvester, /"status": "blocked" if is_blocked else "completed"/);
   const harvesterSyntax = spawnSync('python3', ['-m', 'py_compile', harvesterPath], { encoding: 'utf8' });
   assert.equal(harvesterSyntax.status, 0, harvesterSyntax.stderr);
 

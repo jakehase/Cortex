@@ -22,7 +22,7 @@ from typing import Any
 
 SAFE_RUN = re.compile(r"^math-training-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}$")
 SAFE_REMOTE = re.compile(r"^/[A-Za-z0-9._/-]+$")
-TERMINAL = {"completed", "failed"}
+TERMINAL = {"blocked", "completed", "failed"}
 
 
 class HarvestError(RuntimeError):
@@ -119,7 +119,7 @@ def main() -> int:
         status = state["status"]
         if status in TERMINAL:
             return 0 if status == "completed" else 1
-        if status not in {"candidate_green", "candidate_no_lesson"}:
+        if status not in {"candidate_green", "candidate_no_lesson", "candidate_adaptive"}:
             if time.monotonic() - started > args.timeout_seconds:
                 state["status"] = "failed"
                 state["reason"] = "control-plane harvester timed out before a terminal training state"
@@ -137,7 +137,37 @@ def main() -> int:
                 "rsync", "-a", "--chmod=Du=rwx,Dgo=,Fu=rw,Fgo=", "--protect-args",
                 f"{args.ssh_host}:{remote_artifact}", f"{local_artifact}/",
             ], timeout=300)
-            if status == "candidate_no_lesson":
+            if status == "candidate_adaptive":
+                apply_result = run([
+                    "node", args.live_control, "adaptive-apply",
+                    "--state-root", args.state_root,
+                    "--artifact-root", str(local_artifact),
+                    "--source-commit", str(state.get("sourceCommit") or ""),
+                ], timeout=180)
+                applied = json.loads(apply_result.stdout)
+                verify = run([
+                    "node", args.live_control, "verify", "--state-root", args.state_root,
+                ], timeout=60)
+                verified = json.loads(verify.stdout)
+                artifact_status = applied.get("artifactStatus")
+                is_blocked = artifact_status == "structured_blocker"
+                state.update({
+                    "status": "blocked" if is_blocked else "completed",
+                    "reason": (
+                        "adaptive structured blocker was independently replayed; no unsupported completion was recorded"
+                        if is_blocked else
+                        "adaptive artifacts independently replayed; canonical mastery and any threshold-qualified scoped lesson were applied by the control plane"
+                    ),
+                    "adaptiveArtifactStatus": artifact_status,
+                    "installedLessonId": applied.get("installedLessonId"),
+                    "masteryRevision": applied.get("masteryRevision"),
+                    "candidateThresholdPassed": applied.get("candidateThresholdPassed"),
+                    "registryRevision": verified.get("revision"),
+                    "liveRegistrySignatureValid": verified.get("signatureValid") is True,
+                    "controlPlaneArtifactRoot": str(local_artifact),
+                    "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
+            elif status == "candidate_no_lesson":
                 replay = run([
                     "node", args.live_control, "verify-no-observed-mistake",
                     "--state-root", args.state_root,
@@ -183,7 +213,7 @@ def main() -> int:
                 })
             write_remote(args.ssh_host, remote_state, state)
             atomic_local_state(local_state, state)
-            return 0
+            return 0 if state["status"] == "completed" else 1
         except (HarvestError, json.JSONDecodeError, OSError) as error:
             state.update({
                 "status": "failed",
