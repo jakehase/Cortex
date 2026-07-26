@@ -183,3 +183,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `scripts/remote-math-training-worker.sh`; `scripts/harvest-live-math-training.py`; `scripts/launch-live-math-training.sh`; independent replay/tamper tests.
 - Supersedes: manually running `dogfood:* --promote-default` on the control host as the normal training path.
 - Follow-up: use `./scripts/launch-live-math-training.sh --exam stress` for the next approved run; the no-call readiness gate is `--dry-run`.
+
+## 2026-07-26 — Complete the v0.7 live math integration and training-readiness gate
+
+- Decision: Mark the scoped math production slice ready for use. Keep the first independently promoted exact-multiplication lesson active, and permit future math learning runs only through the detached Hetzner launcher and independent control-plane promotion path.
+- Reason: The production plugin loaded cleanly; positive and negative live canaries passed; local and remote suites passed `51/51`; registry integrity, privacy scan, gateway health, and local/remote source equality passed; and the no-model-call detached-launcher dry run passed.
+- Evidence: implementation source `ef493ac15ebe4e193606e0b10b237ed81607af84`; `/root/.openclaw/cortex-learning-os/live-registry.json`; `/root/.openclaw/cortex-learning-os/telemetry.json`; `/tmp/clos-training-dry-run.json`; `STATUS.md` live integration section.
+- Boundary: Ready means verifier-gated memory/retrieval learning for the declared math curricula. It does not mean model-weight training, broad math mastery, causal answer improvement, or automatic support for arbitrary domains.
+- Follow-up: Start `./scripts/launch-live-math-training.sh --exam stress` only when Jake asks to begin the first post-integration run; accept a promoted lesson, an honest no-mistake stop, or a blocker without outcome-driven fabrication.

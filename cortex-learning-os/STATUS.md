@@ -5,18 +5,18 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 23:22 CDT`
-- Status: `active`
-- Current fidelity: `production_slice_plus_default_on_selective_private_retrieval_shadow_observer`
-- Package version: `0.6.0`
+- Last updated: `2026-07-26 01:37 CDT`
+- Status: `active_live_math_ready`
+- Current fidelity: `production_slice_live_scoped_math_plus_selective_private_retrieval_shadow_observer`
+- Package version: `0.7.0`
 
 ## Current checkpoint
 
-Cortex Learning OS has completed its first bounded, verifier-gated learning loop for the math-foundations capsule. The implementation is integrated into the authoritative remote `main`; the verified implementation commit is `b03add355` and its first lifecycle/documentation integration commit is `944808d72`. The feature branch `feat/cortex-learning-os-v0-20260725` is preserved at that integration point.
+Cortex Learning OS v0.7 is integrated into the canonical OpenClaw answer path for narrowly matched, independently promoted real math lessons. Canonical `origin/main`, the local source marker, and the Hetzner source marker are synchronized; the implementation source exercised by the final canaries and launcher readiness check was `ef493ac15ebe4e193606e0b10b237ed81607af84`. The signed registry is enabled with one active exact-multiplication lesson; its live retest deadline is `2026-10-23T05:31:38.879Z`. The detached Hetzner math-training path is ready but no new training run was started by this integration.
 
 The production slice now includes:
 
-- 32 machine tests covering contracts, deterministic checkers, fail-closed promotion, retrieval limits, curriculum coverage, learning-loop behavior, paired randomization, strict Codex structured output, frozen-runtime resume enforcement, exact McNemar analysis, Codex tool-event detection, dual-track go/no-go planning, disjoint private calibration/holdout design, fact-cluster analysis, cost/no-regression gates, and fail-closed fixture/runtime validation.
+- 51 machine tests covering contracts, deterministic checkers, fail-closed promotion, independent replay against hostile self-reported artifacts, signed-registry tamper rejection, expiry, live scope classification, training-session isolation, content-free telemetry, real Codex math-loop execution, paired randomization, strict structured output, and prior benchmark contracts.
 - 14 JSON record schemas plus internal contract validation.
 - A 36-concept math-foundations curriculum.
 - A 30-item deterministic baseline exam, a 20-item exactness/reliability challenge, and a 20-item exact-arithmetic stress exam.
@@ -37,8 +37,8 @@ The production slice now includes:
 - Promotion gate: all 10 gates passed; lesson `lesson_e30152a45fdf9a6a` promoted with 90-day retest date.
 - Held-out post-promotion retest: `1/1` passed using the canonical 336-token retrieval pack.
 - Canonical default update: completed (`defaultPromoted=true`).
-- Latest local validation: `npm test` passed `14/14`; `npm run validate:fixtures` passed with 12 valid records and 1 intentionally invalid record.
-- Latest A/B branch validation: `npm test` passed `21/21`; fixtures passed; paired plan-only and fake-worker lifecycle smokes froze and completed successfully before the real A/B model calls.
+- Validation at the original qualified-run checkpoint: `npm test` passed `14/14`; `npm run validate:fixtures` passed with 12 valid records and 1 intentionally invalid record.
+- Validation at the original A/B branch checkpoint: `npm test` passed `21/21`; fixtures passed; paired plan-only and fake-worker lifecycle smokes froze and completed successfully before the real A/B model calls.
 
 ## Latest randomized A/B evidence
 
@@ -91,8 +91,8 @@ The production slice now includes:
 - Telemetry stores only opaque observation IDs and content-free operational fields. Raw queries, prompts, snippets, candidate scores, source IDs, metadata bodies, outputs, and exception messages are excluded.
 - Server and route-gate state are principal-scoped, record-capped, lock-protected, atomically replaced, and mode `0600`; ephemeral observation markers are stripped from last-good route caches and never rendered into prompts.
 - Authenticated content-free inspection is available at `GET /nexus/private-retrieval-shadow/status`.
-- Promotion remains blocked: shadow retrieval success, pack availability, latency, and baseline run success are not causal quality evidence. Answer-path use requires a separate approved treatment/control evaluation and privacy review.
-- Deployment state: implemented and validated on `feat/cortex-learning-os-ab-20260725` as the deployment candidate; not yet merged into remote `main` or activated in a live service by this change.
+- Private-retrieval promotion remains blocked: shadow success, pack availability, latency, and baseline run success are not causal quality evidence. This is a separate subsystem from the approved scoped math lesson registry.
+- Deployment state: the selective private observer is canonical and default-on in observe-only mode; it cannot inject private retrieval into answers. The v0.7 live math adapter uses only independently promoted `math-foundations-v0` lessons from its separate signed registry.
 
 ## Completed harder novel-math validation
 
@@ -112,6 +112,21 @@ The production slice now includes:
 - Canonical integration: `origin/main` was fast-forwarded through result commit `ffc82c17c9aaae8c801941cba02c0108de77784b`; package v0.6.0 was synced to `/root/clawd/cortex-learning-os` and `/home/jake/clawd-remote/cortex-learning-os` while preserving both artifact stores. Local and remote default-path tests passed `41/41`; a remote `validate:novel-math:plan` smoke preregistered all 225 calls from canonical source with claimable Codex provenance and `0` model calls executed.
 - Answer boundary: no generated microtheory or promoted benchmark lesson was copied into canonical capsules, live retrieval, prompts, or answers. Only the reusable acquisition/promotion/paired-evaluation/restart-verification machinery is canonical; answer influence still requires a trusted lesson to clear the existing promotion gate in a separately authorized use case.
 
+## Live math integration evidence
+
+- Final exercised implementation source: `ef493ac15ebe4e193606e0b10b237ed81607af84`; the status-only release commit is its direct descendant on `origin/main` and `feat/cortex-learning-os-live-math-20260726`.
+- Tests: local `51/51`; Hetzner `51/51` with the exact canonical source marker.
+- Plugin: `cortex-learning-os-live` is enabled and loaded from `/root/clawd/plugins/cortex-learning-os-live/index.ts` with no plugin diagnostics.
+- Registry: HMAC signature valid, revision `1`, owner-only state/key permissions, one enabled/unexpired lesson `lesson_e30152a45fdf9a6a`, activation profile `exact_multiplication`.
+- Independent promotion replay: the control plane re-graded all four phases, reconstructed the mistake/candidate/promotion proof, checked held-out linkage, and rejected a test artifact whose worker rewrote verifier output and recomputed its transport manifest.
+- Positive live canary (`2026-07-26T06:25:34Z`): exact multiplication selected the expected lesson, telemetry recorded `answerInfluence=true`, and OpenClaw returned the correct integer `426763565`.
+- Non-math live canary: returned `READY`; telemetry recorded no match and no answer influence.
+- Mismatched-math canary: linear-equation intent was recognized, no exact-multiplication lesson was selected, and the answer `3` was correct.
+- Telemetry boundary: records contain pseudonymous principal tags, lesson/profile IDs, registry revision/key ID, query-source enum, and outcome only; prompts, answers, and lesson text are absent.
+- Gateway: healthy after production plugin restart; loopback connectivity probe passed.
+- Detached launcher: `--exam stress --dry-run` passed with matching local/remote commit `ef493ac15ebe4e193606e0b10b237ed81607af84`, valid live registry, executable remote worker, separate control-plane harvester/notifier units, and `0` training model calls.
+- Backup evidence: local pre-v0.7 source archive `/root/clawd/backups/cortex-learning-os/pre-live-v0.7-20260726T053218Z.tar.gz` SHA-256 `8ec0101a0b5347b8d068e9625001e821ae0ab083521c44b85d60a5c8a439493f`; OpenClaw config backup `/root/clawd/backups/cortex-learning-os/openclaw-pre-clos-live-20260726T053330Z.json`; Hetzner pre-v0.7 source archive preserved under `/home/jake/backups/`.
+
 Additional honest evidence:
 
 - The initial 30-item baseline scored `30/30`; the loop stopped rather than fabricating a mistake: `artifacts/math-foundations-smoke-20260725-052255174Z`.
@@ -127,17 +142,17 @@ Additional honest evidence:
 - Retrieval-mediated benefit is now proven only for one seeded invented mathematical microtheory under the novel-math contract; do not generalize that result to ordinary known mathematics or broader domains.
 - The capped mechanism track proved bounded retrieval transfer for seeded novel information. Its first private-workspace utility arm failed the frozen effect threshold (`+11.11` points, p `0.25`) and remains an immutable no-go for that contract, although the corrected held-out validation later passed its separate frozen gates.
 - The corrected validation proves bounded utility only for selectively routed, genuinely non-inferable private workspace facts represented by its frozen pool.
-- Ordinary Cortex answer behavior remains unchanged. The observer is default-on only in shadow mode and cannot inject retrieved content.
-- Real-world classifier precision, retrieval availability, production latency distribution, and answer-quality lift under the live retrieval backend remain unproven.
+- Ordinary non-math and nonmatching-math behavior remains unchanged by the live math adapter. The separate selective private-retrieval observer remains default-on shadow-only and cannot inject retrieved private content.
+- Real-world activation-profile precision across a broad workload, longer production latency distribution, and causal answer-quality lift from live math lessons remain unproven.
 - Model weights were not changed.
 
 ## Next actions
 
-1. Preserve the completed A/B, go/no-go, corrected private-utility, and novel-math validations with their separate frozen claims unchanged.
-2. Merge/deploy the validated selective-retrieval shadow candidate through normal change control, retaining the immediate kill switch.
-3. Run the selective observer in production shadow mode long enough to measure eligibility precision, empty/error rates, bounded pack availability, and latency without answer influence.
-4. Review content-free telemetry and manually audited, privacy-safe samples; tune only prospectively.
-5. Require a new approved identical-item treatment/control contract before any retrieved candidate can enter model context or affect answers.
+1. Start the first post-integration real math run with `./scripts/launch-live-math-training.sh --exam stress` when Jake requests training to begin.
+2. Let the detached worker either produce a verifier-qualified lesson or stop honestly with no observed mistake; do not fabricate learning.
+3. Review content-free live activation telemetry and lesson expiry/retest state before broadening any profile.
+4. Preserve all prior A/B, private-utility, and novel-math frozen claims unchanged.
+5. Add any non-math domain only through a new curriculum, deterministic verifier catalog, privacy review, and approved activation profiles.
 
 ## Do not use / superseded
 
@@ -151,20 +166,24 @@ Allowed claims:
 
 - Cortex Learning OS has a working, artifact-backed production slice.
 - One bounded exact-arithmetic failure was followed by passed correction, independent promotion retest, and a different held-out retest after a gated retrieval pack.
-- One scoped lesson passed the declared promotion gates and is available on the canonical capsule path.
+- One scoped real math lesson passed the declared promotion gates, independently replayed on the control plane, and is active in the live signed registry for matching exact-multiplication turns.
 - In the capped go/no-go, seeded synthetic-procedure retrieval transferred perfectly across fresh sessions under the declared runtime.
 - The private-utility pack improved three of 27 paired items with no regressions, but this did not meet the first preregistered utility effect threshold.
 - The corrected, disjoint clustered private-utility validation passed all frozen gates under its declared workload and supports only a selective shadow candidate.
 - The preregistered harder novel-math validation passed all frozen calibration, acquisition, direct-transfer, compositional-transfer, ordinary-math regression, clean-process durability, provider-evidence, and independent-integrity gates for one seeded invented microtheory.
-- The selective observer may retrieve and record content-free operational evidence while remaining isolated from the answer path.
+- The selective private observer may retrieve and record content-free operational evidence while remaining isolated from the answer path.
+- The live math adapter can inject only signed, enabled, unexpired lessons into matching main-agent math turns; the positive and two negative canaries passed.
+- The detached Hetzner training path is ready to start bounded math learning without blocking the OpenClaw control plane.
 
 Not allowed:
 
 - Cortex broadly learned mathematics.
 - The retrieval pack alone caused the held-out pass.
-- The improvement is durable across sessions or time.
+- The improvement is durable beyond the declared process-restart and `retestAfter` boundaries.
 - Cortex is an expert mathematician, quant PM, or profitable trader.
 - Model weights changed.
 - Live trading or external financial actions are approved.
 - Shadow pack availability or successful retrieval proves answer-quality improvement.
 - Private retrieval is approved to influence prompts, reasoning, tools, or user-visible answers.
+- CLOS has learned mathematics broadly or can learn arbitrary new domains without domain-specific curricula and verifiers.
+- Live lesson injection itself proves causal answer-quality improvement.
