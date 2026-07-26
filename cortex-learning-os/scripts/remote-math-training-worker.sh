@@ -69,7 +69,7 @@ write_state running "remote validation and Codex training are running"
   echo "exam=$EXAM_NAME"
   echo "expected_commit=$EXPECTED_COMMIT"
   echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  ACTUAL_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+  ACTUAL_COMMIT="$(tr -d '[:space:]' < "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
   echo "actual_commit=$ACTUAL_COMMIT"
   [[ "$ACTUAL_COMMIT" == "$EXPECTED_COMMIT" ]]
   cd "$ROOT"
