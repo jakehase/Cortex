@@ -107,3 +107,29 @@ test('math training rejects unsupported runner values before making a model call
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /--runner must be openclaw or codex/);
 });
+
+test('detached launcher preflights and passes the exact remote Codex executable', () => {
+  const launcherPath = path.join(root, 'scripts/launch-live-math-training.sh');
+  const workerPath = path.join(root, 'scripts/remote-math-training-worker.sh');
+  for (const script of [launcherPath, workerPath]) {
+    const syntax = spawnSync('/bin/bash', ['-n', script], { encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr);
+  }
+  const launcher = fs.readFileSync(launcherPath, 'utf8');
+  const worker = fs.readFileSync(workerPath, 'utf8');
+  assert.match(launcher, /sudo -u jake -- "\$REMOTE_CODEX_BIN" --version/);
+  assert.match(launcher, /remote-math-training-worker\.sh" "\$RUN_ID" "\$EXAM" "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN"/);
+  assert.match(worker, /CODEX_BIN="\$\{4:-\/home\/jake\/\.local\/bin\/codex\}"/);
+  assert.match(worker, /\[\[ -x "\$CODEX_BIN" \]\]/);
+  assert.match(worker, /--codex-command "\$CODEX_BIN"/);
+
+  const unsafe = spawnSync('/bin/bash', [
+    workerPath,
+    'math-training-20260726T154152Z-abcdef',
+    'stress',
+    '0'.repeat(40),
+    'relative/codex',
+  ], { encoding: 'utf8' });
+  assert.equal(unsafe.status, 2);
+  assert.match(unsafe.stderr, /invalid Codex executable path/);
+});

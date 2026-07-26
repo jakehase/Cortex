@@ -4,6 +4,7 @@ set -Eeuo pipefail
 RUN_ID="${1:-}"
 EXAM_NAME="${2:-stress}"
 EXPECTED_COMMIT="${3:-}"
+CODEX_BIN="${4:-/home/jake/.local/bin/codex}"
 ROOT="/home/jake/clawd-remote/cortex-learning-os"
 REPO_ROOT="/home/jake/clawd-remote"
 STATE_DIR="/home/jake/clawd-remote/state/cortex-learning-os"
@@ -15,6 +16,7 @@ LOCK_FILE="$STATE_DIR/math-training.lock"
 
 [[ "$RUN_ID" =~ ^math-training-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}$ ]] || { echo "invalid run id" >&2; exit 2; }
 [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid expected commit" >&2; exit 2; }
+[[ "$CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid Codex executable path" >&2; exit 2; }
 case "$EXAM_NAME" in
   baseline) NPM_SCRIPT="train:math" ;;
   challenge) NPM_SCRIPT="train:math:challenge" ;;
@@ -72,11 +74,14 @@ write_state running "remote validation and Codex training are running"
   ACTUAL_COMMIT="$(tr -d '[:space:]' < "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
   echo "actual_commit=$ACTUAL_COMMIT"
   [[ "$ACTUAL_COMMIT" == "$EXPECTED_COMMIT" ]]
+  [[ -x "$CODEX_BIN" ]]
+  echo "codex_bin=$CODEX_BIN"
+  "$CODEX_BIN" --version
   cd "$ROOT"
   export CLOS_SOURCE_COMMIT="$EXPECTED_COMMIT"
   npm test
   set +e
-  npm run "$NPM_SCRIPT" -- --run-id "$RUN_ID" --artifact-root "$ARTIFACT_ROOT"
+  npm run "$NPM_SCRIPT" -- --run-id "$RUN_ID" --artifact-root "$ARTIFACT_ROOT" --codex-command "$CODEX_BIN"
   TRAIN_EXIT=$?
   set -e
   echo "training_exit=$TRAIN_EXIT"

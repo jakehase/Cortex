@@ -5,6 +5,7 @@ EXAM="stress"
 SSH_HOST="root@37.27.129.239"
 REMOTE_REPO="/home/jake/clawd-remote"
 REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"
+REMOTE_CODEX_BIN="/home/jake/.local/bin/codex"
 LOCAL_CLOS="/root/clawd/cortex-learning-os"
 STATE_ROOT="/root/.openclaw/cortex-learning-os"
 DRY_RUN=false
@@ -15,6 +16,7 @@ while [[ $# -gt 0 ]]; do
     --exam) EXAM="${2:-}"; shift 2 ;;
     --ssh-host) SSH_HOST="${2:-}"; shift 2 ;;
     --remote-repo) REMOTE_REPO="${2:-}"; REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"; shift 2 ;;
+    --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
@@ -24,6 +26,7 @@ done
 case "$EXAM" in baseline|challenge|stress) ;; *) echo "--exam must be baseline, challenge, or stress" >&2; exit 2 ;; esac
 [[ "$SSH_HOST" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || { echo "unsafe SSH host" >&2; exit 2; }
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo path" >&2; exit 2; }
+[[ "$REMOTE_CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote Codex executable path" >&2; exit 2; }
 [[ "$STATE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe state root" >&2; exit 2; }
 
 RUN_ID="math-training-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
@@ -42,11 +45,13 @@ node "$LOCAL_CLOS/src/live-control.mjs" verify --state-root "$STATE_ROOT" >/dev/
 REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
 [[ "$REMOTE_COMMIT" == "$LOCAL_COMMIT" ]] || { echo "remote source commit $REMOTE_COMMIT does not match canonical $LOCAL_COMMIT" >&2; exit 4; }
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -x "$REMOTE_CLOS/scripts/remote-math-training-worker.sh"
+REMOTE_CODEX_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- "$REMOTE_CODEX_BIN" --version | tr -d '\r' | head -n 1)"
+[[ "$REMOTE_CODEX_VERSION" == codex-cli\ * ]] || { echo "remote Codex preflight failed for $REMOTE_CODEX_BIN as user jake" >&2; exit 4; }
 test -x "$LOCAL_CLOS/scripts/harvest-live-math-training.py"
 
-python3 - "$RUN_ID" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_COMMIT" "$REMOTE_STATE" "$REMOTE_UNIT" "$HARVEST_UNIT" "$NOTIFY_UNIT" "$DRY_RUN" <<'PY'
+python3 - "$RUN_ID" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_COMMIT" "$REMOTE_STATE" "$REMOTE_UNIT" "$HARVEST_UNIT" "$NOTIFY_UNIT" "$DRY_RUN" "$REMOTE_CODEX_BIN" "$REMOTE_CODEX_VERSION" <<'PY'
 import json, sys
-run_id, exam, local_commit, remote_commit, state, worker, harvest, notify, dry_run = sys.argv[1:]
+run_id, exam, local_commit, remote_commit, state, worker, harvest, notify, dry_run, codex_bin, codex_version = sys.argv[1:]
 print(json.dumps({
   "ok": True,
   "dryRun": dry_run == "true",
@@ -55,6 +60,7 @@ print(json.dumps({
   "sourceCommit": local_commit,
   "remoteCommit": remote_commit,
   "remoteState": state,
+  "workerRuntime": {"command": codex_bin, "version": codex_version, "serviceUser": "jake"},
   "units": {"worker": worker, "harvester": harvest, "notifier": notify},
   "placement": {"controlPlane": "harvester and notifier only", "executionPlane": "Hetzner Codex worker"},
   "promotion": "automatic only after full remote gates, copied-manifest verification, approved profile mapping, and signed-registry install"
@@ -80,4 +86,4 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
   systemd-run --unit="$REMOTE_UNIT" --collect --quiet \
     --property=User=jake --property=Group=jake \
     --working-directory="$REMOTE_CLOS" \
-    /bin/bash "$REMOTE_CLOS/scripts/remote-math-training-worker.sh" "$RUN_ID" "$EXAM" "$LOCAL_COMMIT"
+    /bin/bash "$REMOTE_CLOS/scripts/remote-math-training-worker.sh" "$RUN_ID" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_CODEX_BIN"
