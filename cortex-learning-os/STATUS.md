@@ -5,18 +5,18 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-26 01:37 CDT`
-- Status: `active_live_math_ready`
+- Last updated: `2026-07-26 11:09 CDT`
+- Status: `active_live_math_training_completed`
 - Current fidelity: `production_slice_live_scoped_math_plus_selective_private_retrieval_shadow_observer`
 - Package version: `0.7.0`
 
 ## Current checkpoint
 
-Cortex Learning OS v0.7 is integrated into the canonical OpenClaw answer path for narrowly matched, independently promoted real math lessons. Canonical `origin/main`, the local source marker, and the Hetzner source marker are synchronized; the implementation source exercised by the final canaries and launcher readiness check was `ef493ac15ebe4e193606e0b10b237ed81607af84`. The signed registry is enabled with one active exact-multiplication lesson; its live retest deadline is `2026-10-23T05:31:38.879Z`. The detached Hetzner math-training path is ready but no new training run was started by this integration.
+Cortex Learning OS v0.7 is integrated into the canonical OpenClaw answer path for narrowly matched, independently promoted real math lessons. The first post-integration stress run completed and delivered: `math-training-20260726T154658Z-e7e74b` ran on Hetzner from source `aabb79b3ee267db6771d897d4a014e7a5c840e65`, the control plane independently re-verified its returned evidence, and lesson `lesson_aadf75a434c4a1a9` was installed into signed registry revision `2`. The live registry signature is valid and now contains two enabled, unexpired exact-multiplication lessons. The separate selective private-retrieval subsystem remains observe-only and cannot affect answers.
 
 The production slice now includes:
 
-- 51 machine tests covering contracts, deterministic checkers, fail-closed promotion, independent replay against hostile self-reported artifacts, signed-registry tamper rejection, expiry, live scope classification, training-session isolation, content-free telemetry, real Codex math-loop execution, paired randomization, strict structured output, and prior benchmark contracts.
+- 52 machine tests covering contracts, deterministic checkers, fail-closed promotion, independent replay against hostile self-reported artifacts, signed-registry tamper rejection, expiry, live scope classification, training-session isolation, content-free telemetry, real Codex math-loop execution, exact remote-Codex runtime preflight, paired randomization, strict structured output, and prior benchmark contracts.
 - 14 JSON record schemas plus internal contract validation.
 - A 36-concept math-foundations curriculum.
 - A 30-item deterministic baseline exam, a 20-item exactness/reliability challenge, and a 20-item exact-arithmetic stress exam.
@@ -133,6 +133,15 @@ Additional honest evidence:
 - The corrected reliability challenge scored `20/20`; it also stopped without fabricating a mistake: `artifacts/math-foundations-smoke-20260725-052716583Z`.
 - An earlier reliability-challenge run was invalid because the generated derangement oracle incorrectly expected `0`. Cortex's answers `D_10=1334961` and `D_6=265` were correct. That root is preserved only as verifier-regression evidence under `artifacts/_quarantine/false-derangement-oracle-20260725-052532795Z/` and produced no candidate/default promotion.
 
+## First post-integration live training result
+
+- Initial attempt `math-training-20260726T154152Z-2244e4` failed before any model call because the transient systemd PATH omitted `/home/jake/.local/bin`. The runtime was fixed canonically at commit `aabb79b3ee267db6771d897d4a014e7a5c840e65`: the launcher now preflights `/home/jake/.local/bin/codex` as service user `jake`, passes it explicitly to the worker, and regression coverage preserves this boundary.
+- Local and exact worker-environment Hetzner tests passed `52/52`; the post-fix no-call dry-run identified `codex-cli 0.144.1`; local, remote, and `origin/main` source state matched before launch.
+- Retry `math-training-20260726T154658Z-e7e74b` completed at `2026-07-26T15:49:16Z`. Its 20-item stress baseline scored `7/20` (`0.35`) with 13 deterministic failures; the loop selected failure `mfs-07`, then passed correction, independent promotion retest, all ten promotion gates, and a distinct held-out retest.
+- The control-plane harvester copied and independently replayed the 36-file manifest-backed artifact set, installed `lesson_aadf75a434c4a1a9`, and verified signed registry revision `2`. Local evidence root: `/root/clawd/artifacts/cortex-learning-os-training/incoming/math-training-20260726T154658Z-e7e74b`.
+- The independent notifier delivered the terminal completion over WhatsApp as message `3EB04446BDDF17B203E295`; worker, harvester, and notifier units then exited successfully.
+- Allowed claim: one recorded exact-multiplication failure was followed by passed correction, promotion retest, and a distinct held-out pass under the declared verifier-gated loop. This does not isolate retrieval causality or establish broad/durable math improvement or model-weight learning.
+
 ## Active blockers / unproven surfaces
 
 - The completed bounded production slice remains green.
@@ -148,11 +157,10 @@ Additional honest evidence:
 
 ## Next actions
 
-1. Start the first post-integration real math run with `./scripts/launch-live-math-training.sh --exam stress` when Jake requests training to begin.
-2. Let the detached worker either produce a verifier-qualified lesson or stop honestly with no observed mistake; do not fabricate learning.
-3. Review content-free live activation telemetry and lesson expiry/retest state before broadening any profile.
-4. Preserve all prior A/B, private-utility, and novel-math frozen claims unchanged.
-5. Add any non-math domain only through a new curriculum, deterministic verifier catalog, privacy review, and approved activation profiles.
+1. Monitor content-free activation telemetry and the two exact-multiplication lessons' expiry/retest state; keep all kill switches intact.
+2. Before another stress run, review whether equivalent promoted rules should be deterministically deduplicated rather than accumulated in the signed registry.
+3. Preserve all prior A/B, private-utility, novel-math, and first-live-run frozen claims unchanged.
+4. Add any non-math domain only through a new curriculum, deterministic verifier catalog, privacy review, and approved activation profiles.
 
 ## Do not use / superseded
 
