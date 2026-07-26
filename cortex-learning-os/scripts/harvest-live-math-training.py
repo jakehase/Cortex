@@ -119,7 +119,7 @@ def main() -> int:
         status = state["status"]
         if status in TERMINAL:
             return 0 if status == "completed" else 1
-        if status != "candidate_green":
+        if status not in {"candidate_green", "candidate_no_lesson"}:
             if time.monotonic() - started > args.timeout_seconds:
                 state["status"] = "failed"
                 state["reason"] = "control-plane harvester timed out before a terminal training state"
@@ -137,33 +137,57 @@ def main() -> int:
                 "rsync", "-a", "--chmod=Du=rwx,Dgo=,Fu=rw,Fgo=", "--protect-args",
                 f"{args.ssh_host}:{remote_artifact}", f"{local_artifact}/",
             ], timeout=300)
-            install = run([
-                "node", args.live_control, "install",
-                "--state-root", args.state_root,
-                "--artifact-root", str(local_artifact),
-                "--profiles", "auto",
-            ], timeout=120)
-            installed = json.loads(install.stdout)
-            verify = run([
-                "node", args.live_control, "verify", "--state-root", args.state_root,
-            ], timeout=60)
-            verified = json.loads(verify.stdout)
-            state.update({
-                "status": "completed",
-                "reason": "training artifacts re-verified and lesson installed into the live signed registry",
-                "installedLessonId": installed.get("installedLessonId"),
-                "registryRevision": verified.get("revision"),
-                "liveRegistrySignatureValid": verified.get("signatureValid") is True,
-                "controlPlaneArtifactRoot": str(local_artifact),
-                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            })
+            if status == "candidate_no_lesson":
+                replay = run([
+                    "node", args.live_control, "verify-no-observed-mistake",
+                    "--state-root", args.state_root,
+                    "--artifact-root", str(local_artifact),
+                ], timeout=120)
+                replayed = json.loads(replay.stdout)
+                verify = run([
+                    "node", args.live_control, "verify", "--state-root", args.state_root,
+                ], timeout=60)
+                verified = json.loads(verify.stdout)
+                state.update({
+                    "status": "completed",
+                    "reason": "baseline artifacts independently replayed with no observed mistake; no lesson was fabricated or installed",
+                    "installedLessonId": None,
+                    "baselineScore": replayed.get("baselineScore"),
+                    "passedItemCount": replayed.get("passedItemCount"),
+                    "itemCount": replayed.get("itemCount"),
+                    "registryRevision": verified.get("revision"),
+                    "liveRegistrySignatureValid": verified.get("signatureValid") is True,
+                    "controlPlaneArtifactRoot": str(local_artifact),
+                    "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
+            else:
+                install = run([
+                    "node", args.live_control, "install",
+                    "--state-root", args.state_root,
+                    "--artifact-root", str(local_artifact),
+                    "--profiles", "auto",
+                ], timeout=120)
+                installed = json.loads(install.stdout)
+                verify = run([
+                    "node", args.live_control, "verify", "--state-root", args.state_root,
+                ], timeout=60)
+                verified = json.loads(verify.stdout)
+                state.update({
+                    "status": "completed",
+                    "reason": "training artifacts re-verified and lesson installed into the live signed registry",
+                    "installedLessonId": installed.get("installedLessonId"),
+                    "registryRevision": verified.get("revision"),
+                    "liveRegistrySignatureValid": verified.get("signatureValid") is True,
+                    "controlPlaneArtifactRoot": str(local_artifact),
+                    "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
             write_remote(args.ssh_host, remote_state, state)
             atomic_local_state(local_state, state)
             return 0
         except (HarvestError, json.JSONDecodeError, OSError) as error:
             state.update({
                 "status": "failed",
-                "reason": f"candidate lesson was not activated: {error}"[:2000],
+                "reason": f"training candidate was not accepted by the control plane: {error}"[:2000],
                 "controlPlaneArtifactRoot": str(local_artifact) if local_artifact.exists() else None,
                 "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             })

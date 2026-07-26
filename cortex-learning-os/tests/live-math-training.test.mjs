@@ -20,6 +20,20 @@ function answerValue(checker) {
   return String(checker.expected);
 }
 
+function writeFakeCodexWorker(workerPath, answers) {
+  fs.writeFileSync(workerPath, `#!/usr/bin/env node
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+const value = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
+const prompt = fs.readFileSync(0, 'utf8');
+const items = [...prompt.matchAll(/\\"itemId\\":\\"([^\\"]+)\\"/g)].map((match) => match[1]);
+const answerMap = ${JSON.stringify(answers)};
+const rows = items.map((itemId) => ({ itemId, answer: answerMap[itemId] ?? '0' }));
+fs.writeFileSync(value('--output-last-message'), JSON.stringify({ answers: rows }) + '\\n');
+console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, output_tokens: 20, cached_input_tokens: 0 } }));
+`, { mode: 0o755 });
+}
+
 test('math training runs through the Codex worker path and produces installable green artifacts', () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-live-training-'));
   const artifactRoot = path.join(temporary, 'artifacts');
@@ -36,17 +50,7 @@ test('math training runs through the Codex worker path and produces installable 
   // Force one observed failure. The training loop must correct, retest, promote,
   // and then pass a distinct held-out item rather than fabricating a lesson.
   answers['mf-01'] = '0';
-  fs.writeFileSync(workerPath, `#!/usr/bin/env node
-import fs from 'node:fs';
-const args = process.argv.slice(2);
-const value = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
-const prompt = fs.readFileSync(0, 'utf8');
-const items = [...prompt.matchAll(/\\"itemId\\":\\"([^\\"]+)\\"/g)].map((match) => match[1]);
-const answerMap = ${JSON.stringify(answers)};
-const rows = items.map((itemId) => ({ itemId, answer: answerMap[itemId] ?? '0' }));
-fs.writeFileSync(value('--output-last-message'), JSON.stringify({ answers: rows }) + '\\n');
-console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, output_tokens: 20, cached_input_tokens: 0 } }));
-`, { mode: 0o755 });
+  writeFakeCodexWorker(workerPath, answers);
   try {
     const result = spawnSync(process.execPath, [
       path.join(root, 'src/run-learning-smoke.mjs'),
@@ -143,6 +147,60 @@ console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100,
   }
 });
 
+test('no-observed-mistake artifacts require independent replay and produce no lesson', () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-live-no-mistake-'));
+  const artifactRoot = path.join(temporary, 'artifacts');
+  const workerPath = path.join(temporary, 'fake-codex-worker.mjs');
+  const examPath = path.join(root, 'exams/math-foundations/reliability-challenge.exam.json');
+  const exam = JSON.parse(fs.readFileSync(examPath, 'utf8'));
+  const answers = Object.fromEntries(exam.items.map((item) => [item.itemId, answerValue(item.checker)]));
+  writeFakeCodexWorker(workerPath, answers);
+  try {
+    const result = spawnSync(process.execPath, [
+      path.join(root, 'src/run-learning-smoke.mjs'),
+      '--runner', 'codex',
+      '--codex-command', workerPath,
+      '--thinking', 'none',
+      '--exam', examPath,
+      '--run-id', 'math-no-observed-mistake-test',
+      '--artifact-root', artifactRoot,
+    ], { encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+    assert.equal(result.status, 3, result.stderr || result.stdout);
+    const stateRoot = path.join(temporary, 'live-state');
+    assert.equal(spawnSync(process.execPath, [
+      path.join(root, 'src/live-control.mjs'), 'init', '--state-root', stateRoot,
+    ], { encoding: 'utf8' }).status, 0);
+    const verified = spawnSync(process.execPath, [
+      path.join(root, 'src/live-control.mjs'), 'verify-no-observed-mistake',
+      '--state-root', stateRoot, '--artifact-root', artifactRoot,
+    ], { encoding: 'utf8' });
+    assert.equal(verified.status, 0, verified.stderr);
+    const proof = JSON.parse(verified.stdout);
+    assert.equal(proof.baselineScore, 1);
+    assert.equal(proof.passedItemCount, exam.items.length);
+    assert.equal(proof.noLessonInstalled, true);
+    assert.equal(loadSignedRegistry(path.join(stateRoot, 'live-registry.json'), readRegistrySecret(path.join(stateRoot, 'registry.hmac'))).lessons.length, 0);
+
+    const verifierPath = path.join(artifactRoot, 'baseline/verifier_results.json');
+    const verifiers = JSON.parse(fs.readFileSync(verifierPath, 'utf8'));
+    verifiers[0].status = 'failed';
+    verifiers[0].score = 0;
+    fs.writeFileSync(verifierPath, `${JSON.stringify(verifiers, null, 2)}\n`);
+    const manifestPath = path.join(artifactRoot, 'artifact_manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files.find((row) => row.path === 'baseline/verifier_results.json').sha256 = crypto.createHash('sha256').update(fs.readFileSync(verifierPath)).digest('hex');
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const rejected = spawnSync(process.execPath, [
+      path.join(root, 'src/live-control.mjs'), 'verify-no-observed-mistake',
+      '--state-root', stateRoot, '--artifact-root', artifactRoot,
+    ], { encoding: 'utf8' });
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /verifier replay mismatch/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test('math training rejects unsupported runner values before making a model call', () => {
   const result = spawnSync(process.execPath, [
     path.join(root, 'src/run-learning-smoke.mjs'), '--runner', 'unknown-runner',
@@ -154,6 +212,7 @@ test('math training rejects unsupported runner values before making a model call
 test('detached launcher preflights and passes the exact remote Codex executable', () => {
   const launcherPath = path.join(root, 'scripts/launch-live-math-training.sh');
   const workerPath = path.join(root, 'scripts/remote-math-training-worker.sh');
+  const harvesterPath = path.join(root, 'scripts/harvest-live-math-training.py');
   for (const script of [launcherPath, workerPath]) {
     const syntax = spawnSync('/bin/bash', ['-n', script], { encoding: 'utf8' });
     assert.equal(syntax.status, 0, syntax.stderr);
@@ -165,6 +224,14 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   assert.match(worker, /CODEX_BIN="\$\{4:-\/home\/jake\/\.local\/bin\/codex\}"/);
   assert.match(worker, /\[\[ -x "\$CODEX_BIN" \]\]/);
   assert.match(worker, /--codex-command "\$CODEX_BIN"/);
+  assert.match(worker, /if npm run "\$NPM_SCRIPT"/);
+  assert.match(worker, /write_state candidate_no_lesson/);
+  assert.doesNotMatch(worker, /set \+e\s+npm run/);
+  const harvester = fs.readFileSync(harvesterPath, 'utf8');
+  assert.match(harvester, /"candidate_green", "candidate_no_lesson"/);
+  assert.match(harvester, /"verify-no-observed-mistake"/);
+  const harvesterSyntax = spawnSync('python3', ['-m', 'py_compile', harvesterPath], { encoding: 'utf8' });
+  assert.equal(harvesterSyntax.status, 0, harvesterSyntax.stderr);
 
   const unsafe = spawnSync('/bin/bash', [
     workerPath,

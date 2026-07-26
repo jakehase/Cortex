@@ -153,6 +153,84 @@ function independentlyVerifyLearningLoop(artifactRoot, { trusted, report, summar
   return { baselineFailureItemId: selected.item.itemId };
 }
 
+function independentlyVerifyNoObservedMistake(artifactRoot) {
+  const required = [
+    'artifact_manifest.json',
+    'run_summary.json',
+    'learning_outcome.json',
+    'capability_report.json',
+    'baseline/exam.json',
+    'baseline/answers.json',
+    'baseline/attempts.json',
+    'baseline/verifier_results.json',
+    'baseline/score_summary.json',
+    'baseline/model_call.json',
+  ];
+  for (const relative of required) {
+    const target = path.join(artifactRoot, relative);
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`required artifact is not a regular file: ${relative}`);
+  }
+  for (const forbidden of ['mistakes.json', 'lesson_candidate.json', 'promotion_report.json', 'trusted_lesson.json', 'retrieval_pack.json']) {
+    if (fs.existsSync(path.join(artifactRoot, forbidden))) throw new Error(`no-mistake artifact unexpectedly contains ${forbidden}`);
+  }
+  const manifest = readJson(path.join(artifactRoot, 'artifact_manifest.json'));
+  const files = verifyArtifactManifest(artifactRoot, manifest);
+  for (const relative of required.filter((item) => item !== 'artifact_manifest.json')) {
+    if (!files.has(relative)) throw new Error(`artifact manifest omits ${relative}`);
+  }
+  const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));
+  const summary = readJson(path.join(artifactRoot, 'run_summary.json'));
+  const outcome = readJson(path.join(artifactRoot, 'learning_outcome.json'));
+  const exam = readJson(path.join(artifactRoot, 'baseline/exam.json'));
+  const answers = readJson(path.join(artifactRoot, 'baseline/answers.json'));
+  const attempts = readJson(path.join(artifactRoot, 'baseline/attempts.json'));
+  const verifiers = readJson(path.join(artifactRoot, 'baseline/verifier_results.json'));
+  const score = readJson(path.join(artifactRoot, 'baseline/score_summary.json'));
+  const modelCall = readJson(path.join(artifactRoot, 'baseline/model_call.json'));
+  if (manifest.runId !== summary.runId) throw new Error('artifact manifest runId does not match run summary');
+  if (summary.status !== 'blocked_no_observed_mistake' || summary.learningLoopCompleted !== false
+      || summary.improvementObserved !== false || summary.selectedMistakeId !== null
+      || summary.candidateId !== null || summary.promotedLessonId !== null) {
+    throw new Error('run summary is not a bounded no-observed-mistake outcome');
+  }
+  if (outcome.status !== summary.status || outcome.learningLoopCompleted !== false
+      || outcome.improvementObserved !== false || outcome.baselineFailureItemId !== null
+      || outcome.promotionDigest !== null) {
+    throw new Error('learning outcome does not match a bounded no-observed-mistake result');
+  }
+  if (!Array.isArray(answers.toolsUsed) || answers.toolsUsed.length !== 0) throw new Error('baseline answer set observed tool use');
+  if (!['codex_exec_ephemeral', 'openclaw_agent'].includes(answers.answerSource?.kind)) throw new Error('baseline answer source is not an approved model path');
+  if (answers.answerSource?.provider !== 'openai-codex' || typeof answers.answerSource?.model !== 'string' || !answers.answerSource.model) {
+    throw new Error('baseline answer source provenance is incomplete');
+  }
+  if (!positiveUsage(answers.answerSource?.usage)) throw new Error('baseline answer source has no positive provider-observed usage');
+  if (modelCall.exitCode !== 0 || typeof modelCall.command !== 'string' || !modelCall.command) throw new Error('baseline model call did not complete successfully');
+  const replay = gradeExam({ capsule, exam, answerSet: answers, runId: score.runId, now: score.generatedAt });
+  if (canonicalJson(replay.attempts) !== canonicalJson(attempts)) throw new Error('baseline attempt replay mismatch');
+  if (canonicalJson(replay.verifierResults) !== canonicalJson(verifiers)) throw new Error('baseline verifier replay mismatch');
+  if (canonicalJson(replay.summary) !== canonicalJson(score)) throw new Error('baseline score replay mismatch');
+  if (!score.passed || score.score !== 1 || score.failedItemCount !== 0 || score.errorItemCount !== 0
+      || verifiers.some((result) => result.status !== 'passed')) {
+    throw new Error('baseline is not a complete deterministic pass');
+  }
+  if (selectRemediableFailure({ exam, verifierResults: verifiers }) !== null) throw new Error('baseline contains a remediable failure');
+  if (summary.baselineScore !== score.score) throw new Error('run summary baseline score mismatch');
+  return {
+    ok: true,
+    runId: summary.runId,
+    examId: score.examId,
+    baselineScore: score.score,
+    passedItemCount: score.passedItemCount,
+    itemCount: score.itemCount,
+    noLessonInstalled: true,
+    provider: answers.answerSource.provider,
+    model: answers.answerSource.model,
+    positiveUsage: true,
+    truthBoundary: 'Independent replay proves only that this declared baseline exam had no observed error; it does not prove mastery, durable improvement, or model-weight learning.',
+  };
+}
+
 function buildLiveEntry(artifactRoot, profiles) {
   const trustedPath = path.join(artifactRoot, 'trusted_lesson.json');
   const reportPath = path.join(artifactRoot, 'promotion_report.json');
@@ -258,6 +336,10 @@ try {
     const registry = loadSignedRegistry(registryPath, secret, { allowExpiredLessons: true });
     if (command === 'status' || command === 'verify') {
       console.log(JSON.stringify(contentFreeStatus(registry), null, 2));
+    } else if (command === 'verify-no-observed-mistake') {
+      const artifactRoot = path.resolve(value('--artifact-root', ''));
+      if (!value('--artifact-root')) throw new Error('--artifact-root is required');
+      console.log(JSON.stringify(independentlyVerifyNoObservedMistake(artifactRoot), null, 2));
     } else if (command === 'install') {
       const artifactRoot = path.resolve(value('--artifact-root', ''));
       if (!value('--artifact-root')) throw new Error('--artifact-root is required');

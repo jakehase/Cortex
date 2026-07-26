@@ -80,10 +80,11 @@ write_state running "remote validation and Codex training are running"
   cd "$ROOT"
   export CLOS_SOURCE_COMMIT="$EXPECTED_COMMIT"
   npm test
-  set +e
-  npm run "$NPM_SCRIPT" -- --run-id "$RUN_ID" --artifact-root "$ARTIFACT_ROOT" --codex-command "$CODEX_BIN"
-  TRAIN_EXIT=$?
-  set -e
+  if npm run "$NPM_SCRIPT" -- --run-id "$RUN_ID" --artifact-root "$ARTIFACT_ROOT" --codex-command "$CODEX_BIN"; then
+    TRAIN_EXIT=0
+  else
+    TRAIN_EXIT=$?
+  fi
   echo "training_exit=$TRAIN_EXIT"
   [[ -f "$ARTIFACT_ROOT/run_summary.json" ]]
   OUTCOME="$(node -e 'const s=require(process.argv[1]); process.stdout.write(String(s.status||"unknown")+"\n"+String(Boolean(s.learningLoopCompleted)))' "$ARTIFACT_ROOT/run_summary.json")"
@@ -93,6 +94,8 @@ write_state running "remote validation and Codex training are running"
   echo "learning_loop_completed=$LEARNING_COMPLETED"
   if [[ "$TRAIN_EXIT" -eq 0 && "$SUMMARY_STATUS" == "green" && "$LEARNING_COMPLETED" == "true" ]]; then
     write_state candidate_green "all training and promotion gates passed; awaiting control-plane verification and live registry installation"
+  elif [[ "$TRAIN_EXIT" -eq 3 && "$SUMMARY_STATUS" == "blocked_no_observed_mistake" && "$LEARNING_COMPLETED" == "false" ]]; then
+    write_state candidate_no_lesson "baseline had no observed mistake; awaiting independent control-plane replay"
   elif [[ "$SUMMARY_STATUS" == blocked_* ]]; then
     write_state completed "training ended without a promoted lesson: $SUMMARY_STATUS"
   else
