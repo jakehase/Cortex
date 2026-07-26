@@ -35,6 +35,8 @@ The production slice now includes:
 
 Release verification for this implementation passed locally and on the exact Hetzner candidate mirror: `npm test` `63/63`, fixture validation `12` valid plus `1` intentionally invalid with zero unexpected failures, syntax/schema checks, isolated signed adaptive-plan smoke, and root plan-doctor `0` errors / `0` warnings. The remote verification state is `/home/jake/clawd-runs/cortex-learning-os-adaptive-verify-20260726/artifacts/state.json`. No live adaptive model session was run.
 
+Canonical integration is complete. Implementation commit `3141a74b8c1873605e7ef9a162a5043360a85a78` was atomically pushed to both `origin/main` and `origin/feat/cortex-learning-os-adaptive-20260726`; the exact committed product tree was synced to `/root/clawd/cortex-learning-os` and `/home/jake/clawd-remote/cortex-learning-os` with matching source markers. The local canonical suite passed `63/63`; the remote canonical adaptive/live/plugin subset passed `22/22`; and no-call default-launch dry-run `math-training-20260726T191549Z-d125a2` selected adaptive mode, froze a signed acquisition plan, verified `codex-cli 0.144.1`, and matched local, remote, and `origin/main` source commit. Canonical mastery is signed, owner-only, revision `0`, with all 36 concepts unassessed and no empirical adaptive run applied.
+
 ## Latest qualified evidence
 
 - Qualified pointer: `artifacts/latest-qualified-run.json`
