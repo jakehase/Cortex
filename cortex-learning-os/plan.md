@@ -5,10 +5,10 @@
 - Project slug: `cortex-learning-os`
 - Plan owner: Jake + Cortex
 - Created: `2026-07-07`
-- Last updated: `2026-07-25`
+- Last updated: `2026-07-26`
 - Status: `active`
-- Fidelity target: `production_slice`
-- Primary stop condition: `all_phase_verifiers_green_or_blocker`
+- Fidelity target: `production_slice_live_scoped_math`
+- Primary stop condition: `live_plugin_registry_canaries_remote_launcher_and_canonical_sync_green_or_blocker`
 - Status file: `STATUS.md`
 - Decisions log: `DECISIONS.md`
 - Plan index entry: `/root/clawd/docs/PLAN_INDEX.md`
@@ -78,6 +78,9 @@ In scope for the production slice:
 - Promotion gate from raw/candidate lessons to trusted capsule memory.
 - Runtime retrieval pack generation for Cortex before solving a task.
 - Initial math-domain capsule as the first proof target.
+- Signed live registry for independently promoted, expiring math lessons.
+- Narrow OpenClaw task-time lesson injection with answer-influence telemetry and kill switches.
+- Detached Hetzner Codex math training plus control-plane re-verification and qualified-lesson installation.
 - Optional later quant-research capsule, paper-only and verifier-heavy.
 
 ## 5. Non-goals
@@ -189,6 +192,9 @@ Subsystems:
 - **Promotion Gate** — promotes candidate lessons to trusted capsule memory only after evidence thresholds.
 - **Retrieval Pack Builder** — prepares the compact context Cortex should load before performing a domain task.
 - **Truth Dashboard** — reports capability by exam, not vibes.
+- **Signed Live Registry** — stores only independently replayed, scoped, unexpired lessons under a control-plane HMAC trust root.
+- **OpenClaw Live Adapter** — classifies the latest structured user turn and injects only matching lessons; training/Oracle/cron/subagent sessions are bypassed.
+- **Detached Training Pipeline** — runs Codex exams on Hetzner, returns artifacts for independent control-plane replay, and hot-installs only qualified lessons.
 
 Key boundaries:
 
@@ -230,6 +236,8 @@ Architecture decisions:
 | Math capsule v0 | future implementer | `capsules/math-foundations/**`, exams/artifacts | local capsule files | deterministic exam harness | capability report proves bounded claims |
 | Lesson promotion | future implementer | promotion gate code + fixtures | gate/tests only | negative/positive promotion tests | only evidence-backed lessons promote |
 | Retrieval pack | future implementer | pack builder + capsule fixtures | code/tests/docs | snapshot + relevance tests | packs cite trusted lessons and omit raw untrusted notes |
+| Live lesson registry | Cortex | `src/live-control.mjs`, `plugins/cortex-learning-os-live/**` | signed state + plugin only | signature, replay, tamper, expiry, scope, canaries | independently replayed lesson enters only matching live math prompts |
+| Detached math training | Cortex | `scripts/*math-training*`, Hetzner artifacts | remote artifacts; control state | source pin, remote tests, manifest replay, notifier | qualified run is installed or a terminal blocker is delivered |
 | Quant extension | future implementer/reviewer | `capsules/quant-truth-lab/**` | paper/research only | leakage/backtest/paper ledger checks | no live-trading claim; research-only report green |
 
 Ownership rules:
@@ -998,6 +1006,43 @@ Claim allowed:
 Claim not allowed:
 
 - Expert mathematician.
+
+### Stage J — Live scoped math integration
+
+Purpose: make promoted real math lessons usable in the canonical OpenClaw answer path and make future training safely repeatable.
+
+Steps:
+
+1. Create an owner-only HMAC key and signed live registry outside Git.
+2. Independently replay phase grading, mistake reconstruction, candidate distillation, promotion, and held-out linkage before registry installation.
+3. Add narrow activation profiles and exclude training, Oracle, cron, and subagent sessions.
+4. Add content-free answer-influence telemetry, per-lesson enable flags, registry enable flag, expiry, and a plugin kill switch.
+5. Seed the first real math-foundations lesson; never seed synthetic novel-math benchmark content.
+6. Deploy the OpenClaw plugin on the canonical default path and validate configuration.
+7. Run positive, non-math, mismatched-math, and telemetry-leakage canaries.
+8. Add a detached Hetzner Codex worker, independent control-plane harvester, and independent notifier.
+9. Require canonical local/remote commit equality before training launch.
+10. Sync source to canonical local, remote `main`, and Hetzner; preserve evidence artifacts.
+
+Acceptance checks:
+
+```bash
+cd /root/clawd/cortex-learning-os && npm test
+npm run live:verify
+openclaw config validate
+./scripts/launch-live-math-training.sh --exam stress --dry-run
+openclaw gateway status
+```
+
+Claim allowed:
+
+- Verifier-promoted, scoped, unexpired math lessons can enter matching live prompts, and new bounded math training can run detached through the same gates.
+
+Claim not allowed:
+
+- Model weights changed, broad mathematics was learned, or live lesson injection caused better answers without separate treatment/control evidence.
+
+The full contract is [`docs/live-math-integration-contract.md`](docs/live-math-integration-contract.md).
 
 ## 19. Time, token, compute, and execution budget estimates
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { CLOS_ROOT } from './paths.mjs';
 import { readJson, writeJson } from './json.mjs';
 import { sha256File } from './hash.mjs';
-import { runOpenClawExam } from './model-answer-runner.mjs';
+import { runCodexExam, runOpenClawExam } from './model-answer-runner.mjs';
 import { writeExamRun } from './exam-runner.mjs';
 import { buildMistakes, distillCandidate, selectRemediableFailure } from './learning-loop.mjs';
 import { evaluatePromotion } from './promotion.mjs';
@@ -16,7 +16,11 @@ const has = (flag) => args.includes(flag);
 const compactTimestamp = () => new Date().toISOString().replace(/[-:.]/g, '').replace('T', '-').replace('Z', 'Z');
 const runId = value('--run-id') || `math-foundations-smoke-${compactTimestamp()}`;
 const artifactRoot = path.resolve(value('--artifact-root') || path.join(CLOS_ROOT, 'artifacts', runId));
-const thinking = value('--thinking') || 'off';
+const runner = value('--runner') || 'openclaw';
+if (!['openclaw', 'codex'].includes(runner)) throw new Error('--runner must be openclaw or codex');
+const thinking = value('--thinking') || (runner === 'codex' ? 'low' : 'off');
+const model = value('--model') || 'gpt-5.6-sol';
+const codexCommand = value('--codex-command') || 'codex';
 const promoteDefault = has('--promote-default');
 const command = process.argv.map((part) => JSON.stringify(part)).join(' ');
 const capsulePath = path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json');
@@ -36,24 +40,38 @@ function phaseExam(examId, title, item) {
 function modelPhase({ phase, exam, learningContext = null, evidenceRole }) {
   const phaseRoot = path.join(artifactRoot, phase);
   fs.mkdirSync(phaseRoot, { recursive: true });
-  const model = runOpenClawExam({
-    exam,
-    sessionId: `${runId}-${phase}`,
-    runId: `${runId}-${phase}`,
-    learningContext,
-    evidenceRole,
-    thinking,
-    timeoutSeconds: 240
-  });
-  writeJson(path.join(phaseRoot, 'model_call.json'), model.raw);
-  fs.writeFileSync(path.join(phaseRoot, 'model_prompt.txt'), `${model.prompt}\n`);
+  const modelRun = runner === 'codex'
+    ? runCodexExam({
+        exam,
+        sessionId: `${runId}-${phase}`,
+        runId: `${runId}-${phase}`,
+        learningContext,
+        evidenceRole,
+        thinking,
+        model,
+        codexCommand,
+        timeoutSeconds: 240
+      })
+    : runOpenClawExam({
+        exam,
+        sessionId: `${runId}-${phase}`,
+        runId: `${runId}-${phase}`,
+        learningContext,
+        evidenceRole,
+        thinking,
+        timeoutSeconds: 240
+      });
+  writeJson(path.join(phaseRoot, 'model_call.json'), modelRun.raw);
+  fs.writeFileSync(path.join(phaseRoot, 'model_prompt.txt'), `${modelRun.prompt}\n`);
   return writeExamRun({
     capsule,
     exam,
-    answerSet: model.answerSet,
+    answerSet: modelRun.answerSet,
     runId: `${runId}-${phase}`,
     outputDir: phaseRoot,
-    command: `openclaw agent --session-id ${runId}-${phase} --thinking ${thinking} --json --timeout 240`
+    command: runner === 'codex'
+      ? `${codexCommand} exec --ephemeral --ignore-user-config --ignore-rules --sandbox read-only --model ${model}`
+      : `openclaw agent --session-id ${runId}-${phase} --thinking ${thinking} --json --timeout 240`
   });
 }
 
@@ -92,6 +110,7 @@ function finalize({ status, reason = null, baselineRun, correctionRun = null, pr
   writeJson(path.join(artifactRoot, 'capability_report.json'), report);
   const summary = {
     schemaVersion: 'cortex.learning_os.dogfood_summary.v0', runId, generatedAt, status, reason,
+    runner: { kind: runner, model: runner === 'codex' ? model : null, thinking },
     baselineScore: baselineRun?.summary?.score ?? null,
     selectedMistakeId: mistake?.mistakeId || null,
     candidateId: candidate?.candidateId || null,

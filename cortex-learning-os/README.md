@@ -15,8 +15,12 @@ The canonical starter capsule is `capsules/math-foundations/`:
 - fail-closed promotion requiring independent correction and retest evidence
 - token-bounded retrieval pack generation
 - canonical trusted lesson and capability report paths
+- signed, hot-reloaded live lesson registry
+- narrowly scoped OpenClaw prompt integration with expiry and kill switches
+- content-free answer-influence telemetry
+- detached Hetzner Codex training, control-plane re-verification, and automatic qualified-lesson installation
 
-The latest qualified run pointer is `artifacts/latest-qualified-run.json`.
+The latest qualified run pointer is `artifacts/latest-qualified-run.json`. The live architecture and exact claim boundary are defined in [`docs/live-math-integration-contract.md`](docs/live-math-integration-contract.md).
 
 ## Commands
 
@@ -27,6 +31,13 @@ npm run exam:fixture
 npm run dogfood:math
 npm run dogfood:challenge
 npm run dogfood:stress
+npm run train:math
+npm run train:math:challenge
+npm run train:math:stress
+npm run live:status
+npm run live:verify
+./scripts/launch-live-math-training.sh --exam stress --dry-run
+./scripts/launch-live-math-training.sh --exam stress
 npm run experiment:ab:plan -- --experiment-id <id> --seed <seed>
 npm run experiment:ab -- --experiment-id <id> --seed <seed>
 npm run validate:go-no-go:plan -- --program-id <id> --seed <seed> --utility-fixture <private-json> --artifact-root <dir>
@@ -52,7 +63,7 @@ The candidate is implemented in Cortex as a default-on, observe-only shadow. It 
 
 `validate:novel-math` is the harder domain-specific benchmark in [`docs/novel-math-validation-contract.md`](docs/novel-math-validation-contract.md). It freezes one invented pair algebra before any calls, confirms no-context headroom on a disjoint algebra, requires fail/correct/retest promotion, measures randomized paired direct and compositional transfer, stresses ordinary arithmetic with an irrelevant pack, and then reloads the unchanged promoted lesson in a distinct process for a paired post-restart test. The fixed program contains 225 model calls and separates mechanical completion, frozen threshold pass, and independent artifact recomputation.
 
-The reusable v0.6 mechanism is canonical, but benchmark-generated microtheories and lessons remain artifact-only. Nothing from a synthetic run enters canonical capsules or ordinary answers automatically; user-visible retrieval still requires an independently promoted trusted lesson and the applicable approval boundary.
+The reusable v0.7 mechanism is canonical. Synthetic benchmark microtheories remain artifact-only and can never enter the live math registry through the default installer. Independently promoted real `math-foundations-v0` lessons can influence matching live math answers only after artifact re-verification, approved activation-profile mapping, signed-registry installation, and expiry checks. Training and Oracle sessions are excluded from live retrieval so prior lessons cannot contaminate baseline evidence.
 
 ## Canonical default paths
 
@@ -62,8 +73,10 @@ capsules/math-foundations/trusted_lessons.json
 capsules/math-foundations/latest_retrieval_pack.json
 capsules/math-foundations/capability_report.json
 artifacts/latest-qualified-run.json
+/root/.openclaw/cortex-learning-os/live-registry.json
+/root/.openclaw/cortex-learning-os/telemetry.json
 ```
 
 ## Truth boundary
 
-A green learning-loop run proves only that the declared bounded loop completed for the named evidence. A completed A/B run proves retrieval benefit only if all preregistered validity, lift, and exact-test gates pass; mechanical completion is reported separately. Neither result proves general mathematical expertise, durability over time, model-weight learning, or improvement outside the declared exact-multiplication/runtime configuration.
+A green learning-loop run proves only that the declared bounded loop completed for the named evidence. A live telemetry record with `answerInfluence=true` proves that a signed, scoped lesson entered that prompt; it does not by itself prove the lesson caused a better answer. A completed A/B run proves retrieval benefit only if all preregistered validity, lift, and exact-test gates pass; mechanical completion is reported separately. None of these results proves general mathematical expertise, durability beyond `retestAfter`, model-weight learning, or improvement outside the declared scope.

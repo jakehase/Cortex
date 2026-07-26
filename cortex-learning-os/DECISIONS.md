@@ -167,3 +167,19 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `origin/main` fast-forward through `ffc82c17c9aaae8c801941cba02c0108de77784b`; local and remote tests `41/41`; fixture validation green; remote canonical `validate:novel-math:plan` smoke at `0/225` executed calls with claimable `codex-cli 0.144.1` provenance; no novel-math diff under `capsules/`.
 - Boundary: Canonical availability is not automatic answer influence. Any real lesson must independently clear fail/correct/retest promotion and the applicable safety/privacy approval before retrieval can affect a user-visible answer.
 - Follow-up: Use the canonical harness prospectively for approved domains; preserve synthetic benchmark artifacts as evidence only.
+
+## 2026-07-26 — Integrate verifier-promoted real math lessons into the live answer path
+
+- Decision: Make CLOS a canonical live OpenClaw subsystem for narrowly matched real math lessons. Use an owner-only signed registry, independent control-plane replay of every learning and promotion phase, expiry and kill switches, content-free influence telemetry, and explicit isolation from training/Oracle/cron/subagent sessions. Keep synthetic benchmark lessons in artifact-only quarantine.
+- Reason: Jake explicitly asked to move beyond a green harness and reach a state where the Learning OS is fully integrated and ready for ongoing math training. The existing exact-multiplication lesson independently passed the real math-foundations promotion and held-out gates, while the harder synthetic microtheory remains unsuitable for ordinary answers.
+- Evidence: `docs/live-math-integration-contract.md`; `src/live-control.mjs`; `plugins/cortex-learning-os-live/`; live integration and Codex worker tests in the v0.7 suite.
+- Supersedes: the v0.6 boundary that no CLOS lesson could affect ordinary answers. It does not supersede the prohibition on synthetic benchmark content or the null ordinary-multiplication A/B result.
+- Follow-up: deploy and validate the canonical plugin/registry, run positive and negative live canaries, sync Hetzner, and preserve broad-math/model-weight claims as blocked.
+
+## 2026-07-26 — Place repeatable math training on Hetzner with independent promotion and notification
+
+- Decision: Start future real math training through a detached Hetzner Codex worker. A separate control-plane harvester must copy and re-verify candidate artifacts before signed-registry installation, while the standard detached notifier independently reports terminal completion or failure.
+- Reason: Heavy model work must not block or overload the OpenClaw control host, and a remote worker must not be able to activate a self-reported lesson merely by writing green booleans or recomputing a transport manifest.
+- Evidence: `scripts/remote-math-training-worker.sh`; `scripts/harvest-live-math-training.py`; `scripts/launch-live-math-training.sh`; independent replay/tamper tests.
+- Supersedes: manually running `dogfood:* --promote-default` on the control host as the normal training path.
+- Follow-up: use `./scripts/launch-live-math-training.sh --exam stress` for the next approved run; the no-call readiness gate is `--dry-run`.
