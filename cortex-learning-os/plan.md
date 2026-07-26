@@ -448,6 +448,46 @@ Truth boundary:
 - Completion without threshold passage is an honest null result, not a failed implementation.
 - No outcome-driven reruns, broad math-learning claim, durability claim, model-weight claim, or automatic ordinary-task routing promotion is allowed.
 
+### Wave 5.6 — Harder novel-math acquisition and restart transfer
+
+Goal:
+
+- Test whether the Learning OS can acquire one genuinely invented mathematical microtheory, promote it after fail/correct/retest evidence, apply it to disjoint direct and compositional items in fresh sessions, avoid ordinary-math interference, and reload the unchanged lesson after a clean runner-process restart.
+
+Frozen design:
+
+- 12-call definition-disjoint no-context calibration.
+- 3-call target acquisition and promotion gate.
+- 30 direct identical-item pack/no-pack pairs.
+- 30 compositional identical-item pack/no-pack pairs.
+- 25 ordinary-arithmetic irrelevant-pack/no-pack regression pairs.
+- 20 durability pairs in a distinct process.
+- 225 maximum calls, unique fresh sessions, no tools, exact deterministic grading, exact McNemar tests, frozen provider/model/reasoning/worker provenance, and no outcome-driven reruns.
+
+Outputs:
+
+- `docs/novel-math-validation-contract.md`
+- `src/novel-math-experiment.mjs`
+- `src/run-novel-math-validation.mjs`
+- `src/verify-novel-math-artifacts.mjs`
+- returned run `clos-novel-math-20260726T034546Z`
+
+Result:
+
+- **Completed green.** All `225/225` real Codex calls completed; calibration, acquisition/promotion, direct transfer, compositional transfer, ordinary-math regression, clean-process durability, provider evidence, and independent artifact verification passed.
+- Direct and compositional tracks were each pack `30/30` versus no-pack `0/30`; durability was `20/20` versus `0/20`; ordinary arithmetic was `25/25` in both arms.
+- Independent decision: `verified_threshold_pass` with zero errors.
+
+Stop condition reached:
+
+```text
+bounded_acquisition_retention_and_fresh_session_generalization_for_one_seeded_novel_mathematical_microtheory
+```
+
+Truth boundary:
+
+- This is one bounded retrieval-mediated result for one seeded invented microtheory. It is not broad mathematical mastery, human-like or time-durable learning, autonomous self-improvement, or model-weight change.
+
 ### Wave 6 — Quant Truth Lab extension
 
 Goal:

@@ -5,10 +5,10 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-25 16:11 CDT`
+- Last updated: `2026-07-25 23:22 CDT`
 - Status: `active`
 - Current fidelity: `production_slice_plus_default_on_selective_private_retrieval_shadow_observer`
-- Package version: `0.5.0`
+- Package version: `0.6.0`
 
 ## Current checkpoint
 
@@ -94,6 +94,22 @@ The production slice now includes:
 - Promotion remains blocked: shadow retrieval success, pack availability, latency, and baseline run success are not causal quality evidence. Answer-path use requires a separate approved treatment/control evaluation and privacy review.
 - Deployment state: implemented and validated on `feat/cortex-learning-os-ab-20260725` as the deployment candidate; not yet merged into remote `main` or activated in a live service by this change.
 
+## Completed harder novel-math validation
+
+- Reply anchor: Jake approved the harder math-learning test with “Do it” after asking whether the math section should receive a more difficult evaluation.
+- Exact execution source: branch `feat/cortex-learning-os-novel-math-20260725`, commit `bb84e5b077db11223b088c063820a614e2f2c429`; pushed and verified on `origin` before execution. Frozen `program.json` SHA-256: `46724dbcd2d43b7ba9d6dfe31ef78083f5fc7febdcbc5b1137c9db0c31ca2c42`.
+- Design: one seeded private invented pair algebra; separate definition-disjoint no-context calibration; three-call fail/correct/retest acquisition and promotion; 30 direct pack/no-pack pairs; 30 compositional pairs; 25 ordinary-arithmetic interference pairs; and 20 paired durability items after a clean runner-process restart. Maximum and executed budget: `225/225` unique fresh Codex calls.
+- Runtime evidence: provider `openai-codex`, model `gpt-5.6-sol`, reasoning `low`, tools forbidden, default Codex worker `codex-cli 0.144.1`; all `225/225` records had positive runtime, matching provider/model metadata, and positive provider-observed input/output usage. No explicit worker override was used.
+- Calibration passed: `12/12` valid; no-pack `0/12`; headroom confirmed without contributing any target-theory efficacy wins.
+- Acquisition passed: the no-context baseline failed, correction passed, independent compositional retest passed, and the scoped target lesson promoted.
+- Direct transfer passed: `30/30` valid pairs; pack `30/30`, no-pack `0/30`, `+100` percentage-point lift, exact two-sided McNemar `p=2e-9`.
+- Compositional transfer passed: `30/30` valid pairs; pack `30/30`, no-pack `0/30`, `+100` points, exact two-sided McNemar `p=2e-9`.
+- Ordinary-math regression passed under deliberately irrelevant retrieval: `25/25` valid pairs; both arms `25/25`; absolute harm `0`.
+- Clean-process durability passed: a distinct second Node process reloaded the unchanged trusted-lesson digest after the immediate process exited; `20/20` valid pairs, pack `20/20`, no-pack `0/20`, `+100` points, exact two-sided McNemar `p=1.907e-6`.
+- Final truth layers: mechanical green `true`; frozen outcome pass `true`; real-model-work evidence pass `true`; threshold pass `true`; independent verification decision `verified_threshold_pass` with zero errors.
+- Return verification: archive SHA-256 `5b3c6219e070a6cc12b86486fa3e11fdf08b6d34924482981758a194eafee680`; the control plane matched all `2,146/2,146` manifest entries. Verified return root: `/root/clawd/artifacts/cortex-learning-os-novel-math-20260726/clos-novel-math-20260726T034546Z/returned`.
+- Allowed claim: `bounded_acquisition_retention_and_fresh_session_generalization_for_one_seeded_novel_mathematical_microtheory`. This does not prove broad math improvement, human-like or time-durable learning, autonomous self-improvement, or model-weight change.
+
 Additional honest evidence:
 
 - The initial 30-item baseline scored `30/30`; the loop stopped rather than fabricating a mistake: `artifacts/math-foundations-smoke-20260725-052255174Z`.
@@ -104,8 +120,9 @@ Additional honest evidence:
 
 - The completed bounded production slice remains green.
 - The randomized A/B executed successfully, but its preregistered evidence threshold did not pass: both arms scored `26/27`, lift was `0`, and exact McNemar p was `1.0`.
-- Broad or durable math improvement remains unproven.
+- Broad math improvement and time-durable learning remain unproven. The novel-math run proved one unchanged lesson survived a clean process boundary, not long-duration retention.
 - Retrieval-pack benefit and harm remain unproven under the declared exact-multiplication/model/runtime configuration.
+- Retrieval-mediated benefit is now proven only for one seeded invented mathematical microtheory under the novel-math contract; do not generalize that result to ordinary known mathematics or broader domains.
 - The capped mechanism track proved bounded retrieval transfer for seeded novel information. Its first private-workspace utility arm failed the frozen effect threshold (`+11.11` points, p `0.25`) and remains an immutable no-go for that contract, although the corrected held-out validation later passed its separate frozen gates.
 - The corrected validation proves bounded utility only for selectively routed, genuinely non-inferable private workspace facts represented by its frozen pool.
 - Ordinary Cortex answer behavior remains unchanged. The observer is default-on only in shadow mode and cannot inject retrieved content.
@@ -114,8 +131,8 @@ Additional honest evidence:
 
 ## Next actions
 
-1. Preserve both completed validations and their frozen claims unchanged.
-2. Merge/deploy the validated feature-branch candidate through normal change control, retaining the immediate kill switch.
+1. Preserve the completed A/B, go/no-go, corrected private-utility, and novel-math validations with their separate frozen claims unchanged.
+2. Merge/deploy the validated selective-retrieval shadow candidate through normal change control, retaining the immediate kill switch.
 3. Run the selective observer in production shadow mode long enough to measure eligibility precision, empty/error rates, bounded pack availability, and latency without answer influence.
 4. Review content-free telemetry and manually audited, privacy-safe samples; tune only prospectively.
 5. Require a new approved identical-item treatment/control contract before any retrieved candidate can enter model context or affect answers.
@@ -136,6 +153,7 @@ Allowed claims:
 - In the capped go/no-go, seeded synthetic-procedure retrieval transferred perfectly across fresh sessions under the declared runtime.
 - The private-utility pack improved three of 27 paired items with no regressions, but this did not meet the first preregistered utility effect threshold.
 - The corrected, disjoint clustered private-utility validation passed all frozen gates under its declared workload and supports only a selective shadow candidate.
+- The preregistered harder novel-math validation passed all frozen calibration, acquisition, direct-transfer, compositional-transfer, ordinary-math regression, clean-process durability, provider-evidence, and independent-integrity gates for one seeded invented microtheory.
 - The selective observer may retrieve and record content-free operational evidence while remaining isolated from the answer path.
 
 Not allowed:

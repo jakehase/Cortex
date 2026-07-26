@@ -151,3 +151,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: Jake's explicit “Do it” approval after the harder-math recommendation; `docs/novel-math-validation-contract.md`; `src/novel-math-experiment.mjs`; `src/run-novel-math-validation.mjs`; `src/verify-novel-math-artifacts.mjs`.
 - Supersedes: treating the multiplication null result as the only available test of the math section; the historical result itself remains unchanged.
 - Follow-up: validate locally, push exact source, run a real-worker canary, preregister on Hetzner, execute detached across the required process boundary, independently verify returned artifacts, and accept pass, frozen no-go, or blocker without outcome-driven modification.
+
+## 2026-07-25 — Accept the verified bounded novel-math threshold pass
+
+- Decision: Accept run `clos-novel-math-20260726T034546Z` as a verified pass for the frozen claim `bounded_acquisition_retention_and_fresh_session_generalization_for_one_seeded_novel_mathematical_microtheory`.
+- Reason: All `225/225` preregistered real Codex calls completed. Definition-disjoint calibration confirmed headroom; acquisition and promotion passed; direct, compositional, ordinary-math regression, and clean-process durability tracks passed; every call had matching provider/model/runtime/usage evidence; and independent artifact verification returned `verified_threshold_pass` with zero errors.
+- Evidence: execution commit `bb84e5b077db11223b088c063820a614e2f2c429`; frozen program SHA-256 `46724dbcd2d43b7ba9d6dfe31ef78083f5fc7febdcbc5b1137c9db0c31ca2c42`; returned archive SHA-256 `5b3c6219e070a6cc12b86486fa3e11fdf08b6d34924482981758a194eafee680`; verified return root `/root/clawd/artifacts/cortex-learning-os-novel-math-20260726/clos-novel-math-20260726T034546Z/returned`.
+- Boundary: Do not relabel this as broad math improvement, long-duration or human-like learning, autonomous self-improvement, or model-weight change. The completed multiplication null result and all other prior contracts remain unchanged.
+- Follow-up: Preserve the result and use a new prospectively approved contract for any broader domain, longer-duration, multi-seed, or answer-path claim.
