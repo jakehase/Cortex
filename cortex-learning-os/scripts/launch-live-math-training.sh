@@ -33,9 +33,10 @@ HARVEST_UNIT="${SAFE_UNIT}-harvest"
 NOTIFY_UNIT="${SAFE_UNIT}-notify"
 REMOTE_STATE="$REMOTE_REPO/state/cortex-learning-os/$RUN_ID.json"
 
-LOCAL_COMMIT="$(git -C /root/clawd rev-parse HEAD)"
-REMOTE_MAIN="$(git -C /root/clawd rev-parse origin/main)"
-[[ "$LOCAL_COMMIT" == "$REMOTE_MAIN" ]] || { echo "canonical local HEAD is not origin/main" >&2; exit 3; }
+LOCAL_COMMIT="$(tr -d '[:space:]' < /root/clawd/CORTEX_LEARNING_OS_SOURCE_COMMIT)"
+[[ "$LOCAL_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "canonical source marker is invalid" >&2; exit 3; }
+REMOTE_MAIN="$(git -C /root/clawd ls-remote origin refs/heads/main | awk '{print $1}')"
+[[ "$LOCAL_COMMIT" == "$REMOTE_MAIN" ]] || { echo "canonical source marker is not origin/main" >&2; exit 3; }
 node "$LOCAL_CLOS/src/live-control.mjs" verify --state-root "$STATE_ROOT" >/dev/null
 
 REMOTE_COMMIT="unverified_in_dry_run"
