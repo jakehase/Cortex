@@ -52,6 +52,8 @@ The candidate is implemented in Cortex as a default-on, observe-only shadow. It 
 
 `validate:novel-math` is the harder domain-specific benchmark in [`docs/novel-math-validation-contract.md`](docs/novel-math-validation-contract.md). It freezes one invented pair algebra before any calls, confirms no-context headroom on a disjoint algebra, requires fail/correct/retest promotion, measures randomized paired direct and compositional transfer, stresses ordinary arithmetic with an irrelevant pack, and then reloads the unchanged promoted lesson in a distinct process for a paired post-restart test. The fixed program contains 225 model calls and separates mechanical completion, frozen threshold pass, and independent artifact recomputation.
 
+The reusable v0.6 mechanism is canonical, but benchmark-generated microtheories and lessons remain artifact-only. Nothing from a synthetic run enters canonical capsules or ordinary answers automatically; user-visible retrieval still requires an independently promoted trusted lesson and the applicable approval boundary.
+
 ## Canonical default paths
 
 ```text

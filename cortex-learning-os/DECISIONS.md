@@ -159,3 +159,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: execution commit `bb84e5b077db11223b088c063820a614e2f2c429`; frozen program SHA-256 `46724dbcd2d43b7ba9d6dfe31ef78083f5fc7febdcbc5b1137c9db0c31ca2c42`; returned archive SHA-256 `5b3c6219e070a6cc12b86486fa3e11fdf08b6d34924482981758a194eafee680`; verified return root `/root/clawd/artifacts/cortex-learning-os-novel-math-20260726/clos-novel-math-20260726T034546Z/returned`.
 - Boundary: Do not relabel this as broad math improvement, long-duration or human-like learning, autonomous self-improvement, or model-weight change. The completed multiplication null result and all other prior contracts remain unchanged.
 - Follow-up: Preserve the result and use a new prospectively approved contract for any broader domain, longer-duration, multi-seed, or answer-path claim.
+
+## 2026-07-25 — Promote the reusable v0.6 mechanism, not the synthetic lesson
+
+- Decision: Fast-forward the validated reusable novel-math acquisition, promotion, paired-evaluation, restart-integrity, and independent-verification machinery into canonical `main`; sync the same source to the canonical local and Hetzner default paths. Do not promote the benchmark's generated microtheory or trusted-lesson artifact into canonical capsules or the answer path.
+- Reason: The verified run qualifies the mechanism for canonical availability, while its allowed claim is limited to one seeded invented microtheory. Loading synthetic test content into ordinary answers would exceed the evidence and create irrelevant behavior.
+- Evidence: `origin/main` fast-forward through `ffc82c17c9aaae8c801941cba02c0108de77784b`; local and remote tests `41/41`; fixture validation green; remote canonical `validate:novel-math:plan` smoke at `0/225` executed calls with claimable `codex-cli 0.144.1` provenance; no novel-math diff under `capsules/`.
+- Boundary: Canonical availability is not automatic answer influence. Any real lesson must independently clear fail/correct/retest promotion and the applicable safety/privacy approval before retrieval can affect a user-visible answer.
+- Follow-up: Use the canonical harness prospectively for approved domains; preserve synthetic benchmark artifacts as evidence only.

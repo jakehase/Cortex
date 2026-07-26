@@ -477,6 +477,7 @@ Result:
 - **Completed green.** All `225/225` real Codex calls completed; calibration, acquisition/promotion, direct transfer, compositional transfer, ordinary-math regression, clean-process durability, provider evidence, and independent artifact verification passed.
 - Direct and compositional tracks were each pack `30/30` versus no-pack `0/30`; durability was `20/20` versus `0/20`; ordinary arithmetic was `25/25` in both arms.
 - Independent decision: `verified_threshold_pass` with zero errors.
+- Canonical promotion completed: the reusable v0.6 mechanism and validation commands are on `origin/main` and synced to both canonical local and Hetzner default paths. The synthetic benchmark lesson remains artifact-only and cannot influence live answers.
 
 Stop condition reached:
 

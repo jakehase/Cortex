@@ -109,6 +109,8 @@ The production slice now includes:
 - Final truth layers: mechanical green `true`; frozen outcome pass `true`; real-model-work evidence pass `true`; threshold pass `true`; independent verification decision `verified_threshold_pass` with zero errors.
 - Return verification: archive SHA-256 `5b3c6219e070a6cc12b86486fa3e11fdf08b6d34924482981758a194eafee680`; the control plane matched all `2,146/2,146` manifest entries. Verified return root: `/root/clawd/artifacts/cortex-learning-os-novel-math-20260726/clos-novel-math-20260726T034546Z/returned`.
 - Allowed claim: `bounded_acquisition_retention_and_fresh_session_generalization_for_one_seeded_novel_mathematical_microtheory`. This does not prove broad math improvement, human-like or time-durable learning, autonomous self-improvement, or model-weight change.
+- Canonical integration: `origin/main` was fast-forwarded through result commit `ffc82c17c9aaae8c801941cba02c0108de77784b`; package v0.6.0 was synced to `/root/clawd/cortex-learning-os` and `/home/jake/clawd-remote/cortex-learning-os` while preserving both artifact stores. Local and remote default-path tests passed `41/41`; a remote `validate:novel-math:plan` smoke preregistered all 225 calls from canonical source with claimable Codex provenance and `0` model calls executed.
+- Answer boundary: no generated microtheory or promoted benchmark lesson was copied into canonical capsules, live retrieval, prompts, or answers. Only the reusable acquisition/promotion/paired-evaluation/restart-verification machinery is canonical; answer influence still requires a trusted lesson to clear the existing promotion gate in a separately authorized use case.
 
 Additional honest evidence:
 
