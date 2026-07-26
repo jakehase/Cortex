@@ -143,3 +143,11 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `public/cortex_server/cortex_server/modules/private_retrieval_shadow.py`; Nexus integration and authenticated status endpoint in `public/cortex_server/cortex_server/routers/nexus.py`; route-gate isolation and telemetry in `plugins/cortex-route-gate/index.ts`; deployment controls in `public/docker-compose.yml`; contract in `public/cortex_server/docs/private-retrieval-shadow.md`; Python and Node tests covering eligibility, sensitive exclusions, principal isolation, bounded packs, failures, concurrency, atomic capped persistence, prompt/cache isolation, and no-content telemetry.
 - Supersedes: validation-harness-only availability of the selective private retrieval candidate.
 - Follow-up: inspect shadow eligibility/retrieval/latency evidence; require a separate explicit treatment/control promotion decision before any answer-path use.
+
+## 2026-07-25 — Authorize a harder domain-specific novel-math validation
+
+- Decision: Run one new preregistered 225-call math-learning benchmark using a seeded invented pair algebra, disjoint no-context calibration, fail/correct/retest promotion, randomized paired direct and compositional transfer, ordinary-arithmetic non-interference controls, and paired retrieval after a clean runner-process restart.
+- Reason: The completed multiplication A/B was ceiling-limited and proved no incremental benefit for already-known multiplication. The later synthetic and private-fact tests proved general retrieval transfer and utility, but not domain-specific acquisition and generalization of genuinely new mathematical knowledge.
+- Evidence: Jake's explicit “Do it” approval after the harder-math recommendation; `docs/novel-math-validation-contract.md`; `src/novel-math-experiment.mjs`; `src/run-novel-math-validation.mjs`; `src/verify-novel-math-artifacts.mjs`.
+- Supersedes: treating the multiplication null result as the only available test of the math section; the historical result itself remains unchanged.
+- Follow-up: validate locally, push exact source, run a real-worker canary, preregister on Hetzner, execute detached across the required process boundary, independently verify returned artifacts, and accept pass, frozen no-go, or blocker without outcome-driven modification.

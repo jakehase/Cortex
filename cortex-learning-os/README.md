@@ -33,6 +33,11 @@ npm run validate:go-no-go:plan -- --program-id <id> --seed <seed> --utility-fixt
 npm run validate:go-no-go -- --resume --program-id <id> --artifact-root <dir>
 npm run validate:private-utility:plan -- --validation-id <id> --seed <seed> --calibration-fixture <private-json> --holdout-fixture <private-json> --artifact-root <dir>
 npm run validate:private-utility -- --resume --validation-id <id> --artifact-root <dir>
+npm run validate:novel-math:canary -- --out <canary-json>
+npm run validate:novel-math:plan -- --validation-id <id> --seed <seed> --artifact-root <dir>
+npm run validate:novel-math -- --resume --phase immediate --validation-id <id> --artifact-root <dir>
+npm run validate:novel-math -- --resume --phase durability --validation-id <id> --artifact-root <dir>
+npm run validate:novel-math:verify -- --artifact-root <dir> --out <verification-json>
 ```
 
 `dogfood:*` uses isolated, non-delivering `openclaw agent` sessions. A run writes immutable evidence under `artifacts/<run-id>/`. With `--promote-default`, canonical capsule files change only after every promotion gate and the held-out retest pass.
@@ -44,6 +49,8 @@ npm run validate:private-utility -- --resume --validation-id <id> --artifact-roo
 `validate:private-utility` is the corrected ceiling-resistant test in [`docs/private-utility-validation-contract.md`](docs/private-utility-validation-contract.md). It freezes disjoint private calibration and held-out fixtures before any model call, checks no-pack headroom on 12 facts / 24 open-ended sessions, then conditionally runs 30 held-out fact clusters / 60 paired prompts / 120 fresh sessions. Fact clusters, not repeated paraphrases, are the primary statistical unit. The private fixtures remain outside Git. Validation `clos-private-utility-20260725T192921Z` passed its frozen gates and permits only a selective private-retrieval shadow candidate.
 
 The candidate is implemented in Cortex as a default-on, observe-only shadow. It uses authenticated principal scope, bounded asynchronous retrieval, an immediate kill switch, and content-free capped telemetry. Retrieved candidates are discarded and cannot enter model context or alter answers. See [`../public/cortex_server/docs/private-retrieval-shadow.md`](../public/cortex_server/docs/private-retrieval-shadow.md).
+
+`validate:novel-math` is the harder domain-specific benchmark in [`docs/novel-math-validation-contract.md`](docs/novel-math-validation-contract.md). It freezes one invented pair algebra before any calls, confirms no-context headroom on a disjoint algebra, requires fail/correct/retest promotion, measures randomized paired direct and compositional transfer, stresses ordinary arithmetic with an irrelevant pack, and then reloads the unchanged promoted lesson in a distinct process for a paired post-restart test. The fixed program contains 225 model calls and separates mechanical completion, frozen threshold pass, and independent artifact recomputation.
 
 ## Canonical default paths
 
