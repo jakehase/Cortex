@@ -39,13 +39,10 @@ REMOTE_MAIN="$(git -C /root/clawd ls-remote origin refs/heads/main | awk '{print
 [[ "$LOCAL_COMMIT" == "$REMOTE_MAIN" ]] || { echo "canonical source marker is not origin/main" >&2; exit 3; }
 node "$LOCAL_CLOS/src/live-control.mjs" verify --state-root "$STATE_ROOT" >/dev/null
 
-REMOTE_COMMIT="unverified_in_dry_run"
-if [[ "$DRY_RUN" != true ]]; then
-  REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
-  [[ "$REMOTE_COMMIT" == "$LOCAL_COMMIT" ]] || { echo "remote source commit $REMOTE_COMMIT does not match canonical $LOCAL_COMMIT" >&2; exit 4; }
-  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -x "$REMOTE_CLOS/scripts/remote-math-training-worker.sh"
-  test -x "$LOCAL_CLOS/scripts/harvest-live-math-training.py"
-fi
+REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
+[[ "$REMOTE_COMMIT" == "$LOCAL_COMMIT" ]] || { echo "remote source commit $REMOTE_COMMIT does not match canonical $LOCAL_COMMIT" >&2; exit 4; }
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -x "$REMOTE_CLOS/scripts/remote-math-training-worker.sh"
+test -x "$LOCAL_CLOS/scripts/harvest-live-math-training.py"
 
 python3 - "$RUN_ID" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_COMMIT" "$REMOTE_STATE" "$REMOTE_UNIT" "$HARVEST_UNIT" "$NOTIFY_UNIT" "$DRY_RUN" <<'PY'
 import json, sys
