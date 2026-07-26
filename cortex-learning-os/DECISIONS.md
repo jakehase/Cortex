@@ -199,3 +199,19 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: source/fix commit `aabb79b3ee267db6771d897d4a014e7a5c840e65`; local and exact worker-environment tests `52/52`; remote state `/home/jake/clawd-remote/state/cortex-learning-os/math-training-20260726T154658Z-e7e74b.json`; verified local artifact `/root/clawd/artifacts/cortex-learning-os-training/incoming/math-training-20260726T154658Z-e7e74b`; baseline `7/20`, correction/retest/held-out green, 36-file manifest, live registry signature valid, and terminal WhatsApp message `3EB04446BDDF17B203E295` delivered.
 - Boundary: This supports only a bounded exact-multiplication learning sequence. It does not prove retrieval causality, broad or durable mathematics learning, mastery, autonomous self-improvement, or model-weight change.
 - Follow-up: Monitor content-free activation and retest state; before another run, decide whether semantically equivalent promoted lessons should be deterministically deduplicated instead of accumulated.
+
+## 2026-07-26 — Deduplicate equivalent live lessons and preserve newest evidence
+
+- Decision: Compute a deterministic semantic key from capsule, domain, concepts, normalized rule, contraindications, and activation profiles; retain the newest promotion evidence for each key during every install and expose a signed-registry dedupe operation. Apply it to the live registry while preserving the pre-change registry and all originating run artifacts.
+- Reason: The two active exact-multiplication records encoded the same remediation rule. Accumulating equivalent records added no distinct knowledge and could inject redundant context.
+- Evidence: commit `a4c98acf07e81b241889f511bef4a674a5439f2e`; local and exact Hetzner worker-environment tests `53/53`; backup `/root/.openclaw/cortex-learning-os/backups/live-registry.revision-2.20260726T163151Z.json`; signed registry revision `3` with retained `lesson_aadf75a434c4a1a9`; content-free canary selected only that lesson.
+- Supersedes: allowing semantically equivalent live lesson records to accumulate solely because their evidence-derived lesson IDs differ.
+- Follow-up: Keep source artifacts immutable and monitor the retained lesson's activation and retest deadline.
+
+## 2026-07-26 — Independently verify no-observed-mistake outcomes
+
+- Decision: Treat a perfect baseline with no observed mistake as `candidate_no_lesson`, not as a worker failure or an unverified terminal success. The control-plane harvester must copy the manifest-backed artifacts, independently replay attempts/verifiers/score, verify real model provenance and positive usage, confirm no lesson artifacts exist, and only then mark the run completed without installing a lesson.
+- Reason: Challenge run `math-training-20260726T163228Z-72fb6d` scored `20/20`, but its expected process exit `3` triggered the inherited shell `ERR` trap before the worker normalized the status. The math result was valid while the orchestration label was wrong.
+- Evidence: recovery commit `4788779dfbd39deb00e54024ba115d2adea0b491`; local and exact Hetzner tests `54/54`; independently replayed local return `/root/clawd/artifacts/cortex-learning-os-training/incoming/math-training-20260726T163228Z-72fb6d`; corrected terminal state with baseline `20/20`, no installed lesson, signed registry revision `3`, and WhatsApp delivery `3EB0B7ECA2CC6B1C7245BE`.
+- Supersedes: trusting the worker alone for no-lesson completion and the unsafe `set +e`/`ERR`-trap exit capture path.
+- Follow-up: Do not repeat this perfect challenge merely to force a lesson; use a prospectively declared harder supported-profile exam if further ordinary-math acquisition is approved.

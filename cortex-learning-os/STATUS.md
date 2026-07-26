@@ -5,18 +5,18 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-26 11:09 CDT`
-- Status: `active_live_math_training_completed`
+- Last updated: `2026-07-26 11:49 CDT`
+- Status: `active_live_math_training_no_lesson_verified`
 - Current fidelity: `production_slice_live_scoped_math_plus_selective_private_retrieval_shadow_observer`
 - Package version: `0.7.0`
 
 ## Current checkpoint
 
-Cortex Learning OS v0.7 is integrated into the canonical OpenClaw answer path for narrowly matched, independently promoted real math lessons. The first post-integration stress run completed and delivered: `math-training-20260726T154658Z-e7e74b` ran on Hetzner from source `aabb79b3ee267db6771d897d4a014e7a5c840e65`, the control plane independently re-verified its returned evidence, and lesson `lesson_aadf75a434c4a1a9` was installed into signed registry revision `2`. The live registry signature is valid and now contains two enabled, unexpired exact-multiplication lessons. The separate selective private-retrieval subsystem remains observe-only and cannot affect answers.
+Cortex Learning OS v0.7 is integrated into the canonical OpenClaw answer path for narrowly matched, independently promoted real math lessons. The first post-integration stress run installed `lesson_aadf75a434c4a1a9`; deterministic semantic deduplication then removed its older equivalent registry record while preserving both source artifact sets and a pre-change registry backup. Signed registry revision `3` is valid with one enabled, unexpired exact-multiplication lesson. Follow-up challenge run `math-training-20260726T163228Z-72fb6d` scored `20/20`; the control plane independently replayed all baseline evidence and correctly installed no lesson. The separate selective private-retrieval subsystem remains observe-only and cannot affect answers.
 
 The production slice now includes:
 
-- 52 machine tests covering contracts, deterministic checkers, fail-closed promotion, independent replay against hostile self-reported artifacts, signed-registry tamper rejection, expiry, live scope classification, training-session isolation, content-free telemetry, real Codex math-loop execution, exact remote-Codex runtime preflight, paired randomization, strict structured output, and prior benchmark contracts.
+- 54 machine tests covering contracts, deterministic checkers, fail-closed promotion, independent replay against hostile self-reported promotion and no-lesson artifacts, deterministic live semantic deduplication, signed-registry tamper rejection, expiry, live scope classification, training-session isolation, content-free telemetry, real Codex math-loop execution, exact remote-Codex runtime preflight, paired randomization, strict structured output, and prior benchmark contracts.
 - 14 JSON record schemas plus internal contract validation.
 - A 36-concept math-foundations curriculum.
 - A 30-item deterministic baseline exam, a 20-item exactness/reliability challenge, and a 20-item exact-arithmetic stress exam.
@@ -142,6 +142,15 @@ Additional honest evidence:
 - The independent notifier delivered the terminal completion over WhatsApp as message `3EB04446BDDF17B203E295`; worker, harvester, and notifier units then exited successfully.
 - Allowed claim: one recorded exact-multiplication failure was followed by passed correction, promotion retest, and a distinct held-out pass under the declared verifier-gated loop. This does not isolate retrieval causality or establish broad/durable math improvement or model-weight learning.
 
+## Deduplication and challenge no-lesson result
+
+- Canonical commit `a4c98acf07e81b241889f511bef4a674a5439f2e` added semantic lesson keys, deterministic newest-evidence retention, automatic install-time deduplication, and an operator dedupe command. Live revision `3` removed older equivalent record `lesson_e30152a45fdf9a6a` and retained `lesson_aadf75a434c4a1a9`; the previous registry and both original run artifacts remain preserved.
+- A content-free post-dedup hook canary selected only the retained lesson with `answerInfluence=true`. Registry signature and single-lesson state remained valid.
+- Challenge run `math-training-20260726T163228Z-72fb6d` produced a real `gpt-5.6-sol` baseline score of `20/20` with positive provider-observed usage and no tool use. It generated no mistake, candidate, promotion, or lesson.
+- The worker initially labeled the expected no-observed-mistake exit code `3` as a failure because the inherited `ERR` trap fired before status normalization. Commit `4788779dfbd39deb00e54024ba115d2adea0b491` replaced that unsafe capture path and added a `candidate_no_lesson` state plus independent control-plane manifest/replay verification.
+- The existing run was recovered without another model call: all baseline attempts, verifier results, and score were independently replayed, terminal state became `completed`, registry stayed at revision `3`, and corrected WhatsApp notification `3EB0B7ECA2CC6B1C7245BE` was delivered. Local and exact Hetzner worker-environment tests passed `54/54`.
+- Allowed claim: this declared challenge exam had no observed error in this run. It does not create a lesson or prove broad mastery, durable improvement, retrieval benefit, or model-weight learning.
+
 ## Active blockers / unproven surfaces
 
 - The completed bounded production slice remains green.
@@ -157,9 +166,9 @@ Additional honest evidence:
 
 ## Next actions
 
-1. Monitor content-free activation telemetry and the two exact-multiplication lessons' expiry/retest state; keep all kill switches intact.
-2. Before another stress run, review whether equivalent promoted rules should be deterministically deduplicated rather than accumulated in the signed registry.
-3. Preserve all prior A/B, private-utility, novel-math, and first-live-run frozen claims unchanged.
+1. Monitor content-free activation telemetry and the retained exact-multiplication lesson's expiry/retest state; keep all kill switches intact.
+2. If more ordinary-math lessons are desired, prospectively declare a harder supported-profile exam rather than repeating the now-perfect challenge or single-rule stress exams.
+3. Preserve all prior A/B, private-utility, novel-math, first-live-run, and no-lesson frozen claims unchanged.
 4. Add any non-math domain only through a new curriculum, deterministic verifier catalog, privacy review, and approved activation profiles.
 
 ## Do not use / superseded
