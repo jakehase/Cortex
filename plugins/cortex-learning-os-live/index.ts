@@ -164,9 +164,12 @@ export default function register(api: any) {
       return;
     }
 
-    const query = latestUserTurnText(Array.isArray(event?.messages) ? event.messages : []);
+    const structuredUserTurn = latestUserTurnText(Array.isArray(event?.messages) ? event.messages : []);
+    const promptFallback = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
+    const query = structuredUserTurn || promptFallback;
+    const querySource = structuredUserTurn ? 'structured_user_turn' : promptFallback ? 'prompt_fallback' : 'none';
     if (!query || query.length > 16_384) {
-      try { appendTelemetry(telemetryPath, { ...baseRecord, outcome: 'no_match', reason: query ? 'query_too_large' : 'no_structured_user_turn' }, telemetryMaxRecords); } catch {}
+      try { appendTelemetry(telemetryPath, { ...baseRecord, outcome: 'no_match', reason: query ? 'query_too_large' : 'no_user_turn', querySource }, telemetryMaxRecords); } catch {}
       return;
     }
 
@@ -191,6 +194,7 @@ export default function register(api: any) {
       selectedLessonIds: selection.lessons.map((lesson: any) => lesson.lessonId),
       registryRevision: registry.revision,
       registryKeyId: registry.signature.keyId,
+      querySource,
     };
     if (!selection.lessons.length) {
       try { appendTelemetry(telemetryPath, { ...selectionRecord, outcome: 'no_match', reason: selection.eligible ? 'no_active_matching_lesson' : 'not_math_profile' }, telemetryMaxRecords); } catch {}

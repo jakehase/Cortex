@@ -59,7 +59,7 @@ function setupRegistry({ lessons = [lesson()], enabled = true } = {}) {
   return { root, registryPath, secretPath, telemetryPath, registry, secret: initialized.secret };
 }
 
-async function invoke(setup, { query = 'Compute exactly: 6,243,088,374 × 2,167,829.', mode = 'active', killSwitch = false, agentId = 'main', sessionKey = 'agent:main:whatsapp:direct:test', messages = null } = {}) {
+async function invoke(setup, { query = 'Compute exactly: 6,243,088,374 × 2,167,829.', prompt = null, mode = 'active', killSwitch = false, agentId = 'main', sessionKey = 'agent:main:whatsapp:direct:test', messages = null } = {}) {
   const handlers = new Map();
   const logs = [];
   register({
@@ -79,7 +79,7 @@ async function invoke(setup, { query = 'Compute exactly: 6,243,088,374 × 2,167,
     on(name, handler) { handlers.set(name, handler); },
   });
   const result = await handlers.get('before_prompt_build')(
-    { prompt: `accumulated prompt that must not be classified: ${query}`, messages: messages ?? [{ role: 'user', content: query }] },
+    { prompt: prompt ?? query, messages: messages ?? [{ role: 'user', content: query }] },
     { agentId, sessionKey },
   );
   const telemetry = fs.existsSync(setup.telemetryPath) ? JSON.parse(fs.readFileSync(setup.telemetryPath, 'utf8')) : null;
@@ -126,14 +126,29 @@ test('active mode injects only a signed, unexpired, matching lesson', async () =
   }
 });
 
-test('non-math, mismatched math, and missing structured user turns do not inject lessons', async () => {
+test('structured user turns take precedence and non-matching turns do not inject lessons', async () => {
   const setup = setupRegistry();
   try {
     assert.equal((await invoke(setup, { query: 'Draft a friendly project update.' })).context, '');
     assert.equal((await invoke(setup, { query: 'Solve 3x + 2 = 11.' })).context, '');
-    assert.equal((await invoke(setup, { messages: [] })).context, '');
+    assert.equal((await invoke(setup, {
+      query: 'Draft a friendly project update.',
+      prompt: 'Compute exactly: 98,765 × 4,321.',
+    })).context, '');
     const state = JSON.parse(fs.readFileSync(setup.telemetryPath, 'utf8'));
     assert.equal(state.counters.applied || 0, 0);
+  } finally {
+    fs.rmSync(setup.root, { recursive: true, force: true });
+  }
+});
+
+test('prompt fallback supports OpenClaw hook events that omit messages', async () => {
+  const setup = setupRegistry();
+  try {
+    const result = await invoke(setup, { messages: [], prompt: 'Compute exactly: 98,765 × 4,321.' });
+    assert.match(result.context, /CORTEX_LEARNING_OS_LIVE/);
+    assert.equal(result.telemetry.records.at(-1).querySource, 'prompt_fallback');
+    assert.equal(result.telemetry.records.at(-1).answerInfluence, true);
   } finally {
     fs.rmSync(setup.root, { recursive: true, force: true });
   }

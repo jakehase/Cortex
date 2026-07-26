@@ -73,6 +73,7 @@ write_state running "remote validation and Codex training are running"
   echo "actual_commit=$ACTUAL_COMMIT"
   [[ "$ACTUAL_COMMIT" == "$EXPECTED_COMMIT" ]]
   cd "$ROOT"
+  export CLOS_SOURCE_COMMIT="$EXPECTED_COMMIT"
   npm test
   set +e
   npm run "$NPM_SCRIPT" -- --run-id "$RUN_ID" --artifact-root "$ARTIFACT_ROOT"
