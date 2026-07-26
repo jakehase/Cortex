@@ -52,6 +52,49 @@ export function canonicalJson(value) {
   return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
 }
 
+function normalizedSemanticText(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+export function liveLessonSemanticKey(lesson) {
+  const payload = {
+    schemaVersion: 'cortex.learning_os.live_lesson_semantic_key.v1',
+    capsuleId: String(lesson?.capsuleId || ''),
+    domain: String(lesson?.domain || ''),
+    conceptIds: [...new Set((lesson?.conceptIds || []).map(String))].sort(),
+    rule: normalizedSemanticText(lesson?.rule),
+    contraindications: [...new Set((lesson?.contraindications || []).map(normalizedSemanticText))].sort(),
+    activationProfiles: [...new Set((lesson?.activationProfiles || []).map(String))].sort(),
+  };
+  return crypto.createHash('sha256').update(canonicalJson(payload), 'utf8').digest('hex');
+}
+
+export function deduplicateLiveLessons(lessons = []) {
+  if (!Array.isArray(lessons)) throw new Error('lessons must be an array');
+  const groups = new Map();
+  for (const lesson of lessons) {
+    const key = liveLessonSemanticKey(lesson);
+    const group = groups.get(key) || [];
+    group.push(lesson);
+    groups.set(key, group);
+  }
+  const retained = [];
+  const removedLessonIds = [];
+  for (const group of groups.values()) {
+    const ranked = [...group].sort((left, right) => (
+      Date.parse(right.promotedAt) - Date.parse(left.promotedAt)
+      || Date.parse(right.retestAfter) - Date.parse(left.retestAfter)
+      || left.lessonId.localeCompare(right.lessonId)
+    ));
+    retained.push(ranked[0]);
+    removedLessonIds.push(...ranked.slice(1).map((lesson) => lesson.lessonId));
+  }
+  return {
+    lessons: retained.sort((left, right) => left.lessonId.localeCompare(right.lessonId)),
+    removedLessonIds: [...new Set(removedLessonIds)].sort(),
+  };
+}
+
 function signaturePayload(registry) {
   const { signature: _signature, ...payload } = registry;
   return canonicalJson(payload);

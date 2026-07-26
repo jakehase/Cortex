@@ -9,8 +9,10 @@ import {
   LESSON_SCHEMA,
   activationProfilesForQuery,
   atomicWriteSignedRegistry,
+  deduplicateLiveLessons,
   emptyRegistry,
   initializeRegistry,
+  liveLessonSemanticKey,
   loadSignedRegistry,
   readRegistrySecret,
   selectLiveLessons,
@@ -99,6 +101,37 @@ test('registry signatures and strict lesson schema validate', () => {
   } finally {
     fs.rmSync(setup.root, { recursive: true, force: true });
   }
+});
+
+test('semantic lesson deduplication retains the newest equivalent evidence deterministically', () => {
+  const older = lesson();
+  const newer = lesson({
+    lessonId: 'lesson_exact_multiplication_newer',
+    promotionProofDigest: 'e'.repeat(64),
+    promotedAt: '2026-07-26T15:48:58.540Z',
+    retestAfter: '2026-10-24T15:48:58.540Z',
+    rule: '  Decompose one factor into place-value chunks,   sum exact partial products, and verify the result. ',
+    source: {
+      runId: 'math-training-newer',
+      trustedLessonSha256: 'f'.repeat(64),
+      promotionReportSha256: '1'.repeat(64),
+      artifactManifestSha256: '2'.repeat(64),
+    },
+  });
+  const distinct = lesson({
+    lessonId: 'lesson_linear_equation_distinct',
+    conceptIds: ['algebra-linear-equations'],
+    rule: 'Apply the same inverse operation to both sides and verify by substitution.',
+    activationProfiles: ['linear_equation'],
+  });
+  assert.equal(liveLessonSemanticKey(older), liveLessonSemanticKey(newer));
+  assert.notEqual(liveLessonSemanticKey(older), liveLessonSemanticKey(distinct));
+  const result = deduplicateLiveLessons([older, distinct, newer]);
+  assert.deepEqual(result.lessons.map((row) => row.lessonId), [
+    'lesson_exact_multiplication_newer',
+    'lesson_linear_equation_distinct',
+  ]);
+  assert.deepEqual(result.removedLessonIds, ['lesson_exact_multiplication_test']);
 });
 
 test('query profiles are narrow and deterministic', () => {

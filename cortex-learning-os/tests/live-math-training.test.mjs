@@ -7,6 +7,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import {
+  atomicWriteSignedRegistry,
+  loadSignedRegistry,
+  readRegistrySecret,
+} from '../../plugins/cortex-learning-os-live/registry.mjs';
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function answerValue(checker) {
@@ -76,6 +82,43 @@ console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100,
     const installedStatus = JSON.parse(installed.stdout);
     assert.equal(installedStatus.installedLessonId, trusted.lessonId);
     assert.deepEqual(installedStatus.lessons[0].activationProfiles, ['linear_equation']);
+
+    const registryPath = path.join(stateRoot, 'live-registry.json');
+    const secretPath = path.join(stateRoot, 'registry.hmac');
+    const secret = readRegistrySecret(secretPath);
+    const registry = loadSignedRegistry(registryPath, secret);
+    const activeLesson = registry.lessons[0];
+    const olderDuplicate = {
+      ...activeLesson,
+      lessonId: `${activeLesson.lessonId}_older`,
+      promotedAt: '2026-07-01T00:00:00.000Z',
+      retestAfter: '2026-09-29T00:00:00.000Z',
+      source: { ...activeLesson.source, runId: 'older-duplicate-evidence' },
+    };
+    atomicWriteSignedRegistry(registryPath, {
+      ...registry,
+      revision: registry.revision + 1,
+      updatedAt: '2026-07-26T16:00:00.000Z',
+      lessons: [olderDuplicate, activeLesson],
+    }, secret);
+    const deduplicated = spawnSync(process.execPath, [
+      path.join(root, 'src/live-control.mjs'), 'deduplicate', '--state-root', stateRoot,
+    ], { encoding: 'utf8' });
+    assert.equal(deduplicated.status, 0, deduplicated.stderr);
+    const deduplicatedStatus = JSON.parse(deduplicated.stdout);
+    assert.equal(deduplicatedStatus.changed, true);
+    assert.deepEqual(deduplicatedStatus.deduplicatedLessonIds, [olderDuplicate.lessonId]);
+    assert.equal(deduplicatedStatus.lessonCount, 1);
+    assert.equal(deduplicatedStatus.lessons[0].lessonId, activeLesson.lessonId);
+
+    const reinstalled = spawnSync(process.execPath, [
+      path.join(root, 'src/live-control.mjs'), 'install', '--state-root', stateRoot,
+      '--artifact-root', artifactRoot, '--profiles', 'auto',
+    ], { encoding: 'utf8' });
+    assert.equal(reinstalled.status, 0, reinstalled.stderr);
+    const reinstalledStatus = JSON.parse(reinstalled.stdout);
+    assert.equal(reinstalledStatus.lessonCount, 1);
+    assert.deepEqual(reinstalledStatus.deduplicatedLessonIds, []);
 
     // A hostile worker can recompute a transport manifest. Promotion must still
     // fail because the control plane independently replays deterministic grading.

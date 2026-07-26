@@ -14,7 +14,9 @@ import {
   LESSON_SCHEMA,
   canonicalJson,
   atomicWriteSignedRegistry,
+  deduplicateLiveLessons,
   initializeRegistry,
+  liveLessonSemanticKey,
   loadSignedRegistry,
   readRegistrySecret,
   validateLiveLesson,
@@ -262,15 +264,43 @@ try {
       const profiles = splitList(value('--profiles', ''));
       const entry = buildLiveEntry(artifactRoot, profiles);
       const now = new Date().toISOString();
-      const lessons = [...registry.lessons.filter((lesson) => lesson.lessonId !== entry.lessonId), entry]
-        .sort((left, right) => left.lessonId.localeCompare(right.lessonId));
+      const deduplicated = deduplicateLiveLessons([
+        ...registry.lessons.filter((lesson) => lesson.lessonId !== entry.lessonId),
+        entry,
+      ]);
+      const semanticKey = liveLessonSemanticKey(entry);
+      const activeEntry = deduplicated.lessons.find((lesson) => liveLessonSemanticKey(lesson) === semanticKey);
+      if (!activeEntry) throw new Error('installed lesson was lost during semantic deduplication');
       const updated = atomicWriteSignedRegistry(registryPath, {
         ...registry,
         revision: registry.revision + 1,
         updatedAt: now,
-        lessons,
+        lessons: deduplicated.lessons,
       }, secret);
-      console.log(JSON.stringify({ ...contentFreeStatus(updated), installedLessonId: entry.lessonId }, null, 2));
+      console.log(JSON.stringify({
+        ...contentFreeStatus(updated),
+        installedLessonId: activeEntry.lessonId,
+        candidateLessonId: entry.lessonId,
+        semanticKey,
+        deduplicatedLessonIds: deduplicated.removedLessonIds,
+      }, null, 2));
+    } else if (command === 'deduplicate') {
+      const deduplicated = deduplicateLiveLessons(registry.lessons);
+      if (deduplicated.removedLessonIds.length === 0) {
+        console.log(JSON.stringify({ ...contentFreeStatus(registry), deduplicatedLessonIds: [], changed: false }, null, 2));
+      } else {
+        const updated = atomicWriteSignedRegistry(registryPath, {
+          ...registry,
+          revision: registry.revision + 1,
+          updatedAt: new Date().toISOString(),
+          lessons: deduplicated.lessons,
+        }, secret);
+        console.log(JSON.stringify({
+          ...contentFreeStatus(updated),
+          deduplicatedLessonIds: deduplicated.removedLessonIds,
+          changed: true,
+        }, null, 2));
+      }
     } else if (command === 'disable' || command === 'enable') {
       const lessonId = value('--lesson-id');
       if (!lessonId) throw new Error('--lesson-id is required');
