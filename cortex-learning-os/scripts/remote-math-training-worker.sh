@@ -3,19 +3,23 @@ set -Eeuo pipefail
 
 RUN_ID="${1:-}"
 MODE_ARG="${2:-adaptive}"
-if [[ "$MODE_ARG" =~ ^(baseline|challenge|stress)$ ]]; then
-  MODE="legacy"
-  EXAM_NAME="$MODE_ARG"
-  EXPECTED_COMMIT="${3:-}"
-  CODEX_BIN="${4:-/home/jake/.local/bin/codex}"
-  ADAPTIVE_PLAN=""
-else
-  MODE="$MODE_ARG"
-  EXAM_NAME="${3:-}"
-  EXPECTED_COMMIT="${4:-}"
-  CODEX_BIN="${5:-/home/jake/.local/bin/codex}"
-  ADAPTIVE_PLAN="${6:-}"
-fi
+case "$MODE_ARG" in
+  adaptive)
+    MODE="adaptive"
+    EXAM_NAME=""
+    EXPECTED_COMMIT="${3:-}"
+    CODEX_BIN="${4:-/home/jake/.local/bin/codex}"
+    ADAPTIVE_PLAN="${5:-}"
+    ;;
+  baseline|challenge|stress)
+    MODE="legacy"
+    EXAM_NAME="$MODE_ARG"
+    EXPECTED_COMMIT="${3:-}"
+    CODEX_BIN="${4:-/home/jake/.local/bin/codex}"
+    ADAPTIVE_PLAN=""
+    ;;
+  *) echo "mode must be adaptive, baseline, challenge, or stress" >&2; exit 2 ;;
+esac
 ROOT="/home/jake/clawd-remote/cortex-learning-os"
 REPO_ROOT="/home/jake/clawd-remote"
 STATE_DIR="/home/jake/clawd-remote/state/cortex-learning-os"
@@ -42,7 +46,6 @@ case "$MODE" in
       *) echo "legacy exam must be baseline, challenge, or stress" >&2; exit 2 ;;
     esac
     ;;
-  *) echo "mode must be adaptive or legacy" >&2; exit 2 ;;
 esac
 mkdir -p "$STATE_DIR" "$LOG_DIR" "$ARTIFACT_ROOT"
 chmod 700 "$STATE_DIR" "$LOG_DIR"

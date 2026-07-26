@@ -222,9 +222,10 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   assert.match(launcher, /sudo -u jake -- "\$REMOTE_CODEX_BIN" --version/);
   assert.match(launcher, /MODE="adaptive"/);
   assert.match(launcher, /adaptive-plan/);
-  assert.match(launcher, /remote-math-training-worker\.sh" "\$RUN_ID" "\$MODE" "\$EXAM" "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN"/);
+  assert.match(launcher, /"\$RUN_ID" adaptive "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN"/);
+  assert.match(launcher, /"\$RUN_ID" "\$EXAM" "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN"/);
   assert.match(worker, /MODE_ARG="\$\{2:-adaptive\}"/);
-  assert.match(worker, /CODEX_BIN="\$\{5:-\/home\/jake\/\.local\/bin\/codex\}"/);
+  assert.match(worker, /CODEX_BIN="\$\{4:-\/home\/jake\/\.local\/bin\/codex\}"/);
   assert.match(worker, /\[\[ -x "\$CODEX_BIN" \]\]/);
   assert.match(worker, /--codex-command "\$CODEX_BIN"/);
   assert.match(worker, /if npm run "\$NPM_SCRIPT"/);
@@ -249,4 +250,16 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   ], { encoding: 'utf8' });
   assert.equal(unsafe.status, 2);
   assert.match(unsafe.stderr, /invalid Codex executable path/);
+
+  const adaptiveArguments = spawnSync('/bin/bash', [
+    workerPath,
+    'math-training-20260726T154152Z-abcdef',
+    'adaptive',
+    '0'.repeat(40),
+    '/missing/codex',
+    '/missing/adaptive-plan.json',
+  ], { encoding: 'utf8' });
+  assert.equal(adaptiveArguments.status, 2);
+  assert.match(adaptiveArguments.stderr, /adaptive plan must be a regular file/);
+  assert.doesNotMatch(adaptiveArguments.stderr, /invalid expected commit/);
 });

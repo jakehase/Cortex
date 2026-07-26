@@ -104,8 +104,18 @@ if [[ "$NOTIFY" == true ]]; then
     /bin/bash -lc "$NOTIFY_COMMAND"
 fi
 
-ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
-  systemd-run --unit="$REMOTE_UNIT" --collect --quiet \
-    --property=User=jake --property=Group=jake \
-    --working-directory="$REMOTE_CLOS" \
-    /bin/bash "$REMOTE_CLOS/scripts/remote-math-training-worker.sh" "$RUN_ID" "$MODE" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_CODEX_BIN" "$REMOTE_PLAN"
+if [[ "$MODE" == "adaptive" ]]; then
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
+    systemd-run --unit="$REMOTE_UNIT" --collect --quiet \
+      --property=User=jake --property=Group=jake \
+      --working-directory="$REMOTE_CLOS" \
+      /bin/bash "$REMOTE_CLOS/scripts/remote-math-training-worker.sh" \
+        "$RUN_ID" adaptive "$LOCAL_COMMIT" "$REMOTE_CODEX_BIN" "$REMOTE_PLAN"
+else
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
+    systemd-run --unit="$REMOTE_UNIT" --collect --quiet \
+      --property=User=jake --property=Group=jake \
+      --working-directory="$REMOTE_CLOS" \
+      /bin/bash "$REMOTE_CLOS/scripts/remote-math-training-worker.sh" \
+        "$RUN_ID" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_CODEX_BIN"
+fi

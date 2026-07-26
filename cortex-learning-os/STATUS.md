@@ -37,6 +37,8 @@ Release verification for this implementation passed locally and on the exact Het
 
 Canonical integration is complete. Implementation commit `3141a74b8c1873605e7ef9a162a5043360a85a78` was atomically pushed to both `origin/main` and `origin/feat/cortex-learning-os-adaptive-20260726`; the exact committed product tree was synced to `/root/clawd/cortex-learning-os` and `/home/jake/clawd-remote/cortex-learning-os` with matching source markers. The local canonical suite passed `63/63`; the remote canonical adaptive/live/plugin subset passed `22/22`; and no-call default-launch dry-run `math-training-20260726T191549Z-d125a2` selected adaptive mode, froze a signed acquisition plan, verified `codex-cli 0.144.1`, and matched local, remote, and `origin/main` source commit. Canonical mastery is signed, owner-only, revision `0`, with all 36 concepts unassessed and no empirical adaptive run applied.
 
+The first authorized real adaptive launch, `math-training-20260726T193442Z-c47d96`, exposed an SSH/systemd argument-boundary defect before worker state initialization or any model call: the empty adaptive exam placeholder was dropped and positional arguments shifted, so the worker failed closed with `invalid expected commit`. The launcher and worker now use explicit mode-specific non-empty argument layouts. Regression verification passed the full local `63/63` suite and a real Hetzner systemd boundary smoke that reached the intended missing-plan rejection with the exact commit, Codex path, and plan positions intact. The failed launch advanced no mastery and installed no lesson; a post-fix retry remains infrastructure recovery, not an outcome-driven rerun.
+
 ## Latest qualified evidence
 
 - Qualified pointer: `artifacts/latest-qualified-run.json`
