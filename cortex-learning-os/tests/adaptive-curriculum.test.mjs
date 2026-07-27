@@ -398,6 +398,31 @@ test('signed mastery transitions are replayable, spaced, idempotent, owner-only,
   }
 });
 
+test('candidate provider schema omits unsupported uniqueItems while runtime validation enforces uniqueness', () => {
+  const outputSchema = read('schemas/adaptive-candidate-output.schema.json');
+  assert.equal(canonicalJson(outputSchema).includes('uniqueItems'), false);
+  const item = generateExercise({ conceptId: 'algebra-linear-equations', seed: 'duplicate-contraindications', role: 'acquisition' });
+  const attempt = { itemId: item.itemId, answer: '0' };
+  const verifier = { itemId: item.itemId, status: 'failed', score: 0, verifierResultId: 'verify-duplicate-contraindications' };
+  const concept = graph.concepts.find((row) => row.conceptId === 'algebra-linear-equations');
+  const fixture = fakeCandidateCaller()({ prompt: '', sessionId: 'candidate-schema-regression' });
+  const candidate = buildCandidateRecord({
+    output: {
+      ...fixture.output,
+      contraindications: ['Do not divide by zero.', 'Do not divide by zero.'],
+    },
+    concept,
+    failedItem: item,
+    attempt,
+    verifier,
+    provenance: fixture.provenance,
+    prompt: 'candidate schema regression',
+    policy,
+  });
+  assert.equal(candidate.status, 'quarantined');
+  assert.ok(candidate.validationErrors.includes('invalid candidate contraindications'));
+});
+
 test('candidate validation rejects fabricated failures, copied templates, missing usage, and tool use', () => {
   const item = generateExercise({ conceptId: 'algebra-linear-equations', seed: 'candidate', role: 'acquisition' });
   const attempt = { itemId: item.itemId, answer: '0' };
