@@ -19,7 +19,7 @@ The canonical launcher defaults to adaptive curriculum mode:
 
 The control plane owns `/root/.openclaw/cortex-learning-os/mastery.json`, its separate HMAC secret, and the signed live registry. The remote worker receives an HMAC-signed frozen plan containing the selected action, base revision/digest, policy/curriculum digests, source commit, seed, finite budgets, and runtime contract. It never receives the HMAC secret or authority to sign or mutate canonical state.
 
-The frozen plan also binds provider `openai-codex`, model `gpt-5.6-sol`, reasoning `low`, a read-only sandbox, and prohibited tool use. Returned call ledgers must match those signed runtime fields and carry positive provider-observed usage.
+The canonical launcher explicitly requests reasoning `xhigh`. The checked-in policy retains `low` as the minimum permitted reasoning floor; a signed plan may equal or strengthen that floor but may not weaken it or change provider, model, sandbox, or tool policy. The frozen plan binds provider `openai-codex`, model `gpt-5.6-sol`, the selected reasoning effort, a read-only sandbox, and prohibited tool use. Returned call ledgers must contain the exact signed `model_reasoning_effort` and carry positive provider-observed usage.
 
 The worker can terminate with:
 
@@ -48,4 +48,4 @@ Canonical mastery is then replaced atomically in owner-only mode with a new HMAC
 
 Do not edit mastery or registry JSON manually. A signature mismatch, source mismatch, policy drift, rewritten manifest, replay mismatch, or exhausted budget is a structured blocker. Preserve the returned artifact directory and worker state for diagnosis. Rerunning `adaptive-apply` for an already applied run is safe; it does not advance mastery revision twice.
 
-No real adaptive session was executed as part of the v0.8 implementation job. Deterministic fake workers cover the runtime and hostile replay paths without model calls.
+Deterministic fake workers cover runtime and hostile replay paths without model calls. Real adaptive sessions are reported separately in canonical status and retain their exact signed runtime as historical evidence.

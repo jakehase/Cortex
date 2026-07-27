@@ -297,3 +297,10 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: Locked local gate `79/79`; exact Git-backed Hetzner gate `79/79`; fixture, syntax, and JSON validation; live plugin canaries `12/12`; healthy gateway probe; valid owner-only signed transfer state and registry; live telemetry with zero active applications.
 - Correction caught before activation: The first config draft named a non-canonical registry trust-root path. Deployment verification rejected it; configuration was corrected to the initialized owner-only `transfer-registry.hmac` path before the gateway restart.
 - Boundary: Deployment makes the bridge available but inert. Neither profile is qualified, the registry has zero entries, active mode applies no context, and no coding-transfer benefit is claimed.
+
+## 2026-07-27 — Make xhigh the canonical adaptive-learning launch effort
+
+- Decision: The detached adaptive launcher defaults to `xhigh`. The policy's `low` runtime remains a minimum reasoning floor for compatibility with already signed mastery; a control-plane-signed plan may strengthen that effort but may not weaken it or change provider, model, read-only sandbox, or no-tool constraints.
+- Hardening: Bind the selected reasoning effort in the signed plan and require the returned raw Codex ledger to contain the exact matching `model_reasoning_effort` argument during independent replay. The runtime CLI now inherits model/reasoning from the signed plan rather than a local low default.
+- Correction: Run `math-training-20260727T020121Z-cf935b` was mechanically valid and independently applied under its signed `low` runtime before the operator correction arrived, but it is not accepted as the intended xhigh review. Preserve it as superseded historical evidence, restore the exact signed revision-1 mastery snapshot proven by its own frozen plan digest, and replace it with a fresh xhigh factoring review.
+- Boundary: A stronger reasoning setting does not itself prove mastery or transfer. The replacement still requires deterministic grading, exact artifact replay, and independent signed-state application.

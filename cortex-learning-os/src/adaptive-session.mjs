@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { buildPairedCandidatePlan, analyzeCandidatePairs } from './adaptive-evaluator.mjs';
-import { policyDigest } from './adaptive-policy.mjs';
+import { policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
 import { selectNextAction, validateCurriculumGraph } from './curriculum-planner.mjs';
 import { generateExercise } from './generated-exercises.mjs';
 import { sha256File, sha256Text } from './hash.mjs';
@@ -45,6 +45,7 @@ export function buildAdaptiveSessionPlan({
   sourceCommit,
   seed,
   signingSecret,
+  runtimeOverride = null,
   now = new Date().toISOString(),
 } = {}) {
   const graphValidation = validateCurriculumGraph(graph);
@@ -52,6 +53,8 @@ export function buildAdaptiveSessionPlan({
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(runId || ''))) throw new Error('invalid adaptive runId');
   if (!/^[0-9a-f]{40}$/.test(String(sourceCommit || ''))) throw new Error('adaptive plan requires a 40-character source commit');
   if (typeof seed !== 'string' || !seed || seed.length > 256) throw new Error('adaptive plan requires a bounded seed');
+  const modelRuntime = runtimeOverride === null ? policy.modelRuntime : runtimeOverride;
+  if (!validateAdaptivePlanRuntime(policy, modelRuntime)) throw new Error('adaptive plan runtime override is invalid or weaker than policy');
   const action = selectNextAction({ graph, mastery, policy, now, seed });
   if (typeof signingSecret !== 'string' || signingSecret.length < 32) throw new Error('adaptive plan requires a control-plane signing secret');
   const plan = {
@@ -69,7 +72,7 @@ export function buildAdaptiveSessionPlan({
     masterySnapshotDigest: sha256Text(canonicalJson(mastery)),
     action,
     budgets: structuredClone(policy.budgets),
-    modelRuntime: structuredClone(policy.modelRuntime),
+    modelRuntime: structuredClone(modelRuntime),
     pairedEvaluation: structuredClone(policy.pairedEvaluation),
     terminalStates: [
       'candidate_mastery_delta',
@@ -106,7 +109,7 @@ function validatePlan(plan, { graph, policy, sourceCommit }) {
   if (plan.policyDigest !== policyDigest(policy)) throw new Error('adaptive plan policy digest mismatch');
   if (plan.sourceCommit !== sourceCommit) throw new Error('adaptive plan source mismatch');
   if (canonicalJson(plan.budgets) !== canonicalJson(policy.budgets)
-      || canonicalJson(plan.modelRuntime) !== canonicalJson(policy.modelRuntime)
+      || !validateAdaptivePlanRuntime(policy, plan.modelRuntime)
       || canonicalJson(plan.pairedEvaluation) !== canonicalJson(policy.pairedEvaluation)) throw new Error('adaptive plan policy fields were rewritten');
 }
 

@@ -221,7 +221,9 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   const worker = fs.readFileSync(workerPath, 'utf8');
   assert.match(launcher, /sudo -u jake -- "\$REMOTE_CODEX_BIN" --version/);
   assert.match(launcher, /MODE="adaptive"/);
+  assert.match(launcher, /THINKING="xhigh"/);
   assert.match(launcher, /adaptive-plan/);
+  assert.match(launcher, /--thinking "\$THINKING"/);
   assert.match(launcher, /chown jake:jake "\$REMOTE_PLAN"/);
   assert.match(launcher, /sudo -u jake -- test -r "\$REMOTE_PLAN"/);
   assert.match(launcher, /"\$RUN_ID" adaptive "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN"/);

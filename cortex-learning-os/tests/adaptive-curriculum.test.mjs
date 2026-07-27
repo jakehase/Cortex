@@ -62,7 +62,7 @@ function resetConcept(state, conceptId) {
   };
 }
 
-function fakeExamCaller({ thresholdPass = false, perfect = false } = {}) {
+function fakeExamCaller({ thresholdPass = false, perfect = false, thinking = 'low' } = {}) {
   let call = 0;
   return ({ exam, learningContext, evidenceRole, sessionId, runId }) => {
     call += 1;
@@ -96,7 +96,7 @@ function fakeExamCaller({ thresholdPass = false, perfect = false } = {}) {
       answerSet,
       raw: {
         command: '/fake/codex',
-        args: ['exec', '--ephemeral', '--ignore-user-config', '--sandbox', 'read-only', '--model', 'gpt-5.6-sol', '--json', '--output-schema', '/fake/schema.json'],
+        args: ['exec', '--ephemeral', '--ignore-user-config', '--sandbox', 'read-only', '--model', 'gpt-5.6-sol', '--config', `model_reasoning_effort="${thinking}"`, '--json', '--output-schema', '/fake/schema.json'],
         exitCode: 0,
         sessionId,
         finalText: JSON.stringify({ answers: answerSet.answers }),
@@ -106,7 +106,7 @@ function fakeExamCaller({ thresholdPass = false, perfect = false } = {}) {
   };
 }
 
-function fakeCandidateCaller(overrides = {}) {
+function fakeCandidateCaller(overrides = {}, thinking = 'low') {
   return ({ prompt, sessionId }) => {
     const output = {
       rule: 'For linear equations, preserve equality while undoing operations in reverse order and verify by substitution.',
@@ -129,7 +129,7 @@ function fakeCandidateCaller(overrides = {}) {
       },
       raw: {
         command: '/fake/codex',
-        args: ['exec', '--ephemeral', '--ignore-user-config', '--sandbox', 'read-only', '--model', 'gpt-5.6-sol', '--json', '--output-schema', '/fake/schema.json'],
+        args: ['exec', '--ephemeral', '--ignore-user-config', '--sandbox', 'read-only', '--model', 'gpt-5.6-sol', '--config', `model_reasoning_effort="${thinking}"`, '--json', '--output-schema', '/fake/schema.json'],
         exitCode: 0,
         sessionId,
         finalText: JSON.stringify(output),
@@ -140,7 +140,7 @@ function fakeCandidateCaller(overrides = {}) {
   };
 }
 
-function runFixture({ thresholdPass = false, perfect = false, candidateOverrides = {}, policyOverride = policy } = {}) {
+function runFixture({ thresholdPass = false, perfect = false, candidateOverrides = {}, policyOverride = policy, runtimeOverride = null } = {}) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-adaptive-test-'));
   const state = masteredState();
   resetConcept(state, 'algebra-linear-equations');
@@ -153,6 +153,7 @@ function runFixture({ thresholdPass = false, perfect = false, candidateOverrides
     sourceCommit,
     seed: 'fixture-seed',
     signingSecret: secret,
+    runtimeOverride,
     now: '2026-07-26T12:00:00.000Z',
   });
   const summary = runAdaptiveSession({
@@ -163,8 +164,8 @@ function runFixture({ thresholdPass = false, perfect = false, candidateOverrides
     artifactRoot: temporary,
     sourceCommit,
     fixedTemplates: [],
-    callExam: fakeExamCaller({ thresholdPass, perfect }),
-    callCandidate: fakeCandidateCaller(candidateOverrides),
+    callExam: fakeExamCaller({ thresholdPass, perfect, thinking: plan.modelRuntime.thinking }),
+    callCandidate: fakeCandidateCaller(candidateOverrides, plan.modelRuntime.thinking),
   });
   return { temporary, state: signed, plan, summary, policy: policyOverride };
 }
@@ -359,6 +360,31 @@ test('adaptive session pass produces only a replayable mastery proposal and no c
     });
     assert.equal(replay.recomputedDelta.events.length, 1);
     assert.equal(replay.liveEntry, null);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test('signed adaptive plans allow stronger xhigh reasoning and replay rejects reasoning substitution', () => {
+  assert.throws(() => buildAdaptiveSessionPlan({
+    runId: 'adaptive-weaker-runtime', graph, policy, mastery: masteredState(), sourceCommit,
+    seed: 'weaker-runtime', signingSecret: secret,
+    runtimeOverride: { ...policy.modelRuntime, thinking: 'none' },
+  }), /runtime override is invalid or weaker/);
+  const fixture = runFixture({ perfect: true, runtimeOverride: { ...policy.modelRuntime, thinking: 'xhigh' } });
+  try {
+    assert.equal(fixture.plan.modelRuntime.thinking, 'xhigh');
+    const options = {
+      artifactRoot: fixture.temporary, graph, policy, capsule, currentMastery: fixture.state,
+      expectedSourceCommit: sourceCommit, fixedTemplates: [], planSecret: secret,
+    };
+    assert.equal(verifyAdaptiveArtifacts(options).recomputedDelta.events.length, 1);
+    const callPath = path.join(fixture.temporary, 'observed-attempt/model_call.json');
+    const call = JSON.parse(fs.readFileSync(callPath, 'utf8'));
+    call.args[call.args.indexOf('--config') + 1] = 'model_reasoning_effort="low"';
+    fs.writeFileSync(callPath, `${JSON.stringify(call, null, 2)}\n`);
+    rewriteRootManifest(fixture.temporary);
+    assert.throws(() => verifyAdaptiveArtifacts(options), /raw model runtime is not the approved/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

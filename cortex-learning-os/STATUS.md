@@ -12,6 +12,8 @@
 
 ## Current checkpoint
 
+**Adaptive-runtime correction in progress:** `math-training-20260727T020121Z-cf935b` completed and was mechanically applied under its signed `low` runtime, but the operator requires `xhigh`. That low run is retained as superseded historical evidence, not accepted as the intended review. Its exact pre-run revision-1 mastery snapshot was reconstructed and matched the frozen plan digest. The launcher and independent replay path are being hardened to default to and prove exact `xhigh` reasoning before the replacement factoring review.
+
 The v0.9 semantic coding-transfer implementation is deployed on the canonical OpenClaw path. It declares two bounded profiles (`exact-multiplication` and `algebra-factoring`), keeps transfer state distinct from mastery, and initializes an independent signed transfer registry with zero entries. The runtime default is enabled `active`, but the empty registry produces zero transfer context. The other 34 concepts are explicit `no_qualified_transfer`; the two declared surfaces remain `unassessed`. No profile is qualified.
 
 The implementation includes strict schemas, digest-bound profiles and policy, run-seeded balanced two-arm ordering, strict exact oracles, a signed provider/model/reasoning/read-only/tool-free runtime contract, an enumerated router with hard negative gates, signed owner-only atomic transfer state, a secretless executable worker with durable concurrent resume, positive provider-usage evidence, exact-manifest replay, separate apply/promotion commands, independent transfer telemetry, and deterministic tests.

@@ -11,6 +11,7 @@ LOCAL_CLOS="/root/clawd/cortex-learning-os"
 STATE_ROOT="/root/.openclaw/cortex-learning-os"
 DRY_RUN=false
 NOTIFY=true
+THINKING="xhigh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -20,6 +21,7 @@ while [[ $# -gt 0 ]]; do
     --remote-repo) REMOTE_REPO="${2:-}"; REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"; shift 2 ;;
     --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
+    --thinking) THINKING="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -32,6 +34,7 @@ fi
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo path" >&2; exit 2; }
 [[ "$REMOTE_CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote Codex executable path" >&2; exit 2; }
 [[ "$STATE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe state root" >&2; exit 2; }
+[[ "$THINKING" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || { echo "unsupported reasoning effort" >&2; exit 2; }
 
 RUN_ID="math-training-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
 SAFE_UNIT="clos-${RUN_ID//[^a-zA-Z0-9-]/-}"
@@ -52,7 +55,7 @@ if [[ "$MODE" == "adaptive" ]]; then
   chmod 700 "$(dirname "$LOCAL_PLAN")"
   node "$LOCAL_CLOS/src/live-control.mjs" adaptive-plan \
     --state-root "$STATE_ROOT" --run-id "$RUN_ID" --seed "$RUN_ID" \
-    --source-commit "$LOCAL_COMMIT" --out "$LOCAL_PLAN" >/dev/null
+    --source-commit "$LOCAL_COMMIT" --thinking "$THINKING" --out "$LOCAL_PLAN" >/dev/null
 fi
 
 REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"

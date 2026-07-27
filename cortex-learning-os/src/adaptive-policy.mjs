@@ -6,9 +6,26 @@ import { CLOS_ROOT } from './paths.mjs';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 
 export const DEFAULT_ADAPTIVE_POLICY_PATH = path.join(CLOS_ROOT, 'policies/adaptive-math-v0.8.json');
+const RUNTIME_KEYS = ['model', 'provider', 'sandbox', 'thinking', 'toolsAllowed'];
+const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function validateAdaptivePlanRuntime(policy, runtime) {
+  const baseline = policy?.modelRuntime;
+  return isRecord(runtime)
+    && Object.keys(runtime).sort().join(',') === RUNTIME_KEYS.slice().sort().join(',')
+    && runtime.provider === 'openai-codex'
+    && runtime.provider === baseline?.provider
+    && runtime.model === baseline?.model
+    && runtime.sandbox === 'read-only'
+    && runtime.sandbox === baseline?.sandbox
+    && runtime.toolsAllowed === false
+    && runtime.toolsAllowed === baseline?.toolsAllowed
+    && REASONING_EFFORTS.includes(runtime.thinking)
+    && REASONING_EFFORTS.indexOf(runtime.thinking) >= REASONING_EFFORTS.indexOf(baseline?.thinking);
 }
 
 export function validateAdaptivePolicy(policy) {
@@ -53,7 +70,7 @@ export function validateAdaptivePolicy(policy) {
   if (typeof policy.lapse?.scheduleImmediateRepair !== 'boolean') errors.push('invalid lapse.scheduleImmediateRepair');
   const runtime = policy.modelRuntime;
   if (runtime?.provider !== 'openai-codex' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(runtime?.model || ''))
-      || !['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(runtime?.thinking)
+      || !REASONING_EFFORTS.includes(runtime?.thinking)
       || runtime?.sandbox !== 'read-only' || runtime?.toolsAllowed !== false) errors.push('invalid modelRuntime');
   if (!Number.isInteger(policy.lessonExpiryDays) || policy.lessonExpiryDays < 1 || policy.lessonExpiryDays > 365) errors.push('invalid lessonExpiryDays');
   return { ok: errors.length === 0, errors };

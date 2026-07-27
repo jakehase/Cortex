@@ -404,8 +404,10 @@ try {
       const runId = value('--run-id');
       const seed = value('--seed');
       const out = value('--out');
+      const thinking = value('--thinking');
       if (!runId || !seed || !out) throw new Error('--run-id, --seed, and --out are required');
       const adaptive = adaptiveInputs();
+      const runtimeOverride = thinking ? { ...adaptive.policy.modelRuntime, thinking } : null;
       const plan = buildAdaptiveSessionPlan({
         runId,
         graph: adaptive.graph,
@@ -414,6 +416,7 @@ try {
         sourceCommit,
         seed,
         signingSecret: adaptive.secret,
+        runtimeOverride,
       });
       const outPath = path.resolve(out);
       writeJson(outPath, plan);

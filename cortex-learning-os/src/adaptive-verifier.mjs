@@ -4,7 +4,7 @@ import path from 'node:path';
 import { canonicalJson, LESSON_SCHEMA, validateLiveLesson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { buildPairedCandidatePlan, analyzeCandidatePairs } from './adaptive-evaluator.mjs';
 import { verifyAdaptivePlanSignature } from './adaptive-session.mjs';
-import { policyDigest } from './adaptive-policy.mjs';
+import { policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
 import { selectNextAction } from './curriculum-planner.mjs';
 import { gradeExam } from './exam-runner.mjs';
 import { generateExercise, replayGeneratedExercise } from './generated-exercises.mjs';
@@ -43,16 +43,18 @@ function verifyAttemptTiming(answerSet, label, { notBeforeMs, notAfterMs } = {})
       || startedAt < notBeforeMs || completedAt > notAfterMs) throw new Error(`${label} model timing is outside the signed-plan verification window`);
 }
 
-function verifyRawModelProvenance(modelCall, answerSource, toolsUsed, label) {
+function verifyRawModelProvenance(modelCall, answerSource, toolsUsed, label, expectedRuntime) {
   const modelIndex = Array.isArray(modelCall?.args) ? modelCall.args.indexOf('--model') : -1;
   const sandboxIndex = Array.isArray(modelCall?.args) ? modelCall.args.indexOf('--sandbox') : -1;
+  const reasoningBound = Array.isArray(modelCall?.args) && modelCall.args.some((arg, index) => arg === '--config'
+    && modelCall.args[index + 1] === `model_reasoning_effort="${expectedRuntime?.thinking}"`);
   if (typeof modelCall?.command !== 'string' || path.basename(modelCall.command) !== 'codex'
       || modelCall.exitCode !== 0 || modelCall.sessionId !== answerSource?.sessionId
       || !Array.isArray(modelCall.args)
       || !modelCall.args.includes('--ephemeral') || !modelCall.args.includes('--ignore-user-config')
       || !modelCall.args.includes('--json') || !modelCall.args.includes('--output-schema')
       || modelIndex < 0 || modelCall.args[modelIndex + 1] !== answerSource?.model
-      || sandboxIndex < 0 || modelCall.args[sandboxIndex + 1] !== 'read-only') {
+      || sandboxIndex < 0 || modelCall.args[sandboxIndex + 1] !== 'read-only' || !reasoningBound) {
     throw new Error(`${label} raw model runtime is not the approved structured read-only path`);
   }
   const usageEvent = [...(modelCall.events || [])].reverse().find((event) => event?.usage || event?.item?.usage);
@@ -104,7 +106,7 @@ function replayPhase(artifactRoot, relative, capsule, expectedItem, options, exp
   replayGeneratedExercise(exam.items[0]);
   verifyProvenance(answers, relative, options);
   verifyAttemptTiming(answers, relative, options);
-  verifyRawModelProvenance(modelCall, answers.answerSource, answers.toolsUsed, relative);
+  verifyRawModelProvenance(modelCall, answers.answerSource, answers.toolsUsed, relative, options.expectedRuntime);
   const prompt = fs.readFileSync(path.join(root, 'model_prompt.txt'), 'utf8').trimEnd();
   if (prompt !== buildExamPrompt({ exam, learningContext: expectedLearningContext })) throw new Error(`${relative} model prompt/context mismatch`);
   if (modelCall.exitCode !== 0) throw new Error(`${relative} model call did not complete`);
@@ -154,7 +156,7 @@ export function verifyAdaptiveArtifacts({
   if (!verifyAdaptivePlanSignature(plan, planSecret)) throw new Error('adaptive plan signature mismatch');
   const generatedAtMs = Date.parse(String(plan.generatedAt || ''));
   if (!Number.isFinite(generatedAtMs)) throw new Error('invalid adaptive plan timestamp');
-  if (canonicalJson(plan.modelRuntime) !== canonicalJson(policy.modelRuntime)) throw new Error('adaptive plan model runtime mismatch');
+  if (!validateAdaptivePlanRuntime(policy, plan.modelRuntime)) throw new Error('adaptive plan model runtime mismatch');
   const timingOptions = {
     allowTestFixtures,
     expectedRuntime: plan.modelRuntime,
@@ -166,7 +168,7 @@ export function verifyAdaptiveArtifacts({
   if (plan.policyDigest !== policyDigest(policy) || manifest.policyDigest !== plan.policyDigest || summary.policyDigest !== plan.policyDigest) throw new Error('adaptive policy mismatch');
   if (plan.curriculumDigest !== sha256Text(canonicalJson(graph)) || plan.curriculumId !== graph.curriculumId || plan.capsuleId !== graph.capsuleId) throw new Error('adaptive curriculum mismatch');
   if (canonicalJson(plan.budgets) !== canonicalJson(policy.budgets)
-      || canonicalJson(plan.modelRuntime) !== canonicalJson(policy.modelRuntime)
+      || !validateAdaptivePlanRuntime(policy, plan.modelRuntime)
       || canonicalJson(plan.pairedEvaluation) !== canonicalJson(policy.pairedEvaluation)) throw new Error('adaptive frozen policy fields mismatch');
   const alreadyApplied = currentMastery.appliedRunIds.includes(plan.runId);
   if (alreadyApplied) {
@@ -223,7 +225,7 @@ export function verifyAdaptiveArtifacts({
     }
     if (storedCandidate.provenance.provider !== plan.modelRuntime.provider
         || storedCandidate.provenance.model !== plan.modelRuntime.model) throw new Error('candidate model runtime differs from signed plan');
-    verifyRawModelProvenance(modelCall, storedCandidate.provenance, storedCandidate.provenance.toolsUsed, 'candidate');
+    verifyRawModelProvenance(modelCall, storedCandidate.provenance, storedCandidate.provenance.toolsUsed, 'candidate', timingOptions.expectedRuntime);
     if (typeof modelCall.finalText === 'string' && modelCall.finalText
         && canonicalJson(extractJson(modelCall.finalText)) !== canonicalJson(output)) throw new Error('candidate output/source mismatch');
     candidate = buildCandidateRecord({
