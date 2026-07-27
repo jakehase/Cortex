@@ -123,6 +123,34 @@ class OracleExecutorSessionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'must remain xhigh'):
                 load_module(path, {'ORACLE_EXECUTOR_THINKING': 'low'})
 
+    def test_all_oracle_invocations_pass_xhigh_to_openclaw(self):
+        for path in [ROOT / 'oracle_executor.py', ROOT / 'cortex-vm' / 'oracle_executor.py']:
+            mod = load_module(path, {
+                'ORACLE_EXECUTOR_RESET_AGENT_SESSION': 'false',
+                'ORACLE_EXECUTOR_SESSION_MODE': 'ephemeral',
+            })
+            captured = {}
+
+            class Result:
+                returncode = 0
+                stderr = ''
+                stdout = '{"result":{"payloads":[{"text":"ok"}]}}'
+
+            def fake_run(cmd, **kwargs):
+                captured['cmd'] = cmd
+                return Result()
+
+            mod.subprocess.run = fake_run
+            mod._maybe_cleanup_local_sessions = lambda: []
+            mod._maybe_cleanup_remote_sessions = lambda: []
+            result = mod.invoke(mod.InvokeRequest(prompt='test'))
+            self.assertEqual(result['response'], 'ok')
+            if path.parent.name == 'cortex-vm':
+                self.assertIn('--thinking xhigh', captured['cmd'][-1])
+            else:
+                index = captured['cmd'].index('--thinking')
+                self.assertEqual(captured['cmd'][index + 1], 'xhigh')
+
     def test_extract_json_payload_ignores_plugin_log_prefix(self):
         mod = load_module(ROOT / 'cortex-vm' / 'oracle_executor.py', {
             'ORACLE_EXECUTOR_SESSION_ID': 'oracle-prod-bridge',
