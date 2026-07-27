@@ -64,6 +64,24 @@ function verifyRawModelProvenance(modelCall, answerSource, toolsUsed, label, exp
   if (canonicalJson(rawTools) !== canonicalJson(toolsUsed)) throw new Error(`${label} raw/model tool provenance mismatch`);
 }
 
+function verifyFailedCandidateRuntime(modelCall, plan) {
+  const modelIndex = Array.isArray(modelCall?.args) ? modelCall.args.indexOf('--model') : -1;
+  const sandboxIndex = Array.isArray(modelCall?.args) ? modelCall.args.indexOf('--sandbox') : -1;
+  const reasoningBound = Array.isArray(modelCall?.args) && modelCall.args.some((arg, index) => arg === '--config'
+    && modelCall.args[index + 1] === `model_reasoning_effort="${plan.modelRuntime?.thinking}"`);
+  const failed = Number.isInteger(modelCall?.exitCode) ? modelCall.exitCode !== 0 : Boolean(modelCall?.error);
+  if (typeof modelCall?.command !== 'string' || path.basename(modelCall.command) !== 'codex'
+      || !failed || modelCall.sessionId !== `${plan.runId}-candidate-synthesis`
+      || !Array.isArray(modelCall.args)
+      || !modelCall.args.includes('--ephemeral') || !modelCall.args.includes('--ignore-user-config')
+      || !modelCall.args.includes('--json') || !modelCall.args.includes('--output-schema')
+      || modelIndex < 0 || modelCall.args[modelIndex + 1] !== plan.modelRuntime?.model
+      || sandboxIndex < 0 || modelCall.args[sandboxIndex + 1] !== 'read-only' || !reasoningBound) {
+    throw new Error('failed candidate diagnostic is not the approved structured read-only runtime');
+  }
+  if (observedToolEvents(modelCall.events || []).length !== 0) throw new Error('failed candidate diagnostic observed tool use');
+}
+
 function listFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const target = path.join(directory, entry.name);
@@ -194,6 +212,36 @@ export function verifyAdaptiveArtifacts({
   }
   if (summary.status === 'structured_blocker' && !fs.existsSync(path.join(root, 'proposed_mastery_delta.json'))) {
     if (summary.lessonProposed || summary.masteryDeltaProposed) throw new Error('structured blocker fabricates proposed state');
+    if (Array.isArray(summary.diagnosticEvidenceRefs) && summary.diagnosticEvidenceRefs.length > 0) {
+      const expectedRefs = ['candidate/model_call.json', 'candidate/model_prompt.txt'];
+      if (summary.blockerCode !== 'mechanical_failure'
+          || canonicalJson(summary.diagnosticEvidenceRefs) !== canonicalJson(expectedRefs)) {
+        throw new Error('structured blocker has invalid diagnostic evidence references');
+      }
+      const concept = graph.concepts.find((row) => row.conceptId === plan.action.conceptId);
+      if (!concept) throw new Error('diagnostic blocker planned concept is unknown');
+      const observedItem = generateExercise({
+        conceptId: concept.conceptId,
+        seed: `${plan.seed}:observed`,
+        role: plan.action.role === 'spaced-review' ? 'spaced-review' : 'acquisition',
+      });
+      const observed = replayPhase(root, 'observed-attempt', capsule, observedItem, timingOptions, null);
+      if (observed.verifiers[0].status !== 'failed' || observed.verifiers[0].score !== 0) {
+        throw new Error('candidate diagnostic lacks a replayed observed failure');
+      }
+      const expectedPrompt = buildCandidatePrompt({
+        concept, failedItem: observedItem, attempt: observed.attempts[0], verifier: observed.verifiers[0],
+      });
+      const prompt = fs.readFileSync(path.join(root, 'candidate/model_prompt.txt'), 'utf8').trimEnd();
+      if (prompt !== expectedPrompt) throw new Error('failed candidate diagnostic prompt mismatch');
+      const modelCall = readRequired(path.join(root, 'candidate/model_call.json'));
+      verifyFailedCandidateRuntime(modelCall, plan);
+      if (summary.workerExitCode !== modelCall.exitCode) throw new Error('failed candidate diagnostic exit-code mismatch');
+      if (fs.existsSync(path.join(root, 'candidate/model_output.json'))
+          || fs.existsSync(path.join(root, 'candidate/candidate.json'))) {
+        throw new Error('failed candidate diagnostic fabricates candidate output');
+      }
+    }
     return { plan, summary, manifest, artifactManifestDigest, alreadyApplied, recomputedDelta: null, liveEntry: null };
   }
   const concept = graph.concepts.find((row) => row.conceptId === plan.action.conceptId);

@@ -6,11 +6,17 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-07-27`
-- Status: `v0_9_1_xhigh_defaults_deployed_green_transfer_bridge_inert`
-- Current fidelity: `production_xhigh_defaults_active_empty_signed_transfer_registry_zero_qualified_profiles`
-- Package version: `0.9.1`
+- Status: `v0_9_3_weighted_mean_and_candidate_diagnostics_repair_green`
+- Current fidelity: `production_adaptive_repair_qualified_resume_not_yet_launched`
+- Package version: `0.9.3`
 
 ## Current checkpoint
+
+**v0.9.3 weighted-mean and candidate-diagnostic repair qualified:** authorized continuation `math-continuation-20260727T043434Z-305671` stopped honestly at its first replay-verified blocker after 67 child sessions. The first 66 children advanced signed mastery from revision 3 to 69; final child `math-training-20260727T054803Z-53b400` selected `statistics-weighted-mean`, received rounded answer `7.6666666667` for exact value `23/3`, and was rejected by a strict binary-float equality check before its candidate-synthesis worker exited 1. The blocker advanced no state. Canonical mastery remains signature-valid revision 69 with 34 concepts in review, 2 unassessed, and no pending repair; the lesson registry remains unchanged.
+
+Generated weighted-mean exercises now explicitly accept an exact fraction or a decimal accurate to at least nine places and use deterministic `1e-9` numeric tolerance. The exact incident seed passes for both `7.6666666667` and `23/3` while rejecting `7.66`. A failed candidate-synthesis process now persists its raw call ledger and exact prompt in owner-only artifacts; the independent verifier replays the observed failure and prompt, checks the signed model/reasoning/read-only/no-tools runtime, requires either a genuine nonzero exit or an explicit launch error, binds the summary exit code, and rejects fabricated candidate output. The original blocker artifacts remain immutable historical evidence.
+
+Qualification is green: full local suite `83/83`, exact Hetzner service-user staging suite `83/83`, fixtures `12` valid plus `1` intentionally invalid, syntax checks green, and hostile diagnostic-runtime mutation rejected. No resumed model session was launched during this repair qualification; the separately approved resume must start a new source-bound continuation from signed mastery revision 69.
 
 **Universal xhigh-default rollout complete:** OpenClaw's global default and explicit `main` and `oracle` agent defaults are `xhigh`, and the gateway was restarted with a healthy connectivity probe. Every Learning OS production model runtime, CLI fallback, transfer runtime, remote launcher, and checked-in adaptive policy now defaults to `xhigh`; a regression test rejects weaker production literals. Canonical mastery was signature-verified against the former policy, backed up, and migrated from revision 2 to revision 3 under policy digest `5b2cef824cab80cf0ae3c7ccf2604c2a43b081df29e5a0168529ce50ba8f57f5` without changing concept state or applied-run receipts.
 

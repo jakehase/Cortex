@@ -257,12 +257,24 @@ export function runAdaptiveSession({
     const candidatePrompt = buildCandidatePrompt({
       concept, failedItem: baselineItem, attempt: baselineAttempt, verifier: baselineVerifier,
     });
-    const candidateCall = boundedCandidateCall({
-      prompt: candidatePrompt,
-      sessionId: `${plan.runId}-candidate-synthesis`,
-    });
     const candidateRoot = path.join(root, 'candidate');
     fs.mkdirSync(candidateRoot, { recursive: true });
+    let candidateCall;
+    try {
+      candidateCall = boundedCandidateCall({
+        prompt: candidatePrompt,
+        sessionId: `${plan.runId}-candidate-synthesis`,
+      });
+    } catch (error) {
+      if (error?.workerRaw && typeof error.workerRaw === 'object' && !Array.isArray(error.workerRaw)) {
+        const diagnosticPath = path.join(candidateRoot, 'model_call.json');
+        writeJson(diagnosticPath, error.workerRaw);
+        fs.chmodSync(diagnosticPath, 0o600);
+        fs.writeFileSync(path.join(candidateRoot, 'model_prompt.txt'), `${candidatePrompt}\n`, { mode: 0o600 });
+        error.diagnosticEvidenceRefs = ['candidate/model_call.json', 'candidate/model_prompt.txt'];
+      }
+      throw error;
+    }
     writeJson(path.join(candidateRoot, 'model_call.json'), candidateCall.raw);
     fs.writeFileSync(path.join(candidateRoot, 'model_prompt.txt'), `${candidatePrompt}\n`, { mode: 0o600 });
     writeJson(path.join(candidateRoot, 'model_output.json'), candidateCall.output);
@@ -390,6 +402,8 @@ export function runAdaptiveSession({
       status: 'structured_blocker',
       blockerCode: /budget exhausted/.test(error.message) ? 'budget_exhausted' : 'mechanical_failure',
       blocker: String(error.message).slice(0, 1000),
+      diagnosticEvidenceRefs: Array.isArray(error.diagnosticEvidenceRefs) ? error.diagnosticEvidenceRefs : [],
+      workerExitCode: Number.isInteger(error?.workerRaw?.exitCode) ? error.workerRaw.exitCode : null,
       lessonProposed: false,
       masteryDeltaProposed: false,
     });

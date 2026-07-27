@@ -140,7 +140,7 @@ function fakeCandidateCaller(overrides = {}, thinking = 'xhigh') {
   };
 }
 
-function runFixture({ thresholdPass = false, perfect = false, candidateOverrides = {}, policyOverride = policy, runtimeOverride = null } = {}) {
+function runFixture({ thresholdPass = false, perfect = false, candidateOverrides = {}, candidateCaller = null, policyOverride = policy, runtimeOverride = null } = {}) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-adaptive-test-'));
   const state = masteredState();
   resetConcept(state, 'algebra-linear-equations');
@@ -165,7 +165,7 @@ function runFixture({ thresholdPass = false, perfect = false, candidateOverrides
     sourceCommit,
     fixedTemplates: [],
     callExam: fakeExamCaller({ thresholdPass, perfect, thinking: plan.modelRuntime.thinking }),
-    callCandidate: fakeCandidateCaller(candidateOverrides, plan.modelRuntime.thinking),
+    callCandidate: candidateCaller || fakeCandidateCaller(candidateOverrides, plan.modelRuntime.thinking),
   });
   return { temporary, state: signed, plan, summary, policy: policyOverride };
 }
@@ -249,6 +249,16 @@ test('all 36 concepts and every role have deterministic fresh replayable generat
     }).passed, true);
   }
   assert.deepEqual([...overlapAnswers].sort(), ['A', 'B']);
+  const weighted = generateExercise({
+    conceptId: 'statistics-weighted-mean',
+    seed: 'math-training-20260727T054803Z-53b400:observed',
+    role: 'acquisition',
+  });
+  assert.equal(weighted.checker.mode, 'numeric_tolerance');
+  assert.equal(weighted.checker.tolerance, 1e-9);
+  assert.equal(verifyGeneratedAnswer({ item: weighted, answer: '7.6666666667' }).passed, true);
+  assert.equal(verifyGeneratedAnswer({ item: weighted, answer: '23/3' }).passed, true);
+  assert.equal(verifyGeneratedAnswer({ item: weighted, answer: '7.66' }).passed, false);
   const ordered = Array.from({ length: 64 }, (_, index) => generateExercise({
     conceptId: 'optimization-multivariate', seed: `ordered-${index}`, role: 'acquisition',
   })).find((item) => item.checker.expected[0] !== item.checker.expected[1]);
@@ -548,6 +558,53 @@ test('budget exhaustion is a bounded structured blocker without a mastery propos
       expectedSourceCommit: sourceCommit, fixedTemplates: [], planSecret: secret,
     });
     assert.equal(replay.recomputedDelta, null);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test('candidate worker failure preserves independently replayable raw diagnostics', () => {
+  const fixture = runFixture({
+    candidateCaller: ({ sessionId }) => {
+      const workerRaw = {
+        command: '/fake/codex',
+        args: [
+          'exec', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--sandbox', 'read-only',
+          '--skip-git-repo-check', '--model', 'gpt-5.6-sol', '--config', 'model_reasoning_effort="xhigh"',
+          '--json', '--output-schema', '/fake/adaptive-candidate-output.schema.json',
+        ],
+        exitCode: 1,
+        signal: null,
+        error: null,
+        stderr: 'fixture candidate provider failure',
+        events: [],
+        finalText: '',
+        sessionId,
+      };
+      throw Object.assign(new Error('candidate worker exited 1'), { workerRaw });
+    },
+  });
+  try {
+    assert.equal(fixture.summary.status, 'structured_blocker');
+    assert.equal(fixture.summary.blockerCode, 'mechanical_failure');
+    assert.equal(fixture.summary.workerExitCode, 1);
+    assert.deepEqual(fixture.summary.diagnosticEvidenceRefs, ['candidate/model_call.json', 'candidate/model_prompt.txt']);
+    assert.equal(fs.statSync(path.join(fixture.temporary, 'candidate/model_call.json')).mode & 0o077, 0);
+    const raw = JSON.parse(fs.readFileSync(path.join(fixture.temporary, 'candidate/model_call.json'), 'utf8'));
+    assert.equal(raw.stderr, 'fixture candidate provider failure');
+    const replay = verifyAdaptiveArtifacts({
+      artifactRoot: fixture.temporary, graph, policy, capsule, currentMastery: fixture.state,
+      expectedSourceCommit: sourceCommit, fixedTemplates: [], planSecret: secret,
+    });
+    assert.equal(replay.recomputedDelta, null);
+
+    raw.args[raw.args.indexOf('--sandbox') + 1] = 'workspace-write';
+    fs.writeFileSync(path.join(fixture.temporary, 'candidate/model_call.json'), `${JSON.stringify(raw, null, 2)}\n`);
+    rewriteRootManifest(fixture.temporary);
+    assert.throws(() => verifyAdaptiveArtifacts({
+      artifactRoot: fixture.temporary, graph, policy, capsule, currentMastery: fixture.state,
+      expectedSourceCommit: sourceCommit, fixedTemplates: [], planSecret: secret,
+    }), /failed candidate diagnostic is not the approved/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

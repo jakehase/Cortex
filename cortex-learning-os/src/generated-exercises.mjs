@@ -35,6 +35,10 @@ function exact(prompt, expected, parameters, answerFormat = 'number') {
   return { prompt, checker: { mode: 'exact_number', expected }, parameters, answerFormat };
 }
 
+function tolerant(prompt, expected, parameters, tolerance = 1e-9, answerFormat = 'number') {
+  return { prompt, checker: { mode: 'numeric_tolerance', expected, tolerance }, parameters, answerFormat };
+}
+
 function integer(prompt, expected, parameters) {
   return { prompt, checker: { mode: 'exact_integer_string', expected: String(expected) }, parameters, answerFormat: 'integer' };
 }
@@ -134,7 +138,11 @@ const CATALOG = {
   },
   'statistics-weighted-mean': (v) => {
     const a = v.int(0, 2, 12); const b = v.int(1, 2, 12); const weight = v.int(2, 1, 4);
-    return exact(`Compute the weighted mean of ${a} with weight ${weight} and ${b} with weight 1.`, (a * weight + b) / (weight + 1), { a, b, weight });
+    return tolerant(
+      `Compute the weighted mean of ${a} with weight ${weight} and ${b} with weight 1. Return an exact fraction or a decimal accurate to at least 9 places.`,
+      (a * weight + b) / (weight + 1),
+      { a, b, weight },
+    );
   },
   'statistics-median': (v) => {
     const middle = v.int(0, -4, 14); const d1 = v.int(1, 1, 5); const d2 = v.int(2, 1, 5);

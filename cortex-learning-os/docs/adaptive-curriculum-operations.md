@@ -57,6 +57,10 @@ Canonical mastery is then replaced atomically in owner-only mode with a new HMAC
 
 Do not edit mastery or registry JSON manually. A signature mismatch, source mismatch, policy drift, rewritten manifest, replay mismatch, or exhausted budget is a structured blocker. Preserve the returned artifact directory and worker state for diagnosis. Rerunning `adaptive-apply` for an already applied run is safe; it does not advance mastery revision twice.
 
+Generated weighted-mean exercises accept either an exact fraction or a decimal accurate to at least nine places and are graded with deterministic absolute tolerance `1e-9`. Do not convert this back to strict binary-float equality: mathematically valid rounded decimals such as `7.6666666667` for `23/3` must pass, while materially inaccurate answers remain failures.
+
+If candidate synthesis exits unsuccessfully after a replayable observed failure, the worker preserves `candidate/model_call.json` and `candidate/model_prompt.txt` and lists them in the structured blocker's diagnostic evidence. Independent replay verifies the observed failure, exact prompt, signed model/reasoning/read-only runtime, no tool use, a nonzero worker exit or explicit launch error, and absence of fabricated candidate output. Preserve these files; do not rerun or rewrite the failed artifact to manufacture completion.
+
 The continuation state and per-run launch descriptors are owner-only artifacts under `/root/clawd/state/cortex-learning-os/continuations/` and `/root/clawd/artifacts/cortex-learning-os-continuations/`. The supervisor records the active child before waiting and can resume that same child after a supervisor process failure; it never launches a replacement while an existing child remains current. Do not delete or rewrite the child or continuation state to force progress.
 
 Deterministic fake workers cover runtime and hostile replay paths without model calls. Real adaptive sessions are reported separately in canonical status and retain their exact signed runtime as historical evidence.
