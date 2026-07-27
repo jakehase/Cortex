@@ -5,18 +5,18 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-26`
-- Status: `v0_9_semantic_coding_transfer_release_candidate_local_green`
-- Current fidelity: `production_shaped_active_default_empty_registry_pending_remote_release_and_deployment`
+- Last updated: `2026-07-27`
+- Status: `v0_9_semantic_coding_transfer_deployed_active_default_inert`
+- Current fidelity: `production_active_default_empty_signed_registry_zero_qualified_profiles`
 - Package version: `0.9.0`
 
 ## Current checkpoint
 
-The v0.9 semantic coding-transfer implementation is locally release-green and awaiting exact Hetzner verification plus canonical deployment. It declares two bounded profiles (`exact-multiplication` and `algebra-factoring`), keeps transfer state distinct from mastery, and initializes an independent signed transfer registry with zero entries. The runtime default is enabled `active`, but an empty or unqualified registry produces zero transfer context. The other 34 concepts are explicit `no_qualified_transfer`; the two declared surfaces initialize `unassessed`. No profile is qualified.
+The v0.9 semantic coding-transfer implementation is deployed on the canonical OpenClaw path. It declares two bounded profiles (`exact-multiplication` and `algebra-factoring`), keeps transfer state distinct from mastery, and initializes an independent signed transfer registry with zero entries. The runtime default is enabled `active`, but the empty registry produces zero transfer context. The other 34 concepts are explicit `no_qualified_transfer`; the two declared surfaces remain `unassessed`. No profile is qualified.
 
-The implementation includes strict schemas, digest-bound profiles and policy, run-seeded balanced two-arm ordering, strict exact oracles, a signed provider/model/reasoning/read-only/tool-free runtime contract, an enumerated router with hard negative gates, signed owner-only atomic transfer state, a secretless executable worker with durable concurrent resume, positive provider-usage evidence, exact-manifest replay, separate apply/promotion commands, independent transfer telemetry, and deterministic tests. The locked local gate passed `79/79`, fixture validation, syntax checks, 50 JSON parses, and an isolated empty-registry control smoke. No real transfer model call or profile qualification was performed.
+The implementation includes strict schemas, digest-bound profiles and policy, run-seeded balanced two-arm ordering, strict exact oracles, a signed provider/model/reasoning/read-only/tool-free runtime contract, an enumerated router with hard negative gates, signed owner-only atomic transfer state, a secretless executable worker with durable concurrent resume, positive provider-usage evidence, exact-manifest replay, separate apply/promotion commands, independent transfer telemetry, and deterministic tests.
 
-Remote exact-tree verification, commit/push, canonical sync, empty live-state initialization, gateway reload, and live positive/negative/empty-registry canaries remain pending at this checkpoint. Historical v0.8 math mastery and signed lesson records below are unchanged.
+Release evidence is green: locked local gate `79/79`, exact Git-backed Hetzner gate `79/79`, fixture and syntax validation, 50 JSON parses, isolated empty-registry control smoke, live plugin canaries `12/12`, valid owner-only signed transfer state/registry, healthy gateway reload, and live observations showing `activeApplied: 0`. No real transfer qualification was performed and no empirical coding-transfer benefit is claimed. Historical v0.8 math mastery and signed lesson records below are unchanged.
 
 Cortex Learning OS v0.8 now contains the frozen adaptive-curriculum production slice. The default detached launcher freezes one control-plane-selected curriculum action; the remote worker can collect evidence and propose a delta only; the harvester independently regenerates items, re-grades answers, replays model provenance/candidate/paired policy, signs canonical mastery, and conditionally updates the existing signed lesson registry. The v0.7 fixed-exam path remains available explicitly. The implementation qualification itself made no empirical claim; one later authorized live adaptive session has now completed as recorded below. Historical v0.7 live lesson and no-mistake evidence remains unchanged, and the separate selective private-retrieval subsystem remains observe-only.
 

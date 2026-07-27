@@ -290,3 +290,10 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Hardening: Freeze provider/model/reasoning/read-only/tool-free runtime in the signed plan; require provider and model binding plus positive provider-observed input/output usage; reject tool events; balance run-seeded arm order; durably checkpoint successful concurrent peers; reject duplicate call identities; and strictly bind two monic polynomial factors to two verified roots.
 - Evidence: Locked local release gate `79/79`, fixture validation, syntax checks, 50 JSON parses, isolated signed-state/empty-registry control smoke, and hostile tests for missing provider evidence, runtime drift, concurrent interruption, tool events, expected-answer leakage, malformed output, duplicated resume rows, and incomplete polynomial roots.
 - Boundary: Fake-adapter tests prove mechanics only. No real transfer model call occurred, neither profile is qualified, the initial registry has zero entries, and active-default therefore has zero transfer answer influence until a later separately authorized qualification and promotion.
+
+## 2026-07-27 — Deploy v0.9 active-default transfer bridge with an empty signed registry
+
+- Decision: Promote the mechanically verified bridge to the canonical OpenClaw plugin path and restart the gateway with transfer defaulting to `active`, while initializing the independent signed registry with zero entries.
+- Evidence: Locked local gate `79/79`; exact Git-backed Hetzner gate `79/79`; fixture, syntax, and JSON validation; live plugin canaries `12/12`; healthy gateway probe; valid owner-only signed transfer state and registry; live telemetry with zero active applications.
+- Correction caught before activation: The first config draft named a non-canonical registry trust-root path. Deployment verification rejected it; configuration was corrected to the initialized owner-only `transfer-registry.hmac` path before the gateway restart.
+- Boundary: Deployment makes the bridge available but inert. Neither profile is qualified, the registry has zero entries, active mode applies no context, and no coding-transfer benefit is claimed.
