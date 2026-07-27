@@ -6,13 +6,19 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-07-27`
-- Status: `v0_9_semantic_coding_transfer_deployed_active_default_inert`
-- Current fidelity: `production_active_default_empty_signed_registry_zero_qualified_profiles`
-- Package version: `0.9.0`
+- Status: `v0_9_1_xhigh_defaults_deployed_green_transfer_bridge_inert`
+- Current fidelity: `production_xhigh_defaults_active_empty_signed_transfer_registry_zero_qualified_profiles`
+- Package version: `0.9.1`
 
 ## Current checkpoint
 
-**Adaptive-runtime correction complete:** `math-training-20260727T020121Z-cf935b` completed mechanically under its signed `low` runtime but is retained only as superseded historical evidence. The exact signed revision-1 mastery snapshot was restored. Canonical release `577f8cdd635b2dcb7d8df528c1594af0923b81f9` now freezes `xhigh` in each signed adaptive plan and independently requires the exact raw Codex runtime argument. Replacement run `math-training-20260727T022800Z-318c45` executed with raw `model_reasoning_effort="xhigh"`, passed deterministic factoring replay, and was independently applied. Signed mastery is revision 2; the superseded low run is absent from applied receipts.
+**Universal xhigh-default rollout complete:** OpenClaw's global default and explicit `main` and `oracle` agent defaults are `xhigh`, and the gateway was restarted with a healthy connectivity probe. Every Learning OS production model runtime, CLI fallback, transfer runtime, remote launcher, and checked-in adaptive policy now defaults to `xhigh`; a regression test rejects weaker production literals. Canonical mastery was signature-verified against the former policy, backed up, and migrated from revision 2 to revision 3 under policy digest `5b2cef824cab80cf0ae3c7ccf2604c2a43b081df29e5a0168529ce50ba8f57f5` without changing concept state or applied-run receipts.
+
+The Oracle executor now defaults to and fail-closes on `xhigh`, exposes the setting through `/health`, and passes `--thinking xhigh` to OpenClaw. Its pre-existing recurring `503` was traced to successful `openclaw agent --local --json` output being written to stderr between plugin log prefixes and suffixes while the bridge parsed stdout only. The parser now selects the response-shaped JSON object from combined process output. Local and VM Oracle tests pass `10/10`; direct runtime evidence recorded `requestShaping.thinking=xhigh`; and the repaired endpoint returned exact response `ORACLE_XHIGH_ENDPOINT_OK` from `openai-codex/gpt-5.6-sol` through session `oracle-prod-bridge-short-acc9d6eb3a7a`.
+
+Release verification: local Learning OS suite `81/81`; exact Git-backed Hetzner suite `81/81`; fixtures green; local and Hetzner canonical Learning OS trees content-identical after excluding runtime caches/artifacts; Oracle unit tests `10/10` both locally and on the live VM; gateway and Oracle health probes green. Implementation commits are `f80a25fde09be878841c4bffbe82f1a1409df8d0`, `55aa1f05587b2bcc0a072e6a34579f4c8887f811`, and Oracle output repair `d261220a85bbe2a267c8dcc1ab91c5a03da695ec`.
+
+**Adaptive-runtime correction complete:** `math-training-20260727T020121Z-cf935b` completed mechanically under its signed `low` runtime but is retained only as superseded historical evidence. The exact signed revision-1 mastery snapshot was restored. Canonical release `577f8cdd635b2dcb7d8df528c1594af0923b81f9` freezes `xhigh` in each signed adaptive plan and independently requires the exact raw Codex runtime argument. Replacement run `math-training-20260727T022800Z-318c45` executed with raw `model_reasoning_effort="xhigh"`, passed deterministic factoring replay, and was independently applied. Mastery reached revision 2 at that checkpoint; the later policy-only xhigh migration advanced it to revision 3 without changing concepts or receipts. The superseded low run remains absent from applied receipts.
 
 The v0.9 semantic coding-transfer implementation is deployed on the canonical OpenClaw path. It declares two bounded profiles (`exact-multiplication` and `algebra-factoring`), keeps transfer state distinct from mastery, and initializes an independent signed transfer registry with zero entries. The runtime default is enabled `active`, but the empty registry produces zero transfer context. The other 34 concepts are explicit `no_qualified_transfer`; the two declared surfaces remain `unassessed`. No profile is qualified.
 
