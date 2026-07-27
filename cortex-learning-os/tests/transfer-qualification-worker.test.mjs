@@ -25,7 +25,7 @@ function fixture(runId = 'worker-fixture', profileId = 'exact-multiplication') {
   const runtime = {
     schemaVersion: 'cortex.learning_os.transfer_runtime.v1',
     provider: 'test-fixture', runner: 'fake-transfer-model', model: 'fake-model-v1',
-    reasoningEffort: 'low', sandbox: 'read-only', toolsAllowed: false,
+    reasoningEffort: 'xhigh', sandbox: 'read-only', toolsAllowed: false,
   };
   const plan = buildTransferQualificationPlan({
     runId, profile, policy, tasks, sourceCommit: profile.source.baseCommit,

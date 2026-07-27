@@ -291,7 +291,7 @@ export function buildGoNoGoProgram({
   seed,
   utilityFixture,
   model = 'gpt-5.6-sol',
-  thinking = 'low',
+  thinking = 'xhigh',
   generatedAt = new Date().toISOString()
 } = {}) {
   if (!programId || !seed) throw new Error('programId and seed are required');

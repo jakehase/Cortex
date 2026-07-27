@@ -6,7 +6,7 @@ import time
 import unittest
 import uuid
 
-ROOT = pathlib.Path('/root/clawd/deploy')
+ROOT = pathlib.Path(__file__).resolve().parent
 
 
 def load_module(path: pathlib.Path, env: dict[str, str]):
@@ -114,6 +114,14 @@ class OracleExecutorSessionTests(unittest.TestCase):
         })
         self.assertTrue(mod.RESET_AGENT_SESSION)
         self.assertEqual(mod.RESET_AGENT_SESSION_KEY, 'agent:oracle:main')
+
+    def test_all_oracle_executors_default_to_xhigh_and_reject_downgrades(self):
+        for path in [ROOT / 'oracle_executor.py', ROOT / 'cortex-vm' / 'oracle_executor.py']:
+            mod = load_module(path, {})
+            self.assertEqual(mod.THINKING, 'xhigh')
+            self.assertEqual(mod.health()['thinking'], 'xhigh')
+            with self.assertRaisesRegex(RuntimeError, 'must remain xhigh'):
+                load_module(path, {'ORACLE_EXECUTOR_THINKING': 'low'})
 
     def test_extract_json_payload_ignores_plugin_log_prefix(self):
         mod = load_module(ROOT / 'cortex-vm' / 'oracle_executor.py', {

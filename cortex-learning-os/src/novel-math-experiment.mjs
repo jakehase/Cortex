@@ -284,7 +284,7 @@ export function buildNovelMathProgram({
   validationId,
   seed,
   model = 'gpt-5.6-sol',
-  thinking = 'low',
+  thinking = 'xhigh',
   generatedAt = new Date().toISOString(),
   calibrationItems = 12,
   directPairs = 30,

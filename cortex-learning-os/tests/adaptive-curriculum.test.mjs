@@ -62,7 +62,7 @@ function resetConcept(state, conceptId) {
   };
 }
 
-function fakeExamCaller({ thresholdPass = false, perfect = false, thinking = 'low' } = {}) {
+function fakeExamCaller({ thresholdPass = false, perfect = false, thinking = 'xhigh' } = {}) {
   let call = 0;
   return ({ exam, learningContext, evidenceRole, sessionId, runId }) => {
     call += 1;
@@ -106,7 +106,7 @@ function fakeExamCaller({ thresholdPass = false, perfect = false, thinking = 'lo
   };
 }
 
-function fakeCandidateCaller(overrides = {}, thinking = 'low') {
+function fakeCandidateCaller(overrides = {}, thinking = 'xhigh') {
   return ({ prompt, sessionId }) => {
     const output = {
       rule: 'For linear equations, preserve equality while undoing operations in reverse order and verify by substitution.',
@@ -365,7 +365,7 @@ test('adaptive session pass produces only a replayable mastery proposal and no c
   }
 });
 
-test('signed adaptive plans allow stronger xhigh reasoning and replay rejects reasoning substitution', () => {
+test('signed adaptive plans enforce xhigh reasoning and replay rejects reasoning substitution', () => {
   assert.throws(() => buildAdaptiveSessionPlan({
     runId: 'adaptive-weaker-runtime', graph, policy, mastery: masteredState(), sourceCommit,
     seed: 'weaker-runtime', signingSecret: secret,

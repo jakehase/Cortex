@@ -59,7 +59,7 @@ npm run live:adaptive:apply -- --artifact-root <returned-dir> --source-commit <s
 npm run transfer:init
 npm run transfer:status
 npm run transfer:verify
-npm run transfer:plan -- --profile exact-multiplication --run-id <id> --model gpt-5.6-sol --reasoning low --out <owner-only-dir>
+npm run transfer:plan -- --profile exact-multiplication --run-id <id> --model gpt-5.6-sol --reasoning xhigh --out <owner-only-dir>
 npm run transfer:apply -- --artifacts <returned-owner-only-dir>
 npm run transfer:promote -- --profile exact-multiplication
 npm run transfer:disable -- --profile exact-multiplication

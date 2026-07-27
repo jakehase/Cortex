@@ -135,7 +135,7 @@ export function runCodexCandidate({
   prompt,
   sessionId,
   model = 'gpt-5.6-sol',
-  thinking = 'low',
+  thinking = 'xhigh',
   codexCommand = 'codex',
   timeoutSeconds = 240,
 } = {}) {

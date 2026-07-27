@@ -19,7 +19,7 @@ test('paired experiment generation is deterministic, balanced, and identical-ite
   assert.equal(first.items.length, 27);
   assert.equal(first.schedule.length, 54);
   assert.equal(first.analysisPlan.minimumValidPairs, 24);
-  assert.equal(first.runtime.thinking, 'low');
+  assert.equal(first.runtime.thinking, 'xhigh');
   assert.equal(new Set(first.schedule.map((row) => row.sessionId)).size, 54);
   for (const item of first.items) {
     const [left, right] = item.prompt.match(/(\d+) × (\d+)/).slice(1);
@@ -78,9 +78,9 @@ test('a resumed plan fails closed when explicit runtime arguments conflict with 
   const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-frozen-plan-'));
   const runner = new URL('../src/run-ab-experiment.mjs', import.meta.url);
   try {
-    const planned = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--experiment-id', 'frozen-test', '--seed', 'fixed-seed', '--pairs', '1', '--thinking', 'low', '--artifact-root', artifactRoot], { encoding: 'utf8' });
+    const planned = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--experiment-id', 'frozen-test', '--seed', 'fixed-seed', '--pairs', '1', '--thinking', 'xhigh', '--artifact-root', artifactRoot], { encoding: 'utf8' });
     assert.equal(planned.status, 0, planned.stderr);
-    const mismatch = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--resume', '--experiment-id', 'frozen-test', '--seed', 'fixed-seed', '--pairs', '1', '--thinking', 'high', '--artifact-root', artifactRoot], { encoding: 'utf8' });
+    const mismatch = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--resume', '--experiment-id', 'frozen-test', '--seed', 'fixed-seed', '--pairs', '1', '--thinking', 'low', '--artifact-root', artifactRoot], { encoding: 'utf8' });
     assert.notEqual(mismatch.status, 0);
     assert.match(mismatch.stderr, /conflict with frozen experiment: --thinking/);
   } finally {

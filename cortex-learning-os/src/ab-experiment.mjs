@@ -73,7 +73,7 @@ export function buildPairedExperiment({
   leftDigits = 13,
   rightDigits = 9,
   model = 'gpt-5.6-sol',
-  thinking = 'low',
+  thinking = 'xhigh',
   generatedAt = new Date().toISOString()
 } = {}) {
   if (!experimentId) throw new Error('experimentId is required');

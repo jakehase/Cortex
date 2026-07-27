@@ -99,7 +99,7 @@ node src/run-novel-math-validation.mjs \
   --validation-id "$VALIDATION_ID" \
   --seed "$SEED" \
   --model gpt-5.6-sol \
-  --thinking low \
+  --thinking xhigh \
   --artifact-root "$ARTIFACT_ROOT" \
   >"$LOG_ROOT/01-plan.log" 2>"$LOG_ROOT/01-plan.err"
 

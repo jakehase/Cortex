@@ -15,7 +15,7 @@ function values(flag) {
 try {
   const artifacts = value('--artifacts');
   const model = value('--model');
-  if (!artifacts || !model) throw new Error('usage: transfer:run -- --artifacts ROOT --model MODEL [--concurrency N] [--reasoning low] [--model-command PATH] [--model-arg ARG ...]');
+  if (!artifacts || !model) throw new Error('usage: transfer:run -- --artifacts ROOT --model MODEL [--concurrency N] [--reasoning xhigh] [--model-command PATH] [--model-arg ARG ...]');
   const suppliedArgs = values('--model-arg');
   const result = await runTransferQualification({
     artifactRoot: artifacts,
@@ -23,7 +23,7 @@ try {
     concurrency: Number(value('--concurrency', '1')),
     modelCommand: value('--model-command', 'codex'),
     modelArgs: suppliedArgs.length ? suppliedArgs : null,
-    reasoningEffort: value('--reasoning', 'low'),
+    reasoningEffort: value('--reasoning', 'xhigh'),
     timeoutMs: Number(value('--timeout-ms', '300000')),
   });
   console.log(JSON.stringify({

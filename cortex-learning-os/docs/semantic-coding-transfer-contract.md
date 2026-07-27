@@ -121,7 +121,7 @@ npm run transfer:plan -- \
   --profile exact-multiplication \
   --run-id transfer-<approved-id> \
   --model gpt-5.6-sol \
-  --reasoning low \
+  --reasoning xhigh \
   --out /root/.openclaw/cortex-learning-os/transfer-runs/transfer-<approved-id>
 ```
 

@@ -474,7 +474,7 @@ try {
     if (!planOnly) throw new Error('preregistration is required: run once with --plan-only before executing model calls');
     const seed = seedArgument || crypto.randomBytes(32).toString('hex');
     const model = modelArgument || 'gpt-5.6-sol';
-    const thinking = thinkingArgument || 'low';
+    const thinking = thinkingArgument || 'xhigh';
     workerCommand = codexCommandArgument || 'codex';
     program = buildNovelMathProgram({ validationId, seed, model, thinking });
     program.source = { gitCommit: gitCommit(), files: sourceHashes() };

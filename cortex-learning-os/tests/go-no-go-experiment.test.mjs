@@ -134,9 +134,9 @@ test('resumed validation fails closed when explicit runtime arguments conflict w
   fs.writeFileSync(fixturePath, `${JSON.stringify(utilityFixture(), null, 2)}\n`);
   const runner = new URL('../src/run-go-no-go-validation.mjs', import.meta.url);
   try {
-    const planned = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--program-id', 'frozen-program', '--seed', 'fixed-seed', '--thinking', 'low', '--utility-fixture', fixturePath, '--artifact-root', artifactRoot], { encoding: 'utf8' });
+    const planned = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--program-id', 'frozen-program', '--seed', 'fixed-seed', '--thinking', 'xhigh', '--utility-fixture', fixturePath, '--artifact-root', artifactRoot], { encoding: 'utf8' });
     assert.equal(planned.status, 0, planned.stderr);
-    const mismatch = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--resume', '--program-id', 'frozen-program', '--thinking', 'high', '--artifact-root', artifactRoot], { encoding: 'utf8' });
+    const mismatch = spawnSync(process.execPath, [runner.pathname, '--plan-only', '--resume', '--program-id', 'frozen-program', '--thinking', 'low', '--artifact-root', artifactRoot], { encoding: 'utf8' });
     assert.notEqual(mismatch.status, 0);
     assert.match(mismatch.stderr, /conflict with frozen program: --thinking/);
   } finally {

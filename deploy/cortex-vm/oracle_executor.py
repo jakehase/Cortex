@@ -16,6 +16,9 @@ CT101_KEY = os.getenv("CT101_KEY", "/opt/cortex-oracle-bridge/ct101_exec_key")
 CT101_WORKDIR = os.getenv("CT101_WORKDIR", "/root/clawd/deploy/oracle-workspace-lite")
 TIMEOUT = int(os.getenv("ORACLE_EXECUTOR_TIMEOUT", "60"))
 AGENT_ID = os.getenv("ORACLE_EXECUTOR_AGENT", "oracle").strip() or "oracle"
+THINKING = os.getenv("ORACLE_EXECUTOR_THINKING", "xhigh").strip().lower() or "xhigh"
+if THINKING != "xhigh":
+    raise RuntimeError("ORACLE_EXECUTOR_THINKING must remain xhigh")
 LOCAL_EXECUTION = os.getenv("ORACLE_EXECUTOR_LOCAL", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION_KEY = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY", f"agent:{AGENT_ID}:main").strip() or f"agent:{AGENT_ID}:main"
@@ -135,6 +138,7 @@ def health():
         "mode": "ssh-ct101-openclaw",
         "ct101": CT101_HOST,
         "agentId": AGENT_ID,
+        "thinking": THINKING,
         "localExecution": LOCAL_EXECUTION,
         "resetAgentSession": RESET_AGENT_SESSION,
         "resetAgentSessionKey": RESET_AGENT_SESSION_KEY,
@@ -175,7 +179,7 @@ def invoke(req: InvokeRequest):
         f"cd {CT101_WORKDIR} && "
         f"{reset_cmd}"
         f"openclaw agent {local_flag}--agent {json.dumps(AGENT_ID)} --session-id {session_id} --message {json.dumps(bridged_prompt)} "
-        f"--thinking off --timeout {TIMEOUT} --json"
+        f"--thinking {THINKING} --timeout {TIMEOUT} --json"
     )
     cmd = [
         'ssh', '-i', CT101_KEY, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no',

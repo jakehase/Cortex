@@ -9,7 +9,7 @@ const args = process.argv.slice(2);
 const value = (flag) => { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : null; };
 const output = path.resolve(value('--out') || `/tmp/clos-novel-math-canary-${Date.now()}.json`);
 const model = value('--model') || 'gpt-5.6-sol';
-const thinking = value('--thinking') || 'low';
+const thinking = value('--thinking') || 'xhigh';
 const codexCommand = value('--codex-command') || 'codex';
 const timeoutSeconds = Number(value('--timeout') || 240);
 const canaryId = `novel-math-canary-${crypto.randomBytes(8).toString('hex')}`;

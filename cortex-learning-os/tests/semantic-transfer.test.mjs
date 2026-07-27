@@ -68,7 +68,7 @@ function qualificationArtifacts({ noTransferFailures = 4, runId, providerEvidenc
   const runtime = {
     schemaVersion: 'cortex.learning_os.transfer_runtime.v1',
     provider: 'test-fixture', runner: 'fake-transfer-model', model: 'fake-model-v1',
-    reasoningEffort: 'low', sandbox: 'read-only', toolsAllowed: false,
+    reasoningEffort: 'xhigh', sandbox: 'read-only', toolsAllowed: false,
   };
   const plan = buildTransferQualificationPlan({
     runId,

@@ -22,7 +22,7 @@ export const DEFAULT_TRANSFER_RUNTIME = Object.freeze({
   provider: 'openai-codex',
   runner: 'codex-exec-ephemeral',
   model: 'gpt-5.6-sol',
-  reasoningEffort: 'low',
+  reasoningEffort: 'xhigh',
   sandbox: 'read-only',
   toolsAllowed: false,
 });

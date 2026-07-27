@@ -221,7 +221,7 @@ export async function runTransferQualification({
   concurrency = 1,
   modelCommand = 'codex',
   modelArgs = null,
-  reasoningEffort = 'low',
+  reasoningEffort = 'xhigh',
   timeoutMs = 300000,
 } = {}) {
   const root = path.resolve(artifactRoot);

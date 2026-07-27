@@ -18,7 +18,7 @@ const runId = value('--run-id') || `math-foundations-smoke-${compactTimestamp()}
 const artifactRoot = path.resolve(value('--artifact-root') || path.join(CLOS_ROOT, 'artifacts', runId));
 const runner = value('--runner') || 'openclaw';
 if (!['openclaw', 'codex'].includes(runner)) throw new Error('--runner must be openclaw or codex');
-const thinking = value('--thinking') || (runner === 'codex' ? 'low' : 'off');
+const thinking = value('--thinking') || 'xhigh';
 const model = value('--model') || 'gpt-5.6-sol';
 const codexCommand = value('--codex-command') || 'codex';
 const promoteDefault = has('--promote-default');

@@ -169,7 +169,7 @@ export function buildPrivateUtilityProgram({
   calibrationFixture,
   holdoutFixture,
   model = 'gpt-5.6-sol',
-  thinking = 'low',
+  thinking = 'xhigh',
   generatedAt = new Date().toISOString()
 } = {}) {
   if (!validationId || !seed) throw new Error('validationId and seed are required');

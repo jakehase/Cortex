@@ -7,6 +7,9 @@ WORKDIR = "/root/clawd/deploy/oracle-workspace-lite"
 OPENCLAW = os.getenv("OPENCLAW_BIN", "openclaw")
 TIMEOUT = int(os.getenv("ORACLE_EXECUTOR_TIMEOUT", "60"))
 AGENT_ID = os.getenv("ORACLE_EXECUTOR_AGENT", "oracle").strip() or "oracle"
+THINKING = os.getenv("ORACLE_EXECUTOR_THINKING", "xhigh").strip().lower() or "xhigh"
+if THINKING != "xhigh":
+    raise RuntimeError("ORACLE_EXECUTOR_THINKING must remain xhigh")
 LOCAL_EXECUTION = os.getenv("ORACLE_EXECUTOR_LOCAL", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION_KEY = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY", f"agent:{AGENT_ID}:main").strip() or f"agent:{AGENT_ID}:main"
@@ -121,6 +124,7 @@ def health():
         "service": "oracle-executor",
         "mode": "gateway-agent",
         "agentId": AGENT_ID,
+        "thinking": THINKING,
         "localExecution": LOCAL_EXECUTION,
         "resetAgentSession": RESET_AGENT_SESSION,
         "resetAgentSessionKey": RESET_AGENT_SESSION_KEY,
@@ -165,7 +169,7 @@ def invoke(req: InvokeRequest):
         '--agent', AGENT_ID,
         '--session-id', session_id,
         '--message', bridged_prompt,
-        '--thinking', 'off',
+        '--thinking', THINKING,
         '--timeout', str(TIMEOUT),
         '--json',
     ])

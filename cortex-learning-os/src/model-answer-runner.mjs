@@ -65,7 +65,7 @@ export function parseAgentResult(raw, { runId, evidenceRole = 'exam', startedAt,
   };
 }
 
-export function runOpenClawExam({ exam, sessionId, runId, learningContext = null, evidenceRole = 'exam', timeoutSeconds = 180, thinking = 'off' } = {}) {
+export function runOpenClawExam({ exam, sessionId, runId, learningContext = null, evidenceRole = 'exam', timeoutSeconds = 180, thinking = 'xhigh' } = {}) {
   const prompt = buildExamPrompt({ exam, learningContext });
   const startedAt = new Date().toISOString();
   const stdout = execFileSync('openclaw', [
@@ -89,7 +89,7 @@ export function runCodexExam({
   learningContext = null,
   evidenceRole = 'ab_retest',
   timeoutSeconds = 240,
-  thinking = 'low',
+  thinking = 'xhigh',
   model = 'gpt-5.6-sol',
   codexCommand = 'codex'
 } = {}) {

@@ -19,7 +19,7 @@ The canonical launcher defaults to adaptive curriculum mode:
 
 The control plane owns `/root/.openclaw/cortex-learning-os/mastery.json`, its separate HMAC secret, and the signed live registry. The remote worker receives an HMAC-signed frozen plan containing the selected action, base revision/digest, policy/curriculum digests, source commit, seed, finite budgets, and runtime contract. It never receives the HMAC secret or authority to sign or mutate canonical state.
 
-The canonical launcher explicitly requests reasoning `xhigh`. The checked-in policy retains `low` as the minimum permitted reasoning floor; a signed plan may equal or strengthen that floor but may not weaken it or change provider, model, sandbox, or tool policy. The frozen plan binds provider `openai-codex`, model `gpt-5.6-sol`, the selected reasoning effort, a read-only sandbox, and prohibited tool use. Returned call ledgers must contain the exact signed `model_reasoning_effort` and carry positive provider-observed usage.
+The canonical launcher and checked-in policy both require reasoning `xhigh`. A signed plan may not weaken that effort or change provider, model, sandbox, or tool policy. The frozen plan binds provider `openai-codex`, model `gpt-5.6-sol`, `xhigh`, a read-only sandbox, and prohibited tool use. Returned call ledgers must contain the exact signed `model_reasoning_effort` and carry positive provider-observed usage.
 
 The worker can terminate with:
 
