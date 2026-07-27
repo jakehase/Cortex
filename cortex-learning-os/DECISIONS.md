@@ -304,3 +304,9 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Hardening: Bind the selected reasoning effort in the signed plan and require the returned raw Codex ledger to contain the exact matching `model_reasoning_effort` argument during independent replay. The runtime CLI now inherits model/reasoning from the signed plan rather than a local low default.
 - Correction: Run `math-training-20260727T020121Z-cf935b` was mechanically valid and independently applied under its signed `low` runtime before the operator correction arrived, but it is not accepted as the intended xhigh review. Preserve it as superseded historical evidence, restore the exact signed revision-1 mastery snapshot proven by its own frozen plan digest, and replace it with a fresh xhigh factoring review.
 - Boundary: A stronger reasoning setting does not itself prove mastery or transfer. The replacement still requires deterministic grading, exact artifact replay, and independent signed-state application.
+
+## 2026-07-27 — Accept only the xhigh replacement factoring review
+
+- Replacement run `math-training-20260727T022800Z-318c45` executed with the signed `xhigh` runtime and an exact raw `model_reasoning_effort="xhigh"` argument, then passed independent control-plane artifact, grading, runtime, and policy replay.
+- Canonical mastery advanced from the restored signed revision 1 to revision 2 under the replacement receipt. The superseded low run `math-training-20260727T020121Z-cf935b` is intentionally absent from canonical `appliedRunIds`.
+- The factoring result is one passed spaced review and schedules the next review for 2026-07-28; it does not prove broad mastery, model-weight learning, or semantic coding transfer.
