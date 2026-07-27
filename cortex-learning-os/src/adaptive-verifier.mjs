@@ -174,6 +174,8 @@ export function verifyAdaptiveArtifacts({
   fixedTemplates = [],
   allowTestFixtures = false,
   planSecret,
+  expectedPlan = null,
+  allowFrozenWaveSelection = false,
 } = {}) {
   const root = path.resolve(artifactRoot);
   const manifestPath = path.join(root, 'artifact_manifest.json');
@@ -183,6 +185,9 @@ export function verifyAdaptiveArtifacts({
   const plan = readRequired(path.join(root, 'adaptive_plan.json'));
   const summary = readRequired(path.join(root, 'session_summary.json'));
   const continuous = isContinuousAcquisitionPolicy(policy);
+  if (expectedPlan !== null && canonicalJson(plan) !== canonicalJson(expectedPlan)) {
+    throw new Error('adaptive child plan differs from the signed wave');
+  }
   if (plan.schemaVersion !== expectedPlanSchema(policy)) throw new Error('invalid adaptive plan');
   if (!verifyAdaptivePlanSignature(plan, planSecret)) throw new Error('adaptive plan signature mismatch');
   const generatedAtMs = Date.parse(String(plan.generatedAt || ''));
@@ -210,7 +215,7 @@ export function verifyAdaptiveArtifacts({
     const receipt = currentMastery.appliedRunReceipts?.find((row) => row.runId === plan.runId);
     if (receipt?.artifactManifestDigest !== artifactManifestDigest) throw new Error('adaptive run artifact receipt mismatch');
   }
-  if (!alreadyApplied) {
+  if (!alreadyApplied && !allowFrozenWaveSelection) {
     if (plan.masteryRevision !== currentMastery.revision || plan.masterySnapshotDigest !== sha256Text(canonicalJson(currentMastery))) throw new Error('adaptive mastery snapshot mismatch');
     const replayedAction = selectNextAction({
       graph,
@@ -221,6 +226,12 @@ export function verifyAdaptiveArtifacts({
       operatorDirective: plan.operatorDirective ?? null,
     });
     if (canonicalJson(replayedAction) !== canonicalJson(plan.action)) throw new Error('adaptive planner replay mismatch');
+  } else if (!alreadyApplied) {
+    if (expectedPlan === null || !continuous) throw new Error('frozen wave verification requires an exact continuous-acquisition plan');
+    if (!['acquisition', 'learning_retry', 'prerequisite_repair', 'same_concept_correction'].includes(plan.action?.kind)
+        || !['acquisition', 'correction'].includes(plan.action?.role)) {
+      throw new Error('frozen wave selected forbidden work');
+    }
   }
   const terminalReason = continuous ? 'curriculum_frontier_reached' : 'curriculum_currently_satisfied';
   if (summary.status === terminalReason) {

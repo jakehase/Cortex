@@ -1,0 +1,2 @@
+by
+  exact Nat.succ_ne_zero n

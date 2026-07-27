@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { validateRecord } from './contracts.mjs';
 import { gradeExam } from './exam-runner.mjs';
-import { sha256File } from './hash.mjs';
+import { sha256File, sha256Text } from './hash.mjs';
 import { readJson, writeJson } from './json.mjs';
 import { buildMistakes, distillCandidate, selectRemediableFailure } from './learning-loop.mjs';
 import { CLOS_ROOT } from './paths.mjs';
@@ -21,8 +22,16 @@ import {
   applyMasteryDelta,
   atomicWriteMasteryState,
   initializeMasteryStore,
+  readMasterySecret,
+  verifyMasteryState,
 } from './mastery-state.mjs';
 import { migrateMasteryStore } from './mastery-migration.mjs';
+import { migrateAdditiveMasteryStore } from './additive-mastery-migration.mjs';
+import { buildAcquisitionStatus } from './acquisition-status.mjs';
+import {
+  buildParallelWave,
+  verifyAndApplyParallelWave,
+} from './parallel-wave.mjs';
 import {
   ACTIVATION_PROFILES,
   LESSON_SCHEMA,
@@ -50,9 +59,19 @@ const masteryPath = path.resolve(value('--mastery', path.join(stateRoot, 'master
 const masterySecretPath = path.resolve(value('--mastery-secret', path.join(stateRoot, 'mastery.hmac')));
 
 function adaptiveInputs(now = new Date().toISOString()) {
-  const graph = readJson(DEFAULT_CURRICULUM_GRAPH_PATH);
-  const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));
-  const { policy } = loadAdaptivePolicy();
+  return adaptiveInputsAtPaths({
+    graphPath: DEFAULT_CURRICULUM_GRAPH_PATH,
+    policyPath: null,
+    capsulePath: path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'),
+    now,
+  });
+}
+
+function adaptiveInputsAtPaths({ graphPath, policyPath, capsulePath, now = new Date().toISOString() }) {
+  const graph = readJson(path.resolve(graphPath));
+  const capsule = readJson(path.resolve(capsulePath));
+  const { policy } = loadAdaptivePolicy(policyPath ? path.resolve(policyPath) : undefined);
+  if (!graph || !capsule) throw new Error('adaptive graph or capsule path is unreadable');
   const store = initializeMasteryStore({
     statePath: masteryPath,
     secretPath: masterySecretPath,
@@ -386,6 +405,20 @@ function contentFreeAcquisitionStatus(state) {
   };
 }
 
+function requiredPath(flag, fallback = null) {
+  const supplied = value(flag, fallback);
+  if (!supplied) throw new Error(`${flag} is required`);
+  return path.resolve(supplied);
+}
+
+function currentGitIdentity() {
+  const repositoryRoot = path.resolve(CLOS_ROOT, '..');
+  const commit = execFileSync('git', ['-C', repositoryRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const tree = execFileSync('git', ['-C', repositoryRoot, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit) || !/^[0-9a-f]{40}$/.test(tree)) throw new Error('current source commit or tree is invalid');
+  return { commit, tree };
+}
+
 try {
   if (command === 'init') {
     const { registry } = initializeRegistry({ registryPath, secretPath, force: has('--force') });
@@ -462,6 +495,200 @@ try {
         clearedActiveReviewScheduleCount: migrated.audit.clearedActiveReviewScheduleCount,
         acquisitionState: contentFreeAcquisitionStatus(migrated.state),
         truthBoundary: migrated.audit.truthBoundary,
+      }, null, 2));
+    } else if (command === 'adaptive-migration-freeze') {
+      const sourceGraphPath = requiredPath('--source-graph');
+      const targetGraphPath = requiredPath('--target-graph');
+      const sourcePolicyPath = requiredPath('--source-policy');
+      const targetPolicyPath = requiredPath('--target-policy');
+      const sourceGraph = readJson(sourceGraphPath);
+      const targetGraph = readJson(targetGraphPath);
+      const { policy: sourcePolicy } = loadAdaptivePolicy(sourcePolicyPath);
+      const { policy: targetPolicy } = loadAdaptivePolicy(targetPolicyPath);
+      if (!sourceGraph || !targetGraph) throw new Error('migration freeze graph path is unreadable');
+      const sourceState = readJson(masteryPath);
+      if (!sourceState) throw new Error('migration freeze source state is unreadable');
+      const sourceSecret = readMasterySecret(masterySecretPath);
+      const sourceVerification = verifyMasteryState(sourceState, sourceSecret, {
+        graph: sourceGraph,
+        policy: sourcePolicy,
+      });
+      if (!sourceVerification.ok) throw new Error(`migration freeze source verification failed: ${sourceVerification.errors.join('; ')}`);
+      const frozenSourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
+      if (!/^[0-9a-f]{40}$/.test(frozenSourceCommit)) throw new Error('migration freeze requires exact --source-commit');
+      if (currentGitIdentity().commit !== frozenSourceCommit) throw new Error('migration freeze source commit is not the checked-out control plane');
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        expectedSourceRevision: sourceState.revision,
+        expectedSourceStateDigest: sha256Text(canonicalJson(sourceState)),
+        expectedSourceGraphDigest: sha256Text(canonicalJson(sourceGraph)),
+        expectedSourcePolicyDigest: policyDigest(sourcePolicy),
+        expectedTargetGraphDigest: sha256Text(canonicalJson(targetGraph)),
+        expectedTargetPolicyDigest: policyDigest(targetPolicy),
+        sourceCommit: frozenSourceCommit,
+        statePath: masteryPath,
+        sourceGraphPath,
+        targetGraphPath,
+        sourcePolicyPath,
+        targetPolicyPath,
+        truthBoundary: 'This read-only freeze records exact migration inputs; it does not authorize mutation or assert any acquisition result.',
+      }, null, 2));
+    } else if (command === 'adaptive-migrate-additive') {
+      const sourceGraphPath = requiredPath('--source-graph');
+      const targetGraphPath = requiredPath('--target-graph');
+      const sourcePolicyPath = requiredPath('--source-policy');
+      const targetPolicyPath = requiredPath('--target-policy');
+      const auditPath = requiredPath('--audit-out');
+      const sourceCommit = value('--source-commit');
+      const expectedSourceCommit = value('--expected-source-commit');
+      const expectedSourceRevision = Number(value('--expected-source-revision', Number.NaN));
+      const frozen = {
+        expectedSourceStateDigest: value('--expected-source-state-digest'),
+        expectedSourceGraphDigest: value('--expected-source-graph-digest'),
+        expectedSourcePolicyDigest: value('--expected-source-policy-digest'),
+        expectedTargetGraphDigest: value('--expected-target-graph-digest'),
+        expectedTargetPolicyDigest: value('--expected-target-policy-digest'),
+      };
+      if (!sourceCommit || !expectedSourceCommit || !Number.isSafeInteger(expectedSourceRevision)
+          || Object.values(frozen).some((digest) => !digest)) {
+        throw new Error('additive migration requires exact source revision/state/graph/policy/commit and target graph/policy digests');
+      }
+      if (currentGitIdentity().commit !== sourceCommit) throw new Error('additive migration source commit is not the checked-out control plane');
+      const sourceGraph = readJson(sourceGraphPath);
+      const targetGraph = readJson(targetGraphPath);
+      const { policy: sourcePolicy } = loadAdaptivePolicy(sourcePolicyPath);
+      const { policy: targetPolicy } = loadAdaptivePolicy(targetPolicyPath);
+      if (!sourceGraph || !targetGraph) throw new Error('additive migration graph path is unreadable');
+      const migrated = migrateAdditiveMasteryStore({
+        statePath: masteryPath,
+        secretPath: masterySecretPath,
+        auditPath,
+        sourceGraph,
+        sourcePolicy,
+        targetGraph,
+        targetPolicy,
+        expectedSourceRevision,
+        ...frozen,
+        sourceCommit,
+        expectedSourceCommit,
+      });
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        auditPath: migrated.auditPath,
+        migrationId: migrated.audit.migrationId,
+        sourceRevision: migrated.audit.source.revision,
+        acquisitionRevision: migrated.state.revision,
+        addedConceptCount: migrated.audit.addedConceptIds.length,
+        truthBoundary: migrated.audit.truthBoundary,
+      }, null, 2));
+    } else if (command === 'adaptive-status') {
+      const graphPath = path.resolve(value('--graph', DEFAULT_CURRICULUM_GRAPH_PATH));
+      const policyPath = value('--policy');
+      const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
+      const adaptive = adaptiveInputsAtPaths({ graphPath, policyPath, capsulePath });
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        signatureValid: true,
+        ...buildAcquisitionStatus({ state: adaptive.state, graph: adaptive.graph }),
+      }, null, 2));
+    } else if (command === 'adaptive-wave-plan') {
+      const graphPath = path.resolve(value('--graph', DEFAULT_CURRICULUM_GRAPH_PATH));
+      const policyPath = value('--policy');
+      const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
+      const waveId = value('--wave-id');
+      const seed = value('--seed');
+      const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
+      const sourceTree = value('--source-tree', process.env.CLOS_SOURCE_TREE || '');
+      const out = value('--out');
+      const concurrency = Number(value('--concurrency', '4'));
+      const expiresAt = value('--expires-at');
+      if (!waveId || !seed || !out) throw new Error('--wave-id, --seed, and --out are required');
+      const gitIdentity = currentGitIdentity();
+      if (sourceCommit !== gitIdentity.commit || sourceTree !== gitIdentity.tree) {
+        throw new Error('parallel wave source commit/tree is not the checked-out control plane');
+      }
+      const adaptive = adaptiveInputsAtPaths({ graphPath, policyPath, capsulePath });
+      const wave = buildParallelWave({
+        waveId,
+        graph: adaptive.graph,
+        policy: adaptive.policy,
+        capsule: adaptive.capsule,
+        state: adaptive.state,
+        sourceCommit,
+        sourceTree,
+        seed,
+        concurrency,
+        signingSecret: adaptive.secret,
+        ...(expiresAt ? { expiresAt } : {}),
+      });
+      const outPath = path.resolve(out);
+      writeJson(outPath, wave);
+      fs.chmodSync(outPath, 0o600);
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        out: outPath,
+        waveId,
+        baseRevision: wave.identities.state.baseRevision,
+        concurrency: wave.concurrency,
+        selectedCount: wave.selected.length,
+        mergeOrder: wave.mergeOrder,
+        frontierReached: wave.selected.length === 0,
+        reviewSelectionEnabled: false,
+        truthBoundary: wave.truthBoundary,
+      }, null, 2));
+    } else if (command === 'adaptive-wave-apply') {
+      const graphPath = path.resolve(value('--graph', DEFAULT_CURRICULUM_GRAPH_PATH));
+      const policyPath = value('--policy');
+      const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
+      const wavePath = requiredPath('--wave');
+      const artifactRoot = requiredPath('--artifact-root');
+      const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
+      const sourceTree = value('--source-tree', process.env.CLOS_SOURCE_TREE || '');
+      const wave = readJson(wavePath);
+      if (!wave) throw new Error('parallel wave path is unreadable');
+      const gitIdentity = currentGitIdentity();
+      if (sourceCommit !== gitIdentity.commit || sourceTree !== gitIdentity.tree) {
+        throw new Error('parallel wave apply source commit/tree is not the checked-out control plane');
+      }
+      const adaptive = adaptiveInputsAtPaths({ graphPath, policyPath, capsulePath });
+      const artifactRoots = new Map(wave.selected.map((selected) => [
+        selected.child.runId,
+        path.join(artifactRoot, selected.child.artifactRelativeRoot),
+      ]));
+      const result = verifyAndApplyParallelWave({
+        wave,
+        artifactRoots,
+        graph: adaptive.graph,
+        policy: adaptive.policy,
+        capsule: adaptive.capsule,
+        currentState: adaptive.state,
+        signingSecret: adaptive.secret,
+        expectedSourceCommit: sourceCommit,
+        expectedSourceTree: sourceTree,
+        fixedTemplates: adaptive.fixedTemplates,
+      });
+      const state = result.applied
+        ? atomicWriteMasteryState(masteryPath, result.state, adaptive.secret, {
+          graph: adaptive.graph,
+          policy: adaptive.policy,
+        })
+        : result.state;
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        waveId: wave.waveId,
+        acquisitionRevision: state.revision,
+        applied: result.applied,
+        alreadyApplied: result.alreadyApplied,
+        verifiedRunIds: result.replays.map(({ selected }) => selected.child.runId),
+        mergeOrder: wave.mergeOrder,
+        signatureValid: true,
+        reviewSelectionEnabled: false,
+        truthBoundary: 'All children were independently replayed before one atomic signed acquisition-state update. Recorded passes are acquired-once evidence only.',
       }, null, 2));
     } else if (command === 'adaptive-plan') {
       const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');

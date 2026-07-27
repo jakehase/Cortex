@@ -1,0 +1,456 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.phd_competency_rubric.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "rubricId",
+    "version",
+    "effectiveAt",
+    "curriculum",
+    "qualifyingBlueprint",
+    "stages",
+    "tracks",
+    "conceptMappings",
+    "formalProofObligations",
+    "noveltyStatuses",
+    "evidenceFreshnessDays",
+    "qualificationClaim",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.phd_competency_rubric.v1"
+    },
+    "rubricId": {
+      "const": "math-phd-competency-v1"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^1\\."
+    },
+    "effectiveAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "curriculum": {
+      "$ref": "#/$defs/curriculumRef"
+    },
+    "qualifyingBlueprint": {
+      "$ref": "#/$defs/blueprintRef"
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/stage"
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 15,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    },
+    "conceptMappings": {
+      "type": "array",
+      "minItems": 256,
+      "items": {
+        "$ref": "#/$defs/conceptMapping"
+      }
+    },
+    "formalProofObligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/proofObligation"
+      }
+    },
+    "noveltyStatuses": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "$ref": "#/$defs/novelty"
+      }
+    },
+    "evidenceFreshnessDays": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conceptCoverage",
+        "qualifyingExam",
+        "formalProof",
+        "specializationExam",
+        "researchArtifact"
+      ],
+      "properties": {
+        "conceptCoverage": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "qualifyingExam": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "formalProof": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "specializationExam": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "researchArtifact": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "qualificationClaim": {
+      "$ref": "#/$defs/qualificationClaim"
+    },
+    "truthBoundary": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "curriculumRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "curriculumId",
+        "version"
+      ],
+      "properties": {
+        "curriculumId": {
+          "const": "math-phd-trajectory-v1"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "blueprintRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blueprintId",
+        "version"
+      ],
+      "properties": {
+        "blueprintId": {
+          "const": "math-phd-qualifying-v1"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "coverageEvidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "conceptCoverage",
+            "assessmentMode",
+            "minimumIndependentAssessmentsPerConcept"
+          ],
+          "properties": {
+            "conceptCoverage": {
+              "const": "all_required_mapped_concepts"
+            },
+            "assessmentMode": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minimumIndependentAssessmentsPerConcept": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "examCoverage",
+            "assessmentMode",
+            "minimumPassingScorePolicy"
+          ],
+          "properties": {
+            "examCoverage": {
+              "enum": [
+                "all_required_core_exams",
+                "one_declared_specialization_exam"
+              ]
+            },
+            "assessmentMode": {
+              "const": "declared_unseen_proctored_exam"
+            },
+            "minimumPassingScorePolicy": {
+              "enum": [
+                "per_blueprint_exam_threshold",
+                "specialization_blueprint_threshold"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifactCoverage",
+            "assessmentMode",
+            "noveltyPolicy"
+          ],
+          "properties": {
+            "artifactCoverage": {
+              "const": "one_bounded_research_artifact"
+            },
+            "assessmentMode": {
+              "const": "independent_reproduction_and_kernel_checked_main_result"
+            },
+            "noveltyPolicy": {
+              "const": "separate_scoped_status_required"
+            }
+          }
+        }
+      ]
+    },
+    "qualificationClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claimId",
+        "requiredConceptStages",
+        "conceptCoveragePolicy",
+        "requiredCoreExamPolicy",
+        "formalProofPolicy",
+        "specializationPolicy",
+        "researchPolicy",
+        "noveltyPolicy",
+        "courseCoverageAloneCanSatisfy"
+      ],
+      "properties": {
+        "claimId": {
+          "const": "phd_math_qualified"
+        },
+        "requiredConceptStages": {
+          "const": [
+            "proof_foundations",
+            "undergraduate_core",
+            "graduate_core"
+          ]
+        },
+        "conceptCoveragePolicy": {
+          "const": "all_required_concepts"
+        },
+        "requiredCoreExamPolicy": {
+          "const": "all_required_unseen_core_exams_pass"
+        },
+        "formalProofPolicy": {
+          "const": "all_required_obligations_kernel_checked"
+        },
+        "specializationPolicy": {
+          "const": "one_unseen_specialization_exam_pass"
+        },
+        "researchPolicy": {
+          "const": "bounded_artifact_independently_reproduced_and_main_result_kernel_checked"
+        },
+        "noveltyPolicy": {
+          "const": "record_separately_never_infer_global_novelty"
+        },
+        "courseCoverageAloneCanSatisfy": {
+          "const": false
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stageId",
+        "title",
+        "prerequisiteStages",
+        "evidenceRequirements"
+      ],
+      "properties": {
+        "stageId": {
+          "enum": [
+            "proof_foundations",
+            "undergraduate_core",
+            "graduate_core",
+            "qualifying",
+            "specialization",
+            "research"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prerequisiteStages": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidenceRequirements": {
+          "$ref": "#/$defs/coverageEvidence"
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trackId",
+        "title",
+        "description",
+        "minimumMappedConcepts"
+      ],
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 10
+        },
+        "minimumMappedConcepts": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "conceptMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conceptId",
+        "stage",
+        "tracks",
+        "requiredForQualification"
+      ],
+      "properties": {
+        "conceptId": {
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "proof_foundations",
+            "undergraduate_core",
+            "graduate_core",
+            "qualifying",
+            "specialization",
+            "research"
+          ]
+        },
+        "tracks": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "requiredForQualification": {
+          "type": "boolean"
+        }
+      }
+    },
+    "proofObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "obligationId",
+        "title",
+        "stage",
+        "statement",
+        "acceptedKernels",
+        "requiredForQualification",
+        "researchArtifactBound"
+      ],
+      "properties": {
+        "obligationId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "proof_foundations",
+            "undergraduate_core",
+            "graduate_core",
+            "qualifying",
+            "specialization",
+            "research"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 20
+        },
+        "acceptedKernels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "lean4",
+              "coq",
+              "isabelle"
+            ]
+          }
+        },
+        "requiredForQualification": {
+          "const": true
+        },
+        "researchArtifactBound": {
+          "type": "boolean"
+        }
+      }
+    },
+    "novelty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "meaning",
+        "permitsGlobalNoveltyClaim"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "unestablished",
+            "bounded_corpus_only",
+            "externally_established"
+          ]
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 10
+        },
+        "permitsGlobalNoveltyClaim": {
+          "const": false
+        }
+      }
+    }
+  }
+}

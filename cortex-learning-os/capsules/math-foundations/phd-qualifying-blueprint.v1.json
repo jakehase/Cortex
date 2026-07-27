@@ -1,0 +1,167 @@
+{
+  "schemaVersion": "cortex.learning_os.phd_qualifying_blueprint.v1",
+  "blueprintId": "math-phd-qualifying-v1",
+  "version": "1.0.0",
+  "curriculum": {
+    "curriculumId": "math-phd-trajectory-v1",
+    "version": "1.0.0"
+  },
+  "rubric": {
+    "rubricId": "math-phd-competency-v1",
+    "version": "1.0.0"
+  },
+  "unseenExamProtocol": {
+    "itemBankSealedBeforeAttempt": true,
+    "candidateNoPriorAccessAttested": true,
+    "promptCommitmentRequired": true,
+    "independentProctorRequired": true,
+    "uniqueAttemptRequired": true,
+    "qualificationNotReview": true
+  },
+  "coreExams": [
+    {
+      "examId": "phd-qual-algebra-v1",
+      "version": "1.0.0",
+      "title": "Algebra qualifying core",
+      "required": true,
+      "tracks": [
+        "advanced-linear-algebra",
+        "abstract-algebra",
+        "commutative-algebra"
+      ],
+      "durationMinutes": 240,
+      "minimumProblemCount": 6,
+      "passThreshold": 0.75,
+      "evidenceRequirements": [
+        "sealed_prompt_commitment",
+        "independent_proctor",
+        "scored_solution_digest",
+        "no_prior_access_attestation"
+      ]
+    },
+    {
+      "examId": "phd-qual-analysis-v1",
+      "version": "1.0.0",
+      "title": "Analysis qualifying core",
+      "required": true,
+      "tracks": [
+        "real-analysis",
+        "complex-analysis",
+        "functional-analysis",
+        "harmonic-analysis"
+      ],
+      "durationMinutes": 240,
+      "minimumProblemCount": 6,
+      "passThreshold": 0.75,
+      "evidenceRequirements": [
+        "sealed_prompt_commitment",
+        "independent_proctor",
+        "scored_solution_digest",
+        "no_prior_access_attestation"
+      ]
+    },
+    {
+      "examId": "phd-qual-topology-geometry-v1",
+      "version": "1.0.0",
+      "title": "Topology and geometry qualifying core",
+      "required": true,
+      "tracks": [
+        "topology",
+        "algebraic-topology",
+        "differential-geometry"
+      ],
+      "durationMinutes": 240,
+      "minimumProblemCount": 6,
+      "passThreshold": 0.75,
+      "evidenceRequirements": [
+        "sealed_prompt_commitment",
+        "independent_proctor",
+        "scored_solution_digest",
+        "no_prior_access_attestation"
+      ]
+    },
+    {
+      "examId": "phd-qual-probability-applied-v1",
+      "version": "1.0.0",
+      "title": "Probability and applied mathematics qualifying core",
+      "required": true,
+      "tracks": [
+        "measure-probability-stochastic",
+        "statistics",
+        "differential-equations-dynamical-systems",
+        "numerical-analysis-optimization"
+      ],
+      "durationMinutes": 240,
+      "minimumProblemCount": 6,
+      "passThreshold": 0.75,
+      "evidenceRequirements": [
+        "sealed_prompt_commitment",
+        "independent_proctor",
+        "scored_solution_digest",
+        "no_prior_access_attestation"
+      ]
+    }
+  ],
+  "specializationExam": {
+    "examId": "phd-specialization-exam-v1",
+    "version": "1.0.0",
+    "title": "Declared specialization examination",
+    "eligibleTracks": [
+      "advanced-linear-algebra",
+      "real-analysis",
+      "complex-analysis",
+      "functional-analysis",
+      "harmonic-analysis",
+      "abstract-algebra",
+      "commutative-algebra",
+      "topology",
+      "algebraic-topology",
+      "differential-geometry",
+      "differential-equations-dynamical-systems",
+      "measure-probability-stochastic",
+      "statistics",
+      "combinatorics-graph-theory",
+      "number-theory",
+      "logic-set-theory",
+      "numerical-analysis-optimization"
+    ],
+    "minimumDeclaredTracks": 1,
+    "durationMinutes": 240,
+    "minimumProblemCount": 4,
+    "passThreshold": 0.8,
+    "evidenceRequirements": [
+      "sealed_prompt_commitment",
+      "independent_proctor",
+      "specialization_track_declaration",
+      "scored_solution_digest",
+      "no_prior_access_attestation"
+    ]
+  },
+  "formalProofGate": {
+    "requiredObligationPolicy": "all_rubric_required_obligations",
+    "acceptedKernels": [
+      "lean4",
+      "coq",
+      "isabelle"
+    ],
+    "kernelOutputDigestRequired": true,
+    "proofArtifactDigestRequired": true,
+    "researchMainResultMustBindArtifactDigest": true
+  },
+  "researchGate": {
+    "gateId": "phd-bounded-research-gate-v1",
+    "boundedArtifactRequired": true,
+    "independentReproductionRequired": true,
+    "independentReviewRequired": true,
+    "frozenEnvironmentDigestRequired": true,
+    "frozenCorpusDigestRequired": true,
+    "researchMainResultFormalProofRequired": true,
+    "acceptedNoveltyStatuses": [
+      "unestablished",
+      "bounded_corpus_only",
+      "externally_established"
+    ],
+    "globalNoveltyInferenceForbidden": true
+  },
+  "truthBoundary": "These examinations and gates qualify declared evidence; they are not spaced review. Passing supports only the rubric claim after every independent prerequisite gate also passes."
+}

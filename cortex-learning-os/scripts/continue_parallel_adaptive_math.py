@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""Repeat detached acquisition-only waves until a bounded honest terminal state."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import subprocess
+import tempfile
+import time
+from typing import Any
+
+SCHEMA = "cortex.learning_os.parallel_continuation.v1"
+SAFE_ID = re.compile(r"^math-acceleration-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}$")
+STOP_REQUESTED = False
+
+
+class ParallelContinuationError(RuntimeError):
+    pass
+
+
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ParallelContinuationError(f"JSON object required: {path}")
+    return value
+
+
+def run(command: list[str], timeout: float = 300.0) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
+    if result.returncode != 0:
+        raise ParallelContinuationError((result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}")[:3000])
+    return result
+
+
+def parse_descriptor(text: str) -> dict[str, Any]:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("ok") is True and isinstance(value.get("waveId"), str):
+            return value
+    raise ParallelContinuationError("parallel launcher returned no valid descriptor")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--continuation-id", required=True)
+    parser.add_argument("--state-file", required=True, type=Path)
+    parser.add_argument("--launcher", default="/root/clawd/cortex-learning-os/scripts/launch-parallel-adaptive-wave.sh", type=Path)
+    parser.add_argument("--acquisition-state", default="/root/.openclaw/cortex-learning-os/mastery.json", type=Path)
+    parser.add_argument("--source-marker", default="/root/clawd/CORTEX_LEARNING_OS_SOURCE_COMMIT", type=Path)
+    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--max-waves", type=int, default=100)
+    parser.add_argument("--max-sessions", type=int, default=800)
+    parser.add_argument("--max-wall-seconds", type=float, default=86_400)
+    parser.add_argument("--wave-timeout-seconds", type=float, default=14_400)
+    parser.add_argument("--poll-seconds", type=float, default=15)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    return parser
+
+
+def validate(args: argparse.Namespace) -> None:
+    if not SAFE_ID.fullmatch(args.continuation_id):
+        raise ParallelContinuationError("invalid continuation id")
+    if not args.launcher.is_file() or not os.access(args.launcher, os.X_OK):
+        raise ParallelContinuationError("parallel launcher is unavailable")
+    if not args.acquisition_state.is_file() or not args.source_marker.is_file():
+        raise ParallelContinuationError("signed acquisition state or source marker is unavailable")
+    if not 1 <= args.concurrency <= 8:
+        raise ParallelContinuationError("concurrency must be 1..8")
+    if not 1 <= args.max_waves <= 100:
+        raise ParallelContinuationError("max waves must be 1..100")
+    if not 1 <= args.max_sessions <= 800:
+        raise ParallelContinuationError("max sessions must be 1..800")
+    if not 300 <= args.max_wall_seconds <= 86_400:
+        raise ParallelContinuationError("wall cap must be 300..86400 seconds")
+    if not 60 <= args.wave_timeout_seconds <= 14_400:
+        raise ParallelContinuationError("wave timeout must be 60..14400 seconds")
+    if args.poll_seconds < 5:
+        raise ParallelContinuationError("poll interval must be at least five seconds")
+
+
+def elapsed(timestamp: str) -> float:
+    value = dt.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    if value.tzinfo is None:
+        raise ParallelContinuationError("persisted timestamp lacks timezone")
+    return (dt.datetime.now(dt.timezone.utc) - value).total_seconds()
+
+
+def wait_for_wave(path: Path, launched_at: str, args: argparse.Namespace, started_at: str) -> dict[str, Any]:
+    while True:
+        if STOP_REQUESTED:
+            raise ParallelContinuationError("operator stop signal received")
+        if path.exists():
+            state = read_json(path)
+            if state.get("status") in {"completed", "failed"}:
+                return state
+        if elapsed(started_at) > args.max_wall_seconds:
+            raise ParallelContinuationError("parallel continuation reached wall-time cap")
+        if elapsed(launched_at) > args.wave_timeout_seconds:
+            raise ParallelContinuationError("parallel wave reached timeout cap")
+        time.sleep(args.poll_seconds)
+
+
+def terminal(state: dict[str, Any], state_file: Path, status: str, reason: str, result: str) -> None:
+    state.update(
+        status=status,
+        reason=reason[:3000],
+        terminalResult=result,
+        currentWaveId=None,
+        updatedAt=utc_now(),
+        finishedAt=utc_now(),
+    )
+    atomic_json(state_file, state)
+
+
+def signal_handler(_signum: int, _frame: object) -> None:
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    validate(args)
+    lock_path = args.state_file.with_suffix(args.state_file.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock = lock_path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        raise ParallelContinuationError("another parallel continuation owns this state") from error
+
+    source_commit = args.source_marker.read_text(encoding="utf-8").strip()
+    acquisition = read_json(args.acquisition_state)
+    revision = acquisition.get("revision")
+    if not re.fullmatch(r"[0-9a-f]{40}", source_commit) or not isinstance(revision, int):
+        raise ParallelContinuationError("canonical source or acquisition revision is invalid")
+    if args.state_file.exists():
+        if not args.resume:
+            raise ParallelContinuationError("continuation state exists; use --resume")
+        state = read_json(args.state_file)
+        if state.get("schemaVersion") != SCHEMA or state.get("continuationId") != args.continuation_id:
+            raise ParallelContinuationError("resume identity mismatch")
+        if state.get("sourceCommit") != source_commit:
+            raise ParallelContinuationError("resume source changed")
+        if (
+            state.get("concurrency") != args.concurrency
+            or state.get("maxWaves") != args.max_waves
+            or state.get("maxSessions") != args.max_sessions
+            or state.get("maxWallSeconds") != args.max_wall_seconds
+            or state.get("waveTimeoutSeconds") != args.wave_timeout_seconds
+            or state.get("pollSeconds") != args.poll_seconds
+        ):
+            raise ParallelContinuationError("resume safety boundary changed")
+        if state.get("status") in {"completed", "blocked"}:
+            print(json.dumps(state, indent=2, sort_keys=True))
+            return 0
+    else:
+        now = utc_now()
+        state = {
+            "schemaVersion": SCHEMA,
+            "continuationId": args.continuation_id,
+            "status": "running",
+            "reason": "parallel acquisition continuation is active",
+            "sourceCommit": source_commit,
+            "startedAt": now,
+            "updatedAt": now,
+            "initialAcquisitionRevision": revision,
+            "currentAcquisitionRevision": revision,
+            "concurrency": args.concurrency,
+            "maxWaves": args.max_waves,
+            "maxSessions": args.max_sessions,
+            "maxWallSeconds": args.max_wall_seconds,
+            "waveTimeoutSeconds": args.wave_timeout_seconds,
+            "pollSeconds": args.poll_seconds,
+            "wavesStarted": 0,
+            "wavesCompleted": 0,
+            "sessionsStarted": 0,
+            "currentWaveId": None,
+            "waves": [],
+            "reviewSelectionEnabled": False,
+            "placement": {
+                "controlPlane": "responsive supervisor, independent wave harvester, and notifier",
+                "executionPlane": "concurrent detached Hetzner Codex children",
+            },
+            "truthBoundary": "Only independently replayed acquisition or correction evidence can advance signed state; no review or retention claim is scheduled.",
+        }
+        atomic_json(args.state_file, state)
+
+    try:
+        while True:
+            if STOP_REQUESTED:
+                raise ParallelContinuationError("operator stop signal received")
+            if elapsed(str(state["startedAt"])) > args.max_wall_seconds:
+                terminal(state, args.state_file, "blocked", "wall-time cap reached", "wall_time_cap")
+                break
+            if not state.get("currentWaveId") and state["wavesStarted"] >= args.max_waves:
+                terminal(state, args.state_file, "blocked", "wave cap reached", "wave_cap")
+                break
+            if not state.get("currentWaveId") and state["sessionsStarted"] >= args.max_sessions:
+                terminal(state, args.state_file, "blocked", "session cap reached", "session_cap")
+                break
+            if args.source_marker.read_text(encoding="utf-8").strip() != source_commit:
+                raise ParallelContinuationError("canonical source changed during continuation")
+            if state.get("currentWaveId"):
+                matches = [
+                    row for row in state["waves"]
+                    if row.get("waveId") == state["currentWaveId"] and row.get("status") == "running"
+                ]
+                if len(matches) != 1:
+                    raise ParallelContinuationError("resume current wave identity is invalid")
+                wave_record = matches[0]
+                before_revision = wave_record.get("beforeAcquisitionRevision")
+                if not isinstance(before_revision, int):
+                    raise ParallelContinuationError("resume current wave revision is invalid")
+            else:
+                before_revision = read_json(args.acquisition_state).get("revision")
+                remaining = args.max_sessions - int(state["sessionsStarted"])
+                concurrency = min(args.concurrency, remaining)
+                command = [str(args.launcher), "--concurrency", str(concurrency), "--no-notify"]
+                if args.dry_run:
+                    command.append("--dry-run")
+                descriptor = parse_descriptor(run(command).stdout)
+                if descriptor.get("sourceCommit") != source_commit:
+                    raise ParallelContinuationError("launcher source binding changed")
+                if descriptor.get("reviewSelectionEnabled") is not False:
+                    raise ParallelContinuationError("launcher enabled forbidden review selection")
+                if descriptor.get("placement", {}).get("executionPlane") != "concurrent detached Hetzner Codex children":
+                    raise ParallelContinuationError("launcher did not place all Codex children on Hetzner")
+                selected_count = descriptor.get("selectedCount")
+                if not isinstance(selected_count, int) or selected_count < 0 or selected_count > concurrency:
+                    raise ParallelContinuationError("launcher selected invalid child count")
+                if selected_count == 0:
+                    terminal(state, args.state_file, "completed", "graph acquisition frontier reached", "curriculum_frontier_reached")
+                    break
+                if args.dry_run:
+                    state.update(status="ready", reason="parallel no-call preflight passed", updatedAt=utc_now())
+                    atomic_json(args.state_file, state)
+                    break
+                wave_record = {
+                    "waveId": descriptor["waveId"],
+                    "status": "running",
+                    "selectedCount": selected_count,
+                    "mergeOrder": descriptor.get("mergeOrder"),
+                    "beforeAcquisitionRevision": before_revision,
+                    "launchedAt": utc_now(),
+                    "stateFile": descriptor.get("stateFile"),
+                }
+                state["waves"].append(wave_record)
+                state["wavesStarted"] += 1
+                state["sessionsStarted"] += selected_count
+                state["currentWaveId"] = descriptor["waveId"]
+                state["updatedAt"] = utc_now()
+                atomic_json(args.state_file, state)
+            wave_state = wait_for_wave(
+                Path(str(wave_record["stateFile"])),
+                wave_record["launchedAt"],
+                args,
+                str(state["startedAt"]),
+            )
+            if wave_state.get("status") != "completed":
+                terminal(
+                    state,
+                    args.state_file,
+                    "blocked",
+                    str(wave_state.get("reason") or "wave failed closed"),
+                    "genuine_or_infrastructure_blocker",
+                )
+                break
+            after_revision = wave_state.get("acquisitionRevision")
+            if not isinstance(after_revision, int) or after_revision <= before_revision:
+                raise ParallelContinuationError("completed wave made no atomic signed acquisition progress")
+            wave_record.update(status="completed", afterAcquisitionRevision=after_revision, completedAt=utc_now())
+            state["wavesCompleted"] += 1
+            state["currentWaveId"] = None
+            state["currentAcquisitionRevision"] = after_revision
+            state["updatedAt"] = utc_now()
+            atomic_json(args.state_file, state)
+    except (ParallelContinuationError, OSError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+        terminal(state, args.state_file, "blocked", str(error), "genuine_or_infrastructure_blocker")
+    print(json.dumps(state, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        raise SystemExit(main())
+    except ParallelContinuationError as error:
+        print(f"continue_parallel_adaptive_math: {error}", file=os.sys.stderr)
+        raise SystemExit(2)

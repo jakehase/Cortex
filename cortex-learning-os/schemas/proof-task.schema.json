@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_task.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "conceptId",
+    "theorem",
+    "trustedContext",
+    "toolchain",
+    "sourceCommit",
+    "runIdentity",
+    "limits",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.proof_task.v1" },
+    "taskId": { "$ref": "#/$defs/id" },
+    "conceptId": { "$ref": "#/$defs/id" },
+    "theorem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "statementSha256", "templateSha256"],
+      "properties": {
+        "statement": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "statementSha256": { "$ref": "#/$defs/digest" },
+        "templateSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "trustedContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowedImports", "allowedImportsSha256", "preludeSha256"],
+      "properties": {
+        "allowedImports": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "prefixItems": [{ "const": "Mathlib.Data.Nat.Basic" }],
+          "items": false
+        },
+        "allowedImportsSha256": { "$ref": "#/$defs/digest" },
+        "preludeSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "toolchain": { "$ref": "#/$defs/toolchain" },
+    "sourceCommit": { "const": "97266f3f17e26dcecbe7029981b48555d618ec81" },
+    "runIdentity": { "$ref": "#/$defs/runIdentity" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeoutMs",
+        "maxCandidateBytes",
+        "maxSourceBytes",
+        "maxStdoutBytes",
+        "maxStderrBytes",
+        "maxHeartbeats",
+        "maxRecDepth"
+      ],
+      "properties": {
+        "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 30000 },
+        "maxCandidateBytes": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "maxSourceBytes": { "type": "integer", "minimum": 256, "maximum": 262144 },
+        "maxStdoutBytes": { "type": "integer", "minimum": 256, "maximum": 65536 },
+        "maxStderrBytes": { "type": "integer", "minimum": 256, "maximum": 65536 },
+        "maxHeartbeats": { "type": "integer", "minimum": 1000, "maximum": 2000000 },
+        "maxRecDepth": { "type": "integer", "minimum": 100, "maximum": 10000 }
+      }
+    },
+    "truthBoundary": {
+      "const": "Kernel acceptance proves only the exact formal statement under the pinned trusted imports. It does not establish understanding, broad mastery, novelty, a PhD, or any informal mathematical claim."
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "runIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "seed"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/id" },
+        "seed": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "leanRelease",
+        "leanToolchain",
+        "leanCommit",
+        "leanArchiveSha256",
+        "leanArchitecture",
+        "mathlibTag",
+        "mathlibCommit"
+      ],
+      "properties": {
+        "leanRelease": { "const": "v4.32.1" },
+        "leanToolchain": { "const": "leanprover/lean4:v4.32.1" },
+        "leanCommit": { "const": "f054605aea4b840552cca2e725580bffd1e1b704" },
+        "leanArchiveSha256": { "const": "57d5c062a6b4bae6fba511a1704aa124dff461c37d0fc94585637fbb7d951b50" },
+        "leanArchitecture": { "const": "x86_64-unknown-linux-gnu" },
+        "mathlibTag": { "const": "v4.32.1" },
+        "mathlibCommit": { "const": "520045ab14e26149ee970e2e617ca04b09bde5d6" }
+      }
+    }
+  }
+}

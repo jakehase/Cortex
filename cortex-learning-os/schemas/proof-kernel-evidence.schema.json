@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_kernel_evidence.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceId",
+    "taskId",
+    "candidateId",
+    "conceptId",
+    "bindings",
+    "toolchain",
+    "sourceCommit",
+    "runIdentity",
+    "limits",
+    "kernel",
+    "command",
+    "startedAt",
+    "completedAt",
+    "durationMs",
+    "process",
+    "output",
+    "kernelAccepted",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.proof_kernel_evidence.v1" },
+    "evidenceId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "taskId": { "$ref": "#/$defs/id" },
+    "candidateId": { "$ref": "#/$defs/id" },
+    "conceptId": { "$ref": "#/$defs/id" },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskBytesSha256",
+        "taskCanonicalSha256",
+        "candidateBytesSha256",
+        "candidateCanonicalSha256",
+        "theoremStatementSha256",
+        "templateSha256",
+        "candidateProofBytesSha256",
+        "allowedImportsSha256",
+        "preludeSha256",
+        "renderedSourceSha256"
+      ],
+      "properties": {
+        "taskBytesSha256": { "$ref": "#/$defs/digest" },
+        "taskCanonicalSha256": { "$ref": "#/$defs/digest" },
+        "candidateBytesSha256": { "$ref": "#/$defs/digest" },
+        "candidateCanonicalSha256": { "$ref": "#/$defs/digest" },
+        "theoremStatementSha256": { "$ref": "#/$defs/digest" },
+        "templateSha256": { "$ref": "#/$defs/digest" },
+        "candidateProofBytesSha256": { "$ref": "#/$defs/digest" },
+        "allowedImportsSha256": { "$ref": "#/$defs/digest" },
+        "preludeSha256": { "$ref": "#/$defs/digest" },
+        "renderedSourceSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "toolchain": { "$ref": "proof-task.schema.json#/$defs/toolchain" },
+    "sourceCommit": { "const": "97266f3f17e26dcecbe7029981b48555d618ec81" },
+    "runIdentity": { "$ref": "proof-task.schema.json#/$defs/runIdentity" },
+    "limits": { "$ref": "proof-task.schema.json#/properties/limits" },
+    "kernel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "leanVersion",
+        "leanExecutable",
+        "leanExecutableSha256",
+        "lakeExecutable",
+        "lakeExecutableSha256",
+        "mathlibRoot",
+        "mathlibHead",
+        "mathlibTagCommit",
+        "lakeManifestSha256",
+        "leanPathSha256",
+        "leanToolchainSha256",
+        "lakefileSha256",
+        "preludeSha256"
+      ],
+      "properties": {
+        "leanVersion": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "leanExecutable": { "$ref": "#/$defs/path" },
+        "leanExecutableSha256": { "$ref": "#/$defs/digest" },
+        "lakeExecutable": { "$ref": "#/$defs/path" },
+        "lakeExecutableSha256": { "$ref": "#/$defs/digest" },
+        "mathlibRoot": { "$ref": "#/$defs/path" },
+        "mathlibHead": { "const": "520045ab14e26149ee970e2e617ca04b09bde5d6" },
+        "mathlibTagCommit": { "const": "520045ab14e26149ee970e2e617ca04b09bde5d6" },
+        "lakeManifestSha256": { "$ref": "#/$defs/digest" },
+        "leanPathSha256": { "$ref": "#/$defs/digest" },
+        "leanToolchainSha256": { "$ref": "#/$defs/digest" },
+        "lakefileSha256": { "$ref": "#/$defs/digest" },
+        "preludeSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "argv", "cwd", "environment"],
+      "properties": {
+        "executable": { "$ref": "#/$defs/path" },
+        "argv": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "cwd": { "$ref": "#/$defs/path" },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["LANG", "LC_ALL", "HOME", "LEAN_PATH"],
+          "properties": {
+            "LANG": { "const": "C" },
+            "LC_ALL": { "const": "C" },
+            "HOME": { "$ref": "#/$defs/path" },
+            "LEAN_PATH": { "type": "string", "minLength": 1, "maxLength": 65536 }
+          }
+        }
+      }
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "durationMs": { "type": "number", "minimum": 0 },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "signal", "timedOut", "outputLimitExceeded", "errorCode"],
+      "properties": {
+        "exitCode": { "type": ["integer", "null"] },
+        "signal": { "type": ["string", "null"] },
+        "timedOut": { "type": "boolean" },
+        "outputLimitExceeded": { "type": "boolean" },
+        "errorCode": { "type": ["string", "null"] }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stdout", "stderr"],
+      "properties": {
+        "stdout": { "$ref": "#/$defs/output" },
+        "stderr": { "$ref": "#/$defs/output" }
+      }
+    },
+    "kernelAccepted": { "type": "boolean" },
+    "truthBoundary": {
+      "const": "Kernel acceptance proves only the exact formal statement under the pinned trusted imports. It does not establish understanding, broad mastery, novelty, a PhD, or any informal mathematical claim."
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^/"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observedBytes", "capturedBytes", "truncated", "sha256"],
+      "properties": {
+        "observedBytes": { "type": "integer", "minimum": 0 },
+        "capturedBytes": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

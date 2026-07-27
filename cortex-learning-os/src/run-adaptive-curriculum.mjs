@@ -18,6 +18,9 @@ const planPath = path.resolve(value('--plan', ''));
 const artifactRoot = path.resolve(value('--artifact-root', ''));
 const codexCommand = value('--codex-command', 'codex');
 const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
+const graphPath = path.resolve(value('--graph', DEFAULT_CURRICULUM_GRAPH_PATH));
+const policyPath = value('--policy');
+const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
 if (!value('--plan') || !value('--artifact-root')) throw new Error('--plan and --artifact-root are required');
 if (!fs.existsSync(planPath)) throw new Error('adaptive plan does not exist');
 const plan = readJson(planPath);
@@ -25,9 +28,10 @@ if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('a
 const model = value('--model', plan.modelRuntime?.model);
 const thinking = value('--thinking', plan.modelRuntime?.thinking);
 if (model !== plan.modelRuntime?.model || thinking !== plan.modelRuntime?.thinking) throw new Error('runtime model/reasoning differs from the signed adaptive plan');
-const graph = readJson(DEFAULT_CURRICULUM_GRAPH_PATH);
-const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));
-const { policy } = loadAdaptivePolicy();
+const graph = readJson(graphPath);
+const capsule = readJson(capsulePath);
+const { policy } = loadAdaptivePolicy(policyPath ? path.resolve(policyPath) : undefined);
+if (!graph || !capsule) throw new Error('adaptive graph or capsule path is unreadable');
 const fixedTemplates = ['baseline.exam.json', 'reliability-challenge.exam.json', 'exact-arithmetic-stress.exam.json']
   .flatMap((name) => readJson(path.join(CLOS_ROOT, 'exams/math-foundations', name))?.items || [])
   .map((item) => item.remediation?.lessonTemplate?.rule)

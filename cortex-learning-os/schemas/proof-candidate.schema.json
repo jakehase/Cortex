@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_candidate.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "candidateId",
+    "taskId",
+    "conceptId",
+    "taskBinding",
+    "theoremBinding",
+    "trustedContextBinding",
+    "toolchain",
+    "sourceCommit",
+    "runIdentity",
+    "proof",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.proof_candidate.v1" },
+    "candidateId": { "$ref": "#/$defs/id" },
+    "taskId": { "$ref": "#/$defs/id" },
+    "conceptId": { "$ref": "#/$defs/id" },
+    "taskBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bytesSha256", "canonicalSha256"],
+      "properties": {
+        "bytesSha256": { "$ref": "#/$defs/digest" },
+        "canonicalSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "theoremBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statementSha256", "templateSha256"],
+      "properties": {
+        "statementSha256": { "$ref": "#/$defs/digest" },
+        "templateSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "trustedContextBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowedImportsSha256", "preludeSha256"],
+      "properties": {
+        "allowedImportsSha256": { "$ref": "#/$defs/digest" },
+        "preludeSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "toolchain": { "$ref": "proof-task.schema.json#/$defs/toolchain" },
+    "sourceCommit": { "const": "97266f3f17e26dcecbe7029981b48555d618ec81" },
+    "runIdentity": { "$ref": "proof-task.schema.json#/$defs/runIdentity" },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "term", "bytesSha256"],
+      "properties": {
+        "encoding": { "const": "utf8" },
+        "term": { "type": "string", "minLength": 1, "maxLength": 65536 },
+        "bytesSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "truthBoundary": {
+      "const": "Kernel acceptance proves only the exact formal statement under the pinned trusted imports. It does not establish understanding, broad mastery, novelty, a PhD, or any informal mathematical claim."
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

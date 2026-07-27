@@ -63,6 +63,7 @@ export function buildAdaptiveSessionPlan({
   signingSecret,
   runtimeOverride = null,
   allowEarlyReview = false,
+  frozenAction = null,
   now = new Date().toISOString(),
 } = {}) {
   const graphValidation = validateCurriculumGraph(graph);
@@ -81,7 +82,15 @@ export function buildAdaptiveSessionPlan({
     throw new Error('early-review mode is disabled under the continuous-acquisition policy');
   }
   const operatorDirective = allowEarlyReview ? buildEarlyReviewDirective(now) : null;
-  const action = selectNextAction({ graph, mastery, policy, now, seed, operatorDirective });
+  const action = frozenAction === null
+    ? selectNextAction({ graph, mastery, policy, now, seed, operatorDirective })
+    : structuredClone(frozenAction);
+  if (frozenAction !== null && (!isContinuousAcquisitionPolicy(policy)
+      || !['acquisition', 'learning_retry', 'prerequisite_repair', 'same_concept_correction'].includes(action?.kind)
+      || !['acquisition', 'correction'].includes(action?.role)
+      || !graph.concepts.some((concept) => concept.conceptId === action?.conceptId))) {
+    throw new Error('invalid frozen continuous-acquisition action');
+  }
   if (typeof signingSecret !== 'string' || signingSecret.length < 32) throw new Error('adaptive plan requires a control-plane signing secret');
   const continuous = isContinuousAcquisitionPolicy(policy);
   const plan = {
