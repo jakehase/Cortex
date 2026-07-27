@@ -97,19 +97,24 @@ def _extract_json_payload(raw: str):
         raise ValueError('empty response')
     decoder = json.JSONDecoder()
     try:
-        return decoder.decode(cleaned)
+        candidate = decoder.decode(cleaned)
+        payloads = candidate.get('result', {}).get('payloads') or candidate.get('payloads') if isinstance(candidate, dict) else None
+        if payloads:
+            return candidate
     except Exception:
         pass
     starts = [idx for idx, ch in enumerate(cleaned) if ch == '{']
     for start in starts:
         try:
-            obj, end = decoder.raw_decode(cleaned[start:])
+            obj, _end = decoder.raw_decode(cleaned[start:])
         except Exception:
             continue
-        if cleaned[start + end:].strip():
+        if not isinstance(obj, dict):
             continue
-        return obj
-    raise ValueError('no JSON object found in stdout')
+        payloads = obj.get('result', {}).get('payloads') or obj.get('payloads')
+        if payloads:
+            return obj
+    raise ValueError('no response JSON object found in process output')
 
 def _maybe_cleanup_remote_sessions():
     global LAST_CLEANUP_AT
@@ -195,7 +200,7 @@ def invoke(req: InvokeRequest):
         raise HTTPException(status_code=503, detail=(r.stderr or r.stdout or 'executor failed')[:1200])
 
     try:
-        data = _extract_json_payload(r.stdout)
+        data = _extract_json_payload('\n'.join(part for part in [r.stdout, r.stderr] if part))
         payloads = data.get('result', {}).get('payloads') or data.get('payloads') or []
         text = ''
         if payloads and isinstance(payloads[0], dict):

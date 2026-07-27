@@ -133,8 +133,8 @@ class OracleExecutorSessionTests(unittest.TestCase):
 
             class Result:
                 returncode = 0
-                stderr = ''
-                stdout = '{"result":{"payloads":[{"text":"ok"}]}}'
+                stdout = ''
+                stderr = '[plugins] prefix {"detail":"noise"}\n{"result":{"payloads":[{"text":"ok"}]}}\n[plugins] suffix {"detail":"noise"}'
 
             def fake_run(cmd, **kwargs):
                 captured['cmd'] = cmd
@@ -151,7 +151,7 @@ class OracleExecutorSessionTests(unittest.TestCase):
                 index = captured['cmd'].index('--thinking')
                 self.assertEqual(captured['cmd'][index + 1], 'xhigh')
 
-    def test_extract_json_payload_ignores_plugin_log_prefix(self):
+    def test_extract_json_payload_ignores_plugin_log_prefix_and_suffix(self):
         mod = load_module(ROOT / 'cortex-vm' / 'oracle_executor.py', {
             'ORACLE_EXECUTOR_SESSION_ID': 'oracle-prod-bridge',
             'ORACLE_EXECUTOR_SESSION_MODE': 'ephemeral',
@@ -165,6 +165,7 @@ class OracleExecutorSessionTests(unittest.TestCase):
             '    "meta": {"agentMeta": {"sessionId": "oracle-prod-bridge-short-abc123"}}\n'
             '  }\n'
             '}\n'
+            '\x1b[35m[plugins]\x1b[39m trailing lifecycle log {"detail":"noise"}\n'
         )
         data = mod._extract_json_payload(raw)
         self.assertEqual(data['result']['payloads'][0]['text'], 'hello')
