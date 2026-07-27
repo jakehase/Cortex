@@ -147,13 +147,16 @@ export function validateMasteryState(state, { graph, policy } = {}) {
       if (!migration || migration.schemaVersion !== 'cortex.learning_os.mastery_migration_receipt.v1'
           || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(migration.migrationId || ''))
           || !Number.isSafeInteger(migration.sourceRevision) || migration.sourceRevision < 0
-          || migration.targetRevision !== state.revision
+          || !Number.isSafeInteger(migration.targetRevision)
+          || migration.targetRevision !== migration.sourceRevision + 1
+          || migration.targetRevision > state.revision
           || !/^[0-9a-f]{64}$/.test(String(migration.sourceStateDigest || ''))
           || !/^[0-9a-f]{64}$/.test(String(migration.sourcePolicyDigest || ''))
           || !/^[0-9a-f]{64}$/.test(String(migration.sourceCurriculumDigest || ''))
           || !/^[0-9a-f]{64}$/.test(String(migration.targetPolicyDigest || ''))
           || !/^[0-9a-f]{64}$/.test(String(migration.targetCurriculumDigest || ''))
-          || !Number.isFinite(Date.parse(String(migration.migratedAt || '')))) {
+          || !Number.isFinite(Date.parse(String(migration.migratedAt || '')))
+          || Date.parse(migration.migratedAt) > Date.parse(state.updatedAt)) {
         errors.push('invalid continuous mastery migration receipt');
       }
     }

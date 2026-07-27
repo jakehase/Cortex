@@ -355,6 +355,39 @@ test('bounded signed migration preserves evidence, clears schedules, rejects tam
   assert.equal(verifyMasteryMigrationAudit(tamperedAudit, secret), false);
   assert.equal(verifyMasteryState(signMasteryState(built.targetState, secret), secret, { graph, policy }).ok, true);
 
+  const postMigrationDelta = {
+    schemaVersion: 'cortex.learning_os.mastery_delta.v2',
+    runId: 'first-post-migration-acquisition',
+    baseRevision: 75,
+    curriculumId: graph.curriculumId,
+    capsuleId: graph.capsuleId,
+    policyDigest: policyDigest(policy),
+    completedAt: '2026-07-27T16:00:01.000Z',
+    events: [{
+      conceptId: 'algebra-polynomial-arithmetic',
+      role: 'acquisition',
+      passed: true,
+      completedAt: '2026-07-27T16:00:01.000Z',
+      evidenceDigest: '9'.repeat(64),
+    }],
+  };
+  const advanced = applyMasteryDelta({
+    state: signMasteryState(built.targetState, secret),
+    delta: postMigrationDelta,
+    graph,
+    policy,
+    artifactManifestDigest: '8'.repeat(64),
+  });
+  assert.equal(advanced.revision, 76);
+  assert.equal(advanced.migration.targetRevision, 75);
+  assert.equal(verifyMasteryState(signMasteryState(advanced, secret), secret, { graph, policy }).ok, true);
+  const futureMigration = structuredClone(advanced);
+  futureMigration.migration.targetRevision = 77;
+  assert.match(
+    verifyMasteryState(signMasteryState(futureMigration, secret), secret, { graph, policy }).errors.join('; '),
+    /invalid continuous mastery migration receipt/,
+  );
+
   const tampered = structuredClone(sourceState);
   tampered.concepts['number-fractions'].passes += 1;
   assert.throws(
