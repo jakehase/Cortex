@@ -151,19 +151,23 @@ def main() -> int:
                 verified = json.loads(verify.stdout)
                 artifact_status = applied.get("artifactStatus")
                 is_blocked = artifact_status == "structured_blocker"
+                is_frontier = artifact_status == "curriculum_frontier_reached"
                 state.update({
                     "status": "blocked" if is_blocked else "completed",
                     "reason": (
                         "adaptive structured blocker was independently replayed; no unsupported completion was recorded"
                         if is_blocked else
-                        "adaptive artifacts independently replayed; canonical mastery and any threshold-qualified scoped lesson were applied by the control plane"
+                        "curriculum frontier was independently replayed; no review or fabricated learning was scheduled"
+                        if is_frontier else
+                        "adaptive artifacts independently replayed; canonical covered-once acquisition state and any threshold-qualified scoped lesson were applied by the control plane"
                     ),
                     "adaptiveArtifactStatus": artifact_status,
                     "installedLessonId": applied.get("installedLessonId"),
-                    "masteryRevision": applied.get("masteryRevision"),
+                    "acquisitionRevision": applied.get("acquisitionRevision"),
                     "candidateThresholdPassed": applied.get("candidateThresholdPassed"),
                     "registryRevision": verified.get("revision"),
                     "liveRegistrySignatureValid": verified.get("signatureValid") is True,
+                    "acquisitionStateSignatureValid": verified.get("acquisitionState", {}).get("signatureValid") is True,
                     "controlPlaneArtifactRoot": str(local_artifact),
                     "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 })

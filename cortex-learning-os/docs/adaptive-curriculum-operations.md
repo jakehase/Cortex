@@ -1,13 +1,19 @@
-# Adaptive Curriculum Operations v0.8
+# Adaptive Curriculum Operations v1.0
 
-The canonical launcher defaults to adaptive curriculum mode:
+## Active default
+
+The canonical launcher uses continuous acquisition:
 
 ```bash
 ./scripts/launch-live-math-training.sh --dry-run
 ./scripts/launch-live-math-training.sh
 ```
 
-`--dry-run` performs source/runtime preflight and freezes a control-plane plan but makes no model call. A fixed exam is a legacy diagnostic and must be selected explicitly:
+The control plane loads `adaptive-math-continuous-v1` and `math-continuous-acquisition-v1`. It selects only acquisition, learning retry, prerequisite correction, or same-concept correction. It never creates or waits for a review schedule.
+
+`--early-review` is retained only as a fail-closed compatibility flag. It exits with an error under the active policy. Do not use it to bypass the continuous policy.
+
+Fixed exams remain explicit legacy diagnostics:
 
 ```bash
 ./scripts/launch-live-math-training.sh --exam baseline
@@ -15,60 +21,92 @@ The canonical launcher defaults to adaptive curriculum mode:
 ./scripts/launch-live-math-training.sh --exam stress
 ```
 
-For an operator-approved continuation that should keep advancing until a genuine blocker:
+## Control-plane migration
+
+Do not edit or re-sign revision 74 manually. Before migration, separately preserve the original owner-only state and audit its exact signature, state digest, legacy graph digest, legacy policy digest, source commit, and revision.
+
+The migration command requires every frozen identity:
+
+```bash
+npm run live:adaptive:migrate-continuous -- \
+  --audit-out <new-owner-only-audit.json> \
+  --source-commit <40-hex-source-commit> \
+  --expected-source-commit <same-40-hex-source-commit> \
+  --expected-source-revision 74 \
+  --expected-source-state-digest <sha256> \
+  --expected-source-curriculum-digest <sha256> \
+  --expected-source-policy-digest <sha256> \
+  --expected-target-curriculum-digest <sha256> \
+  --expected-target-policy-digest <sha256>
+```
+
+Run it once on the control plane only. It verifies the legacy HMAC with the legacy graph/policy, refuses legacy concept removal or rewriting, preserves counters/evidence/receipts/historical review data (including the former next-review timestamp as inactive `historicalNextReviewAt`), clears every active `nextReviewAt`, converts legacy review/mastered records to `acquired`, adds exactly the new graph concepts as `unassessed`, advances revision exactly once, writes an owner-only HMAC audit, and atomically signs the v2 state.
+
+For the declared canonical revision-74 input, the expected target revision is 75 with 36 migrated legacy records and 48 new unassessed records. Confirm those counts from the signed output; do not assume them if the source digests do not match. A target state or audit already present, a repeated invocation, a mismatched digest, source drift, a signature failure, or a non-monotonic timestamp is a hard stop.
+
+This repository implementation does not itself run the live migration.
+
+## One-session operation
+
+`--dry-run` performs source/runtime preflight and freezes a signed control-plane plan without a model call. A real active worker may return:
+
+- `candidate_acquisition_delta`;
+- `candidate_lesson_and_acquisition_delta`;
+- `curriculum_frontier_reached`;
+- `structured_blocker`.
+
+`curriculum_frontier_reached` is an honest terminal result. It makes no model call, advances no acquisition revision, creates no lesson, schedules no review, and must not trigger a relaunch loop.
+
+The remote worker receives a signed plan but no HMAC secret. It emits generated exercises, raw call provenance, deterministic attempt records, optional failure-derived candidate evidence, a manifest, and an inert proposed delta. It cannot mutate signed acquisition state or the live registry.
+
+The harvester applies a delta only after exact independent replay of:
+
+1. safe regular-file manifest coverage, byte sizes, and SHA-256 values;
+2. source commit/tree, policy, curriculum, capsule, and base signed-state identities;
+3. the complete generated item and oracle digest;
+4. deterministic grading and score totals;
+5. exact provider/model/xhigh/read-only/no-tool runtime with positive provider-observed usage;
+6. genuine failure linkage and candidate schema/provenance when a candidate exists;
+7. identical-item fresh-session paired analysis and frozen thresholds when applicable;
+8. byte-equivalent reconstruction of the proposed v2 delta.
+
+Only then may the control plane atomically HMAC-sign the next revision. Exact run receipts make byte-identical reapplication idempotent and reject artifact substitution under a reused run ID.
+
+## Continuous supervisor
+
+For an operator-authorized bounded continuation:
 
 ```bash
 ./scripts/launch-adaptive-math-continuation.sh --dry-run
 ./scripts/launch-adaptive-math-continuation.sh
 ```
 
-The continuation supervisor remains on the control plane and launches only one detached Hetzner worker at a time. It waits for the independent harvester to replay and sign each result, then requires the canonical mastery revision to advance before launching the next session. Child notifications are disabled; a separate control-plane notifier reports the first terminal blocker. Default safety boundaries are 100 sessions, 24 hours total wall time, and four hours per child. `curriculum_currently_satisfied` is published as a temporal blocker with the next signed review time rather than becoming a busy loop.
+The supervisor stays on the control plane and launches one detached Hetzner child at a time. It records the child before waiting, resumes the same child after supervisor interruption, waits for independent replay/signing, and requires the signed acquisition revision to advance before another child.
 
-An owner may explicitly authorize one early practice review instead of waiting for the spacing deadline:
+Hard limits are:
 
-```bash
-./scripts/launch-live-math-training.sh --adaptive --early-review
-```
+- one active child;
+- no more than 100 sessions;
+- no more than 24 total wall-clock hours, measured from the persisted continuation start across resume;
+- no more than four hours per child;
+- stop on the first genuine blocker.
 
-`--early-review` is deliberately single-session and adaptive-only. Normal due reviews, repairs, acquisitions, and learning retries retain priority; only when the ordinary planner would otherwise return `curriculum_currently_satisfied` does it select the earliest future eligible review. The frozen HMAC-signed plan records `owner_authorized_early_review`, its authorization timestamp, single-session scope, and a truth boundary. Independent replay requires that exact directive. The result may advance signed mastery after normal evidence gates, but it must be reported as early practice—not as a due/overdue review or independent time-separated retention evidence. The default launcher remains time-gated when the flag is absent.
+It also stops on source drift, plan/replay failure, non-advancing state, missing state, infrastructure failure, or `curriculum_frontier_reached`. Per-child notifications stay suppressed; the independent control-plane notifier reports the terminal result.
 
-## Trust boundary
+## State interpretation
 
-The control plane owns `/root/.openclaw/cortex-learning-os/mastery.json`, its separate HMAC secret, and the signed live registry. The remote worker receives an HMAC-signed frozen plan containing the selected action, base revision/digest, policy/curriculum digests, source commit, seed, finite budgets, and runtime contract. It never receives the HMAC secret or authority to sign or mutate canonical state.
+Schema-v2 `acquired` means covered once. A pass or genuine correction creates no future review date. A failure enters `learning` and may create a bounded correction; a correction is not a review.
 
-The canonical launcher and checked-in policy both require reasoning `xhigh`. A signed plan may not weaken that effort or change provider, model, sandbox, or tool policy. The frozen plan binds provider `openai-codex`, model `gpt-5.6-sol`, `xhigh`, a read-only sandbox, and prohibited tool use. Returned call ledgers must contain the exact signed `model_reasoning_effort` and carry positive provider-observed usage.
-
-The worker can terminate with:
-
-- `candidate_mastery_delta`
-- `candidate_lesson_and_mastery_delta`
-- `curriculum_currently_satisfied`
-- `structured_blocker`
-
-The remote orchestration state exposes these as `candidate_adaptive` until the separate harvester copies the artifacts and runs `live-control.mjs adaptive-apply`. A verified `structured_blocker` is then published as `blocked`, never relabeled as completion.
-
-## Independent application
-
-`adaptive-apply` fails closed unless it can verify:
-
-1. exact bounded manifest coverage with safe regular paths, byte sizes, and SHA-256;
-2. source commit, policy digest, curriculum digest, and canonical mastery snapshot;
-3. deterministic regeneration of every item from concept, role, seed, family, parameters, and oracle digest;
-4. no-tool model provenance with positive usage and model-output/answer linkage;
-5. independently reproduced deterministic attempts, verifiers, scores, candidate prompt/output/schema checks, and fixed-template/answer-leakage rejection;
-6. identical-item fresh-session paired trials and the frozen exact McNemar/accuracy/lift/no-regression gates;
-7. byte-equivalent reconstruction of the worker's proposed delta.
-
-Canonical mastery is then replaced atomically in owner-only mode with a new HMAC signature. Each applied run binds its run ID to the exact returned manifest digest, so only a byte-identical retry is idempotent; a different artifact set reusing the run ID is rejected. A paired null result preserves evidence and may update verified exercise evidence, but installs no lesson. A threshold pass still installs no lesson when the concept lacks an approved live activation profile.
+Historical `lastReviewedAt`, inactive `historicalNextReviewAt`, and legacy review stage remain visible for audit, but do not affect active eligibility. Never relabel them as new retention evidence. Never describe `acquired` as mastered, retained, or a successful spaced review.
 
 ## Recovery
 
-Do not edit mastery or registry JSON manually. A signature mismatch, source mismatch, policy drift, rewritten manifest, replay mismatch, or exhausted budget is a structured blocker. Preserve the returned artifact directory and worker state for diagnosis. Rerunning `adaptive-apply` for an already applied run is safe; it does not advance mastery revision twice.
+Do not edit state, signatures, plans, manifests, raw call ledgers, audit artifacts, or historical run outcomes manually. Preserve the exact artifact directory and continuation state for diagnosis.
 
-Generated weighted-mean exercises accept either an exact fraction or a decimal accurate to at least nine places and are graded with deterministic absolute tolerance `1e-9`. Do not convert this back to strict binary-float equality: mathematically valid rounded decimals such as `7.6666666667` for `23/3` must pass, while materially inaccurate answers remain failures.
+A signature mismatch, source mismatch, policy/curriculum drift, malformed generator item, oracle mismatch, rewritten manifest, runtime/provenance/usage/tool failure, budget exhaustion, or state non-advance is a structured blocker. Fixing infrastructure does not authorize rewriting a completed outcome or rerunning a result for a preferred answer.
 
-If candidate synthesis exits unsuccessfully after a replayable observed failure, the worker preserves `candidate/model_call.json` and `candidate/model_prompt.txt` and lists them in the structured blocker's diagnostic evidence. Independent replay verifies the observed failure, exact prompt, signed model/reasoning/read-only runtime, no tool use, a nonzero worker exit or explicit launch error, and absence of fabricated candidate output. Preserve these files; do not rerun or rewrite the failed artifact to manufacture completion.
+Generated weighted-mean exercises continue to accept an exact fraction or a decimal within deterministic absolute tolerance `1e-9`. Failed candidate synthesis continues to preserve its exact prompt and raw call ledger for replay.
 
-The continuation state and per-run launch descriptors are owner-only artifacts under `/root/clawd/state/cortex-learning-os/continuations/` and `/root/clawd/artifacts/cortex-learning-os-continuations/`. The supervisor records the active child before waiting and can resume that same child after a supervisor process failure; it never launches a replacement while an existing child remains current. Do not delete or rewrite the child or continuation state to force progress.
+## Truth boundary
 
-Deterministic fake workers cover runtime and hostile replay paths without model calls. Real adaptive sessions are reported separately in canonical status and retain their exact signed runtime as historical evidence.
+Continuous acquisition records bounded model-call performance on named deterministic exercises. It does not make the model learn new weights, demonstrate durable retention, establish general math mastery, prove semantic coding transfer, or authorize a live lesson. Those claims remain separate and unproven unless their own gates are satisfied.

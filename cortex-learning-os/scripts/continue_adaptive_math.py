@@ -22,12 +22,12 @@ import tempfile
 import time
 from typing import Any
 
-SCHEMA = "cortex.learning_os.math_continuation.v1"
+SCHEMA = "cortex.learning_os.math_continuation.v2"
 SAFE_CONTINUATION = re.compile(r"^math-continuation-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}$")
 SAFE_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 CHILD_TERMINAL = {"blocked", "completed", "failed"}
-PROGRESS_ARTIFACTS = {"candidate_mastery_delta", "candidate_lesson_and_mastery_delta"}
-NO_DUE_ACTION = "curriculum_currently_satisfied"
+PROGRESS_ARTIFACTS = {"candidate_acquisition_delta", "candidate_lesson_and_acquisition_delta"}
+CURRICULUM_FRONTIER = "curriculum_frontier_reached"
 STOP_REQUESTED = False
 
 
@@ -87,18 +87,6 @@ def parse_launcher_output(raw: str) -> dict[str, Any]:
     raise ContinuationBlocker("launcher did not return a valid run descriptor")
 
 
-def earliest_future_review(mastery_path: Path) -> str | None:
-    mastery = read_json(mastery_path)
-    values = [
-        str(record.get("nextReviewAt"))
-        for record in (mastery.get("concepts") or {}).values()
-        if isinstance(record, dict) and record.get("nextReviewAt")
-    ]
-    now = utc_now()
-    future = sorted(value for value in values if value > now)
-    return future[0] if future else None
-
-
 def evaluate_child(child: dict[str, Any], before_revision: int) -> tuple[str, str | None, int]:
     status = str(child.get("status") or "")
     reason = str(child.get("reason") or "child state supplied no reason")
@@ -107,15 +95,17 @@ def evaluate_child(child: dict[str, Any], before_revision: int) -> tuple[str, st
     if status != "completed":
         raise ContinuationBlocker(f"unexpected terminal child status: {status!r}")
     artifact_status = str(child.get("adaptiveArtifactStatus") or "")
-    revision = child.get("masteryRevision")
+    revision = child.get("acquisitionRevision")
     if not isinstance(revision, int) or revision < 0:
-        raise ContinuationBlocker("completed child state has no valid mastery revision")
-    if artifact_status == NO_DUE_ACTION:
-        return "no_due_action", None, revision
+        raise ContinuationBlocker("completed child state has no valid acquisition revision")
+    if artifact_status == CURRICULUM_FRONTIER:
+        if revision != before_revision:
+            raise ContinuationBlocker("curriculum frontier unexpectedly changed acquisition state")
+        return "frontier", None, revision
     if artifact_status not in PROGRESS_ARTIFACTS:
         return "blocked", f"unsupported completed adaptive artifact status: {artifact_status or 'missing'}", revision
     if revision <= before_revision:
-        return "blocked", f"adaptive child made no canonical mastery progress: revision {before_revision} -> {revision}", revision
+        return "blocked", f"adaptive child made no canonical acquisition progress: revision {before_revision} -> {revision}", revision
     return "continue", None, revision
 
 
@@ -132,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-root", default="/root/.openclaw/cortex-learning-os", type=Path)
     parser.add_argument("--launcher", default="/root/clawd/cortex-learning-os/scripts/launch-live-math-training.sh", type=Path)
     parser.add_argument("--live-control", default="/root/clawd/cortex-learning-os/src/live-control.mjs", type=Path)
-    parser.add_argument("--mastery", default="/root/.openclaw/cortex-learning-os/mastery.json", type=Path)
+    parser.add_argument("--acquisition-state", default="/root/.openclaw/cortex-learning-os/mastery.json", type=Path)
     parser.add_argument("--source-marker", default="/root/clawd/CORTEX_LEARNING_OS_SOURCE_COMMIT", type=Path)
     parser.add_argument("--repo-root", default="/root/clawd", type=Path)
     parser.add_argument("--ssh-host", default="root@37.27.129.239")
@@ -151,12 +141,14 @@ def validate_arguments(args: argparse.Namespace) -> None:
         raise ContinuationBlocker("invalid continuation id")
     if not args.launcher.is_file() or not os.access(args.launcher, os.X_OK):
         raise ContinuationBlocker("canonical launcher is missing or not executable")
-    if not args.live_control.is_file() or not args.mastery.is_file() or not args.source_marker.is_file():
+    if not args.live_control.is_file() or not args.acquisition_state.is_file() or not args.source_marker.is_file():
         raise ContinuationBlocker("canonical control-plane inputs are incomplete")
-    if args.max_sessions < 1 or args.max_sessions > 500:
-        raise ContinuationBlocker("max sessions must be between 1 and 500")
-    if args.child_timeout_seconds < 60 or args.max_wall_seconds < 300:
-        raise ContinuationBlocker("continuation timeouts are too small")
+    if args.max_sessions < 1 or args.max_sessions > 100:
+        raise ContinuationBlocker("max sessions must be between 1 and the hard cap of 100")
+    if args.child_timeout_seconds < 60 or args.child_timeout_seconds > 14_400:
+        raise ContinuationBlocker("child timeout must be between 60 seconds and the four-hour hard cap")
+    if args.max_wall_seconds < 300 or args.max_wall_seconds > 86_400:
+        raise ContinuationBlocker("wall timeout must be between 300 seconds and the 24-hour hard cap")
     if not re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+", args.ssh_host):
         raise ContinuationBlocker("unsafe SSH host")
     if not re.fullmatch(r"/[A-Za-z0-9._/-]+", args.remote_repo):
@@ -183,8 +175,8 @@ def verify_boundary(args: argparse.Namespace, expected_commit: str) -> dict[str,
     verified = json.loads(run([
         "node", str(args.live_control), "verify", "--state-root", str(args.state_root),
     ], timeout=60).stdout)
-    if verified.get("signatureValid") is not True or verified.get("mastery", {}).get("signatureValid") is not True:
-        raise ContinuationBlocker("canonical registry or mastery signature verification failed")
+    if verified.get("signatureValid") is not True or verified.get("acquisitionState", {}).get("signatureValid") is not True:
+        raise ContinuationBlocker("canonical registry or acquisition-state signature verification failed")
     return verified
 
 
@@ -200,8 +192,25 @@ def launch_descriptor(args: argparse.Namespace, *, dry_run: bool) -> dict[str, A
     return parse_launcher_output(result.stdout)
 
 
-def wait_for_child(path: Path, *, poll_seconds: float, timeout_seconds: float) -> dict[str, Any]:
-    started = time.monotonic()
+def elapsed_since(timestamp: str) -> float:
+    try:
+        started = dt.datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ContinuationBlocker("persisted continuation timestamp is invalid") from error
+    if started.tzinfo is None:
+        raise ContinuationBlocker("persisted continuation timestamp lacks a timezone")
+    return (dt.datetime.now(dt.timezone.utc) - started).total_seconds()
+
+
+def wait_for_child(
+    path: Path,
+    *,
+    poll_seconds: float,
+    timeout_seconds: float,
+    launched_at: str,
+    continuation_started_at: str,
+    max_wall_seconds: float,
+) -> dict[str, Any]:
     while True:
         if STOP_REQUESTED:
             raise ContinuationBlocker("operator or service stop signal received")
@@ -209,7 +218,9 @@ def wait_for_child(path: Path, *, poll_seconds: float, timeout_seconds: float) -
             child = read_json(path)
             if child.get("status") in CHILD_TERMINAL:
                 return child
-        if time.monotonic() - started > timeout_seconds:
+        if elapsed_since(continuation_started_at) > max_wall_seconds:
+            raise ContinuationBlocker(f"continuation reached the {max_wall_seconds:g}-second wall-time safety boundary")
+        if elapsed_since(launched_at) > timeout_seconds:
             raise ContinuationBlocker(f"child run timed out before a terminal control-plane state: {path.name}")
         time.sleep(max(1.0, poll_seconds))
 
@@ -226,23 +237,32 @@ def initial_state(args: argparse.Namespace, commit: str, revision: int) -> dict[
         "startedAt": now,
         "updatedAt": now,
         "artifactRoot": str(args.artifact_root),
-        "initialMasteryRevision": revision,
-        "currentMasteryRevision": revision,
+        "initialAcquisitionRevision": revision,
+        "currentAcquisitionRevision": revision,
         "sessionsStarted": 0,
         "sessionsCompleted": 0,
         "maxSessions": args.max_sessions,
         "maxWallSeconds": args.max_wall_seconds,
+        "childTimeoutSeconds": args.child_timeout_seconds,
         "currentRunId": None,
         "runs": [],
         "placement": {
             "controlPlane": "lightweight supervisor, independent harvester, and notifier",
             "executionPlane": "Hetzner detached Codex worker",
         },
-        "truthBoundary": "Each child must pass independent control-plane replay before canonical mastery can advance.",
+        "reviewSelectionEnabled": False,
+        "truthBoundary": "Each child must pass independent control-plane replay before covered-once acquisition state can advance. This does not prove retention, mastery, or model-weight learning.",
     }
 
 
-def terminalize(args: argparse.Namespace, state: dict[str, Any], *, status: str, reason: str) -> None:
+def terminalize(
+    args: argparse.Namespace,
+    state: dict[str, Any],
+    *,
+    status: str,
+    reason: str,
+    terminal_result: str | None = None,
+) -> None:
     state.update({
         "status": status,
         "reason": reason[:3000],
@@ -250,6 +270,8 @@ def terminalize(args: argparse.Namespace, state: dict[str, Any], *, status: str,
         "updatedAt": utc_now(),
         "finishedAt": utc_now(),
     })
+    if terminal_result is not None:
+        state["terminalResult"] = terminal_result
     atomic_write_json(args.state_file, state)
 
 
@@ -267,10 +289,10 @@ def main(argv: list[str] | None = None) -> int:
         raise ContinuationBlocker("another math continuation supervisor holds the state lock") from error
 
     commit = source_commit(args)
-    current_mastery = read_json(args.mastery)
-    revision = current_mastery.get("revision")
+    current_acquisition = read_json(args.acquisition_state)
+    revision = current_acquisition.get("revision")
     if not isinstance(revision, int) or revision < 0:
-        raise ContinuationBlocker("canonical mastery revision is invalid")
+        raise ContinuationBlocker("canonical acquisition revision is invalid")
 
     if args.state_file.exists():
         if not args.resume:
@@ -280,6 +302,10 @@ def main(argv: list[str] | None = None) -> int:
             raise ContinuationBlocker("resume state identity mismatch")
         if state.get("sourceCommit") != commit:
             raise ContinuationBlocker("resume source commit drift")
+        if (state.get("maxSessions") != args.max_sessions
+                or state.get("maxWallSeconds") != args.max_wall_seconds
+                or state.get("childTimeoutSeconds") != args.child_timeout_seconds):
+            raise ContinuationBlocker("resume safety boundary drift")
         if state.get("status") in {"blocked", "completed"}:
             print(json.dumps(state, indent=2, sort_keys=True))
             return 0
@@ -295,6 +321,8 @@ def main(argv: list[str] | None = None) -> int:
         raise ContinuationBlocker("launcher dry-run did not bind the canonical source commit")
     if dry_descriptor.get("workerRuntime", {}).get("serviceUser") != "jake":
         raise ContinuationBlocker("launcher dry-run did not bind the remote service user")
+    if dry_descriptor.get("reviewSelectionEnabled") is not False:
+        raise ContinuationBlocker("launcher dry-run did not disable review selection")
     if args.dry_run:
         state.update({"status": "ready", "reason": "no-call continuation preflight passed", "updatedAt": utc_now()})
         atomic_write_json(args.state_file, state)
@@ -303,13 +331,12 @@ def main(argv: list[str] | None = None) -> int:
 
     state.update({"status": "running", "reason": "adaptive continuation is active", "updatedAt": utc_now()})
     atomic_write_json(args.state_file, state)
-    wall_started = time.monotonic()
-
     try:
         while True:
             if STOP_REQUESTED:
                 raise ContinuationBlocker("operator or service stop signal received")
-            if time.monotonic() - wall_started > args.max_wall_seconds:
+            elapsed = elapsed_since(str(state["startedAt"]))
+            if elapsed > args.max_wall_seconds:
                 raise ContinuationBlocker(f"continuation reached the {args.max_wall_seconds:g}-second wall-time safety boundary")
             if not state.get("currentRunId") and int(state["sessionsStarted"]) >= args.max_sessions:
                 raise ContinuationBlocker(f"continuation reached the {args.max_sessions}-session safety boundary")
@@ -323,11 +350,11 @@ def main(argv: list[str] | None = None) -> int:
                 if len(matching) != 1 or matching[0].get("status") != "running":
                     raise ContinuationBlocker("resume state has an invalid current child run")
                 run_record = matching[0]
-                before_revision = run_record.get("beforeMasteryRevision")
+                before_revision = run_record.get("beforeAcquisitionRevision")
                 if not isinstance(before_revision, int) or before_revision < 0:
-                    raise ContinuationBlocker("resume child has an invalid starting mastery revision")
+                    raise ContinuationBlocker("resume child has an invalid starting acquisition revision")
             else:
-                before_revision = int(state["currentMasteryRevision"])
+                before_revision = int(state["currentAcquisitionRevision"])
                 descriptor = launch_descriptor(args, dry_run=False)
                 run_id = str(descriptor.get("runId") or "")
                 if not re.fullmatch(r"math-training-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}", run_id):
@@ -339,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
                     "runId": run_id,
                     "status": "running",
                     "launchedAt": utc_now(),
-                    "beforeMasteryRevision": before_revision,
+                    "beforeAcquisitionRevision": before_revision,
                     "remoteState": descriptor.get("remoteState"),
                 }
                 state["runs"].append(run_record)
@@ -349,30 +376,39 @@ def main(argv: list[str] | None = None) -> int:
                 atomic_write_json(args.state_file, state)
 
             child_path = args.state_root / "training" / f"{run_id}.json"
-            child = wait_for_child(child_path, poll_seconds=args.poll_seconds, timeout_seconds=args.child_timeout_seconds)
+            child = wait_for_child(
+                child_path,
+                poll_seconds=args.poll_seconds,
+                timeout_seconds=args.child_timeout_seconds,
+                launched_at=str(run_record.get("launchedAt") or ""),
+                continuation_started_at=str(state["startedAt"]),
+                max_wall_seconds=args.max_wall_seconds,
+            )
             action, reason, after_revision = evaluate_child(child, before_revision)
             run_record.update({
                 "status": child.get("status"),
                 "completedAt": child.get("updatedAt") or utc_now(),
-                "afterMasteryRevision": after_revision,
+                "afterAcquisitionRevision": after_revision,
                 "adaptiveArtifactStatus": child.get("adaptiveArtifactStatus"),
                 "reason": child.get("reason"),
                 "controlPlaneArtifactRoot": child.get("controlPlaneArtifactRoot"),
             })
             state["sessionsCompleted"] = int(state["sessionsCompleted"]) + 1
-            state["currentMasteryRevision"] = after_revision
+            state["currentAcquisitionRevision"] = after_revision
             state["currentRunId"] = None
             state["updatedAt"] = utc_now()
             atomic_write_json(args.state_file, state)
 
             if action == "continue":
                 continue
-            if action == "no_due_action":
-                next_review = earliest_future_review(args.mastery)
-                detail = "adaptive planner has no currently due curriculum action"
-                if next_review:
-                    detail += f"; next signed review is due {next_review}"
-                terminalize(args, state, status="blocked", reason=detail)
+            if action == "frontier":
+                terminalize(
+                    args,
+                    state,
+                    status="completed",
+                    reason="all declared acquisition concepts are exhausted; no review or fabricated lesson was scheduled",
+                    terminal_result=CURRICULUM_FRONTIER,
+                )
                 print(json.dumps(state, indent=2, sort_keys=True))
                 return 0
             terminalize(args, state, status="blocked", reason=reason or "child run blocked")

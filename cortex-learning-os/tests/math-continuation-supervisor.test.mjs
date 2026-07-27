@@ -14,7 +14,7 @@ test('detached adaptive-math continuation supervisor preserves execution and tru
     timeout: 30_000,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stderr, /Ran 5 tests/);
+  assert.match(result.stderr, /Ran 7 tests/);
   assert.match(result.stderr, /OK/);
 
   const launcherPath = path.join(root, 'scripts/launch-adaptive-math-continuation.sh');

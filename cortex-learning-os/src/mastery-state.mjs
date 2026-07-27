@@ -4,12 +4,15 @@ import path from 'node:path';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { validateCurriculumGraph } from './curriculum-planner.mjs';
-import { policyDigest } from './adaptive-policy.mjs';
+import { isContinuousAcquisitionPolicy, policyDigest } from './adaptive-policy.mjs';
 
-export const MASTERY_SCHEMA = 'cortex.learning_os.mastery_state.v1';
+export const LEGACY_MASTERY_SCHEMA = 'cortex.learning_os.mastery_state.v1';
+export const MASTERY_SCHEMA = 'cortex.learning_os.mastery_state.v2';
 export const MASTERY_SIGNATURE_ALGORITHM = 'hmac-sha256';
-const STATES = new Set(['unassessed', 'learning', 'review', 'mastered', 'lapsed', 'blocked_prerequisite']);
-const ROLES = new Set(['acquisition', 'correction', 'promotion-transfer', 'held-out', 'spaced-review']);
+const LEGACY_STATES = new Set(['unassessed', 'learning', 'review', 'mastered', 'lapsed', 'blocked_prerequisite']);
+const CONTINUOUS_STATES = new Set(['unassessed', 'learning', 'acquired', 'blocked_prerequisite']);
+const LEGACY_ROLES = new Set(['acquisition', 'correction', 'promotion-transfer', 'held-out', 'spaced-review']);
+const CONTINUOUS_ROLES = new Set(['acquisition', 'correction']);
 
 function unsigned(state) {
   const { signature: _signature, ...value } = state;
@@ -20,7 +23,7 @@ function keyId(secret) {
   return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16);
 }
 
-function defaultConcept() {
+export function defaultContinuousConcept() {
   return {
     state: 'unassessed',
     attempts: 0,
@@ -28,29 +31,47 @@ function defaultConcept() {
     failures: 0,
     consecutivePasses: 0,
     consecutiveFailures: 0,
-    reviewStage: 0,
+    historicalReviewStage: 0,
     lastAttemptedAt: null,
     lastReviewedAt: null,
+    historicalNextReviewAt: null,
     nextReviewAt: null,
+    acquiredAt: null,
     lastEvidenceDigest: null,
     lastRunId: null,
   };
 }
 
+function defaultLegacyConcept() {
+  const record = defaultContinuousConcept();
+  const {
+    historicalReviewStage: _historicalReviewStage,
+    historicalNextReviewAt: _historicalNextReviewAt,
+    acquiredAt: _acquiredAt,
+    ...legacy
+  } = record;
+  return { ...legacy, reviewStage: 0 };
+}
+
 export function createMasteryState({ graph, policy, now = new Date().toISOString() } = {}) {
   const validation = validateCurriculumGraph(graph);
   if (!validation.ok) throw new Error(`invalid curriculum graph: ${validation.errors.join('; ')}`);
+  const continuous = isContinuousAcquisitionPolicy(policy);
   return {
-    schemaVersion: MASTERY_SCHEMA,
+    schemaVersion: continuous ? MASTERY_SCHEMA : LEGACY_MASTERY_SCHEMA,
     revision: 0,
     curriculumId: graph.curriculumId,
     capsuleId: graph.capsuleId,
     policyDigest: policyDigest(policy),
     updatedAt: now,
-    concepts: Object.fromEntries(validation.topologicalOrder.map((id) => [id, defaultConcept()])),
+    concepts: Object.fromEntries(validation.topologicalOrder.map((id) => [
+      id,
+      continuous ? defaultContinuousConcept() : defaultLegacyConcept(),
+    ])),
     pendingRepairs: [],
     appliedRunIds: [],
     appliedRunReceipts: [],
+    ...(continuous ? { migration: null } : {}),
   };
 }
 
@@ -70,7 +91,9 @@ export function signMasteryState(state, secret) {
 export function validateMasteryState(state, { graph, policy } = {}) {
   const errors = [];
   if (!state || typeof state !== 'object' || Array.isArray(state)) return { ok: false, errors: ['mastery state must be an object'] };
-  if (state.schemaVersion !== MASTERY_SCHEMA) errors.push('invalid mastery schemaVersion');
+  const continuous = isContinuousAcquisitionPolicy(policy);
+  const expectedSchema = continuous ? MASTERY_SCHEMA : LEGACY_MASTERY_SCHEMA;
+  if (state.schemaVersion !== expectedSchema) errors.push('invalid mastery schemaVersion for policy');
   if (!Number.isSafeInteger(state.revision) || state.revision < 0) errors.push('invalid revision');
   if (state.curriculumId !== graph?.curriculumId || state.capsuleId !== graph?.capsuleId) errors.push('mastery scope mismatch');
   if (state.policyDigest !== policyDigest(policy)) errors.push('mastery policy drift');
@@ -79,14 +102,29 @@ export function validateMasteryState(state, { graph, policy } = {}) {
   if (!state.concepts || typeof state.concepts !== 'object' || Array.isArray(state.concepts)
       || Object.keys(state.concepts).length !== ids.size || Object.keys(state.concepts).some((id) => !ids.has(id))) errors.push('mastery concept set mismatch');
   for (const [id, record] of Object.entries(state.concepts || {})) {
-    if (!record || !STATES.has(record.state)) errors.push(`invalid state: ${id}`);
-    for (const field of ['attempts', 'passes', 'failures', 'consecutivePasses', 'consecutiveFailures', 'reviewStage']) {
+    const states = continuous ? CONTINUOUS_STATES : LEGACY_STATES;
+    if (!record || !states.has(record.state)) errors.push(`invalid state: ${id}`);
+    const integerFields = [
+      'attempts', 'passes', 'failures', 'consecutivePasses', 'consecutiveFailures',
+      continuous ? 'historicalReviewStage' : 'reviewStage',
+    ];
+    for (const field of integerFields) {
       if (!Number.isSafeInteger(record?.[field]) || record[field] < 0) errors.push(`invalid ${id}.${field}`);
     }
     if (record && record.attempts !== record.passes + record.failures) errors.push(`attempt count mismatch: ${id}`);
-    if (record && record.reviewStage >= policy.spacingDays.length) errors.push(`review stage outside policy: ${id}`);
-    for (const field of ['lastAttemptedAt', 'lastReviewedAt', 'nextReviewAt']) {
+    if (!continuous && record && record.reviewStage >= policy.spacingDays.length) errors.push(`review stage outside policy: ${id}`);
+    const timestampFields = continuous
+      ? ['lastAttemptedAt', 'lastReviewedAt', 'historicalNextReviewAt', 'nextReviewAt']
+      : ['lastAttemptedAt', 'lastReviewedAt', 'nextReviewAt'];
+    for (const field of timestampFields) {
       if (record?.[field] !== null && !Number.isFinite(Date.parse(String(record?.[field] || '')))) errors.push(`invalid ${id}.${field}`);
+    }
+    if (continuous) {
+      if (record?.nextReviewAt !== null) errors.push(`active review schedule is forbidden: ${id}`);
+      if (record?.acquiredAt !== null && !Number.isFinite(Date.parse(String(record?.acquiredAt || '')))) errors.push(`invalid ${id}.acquiredAt`);
+      if (record?.state === 'acquired' && (record.passes < 1 || record.consecutivePasses < 1 || record.acquiredAt === null)) {
+        errors.push(`acquired state lacks covered-once pass evidence: ${id}`);
+      }
     }
     if (record?.lastEvidenceDigest !== null && !/^[0-9a-f]{64}$/.test(String(record?.lastEvidenceDigest || ''))) errors.push(`invalid ${id}.lastEvidenceDigest`);
     if (record?.lastRunId !== null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(record?.lastRunId || ''))) errors.push(`invalid ${id}.lastRunId`);
@@ -102,6 +140,24 @@ export function validateMasteryState(state, { graph, policy } = {}) {
       || new Set((state.appliedRunReceipts || []).map((row) => row?.runId)).size !== state.appliedRunReceipts?.length
       || (state.appliedRunReceipts || []).some((row) => !state.appliedRunIds?.includes(row?.runId)
         || !/^[0-9a-f]{64}$/.test(String(row?.artifactManifestDigest || '')))) errors.push('invalid appliedRunReceipts');
+  if (continuous) {
+    if (!Object.hasOwn(state, 'migration')) errors.push('continuous mastery state must declare migration');
+    if (state.migration !== null) {
+      const migration = state.migration;
+      if (!migration || migration.schemaVersion !== 'cortex.learning_os.mastery_migration_receipt.v1'
+          || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(migration.migrationId || ''))
+          || !Number.isSafeInteger(migration.sourceRevision) || migration.sourceRevision < 0
+          || migration.targetRevision !== state.revision
+          || !/^[0-9a-f]{64}$/.test(String(migration.sourceStateDigest || ''))
+          || !/^[0-9a-f]{64}$/.test(String(migration.sourcePolicyDigest || ''))
+          || !/^[0-9a-f]{64}$/.test(String(migration.sourceCurriculumDigest || ''))
+          || !/^[0-9a-f]{64}$/.test(String(migration.targetPolicyDigest || ''))
+          || !/^[0-9a-f]{64}$/.test(String(migration.targetCurriculumDigest || ''))
+          || !Number.isFinite(Date.parse(String(migration.migratedAt || '')))) {
+        errors.push('invalid continuous mastery migration receipt');
+      }
+    }
+  }
   return { ok: errors.length === 0, errors };
 }
 
@@ -125,7 +181,11 @@ function plusDays(timestamp, days) {
 export function applyMasteryDelta({ state, delta, graph, policy, artifactManifestDigest } = {}) {
   const validation = validateMasteryState(state, { graph, policy });
   if (!validation.ok) throw new Error(`invalid mastery state: ${validation.errors.join('; ')}`);
-  if (!delta || delta.schemaVersion !== 'cortex.learning_os.mastery_delta.v1') throw new Error('invalid mastery delta schemaVersion');
+  const continuous = isContinuousAcquisitionPolicy(policy);
+  const expectedDeltaSchema = continuous
+    ? 'cortex.learning_os.mastery_delta.v2'
+    : 'cortex.learning_os.mastery_delta.v1';
+  if (!delta || delta.schemaVersion !== expectedDeltaSchema) throw new Error('invalid mastery delta schemaVersion');
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(delta.runId || ''))) throw new Error('invalid delta runId');
   if (!/^[0-9a-f]{64}$/.test(String(artifactManifestDigest || ''))) throw new Error('invalid adaptive artifact manifest digest');
   const existingReceipt = state.appliedRunReceipts.find((row) => row.runId === delta.runId);
@@ -150,7 +210,8 @@ export function applyMasteryDelta({ state, delta, graph, policy, artifactManifes
   let priorTimestamp = Date.parse(state.updatedAt);
   for (const event of delta.events) {
     const record = concepts[event.conceptId];
-    if (!record || typeof event.passed !== 'boolean' || !ROLES.has(event.role)
+    const roles = continuous ? CONTINUOUS_ROLES : LEGACY_ROLES;
+    if (!record || typeof event.passed !== 'boolean' || !roles.has(event.role)
         || !Number.isFinite(Date.parse(String(event.completedAt || '')))
         || Date.parse(event.completedAt) < priorTimestamp
         || !/^[0-9a-f]{64}$/.test(String(event.evidenceDigest || ''))) throw new Error('invalid mastery event');
@@ -163,21 +224,33 @@ export function applyMasteryDelta({ state, delta, graph, policy, artifactManifes
       record.passes += 1;
       record.consecutivePasses += 1;
       record.consecutiveFailures = 0;
-      if (event.role === 'spaced-review') {
-        record.lastReviewedAt = event.completedAt;
-        record.reviewStage = Math.min(record.reviewStage + 1, policy.spacingDays.length - 1);
+      if (continuous) {
+        record.state = 'acquired';
+        record.acquiredAt = event.completedAt;
+        record.nextReviewAt = null;
+      } else {
+        if (event.role === 'spaced-review') {
+          record.lastReviewedAt = event.completedAt;
+          record.reviewStage = Math.min(record.reviewStage + 1, policy.spacingDays.length - 1);
+        }
+        record.state = record.reviewStage >= policy.spacingDays.length - 1 ? 'mastered' : 'review';
+        record.nextReviewAt = plusDays(event.completedAt, policy.spacingDays[record.reviewStage]);
       }
-      record.state = record.reviewStage >= policy.spacingDays.length - 1 ? 'mastered' : 'review';
-      record.nextReviewAt = plusDays(event.completedAt, policy.spacingDays[record.reviewStage]);
       pendingRepairs = pendingRepairs.filter((row) => row.failedConceptId !== event.conceptId);
     } else {
       record.failures += 1;
       record.consecutivePasses = 0;
       record.consecutiveFailures += 1;
-      const wasReview = event.role === 'spaced-review' || ['review', 'mastered'].includes(record.state);
-      record.state = wasReview ? 'lapsed' : 'learning';
-      if (wasReview) record.reviewStage = policy.lapse.resetReviewStage;
-      record.nextReviewAt = policy.lapse.scheduleImmediateRepair ? event.completedAt : null;
+      if (continuous) {
+        record.state = 'learning';
+        record.acquiredAt = null;
+        record.nextReviewAt = null;
+      } else {
+        const wasReview = event.role === 'spaced-review' || ['review', 'mastered'].includes(record.state);
+        record.state = wasReview ? 'lapsed' : 'learning';
+        if (wasReview) record.reviewStage = policy.lapse.resetReviewStage;
+        record.nextReviewAt = policy.lapse.scheduleImmediateRepair ? event.completedAt : null;
+      }
       pendingRepairs = [
         ...pendingRepairs.filter((row) => row.failedConceptId !== event.conceptId),
         { failedConceptId: event.conceptId, evidenceDigest: event.evidenceDigest, runId: delta.runId },

@@ -5,7 +5,15 @@ import { sha256Text } from './hash.mjs';
 import { CLOS_ROOT } from './paths.mjs';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 
-export const DEFAULT_ADAPTIVE_POLICY_PATH = path.join(CLOS_ROOT, 'policies/adaptive-math-v0.8.json');
+export const LEGACY_ADAPTIVE_POLICY_PATH = path.join(CLOS_ROOT, 'policies/adaptive-math-v0.8.json');
+export const CONTINUOUS_ADAPTIVE_POLICY_PATH = path.join(CLOS_ROOT, 'policies/adaptive-math-continuous-v1.json');
+export const DEFAULT_ADAPTIVE_POLICY_PATH = CONTINUOUS_ADAPTIVE_POLICY_PATH;
+export const LEGACY_CURRICULUM_GRAPH_PATH = path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json');
+export const CONTINUOUS_CURRICULUM_GRAPH_PATH = path.join(
+  CLOS_ROOT,
+  'capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json',
+);
+export const DEFAULT_CURRICULUM_GRAPH_PATH = CONTINUOUS_CURRICULUM_GRAPH_PATH;
 const RUNTIME_KEYS = ['model', 'provider', 'sandbox', 'thinking', 'toolsAllowed'];
 const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
@@ -28,16 +36,32 @@ export function validateAdaptivePlanRuntime(policy, runtime) {
     && REASONING_EFFORTS.indexOf(runtime.thinking) >= REASONING_EFFORTS.indexOf(baseline?.thinking);
 }
 
+export function isContinuousAcquisitionPolicy(policy) {
+  return policy?.schemaVersion === 'cortex.learning_os.adaptive_policy.v2'
+    && policy?.mode === 'continuous_acquisition';
+}
+
 export function validateAdaptivePolicy(policy) {
   const errors = [];
   if (!isRecord(policy)) return { ok: false, errors: ['policy must be an object'] };
-  if (policy.schemaVersion !== 'cortex.learning_os.adaptive_policy.v1') errors.push('invalid policy schemaVersion');
+  const legacy = policy.schemaVersion === 'cortex.learning_os.adaptive_policy.v1';
+  const continuous = isContinuousAcquisitionPolicy(policy);
+  if (!legacy && !continuous) errors.push('invalid policy schemaVersion or mode');
   for (const field of ['policyId', 'curriculumId', 'capsuleId']) {
     if (typeof policy[field] !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(policy[field])) errors.push(`invalid ${field}`);
   }
-  if (!Array.isArray(policy.spacingDays) || policy.spacingDays.length !== 5
-      || policy.spacingDays.some((value, index) => !Number.isInteger(value) || value < 0 || (index > 0 && value <= policy.spacingDays[index - 1]))) {
-    errors.push('spacingDays must be [0, increasing positive stages]');
+  if (legacy) {
+    if (!Array.isArray(policy.spacingDays) || policy.spacingDays.length !== 5
+        || policy.spacingDays.some((value, index) => !Number.isInteger(value) || value < 0 || (index > 0 && value <= policy.spacingDays[index - 1]))) {
+      errors.push('spacingDays must be [0, increasing positive stages]');
+    }
+  } else if (continuous) {
+    if (!isRecord(policy.reviewSelection)
+        || policy.reviewSelection.enabled !== false
+        || policy.reviewSelection.scheduleNewReviews !== false
+        || policy.reviewSelection.rejectEarlyReview !== true) {
+      errors.push('continuous policy must permanently disable review selection and scheduling');
+    }
   }
   const budgets = policy.budgets;
   for (const [field, minimum, maximum] of [
@@ -59,15 +83,25 @@ export function validateAdaptivePolicy(policy) {
     errors.push('invalid pairedEvaluation.maximumNoCandidateOnlyRegressions');
   }
   if (!Array.isArray(policy.prerequisiteGate?.allowedStates)
-      || policy.prerequisiteGate.allowedStates.some((state) => !['review', 'mastered'].includes(state))) errors.push('invalid prerequisiteGate.allowedStates');
+      || policy.prerequisiteGate.allowedStates.length < 1
+      || policy.prerequisiteGate.allowedStates.some((state) => !(legacy ? ['review', 'mastered'] : ['acquired']).includes(state))) {
+    errors.push('invalid prerequisiteGate.allowedStates');
+  }
+  if (continuous && canonicalJson(policy.prerequisiteGate?.allowedStates) !== canonicalJson(['acquired'])) {
+    errors.push('continuous prerequisite gate must allow only acquired state');
+  }
   if (!Number.isInteger(policy.prerequisiteGate?.minimumConsecutivePasses)
       || policy.prerequisiteGate.minimumConsecutivePasses < 1 || policy.prerequisiteGate.minimumConsecutivePasses > 10) {
     errors.push('invalid prerequisiteGate.minimumConsecutivePasses');
   }
-  if (typeof policy.prerequisiteGate?.overduePassesGate !== 'boolean') errors.push('invalid prerequisiteGate.overduePassesGate');
-  if (!Number.isInteger(policy.lapse?.resetReviewStage) || policy.lapse.resetReviewStage < 0
-      || policy.lapse.resetReviewStage >= policy.spacingDays?.length) errors.push('invalid lapse.resetReviewStage');
-  if (typeof policy.lapse?.scheduleImmediateRepair !== 'boolean') errors.push('invalid lapse.scheduleImmediateRepair');
+  if (legacy) {
+    if (typeof policy.prerequisiteGate?.overduePassesGate !== 'boolean') errors.push('invalid prerequisiteGate.overduePassesGate');
+    if (!Number.isInteger(policy.lapse?.resetReviewStage) || policy.lapse.resetReviewStage < 0
+        || policy.lapse.resetReviewStage >= policy.spacingDays?.length) errors.push('invalid lapse.resetReviewStage');
+    if (typeof policy.lapse?.scheduleImmediateRepair !== 'boolean') errors.push('invalid lapse.scheduleImmediateRepair');
+  } else if (continuous && policy.prerequisiteGate?.ignoreHistoricalReviewSchedule !== true) {
+    errors.push('continuous prerequisite gate must ignore historical review schedules');
+  }
   const runtime = policy.modelRuntime;
   if (runtime?.provider !== 'openai-codex' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(runtime?.model || ''))
       || !REASONING_EFFORTS.includes(runtime?.thinking)

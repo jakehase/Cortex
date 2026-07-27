@@ -206,6 +206,219 @@ const CATALOG = {
     const a = v.int(0, 2, 8); const b = v.int(1, 2, 8); const c = v.int(2, 2, 8);
     return exact(`Compute det([[${a},1,2],[0,${b},3],[0,0,${c}]]).`, a * b * c, { a, b, c });
   },
+  'algebra-polynomial-arithmetic': (v) => {
+    const a = v.int(0, -8, 8); const b = v.int(1, -8, 8); const c = v.int(2, -8, 8);
+    return exact(`What is the coefficient of x in (${a}x² ${b < 0 ? '-' : '+'} ${Math.abs(b)}x + 3) + (${c}x - 5)?`, b + c, { a, b, c });
+  },
+  'algebra-rational-expressions': (v) => {
+    const a = v.int(0, 2, 9); let x = v.int(1, -8, 12);
+    if (x === a) x += 1;
+    return exact(`Evaluate exactly at x=${x}: (x²-${a ** 2})/(x-${a}).`, x + a, { a, x });
+  },
+  'algebra-complex-numbers': (v) => {
+    const a = v.int(0, -7, 7); const b = v.int(1, -7, 7);
+    return exact(`What is the real part of (${a}+i)(${b}-i)?`, a * b + 1, { a, b });
+  },
+  'functions-composition': (v) => {
+    const a = v.int(0, 2, 7); const b = v.int(1, -8, 8); const c = v.int(2, -6, 6); const x = v.int(3, -5, 5);
+    return exact(`Let f(t)=${a}t ${b < 0 ? '-' : '+'} ${Math.abs(b)} and g(t)=t ${c < 0 ? '-' : '+'} ${Math.abs(c)}. Compute (f∘g)(${x}).`, a * (x + c) + b, { a, b, c, x });
+  },
+  'functions-polynomial-behavior': (v) => {
+    const even = v.int(0, 0, 1) === 0; const positive = v.int(1, 0, 1) === 0;
+    const expected = even ? (positive ? 'A' : 'B') : (positive ? 'C' : 'D');
+    return choice(
+      `A polynomial has ${even ? 'even' : 'odd'} degree and a ${positive ? 'positive' : 'negative'} leading coefficient. Which end behavior is correct? A: both ends up; B: both ends down; C: left down/right up; D: left up/right down.`,
+      expected,
+      { even, positive },
+    );
+  },
+  'precalculus-exponential-functions': (v) => {
+    const base = v.int(0, 2, 5); const exponent = v.int(1, 2, 6);
+    return integer(`Evaluate exactly: ${base}^${exponent}.`, base ** exponent, { base, exponent });
+  },
+  'precalculus-logarithms': (v) => {
+    const base = v.int(0, 2, 6); const exponent = v.int(1, 2, 5);
+    return exact(`Compute log base ${base} of ${base ** exponent}.`, exponent, { base, exponent });
+  },
+  'precalculus-unit-circle': (v) => {
+    const row = v.pick(0, [
+      ['0', 0],
+      ['π/2', 1],
+      ['π', 0],
+      ['3π/2', -1],
+    ]);
+    return exact(`Compute sin(${row[0]}) exactly.`, row[1], { angle: row[0] });
+  },
+  'calculus-limits': (v) => {
+    const a = v.int(0, 1, 6); const b = v.int(1, -8, 8); const c = v.int(2, -5, 5);
+    return exact(`Compute lim x→${c} of (${a}x² ${b < 0 ? '-' : '+'} ${Math.abs(b)}x + 1).`, a * c ** 2 + b * c + 1, { a, b, c });
+  },
+  'calculus-continuity': (v) => {
+    const c = v.int(0, -5, 5);
+    return exact(`For x≠${c}, f(x)=(x²-${c ** 2})/(x${c < 0 ? '+' : '-'}${Math.abs(c)}). What value of f(${c}) makes f continuous?`, 2 * c, { c });
+  },
+  'calculus-product-rule': (v) => {
+    const m = v.int(0, 1, 4); const n = v.int(1, 1, 4); const x = v.int(2, 1, 4);
+    return exact(`If f(t)=t^${m}·t^${n}, compute f'(${x}) using the product rule.`, (m + n) * x ** (m + n - 1), { m, n, x });
+  },
+  'calculus-chain-rule': (v) => {
+    const a = v.int(0, 2, 6); const b = v.int(1, -7, 7); const x = v.int(2, -4, 4);
+    return exact(`For f(t)=(${a}t ${b < 0 ? '-' : '+'} ${Math.abs(b)})², compute f'(${x}).`, 2 * a * (a * x + b), { a, b, x });
+  },
+  'calculus-implicit-differentiation': (v) => {
+    const x = v.pick(0, [3, 4, -3, -4]); const y = Math.abs(x) === 3 ? 4 : 3;
+    return exact(`On x²+y²=25 at (${x},${y}), compute dy/dx.`, -x / y, { x, y });
+  },
+  'calculus-antiderivatives': (v) => {
+    const n = v.int(0, 1, 6); const coefficient = v.int(1, 2, 8); const integrandCoefficient = coefficient * (n + 1);
+    return exact(`Ignoring the integration constant, what is the coefficient of x^${n + 1} in ∫ ${integrandCoefficient}x^${n} dx?`, coefficient, { n, coefficient, integrandCoefficient });
+  },
+  'calculus-definite-integrals': (v) => {
+    const upper = v.int(0, 2, 10);
+    return exact(`Compute ∫ from 0 to ${upper} of 2x dx.`, upper ** 2, { upper });
+  },
+  'calculus-fundamental-theorem': (v) => {
+    const a = v.int(0, 2, 7); const b = v.int(1, -8, 8); const x = v.int(2, -5, 5);
+    return exact(`Let F(x)=∫ from 0 to x of (${a}t ${b < 0 ? '-' : '+'} ${Math.abs(b)}) dt. Compute F'(${x}).`, a * x + b, { a, b, x });
+  },
+  'calculus-substitution': (v) => {
+    const upper = v.int(0, 1, 6);
+    return exact(`Compute ∫ from 0 to ${upper} of 2x(x²+1) dx.`, ((upper ** 2 + 1) ** 2 - 1) / 2, { upper });
+  },
+  'calculus-series-convergence': (v) => {
+    const ratio = v.pick(0, [-2, -0.5, 0.25, 1.5]);
+    const expected = Math.abs(ratio) < 1 ? 'A' : 'B';
+    return choice(`Does the infinite geometric series with common ratio ${ratio} converge? A: yes; B: no.`, expected, { ratio });
+  },
+  'linear-algebra-vectors': (v) => {
+    const a = v.int(0, -7, 7); const b = v.int(1, -7, 7); const c = v.int(2, -7, 7); const d = v.int(3, -7, 7);
+    return orderedTuple(`Compute (${a},${b})+(${c},${d}). Return the ordered pair.`, [a + c, b + d], { a, b, c, d });
+  },
+  'linear-algebra-dot-product': (v) => {
+    const a = v.int(0, -6, 6); const b = v.int(1, -6, 6); const c = v.int(2, -6, 6); const d = v.int(3, -6, 6);
+    return exact(`Compute the dot product (${a},${b})·(${c},${d}).`, a * c + b * d, { a, b, c, d });
+  },
+  'linear-algebra-matrix-multiplication': (v) => {
+    const a = v.int(0, -5, 5); const b = v.int(1, -5, 5); const c = v.int(2, -5, 5); const d = v.int(3, -5, 5);
+    const x = v.int(4, -4, 4); const y = v.int(5, -4, 4);
+    return orderedTuple(`Compute [[${a},${b}],[${c},${d}]]·(${x},${y}).`, [a * x + b * y, c * x + d * y], { a, b, c, d, x, y });
+  },
+  'linear-algebra-linear-systems': (v) => {
+    const x = v.int(0, -6, 6); const y = v.int(1, -6, 6);
+    return orderedTuple(`Solve the system x+y=${x + y} and x-y=${x - y}. Return x,y.`, [x, y], { x, y });
+  },
+  'linear-algebra-row-reduction': (v) => {
+    const k = v.int(0, 2, 6); const firstRhs = v.int(1, -5, 5); const target = v.int(2, -8, 8);
+    const secondRhs = k * firstRhs + target;
+    return exact(`Apply R2←R2-${k}R1 to an augmented matrix whose right-hand entries are ${firstRhs} and ${secondRhs}. What is the new R2 right-hand entry?`, target, { k, firstRhs, secondRhs });
+  },
+  'linear-algebra-independence': (v) => {
+    const a = v.int(0, -6, 6); const b = v.int(1, 1, 7);
+    return choice(`Are vectors (1,${a}) and (0,${b}) linearly independent? A: yes; B: no.`, 'A', { a, b });
+  },
+  'linear-algebra-eigenvalues': (v) => {
+    const a = v.int(0, -8, 8); let b = v.int(1, -8, 8);
+    if (b === a) b += 1;
+    return setAnswer(`Give the eigenvalues of diagonal matrix [[${a},0],[0,${b}]].`, [a, b], { a, b });
+  },
+  'linear-algebra-orthogonal-projection': (v) => {
+    const a = v.int(0, -9, 9); const b = v.int(1, -9, 9);
+    return orderedTuple(`Project vector (${a},${b}) orthogonally onto the x-axis.`, [a, 0], { a, b });
+  },
+  'probability-random-variables': (v) => {
+    const a = v.int(0, -6, 6); const d = v.int(1, 1, 8);
+    return exact(`A random variable is equally likely to be ${a - d} or ${a + d}. What is E[X]?`, a, { a, d });
+  },
+  'probability-expectation-linearity': (v) => {
+    const expectation = v.int(0, -5, 10); const a = v.int(1, 2, 7); const b = v.int(2, -8, 8);
+    return exact(`Given E[X]=${expectation}, compute E[${a}X ${b < 0 ? '-' : '+'} ${Math.abs(b)}].`, a * expectation + b, { expectation, a, b });
+  },
+  'probability-discrete-distributions': (v) => {
+    const n = v.int(0, 3, 12); const numerator = v.int(1, 1, 3); const denominator = 4;
+    return exact(`If X~Binomial(${n}, ${numerator}/${denominator}), compute E[X].`, n * numerator / denominator, { n, numerator, denominator });
+  },
+  'statistics-covariance-correlation': (v) => {
+    const variance = v.int(0, 1, 10); const a = v.int(1, -5, 5); const b = v.int(2, -8, 8);
+    return exact(`Given Var(X)=${variance}, compute Cov(X, ${a}X ${b < 0 ? '-' : '+'} ${Math.abs(b)}).`, a * variance, { variance, a, b });
+  },
+  'statistics-sampling-distributions': (v) => {
+    const rootN = v.int(0, 2, 6); const standardError = v.int(1, 1, 8); const sigma = rootN * standardError; const n = rootN ** 2;
+    return exact(`A population standard deviation is ${sigma}. For samples of size ${n}, what is the standard error of the sample mean?`, standardError, { sigma, n });
+  },
+  'statistics-confidence-intervals': (v) => {
+    const mean = v.int(0, -5, 30); const standardError = v.int(1, 1, 5); const margin = 2 * standardError;
+    return orderedTuple(`Using estimate ± 2·SE, give the lower,upper interval for estimate ${mean} and SE ${standardError}.`, [mean - margin, mean + margin], { mean, standardError });
+  },
+  'statistics-hypothesis-tests': (v) => {
+    const alpha = v.pick(0, [0.01, 0.05, 0.1]); const below = v.int(1, 0, 1) === 0;
+    const p = below ? alpha / 2 : Math.min(0.9, alpha * 2);
+    return choice(`A preregistered test has α=${alpha} and p=${p}. Which decision follows? A: reject the null; B: do not reject the null.`, below ? 'A' : 'B', { alpha, p });
+  },
+  'statistics-linear-regression': (v) => {
+    const slope = v.int(0, -6, 6); const intercept = v.int(1, -8, 8); const x1 = v.int(2, -4, 1); const x2 = x1 + v.int(3, 1, 5);
+    const y1 = slope * x1 + intercept; const y2 = slope * x2 + intercept;
+    return exact(`What is the slope of the line through (${x1},${y1}) and (${x2},${y2})?`, slope, { slope, intercept, x1, x2 });
+  },
+  'discrete-logic': (v) => {
+    const p = v.int(0, 0, 1) === 1; const q = v.int(1, 0, 1) === 1; const implication = !p || q;
+    return choice(`Let P be ${p ? 'true' : 'false'} and Q be ${q ? 'true' : 'false'}. Is P→Q true? A: true; B: false.`, implication ? 'A' : 'B', { p, q });
+  },
+  'discrete-proof-induction': (v) => {
+    const n = v.int(0, 5, 20);
+    return integer(`The identity 1+2+...+n=n(n+1)/2 is proved by induction. Evaluate its right-hand side at n=${n}.`, n * (n + 1) / 2, { n });
+  },
+  'discrete-sets-relations': (v) => {
+    const a = v.int(0, 8, 20); const b = v.int(1, 8, 20); const overlap = v.int(2, 1, Math.min(a, b) - 1);
+    return exact(`If |A|=${a}, |B|=${b}, and |A∩B|=${overlap}, compute |A∪B|.`, a + b - overlap, { a, b, overlap });
+  },
+  'discrete-graph-theory': (v) => {
+    const n = v.int(0, 4, 12);
+    return integer(`How many edges does the complete simple graph K_${n} have?`, n * (n - 1) / 2, { n });
+  },
+  'discrete-recurrences': (v) => {
+    const first = v.int(0, -5, 10); const step = v.int(1, 1, 8); const n = v.int(2, 4, 12);
+    return exact(`A recurrence has a₁=${first} and aₙ=aₙ₋₁+${step}. Compute a_${n}.`, first + (n - 1) * step, { first, step, n });
+  },
+  'number-theory-modular-arithmetic': (v) => {
+    const base = v.int(0, 2, 12); const exponent = v.int(1, 2, 6); const modulus = v.int(2, 3, 11);
+    return exact(`Compute the least nonnegative residue of ${base}^${exponent} modulo ${modulus}.`, base ** exponent % modulus, { base, exponent, modulus });
+  },
+  'number-theory-gcd': (v) => {
+    const gcd = v.int(0, 2, 12); const pair = v.pick(1, [[2, 3], [3, 4], [5, 6], [7, 8]]); const [a, b] = pair;
+    return integer(`Compute gcd(${gcd * a}, ${gcd * b}).`, gcd, { gcd, a, b });
+  },
+  'number-theory-prime-factorization': (v) => {
+    const primes = [2, 3, 5, 7, 11, 13];
+    const firstIndex = v.int(0, 0, primes.length - 2); const secondIndex = v.int(1, firstIndex + 1, primes.length - 1);
+    const first = primes[firstIndex]; const second = primes[secondIndex];
+    return setAnswer(`Give the two prime factors of ${first * second}.`, [first, second], { first, second });
+  },
+  'optimization-convexity': (v) => {
+    const positive = v.int(0, 0, 1) === 1; const a = v.int(1, 1, 8) * (positive ? 1 : -1);
+    return choice(`Is f(x)=${a}x²+3x convex on the real line? A: yes; B: no.`, positive ? 'A' : 'B', { a });
+  },
+  'optimization-gradients': (v) => {
+    const a = v.int(0, 1, 6); const b = v.int(1, 1, 6); const x = v.int(2, -5, 5); const y = v.int(3, -5, 5);
+    return orderedTuple(`For f(x,y)=${a}x²+${b}y², compute ∇f at (${x},${y}).`, [2 * a * x, 2 * b * y], { a, b, x, y });
+  },
+  'optimization-hessian': (v) => {
+    const a = v.int(0, 1, 7); const b = v.int(1, 1, 7);
+    return exact(`For f(x,y)=${a}x²+${b}y², compute the determinant of its Hessian.`, 4 * a * b, { a, b });
+  },
+  'optimization-lagrange-multipliers': (v) => {
+    const half = v.int(0, -6, 8); const total = 2 * half;
+    return exact(`Minimize x²+y² subject to x+y=${total}. What is the minimizing x-coordinate?`, half, { total });
+  },
+  'optimization-linear-programming': (v) => {
+    const a = v.int(0, 1, 8); let b = v.int(1, 1, 8);
+    if (b === a) b += 1;
+    const total = v.int(2, 3, 12);
+    return exact(`For x,y≥0 and x+y≤${total}, what is the maximum of ${a}x+${b}y?`, Math.max(a, b) * total, { a, b, total });
+  },
+  'optimization-gradient-descent': (v) => {
+    const x = 2 * v.int(0, -8, 8);
+    return exact(`For f(x)=x², take one gradient-descent step from x=${x} with step size 1/4. What is the new x?`, x / 2, { x, stepSize: 0.25 });
+  },
   'reasoning-truth-boundary': (v) => {
     const count = v.int(0, 1, 20);
     return choice(`A model passed ${count} fresh deterministic ${count === 1 ? 'exercise' : 'exercises'} in a declared run. Which claim is warranted? A: it has general mastery; B: its weights changed; C: it passed those recorded exercises; D: it will retain the skill indefinitely.`, 'C', { count });
@@ -213,6 +426,14 @@ const CATALOG = {
 };
 
 export const GENERATED_CONCEPT_IDS = Object.freeze(Object.keys(CATALOG).sort());
+
+export function validateGeneratedExerciseCoverage(graph) {
+  const conceptIds = Array.isArray(graph?.concepts)
+    ? graph.concepts.map((concept) => concept?.conceptId)
+    : [];
+  const missing = conceptIds.filter((conceptId) => !Object.hasOwn(CATALOG, conceptId));
+  return { ok: missing.length === 0, missing };
+}
 
 export function generateExercise({ conceptId, seed, role } = {}) {
   if (!Object.hasOwn(CATALOG, conceptId)) throw new Error(`unsupported generated-exercise conceptId: ${String(conceptId)}`);

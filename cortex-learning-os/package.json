@@ -1,6 +1,6 @@
 {
   "name": "cortex-learning-os",
-  "version": "0.9.4",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,6 +21,7 @@
     "live:install": "node src/live-control.mjs install",
     "live:adaptive:plan": "node src/live-control.mjs adaptive-plan",
     "live:adaptive:apply": "node src/live-control.mjs adaptive-apply",
+    "live:adaptive:migrate-continuous": "node src/live-control.mjs adaptive-migrate-continuous",
     "live:disable": "node src/live-control.mjs disable",
     "live:enable": "node src/live-control.mjs enable",
     "live:registry:disable": "node src/live-control.mjs registry-disable",

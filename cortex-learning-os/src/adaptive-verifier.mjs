@@ -4,7 +4,7 @@ import path from 'node:path';
 import { canonicalJson, LESSON_SCHEMA, validateLiveLesson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { buildPairedCandidatePlan, analyzeCandidatePairs } from './adaptive-evaluator.mjs';
 import { verifyAdaptivePlanSignature } from './adaptive-session.mjs';
-import { policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
+import { isContinuousAcquisitionPolicy, policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
 import { selectNextAction } from './curriculum-planner.mjs';
 import { gradeExam } from './exam-runner.mjs';
 import { generateExercise, replayGeneratedExercise } from './generated-exercises.mjs';
@@ -152,6 +152,18 @@ function eventFor(conceptId, role, phase, relative) {
   };
 }
 
+function expectedPlanSchema(policy) {
+  return isContinuousAcquisitionPolicy(policy)
+    ? 'cortex.learning_os.adaptive_session_plan.v2'
+    : 'cortex.learning_os.adaptive_session_plan.v1';
+}
+
+function expectedDeltaSchema(policy) {
+  return isContinuousAcquisitionPolicy(policy)
+    ? 'cortex.learning_os.mastery_delta.v2'
+    : 'cortex.learning_os.mastery_delta.v1';
+}
+
 export function verifyAdaptiveArtifacts({
   artifactRoot,
   graph,
@@ -166,11 +178,12 @@ export function verifyAdaptiveArtifacts({
   const root = path.resolve(artifactRoot);
   const manifestPath = path.join(root, 'artifact_manifest.json');
   const manifest = readRequired(manifestPath, 4 * 1024 * 1024);
-  verifyAdaptiveManifest(root, manifest, policy);
+  const manifestedFiles = verifyAdaptiveManifest(root, manifest, policy);
   const artifactManifestDigest = sha256File(manifestPath);
   const plan = readRequired(path.join(root, 'adaptive_plan.json'));
   const summary = readRequired(path.join(root, 'session_summary.json'));
-  if (plan.schemaVersion !== 'cortex.learning_os.adaptive_session_plan.v1') throw new Error('invalid adaptive plan');
+  const continuous = isContinuousAcquisitionPolicy(policy);
+  if (plan.schemaVersion !== expectedPlanSchema(policy)) throw new Error('invalid adaptive plan');
   if (!verifyAdaptivePlanSignature(plan, planSecret)) throw new Error('adaptive plan signature mismatch');
   const generatedAtMs = Date.parse(String(plan.generatedAt || ''));
   if (!Number.isFinite(generatedAtMs)) throw new Error('invalid adaptive plan timestamp');
@@ -188,6 +201,10 @@ export function verifyAdaptiveArtifacts({
   if (canonicalJson(plan.budgets) !== canonicalJson(policy.budgets)
       || !validateAdaptivePlanRuntime(policy, plan.modelRuntime)
       || canonicalJson(plan.pairedEvaluation) !== canonicalJson(policy.pairedEvaluation)) throw new Error('adaptive frozen policy fields mismatch');
+  if (continuous
+      && (plan.operatorDirective !== null || plan.action?.role === 'spaced-review' || plan.action?.kind === 'spaced_review')) {
+    throw new Error('continuous-acquisition plan contains forbidden review behavior');
+  }
   const alreadyApplied = currentMastery.appliedRunIds.includes(plan.runId);
   if (alreadyApplied) {
     const receipt = currentMastery.appliedRunReceipts?.find((row) => row.runId === plan.runId);
@@ -205,14 +222,21 @@ export function verifyAdaptiveArtifacts({
     });
     if (canonicalJson(replayedAction) !== canonicalJson(plan.action)) throw new Error('adaptive planner replay mismatch');
   }
-  if (summary.status === 'curriculum_currently_satisfied') {
-    if (plan.action.reasonCode !== 'curriculum_currently_satisfied' || fs.existsSync(path.join(root, 'proposed_mastery_delta.json'))) {
-      throw new Error('invalid curriculum-currently-satisfied artifact');
+  const terminalReason = continuous ? 'curriculum_frontier_reached' : 'curriculum_currently_satisfied';
+  if (summary.status === terminalReason) {
+    if (plan.action.reasonCode !== terminalReason
+        || summary.modelCalls !== 0
+        || summary.lessonProposed !== false
+        || (continuous ? summary.acquisitionDeltaProposed : summary.masteryDeltaProposed) !== false
+        || canonicalJson([...manifestedFiles].sort()) !== canonicalJson(['adaptive_plan.json', 'session_summary.json'])) {
+      throw new Error(`invalid ${terminalReason} artifact`);
     }
     return { plan, summary, manifest, artifactManifestDigest, alreadyApplied, recomputedDelta: null, liveEntry: null };
   }
   if (summary.status === 'structured_blocker' && !fs.existsSync(path.join(root, 'proposed_mastery_delta.json'))) {
-    if (summary.lessonProposed || summary.masteryDeltaProposed) throw new Error('structured blocker fabricates proposed state');
+    if (summary.lessonProposed || (continuous ? summary.acquisitionDeltaProposed : summary.masteryDeltaProposed)) {
+      throw new Error('structured blocker fabricates proposed state');
+    }
     if (Array.isArray(summary.diagnosticEvidenceRefs) && summary.diagnosticEvidenceRefs.length > 0) {
       const expectedRefs = ['candidate/model_call.json', 'candidate/model_prompt.txt'];
       if (summary.blockerCode !== 'mechanical_failure'
@@ -224,7 +248,7 @@ export function verifyAdaptiveArtifacts({
       const observedItem = generateExercise({
         conceptId: concept.conceptId,
         seed: `${plan.seed}:observed`,
-        role: plan.action.role === 'spaced-review' ? 'spaced-review' : 'acquisition',
+        role: plan.action.role,
       });
       const observed = replayPhase(root, 'observed-attempt', capsule, observedItem, timingOptions, null);
       if (observed.verifiers[0].status !== 'failed' || observed.verifiers[0].score !== 0) {
@@ -250,10 +274,10 @@ export function verifyAdaptiveArtifacts({
   const observedItem = generateExercise({
     conceptId: concept.conceptId,
     seed: `${plan.seed}:observed`,
-    role: plan.action.role === 'spaced-review' ? 'spaced-review' : 'acquisition',
+    role: plan.action.role,
   });
   const observed = replayPhase(root, 'observed-attempt', capsule, observedItem, timingOptions, null);
-  const events = [eventFor(concept.conceptId, plan.action.role === 'spaced-review' ? 'spaced-review' : 'acquisition', observed, 'observed-attempt')];
+  const events = [eventFor(concept.conceptId, plan.action.role, observed, 'observed-attempt')];
   let candidate = null;
   let analysis = null;
   let qualified = null;
@@ -352,7 +376,7 @@ export function verifyAdaptiveArtifacts({
   }
   const storedDelta = readRequired(path.join(root, 'proposed_mastery_delta.json'));
   const recomputedDelta = {
-    schemaVersion: 'cortex.learning_os.mastery_delta.v1',
+    schemaVersion: expectedDeltaSchema(policy),
     runId: plan.runId,
     baseRevision: plan.masteryRevision,
     curriculumId: plan.curriculumId,
@@ -361,13 +385,16 @@ export function verifyAdaptiveArtifacts({
     completedAt: events.at(-1).completedAt,
     events,
     authority: 'worker_proposal_only',
-    truthBoundary: 'This worker-authored delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical mastery.',
+    truthBoundary: continuous
+      ? 'This worker-authored acquisition delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical covered-once state.'
+      : 'This worker-authored delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical mastery.',
   };
   if (canonicalJson(storedDelta) !== canonicalJson(recomputedDelta)) throw new Error('worker-rewritten mastery delta');
   let liveEntry = null;
   if (fs.existsSync(path.join(root, 'qualified_candidate_lesson.json'))) {
     qualified = readRequired(path.join(root, 'qualified_candidate_lesson.json'));
-    if (!candidate || !analysis?.thresholdPassed || summary.status !== 'candidate_lesson_and_mastery_delta') throw new Error('unqualified adaptive lesson proposal');
+    const qualifiedStatus = continuous ? 'candidate_lesson_and_acquisition_delta' : 'candidate_lesson_and_mastery_delta';
+    if (!candidate || !analysis?.thresholdPassed || summary.status !== qualifiedStatus) throw new Error('unqualified adaptive lesson proposal');
     const expectedQualified = {
       schemaVersion: 'cortex.learning_os.qualified_adaptive_lesson.v1',
       candidateId: candidate.candidateId,
@@ -413,14 +440,19 @@ export function verifyAdaptiveArtifacts({
   }
   const expectedModelCalls = 1 + (candidate ? 1 : 0) + (events.length > 1 ? 1 : 0)
     + (analysis ? policy.pairedEvaluation.pairCount * 2 : 0);
-  if (summary.modelCalls !== expectedModelCalls || summary.masteryDeltaProposed !== true) throw new Error('adaptive summary evidence counts mismatch');
+  if (summary.modelCalls !== expectedModelCalls
+      || (continuous ? summary.acquisitionDeltaProposed : summary.masteryDeltaProposed) !== true) {
+    throw new Error('adaptive summary evidence counts mismatch');
+  }
   if (analysis?.thresholdPassed) {
-    if (summary.status !== 'candidate_lesson_and_mastery_delta' || summary.lessonProposed !== true
+    const qualifiedStatus = continuous ? 'candidate_lesson_and_acquisition_delta' : 'candidate_lesson_and_mastery_delta';
+    if (summary.status !== qualifiedStatus || summary.lessonProposed !== true
         || summary.candidateStatus !== 'threshold_qualified' || summary.pairedThresholdPassed !== true) {
       throw new Error('adaptive summary over/understates qualified candidate evidence');
     }
   } else {
-    if (summary.status !== 'candidate_mastery_delta' || summary.lessonProposed !== false) throw new Error('adaptive summary overstates lesson evidence');
+    const deltaStatus = continuous ? 'candidate_acquisition_delta' : 'candidate_mastery_delta';
+    if (summary.status !== deltaStatus || summary.lessonProposed !== false) throw new Error('adaptive summary overstates lesson evidence');
     if (analysis && summary.pairedThresholdPassed !== false) throw new Error('adaptive summary paired result mismatch');
   }
   return { plan, summary, manifest, artifactManifestDigest, alreadyApplied, recomputedDelta, candidate, analysis, qualified, liveEntry };

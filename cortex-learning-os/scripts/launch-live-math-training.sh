@@ -12,7 +12,7 @@ STATE_ROOT="/root/.openclaw/cortex-learning-os"
 DRY_RUN=false
 NOTIFY=true
 THINKING="xhigh"
-EARLY_REVIEW=false
+EARLY_REVIEW_REQUESTED=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,15 +23,18 @@ while [[ $# -gt 0 ]]; do
     --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
     --thinking) THINKING="${2:-}"; shift 2 ;;
-    --early-review) EARLY_REVIEW=true; shift ;;
+    --early-review) EARLY_REVIEW_REQUESTED=true; shift ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+if [[ "$EARLY_REVIEW_REQUESTED" == true ]]; then
+  echo "--early-review is disabled under the continuous-acquisition policy" >&2
+  exit 2
+fi
 if [[ "$MODE" == "legacy" ]]; then
   case "$EXAM" in baseline|challenge|stress) ;; *) echo "--exam must be baseline, challenge, or stress" >&2; exit 2 ;; esac
-  [[ "$EARLY_REVIEW" == false ]] || { echo "--early-review requires adaptive mode" >&2; exit 2; }
 fi
 [[ "$SSH_HOST" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || { echo "unsafe SSH host" >&2; exit 2; }
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo path" >&2; exit 2; }
@@ -60,7 +63,6 @@ if [[ "$MODE" == "adaptive" ]]; then
     --state-root "$STATE_ROOT" --run-id "$RUN_ID" --seed "$RUN_ID"
     --source-commit "$LOCAL_COMMIT" --thinking "$THINKING" --out "$LOCAL_PLAN"
   )
-  [[ "$EARLY_REVIEW" == false ]] || PLAN_ARGS+=(--early-review)
   node "$LOCAL_CLOS/src/live-control.mjs" adaptive-plan "${PLAN_ARGS[@]}" >/dev/null
 fi
 
@@ -71,9 +73,9 @@ REMOTE_CODEX_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" su
 [[ "$REMOTE_CODEX_VERSION" == codex-cli\ * ]] || { echo "remote Codex preflight failed for $REMOTE_CODEX_BIN as user jake" >&2; exit 4; }
 test -x "$LOCAL_CLOS/scripts/harvest-live-math-training.py"
 
-python3 - "$RUN_ID" "$MODE" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_COMMIT" "$REMOTE_STATE" "$REMOTE_UNIT" "$HARVEST_UNIT" "$NOTIFY_UNIT" "$DRY_RUN" "$REMOTE_CODEX_BIN" "$REMOTE_CODEX_VERSION" "$LOCAL_PLAN" "$REMOTE_PLAN" "$EARLY_REVIEW" <<'PY'
+python3 - "$RUN_ID" "$MODE" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_COMMIT" "$REMOTE_STATE" "$REMOTE_UNIT" "$HARVEST_UNIT" "$NOTIFY_UNIT" "$DRY_RUN" "$REMOTE_CODEX_BIN" "$REMOTE_CODEX_VERSION" "$LOCAL_PLAN" "$REMOTE_PLAN" <<'PY'
 import json, sys
-run_id, mode, exam, local_commit, remote_commit, state, worker, harvest, notify, dry_run, codex_bin, codex_version, local_plan, remote_plan, early_review = sys.argv[1:]
+run_id, mode, exam, local_commit, remote_commit, state, worker, harvest, notify, dry_run, codex_bin, codex_version, local_plan, remote_plan = sys.argv[1:]
 print(json.dumps({
   "ok": True,
   "dryRun": dry_run == "true",
@@ -81,14 +83,15 @@ print(json.dumps({
   "mode": mode,
   "exam": exam or None,
   "adaptivePlan": {"local": local_plan, "remote": remote_plan} if mode == "adaptive" else None,
-  "earlyReview": early_review == "true",
+  "adaptivePolicyMode": "continuous_acquisition" if mode == "adaptive" else None,
+  "reviewSelectionEnabled": False if mode == "adaptive" else None,
   "sourceCommit": local_commit,
   "remoteCommit": remote_commit,
   "remoteState": state,
   "workerRuntime": {"command": codex_bin, "version": codex_version, "serviceUser": "jake"},
   "units": {"worker": worker, "harvester": harvest, "notifier": notify},
   "placement": {"controlPlane": "harvester and notifier only", "executionPlane": "Hetzner Codex worker"},
-  "promotion": "automatic only after generated-item replay, grading/provenance/policy replay, paired threshold separation, approved profile mapping, canonical mastery signing, and signed-registry install"
+  "promotion": "automatic only after generated-item replay, grading/provenance/policy replay, paired threshold separation, approved profile mapping, canonical acquisition-state signing, and signed-registry install"
 }, indent=2))
 PY
 [[ "$DRY_RUN" == true ]] && exit 0

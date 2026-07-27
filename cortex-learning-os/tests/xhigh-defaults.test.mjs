@@ -15,8 +15,11 @@ function filesUnder(root, suffixes) {
 }
 
 test('all Learning OS production reasoning defaults are xhigh', () => {
-  const policy = readJson(path.join(CLOS_ROOT, 'policies/adaptive-math-v0.8.json'));
-  assert.equal(policy.modelRuntime.thinking, 'xhigh');
+  const legacyPolicy = readJson(path.join(CLOS_ROOT, 'policies/adaptive-math-v0.8.json'));
+  const activePolicy = readJson(path.join(CLOS_ROOT, 'policies/adaptive-math-continuous-v1.json'));
+  assert.equal(legacyPolicy.modelRuntime.thinking, 'xhigh');
+  assert.equal(activePolicy.modelRuntime.thinking, 'xhigh');
+  assert.equal(activePolicy.reviewSelection.enabled, false);
 
   const productionFiles = [
     ...filesUnder(path.join(CLOS_ROOT, 'src'), ['.mjs', '.js']),

@@ -19,9 +19,9 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] && (( MAX_SESSIONS >= 1 && MAX_SESSIONS <= 500 )) || { echo "--max-sessions must be 1..500" >&2; exit 2; }
-[[ "$MAX_WALL_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "invalid --max-wall-seconds" >&2; exit 2; }
-[[ "$CHILD_TIMEOUT_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "invalid --child-timeout-seconds" >&2; exit 2; }
+[[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] && (( MAX_SESSIONS >= 1 && MAX_SESSIONS <= 100 )) || { echo "--max-sessions must be 1..100" >&2; exit 2; }
+[[ "$MAX_WALL_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($MAX_WALL_SECONDS >= 300 && $MAX_WALL_SECONDS <= 86400) }" || { echo "--max-wall-seconds must be 300..86400" >&2; exit 2; }
+[[ "$CHILD_TIMEOUT_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($CHILD_TIMEOUT_SECONDS >= 60 && $CHILD_TIMEOUT_SECONDS <= 14400) }" || { echo "--child-timeout-seconds must be 60..14400" >&2; exit 2; }
 [[ "$POLL_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "invalid --poll-seconds" >&2; exit 2; }
 
 CONTINUATION_ID="math-continuation-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
@@ -64,7 +64,8 @@ print(json.dumps({
         "controlPlane": "lightweight supervisor, independent harvester, and notifier",
         "executionPlane": "sequential detached Hetzner Codex workers",
     },
-    "stopCondition": "first genuine policy, evidence, infrastructure, source-drift, no-progress, temporal, wall-time, or session-cap blocker",
+    "reviewSelectionEnabled": False,
+    "stopCondition": "first genuine policy, evidence, infrastructure, source-drift, no-progress, wall-time, or session-cap blocker, or honest curriculum_frontier_reached completion",
 }, indent=2))
 PY
 

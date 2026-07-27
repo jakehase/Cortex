@@ -224,9 +224,9 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   assert.match(launcher, /THINKING="xhigh"/);
   assert.match(launcher, /adaptive-plan/);
   assert.match(launcher, /--thinking "\$THINKING"/);
-  assert.match(launcher, /--early-review\) EARLY_REVIEW=true/);
-  assert.match(launcher, /PLAN_ARGS\+=\(--early-review\)/);
-  assert.match(launcher, /"earlyReview": early_review == "true"/);
+  assert.match(launcher, /--early-review is disabled under the continuous-acquisition policy/);
+  assert.doesNotMatch(launcher, /PLAN_ARGS\+=\(--early-review\)/);
+  assert.match(launcher, /"reviewSelectionEnabled": False/);
   assert.match(launcher, /chown jake:jake "\$REMOTE_PLAN"/);
   assert.match(launcher, /sudo -u jake -- test -r "\$REMOTE_PLAN"/);
   assert.match(launcher, /"\$RUN_ID" adaptive "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN"/);
@@ -239,6 +239,7 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   assert.match(worker, /if npm run "\$NPM_SCRIPT"/);
   assert.match(worker, /write_state candidate_no_lesson/);
   assert.match(worker, /write_state candidate_adaptive/);
+  assert.match(worker, /candidate_acquisition_delta\|candidate_lesson_and_acquisition_delta\|curriculum_frontier_reached/);
   assert.doesNotMatch(worker, /set \+e\s+npm run/);
   const harvester = fs.readFileSync(harvesterPath, 'utf8');
   assert.match(harvester, /"candidate_green", "candidate_no_lesson", "candidate_adaptive"/);

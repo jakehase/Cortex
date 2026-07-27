@@ -129,7 +129,7 @@ write_state running "remote validation and Codex training are running"
   LEARNING_COMPLETED="${OUTCOME##*$'\n'}"
   echo "summary_status=$SUMMARY_STATUS"
   echo "learning_loop_completed=$LEARNING_COMPLETED"
-  if [[ "$MODE" == "adaptive" && "$TRAIN_EXIT" -eq 0 && "$SUMMARY_STATUS" =~ ^(candidate_mastery_delta|candidate_lesson_and_mastery_delta|curriculum_currently_satisfied)$ ]]; then
+  if [[ "$MODE" == "adaptive" && "$TRAIN_EXIT" -eq 0 && "$SUMMARY_STATUS" =~ ^(candidate_acquisition_delta|candidate_lesson_and_acquisition_delta|curriculum_frontier_reached)$ ]]; then
     write_state candidate_adaptive "adaptive artifacts are terminal; awaiting independent control-plane replay and canonical application"
   elif [[ "$MODE" == "adaptive" && "$TRAIN_EXIT" -eq 4 && "$SUMMARY_STATUS" == "structured_blocker" ]]; then
     write_state candidate_adaptive "adaptive blocker artifacts are terminal; awaiting independent control-plane replay and blocked-state publication"

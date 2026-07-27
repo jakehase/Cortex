@@ -4,9 +4,9 @@ import crypto from 'node:crypto';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { buildPairedCandidatePlan, analyzeCandidatePairs } from './adaptive-evaluator.mjs';
-import { policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
+import { isContinuousAcquisitionPolicy, policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
 import { buildEarlyReviewDirective, selectNextAction, validateCurriculumGraph } from './curriculum-planner.mjs';
-import { generateExercise } from './generated-exercises.mjs';
+import { generateExercise, validateGeneratedExerciseCoverage } from './generated-exercises.mjs';
 import { sha256File, sha256Text } from './hash.mjs';
 import { writeJson } from './json.mjs';
 import { buildCandidatePrompt, buildCandidateRecord } from './model-candidate.mjs';
@@ -37,6 +37,22 @@ function evidenceDigest(verifier) {
   return sha256Text(canonicalJson(verifier));
 }
 
+function planSchema(policy) {
+  return isContinuousAcquisitionPolicy(policy)
+    ? 'cortex.learning_os.adaptive_session_plan.v2'
+    : 'cortex.learning_os.adaptive_session_plan.v1';
+}
+
+function deltaSchema(plan) {
+  return plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+    ? 'cortex.learning_os.mastery_delta.v2'
+    : 'cortex.learning_os.mastery_delta.v1';
+}
+
+function activeStatus(plan, legacy, continuous) {
+  return plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2' ? continuous : legacy;
+}
+
 export function buildAdaptiveSessionPlan({
   runId,
   graph,
@@ -51,17 +67,25 @@ export function buildAdaptiveSessionPlan({
 } = {}) {
   const graphValidation = validateCurriculumGraph(graph);
   if (!graphValidation.ok) throw new Error(`invalid curriculum graph: ${graphValidation.errors.join('; ')}`);
+  const generatorCoverage = validateGeneratedExerciseCoverage(graph);
+  if (!generatorCoverage.ok) {
+    throw new Error(`adaptive curriculum concepts lack deterministic generators: ${generatorCoverage.missing.join(', ')}`);
+  }
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(runId || ''))) throw new Error('invalid adaptive runId');
   if (!/^[0-9a-f]{40}$/.test(String(sourceCommit || ''))) throw new Error('adaptive plan requires a 40-character source commit');
   if (typeof seed !== 'string' || !seed || seed.length > 256) throw new Error('adaptive plan requires a bounded seed');
   const modelRuntime = runtimeOverride === null ? policy.modelRuntime : runtimeOverride;
   if (!validateAdaptivePlanRuntime(policy, modelRuntime)) throw new Error('adaptive plan runtime override is invalid or weaker than policy');
   if (typeof allowEarlyReview !== 'boolean') throw new Error('allowEarlyReview must be boolean');
+  if (isContinuousAcquisitionPolicy(policy) && allowEarlyReview) {
+    throw new Error('early-review mode is disabled under the continuous-acquisition policy');
+  }
   const operatorDirective = allowEarlyReview ? buildEarlyReviewDirective(now) : null;
   const action = selectNextAction({ graph, mastery, policy, now, seed, operatorDirective });
   if (typeof signingSecret !== 'string' || signingSecret.length < 32) throw new Error('adaptive plan requires a control-plane signing secret');
+  const continuous = isContinuousAcquisitionPolicy(policy);
   const plan = {
-    schemaVersion: 'cortex.learning_os.adaptive_session_plan.v1',
+    schemaVersion: planSchema(policy),
     runId,
     generatedAt: now,
     sourceCommit,
@@ -78,15 +102,24 @@ export function buildAdaptiveSessionPlan({
     budgets: structuredClone(policy.budgets),
     modelRuntime: structuredClone(modelRuntime),
     pairedEvaluation: structuredClone(policy.pairedEvaluation),
-    terminalStates: [
-      'candidate_mastery_delta',
-      'candidate_lesson_and_mastery_delta',
-      'curriculum_currently_satisfied',
-      'structured_blocker',
-    ],
+    terminalStates: continuous
+      ? [
+        'candidate_acquisition_delta',
+        'candidate_lesson_and_acquisition_delta',
+        'curriculum_frontier_reached',
+        'structured_blocker',
+      ]
+      : [
+        'candidate_mastery_delta',
+        'candidate_lesson_and_mastery_delta',
+        'curriculum_currently_satisfied',
+        'structured_blocker',
+      ],
     truthBoundary: operatorDirective
       ? 'The frozen plan authorizes one explicitly early practice review. It is not due/overdue retention evidence and does not authorize canonical mutation without independent replay.'
-      : 'The frozen plan authorizes bounded worker evidence collection only. It does not authorize canonical mastery or live-registry mutation.',
+      : continuous
+        ? 'The frozen plan authorizes one bounded acquisition or genuine correction evidence collection only. A pass records covered-once acquisition, not retention, mastery, or model-weight learning; canonical state still requires independent replay.'
+        : 'The frozen plan authorizes bounded worker evidence collection only. It does not authorize canonical mastery or live-registry mutation.',
   };
   return {
     ...plan,
@@ -109,7 +142,7 @@ export function verifyAdaptivePlanSignature(plan, signingSecret) {
 }
 
 function validatePlan(plan, { graph, policy, sourceCommit }) {
-  if (plan?.schemaVersion !== 'cortex.learning_os.adaptive_session_plan.v1') throw new Error('invalid adaptive plan schemaVersion');
+  if (plan?.schemaVersion !== planSchema(policy)) throw new Error('invalid adaptive plan schemaVersion');
   if (plan.curriculumId !== graph.curriculumId || plan.capsuleId !== graph.capsuleId) throw new Error('adaptive plan curriculum scope mismatch');
   if (plan.curriculumDigest !== sha256Text(canonicalJson(graph))) throw new Error('adaptive plan curriculum digest mismatch');
   if (plan.policyDigest !== policyDigest(policy)) throw new Error('adaptive plan policy digest mismatch');
@@ -117,6 +150,10 @@ function validatePlan(plan, { graph, policy, sourceCommit }) {
   if (canonicalJson(plan.budgets) !== canonicalJson(policy.budgets)
       || !validateAdaptivePlanRuntime(policy, plan.modelRuntime)
       || canonicalJson(plan.pairedEvaluation) !== canonicalJson(policy.pairedEvaluation)) throw new Error('adaptive plan policy fields were rewritten');
+  if (isContinuousAcquisitionPolicy(policy)
+      && (plan.operatorDirective !== null || plan.action?.role === 'spaced-review' || plan.action?.kind === 'spaced_review')) {
+    throw new Error('continuous-acquisition plan contains forbidden review behavior');
+  }
 }
 
 function writeManifest(artifactRoot, plan, truthBoundary) {
@@ -164,7 +201,7 @@ function phaseWriter({ artifactRoot, capsule, plan, phase, item, call, learningC
 
 function proposedDelta(plan, completedAt, events) {
   return {
-    schemaVersion: 'cortex.learning_os.mastery_delta.v1',
+    schemaVersion: deltaSchema(plan),
     runId: plan.runId,
     baseRevision: plan.masteryRevision,
     curriculumId: plan.curriculumId,
@@ -173,7 +210,9 @@ function proposedDelta(plan, completedAt, events) {
     completedAt,
     events,
     authority: 'worker_proposal_only',
-    truthBoundary: 'This worker-authored delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical mastery.',
+    truthBoundary: plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+      ? 'This worker-authored acquisition delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical covered-once state.'
+      : 'This worker-authored delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical mastery.',
   };
 }
 
@@ -212,22 +251,32 @@ export function runAdaptiveSession({
       policyDigest: plan.policyDigest,
       modelCalls,
       ...summary,
-      truthBoundary: 'Worker completion records evidence only. Canonical mastery and live lessons remain unchanged until independent control-plane application.',
+      truthBoundary: plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+        ? 'Worker completion records evidence only. Canonical acquisition state and live lessons remain unchanged until independent control-plane application; retention, mastery, and model-weight learning remain unproven.'
+        : 'Worker completion records evidence only. Canonical mastery and live lessons remain unchanged until independent control-plane application.',
     };
     writeJson(path.join(root, 'session_summary.json'), finalSummary);
     writeManifest(root, plan, finalSummary.truthBoundary);
     return finalSummary;
   };
   try {
-    if (plan.action.reasonCode === 'curriculum_currently_satisfied') {
-      return finish({ status: 'curriculum_currently_satisfied', lessonProposed: false, masteryDeltaProposed: false });
+    if (['curriculum_currently_satisfied', 'curriculum_frontier_reached'].includes(plan.action.reasonCode)) {
+      return finish({
+        status: plan.action.reasonCode,
+        lessonProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: false }
+          : { masteryDeltaProposed: false }),
+      });
     }
     if (plan.action.kind === 'terminal') {
       return finish({
         status: 'structured_blocker',
         blockerCode: plan.action.reasonCode,
         lessonProposed: false,
-        masteryDeltaProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: false }
+          : { masteryDeltaProposed: false }),
       });
     }
     const concept = graph.concepts.find((row) => row.conceptId === plan.action.conceptId);
@@ -235,18 +284,18 @@ export function runAdaptiveSession({
     const baselineItem = generateExercise({
       conceptId: concept.conceptId,
       seed: `${plan.seed}:observed`,
-      role: plan.action.role === 'spaced-review' ? 'spaced-review' : 'acquisition',
+      role: plan.action.role,
     });
     const baseline = phaseWriter({
       artifactRoot: root, capsule, plan, phase: 'observed-attempt', item: baselineItem,
       call: boundedExamCall, learningContext: null,
-      evidenceRole: plan.action.role === 'spaced-review' ? 'spaced-review' : 'acquisition',
+      evidenceRole: plan.action.role,
     });
     const baselineAttempt = baseline.attempts[0];
     const baselineVerifier = baseline.verifierResults[0];
     const baselineEvent = {
       conceptId: concept.conceptId,
-      role: plan.action.role === 'spaced-review' ? 'spaced-review' : 'acquisition',
+      role: plan.action.role,
       passed: baselineVerifier.status === 'passed',
       completedAt: baselineAttempt.completedAt,
       evidenceDigest: evidenceDigest(baselineVerifier),
@@ -254,10 +303,23 @@ export function runAdaptiveSession({
     };
     if (baselineVerifier.status === 'passed') {
       const delta = proposedDelta(plan, baselineAttempt.completedAt, [baselineEvent]);
-      return finish({ status: 'candidate_mastery_delta', lessonProposed: false, masteryDeltaProposed: true }, delta);
+      return finish({
+        status: activeStatus(plan, 'candidate_mastery_delta', 'candidate_acquisition_delta'),
+        lessonProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: true }
+          : { masteryDeltaProposed: true }),
+      }, delta);
     }
     if (baselineVerifier.status !== 'failed') {
-      return finish({ status: 'structured_blocker', blockerCode: 'observed_attempt_not_gradably_failed', lessonProposed: false, masteryDeltaProposed: false });
+      return finish({
+        status: 'structured_blocker',
+        blockerCode: 'observed_attempt_not_gradably_failed',
+        lessonProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: false }
+          : { masteryDeltaProposed: false }),
+      });
     }
 
     const candidatePrompt = buildCandidatePrompt({
@@ -300,7 +362,11 @@ export function runAdaptiveSession({
     if (candidate.status !== 'validated') {
       const delta = proposedDelta(plan, baselineAttempt.completedAt, [baselineEvent]);
       return finish({
-        status: 'candidate_mastery_delta', lessonProposed: false, masteryDeltaProposed: true,
+        status: activeStatus(plan, 'candidate_mastery_delta', 'candidate_acquisition_delta'),
+        lessonProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: true }
+          : { masteryDeltaProposed: true }),
         candidateStatus: 'quarantined', blockerCode: 'candidate_validation_failed',
       }, delta);
     }
@@ -332,7 +398,11 @@ export function runAdaptiveSession({
     if (correctionVerifier.status !== 'passed') {
       const delta = proposedDelta(plan, correctionAttempt.completedAt, events);
       return finish({
-        status: 'candidate_mastery_delta', lessonProposed: false, masteryDeltaProposed: true,
+        status: activeStatus(plan, 'candidate_mastery_delta', 'candidate_acquisition_delta'),
+        lessonProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: true }
+          : { masteryDeltaProposed: true }),
         candidateStatus: 'validated_not_promoted', blockerCode: 'correction_failed',
       }, delta);
     }
@@ -379,7 +449,11 @@ export function runAdaptiveSession({
     const delta = proposedDelta(plan, correctionAttempt.completedAt, events);
     if (!analysis.thresholdPassed) {
       return finish({
-        status: 'candidate_mastery_delta', lessonProposed: false, masteryDeltaProposed: true,
+        status: activeStatus(plan, 'candidate_mastery_delta', 'candidate_acquisition_delta'),
+        lessonProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: true }
+          : { masteryDeltaProposed: true }),
         candidateStatus: 'validated_not_promoted', pairedThresholdPassed: false,
       }, delta);
     }
@@ -397,9 +471,11 @@ export function runAdaptiveSession({
       truthBoundary: 'This worker proposal is not live. Independent replay and an approved non-null activation profile are required before signed-registry installation.',
     });
     return finish({
-      status: 'candidate_lesson_and_mastery_delta',
+      status: activeStatus(plan, 'candidate_lesson_and_mastery_delta', 'candidate_lesson_and_acquisition_delta'),
       lessonProposed: true,
-      masteryDeltaProposed: true,
+      ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+        ? { acquisitionDeltaProposed: true }
+        : { masteryDeltaProposed: true }),
       candidateStatus: 'threshold_qualified',
       pairedThresholdPassed: true,
     }, delta);
@@ -411,7 +487,9 @@ export function runAdaptiveSession({
       diagnosticEvidenceRefs: Array.isArray(error.diagnosticEvidenceRefs) ? error.diagnosticEvidenceRefs : [],
       workerExitCode: Number.isInteger(error?.workerRaw?.exitCode) ? error.workerRaw.exitCode : null,
       lessonProposed: false,
-      masteryDeltaProposed: false,
+      ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+        ? { acquisitionDeltaProposed: false }
+        : { masteryDeltaProposed: false }),
     });
   }
 }

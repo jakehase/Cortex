@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 
+import { isContinuousAcquisitionPolicy } from './adaptive-policy.mjs';
+
 const CONCEPT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const STATES = new Set(['unassessed', 'learning', 'review', 'mastered', 'lapsed', 'blocked_prerequisite']);
+const STATES = new Set(['unassessed', 'learning', 'acquired', 'review', 'mastered', 'lapsed', 'blocked_prerequisite']);
 const EARLY_REVIEW_DIRECTIVE = 'owner_authorized_early_review';
 const EARLY_REVIEW_SCOPE = 'single_session';
 const EARLY_REVIEW_TRUTH_BOUNDARY = 'This is explicitly early practice, not a due or overdue retention review.';
@@ -34,7 +36,9 @@ function stableSeedRank(seed, conceptId) {
 export function validateCurriculumGraph(graph) {
   const errors = [];
   if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return { ok: false, errors: ['graph must be an object'] };
-  if (graph.schemaVersion !== 'cortex.learning_os.curriculum_graph.v0') errors.push('invalid graph schemaVersion');
+  if (!['cortex.learning_os.curriculum_graph.v0', 'cortex.learning_os.curriculum_graph.v1'].includes(graph.schemaVersion)) {
+    errors.push('invalid graph schemaVersion');
+  }
   if (!CONCEPT_ID.test(String(graph.curriculumId || ''))) errors.push('invalid curriculumId');
   if (!CONCEPT_ID.test(String(graph.capsuleId || ''))) errors.push('invalid capsuleId');
   if (!Array.isArray(graph.concepts) || graph.concepts.length < 1 || graph.concepts.length > 1_000) {
@@ -119,9 +123,10 @@ function conceptRecord(mastery, conceptId) {
 }
 
 function meetsGate(record, policy, nowMs) {
-  return policy.prerequisiteGate.allowedStates.includes(record.state)
-    && record.consecutivePasses >= policy.prerequisiteGate.minimumConsecutivePasses
-    && (policy.prerequisiteGate.overduePassesGate || !record.nextReviewAt || Date.parse(record.nextReviewAt) > nowMs);
+  const passed = policy.prerequisiteGate.allowedStates.includes(record.state)
+    && record.consecutivePasses >= policy.prerequisiteGate.minimumConsecutivePasses;
+  if (isContinuousAcquisitionPolicy(policy)) return passed;
+  return passed && (policy.prerequisiteGate.overduePassesGate || !record.nextReviewAt || Date.parse(record.nextReviewAt) > nowMs);
 }
 
 function confidence(record) {
@@ -154,20 +159,26 @@ export function selectNextAction({
   if (mastery?.curriculumId !== graph.curriculumId || mastery?.capsuleId !== graph.capsuleId) throw new Error('mastery scope does not match curriculum graph');
   const nowMs = Date.parse(now);
   if (!Number.isFinite(nowMs)) throw new Error('invalid planner timestamp');
+  const continuous = isContinuousAcquisitionPolicy(policy);
+  if (continuous && operatorDirective !== null && operatorDirective !== undefined) {
+    throw new Error('early-review directives are disabled under the continuous-acquisition policy');
+  }
   if (!validatePlannerDirective(operatorDirective, now)) throw new Error('invalid adaptive planner operator directive');
   const byId = new Map(graph.concepts.map((concept) => [concept.conceptId, concept]));
   const rows = validation.topologicalOrder.map((conceptId) => ({ conceptId, record: conceptRecord(mastery, conceptId), concept: byId.get(conceptId) }));
   const prerequisitesMeetGate = (row) => row.concept.prerequisites
     .every((id) => meetsGate(conceptRecord(mastery, id), policy, nowMs));
-  const overdue = rows.filter(({ record }) => ['review', 'mastered'].includes(record.state)
-    && record.nextReviewAt && Date.parse(record.nextReviewAt) <= nowMs)
-    .filter(prerequisitesMeetGate);
-  if (overdue.length) {
-    const selected = sortRows(overdue, validation.topologicalIndex, seed, { dueFirst: true })[0];
-    return {
-      kind: 'spaced_review', conceptId: selected.conceptId, role: 'spaced-review',
-      reasonCode: 'overdue_spaced_review', evidenceRefs: [`mastery:concepts/${selected.conceptId}/nextReviewAt`],
-    };
+  if (!continuous) {
+    const overdue = rows.filter(({ record }) => ['review', 'mastered'].includes(record.state)
+      && record.nextReviewAt && Date.parse(record.nextReviewAt) <= nowMs)
+      .filter(prerequisitesMeetGate);
+    if (overdue.length) {
+      const selected = sortRows(overdue, validation.topologicalIndex, seed, { dueFirst: true })[0];
+      return {
+        kind: 'spaced_review', conceptId: selected.conceptId, role: 'spaced-review',
+        reasonCode: 'overdue_spaced_review', evidenceRefs: [`mastery:concepts/${selected.conceptId}/nextReviewAt`],
+      };
+    }
   }
   for (const pending of mastery.pendingRepairs || []) {
     if (!byId.has(pending.failedConceptId)) continue;
@@ -224,7 +235,7 @@ export function selectNextAction({
       reasonCode: 'lowest_confidence_eligible_learning', evidenceRefs: [`mastery:concepts/${learning[0].conceptId}`],
     };
   }
-  if (operatorDirective?.type === EARLY_REVIEW_DIRECTIVE) {
+  if (!continuous && operatorDirective?.type === EARLY_REVIEW_DIRECTIVE) {
     const futureReviews = rows.filter(({ record }) => ['review', 'mastered'].includes(record.state)
       && record.nextReviewAt && Date.parse(record.nextReviewAt) > nowMs)
       .filter(prerequisitesMeetGate);
@@ -241,7 +252,10 @@ export function selectNextAction({
     }
   }
   return {
-    kind: 'terminal', conceptId: null, role: null, reasonCode: 'curriculum_currently_satisfied',
+    kind: 'terminal',
+    conceptId: null,
+    role: null,
+    reasonCode: continuous ? 'curriculum_frontier_reached' : 'curriculum_currently_satisfied',
     evidenceRefs: ['mastery:revision', 'graph:topologicalOrder'],
   };
 }

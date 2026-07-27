@@ -1,107 +1,142 @@
-# Adaptive Curriculum Engine v0.8 — implementation contract
+# Adaptive Curriculum Engine v1.0 — continuous-acquisition contract
 
 ## Objective anchor
 
-Jake replied **“Build it”** to the concrete proposal for a true curriculum-learning version with adaptive concept selection, mastery tracking, spaced retesting, generated exercises, prerequisite remediation, and model-derived lesson candidates. This document freezes that scope. Do not substitute another fixed exam or a documentation-only scaffold.
+Jake directed: **“stop the reviews just keep learning.”** This contract supersedes active v0.8 spaced-review selection. It defines a finite continuous-acquisition curriculum, honest covered-once state, deterministic evidence, and an independently signed control-plane transition. It does not erase or reinterpret historical review evidence.
+
+The production defaults are:
+
+- policy `adaptive-math-continuous-v1`;
+- curriculum `math-continuous-acquisition-v1`;
+- state schema `cortex.learning_os.mastery_state.v2`;
+- session plan schema `cortex.learning_os.adaptive_session_plan.v2`;
+- delta schema `cortex.learning_os.mastery_delta.v2`.
+
+The legacy `adaptive-math-v0.8` policy, original `math-foundations-curriculum-v0` 36-concept graph, schema-v1 state, and review transitions remain immutable compatibility inputs for revision-74 verification, migration, audit, and rollback tests. They are not the canonical active path.
 
 ## Truth boundary
 
-This is verifier-gated external learning state and retrieval, not model-weight training. A mastery record means the declared fresh exercises were passed under the recorded conditions. A promoted lesson means a bounded candidate passed the declared independent gates. Neither means general math mastery, human-equivalent learning, autonomous self-improvement, or durable improvement beyond completed due reviews.
+`acquired` means only that the named concept was covered once by a passing, independently replayed model call under the frozen plan. A correction pass has the same bounded meaning. Acquisition evidence is not model-weight learning, durable retention, general mathematical mastery, human-equivalent learning, or autonomous self-improvement.
 
-## Required production behavior
+A candidate lesson remains failure-derived external retrieval evidence. Even a qualified candidate does not alter model weights and cannot enter the live registry without the existing independent paired gates and an approved narrow activation profile.
 
-### 1. Curriculum planner
+## Active planner
 
-- Validate the complete `math-foundations-curriculum-v0` graph: unique concept IDs, known prerequisites, acyclic dependencies, and deterministic topological order.
-- Select exactly one next action with this priority:
-  1. overdue spaced review;
-  2. explicit prerequisite repair for a failed/lapsed concept;
-  3. eligible unassessed concept whose prerequisites meet the configured gate;
-  4. lowest-confidence eligible learning concept;
-  5. honest terminal `curriculum_currently_satisfied` when no action is due.
-- Tie-break deterministically by due time, topological index, concept ID, and stable seed.
-- Never select a dependent concept while a required prerequisite is below the configured mastery gate.
-- Explain every selection with content-free reason codes and evidence references.
+The control plane validates the complete graph before selection: unique concept IDs, known prerequisites, acyclicity, deterministic topological order, and a generator for every concept.
 
-### 2. Integrity-protected mastery state
+It selects at most one action in this order:
 
-The canonical mastery state is control-plane owned. A remote worker may emit a proposed delta but may not directly mutate the canonical file.
+1. nearest unmet prerequisite for a pending genuine failure;
+2. same-concept correction when prerequisites are already acquired;
+3. eligible unassessed acquisition;
+4. lowest-confidence eligible learning retry;
+5. `curriculum_frontier_reached` when no declared work remains.
 
-- Persist an owner-only, atomic, HMAC-signed state with revision, curriculum/capsule IDs, policy digest, per-concept records, and applied run IDs.
-- Per concept, track at least: state (`unassessed`, `learning`, `review`, `mastered`, `lapsed`, or `blocked_prerequisite`), attempts/passes/failures, consecutive passes, current review stage, last attempted/reviewed timestamps, next review time, last evidence digest, and last run ID.
-- Use a frozen default spacing policy equivalent to immediate acquisition followed by 1, 7, 30, and 90-day reviews. A lapse resets or demotes review stage and schedules prerequisite/correction work.
-- State transitions must be pure/deterministic, independently replayable from artifacts, idempotent by run ID, monotonic in revision, and reject tampering or policy drift.
-- A perfect/no-mistake session may update verified mastery evidence but creates no lesson.
+Active action roles are exactly `acquisition` and `correction`. Corrections are learning, not scheduled reviews.
 
-### 3. Generated exercise catalog
+Under the continuous policy:
 
-- Implement at least one seeded, parametrically novel, deterministic exercise family for **each of the 36 declared concepts**.
-- `generateExercise({ conceptId, seed, role })` (or an equivalent stable interface) must support baseline/acquisition, correction, promotion/transfer, held-out, and spaced-review roles.
-- Same inputs produce byte-equivalent items; different role/seed inputs produce fresh parameters/item IDs.
-- Every expected answer must come from local deterministic code, not a model assertion. Use existing checker modes or add bounded deterministic checker modes with tests.
-- Generated prompts must not reveal expected answers or lesson candidates. Generation metadata may record seed/family/oracle digest but not weaken answer isolation.
-- Add catalog completeness, determinism, freshness, oracle replay, and malformed-input tests across all 36 concepts.
+- review selection is disabled even when a legacy `nextReviewAt` is overdue;
+- new review dates are never scheduled;
+- a stale future or overdue review date cannot make an `acquired` prerequisite ineligible;
+- any operator directive, including `owner_authorized_early_review`, is rejected;
+- `spaced-review` cannot appear in an active plan or active v2 delta;
+- frontier completion makes zero model calls and cannot fabricate a lesson or busy-loop.
 
-### 4. Prerequisite remediation
+The legacy planner retains due-review, spacing, lapse, and early-review behavior only when explicitly loaded with the legacy graph and policy for audit/rollback tests.
 
-- A failed concept causes the planner to inspect its prerequisite closure.
-- If prerequisite evidence is missing, weak, lapsed, or overdue, schedule the nearest unmet prerequisite before retrying the dependent concept.
-- If all prerequisites remain sufficiently mastered, schedule same-concept correction/lesson work.
-- Prevent loops with bounded attempts, deterministic closure traversal, explicit blocker reasons, and a session call/step budget.
+## Honest signed state
 
-### 5. Model-derived lesson candidates
+The canonical store remains owner-only, atomic, HMAC-signed, revisioned, and control-plane owned. A worker receives no signing secret and can emit only an inert proposed delta.
 
-The adaptive path must not copy `lessonTemplate.rule` from a fixed exam into a candidate.
+Schema v2 concept states are:
 
-- Candidate synthesis is allowed only after a genuine independently graded failed attempt.
-- Invoke an approved fresh Codex/model session with structured output and no tools. Record provider/model, positive usage, runtime, prompt digest, and output digest.
-- The synthesis prompt may include curriculum outcome, failed prompt, observed answer, deterministic verifier feedback, and bounded correction evidence. It must ask for a general method, scope, contraindications, and likely root cause—not the original answer.
-- Validate schema, length, concept scope, prohibited content, answer leakage, contradictions, provenance, and that the rule is not merely an existing answer or fixed remediation template.
-- A malformed, unsupported, tool-using, usage-free, or ungrounded candidate is quarantined and cannot affect mastery or answers.
+- `unassessed`;
+- `learning`;
+- `acquired`;
+- `blocked_prerequisite`.
 
-### 6. Promotion and causal-use gate
+Each record preserves attempts, passes, failures, consecutive pass/failure counters, last attempt, historical last review, the historical former next-review timestamp, historical review stage, last evidence digest, last run ID, and an `acquiredAt` timestamp. `nextReviewAt` must be null in every v2 record; `historicalNextReviewAt` is audit data and never an active schedule.
 
-- Freeze fresh seeded exercises before candidate evaluation.
-- Require correction plus fresh transfer/retest evidence from distinct generated items and fresh sessions.
-- Add a bounded paired candidate-context versus no-candidate control on identical generated items. The policy must declare minimum valid pairs, candidate accuracy, minimum lift, no-regression allowance, and exact analysis before calls.
-- Separate mechanical completion from threshold pass. If the candidate provides no qualified incremental effect, preserve the evidence but do not install it live.
-- Independent control-plane replay must re-grade all attempts, recompute candidate/promotion analysis, verify manifests/provenance/usage/no-tool state, and reject rewritten worker booleans.
-- Only a threshold-qualified candidate with an approved narrow live activation profile may enter the existing signed lesson registry. Otherwise it remains quarantined evidence.
+A verified acquisition or correction pass transitions to `acquired` without claiming mastery or retention. A genuine failure transitions to `learning` and may create bounded prerequisite or same-concept correction work. Transitions remain pure, deterministic, independently reconstructible, source/policy/curriculum bound, manifest bound, monotonic, and idempotent by the exact run receipt.
 
-### 7. Detached production path
+## One-shot migration
 
-- Extend the canonical launcher so its default training mode is adaptive curriculum; retain fixed `--exam` execution only as explicit legacy/diagnostic mode.
-- Heavy implementation, model calls, adaptive sessions, and repo-scale qualification run detached on Hetzner.
-- Preserve worker / control-plane harvester / notifier separation.
-- Define finite `maxSteps`, `maxModelCalls`, seed, curriculum/capsule IDs, policy digest, and source commit in each frozen session plan.
-- Accepted terminal states: verified mastery delta with no lesson, verified threshold-qualified lesson and mastery delta, curriculum currently satisfied with no fabricated work, or structured blocker.
+`adaptive-migrate-continuous` is the only supported schema-v1 to schema-v2 transition. It is a later control-plane operation, not a remote-worker action.
 
-## Suggested modules (names may change if interfaces remain clear)
+The caller must freeze the exact:
 
-- `src/curriculum-planner.mjs`
-- `src/mastery-state.mjs`
-- `src/generated-exercises.mjs`
-- `src/adaptive-policy.mjs`
-- `src/adaptive-session.mjs`
-- `src/run-adaptive-curriculum.mjs`
-- `src/adaptive-verifier.mjs`
-- schemas for signed mastery state, delta, frozen plan, and model-derived candidate
-- launcher/worker/harvester integration under `scripts/`
+- source revision and complete signed-state digest;
+- legacy curriculum and policy digests;
+- target curriculum and policy digests;
+- source commit, supplied twice for an explicit equality check;
+- owner-only audit destination.
 
-Reuse existing exam grading, model provenance, manifest, promotion, exact McNemar, signed-registry, and detached-job machinery where doing so preserves truth boundaries.
+The migration must:
 
-## Default policy
+1. verify the source HMAC using the legacy graph and policy;
+2. reject source revision, state, graph, policy, target, or commit drift;
+3. require every legacy concept record to remain unchanged in the target graph;
+4. reject concept removal and require a non-empty new frontier;
+5. preserve attempt/pass/failure and consecutive counters, last evidence/run data, pending repairs, applied run IDs, and exact applied-run receipts;
+6. preserve `lastReviewedAt`, the former `nextReviewAt` as inactive `historicalNextReviewAt`, and legacy review stage as historical data;
+7. map legacy `review` and `mastered` to honest `acquired`;
+8. retain legacy `unassessed`, map genuine learning/lapse to `learning`, and retain blocked prerequisites;
+9. clear all active `nextReviewAt` values;
+10. add only target-only concepts as clean `unassessed` records;
+11. increment revision exactly once;
+12. write a new owner-only HMAC-signed audit artifact and atomically HMAC-sign the v2 state.
 
-Freeze a checked-in policy with explicit values for prerequisite mastery, spacing stages, lapse handling, session budgets, candidate synthesis limits, paired evaluation thresholds, live-profile allowlist, and expiry. Policy changes must alter a canonical digest and cannot retroactively reinterpret old runs.
+An already migrated source, tampered source, repeated audit path, non-monotonic migration time, source mismatch, or legacy concept rewrite fails closed. The migration does not delete historical run artifacts or rewrite historical outcomes.
 
-## Verification requirements
+## Curriculum and deterministic exercises
 
-- Unit tests for graph validation, deterministic selection, all state transitions, signatures/tamper rejection, idempotence, spacing, lapse, prerequisite closure, all 36 generators, and candidate validation.
-- Integration tests for: new concept pass; failure with unmet prerequisite; failure with model-derived candidate; paired threshold pass; paired null result; no-mistake/no-lesson; due review; lapse/recovery; hostile artifact rewrite; source mismatch; budget exhaustion; resume/idempotence.
-- No test may claim live promotion from worker-authored green fields alone.
-- Local and exact Hetzner worker-environment suites must pass.
-- Update package version, status, decisions, README/operating instructions, and default launcher behavior.
+The active DAG contains exactly 84 concepts: the original 36 plus 48 coherent additions.
 
-## Completion
+- algebra/precalculus: 8;
+- calculus: 10;
+- linear algebra: 8;
+- probability/statistics: 8;
+- discrete mathematics: 5;
+- number theory: 3;
+- optimization: 6.
 
-Completion requires real product runtime diffs, tests, independent review/replay, authoritative push to `origin/main` and the feature branch, synchronization to both execution planes, canonical default-path verification, and bounded user-visible delivery. A worker implementation result alone is not completion.
+Every active concept has a stable seeded generator. `generateExercise({ conceptId, seed, role })` produces a complete locally checkable item: concept, family/version, role, item ID, prompt, parameters, checker, expected output, and oracle digest.
+
+Independent replay regenerates and compares the complete canonical item, not merely its final answer. Exact, normalized set/order, bounded numeric tolerance, and finite-choice checkers are used only where mathematically appropriate. No model assertion, uncheckable prose, or model-as-judge result is an oracle. Generator catalog coverage, deterministic replay, role/seed freshness, malformed inputs, missing generators, and oracle digests are tested across all 84 concepts.
+
+Legacy exercise roles, including `spaced-review`, remain available to reproduce old evidence. Active continuous plans cannot select them.
+
+## Failure-derived candidate boundary
+
+Candidate synthesis remains permitted only after a genuine deterministic failure. It uses a separately recorded, no-tool model call and receives bounded failure evidence, never an answer key. Schema, provenance, positive usage, exact provider/model/reasoning, read-only sandbox, tool prohibition, scope, length, contradictions, answer leakage, and fixed-template copying remain fail-closed.
+
+Fresh correction, held-out transfer, and identical-item paired candidate/no-context trials remain independently replayed before any narrow lesson can qualify. A paired null result preserves evidence and installs nothing.
+
+## Detached production path
+
+The default launcher, worker, harvester, status command, and continuation supervisor load the continuous graph and policy. The worker remains secretless and proposal-only on Hetzner; verification and HMAC signing remain separate on the control plane.
+
+Each frozen plan binds source commit, source tree identity, policy/curriculum/capsule digests, base signed-state revision/digest, seed, runtime, finite budgets, selected action, and complete generated item. Accepted active terminal results are:
+
+- `candidate_acquisition_delta`;
+- `candidate_lesson_and_acquisition_delta`;
+- `curriculum_frontier_reached`;
+- `structured_blocker`.
+
+The continuation supervisor permits one remote child at a time, at most 100 sessions, at most 24 hours total across resume, and at most four hours per child. It stops at the first genuine blocker, source drift, replay failure, non-advancing state, declared bound, or honest frontier.
+
+## Required verification
+
+Tests must cover:
+
+- legacy revision-state signature verification against legacy inputs;
+- migration signature, exact one-revision advance, audit signature, preservation, idempotence, tamper rejection, digest/source mismatch, concept removal/rewrite, and repeated migration;
+- overdue and future review suppression, stale-date prerequisite eligibility, and early-review rejection;
+- v2 acquisition/failure/correction transitions with no scheduled dates;
+- all-concept generation, complete regeneration, oracle replay, cycles, and missing generators;
+- frontier zero-call behavior;
+- independent manifest, provenance, usage, no-tool, deterministic grading, delta, and source-identity replay;
+- bounded continuation behavior and first-blocker termination.
+
+Implementation tests make no real model call and do not authorize live migration or execution.

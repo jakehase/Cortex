@@ -9,15 +9,18 @@ The v0.9 production slice adds a separate math-to-code transfer spine for two de
 - `exact-multiplication` → arbitrary-precision and overflow-safe exact integer multiplication with deterministic product verification.
 - `algebra-factoring` → exact integer-polynomial construction, expansion, integer-root checking, and zero verification.
 
-Math mastery is not coding-transfer mastery. A mastered or currently reviewed math concept never enters coding context because of mastery state or a keyword. Transfer requires a separately signed qualification state, an independently replayed manifest-bound qualification report, a signed transfer-registry entry, an enumerated semantic matcher, observable assumptions, no negative gate, allowed scope, unexpired evidence, active mode, and a clear kill switch.
+Math acquisition evidence is not coding-transfer qualification. An acquired or historically reviewed math concept never enters coding context because of acquisition state or a keyword. Transfer requires a separately signed qualification state, an independently replayed manifest-bound qualification report, a signed transfer-registry entry, an enumerated semantic matcher, observable assumptions, no negative gate, allowed scope, unexpired evidence, active mode, and a clear kill switch.
 
 The canonical transfer default is `transferEnabled: true` plus `transferMode: "active"`, per the operator's direct-live decision. Active mode still injects nothing unless a separately qualified, signed, enabled, unexpired profile matches all assumptions and no negative gate. This release contains no checked-in qualification, does not manufacture a live entry from implementation tests, and makes no empirical transfer-benefit claim. See [`docs/semantic-coding-transfer-contract.md`](docs/semantic-coding-transfer-contract.md).
 
 ## Current production slice
 
-The canonical starter capsule is `capsules/math-foundations/`:
+The canonical starter capsule is `capsules/math-foundations/`. Its active continuous-acquisition slice contains:
 
-- 36-node math-foundations curriculum
+- an 84-node acyclic curriculum: the original 36 concepts plus 48 coherent next concepts
+- explicit `adaptive-math-continuous-v1` policy with review selection and scheduling disabled
+- schema-v2 owner-only HMAC state using honest `acquired` (covered-once) semantics
+- one-shot signed migration from the legacy revision-74 representation
 - 30-item deterministic baseline exam
 - exactness/reliability challenge exams
 - no-tool OpenClaw model attempt capture
@@ -31,11 +34,11 @@ The canonical starter capsule is `capsules/math-foundations/`:
 - content-free answer-influence telemetry
 - detached Hetzner Codex training, control-plane re-verification, and automatic qualified-lesson installation
 - deterministic adaptive planning over the complete prerequisite graph
-- owner-only HMAC-signed mastery with 0/1/7/30/90-day review stages
-- seeded, locally replayable exercise families for all 36 curriculum concepts
+- seeded, locally replayable exercise families for all 84 curriculum concepts
+- acquisition, learning retry, and genuine correction with no active review due dates
 - failure-gated structured model-derived candidates that cannot copy fixed exam templates
 - preregistered paired candidate-context versus no-context promotion analysis
-- worker-only mastery proposals with independent control-plane policy and grading replay
+- worker-only acquisition proposals with independent control-plane policy and grading replay
 
 The latest qualified run pointer is `artifacts/latest-qualified-run.json`. The live architecture and exact claim boundary are defined in [`docs/live-math-integration-contract.md`](docs/live-math-integration-contract.md).
 
@@ -56,6 +59,7 @@ npm run live:status
 npm run live:verify
 npm run live:adaptive:plan -- --run-id <id> --seed <seed> --source-commit <sha> --out <plan.json>
 npm run live:adaptive:apply -- --artifact-root <returned-dir> --source-commit <sha>
+npm run live:adaptive:migrate-continuous -- --audit-out <audit.json> --source-commit <sha> --expected-source-commit <sha> --expected-source-revision 74 --expected-source-state-digest <sha256> --expected-source-curriculum-digest <sha256> --expected-source-policy-digest <sha256> --expected-target-curriculum-digest <sha256> --expected-target-policy-digest <sha256>
 npm run transfer:init
 npm run transfer:status
 npm run transfer:verify
@@ -85,9 +89,11 @@ npm run validate:novel-math:verify -- --artifact-root <dir> --out <verification-
 
 `dogfood:*` uses isolated, non-delivering `openclaw agent` sessions. A run writes immutable evidence under `artifacts/<run-id>/`. With `--promote-default`, canonical capsule files change only after every promotion gate and the held-out retest pass.
 
-The detached launcher now defaults to adaptive curriculum mode. The control plane verifies signed mastery, selects one action from the frozen policy, and creates a digest-bound plan before any remote work. The remote worker may emit generated exercises, model provenance, deterministic grading records, candidate/paired evidence, and a proposed mastery delta. It cannot write canonical mastery or the live registry. After return, `adaptive-apply` checks exact manifest coverage and source identity, regenerates every item, re-grades every answer, replays candidate validation and exact paired analysis, reconstructs the delta, and only then atomically signs mastery. A lesson is installed only when the paired threshold passes and the concept has an approved narrow activation profile.
+The detached launcher defaults to continuous acquisition. The control plane verifies signed schema-v2 state, selects one acquisition/learning/correction action from the frozen policy, and creates a digest-bound plan before any remote work. Overdue or future historical review dates are never selected and do not block an acquired prerequisite. An early-review request fails closed. The remote worker may emit generated exercises, model provenance, deterministic grading records, candidate/paired evidence, and a proposed acquisition delta. It cannot write canonical state or the live registry. After return, `adaptive-apply` checks exact manifest coverage and source identity, regenerates the complete item and oracle digest, re-grades every answer, replays candidate validation and exact paired analysis, reconstructs the delta, and only then atomically signs state. A lesson is installed only when the paired threshold passes and the concept has an approved narrow activation profile.
 
-The continuation launcher runs those same one-action sessions sequentially from a lightweight control-plane supervisor. It starts another remote session only after the prior result has reached terminal independent replay and advanced signed mastery. It stops and notifies on a policy/evidence/infrastructure blocker, source drift, no progress, no currently due action, or the declared 100-session/24-hour safety boundary. Per-session notifications are suppressed; an independent supervisor-level notifier reports the terminal blocker.
+The continuation launcher runs those same one-action sessions sequentially from a lightweight control-plane supervisor. It starts another remote session only after the prior result has reached terminal independent replay and advanced signed acquisition state. It permits one remote child, at most 100 sessions, 24 persisted wall-clock hours, and four hours per child. It stops on the first genuine blocker, source drift, no progress, or `curriculum_frontier_reached`. Frontier is an honest zero-call terminal result: it schedules no review and does not busy-loop or fabricate learning. Per-session notifications are suppressed; an independent supervisor-level notifier reports the terminal result.
+
+The original 36-concept graph, v0.8 policy, schema-v1 state transitions, and spaced-review generators remain available only to verify signed historical evidence and exercise audit/rollback paths. The bounded migration command verifies the exact legacy HMAC and caller-supplied source/target identities, preserves counters, evidence and applied receipts plus historical review timestamps/stages, clears active review dates, converts passed legacy records to `acquired`, adds only new concepts as unassessed, increments the revision once, writes a signed audit, and atomically signs v2 state. See [`docs/adaptive-curriculum-operations.md`](docs/adaptive-curriculum-operations.md); do not run migration without separately frozen live-state digests and authorization.
 
 Fixed exams remain available only through explicit `--exam baseline|challenge|stress`. They retain the v0.7 behavior and artifact verifier for diagnostics and historical reproducibility.
 
@@ -114,6 +120,7 @@ artifacts/latest-qualified-run.json
 /root/.openclaw/cortex-learning-os/live-registry.json
 /root/.openclaw/cortex-learning-os/mastery.json
 /root/.openclaw/cortex-learning-os/mastery.hmac
+/root/.openclaw/cortex-learning-os/<operator-selected-migration-audit>.json
 /root/.openclaw/cortex-learning-os/telemetry.json
 /root/.openclaw/cortex-learning-os/transfer-state.json
 /root/.openclaw/cortex-learning-os/transfer-state.hmac
@@ -124,4 +131,4 @@ artifacts/latest-qualified-run.json
 
 ## Truth boundary
 
-A green learning-loop run proves only that the declared bounded loop completed for the named evidence. An adaptive mastery record proves the named fresh exercises were independently replayed under the frozen policy; it does not prove general concept mastery. Transfer profile validity, coding-transfer qualification, signed-registry installation, active answer influence, and empirical transfer benefit are separate truth layers. A live telemetry record with `answerInfluence=true` proves only that signed scoped context entered that prompt; it does not by itself prove a better answer. A completed paired run supports candidate-context benefit only if all preregistered validity, lift, no-regression, and exact-test gates pass; mechanical completion is reported separately. None of these results proves general mathematical expertise, broad coding ability, durability beyond completed due reviews or expiry, model-weight learning, autonomous self-improvement, or improvement outside the declared scope.
+A green learning-loop run proves only that the declared bounded loop completed for the named evidence. An `acquired` record proves only that the named fresh exercise was passed and independently replayed under the frozen policy; it does not prove durable retention or general concept mastery. Transfer profile validity, coding-transfer qualification, signed-registry installation, active answer influence, and empirical transfer benefit are separate truth layers. A live telemetry record with `answerInfluence=true` proves only that signed scoped context entered that prompt; it does not by itself prove a better answer. A completed paired run supports candidate-context benefit only if all preregistered validity, lift, no-regression, and exact-test gates pass; mechanical completion is reported separately. None of these results proves general mathematical expertise, broad coding ability, model-weight learning, autonomous self-improvement, or improvement outside the declared scope.

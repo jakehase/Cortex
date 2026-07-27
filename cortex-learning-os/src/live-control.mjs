@@ -9,7 +9,12 @@ import { readJson, writeJson } from './json.mjs';
 import { buildMistakes, distillCandidate, selectRemediableFailure } from './learning-loop.mjs';
 import { CLOS_ROOT } from './paths.mjs';
 import { evaluatePromotion } from './promotion.mjs';
-import { loadAdaptivePolicy } from './adaptive-policy.mjs';
+import {
+  DEFAULT_CURRICULUM_GRAPH_PATH,
+  LEGACY_ADAPTIVE_POLICY_PATH,
+  LEGACY_CURRICULUM_GRAPH_PATH,
+  loadAdaptivePolicy,
+} from './adaptive-policy.mjs';
 import { buildAdaptiveSessionPlan } from './adaptive-session.mjs';
 import { verifyAdaptiveArtifacts } from './adaptive-verifier.mjs';
 import {
@@ -17,6 +22,7 @@ import {
   atomicWriteMasteryState,
   initializeMasteryStore,
 } from './mastery-state.mjs';
+import { migrateMasteryStore } from './mastery-migration.mjs';
 import {
   ACTIVATION_PROFILES,
   LESSON_SCHEMA,
@@ -44,7 +50,7 @@ const masteryPath = path.resolve(value('--mastery', path.join(stateRoot, 'master
 const masterySecretPath = path.resolve(value('--mastery-secret', path.join(stateRoot, 'mastery.hmac')));
 
 function adaptiveInputs(now = new Date().toISOString()) {
-  const graph = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json'));
+  const graph = readJson(DEFAULT_CURRICULUM_GRAPH_PATH);
   const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));
   const { policy } = loadAdaptivePolicy();
   const store = initializeMasteryStore({
@@ -355,7 +361,7 @@ function contentFreeStatus(registry) {
   };
 }
 
-function contentFreeMasteryStatus(state) {
+function contentFreeAcquisitionStatus(state) {
   const counts = {};
   for (const record of Object.values(state.concepts)) counts[record.state] = (counts[record.state] || 0) + 1;
   return {
@@ -368,7 +374,15 @@ function contentFreeMasteryStatus(state) {
     appliedRunCount: state.appliedRunIds.length,
     pendingRepairCount: state.pendingRepairs.length,
     conceptStateCounts: counts,
+    migration: state.migration === null ? null : {
+      migrationId: state.migration.migrationId,
+      sourceRevision: state.migration.sourceRevision,
+      targetRevision: state.migration.targetRevision,
+      migratedAt: state.migration.migratedAt,
+    },
     signatureValid: true,
+    reviewSelectionEnabled: false,
+    truthBoundary: 'Acquired means covered once by replayed evidence. It does not mean retained, mastered, broadly capable, or changed model weights.',
   };
 }
 
@@ -380,7 +394,7 @@ try {
       ...contentFreeStatus(registry),
       initialized: true,
       secretPath,
-      mastery: contentFreeMasteryStatus(adaptive.state),
+      acquisitionState: contentFreeAcquisitionStatus(adaptive.state),
     }, null, 2));
   } else {
     const secret = readRegistrySecret(secretPath);
@@ -392,13 +406,63 @@ try {
       if (masteryExists !== masterySecretExists) throw new Error('mastery store is incomplete');
       if (masteryExists) {
         const adaptive = adaptiveInputs();
-        status.mastery = contentFreeMasteryStatus(adaptive.state);
+        status.acquisitionState = contentFreeAcquisitionStatus(adaptive.state);
       }
       console.log(JSON.stringify(status, null, 2));
     } else if (command === 'verify-no-observed-mistake') {
       const artifactRoot = path.resolve(value('--artifact-root', ''));
       if (!value('--artifact-root')) throw new Error('--artifact-root is required');
       console.log(JSON.stringify(independentlyVerifyNoObservedMistake(artifactRoot), null, 2));
+    } else if (command === 'adaptive-migrate-continuous') {
+      const auditOut = value('--audit-out');
+      const sourceCommit = value('--source-commit');
+      const expectedSourceCommit = value('--expected-source-commit');
+      const expectedSourceRevisionValue = value('--expected-source-revision');
+      const expectedSourceRevision = expectedSourceRevisionValue === null
+        ? Number.NaN
+        : Number(expectedSourceRevisionValue);
+      const requiredDigests = {
+        expectedSourceStateDigest: value('--expected-source-state-digest'),
+        expectedSourceCurriculumDigest: value('--expected-source-curriculum-digest'),
+        expectedSourcePolicyDigest: value('--expected-source-policy-digest'),
+        expectedTargetCurriculumDigest: value('--expected-target-curriculum-digest'),
+        expectedTargetPolicyDigest: value('--expected-target-policy-digest'),
+      };
+      if (!auditOut || !sourceCommit || !expectedSourceCommit
+          || !Number.isSafeInteger(expectedSourceRevision)
+          || Object.values(requiredDigests).some((digest) => !digest)) {
+        throw new Error('migration requires audit, source identity, exact source revision, and all source/target digests');
+      }
+      const legacyGraph = readJson(LEGACY_CURRICULUM_GRAPH_PATH);
+      const { policy: legacyPolicy } = loadAdaptivePolicy(LEGACY_ADAPTIVE_POLICY_PATH);
+      const targetGraph = readJson(DEFAULT_CURRICULUM_GRAPH_PATH);
+      const { policy: targetPolicy } = loadAdaptivePolicy();
+      const migrated = migrateMasteryStore({
+        statePath: masteryPath,
+        secretPath: masterySecretPath,
+        auditPath: path.resolve(auditOut),
+        legacyGraph,
+        legacyPolicy,
+        targetGraph,
+        targetPolicy,
+        expectedSourceRevision,
+        ...requiredDigests,
+        sourceCommit,
+        expectedSourceCommit,
+      });
+      console.log(JSON.stringify({
+        ok: true,
+        command,
+        auditPath: migrated.auditPath,
+        migrationId: migrated.audit.migrationId,
+        sourceRevision: migrated.audit.source.revision,
+        acquisitionRevision: migrated.state.revision,
+        addedConceptCount: migrated.audit.addedConceptIds.length,
+        convertedAcquiredConceptCount: migrated.audit.convertedAcquiredConceptCount,
+        clearedActiveReviewScheduleCount: migrated.audit.clearedActiveReviewScheduleCount,
+        acquisitionState: contentFreeAcquisitionStatus(migrated.state),
+        truthBoundary: migrated.audit.truthBoundary,
+      }, null, 2));
     } else if (command === 'adaptive-plan') {
       const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
       const runId = value('--run-id');
@@ -427,7 +491,7 @@ try {
         command,
         out: outPath,
         runId,
-        masteryRevision: plan.masteryRevision,
+        acquisitionRevision: plan.masteryRevision,
         action: plan.action,
         policyDigest: plan.policyDigest,
         truthBoundary: plan.truthBoundary,
@@ -483,14 +547,14 @@ try {
         command,
         runId: replay.plan.runId,
         artifactStatus: replay.summary.status,
-        masteryRevision: mastery.revision,
-        masteryApplied: Boolean(replay.recomputedDelta && !replay.alreadyApplied),
+        acquisitionRevision: mastery.revision,
+        acquisitionApplied: Boolean(replay.recomputedDelta && !replay.alreadyApplied),
         alreadyApplied: replay.alreadyApplied,
         candidateThresholdPassed: replay.analysis?.thresholdPassed ?? null,
         installedLessonId,
         registryRevision: updatedRegistry.revision,
         registrySignatureValid: true,
-        truthBoundary: 'The control plane independently replayed generated items, deterministic grading, provenance, policy, paired analysis, and the proposed delta before signing any canonical state.',
+        truthBoundary: 'The control plane independently replayed generated items, deterministic grading, provenance, policy, paired analysis, and the proposed acquisition delta before signing covered-once state. Retention, mastery, and model-weight learning remain unproven.',
       }, null, 2));
     } else if (command === 'install') {
       const artifactRoot = path.resolve(value('--artifact-root', ''));

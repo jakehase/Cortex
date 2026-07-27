@@ -6,11 +6,25 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-07-27`
-- Status: `v0_9_4_owner_authorized_early_review_live_green`
-- Current fidelity: `production_single_session_early_review_live_verified`
-- Package version: `0.9.4`
+- Status: `v1_0_continuous_acquisition_default_implemented`
+- Current fidelity: `production_default_source_complete_pending_control_plane_migration_and_live_execution`
+- Package version: `1.0.0`
 
 ## Current checkpoint
+
+**v1.0 continuous acquisition supersedes active spaced review:** Jake directed “stop the reviews just keep learning.” The canonical source default is now `adaptive-math-continuous-v1` over `math-continuous-acquisition-v1`. It selects only acquisition, learning retry, prerequisite correction, or same-concept correction. Review selection and scheduling are explicitly false in policy, stale legacy review dates do not gate acquired prerequisites, and an early-review directive or launcher flag fails closed. When all 84 declared concepts are exhausted, the terminal result is `curriculum_frontier_reached`; no review timer, busy loop, or fabricated lesson is created.
+
+The original `adaptive-math-v0.8.json` and 36-concept `curriculum.graph.json` remain checked in for exact revision-74 verification and audit/rollback tests. The active graph preserves those 36 concept records canonically unchanged and adds exactly 48 coherent concepts: 8 algebra/precalculus, 10 calculus, 8 linear algebra, 8 probability/statistics, 5 discrete mathematics, 3 number theory, and 6 optimization concepts. All 84 concepts have deterministic seeded exercise families with local exact, tolerant, ordered/set, or finite-choice oracles; independent replay compares the complete regenerated item, parameters, checker, and oracle digest.
+
+Active signed state uses schema v2 and `acquired` to mean covered once. A successful acquisition or genuine correction creates no `nextReviewAt`; a genuine failure enters `learning` and may create a bounded correction. It is not labeled mastered, retained, or a successful spaced review. Acquisition evidence is model-call performance evidence only: it is not model-weight learning, durable retention, broad mathematical mastery, or human-equivalent learning.
+
+The bounded `adaptive-migrate-continuous` control-plane command verifies the legacy HMAC under the legacy graph/policy and exact caller-supplied source revision, state digest, graph digest, policy digest, target digests, and source commit. It rejects tampering, digest drift, concept removal/rewrites, repeated migration, and non-monotonic time. For the declared revision-74 source it will advance exactly once to revision 75, preserve attempt/pass/failure counters, last evidence/run receipts, applied-run receipts, pending corrections, historical `lastReviewedAt`/review-stage data, and the former deadline as inactive `historicalNextReviewAt`; clear every active `nextReviewAt`; map legacy `review`/`mastered` records to honest `acquired`; add only the 48 new concepts as `unassessed`; write an owner-only HMAC-signed audit; and atomically HMAC-sign the v2 state. This isolated implementation worker did not run that command against live state.
+
+The launcher, worker, independent harvester, user-visible status, and continuation supervisor now use acquisition/frontier language and the continuous graph/policy. The supervisor still permits one remote child at a time and now hard-rejects expansion beyond 100 sessions, 24 total hours across resume, or four hours per child. Model execution remains Hetzner-only and signing/replay remains control-plane-only.
+
+Isolated validation is green for the directly runnable production slice: continuous-acquisition tests `6/6`, legacy adaptive/audit tests `12/12`, continuation Python tests `7/7`, the continuation wrapper and xhigh/default checks, the launcher static boundary, all `84 × 6 = 504` generated concept/role replays, fixture validation (`12` valid plus `1` intentionally invalid), JSON and syntax checks, and `git diff --check`. The required unchanged `npm test` command was run twice; this managed workspace passed 11 of 15 test-file processes, while four pre-existing subprocess-heavy files failed because nested `spawnSync(process.execPath, ...)` calls receive an environment-level `EPERM`/empty output (the live-training fake worker consequently reaches its 60-second timeout). Their in-process assertions pass where run directly and the fixture CLI is green, but the exact full suite and Hetzner qualification remain pending outside this sandbox.
+
+Historical v0.9.4 early-review behavior and its revision-74 outcome remain immutable evidence below. They are no longer the canonical active path.
 
 **v0.9.4 explicit early-review path qualified and live-verified:** the ordinary planner remains time-gated by default so scheduled reviews retain their retention meaning. An owner may now explicitly request one immediate early practice review with `--early-review`. The HMAC-signed plan binds an exact `owner_authorized_early_review` directive, authorization timestamp, `single_session` scope, and truth boundary; normal due reviews, repairs, acquisitions, and retries retain priority, and the override selects only the earliest future eligible review when the ordinary planner would otherwise stop. Independent replay regenerates the action from that exact signed directive and rejects directive mutation even when the transport manifest is recomputed. Early practice may advance signed mastery after normal evidence gates but must never be labeled due/overdue retention evidence.
 
@@ -197,7 +211,10 @@ Additional honest evidence:
 
 ## Active blockers / unproven surfaces
 
-- The completed bounded production slice remains green.
+- The v1.0 source implementation has not migrated the live revision-74 state, run a real continuous-acquisition model session, or been deployed/synchronized by this isolated worker. Those remain separately authorized control-plane and Hetzner operations.
+- The migration is mechanically tested against signed fixtures, but the exact live revision-74 HMAC, caller-frozen digests, ownership, revision-75 result, and audit artifact remain unverified until the bounded control-plane command is run.
+- Passing a deterministic acquisition exercise records covered-once model-call performance only. It provides no spaced evidence and proves no durable retention, broad mastery, or model-weight learning.
+- The previously completed bounded production slice remains historical evidence; v1.0 does not rewrite its review outcomes or artifacts.
 - The randomized A/B executed successfully, but its preregistered evidence threshold did not pass: both arms scored `26/27`, lift was `0`, and exact McNemar p was `1.0`.
 - Broad math improvement and time-durable learning remain unproven. The novel-math run proved one unchanged lesson survived a clean process boundary, not long-duration retention.
 - Retrieval-pack benefit and harm remain unproven under the declared exact-multiplication/model/runtime configuration.
@@ -210,10 +227,11 @@ Additional honest evidence:
 
 ## Next actions
 
-1. Monitor content-free activation telemetry and the retained exact-multiplication lesson's expiry/retest state; keep all kill switches intact.
-2. If more ordinary-math lessons are desired, prospectively declare a harder supported-profile exam rather than repeating the now-perfect challenge or single-rule stress exams.
-3. Preserve all prior A/B, private-utility, novel-math, first-live-run, and no-lesson frozen claims unchanged.
-4. Add any non-math domain only through a new curriculum, deterministic verifier catalog, privacy review, and approved activation profiles.
+1. Independently freeze and verify the exact live revision-74 state, legacy/target digests, source commit, backup, and owner-only audit destination.
+2. Run `adaptive-migrate-continuous` once on the control plane, verify the signed audit and revision-75 state, and confirm 36 migrated legacy records plus 48 new unassessed records with no active review dates.
+3. Qualify the exact source tree in the Hetzner service-user environment before any separately authorized continuous-acquisition session.
+4. Preserve all prior review, A/B, private-utility, novel-math, first-live-run, and no-lesson artifacts and claims unchanged.
+5. Add any non-math domain only through a new curriculum, deterministic verifier catalog, privacy review, and approved activation profiles.
 
 ## Do not use / superseded
 
@@ -226,6 +244,7 @@ Additional honest evidence:
 Allowed claims:
 
 - Cortex Learning OS has a working, artifact-backed production slice.
+- The checked-in v1.0 default represents one-pass acquisition honestly, suppresses active review selection/scheduling, and has a finite deterministic 84-concept frontier.
 - One bounded exact-arithmetic failure was followed by passed correction, independent promotion retest, and a different held-out retest after a gated retrieval pack.
 - One scoped real math lesson passed the declared promotion gates, independently replayed on the control plane, and is active in the live signed registry for matching exact-multiplication turns.
 - In the capped go/no-go, seeded synthetic-procedure retrieval transferred perfectly across fresh sessions under the declared runtime.
@@ -239,6 +258,7 @@ Allowed claims:
 Not allowed:
 
 - Cortex broadly learned mathematics.
+- An `acquired` record means mastered, retained, or successfully spaced-reviewed.
 - The retrieval pack alone caused the held-out pass.
 - The improvement is durable beyond the declared process-restart and `retestAfter` boundaries.
 - Cortex is an expert mathematician, quant PM, or profitable trader.

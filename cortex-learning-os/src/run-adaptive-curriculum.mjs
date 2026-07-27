@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { loadAdaptivePolicy } from './adaptive-policy.mjs';
+import { DEFAULT_CURRICULUM_GRAPH_PATH, loadAdaptivePolicy } from './adaptive-policy.mjs';
 import { runAdaptiveSession } from './adaptive-session.mjs';
 import { readJson } from './json.mjs';
 import { CLOS_ROOT } from './paths.mjs';
@@ -25,7 +25,7 @@ if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('a
 const model = value('--model', plan.modelRuntime?.model);
 const thinking = value('--thinking', plan.modelRuntime?.thinking);
 if (model !== plan.modelRuntime?.model || thinking !== plan.modelRuntime?.thinking) throw new Error('runtime model/reasoning differs from the signed adaptive plan');
-const graph = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json'));
+const graph = readJson(DEFAULT_CURRICULUM_GRAPH_PATH);
 const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));
 const { policy } = loadAdaptivePolicy();
 const fixedTemplates = ['baseline.exam.json', 'reliability-challenge.exam.json', 'exact-arithmetic-stress.exam.json']

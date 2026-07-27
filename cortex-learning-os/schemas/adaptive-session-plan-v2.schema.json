@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.adaptive_session_plan.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "generatedAt",
+    "sourceCommit",
+    "seed",
+    "curriculumId",
+    "capsuleId",
+    "curriculumDigest",
+    "policyId",
+    "policyDigest",
+    "masteryRevision",
+    "masterySnapshotDigest",
+    "operatorDirective",
+    "action",
+    "budgets",
+    "modelRuntime",
+    "pairedEvaluation",
+    "terminalStates",
+    "truthBoundary",
+    "controlPlaneSignature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.adaptive_session_plan.v2" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "seed": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "curriculumId": { "const": "math-continuous-acquisition-v1" },
+    "capsuleId": { "type": "string" },
+    "curriculumDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "policyId": { "const": "adaptive-math-continuous-v1" },
+    "policyDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "masteryRevision": { "type": "integer", "minimum": 0 },
+    "masterySnapshotDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "operatorDirective": { "const": null },
+    "action": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": ["acquisition", "learning_retry", "prerequisite_repair", "same_concept_correction", "terminal"]
+        },
+        "role": { "enum": ["acquisition", "correction", null] }
+      }
+    },
+    "budgets": { "type": "object" },
+    "modelRuntime": { "type": "object" },
+    "pairedEvaluation": { "type": "object" },
+    "terminalStates": {
+      "const": [
+        "candidate_acquisition_delta",
+        "candidate_lesson_and_acquisition_delta",
+        "curriculum_frontier_reached",
+        "structured_blocker"
+      ]
+    },
+    "truthBoundary": { "type": "string" },
+    "controlPlaneSignature": { "type": "object", "required": ["algorithm", "keyId", "digest"] }
+  }
+}
