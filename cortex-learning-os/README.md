@@ -67,6 +67,8 @@ npm run transfer:revoke -- --profile exact-multiplication
 npm run transfer:registry
 ./scripts/launch-live-math-training.sh --dry-run
 ./scripts/launch-live-math-training.sh
+./scripts/launch-adaptive-math-continuation.sh --dry-run
+./scripts/launch-adaptive-math-continuation.sh
 ./scripts/launch-live-math-training.sh --exam stress # explicit legacy diagnostic
 npm run experiment:ab:plan -- --experiment-id <id> --seed <seed>
 npm run experiment:ab -- --experiment-id <id> --seed <seed>
@@ -84,6 +86,8 @@ npm run validate:novel-math:verify -- --artifact-root <dir> --out <verification-
 `dogfood:*` uses isolated, non-delivering `openclaw agent` sessions. A run writes immutable evidence under `artifacts/<run-id>/`. With `--promote-default`, canonical capsule files change only after every promotion gate and the held-out retest pass.
 
 The detached launcher now defaults to adaptive curriculum mode. The control plane verifies signed mastery, selects one action from the frozen policy, and creates a digest-bound plan before any remote work. The remote worker may emit generated exercises, model provenance, deterministic grading records, candidate/paired evidence, and a proposed mastery delta. It cannot write canonical mastery or the live registry. After return, `adaptive-apply` checks exact manifest coverage and source identity, regenerates every item, re-grades every answer, replays candidate validation and exact paired analysis, reconstructs the delta, and only then atomically signs mastery. A lesson is installed only when the paired threshold passes and the concept has an approved narrow activation profile.
+
+The continuation launcher runs those same one-action sessions sequentially from a lightweight control-plane supervisor. It starts another remote session only after the prior result has reached terminal independent replay and advanced signed mastery. It stops and notifies on a policy/evidence/infrastructure blocker, source drift, no progress, no currently due action, or the declared 100-session/24-hour safety boundary. Per-session notifications are suppressed; an independent supervisor-level notifier reports the terminal blocker.
 
 Fixed exams remain available only through explicit `--exam baseline|challenge|stress`. They retain the v0.7 behavior and artifact verifier for diagnostics and historical reproducibility.
 

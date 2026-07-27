@@ -15,6 +15,15 @@ The canonical launcher defaults to adaptive curriculum mode:
 ./scripts/launch-live-math-training.sh --exam stress
 ```
 
+For an operator-approved continuation that should keep advancing until a genuine blocker:
+
+```bash
+./scripts/launch-adaptive-math-continuation.sh --dry-run
+./scripts/launch-adaptive-math-continuation.sh
+```
+
+The continuation supervisor remains on the control plane and launches only one detached Hetzner worker at a time. It waits for the independent harvester to replay and sign each result, then requires the canonical mastery revision to advance before launching the next session. Child notifications are disabled; a separate control-plane notifier reports the first terminal blocker. Default safety boundaries are 100 sessions, 24 hours total wall time, and four hours per child. `curriculum_currently_satisfied` is published as a temporal blocker with the next signed review time rather than becoming a busy loop.
+
 ## Trust boundary
 
 The control plane owns `/root/.openclaw/cortex-learning-os/mastery.json`, its separate HMAC secret, and the signed live registry. The remote worker receives an HMAC-signed frozen plan containing the selected action, base revision/digest, policy/curriculum digests, source commit, seed, finite budgets, and runtime contract. It never receives the HMAC secret or authority to sign or mutate canonical state.
@@ -47,5 +56,7 @@ Canonical mastery is then replaced atomically in owner-only mode with a new HMAC
 ## Recovery
 
 Do not edit mastery or registry JSON manually. A signature mismatch, source mismatch, policy drift, rewritten manifest, replay mismatch, or exhausted budget is a structured blocker. Preserve the returned artifact directory and worker state for diagnosis. Rerunning `adaptive-apply` for an already applied run is safe; it does not advance mastery revision twice.
+
+The continuation state and per-run launch descriptors are owner-only artifacts under `/root/clawd/state/cortex-learning-os/continuations/` and `/root/clawd/artifacts/cortex-learning-os-continuations/`. The supervisor records the active child before waiting and can resume that same child after a supervisor process failure; it never launches a replacement while an existing child remains current. Do not delete or rewrite the child or continuation state to force progress.
 
 Deterministic fake workers cover runtime and hostile replay paths without model calls. Real adaptive sessions are reported separately in canonical status and retain their exact signed runtime as historical evidence.
