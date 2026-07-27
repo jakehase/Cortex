@@ -201,6 +201,7 @@ export function verifyAdaptiveArtifacts({
       policy,
       now: plan.generatedAt,
       seed: plan.seed,
+      operatorDirective: plan.operatorDirective ?? null,
     });
     if (canonicalJson(replayedAction) !== canonicalJson(plan.action)) throw new Error('adaptive planner replay mismatch');
   }

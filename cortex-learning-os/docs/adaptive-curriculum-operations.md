@@ -24,6 +24,14 @@ For an operator-approved continuation that should keep advancing until a genuine
 
 The continuation supervisor remains on the control plane and launches only one detached Hetzner worker at a time. It waits for the independent harvester to replay and sign each result, then requires the canonical mastery revision to advance before launching the next session. Child notifications are disabled; a separate control-plane notifier reports the first terminal blocker. Default safety boundaries are 100 sessions, 24 hours total wall time, and four hours per child. `curriculum_currently_satisfied` is published as a temporal blocker with the next signed review time rather than becoming a busy loop.
 
+An owner may explicitly authorize one early practice review instead of waiting for the spacing deadline:
+
+```bash
+./scripts/launch-live-math-training.sh --adaptive --early-review
+```
+
+`--early-review` is deliberately single-session and adaptive-only. Normal due reviews, repairs, acquisitions, and learning retries retain priority; only when the ordinary planner would otherwise return `curriculum_currently_satisfied` does it select the earliest future eligible review. The frozen HMAC-signed plan records `owner_authorized_early_review`, its authorization timestamp, single-session scope, and a truth boundary. Independent replay requires that exact directive. The result may advance signed mastery after normal evidence gates, but it must be reported as early practice—not as a due/overdue review or independent time-separated retention evidence. The default launcher remains time-gated when the flag is absent.
+
 ## Trust boundary
 
 The control plane owns `/root/.openclaw/cortex-learning-os/mastery.json`, its separate HMAC secret, and the signed live registry. The remote worker receives an HMAC-signed frozen plan containing the selected action, base revision/digest, policy/curriculum digests, source commit, seed, finite budgets, and runtime contract. It never receives the HMAC secret or authority to sign or mutate canonical state.

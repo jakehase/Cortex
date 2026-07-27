@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { buildPairedCandidatePlan, analyzeCandidatePairs } from './adaptive-evaluator.mjs';
 import { policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
-import { selectNextAction, validateCurriculumGraph } from './curriculum-planner.mjs';
+import { buildEarlyReviewDirective, selectNextAction, validateCurriculumGraph } from './curriculum-planner.mjs';
 import { generateExercise } from './generated-exercises.mjs';
 import { sha256File, sha256Text } from './hash.mjs';
 import { writeJson } from './json.mjs';
@@ -46,6 +46,7 @@ export function buildAdaptiveSessionPlan({
   seed,
   signingSecret,
   runtimeOverride = null,
+  allowEarlyReview = false,
   now = new Date().toISOString(),
 } = {}) {
   const graphValidation = validateCurriculumGraph(graph);
@@ -55,7 +56,9 @@ export function buildAdaptiveSessionPlan({
   if (typeof seed !== 'string' || !seed || seed.length > 256) throw new Error('adaptive plan requires a bounded seed');
   const modelRuntime = runtimeOverride === null ? policy.modelRuntime : runtimeOverride;
   if (!validateAdaptivePlanRuntime(policy, modelRuntime)) throw new Error('adaptive plan runtime override is invalid or weaker than policy');
-  const action = selectNextAction({ graph, mastery, policy, now, seed });
+  if (typeof allowEarlyReview !== 'boolean') throw new Error('allowEarlyReview must be boolean');
+  const operatorDirective = allowEarlyReview ? buildEarlyReviewDirective(now) : null;
+  const action = selectNextAction({ graph, mastery, policy, now, seed, operatorDirective });
   if (typeof signingSecret !== 'string' || signingSecret.length < 32) throw new Error('adaptive plan requires a control-plane signing secret');
   const plan = {
     schemaVersion: 'cortex.learning_os.adaptive_session_plan.v1',
@@ -70,6 +73,7 @@ export function buildAdaptiveSessionPlan({
     policyDigest: policyDigest(policy),
     masteryRevision: mastery.revision,
     masterySnapshotDigest: sha256Text(canonicalJson(mastery)),
+    operatorDirective,
     action,
     budgets: structuredClone(policy.budgets),
     modelRuntime: structuredClone(modelRuntime),
@@ -80,7 +84,9 @@ export function buildAdaptiveSessionPlan({
       'curriculum_currently_satisfied',
       'structured_blocker',
     ],
-    truthBoundary: 'The frozen plan authorizes bounded worker evidence collection only. It does not authorize canonical mastery or live-registry mutation.',
+    truthBoundary: operatorDirective
+      ? 'The frozen plan authorizes one explicitly early practice review. It is not due/overdue retention evidence and does not authorize canonical mutation without independent replay.'
+      : 'The frozen plan authorizes bounded worker evidence collection only. It does not authorize canonical mastery or live-registry mutation.',
   };
   return {
     ...plan,

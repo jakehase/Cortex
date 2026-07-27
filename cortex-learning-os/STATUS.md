@@ -6,11 +6,15 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-07-27`
-- Status: `v0_9_3_weighted_mean_and_candidate_diagnostics_repair_green`
-- Current fidelity: `production_adaptive_repair_qualified_resume_not_yet_launched`
-- Package version: `0.9.3`
+- Status: `v0_9_4_owner_authorized_early_review_green_pending_live_session`
+- Current fidelity: `production_single_session_early_review_qualified_pending_launch`
+- Package version: `0.9.4`
 
 ## Current checkpoint
+
+**v0.9.4 explicit early-review path qualified:** the ordinary planner remains time-gated by default so scheduled reviews retain their retention meaning. An owner may now explicitly request one immediate early practice review with `--early-review`. The HMAC-signed plan binds an exact `owner_authorized_early_review` directive, authorization timestamp, `single_session` scope, and truth boundary; normal due reviews, repairs, acquisitions, and retries retain priority, and the override selects only the earliest future eligible review when the ordinary planner would otherwise stop. Independent replay regenerates the action from that exact signed directive and rejects directive mutation even when the transport manifest is recomputed. Early practice may advance signed mastery after normal evidence gates but must never be labeled due/overdue retention evidence.
+
+Local qualification is green at `84/84`, fixture validation is green, syntax/schema/diff checks pass, and an isolated no-call CLI proof from signed mastery revision `73` selected `algebra-factoring` with xhigh and the exact single-session directive. Jake explicitly authorized immediate execution; the previously armed due-time timer was disabled and cancelled. Remote qualification, canonical commit/push/deploy, and the one detached live session remain pending before any runtime or mastery claim.
 
 **v0.9.3 weighted-mean and candidate-diagnostic repair qualified:** authorized continuation `math-continuation-20260727T043434Z-305671` stopped honestly at its first replay-verified blocker after 67 child sessions. The first 66 children advanced signed mastery from revision 3 to 69; final child `math-training-20260727T054803Z-53b400` selected `statistics-weighted-mean`, received rounded answer `7.6666666667` for exact value `23/3`, and was rejected by a strict binary-float equality check before its candidate-synthesis worker exited 1. The blocker advanced no state. Canonical mastery remains signature-valid revision 69 with 34 concepts in review, 2 unassessed, and no pending repair; the lesson registry remains unchanged.
 

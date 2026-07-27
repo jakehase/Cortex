@@ -222,6 +222,59 @@ test('graph validation is deterministic, rejects cycles, and planner honors revi
   assert.notEqual(gated.conceptId, 'algebra-linear-equations');
 });
 
+test('owner-authorized early review is signed, single-session, and independently replayed', () => {
+  const now = '2026-07-26T12:00:00.000Z';
+  const state = masteredState(now);
+  const normal = selectNextAction({ graph, mastery: state, policy, now, seed: 'early-review-test' });
+  assert.equal(normal.reasonCode, 'curriculum_currently_satisfied');
+  const plan = buildAdaptiveSessionPlan({
+    runId: 'adaptive-early-review-fixture',
+    graph,
+    policy,
+    mastery: state,
+    sourceCommit,
+    seed: 'early-review-test',
+    signingSecret: secret,
+    allowEarlyReview: true,
+    now,
+  });
+  assert.deepEqual(plan.operatorDirective, {
+    type: 'owner_authorized_early_review',
+    scope: 'single_session',
+    authorizedAt: now,
+    truthBoundary: 'This is explicitly early practice, not a due or overdue retention review.',
+  });
+  assert.equal(plan.action.kind, 'spaced_review');
+  assert.equal(plan.action.reasonCode, 'owner_authorized_early_review');
+  assert.match(plan.truthBoundary, /explicitly early practice/);
+
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-adaptive-early-review-'));
+  try {
+    const summary = runAdaptiveSession({
+      plan, graph, policy, capsule, artifactRoot: temporary, sourceCommit, fixedTemplates: [],
+      callExam: fakeExamCaller({ perfect: true, thinking: plan.modelRuntime.thinking }),
+      callCandidate: fakeCandidateCaller({}, plan.modelRuntime.thinking),
+    });
+    assert.equal(summary.status, 'candidate_mastery_delta');
+    const options = {
+      artifactRoot: temporary, graph, policy, capsule, currentMastery: state,
+      expectedSourceCommit: sourceCommit, fixedTemplates: [], planSecret: secret,
+    };
+    const replay = verifyAdaptiveArtifacts(options);
+    assert.equal(replay.recomputedDelta.events.length, 1);
+    assert.equal(replay.recomputedDelta.events[0].role, 'spaced-review');
+
+    const planPath = path.join(temporary, 'adaptive_plan.json');
+    const tampered = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+    tampered.operatorDirective.scope = 'multi_session';
+    fs.writeFileSync(planPath, `${JSON.stringify(tampered, null, 2)}\n`);
+    rewriteRootManifest(temporary);
+    assert.throws(() => verifyAdaptiveArtifacts(options), /signature|operator directive/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test('all 36 concepts and every role have deterministic fresh replayable generated exercises', () => {
   assert.deepEqual(GENERATED_CONCEPT_IDS, graph.concepts.map((row) => row.conceptId).sort());
   const itemIds = new Set();

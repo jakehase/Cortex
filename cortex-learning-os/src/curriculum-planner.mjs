@@ -2,6 +2,30 @@ import crypto from 'node:crypto';
 
 const CONCEPT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const STATES = new Set(['unassessed', 'learning', 'review', 'mastered', 'lapsed', 'blocked_prerequisite']);
+const EARLY_REVIEW_DIRECTIVE = 'owner_authorized_early_review';
+const EARLY_REVIEW_SCOPE = 'single_session';
+const EARLY_REVIEW_TRUTH_BOUNDARY = 'This is explicitly early practice, not a due or overdue retention review.';
+
+export function buildEarlyReviewDirective(authorizedAt = new Date().toISOString()) {
+  if (!Number.isFinite(Date.parse(String(authorizedAt || '')))) throw new Error('invalid early-review authorization timestamp');
+  return {
+    type: EARLY_REVIEW_DIRECTIVE,
+    scope: EARLY_REVIEW_SCOPE,
+    authorizedAt,
+    truthBoundary: EARLY_REVIEW_TRUTH_BOUNDARY,
+  };
+}
+
+export function validatePlannerDirective(directive, now) {
+  if (directive === null || directive === undefined) return true;
+  return directive && typeof directive === 'object' && !Array.isArray(directive)
+    && Object.keys(directive).sort().join(',') === ['authorizedAt', 'scope', 'truthBoundary', 'type'].sort().join(',')
+    && directive.type === EARLY_REVIEW_DIRECTIVE
+    && directive.scope === EARLY_REVIEW_SCOPE
+    && directive.authorizedAt === now
+    && directive.truthBoundary === EARLY_REVIEW_TRUTH_BOUNDARY
+    && Number.isFinite(Date.parse(String(directive.authorizedAt || '')));
+}
 
 function stableSeedRank(seed, conceptId) {
   return crypto.createHash('sha256').update(`${seed}:${conceptId}`).digest('hex');
@@ -117,12 +141,20 @@ function sortRows(rows, topologicalIndex, seed, { dueFirst = false } = {}) {
   });
 }
 
-export function selectNextAction({ graph, mastery, policy, now = new Date().toISOString(), seed = 'adaptive-default' } = {}) {
+export function selectNextAction({
+  graph,
+  mastery,
+  policy,
+  now = new Date().toISOString(),
+  seed = 'adaptive-default',
+  operatorDirective = null,
+} = {}) {
   const validation = validateCurriculumGraph(graph);
   if (!validation.ok) throw new Error(`invalid curriculum graph: ${validation.errors.join('; ')}`);
   if (mastery?.curriculumId !== graph.curriculumId || mastery?.capsuleId !== graph.capsuleId) throw new Error('mastery scope does not match curriculum graph');
   const nowMs = Date.parse(now);
   if (!Number.isFinite(nowMs)) throw new Error('invalid planner timestamp');
+  if (!validatePlannerDirective(operatorDirective, now)) throw new Error('invalid adaptive planner operator directive');
   const byId = new Map(graph.concepts.map((concept) => [concept.conceptId, concept]));
   const rows = validation.topologicalOrder.map((conceptId) => ({ conceptId, record: conceptRecord(mastery, conceptId), concept: byId.get(conceptId) }));
   const prerequisitesMeetGate = (row) => row.concept.prerequisites
@@ -191,6 +223,22 @@ export function selectNextAction({ graph, mastery, policy, now = new Date().toIS
       kind: 'learning_retry', conceptId: learning[0].conceptId, role: 'acquisition',
       reasonCode: 'lowest_confidence_eligible_learning', evidenceRefs: [`mastery:concepts/${learning[0].conceptId}`],
     };
+  }
+  if (operatorDirective?.type === EARLY_REVIEW_DIRECTIVE) {
+    const futureReviews = rows.filter(({ record }) => ['review', 'mastered'].includes(record.state)
+      && record.nextReviewAt && Date.parse(record.nextReviewAt) > nowMs)
+      .filter(prerequisitesMeetGate);
+    if (futureReviews.length) {
+      const selected = sortRows(futureReviews, validation.topologicalIndex, seed, { dueFirst: true })[0];
+      return {
+        kind: 'spaced_review', conceptId: selected.conceptId, role: 'spaced-review',
+        reasonCode: 'owner_authorized_early_review',
+        evidenceRefs: [
+          `mastery:concepts/${selected.conceptId}/nextReviewAt`,
+          'plan:operatorDirective',
+        ],
+      };
+    }
   }
   return {
     kind: 'terminal', conceptId: null, role: null, reasonCode: 'curriculum_currently_satisfied',

@@ -12,6 +12,7 @@ STATE_ROOT="/root/.openclaw/cortex-learning-os"
 DRY_RUN=false
 NOTIFY=true
 THINKING="xhigh"
+EARLY_REVIEW=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +23,7 @@ while [[ $# -gt 0 ]]; do
     --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
     --thinking) THINKING="${2:-}"; shift 2 ;;
+    --early-review) EARLY_REVIEW=true; shift ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -29,6 +31,7 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ "$MODE" == "legacy" ]]; then
   case "$EXAM" in baseline|challenge|stress) ;; *) echo "--exam must be baseline, challenge, or stress" >&2; exit 2 ;; esac
+  [[ "$EARLY_REVIEW" == false ]] || { echo "--early-review requires adaptive mode" >&2; exit 2; }
 fi
 [[ "$SSH_HOST" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || { echo "unsafe SSH host" >&2; exit 2; }
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo path" >&2; exit 2; }
@@ -53,9 +56,12 @@ node "$LOCAL_CLOS/src/live-control.mjs" verify --state-root "$STATE_ROOT" >/dev/
 if [[ "$MODE" == "adaptive" ]]; then
   mkdir -p "$(dirname "$LOCAL_PLAN")"
   chmod 700 "$(dirname "$LOCAL_PLAN")"
-  node "$LOCAL_CLOS/src/live-control.mjs" adaptive-plan \
-    --state-root "$STATE_ROOT" --run-id "$RUN_ID" --seed "$RUN_ID" \
-    --source-commit "$LOCAL_COMMIT" --thinking "$THINKING" --out "$LOCAL_PLAN" >/dev/null
+  PLAN_ARGS=(
+    --state-root "$STATE_ROOT" --run-id "$RUN_ID" --seed "$RUN_ID"
+    --source-commit "$LOCAL_COMMIT" --thinking "$THINKING" --out "$LOCAL_PLAN"
+  )
+  [[ "$EARLY_REVIEW" == false ]] || PLAN_ARGS+=(--early-review)
+  node "$LOCAL_CLOS/src/live-control.mjs" adaptive-plan "${PLAN_ARGS[@]}" >/dev/null
 fi
 
 REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
@@ -65,9 +71,9 @@ REMOTE_CODEX_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" su
 [[ "$REMOTE_CODEX_VERSION" == codex-cli\ * ]] || { echo "remote Codex preflight failed for $REMOTE_CODEX_BIN as user jake" >&2; exit 4; }
 test -x "$LOCAL_CLOS/scripts/harvest-live-math-training.py"
 
-python3 - "$RUN_ID" "$MODE" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_COMMIT" "$REMOTE_STATE" "$REMOTE_UNIT" "$HARVEST_UNIT" "$NOTIFY_UNIT" "$DRY_RUN" "$REMOTE_CODEX_BIN" "$REMOTE_CODEX_VERSION" "$LOCAL_PLAN" "$REMOTE_PLAN" <<'PY'
+python3 - "$RUN_ID" "$MODE" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_COMMIT" "$REMOTE_STATE" "$REMOTE_UNIT" "$HARVEST_UNIT" "$NOTIFY_UNIT" "$DRY_RUN" "$REMOTE_CODEX_BIN" "$REMOTE_CODEX_VERSION" "$LOCAL_PLAN" "$REMOTE_PLAN" "$EARLY_REVIEW" <<'PY'
 import json, sys
-run_id, mode, exam, local_commit, remote_commit, state, worker, harvest, notify, dry_run, codex_bin, codex_version, local_plan, remote_plan = sys.argv[1:]
+run_id, mode, exam, local_commit, remote_commit, state, worker, harvest, notify, dry_run, codex_bin, codex_version, local_plan, remote_plan, early_review = sys.argv[1:]
 print(json.dumps({
   "ok": True,
   "dryRun": dry_run == "true",
@@ -75,6 +81,7 @@ print(json.dumps({
   "mode": mode,
   "exam": exam or None,
   "adaptivePlan": {"local": local_plan, "remote": remote_plan} if mode == "adaptive" else None,
+  "earlyReview": early_review == "true",
   "sourceCommit": local_commit,
   "remoteCommit": remote_commit,
   "remoteState": state,

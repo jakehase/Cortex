@@ -417,6 +417,7 @@ try {
         seed,
         signingSecret: adaptive.secret,
         runtimeOverride,
+        allowEarlyReview: has('--early-review'),
       });
       const outPath = path.resolve(out);
       writeJson(outPath, plan);

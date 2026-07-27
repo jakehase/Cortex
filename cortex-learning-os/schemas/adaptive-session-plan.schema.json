@@ -16,6 +16,7 @@
     "policyDigest",
     "masteryRevision",
     "masterySnapshotDigest",
+    "operatorDirective",
     "action",
     "budgets",
     "modelRuntime",
@@ -70,6 +71,22 @@
     "masterySnapshotDigest": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "operatorDirective": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "scope", "authorizedAt", "truthBoundary"],
+          "properties": {
+            "type": { "const": "owner_authorized_early_review" },
+            "scope": { "const": "single_session" },
+            "authorizedAt": { "type": "string", "format": "date-time" },
+            "truthBoundary": { "const": "This is explicitly early practice, not a due or overdue retention review." }
+          }
+        }
+      ]
     },
     "action": {
       "type": "object"
