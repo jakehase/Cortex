@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.live_transfer_registry.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "revision", "updatedAt", "enabled", "entries", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.live_transfer_registry.v1" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "enabled": { "type": "boolean" },
+    "entries": {
+      "type": "array", "maxItems": 100,
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "schemaVersion", "entryId", "profileId", "profileVersion", "conceptIds",
+        "matcherId", "enabled", "qualificationState", "qualificationRunId",
+        "artifactManifestDigest", "evidenceDigest", "profileDigest", "qualifiedAt",
+        "expiresAt", "allowedAgentIds", "context"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.live_transfer_entry.v1" },
+        "entryId": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "profileId": { "enum": ["exact-multiplication", "algebra-factoring"] },
+        "profileVersion": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "conceptIds": {
+          "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "matcherId": { "enum": ["code-exact-integer-multiplication-v1", "code-polynomial-factoring-v1"] },
+        "enabled": { "type": "boolean" },
+        "qualificationState": { "const": "qualified" },
+        "qualificationRunId": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "artifactManifestDigest": { "$ref": "#/$defs/digest" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" },
+        "profileDigest": { "$ref": "#/$defs/digest" },
+        "qualifiedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "allowedAgentIds": {
+          "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "context": {
+          "type": "object", "additionalProperties": false,
+          "required": [
+            "applicabilityReason", "assumptions", "contraindications",
+            "computationalFormulation", "implementationPatterns", "verificationOracle",
+            "complexityRisk", "numericalRisk", "truthBoundary"
+          ],
+          "properties": {
+            "applicabilityReason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "assumptions": {
+              "type": "array", "minItems": 1, "maxItems": 16,
+              "items": {
+                "type": "object", "additionalProperties": false, "required": ["code", "description"],
+                "properties": {
+                  "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "description": { "type": "string", "minLength": 1, "maxLength": 1000 }
+                }
+              }
+            },
+            "contraindications": { "$ref": "#/$defs/textList" },
+            "computationalFormulation": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "implementationPatterns": { "$ref": "#/$defs/textList" },
+            "verificationOracle": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "complexityRisk": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "numericalRisk": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "truthBoundary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          }
+        }
+      }
+    },
+    "textList": {
+      "type": "array", "minItems": 1, "maxItems": 16,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signature": {
+      "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "digest"],
+      "properties": {
+        "algorithm": { "const": "hmac-sha256" },
+        "keyId": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

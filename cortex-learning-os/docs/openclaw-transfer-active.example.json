@@ -1,0 +1,22 @@
+{
+  "enabled": true,
+  "mode": "active",
+  "killSwitch": false,
+  "registryPath": "/root/.openclaw/cortex-learning-os/live-registry.json",
+  "registryHmacSecretPath": "/root/.openclaw/cortex-learning-os/registry.hmac",
+  "telemetryPath": "/root/.openclaw/cortex-learning-os/telemetry.json",
+  "maxLessons": 3,
+  "maxContextChars": 3000,
+  "telemetryMaxRecords": 1000,
+  "allowedAgentIds": [
+    "main"
+  ],
+  "transferEnabled": true,
+  "transferMode": "active",
+  "transferKillSwitch": false,
+  "transferRegistryPath": "/root/.openclaw/cortex-learning-os/transfer-registry.json",
+  "transferRegistryHmacSecretPath": "/root/.openclaw/cortex-learning-os/transfer-registry.hmac",
+  "transferTelemetryPath": "/root/.openclaw/cortex-learning-os/transfer-telemetry.json",
+  "transferTelemetryMaxRecords": 1000,
+  "transferMaxContextChars": 6000
+}

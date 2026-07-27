@@ -6,11 +6,17 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-07-26`
-- Status: `adaptive_curriculum_v0_8_first_live_session_completed_mastery_revision_1`
-- Current fidelity: `production_slice_adaptive_math_plus_live_scoped_math_plus_selective_private_retrieval_shadow_observer`
-- Package version: `0.8.0`
+- Status: `v0_9_semantic_coding_transfer_release_candidate_local_green`
+- Current fidelity: `production_shaped_active_default_empty_registry_pending_remote_release_and_deployment`
+- Package version: `0.9.0`
 
 ## Current checkpoint
+
+The v0.9 semantic coding-transfer implementation is locally release-green and awaiting exact Hetzner verification plus canonical deployment. It declares two bounded profiles (`exact-multiplication` and `algebra-factoring`), keeps transfer state distinct from mastery, and initializes an independent signed transfer registry with zero entries. The runtime default is enabled `active`, but an empty or unqualified registry produces zero transfer context. The other 34 concepts are explicit `no_qualified_transfer`; the two declared surfaces initialize `unassessed`. No profile is qualified.
+
+The implementation includes strict schemas, digest-bound profiles and policy, run-seeded balanced two-arm ordering, strict exact oracles, a signed provider/model/reasoning/read-only/tool-free runtime contract, an enumerated router with hard negative gates, signed owner-only atomic transfer state, a secretless executable worker with durable concurrent resume, positive provider-usage evidence, exact-manifest replay, separate apply/promotion commands, independent transfer telemetry, and deterministic tests. The locked local gate passed `79/79`, fixture validation, syntax checks, 50 JSON parses, and an isolated empty-registry control smoke. No real transfer model call or profile qualification was performed.
+
+Remote exact-tree verification, commit/push, canonical sync, empty live-state initialization, gateway reload, and live positive/negative/empty-registry canaries remain pending at this checkpoint. Historical v0.8 math mastery and signed lesson records below are unchanged.
 
 Cortex Learning OS v0.8 now contains the frozen adaptive-curriculum production slice. The default detached launcher freezes one control-plane-selected curriculum action; the remote worker can collect evidence and propose a delta only; the harvester independently regenerates items, re-grades answers, replays model provenance/candidate/paired policy, signs canonical mastery, and conditionally updates the existing signed lesson registry. The v0.7 fixed-exam path remains available explicitly. The implementation qualification itself made no empirical claim; one later authorized live adaptive session has now completed as recorded below. Historical v0.7 live lesson and no-mistake evidence remains unchanged, and the separate selective private-retrieval subsystem remains observe-only.
 
@@ -222,3 +228,19 @@ Not allowed:
 - Private retrieval is approved to influence prompts, reasoning, tools, or user-visible answers.
 - CLOS has learned mathematics broadly or can learn arbitrary new domains without domain-specific curricula and verifiers.
 - Live lesson injection itself proves causal answer-quality improvement.
+
+## v0.9 qualification worker hardening (2026-07-27)
+
+- Implemented the inert qualification worker and `transfer:run` CLI.
+- Added pre-call frozen-input validation, balanced run-seeded two-arm order,
+  router-gated candidate rendering, positive provider usage, tool-event rejection,
+  owner-only attempts, durable keyed resume, runtime drift rejection, and an exact
+  content-free provider-ledger manifest.
+- Deterministic fake-adapter tests establish mechanics only. No real transfer A/B
+  qualification was run, neither profile is qualified, no signed transfer state or
+  registry was promoted, and no empirical transfer benefit is claimed.
+- Release behavior is active-by-default at runtime, but active mode injects nothing
+  unless an independently qualified, signed, enabled, unexpired entry exists.
+- A real transfer qualification and control-plane `transfer:apply` remain a separate
+  future evidence event, not a prerequisite for inert bridge deployment. A truthful
+  null, no-transfer, invalid, or blocked outcome remains acceptable.

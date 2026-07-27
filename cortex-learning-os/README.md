@@ -1,6 +1,17 @@
 # Cortex Learning OS
 
-Cortex Learning OS is a local, verifier-gated learning layer for Cortex/OpenClaw. It stores curricula, recorded attempts, deterministic verifier results, mistakes, candidate lessons, promoted trusted lessons, retrieval packs, and bounded capability reports. It does not modify model weights.
+Cortex Learning OS is a local, verifier-gated learning layer for Cortex/OpenClaw. It stores curricula, recorded attempts, deterministic verifier results, mistakes, candidate lessons, promoted trusted lessons, retrieval packs, bounded capability reports, and separately qualified semantic coding-transfer profiles. It does not modify model weights.
+
+## v0.9 semantic coding-transfer production slice
+
+The v0.9 production slice adds a separate math-to-code transfer spine for two declared hypotheses:
+
+- `exact-multiplication` → arbitrary-precision and overflow-safe exact integer multiplication with deterministic product verification.
+- `algebra-factoring` → exact integer-polynomial construction, expansion, integer-root checking, and zero verification.
+
+Math mastery is not coding-transfer mastery. A mastered or currently reviewed math concept never enters coding context because of mastery state or a keyword. Transfer requires a separately signed qualification state, an independently replayed manifest-bound qualification report, a signed transfer-registry entry, an enumerated semantic matcher, observable assumptions, no negative gate, allowed scope, unexpired evidence, active mode, and a clear kill switch.
+
+The canonical transfer default is `transferEnabled: true` plus `transferMode: "active"`, per the operator's direct-live decision. Active mode still injects nothing unless a separately qualified, signed, enabled, unexpired profile matches all assumptions and no negative gate. This release contains no checked-in qualification, does not manufacture a live entry from implementation tests, and makes no empirical transfer-benefit claim. See [`docs/semantic-coding-transfer-contract.md`](docs/semantic-coding-transfer-contract.md).
 
 ## Current production slice
 
@@ -45,6 +56,15 @@ npm run live:status
 npm run live:verify
 npm run live:adaptive:plan -- --run-id <id> --seed <seed> --source-commit <sha> --out <plan.json>
 npm run live:adaptive:apply -- --artifact-root <returned-dir> --source-commit <sha>
+npm run transfer:init
+npm run transfer:status
+npm run transfer:verify
+npm run transfer:plan -- --profile exact-multiplication --run-id <id> --model gpt-5.6-sol --reasoning low --out <owner-only-dir>
+npm run transfer:apply -- --artifacts <returned-owner-only-dir>
+npm run transfer:promote -- --profile exact-multiplication
+npm run transfer:disable -- --profile exact-multiplication
+npm run transfer:revoke -- --profile exact-multiplication
+npm run transfer:registry
 ./scripts/launch-live-math-training.sh --dry-run
 ./scripts/launch-live-math-training.sh
 ./scripts/launch-live-math-training.sh --exam stress # explicit legacy diagnostic
@@ -91,8 +111,13 @@ artifacts/latest-qualified-run.json
 /root/.openclaw/cortex-learning-os/mastery.json
 /root/.openclaw/cortex-learning-os/mastery.hmac
 /root/.openclaw/cortex-learning-os/telemetry.json
+/root/.openclaw/cortex-learning-os/transfer-state.json
+/root/.openclaw/cortex-learning-os/transfer-state.hmac
+/root/.openclaw/cortex-learning-os/transfer-registry.json
+/root/.openclaw/cortex-learning-os/transfer-registry.hmac
+/root/.openclaw/cortex-learning-os/transfer-telemetry.json
 ```
 
 ## Truth boundary
 
-A green learning-loop run proves only that the declared bounded loop completed for the named evidence. An adaptive mastery record proves the named fresh exercises were independently replayed under the frozen policy; it does not prove general concept mastery. A live telemetry record with `answerInfluence=true` proves that a signed, scoped lesson entered that prompt; it does not by itself prove the lesson caused a better answer. A completed paired run supports candidate-context benefit only if all preregistered validity, lift, no-regression, and exact-test gates pass; mechanical completion is reported separately. None of these results proves general mathematical expertise, durability beyond completed due reviews or `retestAfter`, model-weight learning, autonomous self-improvement, or improvement outside the declared scope.
+A green learning-loop run proves only that the declared bounded loop completed for the named evidence. An adaptive mastery record proves the named fresh exercises were independently replayed under the frozen policy; it does not prove general concept mastery. Transfer profile validity, coding-transfer qualification, signed-registry installation, active answer influence, and empirical transfer benefit are separate truth layers. A live telemetry record with `answerInfluence=true` proves only that signed scoped context entered that prompt; it does not by itself prove a better answer. A completed paired run supports candidate-context benefit only if all preregistered validity, lift, no-regression, and exact-test gates pass; mechanical completion is reported separately. None of these results proves general mathematical expertise, broad coding ability, durability beyond completed due reviews or expiry, model-weight learning, autonomous self-improvement, or improvement outside the declared scope.

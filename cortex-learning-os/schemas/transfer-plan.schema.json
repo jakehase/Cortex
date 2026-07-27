@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.transfer_qualification_plan.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "runId", "generatedAt", "sourceCommit", "profileId",
+    "frozenDigests", "runtime", "budgets", "evidenceRequirements", "gates", "taskIds",
+    "arms", "trialOrder", "terminalOutcomes", "truthBoundary", "controlPlaneSignature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.transfer_qualification_plan.v1" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "profileId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "provider", "runner", "model", "reasoningEffort", "sandbox", "toolsAllowed"],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.transfer_runtime.v1" },
+        "provider": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "runner": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "reasoningEffort": { "enum": ["none", "minimal", "low", "medium", "high", "xhigh"] },
+        "sandbox": { "const": "read-only" },
+        "toolsAllowed": { "const": false }
+      }
+    },
+    "frozenDigests": {
+      "type": "object", "additionalProperties": false, "required": ["profile", "policy", "source", "tasks"],
+      "properties": {
+        "profile": { "$ref": "#/$defs/digest" }, "policy": { "$ref": "#/$defs/digest" },
+        "source": { "$ref": "#/$defs/digest" }, "tasks": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "budgets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maxProfilesPerRun", "maxTasks", "maxTrials", "maxArtifactFiles", "maxArtifactBytes"],
+      "properties": {
+        "maxProfilesPerRun": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "maxTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "maxTrials": { "type": "integer", "minimum": 1, "maximum": 80 },
+        "maxArtifactFiles": { "type": "integer", "minimum": 4, "maximum": 256 },
+        "maxArtifactBytes": { "type": "integer", "minimum": 1, "maximum": 4194304 }
+      }
+    },
+    "evidenceRequirements": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "minimumValidCandidateTrials", "minimumValidNoTransferTrials", "minimumHeldOutTasks",
+        "minimumNegativeSemanticTasks", "minimumAssumptionViolationTasks", "minimumRegressionTasks"
+      ],
+      "properties": {
+        "minimumValidCandidateTrials": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumValidNoTransferTrials": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumHeldOutTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumNegativeSemanticTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumAssumptionViolationTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumRegressionTasks": { "type": "integer", "minimum": 1, "maximum": 40 }
+      }
+    },
+    "gates": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "minimumCandidateAccuracy", "minimumNoTransferAccuracy", "minimumAccuracyLift",
+        "minimumNegativeSemanticAccuracy", "minimumAssumptionViolationAccuracy",
+        "minimumRegressionAccuracy", "requireAllExactOracles", "maximumInvalidTrialFraction"
+      ],
+      "properties": {
+        "minimumCandidateAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumNoTransferAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumAccuracyLift": { "type": "number", "minimum": -1, "maximum": 1 },
+        "minimumNegativeSemanticAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumAssumptionViolationAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumRegressionAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "requireAllExactOracles": { "type": "boolean" },
+        "maximumInvalidTrialFraction": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "taskIds": {
+      "type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+    },
+    "arms": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "enum": ["candidate", "no-transfer"] } },
+    "trialOrder": {
+      "type": "array", "minItems": 2, "maxItems": 80,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["taskId", "arm"],
+        "properties": {
+          "taskId": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "arm": { "enum": ["candidate", "no-transfer"] }
+        }
+      }
+    },
+    "terminalOutcomes": {
+      "type": "array", "minItems": 7, "maxItems": 7, "uniqueItems": true,
+      "items": { "enum": ["qualified", "candidate", "no-transfer", "invalid", "blocked", "underpowered", "null"] }
+    },
+    "truthBoundary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "controlPlaneSignature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signature": {
+      "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "digest"],
+      "properties": {
+        "algorithm": { "const": "hmac-sha256" },
+        "keyId": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

@@ -20,6 +20,11 @@ import {
   validateLiveLesson,
   verifyRegistry,
 } from './registry.mjs';
+import {
+  TRANSFER_ENTRY_SCHEMA,
+  atomicWriteSignedTransferRegistry,
+  initializeTransferRegistry,
+} from './transfer-registry.mjs';
 
 function lesson(overrides = {}) {
   return {
@@ -61,7 +66,7 @@ function setupRegistry({ lessons = [lesson()], enabled = true } = {}) {
   return { root, registryPath, secretPath, telemetryPath, registry, secret: initialized.secret };
 }
 
-async function invoke(setup, { query = 'Compute exactly: 6,243,088,374 × 2,167,829.', prompt = null, mode = 'active', killSwitch = false, agentId = 'main', sessionKey = 'agent:main:whatsapp:direct:test', messages = null } = {}) {
+async function invoke(setup, { query = 'Compute exactly: 6,243,088,374 × 2,167,829.', prompt = null, mode = 'active', killSwitch = false, agentId = 'main', sessionKey = 'agent:main:whatsapp:direct:test', messages = null, configOverrides = {} } = {}) {
   const handlers = new Map();
   const logs = [];
   register({
@@ -76,6 +81,7 @@ async function invoke(setup, { query = 'Compute exactly: 6,243,088,374 × 2,167,
       maxLessons: 3,
       maxContextChars: 3000,
       telemetryMaxRecords: 100,
+      ...configOverrides,
     },
     logger: { info(value) { logs.push(String(value)); }, warn(value) { logs.push(String(value)); } },
     on(name, handler) { handlers.set(name, handler); },
@@ -86,6 +92,56 @@ async function invoke(setup, { query = 'Compute exactly: 6,243,088,374 × 2,167,
   );
   const telemetry = fs.existsSync(setup.telemetryPath) ? JSON.parse(fs.readFileSync(setup.telemetryPath, 'utf8')) : null;
   return { context: String(result?.appendSystemContext || ''), telemetry, logs };
+}
+
+function transferEntry(overrides = {}) {
+  return {
+    schemaVersion: TRANSFER_ENTRY_SCHEMA,
+    entryId: 'transfer_exact_multiplication_test',
+    profileId: 'exact-multiplication',
+    profileVersion: '1.0.0',
+    conceptIds: ['number-fractions'],
+    matcherId: 'code-exact-integer-multiplication-v1',
+    enabled: true,
+    qualificationState: 'qualified',
+    qualificationRunId: 'transfer-qualified-test',
+    artifactManifestDigest: '1'.repeat(64),
+    evidenceDigest: '2'.repeat(64),
+    profileDigest: '3'.repeat(64),
+    qualifiedAt: '2026-07-26T05:00:00.000Z',
+    expiresAt: '2027-07-26T05:00:00.000Z',
+    allowedAgentIds: ['main'],
+    context: {
+      applicabilityReason: 'Exact integer code and overflow safety are explicit.',
+      assumptions: [
+        { code: 'operands-are-integers', description: 'Operands are explicitly integers.' },
+        { code: 'exact-result-required', description: 'The result must be exact.' },
+        { code: 'arbitrary-precision-or-overflow-safety-required', description: 'Overflow safety is explicit.' },
+      ],
+      contraindications: ['floating-point-domain: reject approximation'],
+      computationalFormulation: 'Use exact signed integer arithmetic.',
+      implementationPatterns: ['Parse exact integer strings and multiply with BigInt.'],
+      verificationOracle: 'exact-integer-product-v1: compare exact signed decimal output.',
+      complexityRisk: 'Complexity depends on operand digits.',
+      numericalRisk: 'Floating-point conversion loses precision.',
+      truthBoundary: 'This narrow entry is not broad coding mastery or empirical benefit.',
+    },
+    ...overrides,
+  };
+}
+
+function setupTransferRegistry(root, entries = [transferEntry()]) {
+  const registryPath = path.join(root, 'transfer-registry.json');
+  const secretPath = path.join(root, 'transfer-registry.hmac');
+  const telemetryPath = path.join(root, 'transfer-telemetry.json');
+  const initialized = initializeTransferRegistry({ registryPath, secretPath });
+  atomicWriteSignedTransferRegistry(registryPath, {
+    ...initialized.registry,
+    revision: 1,
+    updatedAt: '2026-07-26T05:00:00.000Z',
+    entries,
+  }, initialized.secret);
+  return { registryPath, secretPath, telemetryPath };
 }
 
 test('registry signatures and strict lesson schema validate', () => {
@@ -226,6 +282,69 @@ test('expired lessons remain signed evidence but are excluded from live selectio
     const selection = selectLiveLessons(registry, 'Compute exactly: 12345 × 67890.', { now: Date.parse('2026-07-26T00:00:00Z') });
     assert.equal(selection.eligible, true);
     assert.deepEqual(selection.lessons, []);
+  } finally {
+    fs.rmSync(setup.root, { recursive: true, force: true });
+  }
+});
+
+test('transfer defaults active but requires a qualified signed entry; explicit shadow remains isolated', async () => {
+  const setup = setupRegistry({ lessons: [] });
+  const transfer = setupTransferRegistry(setup.root);
+  const query = 'Implement an overflow-safe arbitrary-precision integer multiplication function in TypeScript using BigInt and return the exact product.';
+  const config = {
+    transferRegistryPath: transfer.registryPath,
+    transferRegistryHmacSecretPath: transfer.secretPath,
+    transferTelemetryPath: transfer.telemetryPath,
+  };
+  try {
+    const active = await invoke(setup, { query, configOverrides: config });
+    assert.match(active.context, /CORTEX_LEARNING_OS_CODING_TRANSFER/);
+    assert.match(active.context, /exact-integer-product-v1/);
+    let telemetry = JSON.parse(fs.readFileSync(transfer.telemetryPath, 'utf8'));
+    assert.equal(telemetry.records.at(-1).outcome, 'applied');
+    assert.equal(telemetry.records.at(-1).answerInfluence, true);
+    const shadow = await invoke(setup, { query, configOverrides: { ...config, transferMode: 'shadow' } });
+    assert.equal(shadow.context, '');
+    telemetry = JSON.parse(fs.readFileSync(transfer.telemetryPath, 'utf8'));
+    assert.equal(telemetry.records.at(-1).outcome, 'shadow_selected');
+    assert.equal(telemetry.records.at(-1).answerInfluence, false);
+    assert.doesNotMatch(JSON.stringify(telemetry), /overflow-safe arbitrary-precision integer multiplication function/);
+  } finally {
+    fs.rmSync(setup.root, { recursive: true, force: true });
+  }
+});
+
+test('active-default transfer injects nothing when the signed registry has no qualified entry', async () => {
+  const setup = setupRegistry({ lessons: [] });
+  const transfer = setupTransferRegistry(setup.root, []);
+  const query = 'Implement an overflow-safe arbitrary-precision integer multiplication function in TypeScript using BigInt and return the exact product.';
+  try {
+    const result = await invoke(setup, {
+      query,
+      configOverrides: {
+        transferRegistryPath: transfer.registryPath,
+        transferRegistryHmacSecretPath: transfer.secretPath,
+        transferTelemetryPath: transfer.telemetryPath,
+      },
+    });
+    assert.equal(result.context, '');
+    const telemetry = JSON.parse(fs.readFileSync(transfer.telemetryPath, 'utf8'));
+    assert.equal(telemetry.records.at(-1).outcome, 'no_match');
+    assert.equal(telemetry.records.at(-1).answerInfluence, false);
+    assert.ok(telemetry.records.at(-1).reasonCodes.includes('no-active-qualified-entry'));
+  } finally {
+    fs.rmSync(setup.root, { recursive: true, force: true });
+  }
+});
+
+test('transfer trust failure remains isolated from a valid math lesson path', async () => {
+  const setup = setupRegistry();
+  try {
+    const query = 'In TypeScript, implement overflow-safe exact integer multiplication with BigInt, then compute exactly: 12,345 * 67,890.';
+    const result = await invoke(setup, { query });
+    assert.match(result.context, /CORTEX_LEARNING_OS_LIVE/);
+    assert.doesNotMatch(result.context, /CORTEX_LEARNING_OS_CODING_TRANSFER/);
+    assert.match(result.logs.join('\n'), /transfer registry rejected independently/);
   } finally {
     fs.rmSync(setup.root, { recursive: true, force: true });
   }

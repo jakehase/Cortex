@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "cortex.learning_os.transfer_policy.v1",
+  "policyId": "coding-transfer-v0.9",
+  "version": "0.9.0",
+  "budgets": {
+    "maxProfilesPerRun": 1,
+    "maxTasks": 40,
+    "maxTrials": 80,
+    "maxArtifactFiles": 256,
+    "maxArtifactBytes": 4194304
+  },
+  "evidenceRequirements": {
+    "minimumValidCandidateTrials": 8,
+    "minimumValidNoTransferTrials": 8,
+    "minimumHeldOutTasks": 4,
+    "minimumNegativeSemanticTasks": 5,
+    "minimumAssumptionViolationTasks": 3,
+    "minimumRegressionTasks": 4
+  },
+  "gates": {
+    "minimumCandidateAccuracy": 0.875,
+    "minimumNoTransferAccuracy": 0.75,
+    "minimumAccuracyLift": 0.125,
+    "minimumNegativeSemanticAccuracy": 1,
+    "minimumAssumptionViolationAccuracy": 1,
+    "minimumRegressionAccuracy": 1,
+    "requireAllExactOracles": true,
+    "maximumInvalidTrialFraction": 0
+  },
+  "qualificationTtlDays": 30,
+  "truthBoundary": "This policy defines deterministic qualification machinery and finite gates. It is not evidence that any profile passed, improved coding, or is safe to activate."
+}

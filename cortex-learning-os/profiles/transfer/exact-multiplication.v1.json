@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "cortex.learning_os.transfer_profile.v1",
+  "profileId": "exact-multiplication",
+  "version": "1.0.0",
+  "mathConceptIds": ["number-fractions"],
+  "semanticMatcherId": "code-exact-integer-multiplication-v1",
+  "activationConditions": [
+    "software-context-observed",
+    "integer-domain-explicit",
+    "exact-product-required",
+    "overflow-or-arbitrary-precision-relevant"
+  ],
+  "requiredAssumptions": [
+    {
+      "code": "operands-are-integers",
+      "description": "The request explicitly constrains operands to integers.",
+      "observable": true
+    },
+    {
+      "code": "exact-result-required",
+      "description": "The request explicitly requires an exact product rather than an approximation.",
+      "observable": true
+    },
+    {
+      "code": "arbitrary-precision-or-overflow-safety-required",
+      "description": "The request explicitly calls for arbitrary precision, BigInt, or overflow-safe integer behavior.",
+      "observable": true
+    }
+  ],
+  "contraindications": [
+    {
+      "code": "floating-point-domain",
+      "description": "Do not apply to floating-point, decimal, approximate, probabilistic, or interval multiplication."
+    },
+    {
+      "code": "cryptographic-primitive",
+      "description": "Do not generalize this profile to cryptographic multiplication or authentication behavior."
+    },
+    {
+      "code": "hardware-fixed-width-semantics-required",
+      "description": "Do not apply when wraparound, saturation, SIMD, or other fixed-width hardware semantics are required."
+    },
+    {
+      "code": "non-code-context",
+      "description": "Do not apply to a standalone arithmetic exercise with no software implementation context."
+    }
+  ],
+  "computationalFormulation": "Represent signed base-10 integers without conversion through an unsafe fixed-width or floating-point type. Compute the exact product using a native arbitrary-precision integer when its semantics are explicit, or a bounded digit/limb convolution with sign normalization and carry propagation.",
+  "implementationPatterns": [
+    "Parse and validate sign plus canonical integer digits before multiplication.",
+    "Prefer the language's exact arbitrary-precision integer type when available and serialize the result as a base-10 integer string.",
+    "For a manual implementation, use bounded schoolbook digit or limb convolution, normalize carries deterministically, and strip only redundant leading zeros.",
+    "Keep zero and sign handling explicit; negative zero is never a valid output."
+  ],
+  "verification": {
+    "oracleId": "exact-integer-product-v1",
+    "strategy": "Parse both operands and the returned product with an independently selected exact-integer implementation, compare the complete signed decimal string, and include zero, sign, carry-chain, and values beyond safe fixed-width ranges.",
+    "deterministic": true
+  },
+  "risks": {
+    "complexity": "Schoolbook multiplication is O(n*m) time and O(n+m) space in operand digits; native big-integer complexity is implementation-dependent and must not be overstated.",
+    "numerical": "Conversion through IEEE-754 Number or an undersized fixed-width integer silently loses exactness or overflows; malformed signs, leading zeros, and carry propagation are correctness risks."
+  },
+  "qualificationPolicy": {
+    "policyId": "coding-transfer-v0.9",
+    "requiredFamilies": ["acquisition", "held-out", "negative-semantic", "assumption-violation", "regression"],
+    "candidateArm": "candidate",
+    "noTransferArm": "no-transfer"
+  },
+  "source": {
+    "baseCommit": "66725a3efaadfacbef78583866a85398c76d3882",
+    "sourceDigest": "7fd214d29679aca6a8ef2118c43a833aa56556980107bb3766180f6b88078038",
+    "profileDigest": "cace051fc56ee9aeef56734398fd9c0f0ff10bbb1a94a2242cd2548d084a25c5"
+  },
+  "truthBoundary": "This is a declared coding-transfer hypothesis and deterministic qualification surface. Mathematical mastery, profile validity, transfer qualification, live activation, and empirical coding benefit are separate claims; this profile is not checked in as qualified."
+}

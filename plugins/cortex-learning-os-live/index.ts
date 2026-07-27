@@ -9,6 +9,14 @@ import {
   renderLearningContext,
   selectLiveLessons,
 } from './registry.mjs';
+import {
+  TRANSFER_TELEMETRY_SCHEMA,
+  loadSignedTransferRegistry,
+  readTransferRegistrySecret,
+  renderTransferContext,
+  selectQualifiedTransferEntries,
+} from './transfer-registry.mjs';
+import { routeCodingTransfer } from './transfer.mjs';
 
 function asBool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
@@ -110,6 +118,107 @@ function appendTelemetry(filePath: string, record: any, maximum: number): void {
   atomicWriteJson(filePath, state);
 }
 
+function defaultTransferTelemetry() {
+  return {
+    schemaVersion: TRANSFER_TELEMETRY_SCHEMA,
+    mode: 'content_free',
+    updatedAt: null,
+    counters: {
+      observed: 0,
+      applicable: 0,
+      shadowSelected: 0,
+      applied: 0,
+      noMatch: 0,
+      bypassed: 0,
+      registryInvalid: 0,
+      contextRejected: 0,
+    },
+    reasonCounts: {},
+    records: [],
+  };
+}
+
+function sanitizeCodeList(value: any, maximum = 32): string[] {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .filter((item: unknown) => typeof item === 'string' && /^[a-z0-9][a-z0-9._-]{0,127}$/.test(item as string))
+    .slice(0, maximum))] as string[];
+}
+
+function sanitizeDigestList(value: any, maximum = 8): string[] {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .filter((item: unknown) => typeof item === 'string' && /^[0-9a-f]{64}$/.test(item as string))
+    .slice(0, maximum))] as string[];
+}
+
+function sanitizeTransferRecord(value: any): any | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || !Number.isFinite(Date.parse(String(value.recordedAt || '')))) return null;
+  const outcome = ['applied', 'shadow_selected', 'registry_invalid', 'bypassed', 'context_rejected', 'no_match'].includes(value.outcome)
+    ? value.outcome : 'no_match';
+  const result: any = {
+    recordedAt: value.recordedAt,
+    transferMode: ['active', 'shadow'].includes(value.transferMode) ? value.transferMode : 'shadow',
+    outcome,
+    answerInfluence: value.answerInfluence === true && outcome === 'applied',
+    applicable: value.applicable === true,
+    reasonCodes: sanitizeCodeList(value.reasonCodes),
+    profileIds: sanitizeCodeList(value.profileIds, 8),
+    matcherIds: sanitizeCodeList(value.matcherIds, 8),
+    observedAssumptionCodes: sanitizeCodeList(value.observedAssumptionCodes),
+    negativeGateCodes: sanitizeCodeList(value.negativeGateCodes),
+    evidenceDigests: sanitizeDigestList(value.evidenceDigests),
+  };
+  if (Number.isSafeInteger(value.transferRegistryRevision) && value.transferRegistryRevision >= 0) result.transferRegistryRevision = value.transferRegistryRevision;
+  if (typeof value.transferRegistryKeyId === 'string' && /^[0-9a-f]{16}$/.test(value.transferRegistryKeyId)) result.transferRegistryKeyId = value.transferRegistryKeyId;
+  return result;
+}
+
+function appendTransferTelemetry(filePath: string, record: any, maximum: number): void {
+  if (fs.existsSync(filePath)) {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0
+        || typeof process.getuid === 'function' && stat.uid !== process.getuid()) throw new Error('transfer telemetry must be an owner-only regular file');
+  }
+  const loaded: any = safeReadJson(filePath, defaultTransferTelemetry());
+  const state: any = defaultTransferTelemetry();
+  state.mode = 'content_free';
+  state.updatedAt = new Date().toISOString();
+  if (loaded.schemaVersion === TRANSFER_TELEMETRY_SCHEMA && loaded.counters && typeof loaded.counters === 'object') {
+    for (const key of Object.keys(state.counters)) {
+      const count = Number(loaded.counters[key]);
+      if (Number.isSafeInteger(count) && count >= 0) state.counters[key] = count;
+    }
+  }
+  state.counters.observed = Number(state.counters.observed || 0) + 1;
+  const outcome = String(record.outcome || 'no_match');
+  const counter = {
+    applied: 'applied',
+    shadow_selected: 'shadowSelected',
+    registry_invalid: 'registryInvalid',
+    bypassed: 'bypassed',
+    context_rejected: 'contextRejected',
+  }[outcome] || 'noMatch';
+  state.counters[counter] = Number(state.counters[counter] || 0) + 1;
+  if (record.applicable) state.counters.applicable = Number(state.counters.applicable || 0) + 1;
+  if (loaded.schemaVersion === TRANSFER_TELEMETRY_SCHEMA && loaded.reasonCounts && typeof loaded.reasonCounts === 'object' && !Array.isArray(loaded.reasonCounts)) {
+    for (const [reason, countValue] of Object.entries(loaded.reasonCounts).slice(0, 64)) {
+      const count = Number(countValue);
+      if (/^[a-z0-9][a-z0-9._-]{0,127}$/.test(reason) && Number.isSafeInteger(count) && count >= 0) state.reasonCounts[reason] = count;
+    }
+  }
+  const sanitized = sanitizeTransferRecord(record);
+  if (!sanitized) throw new Error('invalid content-free transfer telemetry record');
+  for (const reason of sanitized.reasonCodes) {
+    if (/^[a-z0-9][a-z0-9._-]{0,127}$/.test(reason)) state.reasonCounts[reason] = Number(state.reasonCounts[reason] || 0) + 1;
+  }
+  state.records = loaded.schemaVersion === TRANSFER_TELEMETRY_SCHEMA && Array.isArray(loaded.records)
+    ? loaded.records.map(sanitizeTransferRecord).filter(Boolean).slice(-maximum)
+    : [];
+  state.records.push(sanitized);
+  state.records.splice(0, Math.max(0, state.records.length - maximum));
+  atomicWriteJson(filePath, state);
+}
+
 export default function register(api: any) {
   const cfg = api.pluginConfig || api.config || {};
   if (!asBool(cfg.enabled, true)) return;
@@ -129,6 +238,21 @@ export default function register(api: any) {
   const maxLessons = boundedNumber(cfg.maxLessons, 3, 1, 8);
   const maxContextChars = boundedNumber(cfg.maxContextChars, 3_000, 512, 8_000);
   const telemetryMaxRecords = boundedNumber(cfg.telemetryMaxRecords, 1_000, 10, 10_000);
+  const transferEnabled = asBool(cfg.transferEnabled, true);
+  const transferMode = typeof cfg.transferMode === 'string' ? cfg.transferMode : 'active';
+  if (!['active', 'shadow'].includes(transferMode)) throw new Error('cortex-learning-os-live transferMode must be active or shadow');
+  const transferKillSwitch = asBool(cfg.transferKillSwitch, false);
+  const transferRegistryPath = typeof cfg.transferRegistryPath === 'string' && cfg.transferRegistryPath.trim()
+    ? path.resolve(cfg.transferRegistryPath)
+    : path.join(path.dirname(registryPath), 'transfer-registry.json');
+  const transferRegistryHmacSecretPath = typeof cfg.transferRegistryHmacSecretPath === 'string' && cfg.transferRegistryHmacSecretPath.trim()
+    ? path.resolve(cfg.transferRegistryHmacSecretPath)
+    : path.join(path.dirname(transferRegistryPath), 'transfer-registry.hmac');
+  const transferTelemetryPath = typeof cfg.transferTelemetryPath === 'string' && cfg.transferTelemetryPath.trim()
+    ? path.resolve(cfg.transferTelemetryPath)
+    : path.join(path.dirname(transferRegistryPath), 'transfer-telemetry.json');
+  const transferTelemetryMaxRecords = boundedNumber(cfg.transferTelemetryMaxRecords, 1_000, 10, 10_000);
+  const transferMaxContextChars = boundedNumber(cfg.transferMaxContextChars, 6_000, 1_024, 12_000);
   const allowedAgentIds = new Set(
     (Array.isArray(cfg.allowedAgentIds) ? cfg.allowedAgentIds : ['main'])
       .filter((value: unknown) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value as string))
@@ -140,8 +264,18 @@ export default function register(api: any) {
   // key path cannot silently change the trust root without a gateway restart.
   const registrySecret = readRegistrySecret(registryHmacSecretPath);
   let warnedRegistryError = false;
+  let transferRegistrySecret: string | null = null;
+  let transferTrustError: string | null = null;
+  if (transferEnabled) {
+    try {
+      transferRegistrySecret = readTransferRegistrySecret(transferRegistryHmacSecretPath);
+    } catch (error) {
+      transferTrustError = String(error);
+    }
+  }
+  let warnedTransferRegistryError = false;
 
-  api.on('before_prompt_build', async (event: any, ctx: any) => {
+  const lessonHandler = async (event: any, ctx: any) => {
     const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const agentId = String(ctx?.agentId || '').trim();
     const principalTag = crypto.createHmac('sha256', registrySecret)
@@ -220,5 +354,116 @@ export default function register(api: any) {
     }
     api.logger.info?.(`cortex-learning-os-live: applied ${selection.lessons.length} verified lesson(s) principal=${principalTag} profiles=${selection.profiles.join(',')}`);
     return { appendSystemContext: context };
+  };
+
+  const transferHandler = async (event: any, ctx: any) => {
+    if (!transferEnabled) return;
+    const recordedAt = new Date().toISOString();
+    const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const agentId = String(ctx?.agentId || '').trim();
+    const baseRecord: any = {
+      recordedAt,
+      transferMode,
+      answerInfluence: false,
+      applicable: false,
+      reasonCodes: [],
+      profileIds: [],
+      matcherIds: [],
+      observedAssumptionCodes: [],
+      negativeGateCodes: [],
+      evidenceDigests: [],
+    };
+    if (transferKillSwitch || !allowedAgentIds.has(agentId) || isBypassedSession(sessionKey)) {
+      const reason = transferKillSwitch ? 'transfer-kill-switch' : 'transfer-scope-bypass';
+      try { appendTransferTelemetry(transferTelemetryPath, { ...baseRecord, outcome: 'bypassed', reasonCodes: [reason] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    const structuredUserTurn = latestUserTurnText(Array.isArray(event?.messages) ? event.messages : []);
+    const promptFallback = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
+    const query = structuredUserTurn || promptFallback;
+    if (!query || query.length > 16_384) {
+      const reason = query ? 'query-too-large' : 'no-user-turn';
+      try { appendTransferTelemetry(transferTelemetryPath, { ...baseRecord, outcome: 'no_match', reasonCodes: [reason] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    const route = routeCodingTransfer(query, { selectionMode: transferMode });
+    const evaluated = route.evaluations || route.selections;
+    const routeRecord = {
+      ...baseRecord,
+      applicable: route.applicable,
+      reasonCodes: route.reasonCodes,
+      profileIds: evaluated.map((row: any) => row.profileId),
+      matcherIds: evaluated.map((row: any) => row.matcherId),
+      observedAssumptionCodes: [...new Set(evaluated.flatMap((row: any) => row.observedAssumptionCodes))],
+      negativeGateCodes: [...new Set(evaluated.flatMap((row: any) => row.negativeGateCodes))],
+    };
+    if (!route.applicable) {
+      try { appendTransferTelemetry(transferTelemetryPath, { ...routeRecord, outcome: 'no_match' }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    if (!transferRegistrySecret) {
+      if (!warnedTransferRegistryError) {
+        api.logger.warn?.(`cortex-learning-os-live: transfer registry rejected independently; lesson path remains available: ${transferTrustError}`);
+        warnedTransferRegistryError = true;
+      }
+      try { appendTransferTelemetry(transferTelemetryPath, { ...routeRecord, outcome: 'registry_invalid', reasonCodes: [...route.reasonCodes, 'transfer-trust-root-unavailable'] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    let transferRegistry;
+    try {
+      transferRegistry = loadSignedTransferRegistry(transferRegistryPath, transferRegistrySecret, { allowExpiredEntries: true });
+      warnedTransferRegistryError = false;
+    } catch (error) {
+      if (!warnedTransferRegistryError) {
+        api.logger.warn?.(`cortex-learning-os-live: transfer registry rejected independently; lesson path remains available: ${String(error)}`);
+        warnedTransferRegistryError = true;
+      }
+      try { appendTransferTelemetry(transferTelemetryPath, { ...routeRecord, outcome: 'registry_invalid', reasonCodes: [...route.reasonCodes, 'transfer-registry-verification-failed'] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    const qualifiedEntries = selectQualifiedTransferEntries(transferRegistry, route, { agentId });
+    const registryRecord = {
+      ...routeRecord,
+      transferRegistryRevision: transferRegistry.revision,
+      transferRegistryKeyId: transferRegistry.signature.keyId,
+      evidenceDigests: qualifiedEntries.map((entry: any) => entry.evidenceDigest),
+    };
+    if (transferMode === 'shadow') {
+      try { appendTransferTelemetry(transferTelemetryPath, { ...registryRecord, outcome: 'shadow_selected', reasonCodes: [...route.reasonCodes, 'shadow-zero-answer-influence'] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    if (!qualifiedEntries.length) {
+      try { appendTransferTelemetry(transferTelemetryPath, { ...registryRecord, outcome: 'no_match', reasonCodes: [...route.reasonCodes, 'no-active-qualified-entry'] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    const context = renderTransferContext(qualifiedEntries, route, { maxChars: transferMaxContextChars });
+    if (!context) {
+      try { appendTransferTelemetry(transferTelemetryPath, { ...registryRecord, outcome: 'context_rejected', reasonCodes: [...route.reasonCodes, 'transfer-context-bound-exceeded'] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    try {
+      appendTransferTelemetry(transferTelemetryPath, {
+        ...registryRecord,
+        outcome: 'applied',
+        reasonCodes: [...route.reasonCodes, 'active-qualified-transfer-applied'],
+        answerInfluence: true,
+      }, transferTelemetryMaxRecords);
+    } catch (error) {
+      api.logger.warn?.(`cortex-learning-os-live: content-free transfer telemetry write failed: ${String(error)}`);
+    }
+    return { appendSystemContext: context };
+  };
+
+  api.on('before_prompt_build', async (event: any, ctx: any) => {
+    let lessonResult;
+    let transferResult;
+    lessonResult = await lessonHandler(event, ctx);
+    try {
+      transferResult = await transferHandler(event, ctx);
+    } catch (error) {
+      api.logger.warn?.(`cortex-learning-os-live: transfer path failed closed independently: ${String(error)}`);
+    }
+    const contexts = [lessonResult?.appendSystemContext, transferResult?.appendSystemContext].filter(Boolean);
+    return contexts.length ? { appendSystemContext: contexts.join('\n\n') } : undefined;
   });
 }

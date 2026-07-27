@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "cortex.learning_os.transfer_profile.v1",
+  "profileId": "algebra-factoring",
+  "version": "1.0.0",
+  "mathConceptIds": ["algebra-factoring"],
+  "semanticMatcherId": "code-polynomial-factoring-v1",
+  "activationConditions": [
+    "software-context-observed",
+    "polynomial-domain-explicit",
+    "integer-coefficients-explicit",
+    "construct-expand-or-verify-roots-requested"
+  ],
+  "requiredAssumptions": [
+    {
+      "code": "univariate-polynomial",
+      "description": "The request explicitly describes a univariate polynomial representation or algorithm.",
+      "observable": true
+    },
+    {
+      "code": "integer-coefficients",
+      "description": "The request explicitly constrains coefficients or roots to integers.",
+      "observable": true
+    },
+    {
+      "code": "exact-symbolic-semantics",
+      "description": "The request calls for exact construction, expansion, integer-root checking, or zero verification.",
+      "observable": true
+    }
+  ],
+  "contraindications": [
+    {
+      "code": "authentication-factor",
+      "description": "Reject authentication factor, multi-factor authentication, and identity factor uses."
+    },
+    {
+      "code": "software-refactor",
+      "description": "Reject refactor and refactoring requests."
+    },
+    {
+      "code": "factorio",
+      "description": "Reject Factorio game references."
+    },
+    {
+      "code": "business-factor",
+      "description": "Reject business, risk, human, market, scaling, and other non-polynomial factors."
+    },
+    {
+      "code": "ambiguous-factor",
+      "description": "Reject generic factor language without an explicit polynomial coding context."
+    },
+    {
+      "code": "approximate-numerical-roots",
+      "description": "Reject floating-point or approximate root-finding when exact integer polynomial semantics are not explicit."
+    }
+  ],
+  "computationalFormulation": "Represent a univariate integer polynomial by coefficients in a declared order. Construct factors by coefficient convolution, expand them deterministically, evaluate candidate integer roots with exact arithmetic, and accept a root only when exact evaluation equals zero.",
+  "implementationPatterns": [
+    "Declare coefficient order and normalize trailing zero coefficients without changing the represented polynomial.",
+    "Expand products by exact coefficient convolution and accumulate in an overflow-safe integer representation.",
+    "Generate bounded integer-root candidates only from the rational-root constraints applicable to the nonzero constant and leading coefficients.",
+    "Verify every returned factorization by re-expansion and every returned root by exact zero evaluation."
+  ],
+  "verification": {
+    "oracleId": "integer-polynomial-identity-v1",
+    "strategy": "Independently convolve returned integer-coefficient factors and compare every normalized coefficient with the input polynomial; independently evaluate each claimed integer root and require exact zero.",
+    "deterministic": true
+  },
+  "risks": {
+    "complexity": "Naive convolution is O(d1*d2), evaluation by Horner's method is O(d), and exhaustive integer-root enumeration can be dominated by divisor generation; all candidate bounds must remain finite.",
+    "numerical": "Fixed-width coefficient overflow, coefficient-order confusion, duplicate roots, zero-polynomial ambiguity, and approximate equality can create false factorizations."
+  },
+  "qualificationPolicy": {
+    "policyId": "coding-transfer-v0.9",
+    "requiredFamilies": ["acquisition", "held-out", "negative-semantic", "assumption-violation", "regression"],
+    "candidateArm": "candidate",
+    "noTransferArm": "no-transfer"
+  },
+  "source": {
+    "baseCommit": "66725a3efaadfacbef78583866a85398c76d3882",
+    "sourceDigest": "7fd214d29679aca6a8ef2118c43a833aa56556980107bb3766180f6b88078038",
+    "profileDigest": "cabc6f337bc928c58b7527fedfd7632db29fa1d99c1bf03c435cf437e120b150"
+  },
+  "truthBoundary": "This is a declared coding-transfer hypothesis and deterministic qualification surface. Mathematical mastery, profile validity, transfer qualification, live activation, and empirical coding benefit are separate claims; this profile is not checked in as qualified."
+}

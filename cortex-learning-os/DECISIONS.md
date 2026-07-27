@@ -254,3 +254,39 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Reason: Recovery run `math-training-20260726T194031Z-3b3dfe` copied the plan through root SSH as `root:root` mode `0600`; the `jake` systemd service could stat but not read it. Generic JSON fallback then produced a misleading null dereference. This was a transport/deployment defect, not a training outcome.
 - Evidence: incident artifact `/root/clawd/artifacts/cortex-learning-os-real-adaptive-20260726/incident-pre-model-plan-permission.json`; remote ownership/readability proof; empty remote artifact root; notifier delivery record.
 - Boundary: Ownership changes apply only to the per-run signed plan. Canonical mastery stays owner-only on the control plane, and the execution worker receives no authority to mutate or sign it.
+
+## 2026-07-26 — Propose a separate semantic math-to-code transfer truth layer
+
+- Decision: Add a v0.9 review candidate in which mathematical mastery, coding-transfer qualification, signed-registry activation, runtime answer influence, and empirical benefit remain separate records and claims. Declare only `exact-multiplication` and `algebra-factoring`; initialize their transfer state as `unassessed` and all other curriculum concepts as explicit `no_qualified_transfer`.
+- Architecture: Use enumerated code-first semantic matchers, observable-assumption checks, hard negative gates, deterministic seeded acquisition/held-out/negative/assumption/regression families, local oracles, inert worker proposals, exact manifest replay, owner-only HMAC state, and a distinct signed transfer registry/trust root. Live transfer defaults to enabled shadow observation with zero answer influence.
+- Reason: Mathematical success alone does not establish that a concept improves software work, and lexical overlap is not a safe activation mechanism. Qualification must be independently replayable and active use must fail closed at every boundary.
+- Evidence: Candidate source and future test fixtures only. No test suite, model call, benchmark, qualification run, registry installation, live configuration change, or empirical benefit observation was performed in this implementation task.
+- Boundary: This is a proposed implementation decision pending review and verification, not an accepted production release or claim that either profile transfers.
+
+## 2026-07-27 — Add an executable inert semantic-transfer qualification worker
+
+- Decision: Execute frozen semantic-transfer plans with a secretless worker that
+  emits only owner-only attempts, content-free provider-call evidence, an inert
+  proposal, and an exact byte manifest. Keep authentication, deterministic replay,
+  qualification, state signing, and registry changes exclusively in the
+  independent control plane.
+- Reason: v0.9 had plan/apply/replay primitives and an inert proposal builder but
+  no production path that could obtain real paired model evidence.
+- Evidence: `src/run-transfer-qualification.mjs`,
+  `src/transfer-qualification-worker.mjs`, and deterministic fake-adapter tests
+  covering two-arm coverage, routing isolation, expected-answer privacy,
+  provenance privacy, resume, drift, malformed output, exact manifests, and
+  independent replay compatibility.
+- Boundary: These are implementation tests only. No real model call occurred,
+  neither profile qualified, thresholds are unchanged, and no live state,
+  configuration, service, or registry changed. A later real run can correctly
+  produce a null outcome.
+- Runtime decision preserved: release defaults may be active, while active mode
+  injects nothing without a qualified signed enabled entry.
+
+## 2026-07-27 — Harden the transfer worker and retain an inert active-default release boundary
+
+- Decision: Ship the coding-transfer runtime default as enabled `active`, but initialize an empty signed registry and require a separately signed qualified entry before any context can influence an answer. Do not run a real transfer qualification as part of this release; resume the due math review instead.
+- Hardening: Freeze provider/model/reasoning/read-only/tool-free runtime in the signed plan; require provider and model binding plus positive provider-observed input/output usage; reject tool events; balance run-seeded arm order; durably checkpoint successful concurrent peers; reject duplicate call identities; and strictly bind two monic polynomial factors to two verified roots.
+- Evidence: Locked local release gate `79/79`, fixture validation, syntax checks, 50 JSON parses, isolated signed-state/empty-registry control smoke, and hostile tests for missing provider evidence, runtime drift, concurrent interruption, tool events, expected-answer leakage, malformed output, duplicated resume rows, and incomplete polynomial roots.
+- Boundary: Fake-adapter tests prove mechanics only. No real transfer model call occurred, neither profile is qualified, the initial registry has zero entries, and active-default therefore has zero transfer answer influence until a later separately authorized qualification and promotion.
