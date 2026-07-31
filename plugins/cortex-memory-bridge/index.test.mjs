@@ -252,13 +252,13 @@ test('memory-system repair notes do not outrank domain facts for domain queries'
     [
       {
         id: 'meta-fix',
-        text: 'Live verification: memory_search("Morgan correspondence SimplePractice NPI billing provider") now returns pmhnp-billing correction rows first. Regression coverage added in test_librarian_recall_fallback.py.',
+        text: 'Live verification: memory_search("Morgan correspondence SimplePractice NPI billing provider") now returns billing correction rows first. Regression coverage added in test_librarian_recall_fallback.py.',
         score: 1,
         metadata: { source: 'local_file_memory' },
       },
       {
         id: 'domain-fact',
-        text: 'BCBS SimplePractice enrollment/NPI truth corrected: use Harbor Behavioral Health PLLC organization NPI 2 and PLLC EIN as billing provider, with Morgan individual NPI 1 as rendering provider.',
+        text: 'Synthetic BCBS SimplePractice enrollment/NPI truth corrected: use Harbor Behavioral Health PLLC organization NPI 2 and synthetic organization EIN as billing provider, with Morgan individual NPI 1 as rendering provider.',
         score: 0.95,
         metadata: { source: 'local_file_memory', quality: 'curated', correction_memory: true },
       },

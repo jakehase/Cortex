@@ -167,7 +167,7 @@ def test_robust_search_uses_local_file_memory_when_chroma_misses_client_context(
     memory_root.mkdir()
     ledger = memory_root / "pmhnp-billing.md"
     ledger.write_text(
-        "## Morgan / Harbor context-access lesson — 2026-06-20\n"
+        "## Morgan / Harbor context-access lesson — synthetic fixture\n"
         "- Morgan explicitly said Credentialing Solutions had not instructed her to bill under individual NPI 1.\n"
         "- Claims should use Harbor Behavioral Health PLLC organization NPI 2 + PLLC EIN as billing provider, "
         "with Morgan's individual NPI 1 as rendering provider.\n",
