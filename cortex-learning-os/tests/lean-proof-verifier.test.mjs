@@ -1,19 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
+import { deploymentBindingDigest } from '../src/deployment-identity.mjs';
 import { sha256Text } from '../src/hash.mjs';
 import {
   DEFAULT_PROOF_KERNEL_ROOT,
   PINNED_LEAN_PROOF_CONTEXT,
   PINNED_LEAN_PROOF_IDENTITIES,
-  PROOF_SOURCE_COMMIT,
+  PROOF_RUNTIME_EVIDENCE_SCHEMA,
   PROOF_TRUTH_BOUNDARY,
+  buildProofRuntimeAttestationRequest,
+  buildProofRuntimeEvidence,
+  buildRuntimeContentManifest,
   preflightLeanProofKernel,
+  validateProofRuntimeEvidence,
 } from '../src/lean-proof-preflight.mjs';
 import {
   PROOF_CANDIDATE_SCHEMA,
@@ -29,6 +35,7 @@ import {
   validateCandidateProofTerm,
   validateKernelEvidence,
   validateProofCandidate,
+  validateReplayEvidenceIdentity,
   validateProofTask,
   verifyLeanProof,
   withTemporaryProofSource,
@@ -46,6 +53,145 @@ const WRONG_PROOF = fs.readFileSync(WRONG_PROOF_PATH, 'utf8').trim();
 const THEOREM_STATEMENT = 'theorem candidate_nat_add_zero (n : Nat) : n + 0 = n';
 const EMPTY_SHA256 = sha256Text('');
 const PREFLIGHT = preflightLeanProofKernel();
+const {
+  publicKey: FIXTURE_RUNTIME_PUBLIC_KEY,
+  privateKey: FIXTURE_RUNTIME_PRIVATE_KEY,
+} = crypto.generateKeyPairSync('ed25519');
+const FIXTURE_RUNTIME_KEY_ID = sha256Text(FIXTURE_RUNTIME_PUBLIC_KEY.export({
+  format: 'der',
+  type: 'spki',
+}));
+const FIXTURE_RUNTIME_POLICY = {
+  schemaVersion: 'cortex.learning_os.phd_trust_policy.v1',
+  policyId: 'fixture-proof-runtime-policy',
+  boundaryId: 'fixture-proof-runtime-boundary',
+  productionEnabled: false,
+  authorities: [{
+    authorityId: 'fixture-proof-runtime-authority',
+    capabilities: ['proof_runtime'],
+    publicKeyPem: FIXTURE_RUNTIME_PUBLIC_KEY.export({
+      format: 'pem',
+      type: 'spki',
+    }).toString(),
+    keyId: FIXTURE_RUNTIME_KEY_ID,
+  }],
+  truthBoundary: 'Fixture-only authority exercises proof-runtime signature mechanics.',
+};
+const FIXTURE_PRODUCT_PATHS = [
+  'lean-toolchain',
+  'lakefile.toml',
+  'ProofKernel.lean',
+  'ProofKernel/Prelude.lean',
+  'ProofKernel/Representative.lean',
+];
+const FIXTURE_PRODUCT_MANIFEST = FIXTURE_PRODUCT_PATHS.map((manifestPath, index) => ({
+  path: manifestPath,
+  bytes: index + 1,
+  sha256: String(index + 1).repeat(64),
+}));
+const DEPLOYMENT = {
+  schemaVersion: 'cortex.learning_os.deployment_binding.v1',
+  sourceCommit: '1'.repeat(40),
+  sourceTree: '2'.repeat(40),
+  contentDigests: {
+    'proof-registry': '3'.repeat(64),
+    'proof-runtime-product': sha256Text(canonicalJson(FIXTURE_PRODUCT_MANIFEST)),
+    'trust-policy': sha256Text(canonicalJson(FIXTURE_RUNTIME_POLICY)),
+  },
+};
+
+function fixtureRuntimeEvidence({ manifestDigest = '7'.repeat(64), attestationId = 'fixture-runtime-attestation' } = {}) {
+  const productManifest = structuredClone(FIXTURE_PRODUCT_MANIFEST);
+  const payload = {
+    schemaVersion: 'cortex.learning_os.proof_runtime_attestation_payload.v1',
+    fixtureOnly: true,
+    product: {
+      productId: 'cortex-learning-os-proof-runtime',
+      manifest: productManifest,
+      manifestSha256: sha256Text(canonicalJson(productManifest)),
+    },
+    deployment: structuredClone(DEPLOYMENT),
+    deploymentSha256: deploymentBindingDigest(DEPLOYMENT),
+    trust: {
+      policyId: FIXTURE_RUNTIME_POLICY.policyId,
+      boundaryId: FIXTURE_RUNTIME_POLICY.boundaryId,
+      policySha256: DEPLOYMENT.contentDigests['trust-policy'],
+    },
+    toolchain: structuredClone(PINNED_LEAN_PROOF_IDENTITIES),
+    trustedContext: structuredClone(PINNED_LEAN_PROOF_CONTEXT),
+    leanInstallation: {
+      schemaVersion: 'cortex.learning_os.lean_proof_installation.v1',
+      leanRelease: PINNED_LEAN_PROOF_IDENTITIES.leanRelease,
+      leanToolchain: PINNED_LEAN_PROOF_IDENTITIES.leanToolchain,
+      leanCommit: PINNED_LEAN_PROOF_IDENTITIES.leanCommit,
+      leanArchiveSha256: PINNED_LEAN_PROOF_IDENTITIES.leanArchiveSha256,
+      leanExecutableSha256: '1'.repeat(64),
+      lakeExecutableSha256: '2'.repeat(64),
+    },
+    lakeManifest: {
+      packages: [
+        'Cli',
+        'LeanSearchClient',
+        'Qq',
+        'aesop',
+        'batteries',
+        'importGraph',
+        'mathlib',
+        'plausible',
+        'proofwidgets',
+      ].map((name) => name === 'mathlib'
+        ? {
+          name,
+          type: 'git',
+          rev: PINNED_LEAN_PROOF_IDENTITIES.mathlibCommit,
+        }
+        : { name }),
+    },
+    leanRootManifest: [{
+      path: 'bin/lean',
+      type: 'file',
+      bytes: 1,
+      executable: true,
+      sha256: manifestDigest,
+    }],
+    compiledDependenciesManifest: [{
+      root: '.lake/packages/mathlib/.lake/build/lib/lean',
+      path: 'Mathlib.olean',
+      type: 'file',
+      bytes: 1,
+      executable: false,
+      sha256: manifestDigest,
+    }],
+  };
+  const request = buildProofRuntimeAttestationRequest(payload);
+  const requestBytes = Buffer.from(canonicalJson(request), 'utf8');
+  const core = {
+    schemaVersion: 'cortex.learning_os.authority_attestation.v1',
+    attestationId,
+    authorityId: 'fixture-proof-runtime-authority',
+    payload: {
+      schemaVersion: 'cortex.learning_os.proof_runtime_authority_payload.v1',
+      requestSha256: sha256Text(requestBytes),
+      runtimePayload: payload,
+    },
+  };
+  const attestation = {
+    ...core,
+    signature: {
+      algorithm: 'ed25519',
+      keyId: FIXTURE_RUNTIME_KEY_ID,
+      valueBase64: crypto.sign(
+        null,
+        Buffer.from(canonicalJson(core), 'utf8'),
+        FIXTURE_RUNTIME_PRIVATE_KEY,
+      ).toString('base64'),
+    },
+  };
+  return buildProofRuntimeEvidence(
+    Buffer.from(canonicalJson(attestation)),
+    requestBytes,
+  );
+}
 
 function makeTask(overrides = {}) {
   return createProofTask({
@@ -55,6 +201,7 @@ function makeTask(overrides = {}) {
     trustedTemplateBytes: TEMPLATE_BYTES,
     runId: 'proof-run.20260727',
     seed: 'proof-seed-001',
+    deployment: DEPLOYMENT,
     ...overrides,
   });
 }
@@ -94,7 +241,7 @@ function evidenceWithId(core) {
   };
 }
 
-function syntheticEvidence() {
+function syntheticEvidence({ runtimeEvidence = fixtureRuntimeEvidence() } = {}) {
   const { task, taskBytes, candidate, candidateBytes } = makeRecords();
   const taskEnvelope = parseProofRecordBytes(taskBytes, 'task');
   const candidateEnvelope = parseProofRecordBytes(candidateBytes, 'candidate');
@@ -124,7 +271,7 @@ function syntheticEvidence() {
       renderedSourceSha256: rendered.sourceSha256,
     },
     toolchain: { ...PINNED_LEAN_PROOF_IDENTITIES },
-    sourceCommit: PROOF_SOURCE_COMMIT,
+    deployment: structuredClone(DEPLOYMENT),
     runIdentity: { ...task.runIdentity },
     limits: { ...task.limits },
     kernel: {
@@ -141,6 +288,7 @@ function syntheticEvidence() {
       leanToolchainSha256: PINNED_LEAN_PROOF_CONTEXT.leanToolchainSha256,
       lakefileSha256: PINNED_LEAN_PROOF_CONTEXT.lakefileSha256,
       preludeSha256: PINNED_LEAN_PROOF_CONTEXT.preludeSha256,
+      authenticatedRuntime: structuredClone(runtimeEvidence),
     },
     command: {
       executable: '/opt/cortex-lean/bin/lean',
@@ -185,7 +333,6 @@ test('proof-kernel project and schemas pin every upstream and product identity',
   assert.equal(PINNED_LEAN_PROOF_IDENTITIES.leanCommit, 'f054605aea4b840552cca2e725580bffd1e1b704');
   assert.equal(PINNED_LEAN_PROOF_IDENTITIES.leanArchiveSha256, '57d5c062a6b4bae6fba511a1704aa124dff461c37d0fc94585637fbb7d951b50');
   assert.equal(PINNED_LEAN_PROOF_IDENTITIES.mathlibCommit, '520045ab14e26149ee970e2e617ca04b09bde5d6');
-  assert.equal(PROOF_SOURCE_COMMIT, '97266f3f17e26dcecbe7029981b48555d618ec81');
 
   for (const [file, schemaVersion] of [
     ['proof-task.schema.json', PROOF_TASK_SCHEMA],
@@ -196,6 +343,16 @@ test('proof-kernel project and schemas pin every upstream and product identity',
     assert.equal(schema.$id, schemaVersion);
     assert.equal(schema.additionalProperties, false);
     assert.ok(schema.required.length >= 10);
+  }
+  for (const [file, schemaVersion] of [
+    ['proof-runtime-evidence.schema.json', PROOF_RUNTIME_EVIDENCE_SCHEMA],
+    ['proof-runtime-attestation-request.schema.json', 'cortex.learning_os.proof_runtime_attestation_request.v1'],
+    ['proof-replay-request.schema.json', 'cortex.learning_os.proof_replay_request.v2'],
+    ['proof-replay-receipt.schema.json', 'cortex.learning_os.proof_replay_receipt.v1'],
+  ]) {
+    const schema = JSON.parse(fs.readFileSync(path.join(CLOS_ROOT, 'schemas', file), 'utf8'));
+    assert.equal(schema.$id, schemaVersion);
+    assert.equal(schema.additionalProperties, false);
   }
 });
 
@@ -231,12 +388,12 @@ test('task validation fails closed on every frozen identity, context, digest, an
   const cases = [
     mutation(task, (copy) => { copy.theorem.statementSha256 = '0'.repeat(64); }),
     mutation(task, (copy) => { copy.theorem.templateSha256 = 'bad'; }),
-    mutation(task, (copy) => { copy.trustedContext.allowedImports = ['Mathlib']; }),
+    mutation(task, (copy) => { copy.trustedContext.allowedImports = ['Mathlib.Data.Nat.Basic']; }),
     mutation(task, (copy) => { copy.trustedContext.allowedImportsSha256 = '0'.repeat(64); }),
     mutation(task, (copy) => { copy.trustedContext.preludeSha256 = '0'.repeat(64); }),
     mutation(task, (copy) => { copy.toolchain.leanCommit = '0'.repeat(40); }),
     mutation(task, (copy) => { copy.toolchain.mathlibCommit = '0'.repeat(40); }),
-    mutation(task, (copy) => { copy.sourceCommit = '0'.repeat(40); }),
+    mutation(task, (copy) => { copy.deployment.sourceTree = 'invalid-tree'; }),
     mutation(task, (copy) => { copy.runIdentity.runId = '../escape'; }),
     mutation(task, (copy) => { copy.limits.timeoutMs = 30_001; }),
     mutation(task, (copy) => { copy.limits.maxCandidateBytes = 65_537; }),
@@ -329,8 +486,8 @@ test('trusted source construction admits only the exact prelude, imports, statem
 
   const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
   assertTemplateRejected(template.replace(
-    'import Mathlib.Data.Nat.Basic',
-    'import Mathlib.Data.Nat.Basic\nimport Mathlib',
+    'import Mathlib',
+    'import Mathlib\nimport Mathlib.Data.Nat.Basic',
   ), 'IMPORT_MISMATCH');
   assertTemplateRejected(template.replace(
     '{{CORTEX_PROOF_HOLE}}',
@@ -346,7 +503,7 @@ test('trusted source construction admits only the exact prelude, imports, statem
     'namespace CortexLearningOS.ProofKernel.Candidate\n\naxiom escape : False',
   ), 'UNSAFE_TRUSTED_TEMPLATE');
   assertTemplateRejected(template.replace(
-    'import Mathlib.Data.Nat.Basic',
+    'import Mathlib',
     'import Mathlib.Data.Nat.Defs',
   ), 'PRELUDE_MISMATCH');
 
@@ -407,8 +564,86 @@ test('kernel evidence validation is strict, self-digesting, and truth-bounded', 
   assert.match(validateKernelEvidence(overclaim).errors.join('; '), /truthBoundary|evidenceId/);
 });
 
+test('proof-runtime evidence rejects omitted or substituted exact attestation bytes and changed signed bindings', () => {
+  const runtime = fixtureRuntimeEvidence();
+  const validate = (value) => validateProofRuntimeEvidence(value, {
+    trustPolicy: FIXTURE_RUNTIME_POLICY,
+    expectedDeployment: DEPLOYMENT,
+    allowFixture: true,
+  });
+  assert.equal(validate(runtime).ok, true, validate(runtime).errors.join('; '));
+  assert.equal(validateProofRuntimeEvidence(runtime, {
+    trustPolicy: FIXTURE_RUNTIME_POLICY,
+    expectedDeployment: DEPLOYMENT,
+  }).ok, false);
+
+  const omittedBytes = structuredClone(runtime);
+  delete omittedBytes.attestationBytesBase64;
+  assert.equal(validate(omittedBytes).ok, false);
+  const omittedRequest = structuredClone(runtime);
+  delete omittedRequest.requestBytesBase64;
+  assert.equal(validate(omittedRequest).ok, false);
+  const changedRequest = structuredClone(runtime);
+  const decodedRequest = JSON.parse(Buffer.from(
+    changedRequest.requestBytesBase64,
+    'base64',
+  ).toString('utf8'));
+  decodedRequest.runtimePayloadSha256 = '0'.repeat(64);
+  changedRequest.requestBytesBase64 = Buffer.from(canonicalJson(decodedRequest)).toString('base64');
+  changedRequest.requestSha256 = sha256Text(canonicalJson(decodedRequest));
+  assert.match(validate(changedRequest).errors.join('; '), /request/);
+  const extraRecord = structuredClone(runtime);
+  extraRecord.uncheckedMetadata = true;
+  assert.equal(validate(extraRecord).ok, false);
+
+  const substitute = fixtureRuntimeEvidence({
+    manifestDigest: '8'.repeat(64),
+    attestationId: 'fixture-runtime-substitute',
+  });
+  const substitutedBytes = structuredClone(runtime);
+  substitutedBytes.attestationBytesBase64 = substitute.attestationBytesBase64;
+  substitutedBytes.attestationSha256 = substitute.attestationSha256;
+  assert.match(validate(substitutedBytes).errors.join('; '), /attestation bytes|digest/);
+
+  for (const mutate of [
+    (copy) => { copy.attestation.payload.runtimePayload.leanRootManifest[0].sha256 = '9'.repeat(64); },
+    (copy) => { copy.attestation.payload.runtimePayload.deployment.sourceCommit = 'a'.repeat(40); },
+    (copy) => { copy.attestation.payload.runtimePayload.product.manifest[0].sha256 = 'b'.repeat(64); },
+  ]) {
+    const changed = structuredClone(runtime);
+    mutate(changed);
+    assert.equal(validate(changed).ok, false);
+  }
+});
+
+test('replay identity comparison rejects an otherwise valid replay under a different exact runtime', () => {
+  const original = syntheticEvidence({
+    runtimeEvidence: fixtureRuntimeEvidence({
+      manifestDigest: '7'.repeat(64),
+      attestationId: 'fixture-runtime-original',
+    }),
+  });
+  const differentRuntime = syntheticEvidence({
+    runtimeEvidence: fixtureRuntimeEvidence({
+      manifestDigest: '8'.repeat(64),
+      attestationId: 'fixture-runtime-different',
+    }),
+  });
+  assert.equal(validateKernelEvidence(original).ok, true);
+  assert.equal(validateKernelEvidence(differentRuntime).ok, true);
+  assert.match(
+    validateReplayEvidenceIdentity(original, differentRuntime).errors.join('; '),
+    /exact runtime/,
+  );
+});
+
 test('installer and verifier expose no implicit runtime installation or shell execution path', () => {
   const verifierSource = fs.readFileSync(path.join(CLOS_ROOT, 'src/lean-proof-verifier.mjs'), 'utf8');
+  const preflightSource = fs.readFileSync(path.join(CLOS_ROOT, 'src/lean-proof-preflight.mjs'), 'utf8');
+  const requestSource = fs.readFileSync(
+    path.join(CLOS_ROOT, 'src/proof-runtime-attestation-request.mjs'),
+    'utf8',
+  );
   const installerSource = fs.readFileSync(path.join(CLOS_ROOT, 'scripts/install-lean-proof-kernel.sh'), 'utf8');
   assert.doesNotMatch(verifierSource, /\bexec(?:File|Sync)?\s*\(/);
   assert.match(verifierSource, /shell: false/);
@@ -416,8 +651,81 @@ test('installer and verifier expose no implicit runtime installation or shell ex
   assert.match(installerSource, /--download-to/);
   assert.match(installerSource, /57d5c062a6b4bae6fba511a1704aa124dff461c37d0fc94585637fbb7d951b50/);
   assert.match(installerSource, /lake_bin" update mathlib/);
+  assert.match(installerSource, /--runtime-attestation/);
+  assert.match(preflightSource, /EXPECTED_LAKE_PACKAGE_NAMES/);
+  assert.match(preflightSource, /compiledDependenciesManifest/);
+  assert.match(preflightSource, /proof-runtime-attestation[.]json/);
+  assert.match(preflightSource, /capability: 'proof_runtime'/);
+  assert.match(requestSource, /buildProofRuntimeAttestationRequest/);
+  assert.match(requestSource, /process[.]stdout[.]write[(]canonicalJson[(]/);
+  assert.doesNotMatch(requestSource, /console[.]log[(]canonicalJson[(]/);
+  assert.match(preflightSource, /selfAttestation: false/);
+  assert.match(preflightSource, /requestBytesBase64/);
+  assert.match(preflightSource, /requestSha256/);
+  assert.doesNotMatch(requestSource, /valueBase64|<proof-runtime-authority>/);
   assert.equal(fs.statSync(path.join(CLOS_ROOT, 'scripts/install-lean-proof-kernel.sh')).mode & 0o111, 0o111);
   assert.equal(fs.statSync(path.join(CLOS_ROOT, 'scripts/preflight-lean-proof-kernel.sh')).mode & 0o111, 0o111);
+});
+
+test('runtime manifests admit only the exact declared internal symlinks and bind resolved bytes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-runtime-manifest-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-runtime-outside-'));
+  try {
+    fs.mkdirSync(path.join(root, 'lib'));
+    fs.writeFileSync(path.join(root, 'lib/libexact.so.1'), 'runtime-v1');
+    fs.symlinkSync('libexact.so.1', path.join(root, 'lib/libexact.so'));
+    const rows = buildRuntimeContentManifest(root, {
+      allowedSymlinks: { 'lib/libexact.so': 'libexact.so.1' },
+    });
+    const link = rows.find((row) => row.path === 'lib/libexact.so');
+    assert.equal(link.type, 'symlink');
+    assert.equal(link.target, 'libexact.so.1');
+    assert.equal(link.targetSha256, sha256Text('runtime-v1'));
+    assert.throws(
+      () => buildRuntimeContentManifest(root),
+      /unapproved symlink/,
+    );
+    fs.writeFileSync(path.join(outside, 'escape.so'), 'outside');
+    fs.symlinkSync(path.join(outside, 'escape.so'), path.join(root, 'lib/escape.so'));
+    assert.throws(
+      () => buildRuntimeContentManifest(root, {
+        allowedSymlinks: {
+          'lib/libexact.so': 'libexact.so.1',
+          'lib/escape.so': path.join(outside, 'escape.so'),
+        },
+      }),
+      /escapes its root/,
+    );
+    fs.unlinkSync(path.join(root, 'lib/escape.so'));
+    assert.throws(
+      () => buildRuntimeContentManifest(root, {
+        allowedSymlinks: {
+          'lib/libexact.so': 'libexact.so.1',
+          'lib/missing.so': 'missing.so.1',
+        },
+      }),
+      /missing an expected symlink/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('preflight rejects a missing or substituted Lean library root module before runtime use', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-proof-layout-'));
+  try {
+    fs.copyFileSync(path.join(KERNEL_ROOT, 'lean-toolchain'), path.join(root, 'lean-toolchain'));
+    fs.copyFileSync(path.join(KERNEL_ROOT, 'lakefile.toml'), path.join(root, 'lakefile.toml'));
+    fs.mkdirSync(path.join(root, 'ProofKernel'));
+    fs.copyFileSync(path.join(KERNEL_ROOT, 'ProofKernel/Prelude.lean'), path.join(root, 'ProofKernel/Prelude.lean'));
+    fs.copyFileSync(path.join(KERNEL_ROOT, 'ProofKernel/Representative.lean'), path.join(root, 'ProofKernel/Representative.lean'));
+    assert.match(preflightLeanProofKernel({ proofKernelRoot: root }).errors.join('; '), /root module/);
+    fs.writeFileSync(path.join(root, 'ProofKernel.lean'), 'import Mathlib\n');
+    assert.match(preflightLeanProofKernel({ proofKernelRoot: root }).errors.join('; '), /root module/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('read-only explicit preflight distinguishes exact ready, absent, and invalid states', () => {
@@ -445,12 +753,25 @@ test('verification fails closed without a successful exact preflight and still c
   try {
     fs.cpSync(KERNEL_ROOT, absentRoot, { recursive: true });
     const { taskBytes, candidateBytes } = makeRecords();
+    const substitutedDeployment = structuredClone(DEPLOYMENT);
+    substitutedDeployment.sourceCommit = 'f'.repeat(40);
     await assert.rejects(
       verifyLeanProof({
         taskBytes,
         candidateBytes,
         trustedTemplateBytes: TEMPLATE_BYTES,
         proofKernelRoot: absentRoot,
+        expectedDeployment: substitutedDeployment,
+      }),
+      (error) => error?.code === 'DEPLOYMENT_SUBSTITUTION',
+    );
+    await assert.rejects(
+      verifyLeanProof({
+        taskBytes,
+        candidateBytes,
+        trustedTemplateBytes: TEMPLATE_BYTES,
+        proofKernelRoot: absentRoot,
+        expectedDeployment: DEPLOYMENT,
       }),
       (error) => error?.code === 'KERNEL_ABSENT',
     );
@@ -475,6 +796,7 @@ test('real pinned Lean accepts the valid theorem, rejects a wrong proof, and ind
     taskBytes: acceptedRecords.taskBytes,
     candidateBytes: acceptedRecords.candidateBytes,
     trustedTemplateBytes: TEMPLATE_BYTES,
+    expectedDeployment: DEPLOYMENT,
   });
   assert.equal(accepted.kernelAccepted, true);
   assert.equal(accepted.process.exitCode, 0);
@@ -490,6 +812,7 @@ test('real pinned Lean accepts the valid theorem, rejects a wrong proof, and ind
     candidateBytes: acceptedRecords.candidateBytes,
     trustedTemplateBytes: TEMPLATE_BYTES,
     evidence: accepted,
+    expectedDeployment: DEPLOYMENT,
   });
   assert.equal(acceptedReplay.verified, true);
   assert.equal(acceptedReplay.replayEvidence.kernelAccepted, true);
@@ -503,6 +826,7 @@ test('real pinned Lean accepts the valid theorem, rejects a wrong proof, and ind
     taskBytes: wrongRecords.taskBytes,
     candidateBytes: wrongRecords.candidateBytes,
     trustedTemplateBytes: TEMPLATE_BYTES,
+    expectedDeployment: DEPLOYMENT,
   });
   assert.equal(rejected.kernelAccepted, false);
   assert.notEqual(rejected.process.exitCode, 0);
@@ -513,6 +837,7 @@ test('real pinned Lean accepts the valid theorem, rejects a wrong proof, and ind
     candidateBytes: wrongRecords.candidateBytes,
     trustedTemplateBytes: TEMPLATE_BYTES,
     evidence: rejected,
+    expectedDeployment: DEPLOYMENT,
   });
   assert.equal(rejectedReplay.verified, true);
   assert.equal(rejectedReplay.replayEvidence.kernelAccepted, false);
@@ -524,6 +849,7 @@ test('real pinned Lean accepts the valid theorem, rejects a wrong proof, and ind
       candidateBytes: substitutedRecords.candidateBytes,
       trustedTemplateBytes: TEMPLATE_BYTES,
       evidence: accepted,
+      expectedDeployment: DEPLOYMENT,
     }),
     (error) => error?.code === 'EVIDENCE_SUBSTITUTION',
   );
@@ -536,6 +862,7 @@ test('real pinned Lean accepts the valid theorem, rejects a wrong proof, and ind
       candidateBytes: acceptedRecords.candidateBytes,
       trustedTemplateBytes: TEMPLATE_BYTES,
       evidence: tamperedEvidence,
+      expectedDeployment: DEPLOYMENT,
     }),
     (error) => error?.code === 'INVALID_EVIDENCE',
   );

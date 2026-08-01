@@ -4,7 +4,7 @@
   "domain": "math-foundations",
   "version": "1.0.0",
   "trustState": "candidate",
-  "activeCurriculumId": "math-continuous-acquisition-v1",
+  "activeCurriculumId": "math-phd-trajectory-v1",
   "activeExamIds": [
     "math-foundations-baseline-v0",
     "math-foundations-reliability-challenge-v0",

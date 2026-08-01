@@ -11,7 +11,7 @@
     "conceptId",
     "bindings",
     "toolchain",
-    "sourceCommit",
+    "deployment",
     "runIdentity",
     "limits",
     "kernel",
@@ -59,7 +59,7 @@
       }
     },
     "toolchain": { "$ref": "proof-task.schema.json#/$defs/toolchain" },
-    "sourceCommit": { "const": "97266f3f17e26dcecbe7029981b48555d618ec81" },
+    "deployment": { "$ref": "deployment-binding.schema.json#/$defs/v3" },
     "runIdentity": { "$ref": "proof-task.schema.json#/$defs/runIdentity" },
     "limits": { "$ref": "proof-task.schema.json#/properties/limits" },
     "kernel": {
@@ -78,7 +78,8 @@
         "leanPathSha256",
         "leanToolchainSha256",
         "lakefileSha256",
-        "preludeSha256"
+        "preludeSha256",
+        "authenticatedRuntime"
       ],
       "properties": {
         "leanVersion": { "type": "string", "minLength": 1, "maxLength": 512 },
@@ -93,7 +94,8 @@
         "leanPathSha256": { "$ref": "#/$defs/digest" },
         "leanToolchainSha256": { "$ref": "#/$defs/digest" },
         "lakefileSha256": { "$ref": "#/$defs/digest" },
-        "preludeSha256": { "$ref": "#/$defs/digest" }
+        "preludeSha256": { "$ref": "#/$defs/digest" },
+        "authenticatedRuntime": { "$ref": "proof-runtime-evidence.schema.json" }
       }
     },
     "command": {

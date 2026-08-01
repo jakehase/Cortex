@@ -36,7 +36,11 @@ function stableSeedRank(seed, conceptId) {
 export function validateCurriculumGraph(graph) {
   const errors = [];
   if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return { ok: false, errors: ['graph must be an object'] };
-  if (!['cortex.learning_os.curriculum_graph.v0', 'cortex.learning_os.curriculum_graph.v1'].includes(graph.schemaVersion)) {
+  if (![
+    'cortex.learning_os.curriculum_graph.v0',
+    'cortex.learning_os.curriculum_graph.v1',
+    'cortex.learning_os.phd_trajectory_graph.v1',
+  ].includes(graph.schemaVersion)) {
     errors.push('invalid graph schemaVersion');
   }
   if (!CONCEPT_ID.test(String(graph.curriculumId || ''))) errors.push('invalid curriculumId');

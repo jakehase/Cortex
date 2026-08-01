@@ -83,6 +83,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--launcher", default="/root/clawd/cortex-learning-os/scripts/launch-parallel-adaptive-wave.sh", type=Path)
     parser.add_argument("--acquisition-state", default="/root/.openclaw/cortex-learning-os/mastery.json", type=Path)
     parser.add_argument("--source-marker", default="/root/clawd/CORTEX_LEARNING_OS_SOURCE_COMMIT", type=Path)
+    parser.add_argument("--repo-root", default="/root/clawd", type=Path)
+    parser.add_argument("--graph", default="/root/clawd/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json", type=Path)
+    parser.add_argument("--policy", default="/root/clawd/cortex-learning-os/policies/adaptive-math-phd-v1.json", type=Path)
+    parser.add_argument("--capsule", default="/root/clawd/cortex-learning-os/capsules/math-foundations/capsule.json", type=Path)
+    parser.add_argument("--remote-graph", default="/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json")
+    parser.add_argument("--remote-policy", default="/home/jake/clawd-remote/cortex-learning-os/policies/adaptive-math-phd-v1.json")
+    parser.add_argument("--remote-capsule", default="/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/capsule.json")
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--max-waves", type=int, default=100)
     parser.add_argument("--max-sessions", type=int, default=800)
@@ -99,8 +106,13 @@ def validate(args: argparse.Namespace) -> None:
         raise ParallelContinuationError("invalid continuation id")
     if not args.launcher.is_file() or not os.access(args.launcher, os.X_OK):
         raise ParallelContinuationError("parallel launcher is unavailable")
-    if not args.acquisition_state.is_file() or not args.source_marker.is_file():
-        raise ParallelContinuationError("signed acquisition state or source marker is unavailable")
+    if not args.acquisition_state.is_file() or not args.repo_root.is_dir():
+        raise ParallelContinuationError("signed acquisition state or repository root is unavailable")
+    if not args.graph.is_file() or not args.policy.is_file() or not args.capsule.is_file():
+        raise ParallelContinuationError("adaptive graph, policy, or capsule is unavailable")
+    for remote_path in (args.remote_graph, args.remote_policy, args.remote_capsule):
+        if not re.fullmatch(r"/[A-Za-z0-9._/-]+", remote_path):
+            raise ParallelContinuationError("unsafe remote adaptive input path")
     if not 1 <= args.concurrency <= 8:
         raise ParallelContinuationError("concurrency must be 1..8")
     if not 1 <= args.max_waves <= 100:
@@ -120,6 +132,17 @@ def elapsed(timestamp: str) -> float:
     if value.tzinfo is None:
         raise ParallelContinuationError("persisted timestamp lacks timezone")
     return (dt.datetime.now(dt.timezone.utc) - value).total_seconds()
+
+
+def source_commit(args: argparse.Namespace) -> str:
+    commit = (
+        args.source_marker.read_text(encoding="utf-8").strip()
+        if args.source_marker.is_file()
+        else run(["git", "-C", str(args.repo_root), "rev-parse", "HEAD"], timeout=30).stdout.strip()
+    )
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ParallelContinuationError("canonical source marker is invalid")
+    return commit
 
 
 def wait_for_wave(path: Path, launched_at: str, args: argparse.Namespace, started_at: str) -> dict[str, Any]:
@@ -165,10 +188,10 @@ def main(argv: list[str] | None = None) -> int:
     except BlockingIOError as error:
         raise ParallelContinuationError("another parallel continuation owns this state") from error
 
-    source_commit = args.source_marker.read_text(encoding="utf-8").strip()
+    committed_source = source_commit(args)
     acquisition = read_json(args.acquisition_state)
     revision = acquisition.get("revision")
-    if not re.fullmatch(r"[0-9a-f]{40}", source_commit) or not isinstance(revision, int):
+    if not isinstance(revision, int):
         raise ParallelContinuationError("canonical source or acquisition revision is invalid")
     if args.state_file.exists():
         if not args.resume:
@@ -176,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         state = read_json(args.state_file)
         if state.get("schemaVersion") != SCHEMA or state.get("continuationId") != args.continuation_id:
             raise ParallelContinuationError("resume identity mismatch")
-        if state.get("sourceCommit") != source_commit:
+        if state.get("sourceCommit") != committed_source:
             raise ParallelContinuationError("resume source changed")
         if (
             state.get("concurrency") != args.concurrency
@@ -185,6 +208,12 @@ def main(argv: list[str] | None = None) -> int:
             or state.get("maxWallSeconds") != args.max_wall_seconds
             or state.get("waveTimeoutSeconds") != args.wave_timeout_seconds
             or state.get("pollSeconds") != args.poll_seconds
+            or state.get("graph") != str(args.graph)
+            or state.get("policy") != str(args.policy)
+            or state.get("capsule") != str(args.capsule)
+            or state.get("remoteGraph") != args.remote_graph
+            or state.get("remotePolicy") != args.remote_policy
+            or state.get("remoteCapsule") != args.remote_capsule
         ):
             raise ParallelContinuationError("resume safety boundary changed")
         if state.get("status") in {"completed", "blocked"}:
@@ -197,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             "continuationId": args.continuation_id,
             "status": "running",
             "reason": "parallel acquisition continuation is active",
-            "sourceCommit": source_commit,
+            "sourceCommit": committed_source,
             "startedAt": now,
             "updatedAt": now,
             "initialAcquisitionRevision": revision,
@@ -208,6 +237,12 @@ def main(argv: list[str] | None = None) -> int:
             "maxWallSeconds": args.max_wall_seconds,
             "waveTimeoutSeconds": args.wave_timeout_seconds,
             "pollSeconds": args.poll_seconds,
+            "graph": str(args.graph),
+            "policy": str(args.policy),
+            "capsule": str(args.capsule),
+            "remoteGraph": args.remote_graph,
+            "remotePolicy": args.remote_policy,
+            "remoteCapsule": args.remote_capsule,
             "wavesStarted": 0,
             "wavesCompleted": 0,
             "sessionsStarted": 0,
@@ -235,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             if not state.get("currentWaveId") and state["sessionsStarted"] >= args.max_sessions:
                 terminal(state, args.state_file, "blocked", "session cap reached", "session_cap")
                 break
-            if args.source_marker.read_text(encoding="utf-8").strip() != source_commit:
+            if source_commit(args) != committed_source:
                 raise ParallelContinuationError("canonical source changed during continuation")
             if state.get("currentWaveId"):
                 matches = [
@@ -252,11 +287,21 @@ def main(argv: list[str] | None = None) -> int:
                 before_revision = read_json(args.acquisition_state).get("revision")
                 remaining = args.max_sessions - int(state["sessionsStarted"])
                 concurrency = min(args.concurrency, remaining)
-                command = [str(args.launcher), "--concurrency", str(concurrency), "--no-notify"]
+                command = [
+                    str(args.launcher),
+                    "--concurrency", str(concurrency),
+                    "--graph", str(args.graph),
+                    "--policy", str(args.policy),
+                    "--capsule", str(args.capsule),
+                    "--remote-graph", args.remote_graph,
+                    "--remote-policy", args.remote_policy,
+                    "--remote-capsule", args.remote_capsule,
+                    "--no-notify",
+                ]
                 if args.dry_run:
                     command.append("--dry-run")
                 descriptor = parse_descriptor(run(command).stdout)
-                if descriptor.get("sourceCommit") != source_commit:
+                if descriptor.get("sourceCommit") != committed_source:
                     raise ParallelContinuationError("launcher source binding changed")
                 if descriptor.get("reviewSelectionEnabled") is not False:
                     raise ParallelContinuationError("launcher enabled forbidden review selection")

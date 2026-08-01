@@ -1,0 +1,563 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.research_reproduction_authority_request.v4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestedCapability",
+    "unsigned",
+    "selfAttestation",
+    "status",
+    "candidateBinding",
+    "approvedResearchRuntime",
+    "approvedResearchRuntimeSha256",
+    "declaredEnvironment",
+    "observedEnvironment",
+    "sourceBundleSha256",
+    "command",
+    "executedCommand",
+    "commandDigest",
+    "startedAt",
+    "completedAt",
+    "process",
+    "logs",
+    "outputs",
+    "resultPath",
+    "result",
+    "recomputedResultDigest",
+    "expectedResultDigest",
+    "outputError",
+    "executionEvidenceCore",
+    "executionEvidenceSha256",
+    "requestedAttestationPayload",
+    "requestedAttestationPayloadBytesBase64",
+    "requestedAttestationPayloadSha256",
+    "authorityAttestation",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.research_reproduction_authority_request.v4"
+    },
+    "requestedCapability": { "const": "research_reproduction" },
+    "unsigned": { "const": true },
+    "selfAttestation": { "const": false },
+    "status": {
+      "enum": ["ready_for_independent_authority", "reproduction_failed"]
+    },
+    "candidateBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId", "candidateSessionId", "outputSha256", "artifact",
+        "artifactDigest", "result", "resultDigest", "harvestedAuthority"
+      ],
+      "properties": {
+        "jobId": { "$ref": "#/$defs/id" },
+        "candidateSessionId": { "$ref": "#/$defs/id" },
+        "outputSha256": { "$ref": "#/$defs/digest" },
+        "artifact": { "$ref": "#/$defs/boundedJson" },
+        "artifactDigest": { "$ref": "#/$defs/digest" },
+        "result": { "$ref": "#/$defs/boundedJson" },
+        "resultDigest": { "$ref": "#/$defs/digest" },
+        "harvestedAuthority": { "const": "worker_evidence_only" }
+      }
+    },
+    "approvedResearchRuntime": {
+      "oneOf": [
+        { "$ref": "approved-research-runtime.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "approvedResearchRuntimeSha256": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "declaredEnvironment": { "$ref": "#/$defs/declaredEnvironment" },
+    "observedEnvironment": { "$ref": "#/$defs/observedEnvironment" },
+    "sourceBundleSha256": { "$ref": "#/$defs/digest" },
+    "command": { "$ref": "#/$defs/argv" },
+    "executedCommand": { "$ref": "#/$defs/argv" },
+    "commandDigest": { "$ref": "#/$defs/digest" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "signal", "error"],
+      "properties": {
+        "exitCode": { "type": ["integer", "null"], "minimum": 0, "maximum": 255 },
+        "signal": { "type": ["string", "null"], "maxLength": 64 },
+        "error": { "type": ["string", "null"], "maxLength": 4096 }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stdout", "stdoutSha256", "stderr", "stderrSha256"],
+      "properties": {
+        "stdout": { "const": "stdout.raw" },
+        "stdoutSha256": { "$ref": "#/$defs/digest" },
+        "stderr": { "const": "stderr.raw" },
+        "stderrSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/output" }
+    },
+    "resultPath": { "$ref": "#/$defs/path" },
+    "result": { "$ref": "#/$defs/boundedJson" },
+    "recomputedResultDigest": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "expectedResultDigest": { "$ref": "#/$defs/digest" },
+    "outputError": { "type": ["string", "null"], "maxLength": 4096 },
+    "executionEvidenceCore": {
+      "oneOf": [
+        { "$ref": "execution-evidence-core.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "executionEvidenceSha256": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "requestedAttestationPayload": {
+      "$ref": "#/$defs/reproductionPayload"
+    },
+    "requestedAttestationPayloadBytesBase64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 89478488,
+      "contentEncoding": "base64"
+    },
+    "requestedAttestationPayloadSha256": { "$ref": "#/$defs/digest" },
+    "authorityAttestation": { "type": "null" },
+    "truthBoundary": {
+      "const": "This is inert execution evidence and an unsigned request. Only a separate trusted reproduction authority may attest it."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "ready_for_independent_authority" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "outputError": { "type": "null" },
+          "requestedAttestationPayload": {
+            "properties": { "status": { "const": "passed" } },
+            "required": ["status"]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "requestedAttestationPayload": {
+            "properties": { "status": { "const": "failed" } },
+            "required": ["status"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "boundedJson": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string", "maxLength": 1048576 },
+        {
+          "type": "array",
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/boundedJson" }
+        },
+        {
+          "type": "object",
+          "maxProperties": 4096,
+          "propertyNames": { "type": "string", "maxLength": 512 },
+          "additionalProperties": { "$ref": "#/$defs/boundedJson" }
+        }
+      ]
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[A-Za-z0-9._/-]+$"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "contentBase64", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 },
+        "contentBase64": {
+          "type": "string",
+          "maxLength": 44739244,
+          "contentEncoding": "base64"
+        },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "declaredEnvironment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executionKind", "containerRuntime", "imageReference", "imageDigest", "imageId",
+            "lockDigest", "immutable", "networkDisabled"
+          ],
+          "properties": {
+            "executionKind": { "const": "container" },
+            "containerRuntime": { "const": "docker" },
+            "imageReference": {
+              "type": "string",
+              "pattern": "^.+@sha256:[0-9a-f]{64}$"
+            },
+            "imageDigest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "imageId": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "lockDigest": { "$ref": "#/$defs/digest" },
+            "immutable": { "const": true },
+            "networkDisabled": { "const": true }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executionKind", "lockDigest", "immutable", "networkDisabled"
+          ],
+          "properties": {
+            "executionKind": { "const": "host_fixture" },
+            "lockDigest": { "$ref": "#/$defs/digest" },
+            "immutable": { "const": true },
+            "networkDisabled": { "const": true },
+            "runtime": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "method": { "type": "string", "minLength": 1, "maxLength": 256 }
+          }
+        }
+      ]
+    },
+    "observedEnvironment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executionKind", "containerRuntime", "approvedResearchRuntimeSha256",
+            "runtimeClosureSha256", "daemonClosureSha256", "daemonSocketPath",
+            "daemonObservation", "daemonMeasurements", "imageReference",
+            "imageInspectBase64",
+            "imageDigest", "imageId", "imageRepoDigests", "imageInspectSha256",
+            "containerInspectBase64", "containerInspectSha256",
+            "kernelEvidence", "effectiveIsolation", "runtimeCommands", "runtimeLockDigest",
+            "processEnvironment", "isolation"
+          ],
+          "properties": {
+            "executionKind": { "const": "container" },
+            "containerRuntime": { "const": "docker" },
+            "approvedResearchRuntimeSha256": { "$ref": "#/$defs/digest" },
+            "runtimeClosureSha256": { "$ref": "#/$defs/digest" },
+            "daemonClosureSha256": { "$ref": "#/$defs/digest" },
+            "daemonSocketPath": { "type": "string", "pattern": "^/" },
+            "daemonObservation": {
+              "$ref": "approved-research-runtime.schema.json#/properties/daemonClosure"
+            },
+            "daemonMeasurements": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/beforeImageInspectDaemonMeasurement"
+                },
+                {
+                  "$ref": "#/$defs/afterImageInspectDaemonMeasurement"
+                },
+                {
+                  "$ref": "#/$defs/beforeRunDaemonMeasurement"
+                },
+                {
+                  "$ref": "#/$defs/afterRunDaemonMeasurement"
+                },
+                {
+                  "$ref": "#/$defs/afterCleanupDaemonMeasurement"
+                }
+              ],
+              "items": false
+            },
+            "imageReference": {
+              "type": "string",
+              "pattern": "^.+@sha256:[0-9a-f]{64}$"
+            },
+            "imageDigest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "imageId": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "imageRepoDigests": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^.+@sha256:[0-9a-f]{64}$"
+              }
+            },
+            "imageInspectSha256": { "$ref": "#/$defs/digest" },
+            "imageInspectBase64": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 2796204,
+              "contentEncoding": "base64"
+            },
+            "containerInspectSha256": { "$ref": "#/$defs/digest" },
+            "containerInspectBase64": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 2796204,
+              "contentEncoding": "base64"
+            },
+            "kernelEvidence": {
+              "type": "object",
+              "required": [
+                "schemaVersion", "observer", "containerId", "observedAt",
+                "init", "namespaces", "hostNamespaces", "security", "cgroup",
+                "network", "mounts", "rootfs", "helpers", "evidenceSha256"
+              ]
+            },
+            "effectiveIsolation": {
+              "$ref": "#/$defs/effectiveIsolation"
+            },
+            "runtimeCommands": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["imageInspect", "run", "containerInspect", "remove"],
+              "properties": {
+                "imageInspect": { "$ref": "#/$defs/argv" },
+                "run": { "$ref": "#/$defs/argv" },
+                "containerInspect": { "$ref": "#/$defs/argv" },
+                "remove": { "$ref": "#/$defs/argv" }
+              }
+            },
+            "runtimeLockDigest": { "$ref": "#/$defs/digest" },
+            "processEnvironment": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["LANG", "LC_ALL"],
+              "properties": {
+                "LANG": { "const": "C" },
+                "LC_ALL": { "const": "C" }
+              }
+            },
+            "isolation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "network", "rootFilesystem", "noNewPrivileges", "capabilities",
+                "pidLimit", "temporaryFilesystem", "workspaceMount"
+              ],
+              "properties": {
+                "network": { "const": "none" },
+                "rootFilesystem": { "const": "read_only" },
+                "noNewPrivileges": { "const": true },
+                "capabilities": { "const": "none" },
+                "pidLimit": { "const": 256 },
+                "temporaryFilesystem": {
+                  "const": "rw_noexec_nosuid_nodev_64m"
+                },
+                "workspaceMount": { "const": "rw" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executionKind", "lockDigest", "platform", "node"],
+          "properties": {
+            "executionKind": { "const": "host_fixture" },
+            "lockDigest": { "$ref": "#/$defs/digest" },
+            "platform": { "type": "string", "minLength": 3, "maxLength": 256 },
+            "node": { "type": "string", "pattern": "^v[0-9]+[.][0-9]+[.][0-9]+" }
+          }
+        }
+      ]
+    },
+    "reproductionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "fixtureOnly", "campaignId", "artifactDigest",
+        "sourceBundleSha256", "environmentDigest", "commandDigest",
+        "approvedResearchRuntimeSha256", "daemonClosureSha256",
+        "observedEnvironmentSha256", "executedArgvSha256", "executableSha256",
+        "isolationSha256", "stdoutSha256", "stderrSha256", "outputsDigest",
+        "resultOutputPath", "resultSha256", "resultDigest", "status", "exitCode",
+        "startedAt", "completedAt", "executionEvidenceCore",
+        "executionEvidenceSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "cortex.learning_os.research_reproduction_bundle.v5"
+        },
+        "fixtureOnly": { "type": "boolean" },
+        "campaignId": { "$ref": "#/$defs/id" },
+        "artifactDigest": { "$ref": "#/$defs/digest" },
+        "sourceBundleSha256": { "$ref": "#/$defs/digest" },
+        "environmentDigest": { "$ref": "#/$defs/digest" },
+        "commandDigest": { "$ref": "#/$defs/digest" },
+        "approvedResearchRuntimeSha256": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "daemonClosureSha256": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "observedEnvironmentSha256": { "$ref": "#/$defs/digest" },
+        "executedArgvSha256": { "$ref": "#/$defs/digest" },
+        "executableSha256": { "$ref": "#/$defs/digest" },
+        "isolationSha256": { "$ref": "#/$defs/digest" },
+        "stdoutSha256": { "$ref": "#/$defs/digest" },
+        "stderrSha256": { "$ref": "#/$defs/digest" },
+        "outputsDigest": { "$ref": "#/$defs/digest" },
+        "resultOutputPath": { "$ref": "#/$defs/path" },
+        "resultSha256": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "resultDigest": { "$ref": "#/$defs/digest" },
+        "status": { "enum": ["passed", "failed"] },
+        "exitCode": { "type": ["integer", "null"], "minimum": 0, "maximum": 255 },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "executionEvidenceCore": {
+          "oneOf": [
+            { "$ref": "execution-evidence-core.schema.json" },
+            { "type": "null" }
+          ]
+        },
+        "executionEvidenceSha256": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        }
+      }
+    },
+    "daemonMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase", "closureSha256", "serviceUnit", "socketPath", "mainPid",
+        "invocationId", "cgroup", "startTimeTicks", "socketDevice",
+        "socketInode"
+      ],
+      "properties": {
+        "phase": { "type": "string" },
+        "closureSha256": { "$ref": "#/$defs/digest" },
+        "serviceUnit": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.@-]+[.]service$"
+        },
+        "socketPath": { "type": "string", "pattern": "^/" },
+        "mainPid": { "type": "integer", "minimum": 2 },
+        "invocationId": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "cgroup": { "type": "string", "pattern": "^/" },
+        "startTimeTicks": { "type": "string", "pattern": "^[0-9]+$" },
+        "socketDevice": { "type": "string", "pattern": "^[0-9]+$" },
+        "socketInode": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    },
+    "beforeImageInspectDaemonMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/daemonMeasurement" },
+        { "properties": { "phase": { "const": "before_image_inspect" } } }
+      ]
+    },
+    "afterImageInspectDaemonMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/daemonMeasurement" },
+        { "properties": { "phase": { "const": "after_image_inspect" } } }
+      ]
+    },
+    "beforeRunDaemonMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/daemonMeasurement" },
+        { "properties": { "phase": { "const": "before_run" } } }
+      ]
+    },
+    "afterRunDaemonMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/daemonMeasurement" },
+        { "properties": { "phase": { "const": "after_run" } } }
+      ]
+    },
+    "afterCleanupDaemonMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/daemonMeasurement" },
+        { "properties": { "phase": { "const": "after_cleanup" } } }
+      ]
+    },
+    "effectiveIsolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "containerId", "imageId", "network", "rootFilesystem",
+        "noNewPrivileges", "privileged", "capabilities", "addedCapabilities",
+        "devices", "pidLimit", "temporaryFilesystem", "workspaceMount",
+        "workingDirectory"
+      ],
+      "properties": {
+        "containerId": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "imageId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "network": { "const": "none" },
+        "rootFilesystem": { "const": "read_only" },
+        "noNewPrivileges": { "const": true },
+        "privileged": { "const": false },
+        "capabilities": { "const": "none" },
+        "addedCapabilities": { "const": "none" },
+        "devices": { "const": "none" },
+        "pidLimit": { "const": 256 },
+        "temporaryFilesystem": { "const": "rw_noexec_nosuid_nodev_64m" },
+        "workspaceMount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "source", "destination", "readWrite"],
+          "properties": {
+            "type": { "const": "bind" },
+            "source": { "type": "string", "pattern": "^/" },
+            "destination": { "const": "/workspace" },
+            "readWrite": { "const": true }
+          }
+        },
+        "workingDirectory": { "const": "/workspace" }
+      }
+    }
+  }
+}

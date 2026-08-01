@@ -175,6 +175,7 @@ export function validateMasteryState(state, { graph, policy } = {}) {
             || !/^[0-9a-f]{64}$/.test(String(row.sourcePolicyDigest || ''))
             || !/^[0-9a-f]{64}$/.test(String(row.targetPolicyDigest || ''))
             || !/^[0-9a-f]{40}$/.test(String(row.sourceCommit || ''))
+            || !/^[0-9a-f]{40}$/.test(String(row.sourceTree || ''))
             || !Number.isFinite(Date.parse(String(row.migratedAt || '')))
             || row.targetRevision > state.revision
             || !Array.isArray(row.addedConceptIds) || row.addedConceptIds.length < 1

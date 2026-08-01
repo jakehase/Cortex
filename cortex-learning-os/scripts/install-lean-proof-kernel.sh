@@ -13,10 +13,13 @@ MATHLIB_COMMIT="520045ab14e26149ee970e2e617ca04b09bde5d6"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 CLOS_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 KERNEL_ROOT="$CLOS_ROOT/proof-kernel"
-INSTALL_ROOT="$KERNEL_ROOT/.toolchain/lean-4.32.1-linux"
+RUNTIME_ROOT="${CLOS_PROOF_RUNTIME_ROOT:-/var/lib/cortex-learning-os/proof-kernel-runtime}"
+INSTALL_ROOT=""
 ARCHIVE_PATH=""
 CACHE_DIR=""
 DOWNLOAD_TO=""
+RUNTIME_ATTESTATION=""
+RUNTIME_REQUEST=""
 
 usage() {
   cat <<'EOF'
@@ -31,7 +34,14 @@ Options:
   --cache-dir DIR      Use DIR/lean-4.32.1-linux.tar.zst and place download caches under DIR.
   --download-to PATH   Explicitly download the official Lean archive to PATH if absent.
   --kernel-root DIR    Override the proof-kernel project root.
+  --runtime-root DIR   Put the writable Lake project/cache and toolchain under DIR.
   --install-root DIR   Override the Lean installation root.
+  --runtime-attestation PATH
+                       Install a separately signed exact-runtime attestation after
+                       all compiled dependencies have been built.
+  --runtime-request PATH
+                       Install the exact canonical request authenticated by the
+                       runtime attestation. Required with --runtime-attestation.
   --help               Show this help.
 
 If Lean is not already installed, exactly one of --archive, --cache-dir, or
@@ -66,6 +76,21 @@ while (($#)); do
       INSTALL_ROOT="$2"
       shift 2
       ;;
+    --runtime-root)
+      [[ $# -ge 2 ]] || { echo "--runtime-root requires a path" >&2; exit 2; }
+      RUNTIME_ROOT="$2"
+      shift 2
+      ;;
+    --runtime-attestation)
+      [[ $# -ge 2 ]] || { echo "--runtime-attestation requires a path" >&2; exit 2; }
+      RUNTIME_ATTESTATION="$2"
+      shift 2
+      ;;
+    --runtime-request)
+      [[ $# -ge 2 ]] || { echo "--runtime-request requires a path" >&2; exit 2; }
+      RUNTIME_REQUEST="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -85,9 +110,48 @@ selection_count=0
 ((selection_count <= 1)) || { echo "choose only one of --archive, --cache-dir, or --download-to" >&2; exit 2; }
 
 KERNEL_ROOT="$(realpath -m -- "$KERNEL_ROOT")"
+RUNTIME_ROOT="$(realpath -m -- "$RUNTIME_ROOT")"
+if [[ -z "$INSTALL_ROOT" ]]; then
+  INSTALL_ROOT="$RUNTIME_ROOT/toolchain/lean-4.32.1-linux"
+fi
 INSTALL_ROOT="$(realpath -m -- "$INSTALL_ROOT")"
 [[ -d "$KERNEL_ROOT" && ! -L "$KERNEL_ROOT" ]] || { echo "proof-kernel root must be a non-symlink directory: $KERNEL_ROOT" >&2; exit 2; }
 [[ "$INSTALL_ROOT" != "/" && "$INSTALL_ROOT" != "$KERNEL_ROOT" ]] || { echo "unsafe Lean installation root" >&2; exit 2; }
+case "$RUNTIME_ROOT/" in
+  "$CLOS_ROOT/"*|"$KERNEL_ROOT/"*)
+    echo "writable proof runtime must be outside the immutable execution checkout" >&2
+    exit 2
+    ;;
+esac
+case "$INSTALL_ROOT/" in
+  "$CLOS_ROOT/"*|"$KERNEL_ROOT/"*)
+    echo "Lean installation must be outside the immutable execution checkout" >&2
+    exit 2
+    ;;
+esac
+RUNTIME_PROJECT_ROOT="$RUNTIME_ROOT/project"
+install -d -m 0700 -- "$RUNTIME_ROOT"
+if [[ ! -e "$RUNTIME_PROJECT_ROOT" ]]; then
+  runtime_project_stage="$(mktemp -d "$RUNTIME_ROOT/.project.XXXXXX")"
+  (
+    cd -- "$KERNEL_ROOT"
+    tar -cf - \
+      lean-toolchain lakefile.toml ProofKernel.lean ProofKernel
+  ) | tar -xf - -C "$runtime_project_stage"
+  mv -- "$runtime_project_stage" "$RUNTIME_PROJECT_ROOT"
+elif [[ ! -d "$RUNTIME_PROJECT_ROOT" || -L "$RUNTIME_PROJECT_ROOT" ]]; then
+  echo "external proof runtime project root is unsafe" >&2
+  exit 2
+fi
+for product_file in \
+  lean-toolchain lakefile.toml ProofKernel.lean \
+  ProofKernel/Prelude.lean ProofKernel/Representative.lean; do
+  [[ -f "$RUNTIME_PROJECT_ROOT/$product_file" \
+    && ! -L "$RUNTIME_PROJECT_ROOT/$product_file" ]] \
+    || { echo "external proof runtime project is incomplete: $product_file" >&2; exit 2; }
+  cmp -s -- "$KERNEL_ROOT/$product_file" "$RUNTIME_PROJECT_ROOT/$product_file" \
+    || { echo "external proof runtime product bytes differ: $product_file" >&2; exit 2; }
+done
 
 if [[ -n "$CACHE_DIR" ]]; then
   CACHE_DIR="$(realpath -m -- "$CACHE_DIR")"
@@ -232,13 +296,21 @@ lake_bin="$INSTALL_ROOT/bin/lake"
 expected_version="Lean (version 4.32.1, x86_64-unknown-linux-gnu, commit $LEAN_COMMIT, Release)"
 [[ "$("$lean_bin" --version)" == "$expected_version" ]] || { echo "installed Lean version/commit mismatch" >&2; exit 6; }
 
+# Lake subprocesses and mathlib's cache executable resolve `lean` by name. Put
+# the exact verified toolchain first so they cannot silently use a host/elan
+# Lean with a different sysroot (which also hides bundled tools such as leantar).
+export PATH="$INSTALL_ROOT/bin:$PATH"
+hash -r
+[[ "$(command -v lean)" == "$lean_bin" ]] || { echo "exact Lean is not first on PATH" >&2; exit 6; }
+[[ "$(lean --print-prefix)" == "$INSTALL_ROOT" ]] || { echo "exact Lean sysroot mismatch" >&2; exit 6; }
+
 echo "Resolving exact mathlib commit $MATHLIB_COMMIT (operator-invoked network access may occur)"
 (
-  cd -- "$KERNEL_ROOT"
+  cd -- "$RUNTIME_PROJECT_ROOT"
   "$lake_bin" update mathlib
 )
 
-mathlib_root="$KERNEL_ROOT/.lake/packages/mathlib"
+mathlib_root="$RUNTIME_PROJECT_ROOT/.lake/packages/mathlib"
 [[ -d "$mathlib_root" && ! -L "$mathlib_root" ]] || { echo "mathlib checkout is absent after Lake update" >&2; exit 7; }
 git -C "$mathlib_root" fetch --force origin \
   "refs/tags/$MATHLIB_TAG:refs/tags/$MATHLIB_TAG"
@@ -248,12 +320,65 @@ git -C "$mathlib_root" fetch --force origin \
 
 echo "Installing pinned mathlib compiled cache and building the immutable proof project"
 (
-  cd -- "$KERNEL_ROOT"
+  cd -- "$RUNTIME_PROJECT_ROOT"
   "$lake_bin" exe cache get
   "$lake_bin" build ProofKernel
 )
 
+runtime_attestation_target="$RUNTIME_PROJECT_ROOT/proof-runtime-attestation.json"
+runtime_request_target="$RUNTIME_PROJECT_ROOT/proof-runtime-attestation-request.json"
+if [[ (-n "$RUNTIME_ATTESTATION" && -z "$RUNTIME_REQUEST") \
+    || (-z "$RUNTIME_ATTESTATION" && -n "$RUNTIME_REQUEST") ]]; then
+  echo "--runtime-attestation and --runtime-request must be supplied together" >&2
+  exit 8
+fi
+if [[ -n "$RUNTIME_ATTESTATION" ]]; then
+  RUNTIME_ATTESTATION="$(realpath -m -- "$RUNTIME_ATTESTATION")"
+  RUNTIME_REQUEST="$(realpath -m -- "$RUNTIME_REQUEST")"
+  [[ -f "$RUNTIME_ATTESTATION" && ! -L "$RUNTIME_ATTESTATION" ]] || {
+    echo "runtime attestation must be a regular non-symlink file" >&2
+    exit 8
+  }
+  [[ -f "$RUNTIME_REQUEST" && ! -L "$RUNTIME_REQUEST" ]] || {
+    echo "runtime request must be a regular non-symlink file" >&2
+    exit 8
+  }
+  if [[ -e "$runtime_attestation_target" ]]; then
+    [[ -f "$runtime_attestation_target" && ! -L "$runtime_attestation_target" ]] || {
+      echo "existing proof runtime attestation path is unsafe" >&2
+      exit 8
+    }
+    cmp -s -- "$RUNTIME_ATTESTATION" "$runtime_attestation_target" || {
+      echo "refusing to replace a different proof runtime attestation" >&2
+      exit 8
+    }
+  else
+    install -m 0600 -- "$RUNTIME_ATTESTATION" "$runtime_attestation_target"
+  fi
+  if [[ -e "$runtime_request_target" ]]; then
+    [[ -f "$runtime_request_target" && ! -L "$runtime_request_target" ]] || {
+      echo "existing proof runtime request path is unsafe" >&2
+      exit 8
+    }
+    cmp -s -- "$RUNTIME_REQUEST" "$runtime_request_target" || {
+      echo "refusing to replace a different proof runtime request" >&2
+      exit 8
+    }
+  else
+    install -m 0600 -- "$RUNTIME_REQUEST" "$runtime_request_target"
+  fi
+fi
+
+if [[ ! -f "$runtime_attestation_target" || -L "$runtime_attestation_target" \
+    || ! -f "$runtime_request_target" || -L "$runtime_request_target" ]]; then
+  echo "Proof runtime bytes were built, but production readiness requires a separate protected-build signature." >&2
+  echo "Generate the exact request with:" >&2
+  echo "  node \"$CLOS_ROOT/src/proof-runtime-attestation-request.mjs\" --kernel-root \"$RUNTIME_PROJECT_ROOT\" --lean-root \"$INSTALL_ROOT\" --plan SAVED_PLAN_V2_JSON --secret OWNER_ONLY_QUALIFICATION_HMAC" >&2
+  echo "Then rerun this installer with --runtime-request REQUEST --runtime-attestation ATTESTATION. No proof gate has been made green." >&2
+  exit 8
+fi
+
 "$SCRIPT_DIR/preflight-lean-proof-kernel.sh" \
-  --kernel-root "$KERNEL_ROOT" \
+  --kernel-root "$RUNTIME_PROJECT_ROOT" \
   --lean-root "$INSTALL_ROOT"
 echo "Pinned Lean proof kernel installation is ready"

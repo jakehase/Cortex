@@ -334,7 +334,7 @@ test('novelty remains a scoped status and bounded-corpus evidence never becomes 
   assert.equal(rubric.noveltyStatuses.every((status) => status.permitsGlobalNoveltyClaim === false), true);
 });
 
-test('fully synthetic artifact-derived evidence satisfies every bounded qualification gate', () => {
+test('fully synthetic artifact-derived evidence can exercise schema gates but never qualifies a live claim', () => {
   const evidence = syntheticEvidence();
   const report = computePhdCapabilityReport({ graph, rubric, blueprint, legacyGraph, evidence });
   assert.deepEqual(report.evidenceIntegrity, { ok: true, errors: [] });
@@ -348,8 +348,10 @@ test('fully synthetic artifact-derived evidence satisfies every bounded qualific
   assert.equal(report.research.reproducible, true);
   assert.equal(report.research.formalProofGatePassed, true);
   assert.equal(report.stages.every((stage) => stage.satisfied), true);
-  assert.equal(report.capabilities.phd_math_qualified, true);
-  assert.equal(report.phd_math_qualified, true);
+  assert.equal(report.all_declared_schema_gates_satisfied, true);
+  assert.equal(report.capabilities.phd_math_qualified, false);
+  assert.equal(report.phd_math_qualified, false);
+  assert.match(report.truthBoundary, /cannot establish a live claim/);
 });
 
 test('missing, duplicate, stale, malformed, and digest-mismatched evidence all fail closed', async (t) => {

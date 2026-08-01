@@ -4,7 +4,6 @@
   "capsuleId": "math-foundations-v0",
   "domain": "mathematics",
   "version": "1.0.0",
-  "sourceCommit": "97266f3f17e26dcecbe7029981b48555d618ec81",
   "legacyPrefix": {
     "curriculumId": "math-continuous-acquisition-v1",
     "version": "1.0.0",

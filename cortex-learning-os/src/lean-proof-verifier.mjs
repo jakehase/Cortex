@@ -8,13 +8,17 @@ import { TextDecoder } from 'node:util';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { sha256Text } from './hash.mjs';
 import {
+  assertDeploymentBinding,
+  validateDeploymentBinding,
+} from './deployment-identity.mjs';
+import {
   DEFAULT_PROOF_KERNEL_ROOT,
   PINNED_LEAN_PROOF_CONTEXT,
   PINNED_LEAN_PROOF_IDENTITIES,
   PROOF_HOLE_MARKER,
-  PROOF_SOURCE_COMMIT,
   PROOF_TRUTH_BOUNDARY,
   preflightLeanProofKernel,
+  validateProofRuntimeEvidence,
 } from './lean-proof-preflight.mjs';
 
 export const PROOF_TASK_SCHEMA = 'cortex.learning_os.proof_task.v1';
@@ -50,7 +54,7 @@ const TASK_KEYS = Object.freeze([
   'theorem',
   'trustedContext',
   'toolchain',
-  'sourceCommit',
+  'deployment',
   'runIdentity',
   'limits',
   'truthBoundary',
@@ -64,7 +68,7 @@ const CANDIDATE_KEYS = Object.freeze([
   'theoremBinding',
   'trustedContextBinding',
   'toolchain',
-  'sourceCommit',
+  'deployment',
   'runIdentity',
   'proof',
   'truthBoundary',
@@ -77,7 +81,7 @@ const EVIDENCE_KEYS = Object.freeze([
   'conceptId',
   'bindings',
   'toolchain',
-  'sourceCommit',
+  'deployment',
   'runIdentity',
   'limits',
   'kernel',
@@ -371,7 +375,8 @@ export function validateProofTask(task) {
     }
   }
   validatePinnedIdentities(task.toolchain, 'task.toolchain', errors);
-  if (task.sourceCommit !== PROOF_SOURCE_COMMIT) errors.push('task sourceCommit is not the pinned product commit');
+  const deploymentValidation = validateDeploymentBinding(task.deployment);
+  if (!deploymentValidation.ok) errors.push(...deploymentValidation.errors.map((error) => `task ${error}`));
   validateRunIdentity(task.runIdentity, 'task.runIdentity', errors);
   validateLimits(task.limits, errors);
   if (task.truthBoundary !== PROOF_TRUTH_BOUNDARY) errors.push('task truthBoundary is invalid');
@@ -403,7 +408,7 @@ function validateCandidateAgainstTask(candidate, task, taskEnvelope) {
     errors.push('candidate trusted-context binding mismatch');
   }
   validatePinnedIdentities(candidate.toolchain, 'candidate.toolchain', errors);
-  if (candidate.sourceCommit !== task.sourceCommit) errors.push('candidate sourceCommit mismatch');
+  if (!same(candidate.deployment, task.deployment)) errors.push('candidate deployment binding mismatch');
   validateRunIdentity(candidate.runIdentity, 'candidate.runIdentity', errors);
   if (!same(candidate.runIdentity, task.runIdentity)) errors.push('candidate run identity mismatch');
   if (!exactKeys(candidate.proof, ['encoding', 'term', 'bytesSha256'])) {
@@ -442,6 +447,7 @@ export function createProofTask({
   trustedTemplateBytes,
   runId,
   seed,
+  deployment,
   limits = {},
 } = {}) {
   const template = decodeTrustedBytes(trustedTemplateBytes, 'trusted template', 256 * 1024);
@@ -460,7 +466,7 @@ export function createProofTask({
       preludeSha256: PINNED_LEAN_PROOF_CONTEXT.preludeSha256,
     },
     toolchain: copyPinnedIdentities(),
-    sourceCommit: PROOF_SOURCE_COMMIT,
+    deployment: structuredClone(deployment),
     runIdentity: { runId, seed },
     limits: { ...DEFAULT_LIMITS, ...limits },
     truthBoundary: PROOF_TRUTH_BOUNDARY,
@@ -501,7 +507,7 @@ export function createProofCandidate({
       preludeSha256: task.trustedContext.preludeSha256,
     },
     toolchain: copyPinnedIdentities(),
-    sourceCommit: task.sourceCommit,
+    deployment: structuredClone(task.deployment),
     runIdentity: { ...task.runIdentity },
     proof: {
       encoding: 'utf8',
@@ -559,7 +565,7 @@ export function renderTrustedProofSource({
   if (byteDigest(template.bytes) !== task.theorem.templateSha256) {
     throw new ProofKernelError('TEMPLATE_DIGEST_MISMATCH', 'trusted theorem template digest mismatch');
   }
-  const expectedPrelude = 'import Mathlib.Data.Nat.Basic\n';
+  const expectedPrelude = 'import Mathlib\n';
   if (!template.text.startsWith(expectedPrelude)
       || task.trustedContext.preludeSha256 !== sha256Text(expectedPrelude)) {
     throw new ProofKernelError('PRELUDE_MISMATCH', 'trusted template does not begin with the immutable prelude');
@@ -817,6 +823,7 @@ function kernelSnapshot(preflight) {
     leanToolchainSha256: preflight.context.leanToolchainSha256,
     lakefileSha256: preflight.context.lakefileSha256,
     preludeSha256: preflight.context.preludeSha256,
+    authenticatedRuntime: structuredClone(preflight.authenticatedRuntime),
   };
 }
 
@@ -826,15 +833,30 @@ async function executeValidated({
   rendered,
   proofKernelRoot,
   replayDirectory = null,
+  authenticatedPreflight = null,
 } = {}) {
   const task = taskEnvelope.record;
   const candidate = candidateEnvelope.record;
-  const preflight = preflightLeanProofKernel({ proofKernelRoot });
+  const preflight = authenticatedPreflight || preflightLeanProofKernel({
+    proofKernelRoot,
+    expectedDeployment: task.deployment,
+  });
   if (preflight.status === 'absent') {
     throw new ProofKernelError('KERNEL_ABSENT', `pinned Lean proof kernel is absent: ${preflight.errors.join('; ')}`, preflight.errors);
   }
   if (!preflight.ready) {
     throw new ProofKernelError('KERNEL_INVALID', `pinned Lean proof kernel preflight failed: ${preflight.errors.join('; ')}`, preflight.errors);
+  }
+  const runtimeValidation = validateProofRuntimeEvidence(preflight.authenticatedRuntime, {
+    trustPolicy: preflight.trustPolicy,
+    expectedDeployment: task.deployment,
+  });
+  if (!runtimeValidation.ok) {
+    throw new ProofKernelError(
+      'RUNTIME_ATTESTATION_INVALID',
+      `proof runtime evidence failed kernel-boundary authentication: ${runtimeValidation.errors.join('; ')}`,
+      runtimeValidation.errors,
+    );
   }
 
   return await withTemporaryProofSource(rendered.sourceBytes, async ({
@@ -874,7 +896,7 @@ async function executeValidated({
         renderedSourceSha256: rendered.sourceSha256,
       },
       toolchain: copyPinnedIdentities(),
-      sourceCommit: task.sourceCommit,
+      deployment: structuredClone(task.deployment),
       runIdentity: { ...task.runIdentity },
       limits: { ...task.limits },
       kernel: kernelSnapshot(preflight),
@@ -905,11 +927,21 @@ async function executeValidated({
   }, { directoryPath: replayDirectory });
 }
 
-function parseAndValidateInputs({ taskBytes, candidateBytes, trustedTemplateBytes }) {
+function parseAndValidateInputs({
+  taskBytes,
+  candidateBytes,
+  trustedTemplateBytes,
+  expectedDeployment,
+}) {
   const taskEnvelope = parseProofRecordBytes(taskBytes, 'task');
   const taskValidation = validateProofTask(taskEnvelope.record);
   if (!taskValidation.ok) {
     throw new ProofKernelError('INVALID_TASK', `invalid proof task: ${taskValidation.errors.join('; ')}`, taskValidation.errors);
+  }
+  try {
+    assertDeploymentBinding(taskEnvelope.record.deployment, expectedDeployment);
+  } catch (error) {
+    throw new ProofKernelError('DEPLOYMENT_SUBSTITUTION', error.message);
   }
   const candidateEnvelope = parseProofRecordBytes(candidateBytes, 'candidate');
   const candidateErrors = validateCandidateAgainstTask(
@@ -936,9 +968,15 @@ export async function verifyLeanProof({
   taskBytes,
   candidateBytes,
   trustedTemplateBytes,
+  expectedDeployment,
   proofKernelRoot = DEFAULT_PROOF_KERNEL_ROOT,
 } = {}) {
-  const validated = parseAndValidateInputs({ taskBytes, candidateBytes, trustedTemplateBytes });
+  const validated = parseAndValidateInputs({
+    taskBytes,
+    candidateBytes,
+    trustedTemplateBytes,
+    expectedDeployment,
+  });
   return await executeValidated({
     ...validated,
     proofKernelRoot: path.resolve(proofKernelRoot),
@@ -999,7 +1037,8 @@ export function validateKernelEvidence(evidence) {
     errors.push('evidence trusted-context bindings are not pinned');
   }
   validatePinnedIdentities(evidence.toolchain, 'evidence.toolchain', errors);
-  if (evidence.sourceCommit !== PROOF_SOURCE_COMMIT) errors.push('evidence sourceCommit mismatch');
+  const deploymentValidation = validateDeploymentBinding(evidence.deployment);
+  if (!deploymentValidation.ok) errors.push(...deploymentValidation.errors.map((error) => `evidence ${error}`));
   validateRunIdentity(evidence.runIdentity, 'evidence.runIdentity', errors);
   validateLimits(evidence.limits, errors);
   const kernelKeys = [
@@ -1016,7 +1055,13 @@ export function validateKernelEvidence(evidence) {
     'leanToolchainSha256',
     'lakefileSha256',
     'preludeSha256',
+    'authenticatedRuntime',
   ];
+  const runtimeValidation = validateProofRuntimeEvidence(evidence.kernel?.authenticatedRuntime, {
+    expectedDeployment: evidence.deployment,
+    allowFixture: evidence.kernel?.authenticatedRuntime?.fixtureOnly === true,
+    requireAuthentication: false,
+  });
   if (!exactKeys(evidence.kernel, kernelKeys)
       || typeof evidence.kernel.leanVersion !== 'string'
       || !path.isAbsolute(String(evidence.kernel.leanExecutable || ''))
@@ -1032,8 +1077,10 @@ export function validateKernelEvidence(evidence) {
         'preludeSha256',
       ].every((key) => DIGEST.test(String(evidence.kernel?.[key] || '')))
       || evidence.kernel.mathlibHead !== PINNED_LEAN_PROOF_IDENTITIES.mathlibCommit
-      || evidence.kernel.mathlibTagCommit !== PINNED_LEAN_PROOF_IDENTITIES.mathlibCommit) {
+      || evidence.kernel.mathlibTagCommit !== PINNED_LEAN_PROOF_IDENTITIES.mathlibCommit
+      || !runtimeValidation.ok) {
     errors.push('evidence kernel identity is incomplete or invalid');
+    errors.push(...runtimeValidation.errors.map((error) => `evidence ${error}`));
   }
   const expectedVersion = `Lean (version 4.32.1, ${PINNED_LEAN_PROOF_IDENTITIES.leanArchitecture}, commit ${PINNED_LEAN_PROOF_IDENTITIES.leanCommit}, Release)`;
   if (evidence.kernel?.leanVersion !== expectedVersion
@@ -1128,7 +1175,7 @@ function assertEvidenceMatchesInputs(evidence, validated) {
       || evidence.conceptId !== task.conceptId
       || !same(evidence.bindings, expectedBindings)
       || !same(evidence.toolchain, task.toolchain)
-      || evidence.sourceCommit !== task.sourceCommit
+      || !same(evidence.deployment, task.deployment)
       || !same(evidence.runIdentity, task.runIdentity)
       || !same(evidence.limits, task.limits)) {
     throw new ProofKernelError('EVIDENCE_SUBSTITUTION', 'evidence does not bind the supplied task/candidate bytes and identities');
@@ -1143,7 +1190,7 @@ function replayComparable(evidence) {
     conceptId: evidence.conceptId,
     bindings: evidence.bindings,
     toolchain: evidence.toolchain,
-    sourceCommit: evidence.sourceCommit,
+    deployment: evidence.deployment,
     runIdentity: evidence.runIdentity,
     limits: evidence.limits,
     kernel: evidence.kernel,
@@ -1155,10 +1202,26 @@ function replayComparable(evidence) {
   };
 }
 
+export function validateReplayEvidenceIdentity(originalEvidence, replayEvidence) {
+  const originalValidation = validateKernelEvidence(originalEvidence);
+  const replayValidation = validateKernelEvidence(replayEvidence);
+  const errors = [
+    ...originalValidation.errors.map((error) => `original evidence: ${error}`),
+    ...replayValidation.errors.map((error) => `replay evidence: ${error}`),
+  ];
+  if (originalValidation.ok
+      && replayValidation.ok
+      && !same(replayComparable(replayEvidence), replayComparable(originalEvidence))) {
+    errors.push('replay did not reproduce the exact runtime, identities, bindings, command, and result');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 export async function replayLeanProofEvidence({
   taskBytes,
   candidateBytes,
   trustedTemplateBytes,
+  expectedDeployment,
   evidence,
   proofKernelRoot = DEFAULT_PROOF_KERNEL_ROOT,
 } = {}) {
@@ -1170,8 +1233,54 @@ export async function replayLeanProofEvidence({
       evidenceValidation.errors,
     );
   }
-  const validated = parseAndValidateInputs({ taskBytes, candidateBytes, trustedTemplateBytes });
+  const validated = parseAndValidateInputs({
+    taskBytes,
+    candidateBytes,
+    trustedTemplateBytes,
+    expectedDeployment,
+  });
   assertEvidenceMatchesInputs(evidence, validated);
+  const replayPreflight = preflightLeanProofKernel({
+    proofKernelRoot: path.resolve(proofKernelRoot),
+    expectedDeployment: validated.taskEnvelope.record.deployment,
+  });
+  if (replayPreflight.status === 'absent') {
+    throw new ProofKernelError(
+      'KERNEL_ABSENT',
+      `pinned Lean proof kernel is absent: ${replayPreflight.errors.join('; ')}`,
+      replayPreflight.errors,
+    );
+  }
+  if (!replayPreflight.ready) {
+    throw new ProofKernelError(
+      'KERNEL_INVALID',
+      `pinned Lean proof kernel preflight failed: ${replayPreflight.errors.join('; ')}`,
+      replayPreflight.errors,
+    );
+  }
+  const originalRuntimeValidation = validateProofRuntimeEvidence(
+    evidence.kernel.authenticatedRuntime,
+    {
+      trustPolicy: replayPreflight.trustPolicy,
+      expectedDeployment: validated.taskEnvelope.record.deployment,
+    },
+  );
+  if (!originalRuntimeValidation.ok) {
+    throw new ProofKernelError(
+      'RUNTIME_ATTESTATION_INVALID',
+      `recorded proof runtime failed replay-boundary authentication: ${originalRuntimeValidation.errors.join('; ')}`,
+      originalRuntimeValidation.errors,
+    );
+  }
+  if (!same(
+    evidence.kernel.authenticatedRuntime,
+    replayPreflight.authenticatedRuntime,
+  )) {
+    throw new ProofKernelError(
+      'REPLAY_RUNTIME_MISMATCH',
+      'independent replay is running under a different exact proof runtime attestation',
+    );
+  }
   const sourcePath = evidence.command.argv.at(-1);
   if (path.basename(sourcePath) !== 'Candidate.lean'
       || evidence.command.environment.HOME !== path.dirname(sourcePath)) {
@@ -1181,8 +1290,9 @@ export async function replayLeanProofEvidence({
     ...validated,
     proofKernelRoot: path.resolve(proofKernelRoot),
     replayDirectory: path.dirname(sourcePath),
+    authenticatedPreflight: replayPreflight,
   });
-  if (!same(replayComparable(replayEvidence), replayComparable(evidence))) {
+  if (!validateReplayEvidenceIdentity(evidence, replayEvidence).ok) {
     throw new ProofKernelError('REPLAY_MISMATCH', 'independent kernel replay did not reproduce the recorded evidence');
   }
   return {

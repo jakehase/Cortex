@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
 import { buildAdaptiveSessionPlan, verifyAdaptivePlanSignature } from './adaptive-session.mjs';
-import { verifyAdaptiveArtifacts } from './adaptive-verifier.mjs';
+import {
+  verifyAdaptiveArtifacts,
+  verifyAdaptiveFixtureArtifacts,
+} from './adaptive-verifier.mjs';
 import { prerequisiteClosure, validateCurriculumGraph } from './curriculum-planner.mjs';
 import { generateExercise, replayGeneratedExercise } from './generated-exercises.mjs';
 import { sha256Text } from './hash.mjs';
@@ -444,7 +447,7 @@ function assertFrozenStateIsSafe(wave, currentState) {
   }
 }
 
-export function verifyAndApplyParallelWave({
+function verifyAndApplyParallelWaveInternal({
   wave,
   artifactRoots,
   graph,
@@ -456,6 +459,7 @@ export function verifyAndApplyParallelWave({
   expectedSourceTree,
   fixedTemplates = [],
   allowTestFixtures = false,
+  executionTrustPolicy = null,
   now = new Date().toISOString(),
 } = {}) {
   verifyParallelWave({
@@ -467,6 +471,7 @@ export function verifyAndApplyParallelWave({
     expectedSourceCommit,
     expectedSourceTree,
     now,
+    allowExpired: true,
   });
   const stateVerification = verifyMasteryState(currentState, signingSecret, { graph, policy });
   if (!stateVerification.ok) throw new Error(`parallel wave current state verification failed: ${stateVerification.errors.join('; ')}`);
@@ -475,7 +480,8 @@ export function verifyAndApplyParallelWave({
   for (const selected of wave.selected) {
     const artifactRoot = artifactRoots.get(selected.child.runId);
     if (typeof artifactRoot !== 'string' || !artifactRoot) throw new Error(`parallel wave artifact root missing: ${selected.child.runId}`);
-    const replay = verifyAdaptiveArtifacts({
+    const verifier = allowTestFixtures ? verifyAdaptiveFixtureArtifacts : verifyAdaptiveArtifacts;
+    const replay = verifier({
       artifactRoot,
       graph,
       policy,
@@ -483,7 +489,7 @@ export function verifyAndApplyParallelWave({
       currentMastery: currentState,
       expectedSourceCommit,
       fixedTemplates,
-      allowTestFixtures,
+      executionTrustPolicy,
       planSecret: signingSecret,
       expectedPlan: selected.child.sessionPlan,
       allowFrozenWaveSelection: true,
@@ -510,6 +516,9 @@ export function verifyAndApplyParallelWave({
   if (applied.every(Boolean) && applied.length > 0) {
     return { state: currentState, applied: false, alreadyApplied: true, replays };
   }
+  if (Date.parse(now) > Date.parse(wave.expiresAt)) {
+    throw new Error('parallel wave expired before complete exact idempotent application');
+  }
   assertFrozenStateIsSafe(wave, currentState);
   const artifactManifestDigests = new Map(replays.map(({ selected, replay }) => [
     selected.child.runId,
@@ -525,4 +534,16 @@ export function verifyAndApplyParallelWave({
     expectedConceptIds: replays.map(({ selected }) => selected.action.conceptId),
   });
   return { state, applied: true, alreadyApplied: false, replays };
+}
+
+export function verifyAndApplyParallelWave(options = {}) {
+  if (Object.hasOwn(options, 'allowTestFixtures')) {
+    throw new Error('production parallel-wave verifier has no fixture acceptance mode');
+  }
+  return verifyAndApplyParallelWaveInternal({ ...options, allowTestFixtures: false });
+}
+
+export function verifyAndApplyParallelWaveFixture(options = {}) {
+  const { allowTestFixtures: _fixtureMarker, ...fixtureOptions } = options;
+  return verifyAndApplyParallelWaveInternal({ ...fixtureOptions, allowTestFixtures: true });
 }

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.deployment_binding",
+  "oneOf": [
+    { "$ref": "#/$defs/v1" },
+    { "$ref": "#/$defs/v2" },
+    { "$ref": "#/$defs/v3" }
+  ],
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "contentDigests": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+      "additionalProperties": { "$ref": "#/$defs/digest" }
+    },
+    "v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "sourceCommit", "sourceTree", "contentDigests"],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.deployment_binding.v1" },
+        "sourceCommit": { "$ref": "#/$defs/commit" },
+        "sourceTree": { "$ref": "#/$defs/commit" },
+        "contentDigests": { "$ref": "#/$defs/contentDigests" }
+      }
+    },
+    "v2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "sourceCommit", "sourceTree", "productTree",
+        "runtimeSha256", "closureSha256", "executionClosure", "contentDigests"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.deployment_binding.v2" },
+        "sourceCommit": { "$ref": "#/$defs/commit" },
+        "sourceTree": { "$ref": "#/$defs/commit" },
+        "productTree": { "$ref": "#/$defs/commit" },
+        "runtimeSha256": { "$ref": "#/$defs/digest" },
+        "closureSha256": { "$ref": "#/$defs/digest" },
+        "executionClosure": { "$ref": "execution-closure.schema.json" },
+        "contentDigests": { "$ref": "#/$defs/contentDigests" }
+      }
+    },
+    "v3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "sourceCommit", "sourceTree", "productTree",
+        "runtimeSha256", "closureSha256", "executionClosure",
+        "approvedModelExecutable", "approvedResearchRuntime", "contentDigests"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.deployment_binding.v3" },
+        "sourceCommit": { "$ref": "#/$defs/commit" },
+        "sourceTree": { "$ref": "#/$defs/commit" },
+        "productTree": { "$ref": "#/$defs/commit" },
+        "runtimeSha256": { "$ref": "#/$defs/digest" },
+        "closureSha256": { "$ref": "#/$defs/digest" },
+        "executionClosure": {
+          "allOf": [
+            { "$ref": "execution-closure.schema.json" },
+            {
+              "type": "object",
+              "required": ["immutable"],
+              "properties": { "immutable": { "const": true } }
+            }
+          ]
+        },
+        "approvedModelExecutable": { "$ref": "approved-model-executable.schema.json" },
+        "approvedResearchRuntime": { "$ref": "approved-research-runtime.schema.json" },
+        "contentDigests": { "$ref": "#/$defs/contentDigests" }
+      }
+    }
+  }
+}

@@ -69,14 +69,17 @@ class ContinueAdaptiveMathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
             acquisition_state = temporary_path / "mastery.json"
+            assessment_bank = temporary_path / "assessment-bank.json"
             source_marker = temporary_path / "source"
             acquisition_state.write_text("{}\n", encoding="utf-8")
+            assessment_bank.write_text("{}\n", encoding="utf-8")
             source_marker.write_text("a" * 40 + "\n", encoding="utf-8")
             base = dict(
                 continuation_id="math-continuation-20260727T050000Z-abc123",
                 launcher=SCRIPT,
                 live_control=SCRIPT,
                 acquisition_state=acquisition_state,
+                assessment_bank=assessment_bank,
                 source_marker=source_marker,
                 max_sessions=100,
                 child_timeout_seconds=14_400,

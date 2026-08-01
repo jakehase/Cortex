@@ -7,8 +7,8 @@ EXPECTED_COMMIT="${3:-}"
 EXPECTED_TREE="${4:-}"
 CODEX_BIN="${5:-/home/jake/.local/bin/codex}"
 PLAN_PATH="${6:-}"
-GRAPH_PATH="${7:-/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json}"
-POLICY_PATH="${8:-/home/jake/clawd-remote/cortex-learning-os/policies/adaptive-math-continuous-v1.json}"
+GRAPH_PATH="${7:-/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json}"
+POLICY_PATH="${8:-/home/jake/clawd-remote/cortex-learning-os/policies/adaptive-math-phd-v1.json}"
 CAPSULE_PATH="${9:-/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/capsule.json}"
 REPO_ROOT="/home/jake/clawd-remote"
 CLOS_ROOT="$REPO_ROOT/cortex-learning-os"
@@ -72,7 +72,11 @@ trap on_error ERR
 
 write_state running "detached Hetzner child is collecting bounded acquisition or correction evidence"
 {
-  ACTUAL_COMMIT="$(tr -d '[:space:]' < "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
+  if [[ -f "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT" ]]; then
+    ACTUAL_COMMIT="$(tr -d '[:space:]' < "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
+  else
+    ACTUAL_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+  fi
   CHECKED_OUT_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   ACTUAL_TREE="$(git -C "$REPO_ROOT" rev-parse "$ACTUAL_COMMIT^{tree}")"
   [[ "$ACTUAL_COMMIT" == "$EXPECTED_COMMIT" ]]

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_runtime_attestation_request.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestedCapability",
+    "unsigned",
+    "selfAttestation",
+    "runtimePayloadBase64",
+    "runtimePayloadSha256",
+    "requiredAttestationEncoding",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.proof_runtime_attestation_request.v1"
+    },
+    "requestedCapability": { "const": "proof_runtime" },
+    "unsigned": { "const": true },
+    "selfAttestation": { "const": false },
+    "runtimePayloadBase64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 89478488,
+      "contentEncoding": "base64"
+    },
+    "runtimePayloadSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requiredAttestationEncoding": {
+      "const": "canonical-json-without-trailing-newline"
+    },
+    "truthBoundary": {
+      "const": "This unsigned request describes exact local runtime, product, deployment, and trust bytes. It is not trusted until a separately protected proof-runtime authority validates and signs it."
+    }
+  }
+}

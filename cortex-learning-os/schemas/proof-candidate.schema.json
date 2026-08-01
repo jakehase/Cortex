@@ -12,7 +12,7 @@
     "theoremBinding",
     "trustedContextBinding",
     "toolchain",
-    "sourceCommit",
+    "deployment",
     "runIdentity",
     "proof",
     "truthBoundary"
@@ -50,7 +50,7 @@
       }
     },
     "toolchain": { "$ref": "proof-task.schema.json#/$defs/toolchain" },
-    "sourceCommit": { "const": "97266f3f17e26dcecbe7029981b48555d618ec81" },
+    "deployment": { "$ref": "deployment-binding.schema.json#/$defs/v3" },
     "runIdentity": { "$ref": "proof-task.schema.json#/$defs/runIdentity" },
     "proof": {
       "type": "object",

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.approved_model_executable.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "path", "bytes", "sha256", "runtimeClosure",
+    "runtimeClosureSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.approved_model_executable.v1" },
+    "path": {
+      "type": "string",
+      "pattern": "^/opt/cortex-learning-os/approved-model-executors/[0-9a-f]{64}/codex$"
+    },
+    "bytes": { "type": "integer", "minimum": 1, "maximum": 1073741824 },
+    "sha256": { "$ref": "#/$defs/digest" },
+    "runtimeClosureSha256": { "$ref": "#/$defs/digest" },
+    "runtimeClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "platform", "architecture", "linkage", "root",
+        "immutable", "entryCount", "entries", "closureSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "cortex.learning_os.approved_model_runtime_closure.v1"
+        },
+        "platform": { "const": "linux" },
+        "architecture": { "const": "x86_64" },
+        "linkage": { "const": "static_elf_no_interpreter" },
+        "root": {
+          "type": "string",
+          "pattern": "^/opt/cortex-learning-os/approved-model-executors/[0-9a-f]{64}$"
+        },
+        "immutable": { "const": true },
+        "entryCount": { "const": 2 },
+        "entries": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "role", "type", "uid", "gid", "mode"],
+              "properties": {
+                "path": { "const": "." },
+                "role": { "const": "runtime_root" },
+                "type": { "const": "directory" },
+                "uid": { "const": 0 },
+                "gid": { "const": 0 },
+                "mode": { "const": "0555" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path", "role", "type", "uid", "gid", "mode", "bytes", "sha256"
+              ],
+              "properties": {
+                "path": { "const": "codex" },
+                "role": { "const": "entrypoint" },
+                "type": { "const": "file" },
+                "uid": { "const": 0 },
+                "gid": { "const": 0 },
+                "mode": { "const": "0555" },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1073741824
+                },
+                "sha256": { "$ref": "#/$defs/digest" }
+              }
+            }
+          ],
+          "items": false
+        },
+        "closureSha256": { "$ref": "#/$defs/digest" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

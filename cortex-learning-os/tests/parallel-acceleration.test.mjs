@@ -26,7 +26,7 @@ import { buildExamPrompt } from '../src/model-answer-runner.mjs';
 import {
   buildParallelWave,
   selectParallelWaveActions,
-  verifyAndApplyParallelWave,
+  verifyAndApplyParallelWaveFixture as verifyAndApplyParallelWave,
   verifyParallelWave,
 } from '../src/parallel-wave.mjs';
 
@@ -34,7 +34,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => JSON.parse(fs.readFileSync(path.join(root, relative), 'utf8'));
 const graph = read('capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json');
 const capsule = read('capsules/math-foundations/capsule.json');
-const { policy } = loadAdaptivePolicy();
+const { policy } = loadAdaptivePolicy(path.join(root, 'policies/adaptive-math-continuous-v1.json'));
 const secret = 'parallel-acceleration-test-secret-with-at-least-forty-eight-characters';
 const sourceCommit = 'a'.repeat(40);
 const sourceTree = 'b'.repeat(40);
@@ -368,6 +368,20 @@ test('all child evidence is replayed before one deterministic atomic merge; repl
     assert.equal(repeated.applied, false);
     assert.equal(repeated.alreadyApplied, true);
     assert.equal(repeated.state.revision, signed.revision);
+    const expiredReplay = verifyAndApplyParallelWave({
+      wave,
+      artifactRoots: artifacts.artifactRoots,
+      graph,
+      policy,
+      capsule,
+      currentState: signed,
+      signingSecret: secret,
+      expectedSourceCommit: sourceCommit,
+      expectedSourceTree: sourceTree,
+      allowTestFixtures: true,
+      now: new Date(Date.parse(wave.expiresAt) + 1000).toISOString(),
+    });
+    assert.equal(expiredReplay.alreadyApplied, true);
     const substitutedRoot = artifacts.artifactRoots.get(wave.mergeOrder[0]);
     const summaryPath = path.join(substitutedRoot, 'session_summary.json');
     const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
@@ -670,6 +684,8 @@ function migrationFixture() {
     expectedTargetPolicyDigest: policyDigest(targetPolicy),
     sourceCommit,
     expectedSourceCommit: sourceCommit,
+    sourceTree,
+    expectedSourceTree: sourceTree,
     now: new Date(Date.parse(now) + 60_000).toISOString(),
   };
   return { sourceState, targetGraph, targetPolicy, expected };
@@ -794,6 +810,70 @@ test('additive migration rejects removal, rewrite, repetition, bad signature, st
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
+
+  for (const crashPhase of ['state_written', 'audit_written']) {
+    const recoveryRoot = fs.mkdtempSync(path.join(os.tmpdir(), `clos-additive-recovery-${crashPhase}-`));
+    try {
+      const statePath = path.join(recoveryRoot, 'mastery.json');
+      const secretPath = path.join(recoveryRoot, 'mastery.hmac');
+      const auditPath = path.join(recoveryRoot, 'audit.json');
+      const journalPath = `${auditPath}.transaction.json`;
+      fs.writeFileSync(statePath, `${JSON.stringify(fixture.sourceState, null, 2)}\n`, { mode: 0o600 });
+      fs.writeFileSync(secretPath, `${secret}\n`, { mode: 0o600 });
+      const migrationOptions = {
+        statePath,
+        secretPath,
+        auditPath,
+        sourceGraph: graph,
+        sourcePolicy: policy,
+        targetGraph: fixture.targetGraph,
+        targetPolicy: fixture.targetPolicy,
+        ...fixture.expected,
+      };
+      assert.throws(() => migrateAdditiveMasteryStore({
+        ...migrationOptions,
+        onPhase: (phase) => {
+          if (phase === crashPhase) throw new Error(`simulated process loss after ${phase}`);
+        },
+      }), /simulated process loss/);
+      assert.equal(fs.existsSync(journalPath), true);
+      const recovered = migrateAdditiveMasteryStore(migrationOptions);
+      assert.equal(recovered.state.revision, fixture.sourceState.revision + 1);
+      assert.equal(verifyAdditiveMigrationAudit(recovered.audit, secret), true);
+      assert.equal(fs.existsSync(auditPath), true);
+      const replay = migrateAdditiveMasteryStore(migrationOptions);
+      assert.equal(replay.alreadyApplied, true);
+    } finally {
+      fs.rmSync(recoveryRoot, { recursive: true, force: true });
+    }
+  }
+
+  const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-additive-legacy-audit-first-'));
+  try {
+    const statePath = path.join(legacyRoot, 'mastery.json');
+    const secretPath = path.join(legacyRoot, 'mastery.hmac');
+    const auditPath = path.join(legacyRoot, 'audit.json');
+    const frozen = buildAdditiveMasteryMigration(options);
+    fs.writeFileSync(statePath, `${JSON.stringify(fixture.sourceState, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(secretPath, `${secret}\n`, { mode: 0o600 });
+    fs.writeFileSync(auditPath, `${JSON.stringify(frozen.audit, null, 2)}\n`, { mode: 0o600 });
+    const recovered = migrateAdditiveMasteryStore({
+      statePath,
+      secretPath,
+      auditPath,
+      sourceGraph: graph,
+      sourcePolicy: policy,
+      targetGraph: fixture.targetGraph,
+      targetPolicy: fixture.targetPolicy,
+      ...fixture.expected,
+      now: new Date(Date.parse(fixture.expected.now) + 60_000).toISOString(),
+    });
+    assert.equal(recovered.state.revision, fixture.sourceState.revision + 1);
+    assert.equal(canonicalJson(recovered.audit), canonicalJson(frozen.audit));
+    assert.equal(fs.existsSync(`${auditPath}.transaction.json`), true);
+  } finally {
+    fs.rmSync(legacyRoot, { recursive: true, force: true });
+  }
 });
 
 test('parallel launchers and supervisor keep all Codex work detached on Hetzner with acquisition-only defaults', () => {
@@ -809,6 +889,8 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(waveLauncher, /systemd-run/);
   assert.match(child, /PLAN_SANDBOX.*read-only/s);
   assert.match(child, /toolsAllowed/);
+  assert.match(child, /curriculum[.]phd-trajectory-v1[.]graph[.]json/);
+  assert.match(child, /adaptive-math-phd-v1[.]json/);
   assert.doesNotMatch(child, /mastery[.]hmac|HMAC/);
   assert.match(harvester, /all children independently replayed and merged in one atomic signed state update/);
   assert.match(harvester, /time[.]sleep\(max\(5[.]0, args[.]poll_seconds\)\)/);
@@ -817,6 +899,8 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(continuation, /curriculum_frontier_reached/);
   assert.match(continuation, /reviewSelectionEnabled/);
   assert.match(continuation, /concurrent detached Hetzner Codex children/);
+  assert.match(continuation, /curriculum[.]phd-trajectory-v1[.]graph[.]json/);
+  assert.match(continuation, /adaptive-math-phd-v1[.]json/);
   assert.doesNotMatch(continuation, /spaced.review|nextReviewAt|shadow/i);
   assert.match(continuationLauncher, /Restart=on-failure/);
   assert.match(continuationLauncher, /detached_job_notifier[.]py/);

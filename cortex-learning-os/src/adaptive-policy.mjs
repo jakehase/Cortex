@@ -7,13 +7,18 @@ import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mj
 
 export const LEGACY_ADAPTIVE_POLICY_PATH = path.join(CLOS_ROOT, 'policies/adaptive-math-v0.8.json');
 export const CONTINUOUS_ADAPTIVE_POLICY_PATH = path.join(CLOS_ROOT, 'policies/adaptive-math-continuous-v1.json');
-export const DEFAULT_ADAPTIVE_POLICY_PATH = CONTINUOUS_ADAPTIVE_POLICY_PATH;
+export const PHD_ADAPTIVE_POLICY_PATH = path.join(CLOS_ROOT, 'policies/adaptive-math-phd-v1.json');
+export const DEFAULT_ADAPTIVE_POLICY_PATH = PHD_ADAPTIVE_POLICY_PATH;
 export const LEGACY_CURRICULUM_GRAPH_PATH = path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json');
 export const CONTINUOUS_CURRICULUM_GRAPH_PATH = path.join(
   CLOS_ROOT,
   'capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json',
 );
-export const DEFAULT_CURRICULUM_GRAPH_PATH = CONTINUOUS_CURRICULUM_GRAPH_PATH;
+export const PHD_CURRICULUM_GRAPH_PATH = path.join(
+  CLOS_ROOT,
+  'capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json',
+);
+export const DEFAULT_CURRICULUM_GRAPH_PATH = PHD_CURRICULUM_GRAPH_PATH;
 const RUNTIME_KEYS = ['model', 'provider', 'sandbox', 'thinking', 'toolsAllowed'];
 const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 

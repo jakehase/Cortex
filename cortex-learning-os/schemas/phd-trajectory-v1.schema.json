@@ -9,7 +9,6 @@
     "capsuleId",
     "domain",
     "version",
-    "sourceCommit",
     "legacyPrefix",
     "concepts",
     "truthBoundary"
@@ -31,9 +30,6 @@
     "version": {
       "type": "string",
       "pattern": "^1\\."
-    },
-    "sourceCommit": {
-      "const": "97266f3f17e26dcecbe7029981b48555d618ec81"
     },
     "legacyPrefix": {
       "type": "object",

@@ -6,11 +6,79 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-07-27`
-- Status: `v1_0_continuous_acquisition_default_implemented`
-- Current fidelity: `production_default_source_complete_pending_control_plane_migration_and_live_execution`
+- Status: `retained_phd_source_fail_closed_pending_trusted_evidence`
+- Current fidelity: `production_boundaries_repaired_no_live_qualification`
 - Package version: `1.0.0`
 
 ## Current checkpoint
+
+**Retained/PhD production boundary repaired, with all live claims still
+blocked:** the canonical source defaults now point to the 264-node PhD
+trajectory and acquisition-only policy. Exact program inputs are loaded from
+the declared Git commit/tree, and production commands reject a dirty product
+subtree or external input paths. The prior 84-node program remains the explicit
+source for additive migration.
+
+The checked-in production trust policy is intentionally disabled and has no
+authorities. Generated advanced exercises and generated qualifying banks are
+marked synthetic fixtures and production verifiers reject them. Production
+evidence requires independently authored and expert-reviewed sealed banks,
+graduate track/outcome/concept/theorem-family coverage, cross-campaign family
+disjointness, and authenticated provenance. No current implementation test or
+fixture can set retained mastery or `phd_math_qualified`.
+Bank authorship and graduate expert review require separate authenticated
+authorities; distinct reviewer strings alone are never accepted.
+The acquisition authority must also attest an exact 264-entry
+concept/outcome registry derived from the exact signed bank records, with a
+unique seed-independent family per concept. Registry entries bind bank, item,
+checker, trust-policy, deployment, campaign, author, and reviewer digests and
+identities; metadata-only rows are rejected. Campaign freeze seeds its
+disjointness check from that signed registry.
+
+The runtime now has a versioned independent item/bank path for acquisition and
+retention. It verifies immutable prompt bytes, fixed deterministic checker
+specifications, resource/no-tools policy, exact graph/rubric identities, and
+distinct Ed25519 author/reviewer attestations before materialization or
+grading. Production adaptive plan, worker, apply, and continuation entry
+points require `--assessment-bank`; generated exercises are accepted only by
+the explicit fixture verifier. No real bank or production authority key was
+added, so externally supplied signed bank count remains zero and all live
+claims remain non-green.
+
+Production model evidence now binds the exact raw provider output and
+append-only raw event ledger to provider-observed request/session identities,
+xhigh, read-only/no-tools execution, positive usage, exact prompts, and a
+trusted-runner Ed25519 signature. Exam proctor and grader receipts are separate
+authenticated authorities. Acquisition, retention, proof replay, proof
+runtime, research reproduction/review, and artifact-to-theorem correspondence
+each have distinct authenticated gates.
+
+The proof kernel remains absent and non-green. A future installation must match
+the exact Lean archive, exact Lake package allowlist, and Merkle-style content
+manifests for every Lean executable/runtime file and compiled dependency, then
+receive a separate protected-build signature. Research production evidence
+must contain executable source, immutable image digest, exact command, logs,
+recomputed outputs, an independently extracted theorem statement expressing
+the artifact claim, and separate reproduction/review/correspondence
+attestations. The checked-in research theorem is a digest-binding mechanics
+fixture only.
+
+Additive migration now uses a signed durable transaction journal and
+deterministic recovery. Crash injection after state publication and after audit
+publication is covered by regression tests; retry reconciles exact target
+state/audit bytes instead of being blocked by an existing audit. Retention
+mappings are derived from committed graph/rubric bytes, semantic families are
+seed-independent, cross-window concepts/outcomes/families must be disjoint,
+and the signed wait contract has a packaged detached resume path.
+
+The repository carries no live acquisition, retained-mastery, qualification,
+proof, specialization, research, or PhD-capability artifact. Current isolated
+truth remains uninitialized/not started/kernel absent/
+`phd_math_qualified=false`. Commit delivery identity belongs in a separately
+signed external release record, not a self-referential tracked report.
+
+The entries below are historical checkpoints. Their older “default” language
+describes those releases and does not override the current boundary.
 
 **v1.0 continuous acquisition supersedes active spaced review:** Jake directed “stop the reviews just keep learning.” The canonical source default is now `adaptive-math-continuous-v1` over `math-continuous-acquisition-v1`. It selects only acquisition, learning retry, prerequisite correction, or same-concept correction. Review selection and scheduling are explicitly false in policy, stale legacy review dates do not gate acquired prerequisites, and an early-review directive or launcher flag fails closed. When all 84 declared concepts are exhausted, the terminal result is `curriculum_frontier_reached`; no review timer, busy loop, or fabricated lesson is created.
 

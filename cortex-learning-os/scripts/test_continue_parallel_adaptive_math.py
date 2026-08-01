@@ -29,15 +29,29 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
             launcher = root / "launcher"
             acquisition = root / "mastery.json"
             source = root / "source"
+            graph = root / "graph.json"
+            policy = root / "policy.json"
+            capsule = root / "capsule.json"
+            repo_root = root / "repo"
             launcher.write_text("#!/bin/sh\n", encoding="utf-8")
             launcher.chmod(0o700)
             acquisition.write_text("{}\n", encoding="utf-8")
             source.write_text("a" * 40 + "\n", encoding="utf-8")
+            repo_root.mkdir()
+            for target in (graph, policy, capsule):
+                target.write_text("{}\n", encoding="utf-8")
             base = dict(
                 continuation_id="math-acceleration-20260727T180000Z-abc123",
                 launcher=launcher,
                 acquisition_state=acquisition,
                 source_marker=source,
+                repo_root=repo_root,
+                graph=graph,
+                policy=policy,
+                capsule=capsule,
+                remote_graph="/remote/graph.json",
+                remote_policy="/remote/policy.json",
+                remote_capsule="/remote/capsule.json",
                 concurrency=4,
                 max_waves=100,
                 max_sessions=800,

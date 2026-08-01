@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "cortex.learning_os.phd_trust_policy.v1",
+  "policyId": "phd-production-trust-v1",
+  "boundaryId": "unconfigured-production-boundary",
+  "productionEnabled": false,
+  "authorities": [],
+  "truthBoundary": "No production authority keys are configured in this commit. Synthetic, worker-authored, self-declared, or unsigned evidence cannot qualify acquisition, retention, examinations, proof replay, or research."
+}

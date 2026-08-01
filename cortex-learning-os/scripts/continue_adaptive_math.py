@@ -127,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-root", default="/root/clawd", type=Path)
     parser.add_argument("--ssh-host", default="root@37.27.129.239")
     parser.add_argument("--remote-repo", default="/home/jake/clawd-remote")
+    parser.add_argument("--assessment-bank", required=True, type=Path)
     parser.add_argument("--poll-seconds", type=float, default=15.0)
     parser.add_argument("--child-timeout-seconds", type=float, default=14_400.0)
     parser.add_argument("--max-wall-seconds", type=float, default=86_400.0)
@@ -141,8 +142,10 @@ def validate_arguments(args: argparse.Namespace) -> None:
         raise ContinuationBlocker("invalid continuation id")
     if not args.launcher.is_file() or not os.access(args.launcher, os.X_OK):
         raise ContinuationBlocker("canonical launcher is missing or not executable")
-    if not args.live_control.is_file() or not args.acquisition_state.is_file() or not args.source_marker.is_file():
+    if not args.live_control.is_file() or not args.acquisition_state.is_file():
         raise ContinuationBlocker("canonical control-plane inputs are incomplete")
+    if not args.assessment_bank.is_file() or args.assessment_bank.is_symlink():
+        raise ContinuationBlocker("external assessment bank must be a regular non-symlink file")
     if args.max_sessions < 1 or args.max_sessions > 100:
         raise ContinuationBlocker("max sessions must be between 1 and the hard cap of 100")
     if args.child_timeout_seconds < 60 or args.child_timeout_seconds > 14_400:
@@ -156,7 +159,11 @@ def validate_arguments(args: argparse.Namespace) -> None:
 
 
 def source_commit(args: argparse.Namespace) -> str:
-    commit = args.source_marker.read_text(encoding="utf-8").strip()
+    commit = (
+        args.source_marker.read_text(encoding="utf-8").strip()
+        if args.source_marker.is_file()
+        else run(["git", "-C", str(args.repo_root), "rev-parse", "HEAD"], timeout=30).stdout.strip()
+    )
     if not SAFE_COMMIT.fullmatch(commit):
         raise ContinuationBlocker("canonical source marker is invalid")
     return commit
@@ -185,6 +192,7 @@ def launch_descriptor(args: argparse.Namespace, *, dry_run: bool) -> dict[str, A
         str(args.launcher), "--adaptive", "--thinking", "xhigh", "--no-notify",
         "--ssh-host", args.ssh_host, "--remote-repo", args.remote_repo,
         "--state-root", str(args.state_root),
+        "--assessment-bank", str(args.assessment_bank),
     ]
     if dry_run:
         command.append("--dry-run")

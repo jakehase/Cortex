@@ -1,0 +1,444 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.approved_research_runtime.v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "path",
+    "bytes",
+    "sha256",
+    "runtimeClosure",
+    "runtimeClosureSha256",
+    "daemonClosure",
+    "daemonClosureSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.approved_research_runtime.v3" },
+    "kind": { "const": "docker" },
+    "path": {
+      "type": "string",
+      "pattern": "^/opt/cortex-learning-os/approved-research-runtimes/[0-9a-f]{64}/runtime$"
+    },
+    "bytes": { "type": "integer", "minimum": 1, "maximum": 1073741824 },
+    "sha256": { "$ref": "#/$defs/digest" },
+    "runtimeClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "platform",
+        "architecture",
+        "linkage",
+        "root",
+        "immutable",
+        "entryCount",
+        "entries",
+        "closureSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "cortex.learning_os.approved_research_runtime_closure.v1"
+        },
+        "platform": { "const": "linux" },
+        "architecture": { "const": "x86_64" },
+        "linkage": { "const": "static_elf_no_interpreter" },
+        "root": {
+          "type": "string",
+          "pattern": "^/opt/cortex-learning-os/approved-research-runtimes/[0-9a-f]{64}$"
+        },
+        "immutable": { "const": true },
+        "entryCount": { "const": 2 },
+        "entries": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "role", "type", "uid", "gid", "mode"],
+              "properties": {
+                "path": { "const": "." },
+                "role": { "const": "runtime_root" },
+                "type": { "const": "directory" },
+                "uid": { "const": 0 },
+                "gid": { "const": 0 },
+                "mode": { "const": "0555" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path", "role", "type", "uid", "gid", "mode", "bytes", "sha256"
+              ],
+              "properties": {
+                "path": { "const": "runtime" },
+                "role": { "const": "entrypoint" },
+                "type": { "const": "file" },
+                "uid": { "const": 0 },
+                "gid": { "const": 0 },
+                "mode": { "const": "0555" },
+                "bytes": { "type": "integer", "minimum": 1, "maximum": 1073741824 },
+                "sha256": { "$ref": "#/$defs/digest" }
+              }
+            }
+          ],
+          "items": false
+        },
+        "closureSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "runtimeClosureSha256": { "$ref": "#/$defs/digest" },
+    "daemonClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "kind", "immutable", "serviceUnit", "socketUnit",
+        "socketPath", "serviceManager", "process", "derivedTopology",
+        "executionStore", "auxiliaryProcesses", "runtimeHelpers",
+        "securityProfiles", "roots", "entryCount", "entries", "closureSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "cortex.learning_os.approved_research_daemon_closure.v3"
+        },
+        "kind": { "const": "docker" },
+        "immutable": { "const": true },
+        "serviceUnit": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.@-]+[.]service$"
+        },
+        "socketUnit": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.@-]+[.]socket$"
+        },
+        "socketPath": { "type": "string", "pattern": "^/" },
+        "serviceManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "activeState", "subState", "unitFileState", "mainPid",
+            "invocationId", "controlGroup", "fragmentPath", "dropInPaths",
+            "execStartPath", "execStart", "rootDirectory", "rootImage",
+            "socketActiveState", "socketUnitFileState", "socketFragmentPath",
+            "socketDropInPaths", "socketListen"
+          ],
+          "properties": {
+            "activeState": { "const": "active" },
+            "subState": { "enum": ["running", "start"] },
+            "unitFileState": { "enum": ["enabled", "enabled-runtime", "static"] },
+            "mainPid": { "type": "integer", "minimum": 2 },
+            "invocationId": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+            "controlGroup": { "type": "string", "pattern": "^/" },
+            "fragmentPath": { "type": "string", "pattern": "^/" },
+            "dropInPaths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^/" }
+            },
+            "execStartPath": { "type": "string", "pattern": "^/" },
+            "execStart": { "type": "string", "minLength": 1 },
+            "rootDirectory": { "type": "string" },
+            "rootImage": { "type": "string" },
+            "socketActiveState": { "const": "active" },
+            "socketUnitFileState": {
+              "enum": ["enabled", "enabled-runtime", "static"]
+            },
+            "socketFragmentPath": { "type": "string", "pattern": "^/" },
+            "socketDropInPaths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^/" }
+            },
+            "socketListen": { "type": "string", "minLength": 1 }
+          }
+        },
+        "process": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pid", "startTimeTicks", "uid", "gid", "argv", "executablePath",
+            "executableDevice", "executableInode", "executableBytes",
+            "executableSha256", "cgroup", "socketDevice", "socketInode"
+          ],
+          "properties": {
+            "pid": { "type": "integer", "minimum": 2 },
+            "startTimeTicks": { "$ref": "#/$defs/decimal" },
+            "uid": { "type": "integer", "minimum": 0 },
+            "gid": { "type": "integer", "minimum": 0 },
+            "argv": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 512,
+              "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+            },
+            "executablePath": { "type": "string", "pattern": "^/" },
+            "executableDevice": { "$ref": "#/$defs/decimal" },
+            "executableInode": { "$ref": "#/$defs/decimal" },
+            "executableBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1073741824
+            },
+            "executableSha256": { "$ref": "#/$defs/digest" },
+            "cgroup": { "type": "string", "pattern": "^/" },
+            "socketDevice": { "$ref": "#/$defs/decimal" },
+            "socketInode": { "$ref": "#/$defs/decimal" }
+          }
+        },
+        "derivedTopology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "configurationFile", "configurationBytesBase64",
+            "configurationSha256", "dataRoot", "execRoot", "containerdSocket",
+            "defaultRuntimeName", "defaultRuntimePath", "shimPath",
+            "seccompProfilePath"
+          ],
+          "properties": {
+            "configurationFile": { "type": "string", "pattern": "^/" },
+            "configurationBytesBase64": { "type": "string", "minLength": 4 },
+            "configurationSha256": { "$ref": "#/$defs/digest" },
+            "dataRoot": { "type": "string", "pattern": "^/" },
+            "execRoot": { "type": "string", "pattern": "^/" },
+            "containerdSocket": { "type": "string" },
+            "defaultRuntimeName": { "type": "string", "minLength": 1 },
+            "defaultRuntimePath": { "type": "string", "pattern": "^/" },
+            "shimPath": { "type": "string", "pattern": "^/" },
+            "seccompProfilePath": { "type": "string", "pattern": "^/" }
+          }
+        },
+        "executionStore": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dataRoot", "dataRootDevice", "dataRootInode", "dataRootMode",
+            "dataRootUid", "dataRootGid", "execRoot", "execRootDevice",
+            "execRootInode", "execRootMode", "execRootUid", "execRootGid",
+            "mutable", "recursivelyHashed"
+          ],
+          "properties": {
+            "dataRoot": { "type": "string", "pattern": "^/" },
+            "dataRootDevice": { "$ref": "#/$defs/decimal" },
+            "dataRootInode": { "$ref": "#/$defs/decimal" },
+            "dataRootMode": { "type": "string", "pattern": "^[0-7]{4}$" },
+            "dataRootUid": { "type": "integer", "minimum": 0 },
+            "dataRootGid": { "type": "integer", "minimum": 0 },
+            "execRoot": { "type": "string", "pattern": "^/" },
+            "execRootDevice": { "$ref": "#/$defs/decimal" },
+            "execRootInode": { "$ref": "#/$defs/decimal" },
+            "execRootMode": { "type": "string", "pattern": "^[0-7]{4}$" },
+            "execRootUid": { "type": "integer", "minimum": 0 },
+            "execRootGid": { "type": "integer", "minimum": 0 },
+            "mutable": { "const": true },
+            "recursivelyHashed": { "const": false }
+          }
+        },
+        "auxiliaryProcesses": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/auxiliaryProcess" }
+        },
+        "runtimeHelpers": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "bytes", "sha256", "linkage"],
+            "properties": {
+              "path": { "type": "string", "pattern": "^/" },
+              "bytes": { "type": "integer", "minimum": 1 },
+              "sha256": { "$ref": "#/$defs/digest" },
+              "linkage": { "const": "static_elf_no_interpreter" }
+            }
+          }
+        },
+        "securityProfiles": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "name",
+                  "mode",
+                  "kernelPath",
+                  "kernelPolicySha256",
+                  "kernelRawPolicySha256"
+                ],
+                "properties": {
+                  "kind": { "const": "apparmor" },
+                  "name": { "const": "docker-default" },
+                  "mode": { "const": "enforce" },
+                  "kernelPath": { "type": "string", "pattern": "^/" },
+                  "kernelPolicySha256": { "$ref": "#/$defs/digest" },
+                  "kernelRawPolicySha256": { "$ref": "#/$defs/digest" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "name", "path", "sha256"],
+                "properties": {
+                  "kind": { "const": "seccomp" },
+                  "name": { "const": "cortex-research" },
+                  "path": { "type": "string", "pattern": "^/" },
+                  "sha256": { "$ref": "#/$defs/digest" }
+                }
+              }
+            ]
+          }
+        },
+        "roots": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "role"],
+            "properties": {
+              "path": { "type": "string", "pattern": "^/" },
+              "role": {
+                "enum": ["configuration_root", "rootfs_root"]
+              }
+            }
+          }
+        },
+        "entryCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50000
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50000,
+          "items": { "$ref": "#/$defs/daemonEntry" }
+        },
+        "closureSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "daemonClosureSha256": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "daemonEntry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path", "roles", "type", "uid", "gid", "mode", "device", "inode"
+          ],
+          "properties": {
+            "path": { "type": "string", "pattern": "^/" },
+            "roles": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" }
+            },
+            "type": { "enum": ["directory", "socket"] },
+            "uid": { "type": "integer", "minimum": 0 },
+            "gid": { "type": "integer", "minimum": 0 },
+            "mode": { "type": "string", "pattern": "^[0-7]{4}$" },
+            "device": { "$ref": "#/$defs/decimal" },
+            "inode": { "$ref": "#/$defs/decimal" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path", "roles", "type", "uid", "gid", "mode", "device",
+            "inode", "bytes", "sha256"
+          ],
+          "properties": {
+            "path": { "type": "string", "pattern": "^/" },
+            "roles": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" }
+            },
+            "type": { "const": "file" },
+            "uid": { "type": "integer", "minimum": 0 },
+            "gid": { "type": "integer", "minimum": 0 },
+            "mode": { "type": "string", "pattern": "^[0-7]{4}$" },
+            "device": { "$ref": "#/$defs/decimal" },
+            "inode": { "$ref": "#/$defs/decimal" },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 68719476736
+            },
+            "sha256": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "auxiliaryProcess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pid", "startTimeTicks", "uid", "gid", "argv", "executablePath",
+        "configurationFiles", "executableBytes", "executableSha256", "cgroup", "socketDevice",
+        "socketInode", "mappedDependencySha256s"
+      ],
+      "properties": {
+        "pid": { "type": "integer", "minimum": 2 },
+        "startTimeTicks": { "$ref": "#/$defs/decimal" },
+        "uid": { "const": 0 },
+        "gid": { "const": 0 },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "configurationFiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "type": "string", "pattern": "^/" },
+              "sha256": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        "executablePath": { "type": "string", "pattern": "^/" },
+        "executableBytes": { "type": "integer", "minimum": 1 },
+        "executableSha256": { "$ref": "#/$defs/digest" },
+        "cgroup": { "type": "string", "pattern": "^/" },
+        "socketDevice": { "$ref": "#/$defs/decimal" },
+        "socketInode": { "$ref": "#/$defs/decimal" },
+        "mappedDependencySha256s": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        }
+      }
+    }
+  }
+}

@@ -10,6 +10,7 @@ case "$MODE_ARG" in
     EXPECTED_COMMIT="${3:-}"
     CODEX_BIN="${4:-/home/jake/.local/bin/codex}"
     ADAPTIVE_PLAN="${5:-}"
+    ASSESSMENT_BANK="${6:-}"
     ;;
   baseline|challenge|stress)
     MODE="legacy"
@@ -17,6 +18,7 @@ case "$MODE_ARG" in
     EXPECTED_COMMIT="${3:-}"
     CODEX_BIN="${4:-/home/jake/.local/bin/codex}"
     ADAPTIVE_PLAN=""
+    ASSESSMENT_BANK=""
     ;;
   *) echo "mode must be adaptive, baseline, challenge, or stress" >&2; exit 2 ;;
 esac
@@ -38,6 +40,8 @@ case "$MODE" in
     [[ "$ADAPTIVE_PLAN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "adaptive mode requires a safe absolute plan path" >&2; exit 2; }
     [[ -f "$ADAPTIVE_PLAN" && ! -L "$ADAPTIVE_PLAN" ]] || { echo "adaptive plan must be a regular file" >&2; exit 2; }
     [[ -r "$ADAPTIVE_PLAN" ]] || { echo "adaptive plan must be readable by the worker service user" >&2; exit 2; }
+    [[ "$ASSESSMENT_BANK" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "adaptive mode requires a safe absolute assessment bank path" >&2; exit 2; }
+    [[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "assessment bank must be a readable regular non-symlink file" >&2; exit 2; }
     ;;
   legacy)
     case "$EXAM_NAME" in
@@ -108,7 +112,7 @@ write_state running "remote validation and Codex training are running"
   export CLOS_SOURCE_COMMIT="$EXPECTED_COMMIT"
   npm test
   if [[ "$MODE" == "adaptive" ]]; then
-    TRAIN_ARGS=(--plan "$ADAPTIVE_PLAN" --artifact-root "$ARTIFACT_ROOT" --codex-command "$CODEX_BIN" --source-commit "$EXPECTED_COMMIT")
+    TRAIN_ARGS=(--plan "$ADAPTIVE_PLAN" --artifact-root "$ARTIFACT_ROOT" --codex-command "$CODEX_BIN" --source-commit "$EXPECTED_COMMIT" --assessment-bank "$ASSESSMENT_BANK")
   else
     TRAIN_ARGS=(--run-id "$RUN_ID" --artifact-root "$ARTIFACT_ROOT" --codex-command "$CODEX_BIN")
   fi

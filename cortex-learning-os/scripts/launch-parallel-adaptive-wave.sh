@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+LOCAL_CLOS="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+LOCAL_REPO="$(cd -- "$LOCAL_CLOS/.." && pwd -P)"
 CONCURRENCY=4
 SSH_HOST="root@37.27.129.239"
 REMOTE_REPO="/home/jake/clawd-remote"
 REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"
 REMOTE_CODEX_BIN="/home/jake/.local/bin/codex"
-LOCAL_REPO="/root/clawd"
-LOCAL_CLOS="$LOCAL_REPO/cortex-learning-os"
 STATE_ROOT="/root/.openclaw/cortex-learning-os"
 EXPIRES_SECONDS=14400
 DRY_RUN=false
 NOTIFY=true
-LOCAL_GRAPH="$LOCAL_CLOS/capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json"
-LOCAL_POLICY="$LOCAL_CLOS/policies/adaptive-math-continuous-v1.json"
+LOCAL_GRAPH="$LOCAL_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json"
+LOCAL_POLICY="$LOCAL_CLOS/policies/adaptive-math-phd-v1.json"
 LOCAL_CAPSULE="$LOCAL_CLOS/capsules/math-foundations/capsule.json"
-REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json"
-REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-continuous-v1.json"
+REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json"
+REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
 REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
 
 while [[ $# -gt 0 ]]; do
@@ -26,8 +27,8 @@ while [[ $# -gt 0 ]]; do
     --remote-repo)
       REMOTE_REPO="${2:-}"
       REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"
-      REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json"
-      REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-continuous-v1.json"
+      REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json"
+      REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
       REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
       shift 2
       ;;
@@ -60,9 +61,13 @@ done
 WAVE_ID="math-wave-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
 WAVE_ROOT="$STATE_ROOT/waves/$WAVE_ID"
 WAVE_PLAN="$WAVE_ROOT/wave.json"
-LOCAL_ARTIFACT_ROOT="/root/clawd/artifacts/cortex-learning-os-waves/$WAVE_ID"
+LOCAL_ARTIFACT_ROOT="$LOCAL_REPO/artifacts/cortex-learning-os-waves/$WAVE_ID"
 LOCAL_STATE="$WAVE_ROOT/state.json"
-SOURCE_COMMIT="$(tr -d '[:space:]' < "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
+if [[ -f "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" ]]; then
+  SOURCE_COMMIT="$(tr -d '[:space:]' < "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
+else
+  SOURCE_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD)"
+fi
 [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid canonical source marker" >&2; exit 3; }
 SOURCE_TREE="$(git -C "$LOCAL_REPO" rev-parse "$SOURCE_COMMIT^{tree}")"
 CHECKED_OUT_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD)"
@@ -148,7 +153,7 @@ systemd-run \
     --capsule "$LOCAL_CAPSULE"
 
 if [[ "$NOTIFY" == true ]]; then
-  NOTIFIER="/root/clawd/scripts/detached_job_notifier.py"
+  NOTIFIER="$LOCAL_CLOS/scripts/detached_job_notifier.py"
   NOTIFY_COMMAND="until /usr/bin/python3 '$NOTIFIER' --once --state-file '$LOCAL_STATE' --job-label 'Cortex Learning OS parallel acquisition $WAVE_ID'; do sleep 30; done"
   systemd-run --unit="$SAFE_UNIT-notify" --collect --quiet --working-directory="$LOCAL_REPO" /bin/bash -lc "$NOTIFY_COMMAND"
 fi

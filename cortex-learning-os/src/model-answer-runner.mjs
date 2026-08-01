@@ -2,6 +2,13 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  createExecutionEvidenceCore,
+  executionEvidenceSha256,
+  observeExecutableIdentity,
+  observeProcessEnvironment,
+} from './execution-evidence.mjs';
+import { sha256Bytes } from './hash.mjs';
 import { CLOS_ROOT } from './paths.mjs';
 
 export function extractJson(text) {
@@ -17,6 +24,19 @@ function parseJsonLines(text) {
     try { return JSON.parse(line); }
     catch { return { type: 'unparsed_output', text: line }; }
   });
+}
+
+function observedIdentity(events, names) {
+  for (const event of events) {
+    for (const record of [event, event?.item, event?.response, event?.request].filter(Boolean)) {
+      for (const name of names) {
+        const value = record?.[name];
+        if (typeof value === 'string'
+            && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value)) return value;
+      }
+    }
+  }
+  return null;
 }
 
 export function observedToolEvents(events = []) {
@@ -91,11 +111,11 @@ export function runCodexExam({
   timeoutSeconds = 240,
   thinking = 'xhigh',
   model = 'gpt-5.6-sol',
-  codexCommand = 'codex'
+  codexCommand = 'codex',
+  executionContext = null,
 } = {}) {
   if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
   const prompt = buildExamPrompt({ exam, learningContext });
-  const startedAt = new Date().toISOString();
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-codex-exam-'));
   const lastMessagePath = path.join(temporaryRoot, 'last-message.json');
   const schemaPath = path.join(CLOS_ROOT, 'schemas/model-answer-output.schema.json');
@@ -106,19 +126,34 @@ export function runCodexExam({
       '--skip-git-repo-check', '--model', model, '--config', `model_reasoning_effort="${thinking}"`, '--cd', temporaryRoot, '--json',
       '--output-schema', schemaPath, '--output-last-message', lastMessagePath, '-'
     ];
-    result = spawnSync(codexCommand, args, {
+    const processEnvironment = {
+      ...process.env,
+      CLOS_EXPERIMENT_SESSION_ID: sessionId,
+      CLOS_THINKING: thinking,
+    };
+    const selectedExecutable = observeExecutableIdentity(codexCommand, {
+      cwd: temporaryRoot,
+      env: processEnvironment,
+    }).resolvedPath;
+    const executableIdentity = observeExecutableIdentity(selectedExecutable, {
+      cwd: temporaryRoot,
+      env: processEnvironment,
+    });
+    const startedAt = new Date().toISOString();
+    result = spawnSync(selectedExecutable, args, {
       input: prompt,
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
       timeout: (timeoutSeconds + 30) * 1000,
-      env: { ...process.env, CLOS_EXPERIMENT_SESSION_ID: sessionId, CLOS_THINKING: thinking }
+      env: processEnvironment,
+      cwd: temporaryRoot,
     });
     const completedAt = new Date().toISOString();
     const events = parseJsonLines(result.stdout);
     const toolEvents = observedToolEvents(events);
     const finalText = fs.existsSync(lastMessagePath) ? fs.readFileSync(lastMessagePath, 'utf8') : '';
     const raw = {
-      command: codexCommand,
+      command: selectedExecutable,
       args,
       exitCode: result.status,
       signal: result.signal,
@@ -141,6 +176,83 @@ export function runCodexExam({
       throw Object.assign(new Error('every model answer must contain itemId and answer'), { workerRaw: raw });
     }
     const usageEvent = [...events].reverse().find((event) => event?.usage || event?.item?.usage);
+    const providerUsage = usageEvent?.usage || usageEvent?.item?.usage || null;
+    const providerRequestId = observedIdentity(events, [
+      'request_id', 'requestId', 'response_id', 'responseId',
+    ]);
+    const providerSessionId = observedIdentity(events, [
+      'session_id', 'sessionId', 'thread_id', 'threadId',
+    ]);
+    let executionEvidenceCore = null;
+    let executionEvidenceDigest = null;
+    if (executionContext !== null) {
+      executionEvidenceCore = createExecutionEvidenceCore({
+        executionKind: 'model',
+        bindings: {
+          ...executionContext.bindings,
+          candidateSessionId: sessionId,
+          candidateSha256: sha256Bytes(Buffer.from(finalText, 'utf8')),
+        },
+        declaredEnvironment: {
+          executionKind: 'host_process',
+          role: executionContext.role,
+          modelRuntime: {
+            provider: 'openai-codex',
+            model,
+            thinking,
+            sandbox: 'read-only',
+            toolsAllowed: false,
+          },
+        },
+        observedEnvironment: observeProcessEnvironment(processEnvironment),
+        requestedArgv: [selectedExecutable, ...args],
+        executedArgv: [selectedExecutable, ...args],
+        executable: executableIdentity,
+        cwd: temporaryRoot,
+        startedAt,
+        completedAt,
+        exitCode: result.status,
+        signal: result.signal,
+        error: result.error?.message || null,
+        input: {
+          name: 'prompt',
+          mediaType: 'text/plain; charset=utf-8',
+          bytes: Buffer.from(prompt, 'utf8'),
+        },
+        stdout: Buffer.from(result.stdout || '', 'utf8'),
+        stderr: Buffer.from(result.stderr || '', 'utf8'),
+        outputFiles: [{
+          name: 'model_output',
+          path: 'last-message.json',
+          mediaType: 'application/json',
+          bytes: Buffer.from(finalText, 'utf8'),
+        }],
+        model: {
+          provider: 'openai-codex',
+          model,
+          thinking,
+          sandbox: 'read-only',
+          toolsAllowed: false,
+          toolsUsed: toolEvents.map((event) => (
+            event?.item?.type || event?.type || 'unknown_tool'
+          )),
+          usage: providerUsage,
+          providerRequestId,
+          providerSessionId,
+          plannedSessionId: sessionId,
+        },
+      });
+      executionEvidenceDigest = executionEvidenceSha256(executionEvidenceCore);
+    }
+    Object.assign(raw, {
+      startedAt,
+      completedAt,
+      stdoutBase64: Buffer.from(result.stdout || '', 'utf8').toString('base64'),
+      stderrBase64: Buffer.from(result.stderr || '', 'utf8').toString('base64'),
+      executionEvidenceCore,
+      executionEvidenceSha256: executionEvidenceDigest,
+      executionAttestation: null,
+    });
     const answerSet = {
       schemaVersion: 'cortex.learning_os.answer_set.v0',
       runId,
@@ -151,7 +263,7 @@ export function runCodexExam({
         model,
         gatewayRunId: null,
         sessionId,
-        usage: usageEvent?.usage || usageEvent?.item?.usage || null
+        usage: providerUsage
       },
       evidenceRole,
       toolsUsed: toolEvents.map((event) => event?.item?.type || event?.type || 'unknown_tool'),

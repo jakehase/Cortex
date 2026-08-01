@@ -2,14 +2,27 @@
 
 ## Active default
 
-The canonical launcher uses continuous acquisition:
+The canonical launcher uses acquisition-only planning over the 264-node PhD
+trajectory:
 
 ```bash
-./scripts/launch-live-math-training.sh --dry-run
-./scripts/launch-live-math-training.sh
+./scripts/launch-live-math-training.sh --assessment-bank /owner-only/acquisition-bank.json --dry-run
+./scripts/launch-live-math-training.sh --assessment-bank /owner-only/acquisition-bank.json
 ```
 
-The control plane loads `adaptive-math-continuous-v1` and `math-continuous-acquisition-v1`. It selects only acquisition, learning retry, prerequisite correction, or same-concept correction. It never creates or waits for a review schedule.
+The control plane loads `adaptive-math-phd-v1` and
+`math-phd-trajectory-v1`. It selects only acquisition, learning retry,
+prerequisite correction, or same-concept correction. It never creates or waits
+for a retention schedule. The former 84-node continuous graph/policy must be
+passed explicitly for historical replay or additive migration.
+
+All generated exercises are fixture-only in the production verifier. The
+checked-in repository contains no independent bank. Production plan, worker,
+harvest, and apply require the exact externally supplied bank, whose immutable
+prompt/checker bytes, content digests, graph/rubric identities, limits,
+no-tools policy, deployment/trust/campaign bindings, and distinct author and
+reviewer signatures are checked before execution. Missing or substituted bank
+bytes are a blocker and are never silently counted as acquisition.
 
 `--early-review` is retained only as a fail-closed compatibility flag. It exits with an error under the active policy. Do not use it to bypass the continuous policy.
 
@@ -57,15 +70,24 @@ This repository implementation does not itself run the live migration.
 
 `curriculum_frontier_reached` is an honest terminal result. It makes no model call, advances no acquisition revision, creates no lesson, schedules no review, and must not trigger a relaunch loop.
 
-The remote worker receives a signed plan but no HMAC secret. It emits generated exercises, raw call provenance, deterministic attempt records, optional failure-derived candidate evidence, a manifest, and an inert proposed delta. It cannot mutate signed acquisition state or the live registry.
+The remote worker receives a signed plan and its exact signed assessment bank
+but no HMAC secret. It executes the one independently authored item frozen in
+the plan and emits raw call provenance, deterministic attempt records, a
+manifest, and an inert proposed delta. A failed independent item stops without
+falling back to generated correction or paired items. The worker cannot mutate
+signed acquisition state or the live registry.
 
 The harvester applies a delta only after exact independent replay of:
 
 1. safe regular-file manifest coverage, byte sizes, and SHA-256 values;
 2. source commit/tree, policy, curriculum, capsule, and base signed-state identities;
-3. the complete generated item and oracle digest;
+3. the complete independent item/bank bytes, author/reviewer signatures,
+   checker digest, and deployment/trust/campaign bindings;
 4. deterministic grading and score totals;
-5. exact provider/model/xhigh/read-only/no-tool runtime with positive provider-observed usage;
+5. a trusted-runner Ed25519 signature over exact raw provider output, the
+   append-only raw event ledger, provider request/session identities,
+   provider/model/xhigh/read-only/no-tool runtime, exact prompt, and positive
+   provider-observed usage;
 6. genuine failure linkage and candidate schema/provenance when a candidate exists;
 7. identical-item fresh-session paired analysis and frozen thresholds when applicable;
 8. byte-equivalent reconstruction of the proposed v2 delta.
@@ -77,8 +99,8 @@ Only then may the control plane atomically HMAC-sign the next revision. Exact ru
 For an operator-authorized bounded continuation:
 
 ```bash
-./scripts/launch-adaptive-math-continuation.sh --dry-run
-./scripts/launch-adaptive-math-continuation.sh
+./scripts/launch-adaptive-math-continuation.sh --assessment-bank /owner-only/acquisition-bank.json --dry-run
+./scripts/launch-adaptive-math-continuation.sh --assessment-bank /owner-only/acquisition-bank.json
 ```
 
 The supervisor stays on the control plane and launches one detached Hetzner child at a time. It records the child before waiting, resumes the same child after supervisor interruption, waits for independent replay/signing, and requires the signed acquisition revision to advance before another child.
@@ -103,7 +125,12 @@ Historical `lastReviewedAt`, inactive `historicalNextReviewAt`, and legacy revie
 
 Do not edit state, signatures, plans, manifests, raw call ledgers, audit artifacts, or historical run outcomes manually. Preserve the exact artifact directory and continuation state for diagnosis.
 
-A signature mismatch, source mismatch, policy/curriculum drift, malformed generator item, oracle mismatch, rewritten manifest, runtime/provenance/usage/tool failure, budget exhaustion, or state non-advance is a structured blocker. Fixing infrastructure does not authorize rewriting a completed outcome or rerunning a result for a preferred answer.
+A signature mismatch, dirty/uncommitted source, source mismatch,
+policy/curriculum drift, synthetic advanced drill, malformed item, oracle
+mismatch, rewritten manifest, runtime/provenance/usage/tool failure, budget
+exhaustion, or state non-advance is a structured blocker. Fixing infrastructure
+does not authorize rewriting a completed outcome or rerunning a result for a
+preferred answer.
 
 Generated weighted-mean exercises continue to accept an exact fraction or a decimal within deterministic absolute tolerance `1e-9`. Failed candidate synthesis continues to preserve its exact prompt and raw call ledger for replay.
 

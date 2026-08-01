@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_runtime_evidence.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "fixtureOnly",
+    "authorityId",
+    "verificationKeySha256",
+    "attestationSha256",
+    "runtimeIdentitySha256",
+    "requestBytesBase64",
+    "requestSha256",
+    "attestationBytesBase64",
+    "attestation"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.proof_runtime_evidence.v1" },
+    "fixtureOnly": { "type": "boolean" },
+    "authorityId": { "$ref": "#/$defs/id" },
+    "verificationKeySha256": { "$ref": "#/$defs/digest" },
+    "attestationSha256": { "$ref": "#/$defs/digest" },
+    "runtimeIdentitySha256": { "$ref": "#/$defs/digest" },
+    "requestBytesBase64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 89478488,
+      "contentEncoding": "base64"
+    },
+    "requestSha256": { "$ref": "#/$defs/digest" },
+    "attestationBytesBase64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 89478488,
+      "contentEncoding": "base64"
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "attestationId",
+        "authorityId",
+        "payload",
+        "signature"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.authority_attestation.v1" },
+        "attestationId": { "$ref": "#/$defs/id" },
+        "authorityId": { "$ref": "#/$defs/id" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "requestSha256", "runtimePayload"],
+          "properties": {
+            "schemaVersion": {
+              "const": "cortex.learning_os.proof_runtime_authority_payload.v1"
+            },
+            "requestSha256": { "$ref": "#/$defs/digest" },
+            "runtimePayload": { "$ref": "#/$defs/payload" }
+          }
+        },
+        "signature": { "$ref": "#/$defs/signature" }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "valueBase64"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "keyId": { "$ref": "#/$defs/digest" },
+        "valueBase64": {
+          "type": "string",
+          "minLength": 88,
+          "maxLength": 88,
+          "contentEncoding": "base64"
+        }
+      }
+    },
+    "fileManifestRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "type", "bytes", "executable", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "type": { "const": "file" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "executable": { "type": "boolean" },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "leanManifestRow": {
+      "oneOf": [
+        { "$ref": "#/$defs/fileManifestRow" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "type", "target", "targetSha256"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "type": { "const": "symlink" },
+            "target": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "targetSha256": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "compiledManifestRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "path", "type", "bytes", "executable", "sha256"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "type": { "const": "file" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "executable": { "type": "boolean" },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fixtureOnly",
+        "product",
+        "deployment",
+        "deploymentSha256",
+        "trust",
+        "toolchain",
+        "trustedContext",
+        "leanInstallation",
+        "lakeManifest",
+        "leanRootManifest",
+        "compiledDependenciesManifest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "cortex.learning_os.proof_runtime_attestation_payload.v1"
+        },
+        "fixtureOnly": { "type": "boolean" },
+        "product": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["productId", "manifest", "manifestSha256"],
+          "properties": {
+            "productId": { "const": "cortex-learning-os-proof-runtime" },
+            "manifest": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "bytes", "sha256"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                  "bytes": { "type": "integer", "minimum": 1 },
+                  "sha256": { "$ref": "#/$defs/digest" }
+                }
+              }
+            },
+            "manifestSha256": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "deployment": { "$ref": "deployment-binding.schema.json" },
+        "deploymentSha256": { "$ref": "#/$defs/digest" },
+        "trust": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["policyId", "boundaryId", "policySha256"],
+          "properties": {
+            "policyId": { "$ref": "#/$defs/id" },
+            "boundaryId": { "$ref": "#/$defs/id" },
+            "policySha256": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "leanRelease",
+            "leanToolchain",
+            "leanCommit",
+            "leanArchiveSha256",
+            "leanArchitecture",
+            "mathlibTag",
+            "mathlibCommit"
+          ],
+          "properties": {
+            "leanRelease": { "const": "v4.32.1" },
+            "leanToolchain": { "const": "leanprover/lean4:v4.32.1" },
+            "leanCommit": { "const": "f054605aea4b840552cca2e725580bffd1e1b704" },
+            "leanArchiveSha256": {
+              "const": "57d5c062a6b4bae6fba511a1704aa124dff461c37d0fc94585637fbb7d951b50"
+            },
+            "leanArchitecture": { "const": "x86_64-unknown-linux-gnu" },
+            "mathlibTag": { "const": "v4.32.1" },
+            "mathlibCommit": { "const": "520045ab14e26149ee970e2e617ca04b09bde5d6" }
+          }
+        },
+        "trustedContext": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allowedImports",
+            "allowedImportsSha256",
+            "leanToolchainSha256",
+            "lakefileSha256",
+            "preludeSha256",
+            "representativeSha256",
+            "rootModuleSha256"
+          ],
+          "properties": {
+            "allowedImports": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "prefixItems": [{ "const": "Mathlib" }]
+            },
+            "allowedImportsSha256": { "$ref": "#/$defs/digest" },
+            "leanToolchainSha256": { "$ref": "#/$defs/digest" },
+            "lakefileSha256": { "$ref": "#/$defs/digest" },
+            "preludeSha256": { "$ref": "#/$defs/digest" },
+            "representativeSha256": { "$ref": "#/$defs/digest" },
+            "rootModuleSha256": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "leanInstallation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "leanRelease",
+            "leanToolchain",
+            "leanCommit",
+            "leanArchiveSha256",
+            "leanExecutableSha256",
+            "lakeExecutableSha256"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "cortex.learning_os.lean_proof_installation.v1"
+            },
+            "leanRelease": { "const": "v4.32.1" },
+            "leanToolchain": { "const": "leanprover/lean4:v4.32.1" },
+            "leanCommit": { "const": "f054605aea4b840552cca2e725580bffd1e1b704" },
+            "leanArchiveSha256": {
+              "const": "57d5c062a6b4bae6fba511a1704aa124dff461c37d0fc94585637fbb7d951b50"
+            },
+            "leanExecutableSha256": { "$ref": "#/$defs/digest" },
+            "lakeExecutableSha256": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "lakeManifest": {
+          "type": "object",
+          "required": ["packages"],
+          "properties": {
+            "packages": { "type": "array", "minItems": 9, "maxItems": 9 }
+          }
+        },
+        "leanRootManifest": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/leanManifestRow" }
+        },
+        "compiledDependenciesManifest": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/compiledManifestRow" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "fixtureOnly": { "const": false } },
+            "required": ["fixtureOnly"]
+          },
+          "then": {
+            "properties": {
+              "deployment": {
+                "$ref": "deployment-binding.schema.json#/$defs/v3"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

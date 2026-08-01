@@ -92,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-seconds", type=float, default=30.0)
     parser.add_argument("--timeout-seconds", type=float, default=14_400.0)
     parser.add_argument("--state-root", default="/root/.openclaw/cortex-learning-os")
+    parser.add_argument("--assessment-bank", default="")
     return parser
 
 
@@ -138,11 +139,14 @@ def main() -> int:
                 f"{args.ssh_host}:{remote_artifact}", f"{local_artifact}/",
             ], timeout=300)
             if status == "candidate_adaptive":
+                if not args.assessment_bank:
+                    raise HarvestError("adaptive harvest requires the exact external assessment bank")
                 apply_result = run([
                     "node", args.live_control, "adaptive-apply",
                     "--state-root", args.state_root,
                     "--artifact-root", str(local_artifact),
                     "--source-commit", str(state.get("sourceCommit") or ""),
+                    "--assessment-bank", args.assessment_bank,
                 ], timeout=180)
                 applied = json.loads(apply_result.stdout)
                 verify = run([

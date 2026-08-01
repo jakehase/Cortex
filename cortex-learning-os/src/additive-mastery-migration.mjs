@@ -11,12 +11,14 @@ import {
   atomicWriteMasteryState,
   defaultContinuousConcept,
   readMasterySecret,
+  signMasteryState,
   validateMasteryState,
   verifyMasteryState,
 } from './mastery-state.mjs';
 
 export const ADDITIVE_MIGRATION_AUDIT_SCHEMA = 'cortex.learning_os.additive_graph_migration_audit.v1';
 export const ADDITIVE_MIGRATION_RECEIPT_SCHEMA = 'cortex.learning_os.additive_graph_migration_receipt.v1';
+export const ADDITIVE_MIGRATION_TRANSACTION_SCHEMA = 'cortex.learning_os.additive_graph_migration_transaction.v1';
 
 function digestGraph(graph, label) {
   const validation = validateCurriculumGraph(graph);
@@ -61,12 +63,27 @@ function assertOwnerOnlyRegular(filePath, label) {
   if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) throw new Error(`${label} owner mismatch`);
 }
 
-function atomicWriteAudit(auditPath, audit) {
+function assertOwnerOnlyDirectory(directoryPath, label) {
+  const stat = fs.lstatSync(directoryPath);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error(`${label} must be a non-symlink directory`);
+  }
+  if ((stat.mode & 0o077) !== 0) throw new Error(`${label} must be owner-only`);
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    throw new Error(`${label} owner mismatch`);
+  }
+}
+
+function atomicWriteAudit(auditPath, audit, { replace = false } = {}) {
   const target = path.resolve(auditPath);
   const parent = path.dirname(target);
   fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
   fs.chmodSync(parent, 0o700);
-  if (fs.existsSync(target)) throw new Error('additive migration audit path already exists');
+  assertOwnerOnlyDirectory(parent, 'additive migration output directory');
+  if (fs.existsSync(target)) {
+    assertOwnerOnlyRegular(target, 'existing additive migration output');
+  }
+  if (!replace && fs.existsSync(target)) throw new Error('additive migration audit path already exists');
   const temporary = path.join(parent, `.${path.basename(target)}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
   const descriptor = fs.openSync(temporary, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
   try {
@@ -80,6 +97,46 @@ function atomicWriteAudit(auditPath, audit) {
   const directory = fs.openSync(parent, fs.constants.O_RDONLY);
   try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
   return target;
+}
+
+function signTransaction(payload, secret) {
+  return {
+    ...payload,
+    signature: {
+      algorithm: 'hmac-sha256',
+      keyId: keyId(secret),
+      digest: crypto.createHmac('sha256', secret).update(canonicalJson(payload)).digest('hex'),
+    },
+  };
+}
+
+function verifyTransaction(transaction, secret) {
+  const { signature, ...payload } = transaction || {};
+  if (payload.schemaVersion !== ADDITIVE_MIGRATION_TRANSACTION_SCHEMA
+      || !['prepared', 'state_committed', 'committed'].includes(payload.phase)
+      || signature?.algorithm !== 'hmac-sha256'
+      || signature.keyId !== keyId(secret)
+      || !/^[0-9a-f]{64}$/.test(String(signature.digest || ''))) return false;
+  const expected = crypto.createHmac('sha256', secret).update(canonicalJson(payload)).digest();
+  const actual = Buffer.from(signature.digest, 'hex');
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function unsignedState(state) {
+  const { signature: _signature, ...payload } = state || {};
+  return payload;
+}
+
+function stateMatchesAudit(state, audit, secret, { targetGraph, targetPolicy }) {
+  const verification = verifyMasteryState(state, secret, { graph: targetGraph, policy: targetPolicy });
+  const receipt = state?.graphMigrations?.at(-1);
+  return verification.ok
+    && verifyAdditiveMigrationAudit(audit, secret)
+    && state.revision === audit.target.revision
+    && sha256Text(canonicalJson(unsignedState(state))) === audit.target.unsignedStateDigest
+    && receipt?.migrationId === audit.migrationId
+    && receipt.targetGraphDigest === audit.target.graphDigest
+    && receipt.targetPolicyDigest === audit.target.policyDigest;
 }
 
 export function buildAdditiveMasteryMigration({
@@ -97,6 +154,8 @@ export function buildAdditiveMasteryMigration({
   expectedTargetPolicyDigest,
   sourceCommit,
   expectedSourceCommit,
+  sourceTree,
+  expectedSourceTree,
   now = new Date().toISOString(),
 } = {}) {
   if (sourceState?.schemaVersion !== MASTERY_SCHEMA) throw new Error('additive migration source must be signed v2 state');
@@ -104,6 +163,8 @@ export function buildAdditiveMasteryMigration({
       || sourceState.revision !== expectedSourceRevision) throw new Error('additive migration source revision mismatch');
   if (!/^[0-9a-f]{40}$/.test(String(sourceCommit || ''))
       || sourceCommit !== expectedSourceCommit) throw new Error('additive migration source commit mismatch');
+  if (!/^[0-9a-f]{40}$/.test(String(sourceTree || ''))
+      || sourceTree !== expectedSourceTree) throw new Error('additive migration source tree mismatch');
   for (const [value, label] of [
     [expectedSourceStateDigest, 'expected source state digest'],
     [expectedSourceGraphDigest, 'expected source graph digest'],
@@ -172,6 +233,7 @@ export function buildAdditiveMasteryMigration({
     sourcePolicyDigest: actualSourcePolicyDigest,
     targetPolicyDigest: actualTargetPolicyDigest,
     sourceCommit,
+    sourceTree,
     migratedAt: now,
     addedConceptIds,
   };
@@ -209,6 +271,7 @@ export function buildAdditiveMasteryMigration({
     schemaVersion: ADDITIVE_MIGRATION_AUDIT_SCHEMA,
     migrationId,
     sourceCommit,
+    sourceTree,
     migratedAt: now,
     source: {
       revision: sourceState.revision,
@@ -243,26 +306,156 @@ export function migrateAdditiveMasteryStore({
   statePath,
   secretPath,
   auditPath,
+  journalPath = null,
+  onPhase = null,
   ...options
 } = {}) {
   if (!statePath || !secretPath || !auditPath) throw new Error('additive migration state, secret, and audit paths are required');
   const resolvedState = path.resolve(statePath);
   const resolvedAudit = path.resolve(auditPath);
-  if (resolvedState === resolvedAudit) throw new Error('additive migration audit must differ from state path');
+  const resolvedJournal = path.resolve(journalPath || `${resolvedAudit}.transaction.json`);
+  if (new Set([resolvedState, resolvedAudit, resolvedJournal]).size !== 3) {
+    throw new Error('additive migration state, audit, and transaction journal paths must differ');
+  }
   assertOwnerOnlyRegular(resolvedState, 'additive migration source state');
-  if (fs.existsSync(resolvedAudit)) throw new Error('additive migration audit path already exists');
   const secret = readMasterySecret(secretPath);
-  const sourceState = JSON.parse(fs.readFileSync(resolvedState, 'utf8'));
-  const built = buildAdditiveMasteryMigration({ ...options, sourceState, secret });
-  atomicWriteAudit(resolvedAudit, built.audit);
-  try {
-    const state = atomicWriteMasteryState(resolvedState, built.targetState, secret, {
+  let currentState = JSON.parse(fs.readFileSync(resolvedState, 'utf8'));
+  if (fs.existsSync(resolvedAudit)) {
+    assertOwnerOnlyRegular(resolvedAudit, 'existing additive migration audit');
+  }
+  if (fs.existsSync(resolvedJournal)) {
+    assertOwnerOnlyRegular(resolvedJournal, 'existing additive migration transaction journal');
+  }
+  let legacyAudit = null;
+  if (fs.existsSync(resolvedAudit) && !fs.existsSync(resolvedJournal)) {
+    const audit = JSON.parse(fs.readFileSync(resolvedAudit, 'utf8'));
+    if (stateMatchesAudit(currentState, audit, secret, options)) {
+      const recoveredTransaction = signTransaction({
+        schemaVersion: ADDITIVE_MIGRATION_TRANSACTION_SCHEMA,
+        migrationId: audit.migrationId,
+        phase: 'committed',
+        statePath: resolvedState,
+        auditPath: resolvedAudit,
+        sourceStateDigest: audit.source.stateDigest,
+        targetStateDigest: sha256Text(canonicalJson(currentState)),
+        targetState: currentState,
+        audit,
+        preparedAt: audit.migratedAt,
+        stateCommittedAt: currentState.updatedAt,
+        committedAt: new Date().toISOString(),
+        truthBoundary: 'A legacy audit-first partial transaction was reconciled against the exact signed target state and upgraded to a durable committed journal.',
+      }, secret);
+      atomicWriteAudit(resolvedJournal, recoveredTransaction);
+      return {
+        state: currentState,
+        audit,
+        auditPath: resolvedAudit,
+        journalPath: resolvedJournal,
+        recovered: true,
+        alreadyApplied: true,
+      };
+    }
+    if (!verifyAdditiveMigrationAudit(audit, secret)) {
+      throw new Error('existing additive migration audit is invalid');
+    }
+    if (audit.source?.stateDigest !== sha256Text(canonicalJson(currentState))) {
+      throw new Error('existing additive migration audit matches neither source nor target state');
+    }
+    legacyAudit = audit;
+  }
+  let transaction;
+  if (fs.existsSync(resolvedJournal)) {
+    assertOwnerOnlyRegular(resolvedJournal, 'additive migration transaction journal');
+    transaction = JSON.parse(fs.readFileSync(resolvedJournal, 'utf8'));
+    if (!verifyTransaction(transaction, secret)
+        || transaction.statePath !== resolvedState
+        || transaction.auditPath !== resolvedAudit) {
+      throw new Error('additive migration transaction journal is invalid or out of scope');
+    }
+  } else {
+    const built = buildAdditiveMasteryMigration({
+      ...options,
+      now: legacyAudit?.migratedAt || options.now,
+      sourceState: currentState,
+      secret,
+    });
+    if (fs.existsSync(resolvedAudit)) {
+      const existingAudit = JSON.parse(fs.readFileSync(resolvedAudit, 'utf8'));
+      if (canonicalJson(existingAudit) !== canonicalJson(built.audit)) {
+        throw new Error('existing additive migration audit conflicts with deterministic recovery');
+      }
+    }
+    const signedTargetState = signMasteryState(built.targetState, secret);
+    transaction = signTransaction({
+      schemaVersion: ADDITIVE_MIGRATION_TRANSACTION_SCHEMA,
+      migrationId: built.audit.migrationId,
+      phase: 'prepared',
+      statePath: resolvedState,
+      auditPath: resolvedAudit,
+      sourceStateDigest: sha256Text(canonicalJson(currentState)),
+      targetStateDigest: sha256Text(canonicalJson(signedTargetState)),
+      targetState: signedTargetState,
+      audit: built.audit,
+      preparedAt: new Date().toISOString(),
+      truthBoundary: 'Prepared is recoverable intent only. The migration is committed only when signed target state and signed audit are both durable.',
+    }, secret);
+    atomicWriteAudit(resolvedJournal, transaction);
+    onPhase?.('prepared');
+  }
+  if (transaction.phase === 'committed') {
+    const audit = JSON.parse(fs.readFileSync(resolvedAudit, 'utf8'));
+    if (!stateMatchesAudit(currentState, audit, secret, options)
+        || canonicalJson(audit) !== canonicalJson(transaction.audit)) {
+      throw new Error('committed additive migration transaction does not match durable state and audit');
+    }
+    return {
+      state: currentState,
+      audit,
+      auditPath: resolvedAudit,
+      journalPath: resolvedJournal,
+      recovered: true,
+      alreadyApplied: true,
+    };
+  }
+  if (sha256Text(canonicalJson(currentState)) === transaction.sourceStateDigest) {
+    const state = atomicWriteMasteryState(resolvedState, transaction.targetState, secret, {
       graph: options.targetGraph,
       policy: options.targetPolicy,
     });
-    return { state, audit: built.audit, auditPath: resolvedAudit };
-  } catch (error) {
-    try { fs.unlinkSync(resolvedAudit); } catch {}
-    throw error;
+    currentState = state;
+    onPhase?.('state_written');
+  } else if (sha256Text(canonicalJson(currentState)) !== transaction.targetStateDigest) {
+    throw new Error('additive migration recovery found neither frozen source nor target state');
   }
+  transaction = signTransaction({
+    ...unsignedState(transaction),
+    phase: 'state_committed',
+    stateCommittedAt: new Date().toISOString(),
+  }, secret);
+  atomicWriteAudit(resolvedJournal, transaction, { replace: true });
+  onPhase?.('state_committed');
+  if (fs.existsSync(resolvedAudit)) {
+    const existing = JSON.parse(fs.readFileSync(resolvedAudit, 'utf8'));
+    if (canonicalJson(existing) !== canonicalJson(transaction.audit)) {
+      throw new Error('additive migration recovery audit conflicts with prepared transaction');
+    }
+  } else {
+    atomicWriteAudit(resolvedAudit, transaction.audit);
+  }
+  onPhase?.('audit_written');
+  transaction = signTransaction({
+    ...unsignedState(transaction),
+    phase: 'committed',
+    committedAt: new Date().toISOString(),
+    truthBoundary: 'Both the signed target state and signed additive audit are durable and were reconciled through this transaction journal.',
+  }, secret);
+  atomicWriteAudit(resolvedJournal, transaction, { replace: true });
+  return {
+    state: currentState,
+    audit: transaction.audit,
+    auditPath: resolvedAudit,
+    journalPath: resolvedJournal,
+    recovered: transaction.preparedAt !== transaction.stateCommittedAt,
+    alreadyApplied: false,
+  };
 }

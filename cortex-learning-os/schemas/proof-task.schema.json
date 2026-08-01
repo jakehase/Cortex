@@ -10,7 +10,7 @@
     "theorem",
     "trustedContext",
     "toolchain",
-    "sourceCommit",
+    "deployment",
     "runIdentity",
     "limits",
     "truthBoundary"
@@ -38,7 +38,7 @@
           "type": "array",
           "minItems": 1,
           "maxItems": 1,
-          "prefixItems": [{ "const": "Mathlib.Data.Nat.Basic" }],
+          "prefixItems": [{ "const": "Mathlib" }],
           "items": false
         },
         "allowedImportsSha256": { "$ref": "#/$defs/digest" },
@@ -46,7 +46,7 @@
       }
     },
     "toolchain": { "$ref": "#/$defs/toolchain" },
-    "sourceCommit": { "const": "97266f3f17e26dcecbe7029981b48555d618ec81" },
+    "deployment": { "$ref": "deployment-binding.schema.json#/$defs/v3" },
     "runIdentity": { "$ref": "#/$defs/runIdentity" },
     "limits": {
       "type": "object",

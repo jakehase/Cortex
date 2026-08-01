@@ -6,7 +6,6 @@ export const PHD_BLUEPRINT_SCHEMA = 'cortex.learning_os.phd_qualifying_blueprint
 export const PHD_EVIDENCE_SCHEMA = 'cortex.learning_os.phd_qualification_evidence.v1';
 export const PHD_REPORT_SCHEMA = 'cortex.learning_os.phd_capability_report.v1';
 
-const SOURCE_COMMIT = '97266f3f17e26dcecbe7029981b48555d618ec81';
 const STAGES = [
   'proof_foundations',
   'undergraduate_core',
@@ -23,7 +22,7 @@ const IDENTIFIER = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const DAY_MS = 86_400_000;
 
 const GRAPH_KEYS = new Set([
-  'schemaVersion', 'curriculumId', 'capsuleId', 'domain', 'version', 'sourceCommit',
+  'schemaVersion', 'curriculumId', 'capsuleId', 'domain', 'version',
   'legacyPrefix', 'concepts', 'truthBoundary',
 ]);
 const CONCEPT_KEYS = new Set(['conceptId', 'title', 'category', 'prerequisites', 'outcomes']);
@@ -86,10 +85,61 @@ function push(errors, condition, message) {
   if (!condition) errors.push(message);
 }
 
+function serializeCanonicalJson(value, active) {
+  if (value === null) return 'null';
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError('canonical JSON rejects non-finite numbers');
+    return JSON.stringify(value);
+  }
+  if (typeof value !== 'object') {
+    throw new TypeError(`canonical JSON rejects ${typeof value} values`);
+  }
+  if (active.has(value)) throw new TypeError('canonical JSON rejects cyclic values');
+  active.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const ownKeys = Reflect.ownKeys(value);
+      if (ownKeys.length !== value.length + 1
+          || ownKeys.some((key) => (
+            key !== 'length'
+            && (typeof key !== 'string'
+              || !/^(0|[1-9]\d*)$/.test(key)
+              || Number(key) >= value.length)
+          ))) {
+        throw new TypeError('canonical JSON rejects sparse or extended arrays');
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+          throw new TypeError('canonical JSON rejects sparse arrays');
+        }
+      }
+      return `[${value.map((entry) => serializeCanonicalJson(entry, active)).join(',')}]`;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError('canonical JSON accepts only arrays and plain objects');
+    }
+    const ownKeys = Reflect.ownKeys(value);
+    const keys = Object.keys(value);
+    if (ownKeys.length !== keys.length
+        || keys.some((key) => !Object.hasOwn(
+          Object.getOwnPropertyDescriptor(value, key),
+          'value',
+        ))) {
+      throw new TypeError('canonical JSON rejects symbols, accessors, or hidden fields');
+    }
+    return `{${keys.sort().map((key) => (
+      `${JSON.stringify(key)}:${serializeCanonicalJson(value[key], active)}`
+    )).join(',')}}`;
+  } finally {
+    active.delete(value);
+  }
+}
+
 export function canonicalJson(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  return serializeCanonicalJson(value, new Set());
 }
 
 export function canonicalDigest(value) {
@@ -127,7 +177,6 @@ export function validatePhdTrajectory(graph, legacyGraph) {
   push(errors, nonEmpty(graph.capsuleId), 'graph capsuleId is required');
   push(errors, graph.domain === 'mathematics', 'graph domain must be mathematics');
   push(errors, nonEmpty(graph.version), 'graph version is required');
-  push(errors, graph.sourceCommit === SOURCE_COMMIT, 'graph source commit mismatch');
   push(errors, nonEmpty(graph.truthBoundary), 'graph truthBoundary is required');
   if (!Array.isArray(graph.concepts) || graph.concepts.length < 256 || graph.concepts.length > 1000) {
     errors.push('graph concepts must contain between 256 and 1000 records');
@@ -1019,12 +1068,16 @@ export function computePhdCapabilityReport({
   }
 
   const integrityOk = errors.length === 0;
-  const qualified = integrityOk
+  const declaredGatesSatisfied = integrityOk
     && breadthSatisfied
     && qualifyingSatisfied
     && formalSatisfied
     && specializationSatisfied
     && researchSatisfied;
+  // This pure module validates shape and recomputes declared gates. It has no
+  // signature secret, provider replay, retention chain, or deployed-tree
+  // authority, so it can never emit the live capability claim.
+  const qualified = false;
   const ownStageStatus = {
     proof_foundations: stageBreadth.find((stage) => stage.stageId === 'proof_foundations')
       ?.requiredCoverageSatisfied === true,
@@ -1097,9 +1150,10 @@ export function computePhdCapabilityReport({
       bounded_research_gate_passed: integrityOk && researchSatisfied,
       phd_math_qualified: qualified,
     },
+    all_declared_schema_gates_satisfied: declaredGatesSatisfied,
     phd_math_qualified: qualified,
-    truthBoundary: qualified
-      ? 'All declared machine gates passed. This is a bounded rubric claim, not a conferred degree, model-weight change, or inferred global novelty.'
+    truthBoundary: declaredGatesSatisfied
+      ? 'All static evidence-shape gates replayed, but this pure validator cannot establish a live claim. Signed retention, provider, deployment, independent-role, and kernel-replay evidence must pass the production campaign verifier.'
       : 'Course coverage, isolated exam passes, or incomplete research evidence cannot establish phd_math_qualified.',
   };
 }

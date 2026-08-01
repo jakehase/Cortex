@@ -10,7 +10,7 @@ import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mj
 import { analyzeCandidatePairs } from '../src/adaptive-evaluator.mjs';
 import { loadAdaptivePolicy } from '../src/adaptive-policy.mjs';
 import { buildAdaptiveSessionPlan, runAdaptiveSession } from '../src/adaptive-session.mjs';
-import { verifyAdaptiveArtifacts } from '../src/adaptive-verifier.mjs';
+import { verifyAdaptiveFixtureArtifacts as verifyAdaptiveArtifactsImplementation } from '../src/adaptive-verifier.mjs';
 import { buildExamPrompt } from '../src/model-answer-runner.mjs';
 import { prerequisiteClosure, selectNextAction, validateCurriculumGraph } from '../src/curriculum-planner.mjs';
 import { GENERATED_CONCEPT_IDS, EXERCISE_ROLES, generateExercise, replayGeneratedExercise, verifyGeneratedAnswer } from '../src/generated-exercises.mjs';
@@ -32,6 +32,10 @@ const capsule = read('capsules/math-foundations/capsule.json');
 const { policy } = loadAdaptivePolicy(path.join(root, 'policies/adaptive-math-v0.8.json'));
 const sourceCommit = 'a'.repeat(40);
 const secret = 'adaptive-test-secret-with-more-than-thirty-two-characters';
+const verifyAdaptiveArtifacts = (options) => verifyAdaptiveArtifactsImplementation({
+  ...options,
+  allowTestFixtures: options.allowTestFixtures ?? true,
+});
 
 function masteredState(now = '2026-07-26T12:00:00.000Z') {
   const state = createMasteryState({ graph, policy, now });

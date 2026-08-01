@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_obligation_registry.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "entries",
+    "leanTemplateRoot",
+    "registryDigest",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.proof_obligation_registry.v1" },
+    "entries": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "obligationId",
+          "rubricSpecDigest",
+          "templateBlueprintSha256",
+          "allowedImports",
+          "theoremStatement",
+          "researchArtifactBound"
+        ],
+        "properties": {
+          "obligationId": {
+            "enum": [
+              "formal-proof-induction-well-ordering",
+              "formal-proof-rank-nullity",
+              "formal-proof-monotone-convergence",
+              "formal-proof-first-isomorphism",
+              "formal-proof-compact-image",
+              "formal-proof-conditional-tower",
+              "formal-proof-research-main-result"
+            ]
+          },
+          "rubricSpecDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "templateBlueprintSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "allowedImports": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "prefixItems": [{ "const": "Mathlib" }],
+            "items": false
+          },
+          "theoremStatement": { "type": "string", "minLength": 16, "maxLength": 16384 },
+          "researchArtifactBound": { "type": "boolean" }
+        }
+      }
+    },
+    "leanTemplateRoot": { "const": "proof-kernel/templates" },
+    "registryDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "truthBoundary": {
+      "const": "The registry binds seven trusted theorem templates. A registry entry is not proof evidence until an isolated candidate is independently accepted and replayed by pinned Lean."
+    }
+  }
+}

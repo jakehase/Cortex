@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+LOCAL_CLOS="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+LOCAL_REPO="$(cd -- "$LOCAL_CLOS/.." && pwd -P)"
 CONCURRENCY=4
 MAX_WAVES=100
 MAX_SESSIONS=800
@@ -9,6 +12,13 @@ WAVE_TIMEOUT_SECONDS=14400
 POLL_SECONDS=15
 NOTIFY=true
 DRY_RUN=false
+REMOTE_CLOS="/home/jake/clawd-remote/cortex-learning-os"
+GRAPH="$LOCAL_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json"
+POLICY="$LOCAL_CLOS/policies/adaptive-math-phd-v1.json"
+CAPSULE="$LOCAL_CLOS/capsules/math-foundations/capsule.json"
+REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json"
+REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
+REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -18,6 +28,12 @@ while [[ $# -gt 0 ]]; do
     --max-wall-seconds) MAX_WALL_SECONDS="${2:-}"; shift 2 ;;
     --wave-timeout-seconds) WAVE_TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
     --poll-seconds) POLL_SECONDS="${2:-}"; shift 2 ;;
+    --graph) GRAPH="${2:-}"; shift 2 ;;
+    --policy) POLICY="${2:-}"; shift 2 ;;
+    --capsule) CAPSULE="${2:-}"; shift 2 ;;
+    --remote-graph) REMOTE_GRAPH="${2:-}"; shift 2 ;;
+    --remote-policy) REMOTE_POLICY="${2:-}"; shift 2 ;;
+    --remote-capsule) REMOTE_CAPSULE="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -29,9 +45,9 @@ done
 
 CONTINUATION_ID="math-acceleration-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
 SAFE_UNIT="clos-${CONTINUATION_ID//[^a-zA-Z0-9-]/-}"
-STATE_FILE="/root/clawd/state/cortex-learning-os/parallel-continuations/$CONTINUATION_ID.json"
-SUPERVISOR="/root/clawd/cortex-learning-os/scripts/continue_parallel_adaptive_math.py"
-NOTIFIER="/root/clawd/scripts/detached_job_notifier.py"
+STATE_FILE="$LOCAL_REPO/state/cortex-learning-os/parallel-continuations/$CONTINUATION_ID.json"
+SUPERVISOR="$LOCAL_CLOS/scripts/continue_parallel_adaptive_math.py"
+NOTIFIER="$LOCAL_CLOS/scripts/detached_job_notifier.py"
 install -d -m 700 "$(dirname "$STATE_FILE")"
 
 ARGS=(
@@ -43,6 +59,15 @@ ARGS=(
   --max-wall-seconds "$MAX_WALL_SECONDS"
   --wave-timeout-seconds "$WAVE_TIMEOUT_SECONDS"
   --poll-seconds "$POLL_SECONDS"
+  --launcher "$LOCAL_CLOS/scripts/launch-parallel-adaptive-wave.sh"
+  --source-marker "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT"
+  --repo-root "$LOCAL_REPO"
+  --graph "$GRAPH"
+  --policy "$POLICY"
+  --capsule "$CAPSULE"
+  --remote-graph "$REMOTE_GRAPH"
+  --remote-policy "$REMOTE_POLICY"
+  --remote-capsule "$REMOTE_CAPSULE"
   --resume
 )
 python3 - "$CONTINUATION_ID" "$STATE_FILE" "$CONCURRENCY" "$MAX_WAVES" "$MAX_SESSIONS" "$DRY_RUN" <<'PY'
@@ -72,9 +97,9 @@ fi
 systemd-run \
   --unit="$SAFE_UNIT-supervisor" --collect --quiet \
   --property=Restart=on-failure --property=RestartSec=30 \
-  --working-directory=/root/clawd \
+  --working-directory="$LOCAL_REPO" \
   /usr/bin/python3 "$SUPERVISOR" "${ARGS[@]}"
 if [[ "$NOTIFY" == true ]]; then
   NOTIFY_COMMAND="until /usr/bin/python3 '$NOTIFIER' --once --state-file '$STATE_FILE' --job-label 'Cortex Learning OS parallel continuation $CONTINUATION_ID'; do sleep 30; done"
-  systemd-run --unit="$SAFE_UNIT-notify" --collect --quiet --working-directory=/root/clawd /bin/bash -lc "$NOTIFY_COMMAND"
+  systemd-run --unit="$SAFE_UNIT-notify" --collect --quiet --working-directory="$LOCAL_REPO" /bin/bash -lc "$NOTIFY_COMMAND"
 fi
